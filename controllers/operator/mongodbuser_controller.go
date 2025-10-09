@@ -19,25 +19,25 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 type MongoDBUserReconciler struct {
@@ -68,7 +68,7 @@ func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omF
 
 func (r *MongoDBUserReconciler) getUser(ctx context.Context, request reconcile.Request, log *zap.SugaredLogger) (*userv1.MongoDBUser, error) {
 	user := &userv1.MongoDBUser{}
-	if _, err := r.getResource(ctx, request, user, log); err != nil {
+	if _, err := r.GetResource(ctx, request, user, log); err != nil {
 		return nil, err
 	}
 
@@ -174,8 +174,8 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 			log.Warnf("Couldn't fetch MongoDB Single/Multi Cluster Resource with name: %s, namespace: %s, err: %s",
 				user.Spec.MongoDBResourceRef.Name, user.Spec.MongoDBResourceRef.Namespace, err)
 
-			if controllerutil.ContainsFinalizer(user, util.Finalizer) {
-				controllerutil.RemoveFinalizer(user, util.Finalizer)
+			if controllerutil.ContainsFinalizer(user, util.UserFinalizer) {
+				controllerutil.RemoveFinalizer(user, util.UserFinalizer)
 				if err := r.client.Update(ctx, user); err != nil {
 					return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to update the user with the removed finalizer: %w", err)), log)
 				}
@@ -213,7 +213,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 	if !user.DeletionTimestamp.IsZero() {
 		log.Info("MongoDBUser is being deleted")
 
-		if controllerutil.ContainsFinalizer(user, util.Finalizer) {
+		if controllerutil.ContainsFinalizer(user, util.UserFinalizer) {
 			return r.preDeletionCleanup(ctx, user, conn, log)
 		}
 	}
@@ -481,7 +481,11 @@ func waitForReadyState(conn om.Connection, log *zap.SugaredLogger) error {
 }
 
 func externalAuthMechanismsAvailable(mechanisms []string) bool {
-	return stringutil.ContainsAny(mechanisms, util.AutomationConfigLDAPOption, util.AutomationConfigX509Option)
+	return stringutil.ContainsAny(mechanisms,
+		util.AutomationConfigLDAPOption,
+		util.AutomationConfigX509Option,
+		util.AutomationConfigOIDCOption,
+	)
 }
 
 func getAnnotationsForUserResource(user *userv1.MongoDBUser) (map[string]string, error) {
@@ -505,8 +509,8 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to perform AutomationConfig cleanup: %w", err)), log)
 	}
 
-	if finalizerRemoved := controllerutil.RemoveFinalizer(user, util.Finalizer); !finalizerRemoved {
-		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to remove finalizer: %w", err)), log)
+	if finalizerRemoved := controllerutil.RemoveFinalizer(user, util.UserFinalizer); !finalizerRemoved {
+		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to remove finalizer")), log)
 	}
 
 	if err := r.client.Update(ctx, user); err != nil {
@@ -518,7 +522,7 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 func (r *MongoDBUserReconciler) ensureFinalizer(ctx context.Context, user *userv1.MongoDBUser, log *zap.SugaredLogger) error {
 	log.Info("Adding finalizer to the MongoDBUser resource")
 
-	if finalizerAdded := controllerutil.AddFinalizer(user, util.Finalizer); finalizerAdded {
+	if finalizerAdded := controllerutil.AddFinalizer(user, util.UserFinalizer); finalizerAdded {
 		if err := r.client.Update(ctx, user); err != nil {
 			return err
 		}

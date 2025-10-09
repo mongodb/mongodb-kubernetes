@@ -1,0 +1,7 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdbc-rs
+spec:
+  logLevel: DEBUG
+

@@ -8,8 +8,8 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/constants"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/contains"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/contains"
 )
 
 // Options contains a set of values that can be used for more fine-grained configuration of authentication.
@@ -73,6 +73,9 @@ type User struct {
 
 	// ConnectionStringSecretNamespace is the namespace of the secret object created by the operator which exposes the connection strings for the user.
 	ConnectionStringSecretNamespace string `json:"connectionStringSecretNamespace,omitempty"`
+
+	// ConnectionStringSecretAnnotations is the annotations of the secret object created by the operator which exposes the connection strings for the user.
+	ConnectionStringSecretAnnotations map[string]string
 
 	// ConnectionStringOptions contains connection string options for this user
 	// These options will be appended at the end of the connection string and

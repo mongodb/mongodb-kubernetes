@@ -6,10 +6,10 @@ import (
 	"os"
 	"testing"
 
-	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/setup"
-	. "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
+	. "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {
@@ -105,5 +105,25 @@ func TestReplicaSetWithConnectionString(t *testing.T) {
 			tester.ConnectivityRejected(ctx, WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, scramUser))))
 		t.Run("Test SRV Connectivity with generated connection string secret",
 			tester.ConnectivityRejected(ctx, WithURI(mongodbtests.GetSrvConnectionStringForUser(ctx, mdb, scramUser))))
+	})
+
+	/**
+	Connection String Annotations options.
+	*/
+	t.Run("Connection String With Annotations", func(t *testing.T) {
+		t.Run("Resetting Connection String Options", mongodbtests.ResetConnectionStringOptions(ctx, &mdb))
+		t.Run("Test Add New Connection String Annotations to Resource", mongodbtests.AddConnectionStringAnnotationsToUser(ctx, &mdb, map[string]string{"mongodbcommunity.mongodb.com/test-annotation": "test-value"}))
+		t.Run("Test Secrets Are Updated", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
+
+		scramUser = mdb.GetAuthUsers()[0]
+		t.Run("Test Basic Connectivity", tester.ConnectivitySucceeds())
+		t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI("")), WithoutTls(), WithReplicaSet(mdb.Name)))
+		t.Run("Test Basic Connectivity with generated connection string secret",
+			tester.ConnectivitySucceeds(WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, scramUser))))
+		t.Run("Test SRV Connectivity with generated connection string secret",
+			tester.ConnectivitySucceeds(WithURI(mongodbtests.GetSrvConnectionStringForUser(ctx, mdb, scramUser))))
+
+		ownerRef := mdb.GetOwnerReferences()[0]
+		t.Run("Test Connection String Annotations are as expected", mongodbtests.ConnectionStringSecretsAreConfigured(ctx, &mdb, ownerRef))
 	})
 }

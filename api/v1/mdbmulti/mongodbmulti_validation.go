@@ -8,9 +8,9 @@ import (
 
 	runtime "k8s.io/apimachinery/pkg/runtime"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 )
 
 var _ webhook.Validator = &MongoDBMultiCluster{}
@@ -53,7 +53,7 @@ func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.Vali
 
 	var validationResults []v1.ValidationResult
 
-	for _, validator := range mdbv1.CommonValidators() {
+	for _, validator := range mdbv1.CommonValidators(m.Spec.DbCommonSpec) {
 		res := validator(m.Spec.DbCommonSpec)
 		if res.Level > 0 {
 			validationResults = append(validationResults, res)

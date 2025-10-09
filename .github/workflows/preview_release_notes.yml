@@ -1,0 +1,52 @@
+name: Preview Release Notes
+on:
+  push:
+    branches:
+      - master
+      - release-*
+  pull_request:
+    branches:
+      - master
+      - release-*
+
+jobs:
+  preview_release_notes:
+    name: Preview Release Notes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+      - name: Switch to root context
+        id: switch_context
+        uses: ./.github/actions/switch-context
+        with:
+          context-name: 'root-context'
+      - name: Setup host
+        uses: ./.github/actions/setup-ubuntu-host
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Generate Release Notes
+        run: python -m scripts.release.release_notes -s $RELEASE_INITIAL_COMMIT_SHA -v $RELEASE_INITIAL_VERSION -o release_notes_tmp.md
+        env:
+          # We can not use environments set via GitHub UI because they will
+          # not be available in the pull requests running from forks.
+          RELEASE_INITIAL_COMMIT_SHA: ${{ env.RELEASE_INITIAL_COMMIT_SHA }}
+          RELEASE_INITIAL_VERSION: ${{ env.RELEASE_INITIAL_VERSION }}
+      - name: Add disclaimer to release notes preview
+        run: |
+          echo -e "_:warning: (this preview might not be accurate if the PR is not rebased on current master branch)_\n" > release_notes_preview.md
+          cat release_notes_tmp.md >> release_notes_preview.md
+      - name: Summarize results
+        run: cat release_notes_preview.md >> $GITHUB_STEP_SUMMARY
+      - name: Update PR comment
+        # If the PR is from a fork, we cannot update the comment using read only permissions
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: gh issue comment $ISSUE --edit-last --create-if-none --body-file release_notes_preview.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ github.event.pull_request.html_url }}

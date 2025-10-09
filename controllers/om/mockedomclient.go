@@ -18,15 +18,15 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
-	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
 // ********************************************************************************************************************
@@ -734,7 +734,7 @@ func (oc *MockedOmConnection) CheckResourcesAndBackupDeleted(t *testing.T, resou
 	// This can be improved for some more complicated scenarios when we have different resources in parallel - so far
 	// just checking if deployment
 	assert.Empty(t, oc.deployment.getProcesses())
-	assert.Empty(t, oc.deployment.getReplicaSets())
+	assert.Empty(t, oc.deployment.GetReplicaSets())
 	assert.Empty(t, oc.deployment.getShardedClusters())
 	assert.Empty(t, oc.deployment.getMonitoringVersions())
 	assert.Empty(t, oc.deployment.getBackupVersions())

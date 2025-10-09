@@ -3,7 +3,7 @@ package om
 import (
 	"sort"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 // Representation of one element in "sharding" array in OM json deployment:

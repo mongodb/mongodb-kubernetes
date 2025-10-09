@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 var testBackupAgentConfig = *getTestBackupConfig()
@@ -32,7 +32,7 @@ func TestFieldsAreUpdatedBackupConfig(t *testing.T) {
 
 func TestBackupFieldsAreNotLost(t *testing.T) {
 	config := getTestBackupConfig()
-	config.EnableX509Authentication("namespace")
+	config.EnableX509Authentication("namespace", "/fake/path/to/pem")
 
 	assert.Contains(t, config.BackingMap, "logPath")
 	assert.Contains(t, config.BackingMap, "logRotate")
@@ -48,7 +48,7 @@ func TestBackupFieldsAreNotLost(t *testing.T) {
 func TestNestedFieldsAreNotLost(t *testing.T) {
 	config := getTestBackupConfig()
 
-	config.EnableX509Authentication("namespace")
+	config.EnableX509Authentication("namespace", "/fake/path/to/pem")
 
 	_ = config.Apply()
 

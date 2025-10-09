@@ -18,20 +18,20 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
 func TestCreateOmProcess(t *testing.T) {
@@ -109,7 +109,7 @@ func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", mcoConstruct.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent-ubi",
+		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
 		mcoConstruct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
 		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}
@@ -128,11 +128,10 @@ func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	assert.NoError(t, err)
 
 	assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
-	require.Len(t, sts.Spec.Template.Spec.Containers, 2)
+	require.Len(t, sts.Spec.Template.Spec.Containers, 3)
 
-	// Version from OM + operator version
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1_9.9.9-test", sts.Spec.Template.Spec.Containers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[1].Image)
+	// Version from OM
+	VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
 }
 
 // TestOnAddStandaloneWithDelay checks the reconciliation on standalone creation with some "delay" in getting
@@ -151,7 +150,7 @@ func TestOnAddStandaloneWithDelay(t *testing.T) {
 		},
 	})
 
-	reconciler := newStandaloneReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newStandaloneReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcilePending(ctx, t, reconciler, st, "StatefulSet not ready", kubeClient, 3)
 	// this affects Get interceptor func, blocking automatically marking sts as ready
@@ -268,7 +267,7 @@ func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
 	assert.NoError(t, err)
 
 	expectedLabels := map[string]string{
-		"app": "dublin-svc", util.OperatorLabelName: util.OperatorName,
+		"app": "dublin-svc", util.OperatorLabelName: util.OperatorLabelValue,
 		"first": "val", "pod-anti-affinity": "dublin",
 	}
 	assert.Equal(t, expectedLabels, statefulSet.Spec.Template.Labels)
@@ -330,7 +329,7 @@ func TestStandaloneAgentVersionMapping(t *testing.T) {
 func defaultStandaloneReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, omConnectionFactoryFunc om.ConnectionFactory, rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFunc)
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	return newStandaloneReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	return newStandaloneReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // TODO remove in favor of '/api/mongodbbuilder.go'

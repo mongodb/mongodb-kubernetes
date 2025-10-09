@@ -18,12 +18,12 @@ const (
 	commentPrefix            = "#"
 	propOverwriteFmt         = "%s=\"${%s} %s\""
 	backupDaemon             = "BACKUP_DAEMON"
-	// keep in sync with AppDBConnectionStringPath constant from "github.com/10gen/ops-manager-kubernetes/controllers/operator/construct" package.
+	// keep in sync with AppDBConnectionStringPath constant from "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct" package.
 	// currently we cannot reference code from outside of docker/mongodb-kubernetes-init-ops-manager
 	// because this folder is set as the docker build context (configured in inventories/init_om.yaml)
 	appDbConnectionStringPath     = "/mongodb-ops-manager/.mongodb-mms-connection-string"
 	appDbConnectionStringFilePath = appDbConnectionStringPath + "/connectionString"
-	// keep in sync with MmsMongoUri constant from github.com/10gen/ops-manager-kubernetes/pkg/util
+	// keep in sync with MmsMongoUri constant from github.com/mongodb/mongodb-kubernetes/pkg/util
 	appDbUriKey = "mongo.mongoUri"
 )
 
@@ -145,7 +145,7 @@ func readLinesFromFile(name string) ([]string, error) {
 func writeLinesToFile(name string, lines []string) error {
 	output := strings.Join(lines, lineBreak)
 
-	err := os.WriteFile(name, []byte(output), 0o775)
+	err := os.WriteFile(name, []byte(output), 0o644)
 	if err != nil {
 		return xerrors.Errorf("error writing to file %s: %w", name, err)
 	}
@@ -168,7 +168,7 @@ func appendLinesToFile(name string, lines string) error {
 
 func getOmPropertiesFromEnvVars() map[string]string {
 	props := map[string]string{}
-	for _, pair := range os.Environ() {
+	for _, pair := range os.Environ() { // nolint:forbidigo
 		if !strings.HasPrefix(pair, omPropertyPrefix) {
 			continue
 		}

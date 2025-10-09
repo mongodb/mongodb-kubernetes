@@ -4,72 +4,71 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+)
+
+var (
+	mongoDBCRMechanism   = getMechanismByName(MongoDBCR)
+	scramSha1Mechanism   = getMechanismByName(ScramSha1)
+	scramSha256Mechanism = getMechanismByName(ScramSha256)
 )
 
 func TestAgentsAuthentication(t *testing.T) {
-	type ConnectionFunction func(om.Connection, *om.AutomationConfig) Mechanism
 	type TestConfig struct {
-		connection     ConnectionFunction
-		mechanismsUsed []MechanismName
+		mechanism Mechanism
 	}
 	tests := map[string]TestConfig{
 		"SCRAM-SHA-1": {
-			connection: func(connection om.Connection, config *om.AutomationConfig) Mechanism {
-				return NewConnectionScramSha1(connection, config)
-			},
-			mechanismsUsed: []MechanismName{ScramSha1},
+			mechanism: scramSha1Mechanism,
 		},
 		"SCRAM-SHA-256": {
-			connection: func(connection om.Connection, config *om.AutomationConfig) Mechanism {
-				return NewConnectionScramSha256(connection, config)
-			},
-			mechanismsUsed: []MechanismName{ScramSha256},
+			mechanism: scramSha256Mechanism,
 		},
 		"CR": {
-			connection: func(connection om.Connection, config *om.AutomationConfig) Mechanism {
-				return NewConnectionCR(connection, config)
-			},
-			mechanismsUsed: []MechanismName{MongoDBCR},
+			mechanism: mongoDBCRMechanism,
 		},
 	}
 	for testName, testConfig := range tests {
 		t.Run(testName, func(t *testing.T) {
-			conn, ac := createConnectionAndAutomationConfig()
+			conn := om.NewMockedOmConnection(om.NewDeployment())
 
-			s := testConfig.connection(conn, ac)
+			s := testConfig.mechanism
 
-			err := s.EnableAgentAuthentication(Options{AuthoritativeSet: true}, zap.S())
-			assert.NoError(t, err)
+			opts := Options{
+				AuthoritativeSet: true,
+				CAFilePath:       util.CAFilePathInContainer,
+			}
 
-			err = s.EnableDeploymentAuthentication(Options{CAFilePath: util.CAFilePathInContainer})
-			assert.NoError(t, err)
+			err := s.EnableAgentAuthentication(conn, opts, zap.S())
+			require.NoError(t, err)
 
-			ac, err = conn.ReadAutomationConfig()
-			assert.NoError(t, err)
+			err = s.EnableDeploymentAuthentication(conn, opts, zap.S())
+			require.NoError(t, err)
+
+			ac, err := conn.ReadAutomationConfig()
+			require.NoError(t, err)
 
 			assertAuthenticationEnabled(t, ac.Auth)
 			assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
 			assert.Len(t, ac.Auth.AutoAuthMechanisms, 1)
-			for _, mech := range testConfig.mechanismsUsed {
-				assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(mech))
-			}
+			assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(testConfig.mechanism.GetName()))
 			assert.NotEmpty(t, ac.Auth.AutoPwd)
-			assert.True(t, s.IsAgentAuthenticationConfigured())
-			assert.True(t, s.IsDeploymentAuthenticationConfigured())
+			assert.True(t, s.IsAgentAuthenticationConfigured(ac, opts))
+			assert.True(t, s.IsDeploymentAuthenticationConfigured(ac, opts))
 		})
 	}
 }
 
 func TestScramSha1_DisableAgentAuthentication(t *testing.T) {
-	conn, ac := createConnectionAndAutomationConfig()
-	assertAgentAuthenticationDisabled(t, NewConnectionScramSha1(conn, ac), Options{})
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	assertAgentAuthenticationDisabled(t, scramSha1Mechanism, conn, Options{})
 }
 
 func TestScramSha256_DisableAgentAuthentication(t *testing.T) {
-	conn, ac := createConnectionAndAutomationConfig()
-	assertAgentAuthenticationDisabled(t, NewConnectionScramSha256(conn, ac), Options{})
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	assertAgentAuthenticationDisabled(t, scramSha256Mechanism, conn, Options{})
 }

@@ -27,6 +27,12 @@ const (
 	// MongoDbOpsManagerController name of the OpsManager controller
 	MongoDbOpsManagerController = "opsmanager-controller"
 
+	// MongoDbSearchController name of the MongoDBSearch controller
+	MongoDbSearchController = "mongodbsearch-controller"
+
+	// Kinds
+	ClusterMongoDBRoleKind = "ClusterMongoDBRole"
+
 	// Ops manager config map and secret variables
 	OmBaseUrl         = "baseUrl"
 	OmOrgId           = "orgId"
@@ -75,13 +81,15 @@ const (
 	EnvVarSSLTrustedMMSServerCertificate = "SSL_TRUSTED_MMS_SERVER_CERTIFICATE"
 
 	// Pod/StatefulSet specific constants
+	OperatorName                   = "mongodb-kubernetes-operator"
+	LegacyOperatorName             = "mongodb-enterprise-operator" // Still used for some selectors and labels
 	OperatorLabelName              = "controller"
-	OperatorName                   = "mongodb-enterprise-operator"
-	MultiClusterOperatorName       = "mongodb-enterprise-operator-multi-cluster"
+	OperatorLabelValue             = LegacyOperatorName
 	OpsManagerContainerName        = "mongodb-ops-manager"
 	BackupDaemonContainerName      = "mongodb-backup-daemon"
 	DatabaseContainerName          = "mongodb-enterprise-database"
 	AgentContainerName             = "mongodb-agent"
+	AgentContainerUtilitiesName    = "mongodb-agent-operator-utilities"
 	InitOpsManagerContainerName    = "mongodb-kubernetes-init-ops-manager"
 	PvcNameData                    = "data"
 	PvcMountPathData               = "/data"
@@ -114,9 +122,9 @@ const (
 	MmsPemKeyFileDirInContainer  = "/opt/mongodb/mms/secrets"
 	AppDBMmsCaFileDirInContainer = "/opt/mongodb/mms/ca/"
 
-	AutomationAgentName         = "mms-automation-agent"
-	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
-	AutomationAgentPemFilePath  = PvcMmsHomeMountPath + "/" + AgentSecretName + "/" + AutomationAgentPemSecretKey
+	AutomationAgentName = "mms-automation-agent"
+	// AgentCertMountPath defines where in the Pod the ca cert will be mounted.
+	AgentCertMountPath = PvcMmsHomeMountPath + "/" + AgentSecretName
 
 	// Key used in concatenated pem secrets to denote the hash of the latest certificate
 	LatestHashSecretKey   = "latestHash"
@@ -126,8 +134,8 @@ const (
 	FsGroup   = 2000
 
 	// Service accounts
-	OpsManagerServiceAccount = "mongodb-enterprise-ops-manager"
-	MongoDBServiceAccount    = "mongodb-enterprise-database-pods"
+	OpsManagerServiceAccount = "mongodb-kubernetes-ops-manager"
+	MongoDBServiceAccount    = "mongodb-kubernetes-database-pods"
 
 	// Authentication
 	AgentSecretName                   = "agent-certs"
@@ -135,6 +143,7 @@ const (
 	AutomationConfigLDAPOption        = "PLAIN"
 	AutomationConfigScramSha256Option = "SCRAM-SHA-256"
 	AutomationConfigScramSha1Option   = "MONGODB-CR"
+	AutomationConfigOIDCOption        = "MONGODB-OIDC"
 	AutomationAgentUserName           = "mms-automation-agent"
 	RequireClientCertificates         = "REQUIRE"
 	OptionalClientCertficates         = "OPTIONAL"
@@ -147,7 +156,13 @@ const (
 	MONGODBCR                         = "MONGODB-CR"
 	SCRAMSHA256                       = "SCRAM-SHA-256"
 	LDAP                              = "LDAP"
+	OIDC                              = "OIDC"
 	MinimumScramSha256MdbVersion      = "4.0.0"
+
+	// pprof variables
+	OperatorPprofEnabledEnv  = "MDB_OPERATOR_PPROF_ENABLED"
+	OperatorPprofPortEnv     = "MDB_OPERATOR_PPROF_PORT"
+	OperatorPprofDefaultPort = 10081
 
 	// these were historically used and constituted a security issue—if set they should be changed
 	InvalidKeyFileContents         = "DUMMYFILE"
@@ -176,11 +191,12 @@ const (
 	AutomationAgentImagePullPolicy   = "IMAGE_PULL_POLICY"
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
-	MemberListConfigMapName          = "mongodb-enterprise-operator-member-list"
+	MemberListConfigMapName          = OperatorName + "-member-list"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
 	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"
 	CurrentNamespace                 = "NAMESPACE"
+	OperatorNameEnv                  = "OPERATOR_NAME"
 	WatchNamespace                   = "WATCH_NAMESPACE"
 	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
 	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
@@ -265,10 +281,9 @@ const (
 	TLSCertMountPath = PvcMmsHomeMountPath + "/tls"
 	TLSCaMountPath   = PvcMmsHomeMountPath + "/tls/ca"
 
-	// TODO: remove this from here and move it to the certs package
-	// This currently creates an import cycle
-	InternalCertAnnotationKey = "internalCertHash"
-	LastAchievedSpec          = "mongodb.com/v1.lastSuccessfulConfiguration"
+	// Annotation keys used by the operator
+	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
+	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
@@ -301,7 +316,7 @@ const (
 
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 
-	Finalizer = "mongodb.com/v1.userRemovalFinalizer"
+	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
 )
 
 type OperatorEnvironment string

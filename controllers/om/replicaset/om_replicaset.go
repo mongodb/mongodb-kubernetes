@@ -6,24 +6,24 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/scale"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 )
 
 // BuildFromStatefulSet returns a replica set that can be set in the Automation Config
 // based on the given StatefulSet and MongoDB resource.
-func BuildFromStatefulSet(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, fcv string) om.ReplicaSetWithProcesses {
-	return BuildFromStatefulSetWithReplicas(mongoDBImage, forceEnterprise, set, dbSpec, int(*set.Spec.Replicas), fcv)
+func BuildFromStatefulSet(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, fcv string, tlsCertPath string) om.ReplicaSetWithProcesses {
+	return BuildFromStatefulSetWithReplicas(mongoDBImage, forceEnterprise, set, dbSpec, int(*set.Spec.Replicas), fcv, tlsCertPath)
 }
 
 // BuildFromStatefulSetWithReplicas returns a replica set that can be set in the Automation Config
 // based on the given StatefulSet and MongoDB spec. The amount of members is set by the replicas
 // parameter.
-func BuildFromStatefulSetWithReplicas(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, replicas int, fcv string) om.ReplicaSetWithProcesses {
-	members := process.CreateMongodProcessesWithLimit(mongoDBImage, forceEnterprise, set, dbSpec, replicas, fcv)
+func BuildFromStatefulSetWithReplicas(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, replicas int, fcv string, tlsCertPath string) om.ReplicaSetWithProcesses {
+	members := process.CreateMongodProcessesWithLimit(mongoDBImage, forceEnterprise, set, dbSpec, replicas, fcv, tlsCertPath)
 	replicaSet := om.NewReplicaSet(set.Name, dbSpec.GetMongoDBVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, dbSpec.GetMemberOptions())
 	rsWithProcesses.SetHorizons(dbSpec.GetHorizonConfig())

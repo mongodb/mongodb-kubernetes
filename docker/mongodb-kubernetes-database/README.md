@@ -1,7 +1,7 @@
 # MongoDB Enterprise Database
 
 This directory hosts a Dockerfile that can be run locally for development purposes (see below) or
-as part of a Kubernetes deployment, using the [MongoDB Enterprise Kubernetes Operator](../mongodb-enterprise-operator).
+as part of a Kubernetes deployment, using the [MongoDB Enterprise Kubernetes Operator](../mongodb-kubernetes-operator).
 
 ### Running locally
 
@@ -15,13 +15,13 @@ For more details regarding the available options, run `make` or read the provide
 **See the status of all running Automation Agents:**
 
 ```bash
-for img in $(docker ps -a -f 'ancestor=dev/mongodb-enterprise-database' | tail -n +2 | awk '{print $1}'); do echo; echo "$img"; echo "---"; docker exec -t "$img" ps -ef; echo "---"; done
+for img in $(docker ps -a -f 'ancestor=dev/mongodb-kubernetes-database' | tail -n +2 | awk '{print $1}'); do echo; echo "$img"; echo "---"; docker exec -t "$img" ps -ef; echo "---"; done
 ```
 
 **Connect to a running container:**
 
 ```bash
-docker exec -it $(docker ps -a -f 'ancestor=dev/mongodb-enterprise-database' | tail -n +2 | awk '{print $1}') /bin/bash
+docker exec -it $(docker ps -a -f 'ancestor=dev/mongodb-kubernetes-database' | tail -n +2 | awk '{print $1}') /bin/bash
 ```
 
 ## RHEL based Images
@@ -34,11 +34,12 @@ This image can't be built in any host, because it will require the use of a subs
 host, with subscription service enabled, is required. That's the reason behind using the Redhat build service to build
 this images with.
 
-## Building the DCAR database image
+### Building locally
 
-The dcar image needs to be built manually.
+For building the MongoDB Database image locally use the example command:
 
 ```bash
-docker build . -t 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-database:1.5.3
-docker push 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-database:1.5.3
+VERSION="1.3.0"
+docker buildx build --load --progress plain . -f docker/mongodb-kubernetes-database/Dockerfile -t "${BASE_REPO_URL}mongodb-kubernetes-database:${VERSION}" \
+ --build-arg VERSION="${VERSION}"
 ```

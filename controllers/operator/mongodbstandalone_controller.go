@@ -19,38 +19,41 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault/vaultwatcher"
 )
 
 // AddStandaloneController creates a new MongoDbStandalone Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool) error {
+func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool) error {
 	// Create a new controller
-	reconciler := newStandaloneReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, om.NewOpsManagerConnection)
+	reconciler := newStandaloneReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -64,9 +67,9 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 	}
 
 	err = c.Watch(
-		source.Channel[client.Object](OmUpdateChannel,
+		source.Channel(OmUpdateChannel,
 			&handler.EnqueueRequestForObject{},
-			source.WithPredicates(watch.PredicatesForMongoDB(mdbv1.Standalone)),
+			source.WithPredicates[client.Object, reconcile.Request](watch.PredicatesForMongoDB(mdbv1.Standalone)),
 		))
 	if err != nil {
 		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
@@ -82,6 +85,14 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
+	}
+
+	if enableClusterMongoDBRoles {
+		err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.ClusterMongoDBRole{},
+			&watch.ResourcesHandler{ResourceType: watch.ClusterMongoDBRole, ResourceWatcher: reconciler.resourceWatcher}))
+		if err != nil {
+			return err
+		}
 	}
 
 	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
@@ -102,12 +113,13 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 	return nil
 }
 
-func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
+func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
 	return &ReconcileMongoDbStandalone{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
 		imageUrls:                 imageUrls,
 		forceEnterprise:           forceEnterprise,
+		enableClusterMongoDBRoles: enableClusterMongoDBRoles,
 
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
@@ -117,9 +129,10 @@ func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, imag
 // ReconcileMongoDbStandalone reconciles a MongoDbStandalone object
 type ReconcileMongoDbStandalone struct {
 	*ReconcileCommonController
-	omConnectionFactory om.ConnectionFactory
-	imageUrls           images.ImageUrls
-	forceEnterprise     bool
+	omConnectionFactory       om.ConnectionFactory
+	imageUrls                 images.ImageUrls
+	forceEnterprise           bool
+	enableClusterMongoDBRoles bool
 
 	initDatabaseNonStaticImageVersion string
 	databaseNonStaticImageVersion     string
@@ -176,7 +189,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	// cannot have a non-tls deployment in an x509 environment
 	// TODO move to webhook validations
 	security := s.Spec.Security
-	if security.Authentication != nil && security.Authentication.Enabled && security.Authentication.IsX509Enabled() && !s.Spec.GetSecurity().IsTLSEnabled() {
+	if security.Authentication.IsX509Enabled() && !security.IsTLSEnabled() {
 		return r.updateStatus(ctx, s, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled"), log)
 	}
 
@@ -201,7 +214,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, status, log)
 	}
 
-	if status := ensureRoles(s.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
+	if status := r.ensureRoles(ctx, s.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(s), log); !status.IsOK() {
 		return r.updateStatus(ctx, s, status, log)
 	}
 
@@ -254,16 +267,19 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		lastSpec = &mdbv1.MongoDbSpec{}
 	}
 
+	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
+	_, agentCertPath := r.agentCertHashAndPath(ctx, log, s.Namespace, agentCertSecretName, databaseSecretPath)
+
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *s, lastSpec, standaloneOpts, log),
 		func() workflow.Status {
-			return r.updateOmDeployment(ctx, conn, s, sts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeployment(ctx, conn, s, sts, false, agentCertPath, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			if err = create.DatabaseInKubernetes(ctx, r.client, *s, sts, standaloneOpts, log); err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
 			}
 
-			if status := getStatefulSetStatus(ctx, sts.Namespace, sts.Name, r.client); !status.IsOK() {
+			if status := statefulset.GetStatefulSetStatus(ctx, sts.Namespace, sts.Name, r.client); !status.IsOK() {
 				return status
 			}
 
@@ -301,13 +317,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	return r.updateStatus(ctx, s, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())))
 }
 
-func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, conn om.Connection, s *mdbv1.MongoDB, set appsv1.StatefulSet, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, conn om.Connection, s *mdbv1.MongoDB, set appsv1.StatefulSet, isRecovering bool, agentCertPath string, log *zap.SugaredLogger) workflow.Status {
 	if err := agents.WaitForRsAgentsToRegister(set, 0, s.Spec.GetClusterDomain(), conn, log, s); err != nil {
 		return workflow.Failed(err)
 	}
 
 	// TODO standalone PR
-	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, []string{set.Name}, s, "", "", "", isRecovering, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, []string{set.Name}, s, agentCertPath, "", "", isRecovering, log)
 	if !status.IsOK() {
 		return status
 	}

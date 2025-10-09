@@ -19,17 +19,17 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/utils/ptr"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
 // TODO move it to 'api' package
@@ -976,6 +976,21 @@ func (oc *HTTPOmConnection) AddPreferredHostname(agentApiKey string, value strin
 		return err
 	}
 	return nil
+}
+
+func GetReplicaSetMemberIds(conn Connection) (map[string]map[string]int, error) {
+	dep, err := conn.ReadDeployment()
+	if err != nil {
+		return nil, err
+	}
+
+	finalProcessIds := make(map[string]map[string]int)
+
+	for _, replicaSet := range dep.GetReplicaSets() {
+		finalProcessIds[replicaSet.Name()] = replicaSet.MemberIds()
+	}
+
+	return finalProcessIds, nil
 }
 
 //********************************** Private methods *******************************************************************

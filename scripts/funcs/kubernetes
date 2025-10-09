@@ -2,16 +2,9 @@
 
 set -Eeou pipefail
 
-pushd "${PWD}" > /dev/null || return
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-cd "${DIR}" || return
-# shellcheck source=scripts/funcs/checks
-source checks
-# shellcheck source=scripts/funcs/errors
-source errors
-# shellcheck source=scripts/funcs/printing
-source printing
-popd > /dev/null || return
+source scripts/funcs/checks
+source scripts/funcs/errors
+source scripts/funcs/printing
 
 ensure_namespace() {
     local namespace="${1}"
@@ -42,11 +35,10 @@ EOF
 
 delete_operator() {
     local ns="$1"
-    local name=${OPERATOR_NAME:=mongodb-enterprise-operator}
+    local name=${OPERATOR_NAME:=mongodb-kubernetes-operator}
 
     title "Removing the Operator deployment ${name}"
-    ! kubectl --namespace "${ns}" get deployments | grep -q "${name}" \
-        || kubectl delete deployment "${name}" -n "${ns}" || true
+    kubectl delete deployment "${name}" -n "${ns}" --wait=true --timeout=10s|| true
 }
 
 # wait_for_operator waits for the Operator to start
@@ -106,14 +98,39 @@ create_image_registries_secret() {
     context=$1
     namespace=$2
     secret_name=$3
+    
+    # Detect the correct config file path based on container runtime
+    local config_file
+    local temp_config_file=""
+    if command -v podman &> /dev/null && (podman info &> /dev/null || sudo podman info &> /dev/null); then
+      # For Podman, use root's auth.json since minikube uses sudo podman
+      config_file="/root/.config/containers/auth.json"
+      echo "Using Podman config: ${config_file}"
+      
+      # Create a temporary copy that the current user can read
+      temp_config_file=$(mktemp)
+      sudo cp "${config_file}" "${temp_config_file}"
+      sudo chown "$(whoami):$(whoami)" "${temp_config_file}"
+      config_file="${temp_config_file}"
+    else
+      # For Docker, use standard docker config
+      config_file="${HOME}/.docker/config.json"
+      echo "Using Docker config: ${config_file}"
+    fi
+    
     # shellcheck disable=SC2154
     if kubectl --context "${context}" get namespace "${namespace}"; then
       kubectl --context "${context}" -n "${namespace}" delete secret "${secret_name}" --ignore-not-found
       echo "${context}: Creating ${namespace}/${secret_name} pull secret"
       kubectl --context "${context}" -n "${namespace}" create secret generic "${secret_name}" \
-        --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
+        --from-file=.dockerconfigjson="${config_file}" --type=kubernetes.io/dockerconfigjson
     else
       echo "Skipping creating pull secret in ${context}/${namespace}. The namespace doesn't exist yet."
+    fi
+    
+    # Clean up temporary file
+    if [[ -n "${temp_config_file}" ]] && [[ -f "${temp_config_file}" ]]; then
+      rm -f "${temp_config_file}"
     fi
   }
 
@@ -130,8 +147,12 @@ create_image_registries_secret() {
     current_ctx=$(kubectl config current-context)
     create_pull_secret "${current_ctx}" "${NAMESPACE}" "${secret_name}" &
     for ns in ${WATCH_NAMESPACE//,/ }; do
+      if [[ "${ns}" == "${NAMESPACE}" ]]; then
+        continue
+      fi
       create_pull_secret "${current_ctx}" "${ns}" "${secret_name}" &
     done
+    wait
   fi
 }
 
@@ -145,9 +166,8 @@ reset_namespace() {
 
   set +e
 
-  helm uninstall --kube-context="${context}" mongodb-enterprise-operator || true &
-  helm uninstall --kube-context="${context}" mongodb-community-operator || true &
-  helm uninstall --kube-context="${context}" mongodb-enterprise-operator-multi-cluster || true &
+  helm uninstall --kube-context="${context}" mongodb-kubernetes-operator || true &
+  helm uninstall --kube-context="${context}" mongodb-kubernetes-operator-multi-cluster || true &
 
   # Cleans the namespace. Note, that fine-grained cleanup is performed instead of just deleting the namespace as it takes
   # considerably less time
@@ -165,7 +185,7 @@ reset_namespace() {
   # a while to delete it.
   should_wait="false"
   # shellcheck disable=SC2153
-  if [[ ${CURRENT_VARIANT_CONTEXT} == e2e_mdb_openshift_ubi_cloudqa || ${CURRENT_VARIANT_CONTEXT} == e2e_openshift_static_mdb_ubi_cloudqa ]]; then
+  if [[ ${KUBE_ENVIRONMENT_NAME} == "openshift" ]]; then
     should_wait="true"
     echo "Removing the test namespace ${namespace}, should_wait=${should_wait}"
     kubectl --context "${context}" delete "namespace/${namespace}" --wait="${should_wait}" || true
@@ -192,4 +212,70 @@ delete_kind_network() {
   fi
 
   docker network rm kind
+}
+
+docker_run_local_registry() {
+  reg_name="$1"
+  reg_port="$2"
+  running="$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)"
+  if [ "${running}" != 'true' ]; then
+    docker run -d --restart=always -p "127.0.0.1:${reg_port}:5000" --name "${reg_name}" registry:2
+  fi
+}
+
+docker_create_kind_network() {
+  # We create docker network primarily so that all kind clusters use the same network.
+  # We hardcode 172.18/16 subnet in few places, so we must ensure the network uses that subnet:
+  #   - we set IP ranges for MetalLB
+  #   - we write into coredns config map with IP used for exposing pods externally and for no-mesh test
+  # In case of any errors, verify if any other subnet is not already using that subnet.
+  docker network create --subnet=172.18.0.0/16 kind || true
+}
+
+docker_network_connect_to_kind() {
+# connect the registry to the cluster network if not already connected
+  if [ "$(docker inspect -f='{{json .NetworkSettings.Networks.kind}}' "${reg_name}")" = 'null' ]; then
+    docker network connect "kind" "${reg_name}"
+  fi
+}
+
+# Function to run a script with kubectl wrapped to use a specific context.
+# This is useful when we run third-party/downloaded scripts which don't specify kubectl context
+# explicitly but assume kubectl works on the current context.
+# When kubectl is assuming current context it is not possible to execute it concurrently for different contexts.
+run_script_with_wrapped_kubectl() {
+    local script_path="$1"
+    local context="$2"
+
+    # Create a temporary wrapper script in the same directory as the script to run
+    local script_dir
+    script_dir="$(dirname "${script_path}")"
+    local wrapper_script="${script_dir}/kubectl_wrapper_${context//\//_}_$$.sh"
+
+    cat > "${wrapper_script}" << EOF
+#!/bin/bash
+# Define kubectl function to include the context
+set -x
+kubectl() {
+  command kubectl --context "${context}" "\$@"
+}
+export -f kubectl
+source "${script_path}"
+EOF
+
+    # Make the wrapper script executable
+    chmod +x "${wrapper_script}"
+
+    # Run the wrapper script
+    echo "Running script ${script_path} with kubectl wrapped for context ${context}"
+    local result=0
+    if ! "${wrapper_script}"; then
+        echo "Failed to run ${script_path} with kubectl wrapped for context ${context}"
+        result=1
+    fi
+
+    # Clean up the temporary script
+    rm "${wrapper_script}"
+
+    return ${result}
 }

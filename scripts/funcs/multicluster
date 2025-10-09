@@ -210,19 +210,19 @@ prepare_multi_cluster_e2e_run() {
     fi
 
     (
-      cd public/tools/multicluster/
+      cd cmd/kubectl-mongodb
       GOOS=darwin GOARCH="${goarch}" go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go
     )
-    PATH=${PATH}:docker/mongodb-enterprise-tests
+    PATH=${PATH}:docker/mongodb-kubernetes-tests
   else
     (
-      cd public/tools/multicluster/
+      cd cmd/kubectl-mongodb
       # shellcheck disable=SC2030
       export PATH=${GOROOT}:${PATH}
       GOOS=linux GOARCH=amd64 go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go
     )
     # shellcheck disable=SC2031
-    PATH=${PATH}:docker/mongodb-enterprise-tests
+    PATH=${PATH}:docker/mongodb-kubernetes-tests
   fi
 
   test_pod_secret_name="test-pod-multi-cluster-config"
@@ -267,7 +267,7 @@ run_multi_cluster_kube_config_creator() {
     "--central-cluster" "${CENTRAL_CLUSTER}"
     "--member-cluster-namespace" "${NAMESPACE}"
     "--central-cluster-namespace" "${NAMESPACE}"
-    "--service-account" "mongodb-enterprise-operator-multi-cluster"
+    "--service-account" "mongodb-kubernetes-operator-multi-cluster"
   )
 
   # This is used to skip the database roles when the context configures clusters so that the operator cluster is also used as one of the member clusters.

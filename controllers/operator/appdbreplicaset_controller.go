@@ -21,52 +21,52 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers/interfaces"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
-	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	mdbcv1_controllers "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers"
-	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/agent"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication/scram"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/service"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/generate"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/result"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/scale"
-	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/placeholders"
-	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	mdbcv1_controllers "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scram"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/placeholders"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/timeutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 type agentType string
@@ -538,7 +538,15 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return result.OK()
 	}
 
-	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, log)
+	var appdbSecretPath string
+	if r.VaultClient != nil {
+		appdbSecretPath = r.VaultClient.AppDBSecretPath()
+	}
+
+	agentCertSecretName := opsManager.Spec.AppDB.GetSecurity().AgentClientCertificateSecretName(opsManager.Spec.AppDB.GetName())
+	_, agentCertPath := r.agentCertHashAndPath(ctx, log, opsManager.Namespace, agentCertSecretName, appdbSecretPath)
+
+	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, agentCertPath, log)
 	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
 	// in Ops Manager. This is not a blocker to continue with the rest of the reconciliation.
 	if err != nil {
@@ -594,7 +602,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 		appdbOpts.LegacyMonitoringAgentImage = images.ContainerImage(r.imageUrls, mcoConstruct.AgentImageEnv, legacyMonitoringAgentVersion)
 
-		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent-ubi:107.0.0.8502-1
+		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent:107.0.0.8502-1
 		// In non-static containers we don't ask OM for the correct version, therefore we just rely on the provided
 		// environment variable.
 		appdbOpts.AgentImage = r.imageUrls[mcoConstruct.AgentImageEnv]
@@ -613,10 +621,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return r.updateStatus(ctx, opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
-	var appdbSecretPath string
-	if r.VaultClient != nil {
-		appdbSecretPath = r.VaultClient.AppDBSecretPath()
-	}
 	tlsSecretName := opsManager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(opsManager.Spec.AppDB.Name())
 	certHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, opsManager.Namespace, tlsSecretName, appdbSecretPath, log)
 
@@ -794,12 +798,13 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfigOnHealthyClusters(ctx c
 func getAppDBPodService(appdb omv1.AppDBSpec, clusterNum int, podNum int) corev1.Service {
 	svcLabels := map[string]string{
 		appsv1.StatefulSetPodNameLabel: appdb.GetPodName(clusterNum, podNum),
+		util.OperatorLabelName:         util.OperatorLabelValue,
 	}
 	svcLabels = merge.StringToStringMap(svcLabels, appdb.GetOwnerLabels())
 
 	labelSelectors := map[string]string{
 		appsv1.StatefulSetPodNameLabel: appdb.GetPodName(clusterNum, podNum),
-		util.OperatorLabelName:         util.OperatorName,
+		util.OperatorLabelName:         util.OperatorLabelValue,
 	}
 	additionalConfig := appdb.GetAdditionalMongodConfig()
 	port := additionalConfig.GetPortOrDefault()
@@ -1620,7 +1625,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(ctx context.Context, o
 
 // tryConfigureMonitoringInOpsManager attempts to configure monitoring in Ops Manager. This might not be possible if Ops Manager
 // has not been created yet, if that is the case, an empty PodVars will be returned.
-func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (env.PodEnvVars, error) {
+func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, agentCertPath string, log *zap.SugaredLogger) (env.PodEnvVars, error) {
 	var operatorVaultSecretPath string
 	if r.VaultClient != nil {
 		operatorVaultSecretPath = r.VaultClient.OperatorSecretPath()
@@ -1659,6 +1664,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		Mechanisms:         []string{util.SCRAM},
 		ClientCertificates: util.OptionalClientCertficates,
 		AutoUser:           util.AutomationAgentUserName,
+		AutoPEMKeyFilePath: agentCertPath,
 		CAFilePath:         util.CAFilePathInContainer,
 	}
 	err = authentication.Configure(conn, opts, false, log)
@@ -1892,7 +1898,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 			continue
 		}
 
-		if workflowStatus := getStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
+		if workflowStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
 			return workflowStatus
 		}
 
@@ -1904,7 +1910,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 	// if this is the first time deployment, then we need to wait for all stateful sets to become ready after deploying all of them
 	if scalingFirstTime {
 		for _, memberCluster := range r.GetHealthyMemberClusters() {
-			if workflowStatus := getStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
+			if workflowStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
 				return workflowStatus
 			}
 

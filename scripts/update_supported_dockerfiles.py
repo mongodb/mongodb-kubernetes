@@ -8,11 +8,12 @@ import sys
 from typing import Dict, List
 
 import requests
-from evergreen.release.agent_matrix import (
-    get_supported_version_for_image_matrix_handling,
-)
 from git import Repo
 from requests import Response
+
+from scripts.evergreen.release.agent_matrix import (
+    get_supported_version_for_image,
+)
 
 
 def get_repo_root():
@@ -23,12 +24,7 @@ def get_repo_root():
 
 SUPPORTED_IMAGES = (
     "mongodb-agent",
-    "mongodb-enterprise-database",
-    "mongodb-enterprise-init-database",
-    "mongodb-enterprise-init-appdb",
     "mongodb-enterprise-ops-manager",
-    "mongodb-enterprise-init-ops-manager",
-    "mongodb-enterprise-operator",
 )
 
 URL_LOCATION_BASE = "https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles"
@@ -42,19 +38,25 @@ def get_release() -> Dict[str, str]:
 
 
 def get_supported_variants_for_image(image: str) -> List[str]:
-    splitted_image_name = image.split("mongodb-enterprise-", 1)
-    if len(splitted_image_name) == 2:
-        image = splitted_image_name[1]
+    image = get_image_name(image)
 
     return get_release()["supportedImages"][image]["variants"]
 
 
-def get_supported_version_for_image(image: str) -> List[str]:
-    splitted_image_name = image.split("mongodb-enterprise-", 1)
+def get_supported_version_for_image_mck(image: str) -> List[str]:
+    image = get_image_name(image)
+
+    return get_supported_version_for_image(image)
+
+
+def get_image_name(image):
+    if image == "mongodb-enterprise-ops-manager":
+        splitted_image_name = image.split("mongodb-enterprise-", 1)
+    else:
+        splitted_image_name = image.split("mongodb-kubernetes-", 1)
     if len(splitted_image_name) == 2:
         image = splitted_image_name[1]
-
-    return get_supported_version_for_image_matrix_handling(image)
+    return image
 
 
 def download_dockerfile_from_s3(image: str, version: str, distro: str) -> Response:
@@ -83,7 +85,7 @@ def save_supported_dockerfiles():
     """
     for image in SUPPORTED_IMAGES:
         print("Image:", image)
-        versions = get_supported_version_for_image(image)
+        versions = get_supported_version_for_image_mck(image)
         for version in versions:
             for variant in get_supported_variants_for_image(image):
                 response = download_dockerfile_from_s3(image, version, variant)

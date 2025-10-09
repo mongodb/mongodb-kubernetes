@@ -3,8 +3,8 @@ package mdb
 import (
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 // ShardedClusterSpec is the spec consisting of configuration specific for sharded cluster only.
@@ -91,12 +91,25 @@ func (s *ShardedClusterComponentSpec) GetAgentConfig() *AgentConfig {
 	return &s.Agent
 }
 
+func (s *ShardedClusterComponentSpec) ClusterSpecItemExists(clusterName string) bool {
+	return s.getClusterSpecItemOrNil(clusterName) != nil
+}
+
 func (s *ShardedClusterComponentSpec) GetClusterSpecItem(clusterName string) ClusterSpecItem {
-	for i := range s.ClusterSpecList {
-		if s.ClusterSpecList[i].ClusterName == clusterName {
-			return s.ClusterSpecList[i]
-		}
+	if clusterSpecItem := s.getClusterSpecItemOrNil(clusterName); clusterSpecItem != nil {
+		return *clusterSpecItem
 	}
+
 	// it should never occur - we preprocess all clusterSpecLists
 	panic(fmt.Errorf("clusterName %s not found in clusterSpecList", clusterName))
+}
+
+func (s *ShardedClusterComponentSpec) getClusterSpecItemOrNil(clusterName string) *ClusterSpecItem {
+	for i := range s.ClusterSpecList {
+		if s.ClusterSpecList[i].ClusterName == clusterName {
+			return &s.ClusterSpecList[i]
+		}
+	}
+
+	return nil
 }

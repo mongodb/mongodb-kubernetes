@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/setup"
-	. "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
+	. "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {
@@ -163,7 +163,7 @@ func TestReplicaSetOperatorUpgradeFrom0_7_2(t *testing.T) {
 	testConfig.OperatorVersion = "0.7.2"
 	testConfig.VersionUpgradeHookImage = "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.3"
 	testConfig.ReadinessProbeImage = "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.6"
-	testConfig.AgentImage = "quay.io/mongodb/mongodb-agent-ubi:11.0.5.6963-1"
+	testConfig.AgentImage = "quay.io/mongodb/mongodb-agent:11.0.5.6963-1"
 
 	testCtx := setup.SetupWithTestConfig(ctx, t, testConfig, true, false, resourceName)
 	defer testCtx.Teardown()

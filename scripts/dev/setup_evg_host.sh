@@ -4,11 +4,27 @@
 
 set -Eeou pipefail
 
-echo "Increasing fs.inotify.max_user_instances"
-sudo sysctl -w fs.inotify.max_user_instances=8192
+set_limits() {
+  echo "Increasing fs.inotify.max_user_instances"
+  sudo sysctl -w fs.inotify.max_user_instances=8192
 
-echo "Increasing fs.inotify.max_user_watches"
-sudo sysctl -w fs.inotify.max_user_watches=10485760
+  echo "Increasing fs.inotify.max_user_watches"
+  sudo sysctl -w fs.inotify.max_user_watches=10485760
+
+  echo "Increasing the number of open files"
+  nofile_max=$(cat /proc/sys/fs/nr_open)
+  nproc_max=$(ulimit -u)
+  sudo tee -a /etc/security/limits.conf <<EOF
+  root hard nofile ${nofile_max}
+  root hard nproc ${nproc_max}
+  root soft nofile ${nofile_max}
+  root soft nproc ${nproc_max}
+  * hard nofile ${nofile_max}
+  * hard nproc ${nproc_max}
+  * soft nofile ${nofile_max}
+  * soft nproc ${nproc_max}
+EOF
+}
 
 sudo cp /home/ubuntu/ops-manager-kubernetes/scripts/dev/kindclusters.service /etc/systemd/system/kindclusters.service
 sudo systemctl enable kindclusters.service
@@ -29,13 +45,14 @@ download_curl() {
 
 download_helm() {
   echo "Downloading helm..."
-  curl -s -o helm.tar.gz -L https://get.helm.sh/helm-v3.10.3-linux-"${ARCH}"tar.gz
+  curl -s -o helm.tar.gz -L https://get.helm.sh/helm-v3.17.1-linux-"${ARCH}"tar.gz
   tar -xf helm.tar.gz 2>/dev/null
   sudo mv linux-"${ARCH}"helm /usr/local/bin/helm
   rm helm.tar.gz
   rm -rf linux-"${ARCH}/"
 }
 
+set_limits
 download_kind &
 download_curl &
 download_helm &

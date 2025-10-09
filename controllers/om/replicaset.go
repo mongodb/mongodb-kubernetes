@@ -7,9 +7,9 @@ import (
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 /* This corresponds to:
@@ -144,6 +144,14 @@ func (r ReplicaSetMember) Tags() map[string]string {
 
 func (r ReplicaSet) String() string {
 	return fmt.Sprintf("\"%s\" (members: %v)", r.Name(), r.Members())
+}
+
+func (r ReplicaSet) MemberIds() map[string]int {
+	memberIds := make(map[string]int)
+	for _, rsMember := range r.Members() {
+		memberIds[rsMember.Name()] = rsMember.Id()
+	}
+	return memberIds
 }
 
 // ***************************************** Private methods ***********************************************************

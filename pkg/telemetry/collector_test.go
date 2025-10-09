@@ -2,25 +2,33 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	mcov1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	mockClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	mockClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 const (
@@ -44,6 +52,15 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					Spec: mdbv1.MongoDbSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
 							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								Authentication: &mdbv1.Authentication{
+									Enabled: true,
+									Modes:   []mdbv1.AuthMode{util.X509, util.LDAP, util.OIDC, util.SCRAM},
+									Agents: mdbv1.AgentAuthentication{
+										Mode: util.SCRAM,
+									},
+								},
+							},
 						},
 					}, ObjectMeta: metav1.ObjectMeta{
 						UID: "60c005b9-1a87-49de-b7d6-5ef9382d808f",
@@ -59,6 +76,12 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     "ReplicaSet",
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"authenticationModeLDAP":   true,
+					"authenticationModeOIDC":   true,
+					"authenticationModeSCRAM":  true,
+					"authenticationModeX509":   true,
+					"authenticationAgentMode":  util.SCRAM,
 				},
 			},
 		},
@@ -68,6 +91,15 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					Spec: mdbmulti.MongoDBMultiSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
 							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								Authentication: &mdbv1.Authentication{
+									Enabled: true,
+									Modes:   []mdbv1.AuthMode{util.SCRAM},
+									Agents: mdbv1.AgentAuthentication{
+										Mode: util.SCRAM,
+									},
+								},
+							},
 						},
 					}, ObjectMeta: metav1.ObjectMeta{
 						UID: "d5a53056-157a-4cda-96e9-fe48a9732990",
@@ -84,6 +116,9 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     "ReplicaSet",
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"authenticationModeSCRAM":  true,
+					"authenticationAgentMode":  util.SCRAM,
 				},
 			},
 		},
@@ -197,31 +232,61 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"deploymentUID":            "c20a7cf1-a12d-4cee-a87e-7f61aa2bd878",
 					"architecture":             string(architectures.Static),
 					"IsRunningEnterpriseImage": true,
+					"type":                     string(mdbv1.ReplicaSet),
+					"isMultiCluster":           false,
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"operatorID":               testOperatorUUID,
 				},
 				{
 					"deploymentUID":            "97822e48-fb51-4ba5-9993-26841b44a7a3",
 					"architecture":             string(architectures.NonStatic),
 					"IsRunningEnterpriseImage": false,
+					"type":                     string(mdbv1.ReplicaSet),
+					"isMultiCluster":           false,
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"operatorID":               testOperatorUUID,
 				},
 				{
 					"deploymentUID":            "71368077-ea95-4564-acd6-09ec573fdf61",
 					"architecture":             string(architectures.Static),
 					"IsRunningEnterpriseImage": true,
+					"type":                     string(mdbv1.ReplicaSet),
+					"isMultiCluster":           true,
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"operatorID":               testOperatorUUID,
+					"databaseClusters":         float64(0),
 				},
 				{
 					"deploymentUID":            "a8a28c8a-6226-44fc-a8cd-e66a6942ffbd",
 					"architecture":             string(architectures.NonStatic),
 					"IsRunningEnterpriseImage": false,
+					"type":                     string(mdbv1.ReplicaSet),
+					"isMultiCluster":           true,
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"operatorID":               testOperatorUUID,
+					"databaseClusters":         float64(0),
 				},
 				{
 					"deploymentUID":            "0d76d2c9-98cd-4a80-a565-ba038d223ed0",
 					"architecture":             string(architectures.Static),
 					"IsRunningEnterpriseImage": true,
+					"type":                     "OpsManager",
+					"isMultiCluster":           false,
+					"externalDomains":          ExternalDomainNone,
+					"operatorID":               testOperatorUUID,
 				},
 				{
 					"deploymentUID":            "399680c7-e929-44f6-8b82-9be96a5e5533",
 					"architecture":             string(architectures.NonStatic),
 					"IsRunningEnterpriseImage": true,
+					"type":                     "OpsManager",
+					"isMultiCluster":           false,
+					"externalDomains":          ExternalDomainNone,
+					"operatorID":               testOperatorUUID,
 				},
 			},
 		},
@@ -347,20 +412,37 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 			},
 			expectedEventsWithProperties: []map[string]any{
 				{
-					"deploymentUID":    "1a58636d-6c10-49c9-a9ee-7c0fe80ac80c",
-					"databaseClusters": float64(4),
-					"isMultiCluster":   true,
+					"deploymentUID":            "1a58636d-6c10-49c9-a9ee-7c0fe80ac80c",
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"databaseClusters":         float64(4),
+					"isMultiCluster":           true,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 				},
 				{
-					"deploymentUID":    "a31ab7a8-e5bd-480b-afcc-ac2eec9ce348",
-					"databaseClusters": float64(3),
-					"isMultiCluster":   true,
+					"deploymentUID":            "a31ab7a8-e5bd-480b-afcc-ac2eec9ce348",
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"databaseClusters":         float64(3),
+					"isMultiCluster":           true,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 				},
 				{
-					"deploymentUID":  "2b138678-4e4c-4be4-9877-16e6eaae279b",
-					"OmClusters":     float64(2),
-					"appDBClusters":  float64(3),
-					"isMultiCluster": true,
+					"deploymentUID":            "2b138678-4e4c-4be4-9877-16e6eaae279b",
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": true,
+					"OmClusters":               float64(2),
+					"appDBClusters":            float64(3),
+					"isMultiCluster":           true,
+					"operatorID":               testOperatorUUID,
+					"type":                     "OpsManager",
+					"externalDomains":          ExternalDomainNone,
 				},
 			},
 		},
@@ -734,64 +816,302 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 			},
 			expectedEventsWithProperties: []map[string]any{
 				{
-					"deploymentUID":   "2c60ec7b-b233-4d98-97e6-b7c423c19e24",
-					"externalDomains": ExternalDomainNone,
-					"isMultiCluster":  false,
+					"deploymentUID":            "2c60ec7b-b233-4d98-97e6-b7c423c19e24",
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"isMultiCluster":           false,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
 				},
 				{
-					"deploymentUID":   "c7ccb57f-abd1-4944-8a99-02e5a79acf75",
-					"externalDomains": ExternalDomainUniform,
-					"isMultiCluster":  false,
+					"deploymentUID":            "c7ccb57f-abd1-4944-8a99-02e5a79acf75",
+					"externalDomains":          ExternalDomainUniform,
+					"customRoles":              CustomRoleNone,
+					"isMultiCluster":           false,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
 				},
 				{
-					"deploymentUID":   "7eed85ce-7a38-43ea-a338-6d959339c146",
-					"externalDomains": ExternalDomainMixed,
-					"isMultiCluster":  true,
+					"deploymentUID":            "7eed85ce-7a38-43ea-a338-6d959339c146",
+					"externalDomains":          ExternalDomainMixed,
+					"customRoles":              CustomRoleNone,
+					"isMultiCluster":           true,
+					"databaseClusters":         float64(2),
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
 				},
 				{
-					"deploymentUID":   "584515da-e797-48af-af7f-6561812c15f4",
-					"externalDomains": ExternalDomainClusterSpecific,
-					"isMultiCluster":  true,
+					"deploymentUID":            "584515da-e797-48af-af7f-6561812c15f4",
+					"externalDomains":          ExternalDomainClusterSpecific,
+					"customRoles":              CustomRoleNone,
+					"isMultiCluster":           true,
+					"databaseClusters":         float64(2),
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
 				},
 				{
-					"deploymentUID":   "27b3d7cf-1f8b-434d-a002-ce85f7313507",
-					"externalDomains": ExternalDomainNone,
-					"isMultiCluster":  true,
+					"deploymentUID":            "27b3d7cf-1f8b-434d-a002-ce85f7313507",
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"isMultiCluster":           true,
+					"databaseClusters":         float64(3),
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
 				},
 				{
-					"deploymentUID":   "b050040e-7b53-4991-bae4-69663a523804",
-					"externalDomains": ExternalDomainUniform,
-					"isMultiCluster":  true,
+					"deploymentUID":            "b050040e-7b53-4991-bae4-69663a523804",
+					"externalDomains":          ExternalDomainUniform,
+					"customRoles":              CustomRoleNone,
+					"isMultiCluster":           true,
+					"databaseClusters":         float64(3),
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
 				},
 				{
-					"deploymentUID":   "54427a32-1799-4a1b-b03f-a50484c09d2c",
-					"externalDomains": ExternalDomainMixed,
-					"isMultiCluster":  true,
+					"deploymentUID":            "54427a32-1799-4a1b-b03f-a50484c09d2c",
+					"externalDomains":          ExternalDomainMixed,
+					"customRoles":              CustomRoleNone,
+					"isMultiCluster":           true,
+					"databaseClusters":         float64(3),
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
 				},
 				{
-					"deploymentUID":   "fe6b6fad-51f2-4f98-8ddd-54ae24143ea6",
-					"externalDomains": ExternalDomainClusterSpecific,
-					"isMultiCluster":  true,
+					"deploymentUID":            "fe6b6fad-51f2-4f98-8ddd-54ae24143ea6",
+					"externalDomains":          ExternalDomainClusterSpecific,
+					"customRoles":              CustomRoleNone,
+					"isMultiCluster":           true,
+					"databaseClusters":         float64(3),
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
 				},
 				{
-					"deploymentUID":   "5999bccb-d17d-4657-9ea6-ee9fa264d749",
-					"externalDomains": ExternalDomainNone,
-					"isMultiCluster":  false,
+					"deploymentUID":            "5999bccb-d17d-4657-9ea6-ee9fa264d749",
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           false,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": true,
+					"operatorID":               testOperatorUUID,
+					"type":                     "OpsManager",
 				},
 				{
-					"deploymentUID":   "95808355-09d8-4a50-909a-e96c91c99665",
-					"externalDomains": ExternalDomainUniform,
-					"isMultiCluster":  false,
+					"deploymentUID":            "95808355-09d8-4a50-909a-e96c91c99665",
+					"externalDomains":          ExternalDomainUniform,
+					"isMultiCluster":           false,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": true,
+					"operatorID":               testOperatorUUID,
+					"type":                     "OpsManager",
 				},
 				{
-					"deploymentUID":   "34daced5-b4ae-418b-bf38-034667e676ca",
-					"externalDomains": ExternalDomainMixed,
-					"isMultiCluster":  true,
+					"deploymentUID":            "34daced5-b4ae-418b-bf38-034667e676ca",
+					"externalDomains":          ExternalDomainMixed,
+					"isMultiCluster":           true,
+					"appDBClusters":            float64(3),
+					"OmClusters":               float64(2),
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": true,
+					"operatorID":               testOperatorUUID,
+					"type":                     "OpsManager",
 				},
 				{
-					"deploymentUID":   "cb365427-27d7-46dd-af31-cec0dad21bf0",
-					"externalDomains": ExternalDomainClusterSpecific,
-					"isMultiCluster":  true,
+					"deploymentUID":            "cb365427-27d7-46dd-af31-cec0dad21bf0",
+					"externalDomains":          ExternalDomainClusterSpecific,
+					"isMultiCluster":           true,
+					"appDBClusters":            float64(3),
+					"OmClusters":               float64(2),
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": true,
+					"operatorID":               testOperatorUUID,
+					"type":                     "OpsManager",
+				},
+			},
+		},
+		"custom roles test": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security:     &mdbv1.Security{},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "be4bacfc-fb41-4e29-b7d1-712460ed908c",
+						Name: "test-rs-no-roles",
+					},
+				},
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								Roles: []mdbv1.MongoDBRole{
+									{
+										Role: "test-role1",
+										Db:   "admin",
+										Privileges: []mdbv1.Privilege{
+											{
+												Actions: []string{"action1", "action2"},
+											},
+										},
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "c20a7cf1-a12d-4cee-a87e-7f61aa2bd878",
+						Name: "test-rs-embedded-roles",
+					},
+				},
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								RoleRefs: []mdbv1.MongoDBRoleRef{
+									{
+										Name: "test-role",
+										Kind: "ClusterMongoDBRole",
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "97822e48-fb51-4ba5-9993-26841b44a7a3",
+						Name: "test-rs-ref-roles",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "17e352f7-dcd1-4bfa-bc12-a2f4e637477b",
+						Name: "test-mrs-no-roles",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								Roles: []mdbv1.MongoDBRole{
+									{
+										Role: "test-role1",
+										Db:   "admin",
+										Privileges: []mdbv1.Privilege{
+											{
+												Actions: []string{"action1", "action2"},
+											},
+										},
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "71368077-ea95-4564-acd6-09ec573fdf61",
+						Name: "test-mrs-embedded-roles",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								RoleRefs: []mdbv1.MongoDBRoleRef{
+									{
+										Name: "test-role",
+										Kind: "ClusterMongoDBRole",
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "a8a28c8a-6226-44fc-a8cd-e66a6942ffbd",
+						Name: "test-mrs-ref-roles",
+					},
+				},
+			},
+			expectedEventsWithProperties: []map[string]any{
+				{
+					"deploymentUID":            "be4bacfc-fb41-4e29-b7d1-712460ed908c",
+					"customRoles":              CustomRoleNone,
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           false,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+				},
+				{
+					"deploymentUID":            "c20a7cf1-a12d-4cee-a87e-7f61aa2bd878",
+					"customRoles":              CustomRoleEmbedded,
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           false,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+				},
+				{
+					"deploymentUID":            "97822e48-fb51-4ba5-9993-26841b44a7a3",
+					"customRoles":              CustomRoleReferenced,
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           false,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+				},
+				{
+					"deploymentUID":            "17e352f7-dcd1-4bfa-bc12-a2f4e637477b",
+					"customRoles":              CustomRoleNone,
+					"databaseClusters":         float64(0),
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           true,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+				},
+				{
+					"deploymentUID":            "71368077-ea95-4564-acd6-09ec573fdf61",
+					"customRoles":              CustomRoleEmbedded,
+					"databaseClusters":         float64(0),
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           true,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+				},
+				{
+					"deploymentUID":            "a8a28c8a-6226-44fc-a8cd-e66a6942ffbd",
+					"customRoles":              CustomRoleReferenced,
+					"databaseClusters":         float64(0),
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           true,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
 				},
 			},
 		},
@@ -821,9 +1141,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				assert.LessOrEqual(t, beforeCallTimestamp, event.Timestamp)
 				assert.GreaterOrEqual(t, afterCallTimestamp, event.Timestamp)
 
-				for key, value := range expectedEventWithProperties {
-					assert.Equal(t, value, event.Properties[key], "failed assertion for %s property for %s deployment", key, deploymentUID)
-				}
+				assert.Equal(t, expectedEventWithProperties, event.Properties)
 			}
 		})
 	}
@@ -842,10 +1160,15 @@ func findEventWithDeploymentUID(events []Event, deploymentUID string) *Event {
 type MockClient struct {
 	client.Client
 	MockList func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error
+	MockGet  func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
 }
 
 func (m *MockClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	return m.MockList(ctx, list, opts...)
+}
+
+func (m *MockClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	return m.MockGet(ctx, key, obj, opts...)
 }
 
 func TestAddCommunityEvents(t *testing.T) {
@@ -942,4 +1265,195 @@ func TestAddCommunityEvents(t *testing.T) {
 			assert.Empty(t, events, "Should return empty slice for empty community list")
 		})
 	}
+}
+
+func TestAddSearchEvents(t *testing.T) {
+	operatorUUID := "test-operator-uuid"
+	now := time.Now()
+
+	mdbStatic := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "mdb-static", Annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}}}
+	mdbNonStatic := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "mdb-nonstatic", Annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.NonStatic)}}}
+	community := &mcov1.MongoDBCommunity{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "community-db"}}
+
+	testCases := []struct {
+		name        string
+		searchItems []searchv1.MongoDBSearch
+		events      []DeploymentUsageSnapshotProperties
+		sources     map[reflect.Type][]client.Object
+	}{
+		{
+			name: "External source",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-external"), Name: "search-external", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{}}}},
+			},
+			events: []DeploymentUsageSnapshotProperties{{
+				DeploymentUID:            "search-external",
+				OperatorID:               operatorUUID,
+				Architecture:             "external",
+				IsMultiCluster:           false,
+				Type:                     "Search",
+				IsRunningEnterpriseImage: false,
+			}},
+		},
+		{
+			name: "Enterprise static and non-static",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-static"), Name: "search-static", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-static"}}}},
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-nonstatic"), Name: "search-nonstatic", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-nonstatic"}}}},
+			},
+			events: []DeploymentUsageSnapshotProperties{
+				{DeploymentUID: "search-static", OperatorID: operatorUUID, Architecture: string(architectures.Static), IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: true},
+				{DeploymentUID: "search-nonstatic", OperatorID: operatorUUID, Architecture: string(architectures.NonStatic), IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: true},
+			},
+			sources: map[reflect.Type][]client.Object{
+				reflect.TypeOf(&mdbv1.MongoDB{}): {mdbStatic, mdbNonStatic},
+			},
+		},
+		{
+			name: "Community source",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-community"), Name: "search-community", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "community-db"}}}},
+			},
+			events: []DeploymentUsageSnapshotProperties{{DeploymentUID: "search-community", OperatorID: operatorUUID, Architecture: "static", IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: false}},
+			sources: map[reflect.Type][]client.Object{
+				reflect.TypeOf(&mcov1.MongoDBCommunity{}): {community},
+			},
+		},
+		{
+			name: "Missing underlying resource (skipped)",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-missing"), Name: "search-missing", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "does-not-exist"}}}},
+			},
+			events: []DeploymentUsageSnapshotProperties{},
+		},
+		{
+			name:        "No search resources",
+			searchItems: []searchv1.MongoDBSearch{},
+			events:      []DeploymentUsageSnapshotProperties{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mc := &MockClient{
+				MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+					if l, ok := list.(*searchv1.MongoDBSearchList); ok {
+						*l = searchv1.MongoDBSearchList{Items: tc.searchItems}
+					}
+					return nil
+				},
+				MockGet: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					objects := tc.sources[reflect.TypeOf(obj)]
+					for _, o := range objects {
+						if o.GetName() == key.Name && o.GetNamespace() == key.Namespace {
+							// copy the arranged object into the obj pointer like controller-runtime's pkg/client/fake does
+							bytes, _ := json.Marshal(o)
+							json.Unmarshal(bytes, obj)
+							return nil
+						}
+					}
+
+					return errors.New("not found")
+				},
+			}
+
+			events := addSearchEvents(context.Background(), mc, operatorUUID, now)
+			expectedEvents := make([]Event, len(tc.events))
+			for i, event := range tc.events {
+				expectedEvents[i] = *createEvent(event, now, Deployments)
+			}
+
+			assert.ElementsMatch(t, expectedEvents, events, "Should return the expected events")
+		})
+	}
+}
+
+func TestCollectOperatorSnapshot(t *testing.T) {
+	tests := map[string]struct {
+		memberClusterMap map[string]ConfigClient
+		expectedProps    OperatorUsageSnapshotProperties
+	}{
+		"single cluster": {
+			memberClusterMap: map[string]ConfigClient{},
+			expectedProps: OperatorUsageSnapshotProperties{
+				OperatorID:           testOperatorUUID,
+				OperatorType:         MEKO,
+				OperatorArchitecture: runtime.GOARCH,
+				OperatorOS:           runtime.GOOS,
+			},
+		},
+		"multi cluster": {
+			memberClusterMap: map[string]ConfigClient{
+				"cluster1": &mockConfigClient{clusterUUID: "cluster-uuid-1"},
+				"cluster2": &mockConfigClient{clusterUUID: "cluster-uuid-2"},
+			},
+			expectedProps: OperatorUsageSnapshotProperties{
+				OperatorID:           testOperatorUUID,
+				OperatorType:         MEKO,
+				OperatorArchitecture: runtime.GOARCH,
+				OperatorOS:           runtime.GOOS,
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			kubeSystemNamespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "kube-system",
+					UID:  types.UID("operator-cluster-uuid"),
+				},
+			}
+
+			k8sClient := mock.NewEmptyFakeClientBuilder().WithObjects(kubeSystemNamespace).Build()
+			mgr := mockClient.NewManagerWithClient(k8sClient)
+
+			ctx := context.Background()
+
+			events := collectOperatorSnapshot(ctx, test.memberClusterMap, mgr, testOperatorUUID, "", "")
+
+			require.Len(t, events, 1, "expected exactly one operator event")
+			event := events[0]
+
+			assert.Equal(t, Operators, event.Source)
+			require.NotNil(t, event.Timestamp, "event timestamp is nil")
+
+			assert.Equal(t, runtime.GOARCH, event.Properties["operatorArchitecture"])
+			assert.Equal(t, runtime.GOOS, event.Properties["operatorOS"])
+			assert.Equal(t, testOperatorUUID, event.Properties["operatorID"])
+			assert.Equal(t, string(MEKO), event.Properties["operatorType"])
+
+			assert.Contains(t, event.Properties, "kubernetesClusterID")
+			assert.Contains(t, event.Properties, "kubernetesClusterIDs")
+			assert.Contains(t, event.Properties, "operatorVersion")
+		})
+	}
+}
+
+// mockConfigClient is a simple mock implementation of ConfigClient for testing
+type mockConfigClient struct {
+	clusterUUID string
+}
+
+func (m *mockConfigClient) GetConfig() *rest.Config {
+	return &rest.Config{}
+}
+
+func (m *mockConfigClient) GetAPIReader() client.Reader {
+	uuid := m.clusterUUID
+	if uuid == "" {
+		uuid = "default-cluster-uuid"
+	}
+
+	kubeSystemNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kube-system",
+			UID:  types.UID(uuid),
+		},
+	}
+
+	k8sClient := mock.NewEmptyFakeClientBuilder().WithObjects(kubeSystemNamespace).Build()
+	return k8sClient
 }

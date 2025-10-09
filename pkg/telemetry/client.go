@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 
 	atlas "go.mongodb.org/atlas/mongodbatlas"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 type Client struct {
@@ -114,6 +115,11 @@ response:
 
 // SendEventWithRetry sends an HTTP request with retries on transient failures.
 func (c *Client) SendEventWithRetry(ctx context.Context, body []Event) error {
+	_, span := TRACER.Start(ctx, "SendEventWithRetry")
+	baseUrl := c.atlasClient.BaseURL
+	span.SetAttributes(attribute.KeyValue{Key: "mck.atlas.base_url", Value: attribute.StringValue(baseUrl.String())})
+	defer span.End()
+
 	atlasClient := c.atlasClient
 	request, err := atlasClient.NewRequest(ctx, http.MethodPost, "api/private/unauth/telemetry/events", body)
 	if err != nil {

@@ -12,21 +12,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/test"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/test"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 func TestSettingUserStatus_ToPending_IsFilteredOut(t *testing.T) {
@@ -402,7 +403,7 @@ func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
 
 	_ = client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user)
 
-	assert.Contains(t, user.GetFinalizers(), util.Finalizer)
+	assert.Contains(t, user.GetFinalizers(), util.UserFinalizer)
 }
 
 func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T) {
@@ -497,7 +498,8 @@ func TestFinalizerIsRemoved_WhenUserIsDeleted(t *testing.T) {
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, newExpected, newResult, "there should be a successful reconciliation if the password is a valid reference")
 
-	assert.Empty(t, user.GetFinalizers())
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user)
+	assert.True(t, apiErrors.IsNotFound(err), "the user should not exist")
 }
 
 // BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of

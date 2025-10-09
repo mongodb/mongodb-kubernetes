@@ -1,0 +1,40 @@
+name: Validate Changelog Requirement
+on:
+  pull_request:
+    branches:
+      - master
+      - release-*
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+      - unlabeled
+
+jobs:
+  validate-changelog:
+    name: Check for valid changelog entry
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+      - name: Switch to root context
+        id: switch_context
+        uses: ./.github/actions/switch-context
+        with:
+          context-name: 'root-context'
+      - name: Setup host
+        uses: ./.github/actions/setup-ubuntu-host
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Check if changelog entry file was added in this PR
+        run: |
+          set -o pipefail
+          python -m scripts.release.check_changelog -b $BASE_SHA -f $FAIL_ON_NO_CHANGES | tee >> $GITHUB_STEP_SUMMARY
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          FAIL_ON_NO_CHANGES: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}

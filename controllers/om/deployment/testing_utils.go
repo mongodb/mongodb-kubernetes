@@ -3,12 +3,12 @@ package deployment
 import (
 	"go.uber.org/zap"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 // CreateFromReplicaSet builds the replica set for the automation config
@@ -32,7 +32,7 @@ func CreateFromReplicaSet(mongoDBImage string, forceEnterprise bool, rs *mdb.Mon
 	}
 
 	d.MergeReplicaSet(
-		replicaset.BuildFromStatefulSet(mongoDBImage, forceEnterprise, sts, rs.GetSpec(), rs.Status.FeatureCompatibilityVersion),
+		replicaset.BuildFromStatefulSet(mongoDBImage, forceEnterprise, sts, rs.GetSpec(), rs.Status.FeatureCompatibilityVersion, ""),
 		rs.Spec.AdditionalMongodConfig.ToMap(),
 		lastConfig.ToMap(),
 		zap.S(),

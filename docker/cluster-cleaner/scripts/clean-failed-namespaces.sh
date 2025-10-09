@@ -8,7 +8,8 @@ delete_resources_safely() {
     kubectl delete "${resource_type}" --all -n "${namespace}" --wait=true --timeout=10s || true
 
     # Check if any resources are still stuck
-    resources=$(kubectl get "$resource_type" -n "${namespace}" --no-headers -o custom-columns=":metadata.name")
+    # Let's not fail here and continue deletion
+    resources=$(kubectl get "$resource_type" -n "${namespace}" --no-headers -o custom-columns=":metadata.name" 2>/dev/null || true)
 
     for resource in ${resources}; do
         echo "${resource_type}/${resource} is still present, force deleting..."

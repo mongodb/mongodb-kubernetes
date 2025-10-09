@@ -10,12 +10,12 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-const automationAgentKubeUpgradePlan = "ChangeVersionKube"
+const automationAgentKubeUpgradeMove = "ChangeVersionKube"
 
 // AutomationStatus represents the status of automation agents registered with Ops Manager
 type AutomationStatus struct {
@@ -85,12 +85,25 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 
 	goalsNotAchievedMap := map[string]int{}
 	goalsAchievedMap := map[string]int{}
+	authTransitionsInProgress := map[string]string{}
+
 	for _, p := range as.Processes {
 		if !stringutil.Contains(relevantProcesses, p.Name) {
 			continue
 		}
 		if p.LastGoalVersionAchieved == as.GoalVersion {
 			goalsAchievedMap[p.Name] = p.LastGoalVersionAchieved
+
+			// Check if authentication transitions are in the current plan.
+			// If a process has reached goal version but still has auth-related moves in plan,
+			// it means authentication transition is likely in progress.
+			// The plan contains non-completed move names from the API.
+			for _, move := range p.Plan {
+				if isAuthenticationTransitionMove(move) {
+					authTransitionsInProgress[p.Name] = move
+					break
+				}
+			}
 		} else {
 			goalsNotAchievedMap[p.Name] = p.LastGoalVersionAchieved
 		}
@@ -103,6 +116,18 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 	goalsAchievedMsgList := slices.Collect(maps.Keys(goalsAchievedMap))
 	sort.Strings(goalsAchievedMsgList)
 
+	// Check if any authentication transitions are in progress
+	if len(authTransitionsInProgress) > 0 {
+		var authTransitionMsgList []string
+		for processName, step := range authTransitionsInProgress {
+			authTransitionMsgList = append(authTransitionMsgList, fmt.Sprintf("%s:%s", processName, step))
+		}
+		log.Infow("Authentication transitions still in progress, waiting for completion",
+			"processes", authTransitionMsgList)
+		return false, fmt.Sprintf("authentication transitions in progress for %d processes: %s",
+			len(authTransitionsInProgress), authTransitionMsgList)
+	}
+
 	if len(goalsNotAchievedMap) > 0 {
 		return false, fmt.Sprintf("%d processes waiting to reach automation config goal state (version=%d): %s, %d processes reached goal state: %s",
 			len(goalsNotAchievedMap), as.GoalVersion, goalsNotAchievedMsgList, len(goalsAchievedMsgList), goalsAchievedMsgList)
@@ -113,17 +138,29 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 	}
 }
 
+// isAuthenticationTransitionMove returns true if the given move is related to authentication transitions
+func isAuthenticationTransitionMove(move string) bool {
+	authMoves := map[string]struct{}{
+		"UpdateAuth":     {},
+		"WaitAuthUpdate": {},
+	}
+
+	_, ok := authMoves[move]
+
+	return ok
+}
+
 func areAnyAgentsInKubeUpgradeMode(as *AutomationStatus, relevantProcesses []string, log *zap.SugaredLogger) bool {
 	for _, p := range as.Processes {
 		if !stringutil.Contains(relevantProcesses, p.Name) {
 			continue
 		}
-		for _, plan := range p.Plan {
+		for _, move := range p.Plan {
 			// This means the following:
 			// - the cluster is in static architecture
 			// - the agents are in a dedicated upgrade process, waiting for their binaries to be replaced by kubernetes
 			// - this can only happen if the statefulset is ready, therefore we are returning ready here
-			if plan == automationAgentKubeUpgradePlan {
+			if move == automationAgentKubeUpgradeMove {
 				log.Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
 				return true
 			}

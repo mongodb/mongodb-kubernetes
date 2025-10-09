@@ -53,9 +53,9 @@ spec:
         secretName: test-pod-multi-cluster-config
   {{ end }}
   containers:
-  - image: busybox
+  - image: public.ecr.aws/docker/library/busybox:1.37.0
     name: keepalive
-    command: [ "/bin/sh", "-c", "sleep inf" ]
+    command: ["/bin/sh", "-c", "while true; do sleep 7200; done"]
     volumeMounts:
       - name: results
         mountPath: /tmp/results
@@ -80,8 +80,9 @@ spec:
     - name: OTEL_RESOURCE_ATTRIBUTES
       value: {{ .Values.otel_resource_attributes }}
     {{ end }}
+    # Set service name to identify this component in the trace
     - name: OTEL_SERVICE_NAME
-      value: evergreen-agent
+      value: mongodb-e2e-tests
     - name: PYTEST_RUN_NAME
       value: {{ .Values.taskName }}
     - name: TASK_ID
@@ -175,10 +176,26 @@ spec:
     {{ end }}
     - name: ops_manager_version
       value: "{{ .Values.opsManagerVersion }}"
-    image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
+    - name: cognito_user_pool_id
+      value: {{ .Values.cognito_user_pool_id }}
+    - name: cognito_workload_federation_client_id
+      value: {{ .Values.cognito_workload_federation_client_id }}
+    - name: cognito_user_name
+      value: {{ .Values.cognito_user_name }}
+    - name: cognito_workload_federation_client_secret
+      value: {{ .Values.cognito_workload_federation_client_secret }}
+    - name: cognito_user_password
+      value: {{ .Values.cognito_user_password }}
+    - name: cognito_workload_url
+      value: {{ .Values.cognito_workload_url }}
+    - name: cognito_workload_user_id
+      value: {{ .Values.cognito_workload_user_id }}
+    image: {{ .Values.repo }}/mongodb-kubernetes-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
     {{ if .Values.otel_endpoint }}
+    # Use trace-parent to create the root span with specified trace ID and parent ID
+    # Note: we create the root span here, and the operator will create child spans that connect to it
     args: ["-vv", "-m", "{{ .Values.taskName }}", "--trace-parent", "00-{{ .Values.otel_trace_id }}-{{ .Values.otel_parent_id }}-01", "--export-traces"]
     {{ else }}
     args: ["-vv", "-m", "{{ .Values.taskName }}"]

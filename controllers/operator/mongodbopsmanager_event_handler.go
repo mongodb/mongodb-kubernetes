@@ -5,10 +5,12 @@ import (
 
 	"go.uber.org/zap"
 	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 )
 
 // MongoDBOpsManagerEventHandler extends handler.EnqueueRequestForObject (from controller-runtime)
@@ -22,7 +24,7 @@ type MongoDBOpsManagerEventHandler struct {
 }
 
 // Delete implements EventHandler and it is called when the CR is removed
-func (eh *MongoDBOpsManagerEventHandler) Delete(ctx context.Context, e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (eh *MongoDBOpsManagerEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	objectKey := kube.ObjectKey(e.Object.GetNamespace(), e.Object.GetName())
 	logger := zap.S().With("resource", objectKey)
 

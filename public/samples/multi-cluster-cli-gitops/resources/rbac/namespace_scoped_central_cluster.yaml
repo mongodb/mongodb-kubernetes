@@ -5,7 +5,7 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-operator-multi-role
+  name: mongodb-kubernetes-operator-multi-role
   namespace: central-namespace
 rules:
 - apiGroups:
@@ -22,6 +22,18 @@ rules:
   - mongodb
   - mongodb/finalizers
   - mongodb/status
+  - mongodbsearch
+  - mongodbsearch/finalizers
+  - mongodbsearch/status
+  verbs:
+  - '*'
+- apiGroups:
+  - mongodbcommunity.mongodb.com
+  resources:
+  - mongodbcommunity
+  - mongodbcommunity/status
+  - mongodbcommunity/spec
+  - mongodbcommunity/finalizers
   verbs:
   - '*'
 - apiGroups:
@@ -53,11 +65,24 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - watch
+  - patch
+- apiGroups:
+  - ""
+  resources:
   - pods
   verbs:
   - get
   - list
   - watch
+  - delete
+  - deletecollection
 
 ---
 # Central Cluster, namespace-scoped resources
@@ -67,28 +92,26 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-operator-multi-role-binding
+  name: mongodb-kubernetes-operator-multi-role-binding
   namespace: central-namespace
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-enterprise-operator-multi-role
+  name: mongodb-kubernetes-operator-multi-role
 subjects:
 - kind: ServiceAccount
-  name: test-service-account
+  name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
 
 ---
 # Central Cluster, namespace-scoped resources
 apiVersion: v1
 kind: ServiceAccount
-imagePullSecrets:
-- name: image-registries-secret
 metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: test-service-account
+  name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
 
 ---

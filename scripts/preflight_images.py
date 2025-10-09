@@ -16,7 +16,7 @@ from typing import Dict, Tuple
 
 import requests
 from evergreen.release.agent_matrix import (
-    get_supported_version_for_image_matrix_handling,
+    get_supported_version_for_image,
 )
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
@@ -26,8 +26,8 @@ logging.basicConfig(level=LOGLEVEL)
 def image_config(
     image: str,
     rh_cert_project_id: str,
-    name_prefix: str = "mongodb-enterprise-",
-    name_suffix: str = "-ubi",
+    name_prefix: str = "mongodb-kubernetes-",
+    name_suffix: str = "",
 ) -> Tuple[str, Dict[str, str]]:
     args = {
         "registry": f"quay.io/mongodb/{name_prefix}{image}{name_suffix}",
@@ -52,37 +52,43 @@ def official_server_image(
 def args_for_image(image: str) -> Dict[str, str]:
     image_configs = [
         image_config(
-            "database",
-            "633fc9e582f7934b1ad3be45",
+            image="database",
+            name_suffix="",
+            rh_cert_project_id="6809ece067e8953c22ff54fc",
         ),
         official_server_image(
-            "mongodb-enterprise-server",  # official server images
-            "643daaa56da4ecc48795693a",
+            image="mongodb-enterprise-server",  # official server images
+            rh_cert_project_id="643daaa56da4ecc48795693a",
         ),
         image_config(
-            "init-appdb",
-            "633fcb576f43719c9df9349f",
+            image="init-appdb",
+            rh_cert_project_id="6809ec113193c2e55779b8dc",
+            name_suffix="",
         ),
         image_config(
-            "init-database",
-            "633fcc2982f7934b1ad3be46",
+            image="init-database",
+            rh_cert_project_id="680a22928e2dc72376f34990",
+            name_suffix="",
         ),
         image_config(
-            "init-ops-manager",
-            "633fccb16f43719c9df934a0",
+            image="init-ops-manager",
+            rh_cert_project_id="680a247d67e8953c22000544",
+            name_suffix="",
         ),
         image_config(
-            "operator",
-            "633fcdfaade0e891294196ac",
-        ),
-        image_config(
-            "ops-manager",
-            "633fcd36c4ee7ff29edff589",
-        ),
-        image_config(
-            "mongodb-agent",
-            "633fcfd482f7934b1ad3be47",
+            image="mongodb-kubernetes",
+            rh_cert_project_id="6809ea243193c2e55779b4a5",
             name_prefix="",
+            name_suffix="",
+        ),
+        image_config(
+            image="ops-manager",
+            rh_cert_project_id="633fcd36c4ee7ff29edff589",
+            name_prefix="mongodb-enterprise-",
+            name_suffix="-ubi",
+        ),
+        image_config(
+            image="mongodb-agent", rh_cert_project_id="68e37c471f673a855dfe1a99", name_prefix="", name_suffix=""
         ),
     ]
     images = {k: v for k, v in image_configs}
@@ -230,14 +236,7 @@ def main() -> int:
         )
     else:
         # these are the images we own, we preflight all of them as long as we officially support them in release.json
-        versions = get_supported_version_for_image_matrix_handling(args.image)
-
-    # only preflight the current agent version and the subset of agent images suffixed with the current operator version
-    if args.image == "mongodb-agent":
-        release = get_release()
-        operator_version = release["mongodbOperator"]
-        versions = list(filter(lambda version: version.endswith(f"_{operator_version}"), versions))
-        versions.append(release["agentVersion"])
+        versions = get_supported_version_for_image(args.image)
 
     # Attempt to run a pre-flight check on a single version of the image
     if image_version is not None:

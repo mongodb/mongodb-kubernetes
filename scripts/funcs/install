@@ -2,6 +2,41 @@
 
 set -euo pipefail
 
+# Supported target formats:
+#   - "standard" (default): x86_64→amd64, aarch64|arm64→arm64, ppc64le→ppc64le, s390x→s390x
+#   - "jq": same as standard but ppc64le→ppc64el (jq's naming convention)
+#
+detect_architecture() {
+    local target_format="${1:-standard}"
+    local arch
+    arch=$(uname -m)
+      # Use standard mapping for most tools, with special case for jq's ppc64le naming
+      local ppc64_suffix="ppc64le"
+      if [[ "${target_format}" == "jq" ]]; then
+          ppc64_suffix="ppc64el"  # jq uses ppc64el instead of ppc64le
+      fi
+
+      case "${arch}" in
+          x86_64)
+              echo "amd64"
+              ;;
+          aarch64|arm64)
+              echo "arm64"
+              ;;
+          ppc64le)
+              echo "${ppc64_suffix}"
+              ;;
+          s390x)
+              echo "s390x"
+              ;;
+          *)
+              echo "Error: Unsupported architecture: ${arch}" >&2
+              echo "Supported architectures: x86_64 (amd64), aarch64 (arm64), ppc64le, s390x" >&2
+              return 1
+              ;;
+      esac
+}
+
 # Downloads a binary <bin> from <url> and moves it into <dir> directory.
 # Example usage: download_and_install_binary ${workdir}/bin jq "https://..."
 download_and_install_binary() {

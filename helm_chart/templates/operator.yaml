@@ -1,4 +1,4 @@
-{{ $ns :=  include "mongodb-enterprise-operator.namespace" .  -}}
+{{ $ns :=  include "mongodb-kubernetes-operator.namespace" .  -}}
 
 ---
 apiVersion: apps/v1
@@ -53,11 +53,14 @@ spec:
             {{- if .Values.multiCluster.clusters }}
             - -watch-resource=mongodbmulticluster
             {{- end }}
+            {{- if .Values.operator.enableClusterMongoDBRoles }}
+            - -watch-resource=clustermongodbroles
+            {{- end }}
             {{- range .Values.operator.additionalArguments }}
             - {{ . }}
             {{- end }}
           command:
-            - /usr/local/bin/mongodb-enterprise-operator
+            - /usr/local/bin/mongodb-kubernetes-operator
           {{- end }}
           {{- if .Values.multiCluster.clusters }}
           volumeMounts:
@@ -80,6 +83,16 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+    {{- $opentelemetry := default dict .Values.operator.opentelemetry }}
+    {{- $openTelemetryTracing := default dict $opentelemetry.tracing }}
+    {{- if eq $openTelemetryTracing.enabled true }}
+            - name: OTEL_TRACE_ID
+              value: {{ $openTelemetryTracing.traceID | quote }}
+            - name: OTEL_PARENT_ID
+              value: {{ $openTelemetryTracing.parentID | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ $openTelemetryTracing.collectorEndpoint | quote }}
+    {{- end }}
     {{- if .Values.operator.vaultSecretBackend }}
       {{- if .Values.operator.vaultSecretBackend.enabled }}
             - name: SECRET_BACKEND
@@ -249,6 +262,18 @@ spec:
             - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"
       {{- end }}
+      {{- if .Values.search }}
+            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_{{ .Values.search.version | replace "." "_" | replace "-" "_" }}
+              value: "{{ .Values.search.repo }}/{{ .Values.search.name }}:{{ $.Values.search.version }}"
+      {{- end }}
+    {{- end }}
+    {{- if .Values.search }}
+            - name: MDB_SEARCH_REPO_URL
+              value: "{{ .Values.search.repo }}"
+            - name: MDB_SEARCH_NAME
+              value: "{{ .Values.search.name }}"
+            - name: MDB_SEARCH_VERSION
+              value: "{{ .Values.search.version }}"
     {{- end }}
     {{- if .Values.customEnvVars }}
       {{- range split "&" .Values.customEnvVars }}
@@ -278,5 +303,3 @@ spec:
         {{- toYaml . | nindent 8 }}
   {{- end }}
 {{- end }}
-
-

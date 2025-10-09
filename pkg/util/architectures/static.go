@@ -5,7 +5,7 @@ import (
 
 	"k8s.io/utils/env"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 type DefaultArchitecture string
@@ -41,7 +41,7 @@ const (
 	MdbAssumeEnterpriseImage = "MDB_ASSUME_ENTERPRISE_IMAGE"
 	// MdbAgentImageRepo contains the repository containing the agent image for the database
 	MdbAgentImageRepo        = "MDB_AGENT_IMAGE_REPOSITORY"
-	MdbAgentImageRepoDefault = "quay.io/mongodb/mongodb-agent-ubi"
+	MdbAgentImageRepoDefault = "quay.io/mongodb/mongodb-agent"
 )
 
 // IsRunningStaticArchitecture checks whether the operator is running in static or non-static mode.

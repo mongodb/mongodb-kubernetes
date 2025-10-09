@@ -4,9 +4,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 )
 
 type Modification func(*corev1.PodTemplateSpec)
@@ -62,6 +62,19 @@ func WithContainerByIndex(index int, funcs ...func(container *corev1.Container))
 		c := &podTemplateSpec.Spec.Containers[index]
 		for _, f := range funcs {
 			f(c)
+		}
+	}
+}
+
+// WithContainerByIndexIfExists applies the modifications to the container with the provided index
+// only if the container already exists. If the index is out of range, no changes are made.
+func WithContainerByIndexIfExists(index int, funcs ...func(container *corev1.Container)) func(podTemplateSpec *corev1.PodTemplateSpec) {
+	return func(podTemplateSpec *corev1.PodTemplateSpec) {
+		if index < len(podTemplateSpec.Spec.Containers) {
+			c := &podTemplateSpec.Spec.Containers[index]
+			for _, f := range funcs {
+				f(c)
+			}
 		}
 	}
 }

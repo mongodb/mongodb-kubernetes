@@ -2,10 +2,12 @@ package telemetry
 
 import (
 	"context"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/client-go/rest"
@@ -15,16 +17,17 @@ import (
 
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	mcov1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
-	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
 // Logger should default to the global default from zap. Running into the main function of this package
@@ -65,9 +68,8 @@ func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[
 		memberClusterObjectsMap: memberClusterObjectsMap,
 		currentNamespace:        currentNamespace,
 		configuredOperatorEnv:   operatorEnv,
-
-		mongodbImage:           mongodbImage,
-		databaseNonStaticImage: databaseNonStaticImage,
+		mongodbImage:            mongodbImage,
+		databaseNonStaticImage:  databaseNonStaticImage,
 	}, nil
 }
 
@@ -81,8 +83,13 @@ func (l *LeaderRunnable) Start(ctx context.Context) error {
 type snapshotCollector func(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage string) []Event
 
 // RunTelemetry lists the specified CRDs and sends them as events to Segment
-func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, namespace string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
-	Logger.Debug("sending telemetry!")
+func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticImage, namespace string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
+	Logger.Debug("Collecting telemetry!")
+	ctx, span := TRACER.Start(leaderTrace, "RunTelemetry")
+	span.SetAttributes(
+		attribute.String("mck.resource.type", "telemetry-collection"),
+	)
+	defer span.End()
 
 	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr) // nolint:forbidigo
 	duration, err := time.ParseDuration(intervalStr)
@@ -177,20 +184,16 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 		OperatorID:           operatorUUID,
 		OperatorVersion:      versionutil.StaticContainersOperatorVersion(),
 		OperatorType:         MEKO,
-	}
-	operatorProperties, err := maputil.StructToMap(operatorEvent)
-	if err != nil {
-		Logger.Debugf("failed converting properties to map: %s", err)
-		return nil
+		OperatorArchitecture: runtime.GOARCH,
+		OperatorOS:           runtime.GOOS,
 	}
 
-	return []Event{
-		{
-			Timestamp:  time.Now(),
-			Source:     Operators,
-			Properties: operatorProperties,
-		},
+	event := createEvent(operatorEvent, time.Now(), Operators)
+	if event == nil {
+		return []Event{}
 	}
+
+	return []Event{*event}
 }
 
 func collectDeploymentsSnapshot(ctx context.Context, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage string) []Event {
@@ -207,6 +210,7 @@ func collectDeploymentsSnapshot(ctx context.Context, operatorClusterMgr manager.
 	// No need to pass databaseNonStaticImage because it is for sure not enterprise image
 	events = append(events, addOmEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
 	events = append(events, addCommunityEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
+	events = append(events, addSearchEvents(ctx, operatorClusterClient, operatorUUID, now)...)
 	return events
 }
 
@@ -232,6 +236,9 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 				Type:                     string(item.Spec.GetResourceType()),
 				IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
 				ExternalDomains:          getExternalDomainProperty(item),
+				CustomRoles:              getCustomRoles(item.Spec.Security),
+				AuthenticationModes:      getAuthenticationModes(item.Spec.Security),
+				AuthenticationAgentMode:  getAuthenticationAgentMode(item.Spec.Security),
 			}
 
 			if numberOfClustersUsed > 0 {
@@ -270,6 +277,9 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 			Type:                     string(item.Spec.GetResourceType()),
 			IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
 			ExternalDomains:          getExternalDomainPropertyForMongoDBMulti(item),
+			CustomRoles:              getCustomRoles(item.Spec.Security),
+			AuthenticationModes:      getAuthenticationModes(item.Spec.Security),
+			AuthenticationAgentMode:  getAuthenticationAgentMode(item.Spec.Security),
 		}
 
 		if event := createEvent(properties, now, Deployments); event != nil {
@@ -317,8 +327,8 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 	return events
 }
 
-func createEvent(properties any, now time.Time, eventType EventType) *Event {
-	convertedProperties, err := maputil.StructToMap(properties)
+func createEvent(properties FlatProperties, now time.Time, eventType EventType) *Event {
+	convertedProperties, err := properties.ConvertToFlatMap()
 	if err != nil {
 		Logger.Debugf("failed to parse %s properties: %v", eventType, err)
 		return nil
@@ -350,6 +360,55 @@ func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Cl
 			if event := createEvent(properties, now, Deployments); event != nil {
 				events = append(events, *event)
 			}
+		}
+	}
+	return events
+}
+
+func resolveSearchSource(ctx context.Context, operatorClusterClient kubeclient.Client, source *userv1.MongoDBResourceRef) (architecture string, isEnterprise bool, ok bool) {
+	if source == nil {
+		return "external", false, true // we cheat and hijack the Architecture field to indicate this Search resource is configured with an external MongoDB source
+	}
+
+	key := kubeclient.ObjectKey{Namespace: source.Namespace, Name: source.Name}
+
+	mdb := &mdbv1.MongoDB{}
+	if err := operatorClusterClient.Get(ctx, key, mdb); err == nil {
+		return string(architectures.GetArchitecture(mdb.Annotations)), true, true
+	}
+
+	mdbc := &mcov1.MongoDBCommunity{}
+	if err := operatorClusterClient.Get(ctx, key, mdbc); err == nil {
+		return "static", false, true // Community is always static
+	}
+
+	return "", false, false // likely the database resource doesn't exist yet, skip telemetry for this item for now
+}
+
+func addSearchEvents(ctx context.Context, operatorClusterClient kubeclient.Client, operatorUUID string, now time.Time) []Event {
+	var events []Event
+	searchList := &searchv1.MongoDBSearchList{}
+
+	if err := operatorClusterClient.List(ctx, searchList); err != nil {
+		Logger.Warnf("failed to fetch MongoDBSearchList from Kubernetes: %v", err)
+		return nil
+	}
+
+	for _, item := range searchList.Items {
+		architecture, isEnterprise, ok := resolveSearchSource(ctx, operatorClusterClient, item.GetMongoDBResourceRef())
+		if !ok { // search source doesn't exist yet, don't generate a telemetry event
+			continue
+		}
+		properties := DeploymentUsageSnapshotProperties{
+			DeploymentUID:            string(item.UID),
+			OperatorID:               operatorUUID,
+			Architecture:             architecture,
+			IsMultiCluster:           false, // Search doesn't support multi-cluster
+			Type:                     "Search",
+			IsRunningEnterpriseImage: isEnterprise,
+		}
+		if event := createEvent(properties, now, Deployments); event != nil {
+			events = append(events, *event)
 		}
 	}
 	return events
@@ -396,13 +455,12 @@ func handleEvents(ctx context.Context, atlasClient *Client, events []Event, even
 		return
 	}
 
-	err = atlasClient.SendEventWithRetry(ctx, events)
-	if err == nil {
-		if err := updateTelemetryConfigMapTimeStamp(ctx, operatorClusterClient, namespace, OperatorConfigMapTelemetryConfigMapName, eventType); err != nil {
-			Logger.Debugf("Failed saving timestamp of successful sending of data for type: %s with error: %s", eventType, err)
+	if sendErr := atlasClient.SendEventWithRetry(ctx, events); sendErr == nil {
+		if updateErr := updateTelemetryConfigMapTimeStamp(ctx, operatorClusterClient, namespace, OperatorConfigMapTelemetryConfigMapName, eventType); updateErr != nil {
+			Logger.Debugf("Failed saving timestamp of successful sending of data for type: %s with error: %s", eventType, updateErr)
 		}
 	} else {
-		Logger.Debugf("Encountered error while trying to send payload to atlas; err: %s", err)
+		Logger.Debugf("Encountered error while trying to send payload to atlas; err: %s", sendErr)
 	}
 }
 
@@ -507,4 +565,50 @@ func isExternalDomainSpecifiedInClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 	}
 
 	return clusterSpecList.IsExternalDomainSpecifiedInClusterSpecList()
+}
+
+const (
+	CustomRoleNone       = "None"
+	CustomRoleEmbedded   = "Embedded"
+	CustomRoleReferenced = "Referenced"
+)
+
+func getCustomRoles(security *mdbv1.Security) string {
+	if security == nil {
+		return CustomRoleNone
+	}
+
+	if len(security.Roles) > 0 {
+		return CustomRoleEmbedded
+	}
+
+	if len(security.RoleRefs) > 0 {
+		return CustomRoleReferenced
+	}
+
+	return CustomRoleNone
+}
+
+func getAuthenticationModes(security *mdbv1.Security) []string {
+	if security == nil || security.Authentication == nil {
+		return nil
+	}
+
+	if !security.Authentication.Enabled {
+		return nil
+	}
+
+	return security.Authentication.GetModes()
+}
+
+func getAuthenticationAgentMode(security *mdbv1.Security) string {
+	if security == nil || security.Authentication == nil {
+		return ""
+	}
+
+	if !security.Authentication.Enabled {
+		return ""
+	}
+
+	return security.Authentication.Agents.Mode
 }

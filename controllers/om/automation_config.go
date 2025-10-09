@@ -7,10 +7,11 @@ import (
 	"github.com/spf13/cast"
 	"k8s.io/apimachinery/pkg/api/equality"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 // AutomationConfig maintains the raw map in the Deployment field
@@ -20,10 +21,11 @@ import (
 // configuration which are merged into the `Deployment` object before sending it back to Ops Manager.
 // As of right now only support configuring LogRotate for monitoring and backup via dedicated endpoints.
 type AutomationConfig struct {
-	Auth       *Auth
-	AgentSSL   *AgentSSL
-	Deployment Deployment
-	Ldap       *ldap.Ldap
+	Auth                *Auth
+	AgentSSL            *AgentSSL
+	Deployment          Deployment
+	Ldap                *ldap.Ldap
+	OIDCProviderConfigs []oidc.ProviderConfig
 }
 
 // Apply merges the state of all concrete structs into the Deployment (map[string]interface{})
@@ -58,7 +60,64 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 		}
 		(*into)["ldap"] = mergedLdap
 	}
+
+	if len(a.OIDCProviderConfigs) > 0 {
+		updateOIDCProviderConfigs(a, into)
+	} else {
+		// Clear oidcProviderConfigs if no configs are provided
+		delete(*into, "oidcProviderConfigs")
+	}
+
 	return nil
+}
+
+func updateOIDCProviderConfigs(a AutomationConfig, into *Deployment) {
+	deploymentConfigs := make(map[string]map[string]any)
+	if configs, ok := a.Deployment["oidcProviderConfigs"]; ok {
+		configsSliceAny := cast.ToSlice(configs)
+		for _, configAny := range configsSliceAny {
+			config := configAny.(map[string]any)
+			configName := config["authNamePrefix"].(string)
+			deploymentConfigs[configName] = config
+		}
+	}
+
+	result := make([]map[string]any, 0)
+	for _, config := range a.OIDCProviderConfigs {
+		deploymentConfig, ok := deploymentConfigs[config.AuthNamePrefix]
+		if !ok {
+			deploymentConfig = make(map[string]any)
+		}
+
+		deploymentConfig["authNamePrefix"] = config.AuthNamePrefix
+		deploymentConfig["audience"] = config.Audience
+		deploymentConfig["issuerUri"] = config.IssuerUri
+		deploymentConfig["userClaim"] = config.UserClaim
+		deploymentConfig["supportsHumanFlows"] = config.SupportsHumanFlows
+		deploymentConfig["useAuthorizationClaim"] = config.UseAuthorizationClaim
+
+		if config.ClientId == nil {
+			delete(deploymentConfig, "clientId")
+		} else {
+			deploymentConfig["clientId"] = config.ClientId
+		}
+
+		if len(config.RequestedScopes) == 0 {
+			delete(deploymentConfig, "requestedScopes")
+		} else {
+			deploymentConfig["requestedScopes"] = config.RequestedScopes
+		}
+
+		if config.GroupsClaim == nil {
+			delete(deploymentConfig, "groupsClaim")
+		} else {
+			deploymentConfig["groupsClaim"] = config.GroupsClaim
+		}
+
+		result = append(result, deploymentConfig)
+	}
+
+	(*into)["oidcProviderConfigs"] = result
 }
 
 // EqualsWithoutDeployment returns true if two AutomationConfig objects are meaningful equal by following the following conditions:
@@ -430,6 +489,19 @@ func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConf
 			return nil, err
 		}
 		finalAutomationConfig.Ldap = acLdap
+	}
+
+	oidcConfigsArray, ok := deployment["oidcProviderConfigs"]
+	if ok {
+		oidcMarshalled, err := json.Marshal(oidcConfigsArray)
+		if err != nil {
+			return nil, err
+		}
+		providerConfigs := make([]oidc.ProviderConfig, 0)
+		if err := json.Unmarshal(oidcMarshalled, &providerConfigs); err != nil {
+			return nil, err
+		}
+		finalAutomationConfig.OIDCProviderConfigs = providerConfigs
 	}
 
 	return finalAutomationConfig, nil

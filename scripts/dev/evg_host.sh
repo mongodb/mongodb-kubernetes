@@ -8,7 +8,11 @@
 
 set -Eeou pipefail
 
+test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
+
 source scripts/dev/set_env_context.sh
+source scripts/funcs/printing
+
 
 if [[ -z "${EVG_HOST_NAME}" ]]; then
   echo "EVG_HOST_NAME env var is missing"
@@ -52,7 +56,7 @@ configure() {
 
   sync
 
-  ssh -T -q "${host_url}" "cd ~/ops-manager-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${arch}"
+  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${arch}"
 }
 
 sync() {
@@ -62,7 +66,7 @@ sync() {
   --include-from=.rsyncinclude \
   --exclude-from=.gitignore \
   --exclude-from=.rsyncignore \
-  ./ "${host_url}:/home/ubuntu/ops-manager-kubernetes/"
+  ./ "${host_url}:/home/ubuntu/mongodb-kubernetes/"
 
   rsync --verbose --no-links --recursive --prune-empty-dirs --archive --compress --human-readable \
     --max-size=1000000 \
@@ -81,7 +85,7 @@ remote-prepare-local-e2e-run() {
   rsync --verbose --no-links --recursive --prune-empty-dirs --archive --compress --human-readable \
     --max-size=1000000 \
     -e ssh \
-    "${host_url}:/home/ubuntu/ops-manager-kubernetes/.multi_cluster_local_test_files" \
+    "${host_url}:/home/ubuntu/mongodb-kubernetes/.multi_cluster_local_test_files" \
     ./ &
   scp "${host_url}:/home/ubuntu/.operator-dev/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
 
@@ -96,19 +100,21 @@ get-kubeconfig() {
 
 recreate-kind-clusters() {
   DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK:-"false"}
+  configure "${1-"amd64"}" 2>&1| prepend "evg_host.sh configure"
   echo "Recreating kind clusters on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/ops-manager-kubernetes; DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK} scripts/dev/recreate_kind_clusters.sh"
+  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK} scripts/dev/recreate_kind_clusters.sh"
   echo "Copying kubeconfig to ${kubeconfig_path}"
-  get-kubeconfig
+  get-kubeconfig 2>&1| prepend "evg_host.sh configure"
 }
 
 recreate-kind-cluster() {
   shift 1
   cluster_name=$1
+  configure "${1-"amd64"}" 2>&1| prepend "evg_host.sh configure"
   echo "Recreating kind cluster ${cluster_name} on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/ops-manager-kubernetes; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
+  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -135,6 +141,19 @@ tunnel() {
   set +x
 }
 
+retry_with_sleep() {
+  shift 1
+  cmd=$1
+  local sleep_time
+  sleep_time=5
+
+  while true; do
+    ${cmd} || true
+    echo "Retrying command after ${sleep_time} of sleep: ${cmd}"
+    sleep 5;
+  done
+}
+
 ssh_to_host() {
   shift 1
   # shellcheck disable=SC2029
@@ -153,7 +172,7 @@ cmd() {
     shift 1
   fi
 
-  cmd="cd ~/ops-manager-kubernetes; $*"
+  cmd="cd ~/mongodb-kubernetes; $*"
   ssh -T -q "${host_url}" "${cmd}"
 }
 
@@ -168,9 +187,9 @@ PREREQUISITES:
   - VPN connection
 
 COMMANDS:
+  recreate-kind-clusters                all-you-need to configure host and kind clusters; deletes and recreates all kind clusters (for single and multi runs)
   configure <architecture>              installs on a host: calls sync, switches context, installs necessary software
   sync                                  rsync of project directory
-  recreate-kind-clusters                executes scripts/dev/recreate_kind_clusters.sh and executes get-kubeconfig
   recreate-kind-cluster test-cluster    executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
   remote-prepare-local-e2e-run          executes prepare-local-e2e on the remote evg host
   get-kubeconfig                        copies remote kubeconfig locally to ~/.operator-dev/evg-host.kubeconfig
@@ -184,12 +203,12 @@ COMMANDS:
 
 case ${cmd} in
 configure) configure "$@" ;;
-recreate-kind-clusters) recreate-kind-clusters ;;
+recreate-kind-clusters) recreate-kind-clusters "${1-"amd64"}";;
 recreate-kind-cluster) recreate-kind-cluster "$@" ;;
 get-kubeconfig) get-kubeconfig ;;
 remote-prepare-local-e2e-run) remote-prepare-local-e2e-run ;;
 ssh) ssh_to_host "$@" ;;
-tunnel) tunnel "$@" ;;
+tunnel) retry_with_sleep tunnel "$@" ;;
 sync) sync ;;
 cmd) cmd "$@" ;;
 upload-my-ssh-private-key) upload-my-ssh-private-key ;;

@@ -16,7 +16,6 @@ get_operator_helm_values() {
     "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
     "registry.agent=${AGENT_BASE_REGISTRY:-${REGISTRY}}"
     "registry.opsManager=${OPS_MANAGER_REGISTRY}"
-    "registry.appDb=${APPDB_REGISTRY}"
     "registry.database=${database_registry}"
     "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager-ubi}"
     "database.name=${database_name:=mongodb-kubernetes-database}"
@@ -34,10 +33,31 @@ get_operator_helm_values() {
     "operator.telemetry.send.enabled=${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}"
     # lets collect and save in the configmap as frequently as we can
     "operator.telemetry.collection.frequency=${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}"
+    "search.repo=${MDB_SEARCH_REPO_URL}"
+    "search.name=${MDB_SEARCH_NAME}"
+    "search.version=${MDB_SEARCH_VERSION}"
+    "community.registry.agent=${AGENT_BASE_REGISTRY:-${REGISTRY}}"
   )
 
   if [[ "${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION:-}" != "" ]]; then
     config+=("operator.telemetry.installClusterRole=${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION}")
+  fi
+
+  # Add OpenTelemetry values if any of the environment variables are set
+  if [[ -n "${otel_trace_id:-}" || -n "${otel_parent_id:-}" || -n "${otel_collector_endpoint:-}" ]]; then
+    config+=("operator.opentelemetry.tracing.enabled=true")
+
+    if [[ -n "${otel_trace_id:-}" ]]; then
+      config+=("operator.opentelemetry.tracing.traceID=${otel_trace_id}")
+    fi
+
+    if [[ -n "${otel_parent_id:-}" ]]; then
+      config+=("operator.opentelemetry.tracing.parentID=${otel_parent_id}")
+    fi
+
+    if [[ -n "${otel_collector_endpoint:-}" ]]; then
+      config+=("operator.opentelemetry.tracing.collectorEndpoint=${otel_collector_endpoint}")
+    fi
   fi
 
   if [[ "${MDB_OPERATOR_TELEMETRY_ENABLED:-true}" == "false" ]]; then
@@ -49,12 +69,11 @@ get_operator_helm_values() {
 
   # shellcheck disable=SC2154
   if [[ "${KUBE_ENVIRONMENT_NAME-}" = "multi" ]]; then
-    comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
-    # shellcheck disable=SC2154
-    config+=("multiCluster.clusters={${comma_separated_list}}")
-  fi
-
-  if [[ "${KUBE_ENVIRONMENT_NAME:-}" == "multi" ]]; then
+    if [[ -n "${MEMBER_CLUSTERS:-}" ]]; then
+      comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
+      # shellcheck disable=SC2154
+      config+=("multiCluster.clusters={${comma_separated_list}}")
+    fi
     config+=("operator.createOperatorServiceAccount=false")
   fi
 

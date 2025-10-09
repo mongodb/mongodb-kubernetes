@@ -3,7 +3,15 @@ package telemetry
 import (
 	"fmt"
 	"time"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
+
+// FlatProperties is a helper interface that makes sure telemetry properties are convertable to unnested, flat map
+// with basic types (no arrays or structs allowed). This is a requirement from Segment telemetry subsystem we use
+type FlatProperties interface {
+	ConvertToFlatMap() (map[string]any, error)
+}
 
 // OperatorUsageSnapshotProperties represents the structure for tracking Kubernetes operator usage events.
 type OperatorUsageSnapshotProperties struct {
@@ -12,6 +20,12 @@ type OperatorUsageSnapshotProperties struct {
 	OperatorID           string       `json:"operatorID"`           // Operator UUID
 	OperatorVersion      string       `json:"operatorVersion"`      // Version of the operator
 	OperatorType         OperatorType `json:"operatorType"`         // MEKO, MCK, MCO (here meko)
+	OperatorArchitecture string       `json:"operatorArchitecture"` // Architecture of the operator binary (amd64, arm64, s390x, ppc64le)
+	OperatorOS           string       `json:"operatorOS"`           // Operating system of the operator binary (linux, darwin, windows)
+}
+
+func (p OperatorUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, error) {
+	return maputil.StructToMap(p)
 }
 
 // KubernetesClusterUsageSnapshotProperties represents the structure for tracking Kubernetes cluster usage events.
@@ -21,18 +35,41 @@ type KubernetesClusterUsageSnapshotProperties struct {
 	KubernetesFlavour    string `json:"kubernetesFlavour"`
 }
 
+func (p KubernetesClusterUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, error) {
+	return maputil.StructToMap(p)
+}
+
 // DeploymentUsageSnapshotProperties represents the structure for tracking Deployment events.
 type DeploymentUsageSnapshotProperties struct {
-	DatabaseClusters         *int   `json:"databaseClusters,omitempty"` // pointers allow us to not send that value if it's not set.
-	AppDBClusters            *int   `json:"appDBClusters,omitempty"`
-	OmClusters               *int   `json:"OmClusters,omitempty"`
-	DeploymentUID            string `json:"deploymentUID"`
-	OperatorID               string `json:"operatorID"`
-	Architecture             string `json:"architecture"`
-	IsMultiCluster           bool   `json:"isMultiCluster"`
-	Type                     string `json:"type"` // RS, SC, OM, Single
-	IsRunningEnterpriseImage bool   `json:"IsRunningEnterpriseImage"`
-	ExternalDomains          string `json:"externalDomains"` // None, Uniform, ClusterSpecific, Mixed
+	DatabaseClusters         *int     `json:"databaseClusters,omitempty"` // pointers allow us to not send that value if it's not set.
+	AppDBClusters            *int     `json:"appDBClusters,omitempty"`
+	OmClusters               *int     `json:"OmClusters,omitempty"`
+	DeploymentUID            string   `json:"deploymentUID"`
+	OperatorID               string   `json:"operatorID"`
+	Architecture             string   `json:"architecture"`
+	IsMultiCluster           bool     `json:"isMultiCluster"`
+	Type                     string   `json:"type"` // RS, SC, OM, Single
+	IsRunningEnterpriseImage bool     `json:"IsRunningEnterpriseImage"`
+	ExternalDomains          string   `json:"externalDomains"`                   // None, Uniform, ClusterSpecific, Mixed
+	CustomRoles              string   `json:"customRoles,omitempty"`             // Custom roles used 	// None, Uniform, ClusterSpecific, Mixed
+	AuthenticationAgentMode  string   `json:"authenticationAgentMode,omitempty"` // Agent authentication mode
+	AuthenticationModes      []string `json:"-"`                                 // Deployment authentication modes
+}
+
+type FakeDeploymentUsageSnapshotProperties DeploymentUsageSnapshotProperties
+
+func (u DeploymentUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, error) {
+	// FakeDeploymentUsageSnapshotProperties is used to avoid infinite recursion - maputil.StructToMap will call MarshalJSON
+	properties, err := maputil.StructToMap(FakeDeploymentUsageSnapshotProperties(u))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse properties: %w", err)
+	}
+
+	for _, value := range u.AuthenticationModes {
+		properties["authenticationMode"+value] = true
+	}
+
+	return properties, nil
 }
 
 type Event struct {

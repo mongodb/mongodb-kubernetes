@@ -1,0 +1,19 @@
+name: 'Setup Ubuntu Runner Host'
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: setup python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '${{ inputs.python-version }}'
+        cache: 'pip' # caching pip dependencies
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get install libldap2-dev libsasl2-dev # Required for python-ldap
+        pip install --upgrade pip
+        pip install -r requirements.txt

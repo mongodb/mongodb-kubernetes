@@ -21,17 +21,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 func init() {
@@ -195,7 +195,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						ResourceVersion: "1",
 						Labels: map[string]string{
 							"app":                   "test-om-svc",
-							util.OperatorLabelName:  util.OperatorName,
+							util.OperatorLabelName:  util.OperatorLabelValue,
 							omv1.LabelResourceOwner: "test-om",
 						},
 						OwnerReferences: []metav1.OwnerReference{
@@ -224,7 +224,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Selector: map[string]string{
 							"app":                  "test-om-svc",
-							util.OperatorLabelName: util.OperatorName,
+							util.OperatorLabelName: util.OperatorLabelValue,
 						},
 						Type:                     corev1.ServiceTypeNodePort,
 						PublishNotReadyAddresses: true,
@@ -236,7 +236,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						ResourceVersion: "1",
 						Labels: map[string]string{
 							"app":                   "test-om-svc",
-							util.OperatorLabelName:  util.OperatorName,
+							util.OperatorLabelName:  util.OperatorLabelValue,
 							omv1.LabelResourceOwner: "test-om",
 						},
 						OwnerReferences: []metav1.OwnerReference{
@@ -264,7 +264,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Selector: map[string]string{
 							"app":                  "test-om-svc",
-							util.OperatorLabelName: util.OperatorName,
+							util.OperatorLabelName: util.OperatorLabelValue,
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "10.10.10.1",
@@ -312,7 +312,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						ResourceVersion: "1",
 						Labels: map[string]string{
 							"app":                   "test-om-svc",
-							util.OperatorLabelName:  util.OperatorName,
+							util.OperatorLabelName:  util.OperatorLabelValue,
 							omv1.LabelResourceOwner: "test-om",
 						},
 						OwnerReferences: []metav1.OwnerReference{
@@ -341,7 +341,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Selector: map[string]string{
 							"app":                  "test-om-svc",
-							util.OperatorLabelName: util.OperatorName,
+							util.OperatorLabelName: util.OperatorLabelValue,
 						},
 						Type:                     corev1.ServiceTypeNodePort,
 						PublishNotReadyAddresses: true,
@@ -353,7 +353,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						ResourceVersion: "1",
 						Labels: map[string]string{
 							"app":                   "test-om-svc",
-							util.OperatorLabelName:  util.OperatorName,
+							util.OperatorLabelName:  util.OperatorLabelValue,
 							omv1.LabelResourceOwner: "test-om",
 						},
 						OwnerReferences: []metav1.OwnerReference{
@@ -384,7 +384,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Selector: map[string]string{
 							"app":                  "test-om-svc",
-							util.OperatorLabelName: util.OperatorName,
+							util.OperatorLabelName: util.OperatorLabelValue,
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "20.20.20.2",
@@ -397,7 +397,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						ResourceVersion: "1",
 						Labels: map[string]string{
 							"app":                   "test-om-svc",
-							util.OperatorLabelName:  util.OperatorName,
+							util.OperatorLabelName:  util.OperatorLabelValue,
 							omv1.LabelResourceOwner: "test-om",
 						},
 						OwnerReferences: []metav1.OwnerReference{
@@ -425,7 +425,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						},
 						Selector: map[string]string{
 							"app":                  "test-om-svc",
-							util.OperatorLabelName: util.OperatorName,
+							util.OperatorLabelName: util.OperatorLabelValue,
 						},
 						Type:                     corev1.ServiceTypeLoadBalancer,
 						LoadBalancerIP:           "10.10.10.1",

@@ -4,8 +4,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 )
 
 // TODO must replace all [Standalone|Replicaset|Cluster]Builder classes in 'operator' package
@@ -143,6 +143,22 @@ func (b *MongoDBBuilder) SetShardAdditionalConfig(c *AdditionalMongodConfig) *Mo
 
 func (b *MongoDBBuilder) SetSecurityTLSEnabled() *MongoDBBuilder {
 	b.mdb.Spec.Security.TLSConfig.Enabled = true
+	return b
+}
+
+func (b *MongoDBBuilder) SetRoles(roles []MongoDBRole) *MongoDBBuilder {
+	if b.mdb.Spec.Security == nil {
+		b.mdb.Spec.Security = &Security{}
+	}
+	b.mdb.Spec.Security.Roles = roles
+	return b
+}
+
+func (b *MongoDBBuilder) SetRoleRefs(roleRefs []MongoDBRoleRef) *MongoDBBuilder {
+	if b.mdb.Spec.Security == nil {
+		b.mdb.Spec.Security = &Security{}
+	}
+	b.mdb.Spec.Security.RoleRefs = roleRefs
 	return b
 }
 

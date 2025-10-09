@@ -19,18 +19,21 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/user"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 const (
@@ -92,7 +95,22 @@ func NewEmptyFakeClientBuilder() *fake.ClientBuilder {
 		return nil
 	}
 
-	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{})
+	err = searchv1.AddToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	err = mdbcv1.AddToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	err = rolev1.AddToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{}, &searchv1.MongoDBSearch{}, &mdbcv1.MongoDBCommunity{}, &rolev1.ClusterMongoDBRole{})
 
 	ot := testing.NewObjectTracker(s, scheme.Codecs.UniversalDecoder())
 	return builder.WithScheme(s).WithObjectTracker(ot)

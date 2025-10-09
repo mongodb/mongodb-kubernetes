@@ -1,0 +1,78 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: sh001-custom-podspec
+spec:
+  shardCount: 3
+  mongodsPerShardCount: 1
+  mongosCount: 1
+  configServerCount: 1
+  type: ShardedCluster
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+  persistent: true
+  configSrvPodSpec:
+    podTemplate:
+      spec:
+        terminationGracePeriodSeconds: 50
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - podAffinityTerm:
+                  topologyKey: "config"
+                weight: 30
+  mongosPodSpec:
+    podTemplate:
+      spec:
+        terminationGracePeriodSeconds: 20
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - podAffinityTerm:
+                  topologyKey: "mongos"
+                weight: 40
+  shardPodSpec:
+    cpu: "2" # ignored as podTemplate takes precedence if provided
+    podTemplate:
+      spec:
+        containers:
+          - name: sharded-cluster-sidecar
+            image: busybox
+            command: ["sleep"]
+            args: [ "7200" ]
+            resources:
+              limits:
+                cpu: "1"
+              requests:
+                cpu: 500m
+        terminationGracePeriodSeconds: 30
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - podAffinityTerm:
+                  topologyKey: "shard"
+                weight: 50
+  shardSpecificPodSpec:
+    - podTemplate:
+        spec:
+          containers:
+            - name: sharded-cluster-sidecar-override
+              image: busybox
+              command: ["sleep"]
+              args: [ "7200" ]
+              resources:
+                limits:
+                  cpu: "1"
+                requests:
+                  cpu: 500m
+          terminationGracePeriodSeconds: 60
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - podAffinityTerm:
+                    topologyKey: "shardoverride"
+                  weight: 100

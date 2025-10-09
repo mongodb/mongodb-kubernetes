@@ -5,7 +5,7 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-appdb
+  name: mongodb-kubernetes-appdb
   namespace: member-namespace
 rules:
 - apiGroups:
@@ -30,7 +30,7 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-operator-multi-role
+  name: mongodb-kubernetes-operator-multi-role
   namespace: member-namespace
 rules:
 - apiGroups:
@@ -62,11 +62,24 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - watch
+  - patch
+- apiGroups:
+  - ""
+  resources:
   - pods
   verbs:
   - get
   - list
   - watch
+  - delete
+  - deletecollection
 
 ---
 # Member Cluster, namespace-scoped resources
@@ -76,15 +89,15 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-appdb
+  name: mongodb-kubernetes-appdb
   namespace: member-namespace
 roleRef:
   apiGroup: ""
   kind: Role
-  name: mongodb-enterprise-appdb
+  name: mongodb-kubernetes-appdb
 subjects:
 - kind: ServiceAccount
-  name: mongodb-enterprise-appdb
+  name: mongodb-kubernetes-appdb
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -93,16 +106,16 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-operator-multi-role-binding
+  name: mongodb-kubernetes-operator-multi-role-binding
   namespace: member-namespace
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-enterprise-operator-multi-role
+  name: mongodb-kubernetes-operator-multi-role
 subjects:
 - kind: ServiceAccount
-  name: test-service-account
-  namespace: member-namespace
+  name: mongodb-kubernetes-operator-multicluster
+  namespace: central-namespace
 
 ---
 # Member Cluster, namespace-scoped resources
@@ -112,7 +125,7 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-appdb
+  name: mongodb-kubernetes-appdb
   namespace: member-namespace
 
 ---
@@ -122,7 +135,7 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-database-pods
+  name: mongodb-kubernetes-database-pods
   namespace: member-namespace
 
 ---
@@ -132,19 +145,7 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-ops-manager
-  namespace: member-namespace
-
----
-apiVersion: v1
-kind: ServiceAccount
-imagePullSecrets:
-- name: image-registries-secret
-metadata:
-  creationTimestamp: null
-  labels:
-    multi-cluster: "true"
-  name: test-service-account
+  name: mongodb-kubernetes-ops-manager
   namespace: member-namespace
 
 ---

@@ -7,7 +7,7 @@
 .generated/
 vendor/
 pkg/client/
-docker/mongodb-enterprise-tests
+docker/mongodb-kubernetes-tests
 scripts/
 samples/
 .multi_cluster_local_test_files/
@@ -54,7 +54,6 @@ tools.go
 deploy/
 config/manifests/
 public/
-!/public/tools/multicluster/go.mod
 
 # Documentation files
 docs/

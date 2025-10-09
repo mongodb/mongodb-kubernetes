@@ -21,32 +21,32 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	operatorConstruct "github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/constants"
-	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 func TestOpsManagerReconciler_watchedResources(t *testing.T) {
@@ -551,7 +551,7 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 
 		// AppDB images
 		mongodbRelatedImageEnv:          "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent-ubi",
+		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
 	}
 
 	ctx := context.Background()
@@ -589,13 +589,10 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	require.NoError(t, err)
 
 	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 0)
-	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
-
-	// Version from the mapping file (agent version + operator version)
-	assert.Contains(t, appDBSts.Spec.Template.Spec.Containers[0].Image, "-1_9.9.9-test")
+	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 4)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
 	// In static architecture this container is a copy of agent container
-	assert.Equal(t, appDBSts.Spec.Template.Spec.Containers[0].Image, appDBSts.Spec.Template.Spec.Containers[2].Image)
+	assert.Equal(t, appDBSts.Spec.Template.Spec.Containers[0].Image, appDBSts.Spec.Template.Spec.Containers[3].Image)
 }
 
 func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {

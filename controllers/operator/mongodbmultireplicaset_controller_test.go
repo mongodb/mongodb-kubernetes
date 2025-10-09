@@ -23,26 +23,26 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
-	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
-	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/memberwatch"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status/pvc"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 func init() {
@@ -138,7 +138,7 @@ func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t 
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", mcoConstruct.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent-ubi",
+		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
 		mcoConstruct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
 		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}
@@ -163,11 +163,10 @@ func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t 
 			require.NoError(t, err)
 
 			assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
-			require.Len(t, sts.Spec.Template.Spec.Containers, 2)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 3)
 
-			// Version from OM + operator version
-			assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1_9.9.9-test", sts.Spec.Template.Spec.Containers[0].Image)
-			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[1].Image)
+			// Version from OM
+			VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
 		})
 	}
 }
@@ -542,7 +541,7 @@ func TestHeadlessServiceCreation(t *testing.T) {
 
 		expectedMap := map[string]string{
 			"app":                  mrs.MultiHeadlessServiceName(mrs.ClusterNum(item.ClusterName)),
-			util.OperatorLabelName: util.OperatorName,
+			util.OperatorLabelName: util.OperatorLabelValue,
 		}
 		assert.Equal(t, expectedMap, svc.Spec.Selector)
 	}
@@ -758,7 +757,7 @@ func TestMultiReplicaSetRace(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc, memberClusterMap)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs1, rs2, rs3)
 }
@@ -938,6 +937,90 @@ func TestScaling(t *testing.T) {
 		assert.Len(t, replicaSets, 1)
 		members = replicaSets[0].Members()
 		assert.Len(t, members, 4)
+
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-1", mrs.Name), 3)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+	})
+
+	t.Run("Added members reuse member Ids when annotation is set", func(t *testing.T) {
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+			SetClusterSpecList(clusters).
+			Build()
+
+		mrs.Spec.ClusterSpecList[0].Members = 1
+		mrs.Spec.ClusterSpecList[1].Members = 1
+		mrs.Spec.ClusterSpecList[2].Members = 1
+		reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+		assert.Len(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses(), 3)
+
+		dep, err := omConnectionFactory.GetConnection().ReadDeployment()
+		assert.NoError(t, err)
+
+		replicaSets := dep.GetReplicaSets()
+
+		assert.Len(t, replicaSets, 1)
+		members := replicaSets[0].Members()
+		assert.Len(t, members, 3)
+
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+
+		assert.Equal(t, members[0].Id(), 0)
+		assert.Equal(t, members[1].Id(), 1)
+		assert.Equal(t, members[2].Id(), 2)
+
+		rsMemberIds := map[string]map[string]int{
+			mrs.GetName(): {
+				fmt.Sprintf("%s-0-0", mrs.Name): 0,
+				fmt.Sprintf("%s-1-0", mrs.Name): 1,
+				fmt.Sprintf("%s-2-0", mrs.Name): 2,
+			},
+		}
+
+		rsMemberIdsBytes, _ := json.Marshal(rsMemberIds)
+
+		// Assert that the member ids are saved in the annotation
+		assert.Equal(t, mrs.GetAnnotations()[util.LastAchievedRsMemberIds], string(rsMemberIdsBytes))
+
+		// Scaling up this cluster means we get non-sequential member Ids
+		mrs.Spec.ClusterSpecList[0].Members = 2
+
+		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+		dep, err = omConnectionFactory.GetConnection().ReadDeployment()
+		assert.NoError(t, err)
+
+		replicaSets = dep.GetReplicaSets()
+
+		assert.Len(t, replicaSets, 1)
+		members = replicaSets[0].Members()
+		assert.Len(t, members, 4)
+
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-1", mrs.Name), 3)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+
+		// Assert that the member ids are updated in the annotation
+		rsMemberIds[mrs.GetName()][fmt.Sprintf("%s-0-1", mrs.Name)] = 3
+		rsMemberIdsBytes, _ = json.Marshal(rsMemberIds)
+		assert.Equal(t, mrs.GetAnnotations()[util.LastAchievedRsMemberIds], string(rsMemberIdsBytes))
+
+		// We simulate a changing the project by recreating the omConnection. The resource will keep the annotation.
+		// This part would have failed before 1.2.0.
+		reconciler, client, _, omConnectionFactory = defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+		dep, err = omConnectionFactory.GetConnection().ReadDeployment()
+		assert.NoError(t, err)
+
+		replicaSets = dep.GetReplicaSets()
+		members = replicaSets[0].Members()
 
 		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
 		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-1", mrs.Name), 3)
@@ -1430,7 +1513,7 @@ func calculateHostNamesForExternalDomains(m *mdbmulti.MongoDBMultiCluster) []str
 func multiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(m)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, memberClusterMap, omConnectionFactory
+	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, memberClusterMap, omConnectionFactory
 }
 
 func getFakeMultiClusterMap(omConnectionFactory *om.CachedOMConnectionFactory) map[string]client.Client {

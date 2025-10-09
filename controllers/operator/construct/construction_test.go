@@ -11,15 +11,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 func TestBuildStatefulSet_PersistentFlagStatic(t *testing.T) {
@@ -28,20 +28,20 @@ func TestBuildStatefulSet_PersistentFlagStatic(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).Build()
 	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 7)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
 	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
 
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(true)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 7)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
 	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
 
 	// If no persistence is set then we still mount init scripts
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(false)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 7)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
 	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
 }
 
@@ -111,6 +111,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingleStatic(t *testing.T) {
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData, SubPath: util.PvcNameData},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathLogs, SubPath: util.PvcNameLogs},
+		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: false},
 	})
 }
 

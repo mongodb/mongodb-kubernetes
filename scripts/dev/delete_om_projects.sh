@@ -7,6 +7,8 @@
 
 set -euo pipefail
 
+test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
+
 source scripts/dev/set_env_context.sh
 
 delete_project() {

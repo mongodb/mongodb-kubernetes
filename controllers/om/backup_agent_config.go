@@ -3,8 +3,8 @@ package om
 import (
 	"encoding/json"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 type BackupAgentTemplate struct {
@@ -49,8 +49,8 @@ func (bac *BackupAgentConfig) UnsetAgentPassword() {
 	bac.BackupAgentTemplate.Password = util.MergoDelete
 }
 
-func (bac *BackupAgentConfig) EnableX509Authentication(backupAgentSubject string) {
-	bac.BackupAgentTemplate.SSLPemKeyFile = util.AutomationAgentPemFilePath
+func (bac *BackupAgentConfig) EnableX509Authentication(backupAgentSubject, automationAgentPemFilePath string) {
+	bac.BackupAgentTemplate.SSLPemKeyFile = automationAgentPemFilePath
 	bac.SetAgentUserName(backupAgentSubject)
 }
 

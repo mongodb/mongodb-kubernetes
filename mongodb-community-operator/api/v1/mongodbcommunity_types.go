@@ -16,12 +16,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/constants"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 )
 
 type Type string
@@ -449,6 +449,10 @@ type MongoDBUser struct {
 	// +optional
 	ConnectionStringSecretNamespace string `json:"connectionStringSecretNamespace,omitempty"`
 
+	// ConnectionStringSecretAnnotations is the annotations of the secret object created by the operator which exposes the connection strings for the user.
+	// +optional
+	ConnectionStringSecretAnnotations map[string]string `json:"connectionStringSecretAnnotations,omitempty"`
+
 	// Additional options to be appended to the connection string.
 	// These options apply only to this user and will override any existing options in the resource.
 	// +kubebuilder:validation:Type=object
@@ -748,12 +752,13 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 		}
 
 		users[i] = authtypes.User{
-			Username:                        u.Name,
-			Database:                        u.DB,
-			Roles:                           roles,
-			ConnectionStringSecretName:      u.GetConnectionStringSecretName(m.Name),
-			ConnectionStringSecretNamespace: u.GetConnectionStringSecretNamespace(m.Namespace),
-			ConnectionStringOptions:         u.AdditionalConnectionStringConfig.Object,
+			Username:                          u.Name,
+			Database:                          u.DB,
+			Roles:                             roles,
+			ConnectionStringSecretName:        u.GetConnectionStringSecretName(m.Name),
+			ConnectionStringSecretNamespace:   u.GetConnectionStringSecretNamespace(m.Namespace),
+			ConnectionStringSecretAnnotations: u.ConnectionStringSecretAnnotations,
+			ConnectionStringOptions:           u.AdditionalConnectionStringConfig.Object,
 		}
 
 		if u.DB != constants.ExternalDB {

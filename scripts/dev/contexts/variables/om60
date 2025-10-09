@@ -2,21 +2,14 @@
 
 set -Eeou pipefail
 
-script_name=$(readlink -f "${BASH_SOURCE[0]}")
-script_dir=$(dirname "${script_name}")
-
 CUSTOM_OM_PREV_VERSION=6.0.0
 export CUSTOM_OM_PREV_VERSION
-CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_60_latest\s+(\S+)\s+#" <"${script_dir}"/../../../../.evergreen.yml | awk '{print $3}')
+CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_60_latest\s+(\S+)\s+#" <"${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
 
 export CUSTOM_MDB_VERSION=6.0.21
 export CUSTOM_MDB_PREV_VERSION=5.0.7
 
-export AGENT_VERSION=12.0.33.7866-1
-export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
-
 export CUSTOM_APPDB_VERSION=6.0.21-ent
 export TEST_MODE=opsmanager
-export OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
-export APPDB_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+export OPS_MANAGER_REGISTRY="${BASE_REPO_URL}"

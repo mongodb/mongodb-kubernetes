@@ -5,7 +5,23 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-operator-multi-cluster-role
+  name: mongodb-kubernetes-operator-central-namespace-multi-cluster-mongodb-role
+rules:
+- apiGroups:
+  - mongodb.com
+  resources:
+  - clustermongodbroles
+  verbs:
+  - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  labels:
+    multi-cluster: "true"
+  name: mongodb-kubernetes-operator-multi-cluster-role
 rules:
 - apiGroups:
   - mongodb.com
@@ -21,6 +37,18 @@ rules:
   - mongodb
   - mongodb/finalizers
   - mongodb/status
+  - mongodbsearch
+  - mongodbsearch/finalizers
+  - mongodbsearch/status
+  verbs:
+  - '*'
+- apiGroups:
+  - mongodbcommunity.mongodb.com
+  resources:
+  - mongodbcommunity
+  - mongodbcommunity/status
+  - mongodbcommunity/spec
+  - mongodbcommunity/finalizers
   verbs:
   - '*'
 - apiGroups:
@@ -52,11 +80,24 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - watch
+  - patch
+- apiGroups:
+  - ""
+  resources:
   - pods
   verbs:
   - get
   - list
   - watch
+  - delete
+  - deletecollection
 - apiGroups:
   - ""
   resources:
@@ -66,6 +107,34 @@ rules:
   - watch
 
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  labels:
+    multi-cluster: "true"
+  name: mongodb-kubernetes-operator-multi-cluster-role-telemetry
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - list
+- apiGroups:
+  - ""
+  resourceNames:
+  - kube-system
+  resources:
+  - namespaces
+  verbs:
+  - get
+- nonResourceURLs:
+  - /version
+  verbs:
+  - get
+
+---
 # Central Cluster, cluster-scoped resources
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -73,27 +142,59 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-operator-multi-cluster-role-binding
+  name: mongodb-kubernetes-operator-central-namespace-multi-cluster-mongodb-role-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: mongodb-enterprise-operator-multi-cluster-role
+  name: mongodb-kubernetes-operator-central-namespace-multi-cluster-mongodb-role
 subjects:
 - kind: ServiceAccount
-  name: test-service-account
+  name: mongodb-kubernetes-operator-multicluster
+  namespace: central-namespace
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  labels:
+    multi-cluster: "true"
+  name: mongodb-kubernetes-operator-multi-cluster-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-multi-cluster-role
+subjects:
+- kind: ServiceAccount
+  name: mongodb-kubernetes-operator-multicluster
+  namespace: central-namespace
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  labels:
+    multi-cluster: "true"
+  name: mongodb-kubernetes-operator-multi-telemetry-cluster-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-multi-cluster-role-telemetry
+subjects:
+- kind: ServiceAccount
+  name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
 
 ---
 # Central Cluster, cluster-scoped resources
 apiVersion: v1
 kind: ServiceAccount
-imagePullSecrets:
-- name: image-registries-secret
 metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: test-service-account
+  name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
 
 ---

@@ -5,8 +5,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/identifiable"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -195,6 +196,69 @@ func TestTransformToMap(t *testing.T) {
 	assert.Equal(t, map[string]int{"a": 0, "b": 1, "c": 2}, TransformToMap([]tmpStruct{{"a", 0}, {"b", 1}, {"c", 2}}, func(v tmpStruct, idx int) (string, int) {
 		return v.str, v.int
 	}))
+}
+
+// TestIsURL tests the ParseURL function with various inputs.
+//
+//goland:noinspection HttpUrlsUsage
+func TestIsURL(t *testing.T) {
+	tests := []struct {
+		name                string
+		input               string
+		expectedErrorString string
+	}{
+		{
+			name:  "valid http URL",
+			input: "http://example.com",
+		},
+		{
+			name:  "valid https URL with path",
+			input: "https://example.com/path",
+		},
+		{
+			name:  "valid URL with port",
+			input: "http://example.com:8080",
+		},
+		{
+			name:                "missing scheme",
+			input:               "example.com",
+			expectedErrorString: "missing URL scheme: example.com",
+		},
+		{
+			name:                "missing host",
+			input:               "http://",
+			expectedErrorString: "missing URL host: http://",
+		},
+		{
+			name:                "empty string",
+			input:               "",
+			expectedErrorString: "empty URL",
+		},
+		{
+			name:                "invalid URL",
+			input:               ":invalid-url",
+			expectedErrorString: "invalid URL: parse \":invalid-url\": missing protocol scheme",
+		},
+		{
+			name:                "file scheme",
+			input:               "file://path/to/file",
+			expectedErrorString: "invalid URL scheme (http or https): file://path/to/file",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u, err := ParseURL(tt.input)
+			if tt.expectedErrorString != "" {
+				require.Error(t, err)
+				assert.Equal(t, tt.expectedErrorString, err.Error())
+				assert.Nil(t, u)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, u)
+			}
+		})
+	}
 }
 
 func pair(left, right identifiable.Identifiable) []identifiable.Identifiable {

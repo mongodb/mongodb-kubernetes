@@ -8,9 +8,9 @@ import (
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/constants"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 )
 
 // ensureUserResources will check that the configured user password secrets can be found
@@ -74,6 +74,7 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 		connectionStringSecret := secret.Builder().
 			SetName(secretName).
 			SetNamespace(secretNamespace).
+			SetAnnotations(user.ConnectionStringSecretAnnotations).
 			SetField("connectionString.standard", mdb.MongoAuthUserURI(user, pwd, clusterDomain)).
 			SetField("connectionString.standardSrv", mdb.MongoAuthUserSRVURI(user, pwd, clusterDomain)).
 			SetField("username", user.Username).

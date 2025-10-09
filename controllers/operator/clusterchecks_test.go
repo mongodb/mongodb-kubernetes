@@ -14,11 +14,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 type clusterChecks struct {
@@ -107,7 +107,7 @@ func (c *clusterChecks) checkPerPodServices(ctx context.Context, statefulSetName
 		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 
 		assert.Equal(c.t, map[string]string{
-			util.OperatorLabelName:         util.OperatorName,
+			util.OperatorLabelName:         util.OperatorLabelValue,
 			appsv1.StatefulSetPodNameLabel: fmt.Sprintf("%s-%d", statefulSetName, podIdx),
 		},
 			svc.Spec.Selector)
@@ -130,7 +130,7 @@ func (c *clusterChecks) checkExternalServices(ctx context.Context, statefulSetNa
 		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
 		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 		assert.Subset(c.t, svc.Spec.Selector, map[string]string{
-			util.OperatorLabelName:         util.OperatorName,
+			util.OperatorLabelName:         util.OperatorLabelValue,
 			appsv1.StatefulSetPodNameLabel: fmt.Sprintf("%s-%d", statefulSetName, podIdx),
 		})
 	}
@@ -153,7 +153,7 @@ func (c *clusterChecks) checkInternalServices(ctx context.Context, statefulSetNa
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 
 	assert.Equal(c.t, map[string]string{
-		util.OperatorLabelName: util.OperatorName,
+		util.OperatorLabelName: util.OperatorLabelValue,
 		"app":                  serviceName,
 	},
 		svc.Spec.Selector)
@@ -234,7 +234,8 @@ func (c *clusterChecks) checkAgentCertsSecret(ctx context.Context, certificatesS
 	sec := corev1.Secret{}
 	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, util.AgentSecretName)), &sec)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	require.Contains(c.t, sec.Data, util.AutomationAgentPemSecretKey, "clusterName: %s", c.clusterName)
+	require.Contains(c.t, sec.Data, util.LatestHashSecretKey, "clusterName: %s", c.clusterName)
+	require.Contains(c.t, sec.Data, string(sec.Data[util.LatestHashSecretKey]), "clusterName: %s", c.clusterName)
 }
 
 func (c *clusterChecks) checkMongosCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shouldExist bool) {

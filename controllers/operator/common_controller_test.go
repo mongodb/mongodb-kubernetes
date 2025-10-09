@@ -19,25 +19,27 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/role"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 const OperatorNamespace = "operatorNs"
@@ -265,9 +267,124 @@ func TestReadSubjectNoCertificate(t *testing.T) {
 	assertSubjectFromFileFails(t, "testdata/certificates/just_key")
 }
 
+func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
+	ctx := context.Background()
+	customRole := mdbv1.MongoDBRole{
+		Role:                       "foo",
+		AuthenticationRestrictions: []mdbv1.AuthenticationRestriction{},
+		Db:                         "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "readWriteAnyDatabase",
+		}},
+	}
+	roleResource := role.DefaultClusterMongoDBRoleBuilder().Build()
+	roleRef := mdbv1.MongoDBRoleRef{
+		Name: roleResource.Name,
+		Kind: util.ClusterMongoDBRoleKind,
+	}
+	assert.Nil(t, customRole.Privileges)
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{customRole}).SetRoleRefs([]mdbv1.MongoDBRoleRef{roleRef}).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	assert.False(t, result.IsOK())
+	assert.Equal(t, status.PhaseFailed, result.Phase())
+
+	ac, err := mockOm.ReadAutomationConfig()
+	assert.NoError(t, err)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
+	assert.False(t, ok)
+	assert.Empty(t, roles)
+}
+
+func TestRoleRefsAreAdded(t *testing.T) {
+	ctx := context.Background()
+	roleResource := role.DefaultClusterMongoDBRoleBuilder().Build()
+	roleRefs := []mdbv1.MongoDBRoleRef{
+		{
+			Name: roleResource.Name,
+			Kind: util.ClusterMongoDBRoleKind,
+		},
+	}
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	_ = kubeClient.Create(ctx, roleResource)
+
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+
+	ac, err := mockOm.ReadAutomationConfig()
+	assert.NoError(t, err)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
+	assert.True(t, ok)
+	assert.NotNil(t, roles[0].Privileges)
+	assert.Len(t, roles, 1)
+}
+
+func TestErrorWhenRoleRefIsWrong(t *testing.T) {
+	ctx := context.Background()
+	roleResource := role.DefaultClusterMongoDBRoleBuilder().Build()
+	roleRefs := []mdbv1.MongoDBRoleRef{
+		{
+			Name: roleResource.Name,
+			Kind: "WrongMongoDBRoleReference",
+		},
+	}
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	_ = kubeClient.Create(ctx, roleResource)
+
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	assert.False(t, result.IsOK())
+	assert.Equal(t, status.PhaseFailed, result.Phase())
+
+	ac, err := mockOm.ReadAutomationConfig()
+	assert.NoError(t, err)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
+	assert.False(t, ok)
+	assert.Empty(t, roles)
+}
+
+func TestErrorWhenRoleDoesNotExist(t *testing.T) {
+	ctx := context.Background()
+	roleResource := role.DefaultClusterMongoDBRoleBuilder().Build()
+	roleRefs := []mdbv1.MongoDBRoleRef{
+		{
+			Name: roleResource.Name,
+			Kind: util.ClusterMongoDBRoleKind,
+		},
+	}
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	assert.False(t, result.IsOK())
+	assert.Equal(t, status.PhaseFailed, result.Phase())
+
+	ac, err := mockOm.ReadAutomationConfig()
+	assert.NoError(t, err)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
+	assert.False(t, ok)
+	assert.Empty(t, roles)
+}
+
 func TestDontSendNilPrivileges(t *testing.T) {
 	ctx := context.Background()
-	customRole := mdbv1.MongoDbRole{
+	customRole := mdbv1.MongoDBRole{
 		Role:                       "foo",
 		AuthenticationRestrictions: []mdbv1.AuthenticationRestriction{},
 		Db:                         "admin",
@@ -277,14 +394,14 @@ func TestDontSendNilPrivileges(t *testing.T) {
 		}},
 	}
 	assert.Nil(t, customRole.Privileges)
-	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDbRole{customRole}).Build()
+	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{customRole}).Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
-	ensureRoles(rs.Spec.Security.Roles, mockOm, &zap.SugaredLogger{})
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
-	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDbRole)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.True(t, ok)
 	assert.NotNil(t, roles[0].Privileges)
 }
@@ -302,7 +419,7 @@ func TestSecretWatcherWithAllResources(t *testing.T) {
 	// TODO: unify the watcher setup with the secret creation/mounting code in database creation
 	memberCert := rs.GetSecurity().MemberCertificateSecretName(rs.Name)
 	internalAuthCert := rs.GetSecurity().InternalClusterAuthSecretName(rs.Name)
-	agentCert := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name
+	agentCert := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
 
 	expected := map[watch.Object][]types.NamespacedName{
 		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
@@ -336,6 +453,67 @@ func TestSecretWatcherWithSelfProvidedTLSSecretNames(t *testing.T) {
 	}
 
 	assert.Equal(t, expected, controller.resourceWatcher.GetWatchedResources())
+}
+
+func TestAgentCertHashAndPath(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient(
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "tls-secret",
+				Namespace: mock.TestNamespace,
+			},
+			StringData: map[string]string{
+				corev1.TLSCertKey: "fake-contents",
+			},
+			Type: corev1.SecretTypeTLS,
+		},
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "opaque-secret",
+				Namespace: mock.TestNamespace,
+			},
+			StringData: map[string]string{
+				corev1.TLSCertKey: "fake-contents",
+			},
+			Type: corev1.SecretTypeOpaque,
+		},
+	)
+	controller := NewReconcileCommonController(ctx, kubeClient)
+
+	tests := []struct {
+		name         string
+		secretName   string
+		expectedHash string
+		expectedPath string
+	}{
+		{
+			name:         "TLS secret",
+			secretName:   "tls-secret",
+			expectedHash: "IQJW7I2VWNTYUEKGVULPP2DET2KPWT6CD7TX5AYQYBQPMHFK76FA",
+			expectedPath: "/mongodb-automation/agent-certs/IQJW7I2VWNTYUEKGVULPP2DET2KPWT6CD7TX5AYQYBQPMHFK76FA",
+		},
+		{
+			name:         "Opaque secret",
+			secretName:   "opaque-secret",
+			expectedHash: "",
+			expectedPath: "",
+		},
+		{
+			name:         "Secret doesn't exist",
+			secretName:   "non-existent-secret",
+			expectedHash: "",
+			expectedPath: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hash, path := controller.agentCertHashAndPath(ctx, zap.S(), mock.TestNamespace, tc.secretName, "")
+			assert.Equal(t, tc.expectedHash, hash)
+			assert.Equal(t, tc.expectedPath, path)
+		})
+	}
 }
 
 func assertSubjectFromFileFails(t *testing.T, filePath string) {

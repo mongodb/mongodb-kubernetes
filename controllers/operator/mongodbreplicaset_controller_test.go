@@ -23,27 +23,27 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
-	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status/pvc"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 type ReplicaSetBuilder struct {
@@ -92,7 +92,7 @@ func TestReplicaSetRace(t *testing.T) {
 			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
 		}).Build()
 
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs, rs2, rs3)
 }
@@ -129,7 +129,7 @@ func TestReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", mcoConstruct.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent-ubi",
+		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
 		mcoConstruct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
 		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}
@@ -148,11 +148,29 @@ func TestReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	assert.NoError(t, err)
 
 	assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
-	require.Len(t, sts.Spec.Template.Spec.Containers, 2)
+	require.Len(t, sts.Spec.Template.Spec.Containers, 3)
 
-	// Version from OM + operator version
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1_9.9.9-test", sts.Spec.Template.Spec.Containers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[1].Image)
+	// Version from OM
+	VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
+}
+
+func VerifyStaticContainers(t *testing.T, containers []corev1.Container) {
+	agentContainerImage := findContainerImage(containers, util.AgentContainerName)
+	require.NotNil(t, agentContainerImage, "Agent container not found")
+	assert.Equal(t, "quay.io/mongodb/mongodb-agent:12.0.30.7791-1", agentContainerImage)
+
+	mongoContainerImage := findContainerImage(containers, util.DatabaseContainerName)
+	require.NotNil(t, mongoContainerImage, "MongoDB container not found")
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", mongoContainerImage)
+}
+
+func findContainerImage(containers []corev1.Container, containerName string) string {
+	for _, container := range containers {
+		if container.Name == containerName {
+			return container.Image
+		}
+	}
+	return ""
 }
 
 func buildReplicaSetWithCustomProjectName(rsName string) (*mdbv1.MongoDB, *corev1.ConfigMap, string) {
@@ -382,22 +400,22 @@ func TestUpdateDeploymentTLSConfiguration(t *testing.T) {
 	stsNoTLS := construct.DatabaseStatefulSet(*rsNoTLS, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zap.S())
 
 	// TLS Disabled -> TLS Disabled
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer, "")
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Disabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer, "")
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Enabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer, "")
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Enabled -> TLS Disabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer, "")
 	assert.NoError(t, err)
 	assert.True(t, shouldLockMembers)
 }
@@ -410,7 +428,7 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 	omConn := omConnectionFactory.GetConnection()
@@ -538,9 +556,9 @@ func TestReplicaSetCustomPodSpecTemplateStatic(t *testing.T) {
 	assertPodSpecSts(t, &statefulSet, podSpec.NodeName, podSpec.Hostname, podSpec.RestartPolicy)
 
 	podSpecTemplate := statefulSet.Spec.Template.Spec
-	assert.Len(t, podSpecTemplate.Containers, 3, "Should have 3 containers now")
-	assert.Equal(t, util.AgentContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[2].Name, "Custom container should be second")
+	assert.Len(t, podSpecTemplate.Containers, 4, "Should have 4 containers now")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplate.Containers[0].Name, "Agent container should be first alphabetically")
+	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[len(podSpecTemplate.Containers)-1].Name, "Custom container should be last")
 }
 
 func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
@@ -549,7 +567,7 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -573,7 +591,7 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -983,7 +1001,7 @@ func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T,
 
 func defaultReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	return newReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	return newReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // newDefaultPodSpec creates pod spec with default values,sets only the topology key and persistence sizes,
@@ -1020,7 +1038,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 			Security: &mdbv1.Security{
 				TLSConfig:      &mdbv1.TLSConfig{},
 				Authentication: &mdbv1.Authentication{},
-				Roles:          []mdbv1.MongoDbRole{},
+				Roles:          []mdbv1.MongoDBRole{},
 			},
 		},
 		Members: 3,
@@ -1073,7 +1091,7 @@ func (b *ReplicaSetBuilder) SetAuthentication(auth *mdbv1.Authentication) *Repli
 	return b
 }
 
-func (b *ReplicaSetBuilder) SetRoles(roles []mdbv1.MongoDbRole) *ReplicaSetBuilder {
+func (b *ReplicaSetBuilder) SetRoles(roles []mdbv1.MongoDBRole) *ReplicaSetBuilder {
 	if b.Spec.Security == nil {
 		b.Spec.Security = &mdbv1.Security{}
 	}

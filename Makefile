@@ -57,10 +57,16 @@ prerequisites:
 	@ scripts/dev/install.sh
 
 precommit:
-	@ EVERGREEN_MODE=true .githooks/pre-commit
+	@ .githooks/pre-commit
+
+precommit-with-licenses:
+	@ MDB_UPDATE_LICENSES=true .githooks/pre-commit
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
+
+switcht:
+	@ scripts/dev/switch_context_by_test.sh $(test)
 
 # builds the Operator binary file and docker image and pushes it to the remote registry if using a remote registry. Deploys it to
 # k8s cluster
@@ -69,13 +75,13 @@ operator: configure-operator build-and-push-operator-image
 
 # build-push, (todo) restart database
 database: aws_login
-	@ scripts/evergreen/run_python.sh pipeline.py --include database
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py database
 
 readiness_probe: aws_login
-	@ scripts/evergreen/run_python.sh pipeline.py --include readiness-probe
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py readiness-probe
 
 upgrade_hook: aws_login
-	@ scripts/evergreen/run_python.sh pipeline.py --include upgrade-hook
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py upgrade-hook
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
@@ -84,7 +90,7 @@ full: build-and-push-images
 
 # build-push appdb image
 appdb: aws_login
-	@ scripts/evergreen/run_python.sh pipeline.py --include appdb
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py --include appdb
 
 # runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
 # The e2e test image is built and pushed together with all main ones (operator, database, init containers)
@@ -106,7 +112,7 @@ mco-e2e: aws_login build-and-push-mco-test-image
 
 generate-env-file: ## generates a local-test.env for local testing
 	mkdir -p .generated
-	{ scripts/evergreen/run_python.sh mongodb-community-operator/scripts/dev/get_e2e_env_vars.py ".generated/config.json" | tee >(cut -d' ' -f2 > .generated/mco-test.env) ;} > .generated/mco-test.export.env
+	{ scripts/dev/run_python.sh mongodb-community-operator/scripts/dev/get_e2e_env_vars.py ".generated/config.json" | tee >(cut -d' ' -f2 > .generated/mco-test.env) ;} > .generated/mco-test.export.env
 	. .generated/mco-test.export.env
 
 reset-helm-leftovers: ## sometimes you didn't cleanly uninstall a helm release, this cleans the existing helm artifacts
@@ -141,26 +147,26 @@ ac:
 # in parallel and both call 'aws_login') then Docker login may return an error "Error saving credentials:..The
 # specified item already exists in the keychain". Seems this allows to ignore the error
 aws_login:
-	@ scripts/dev/configure_docker_auth.sh
+	@ scripts/dev/configure_container_auth.sh
 
 # cleans up aws resources, including s3 buckets which are older than 5 hours
 aws_cleanup:
 	@ scripts/evergreen/prepare_aws.sh
 
 build-and-push-operator-image: aws_login
-	@ scripts/evergreen/run_python.sh pipeline.py --include operator-quick
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py operator
 
 build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image
 
 build-and-push-test-image: aws_login build-multi-cluster-binary
 	@ if [[ -z "$(local)" ]]; then \
-		scripts/evergreen/run_python.sh pipeline.py --include test; \
+		scripts/dev/run_python.sh scripts/release/pipeline_main.py test; \
 	fi
 
 build-and-push-mco-test-image: aws_login
 	@ if [[ -z "$(local)" ]]; then \
-		scripts/evergreen/run_python.sh pipeline.py --include mco-test; \
+		scripts/dev/run_python.sh scripts/release/pipeline_main.py mco-test; \
 	fi
 
 build-multi-cluster-binary:
@@ -175,27 +181,27 @@ build-and-push-images: build-and-push-operator-image appdb-init-image om-init-im
 build-and-push-init-images: appdb-init-image om-init-image database-init-image
 
 database-init-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include init-database
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py init-database
 
 appdb-init-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include init-appdb
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py init-appdb
 
 # Not setting a parallel-factor will default to 0 which will lead to using all CPUs, that can cause docker to die.
 # Here we are defaulting to 6, a higher value might work for you.
 agent-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include agent --all-agents --parallel --parallel-factor 6
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel --parallel-factor 6 agent
 
 agent-image-slow:
-	@ scripts/evergreen/run_python.sh pipeline.py --include agent --parallel-factor 1
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel-factor 1 agent
 
 operator-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include operator
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py operator
 
 om-init-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include init-ops-manager
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py init-ops-manager
 
 om-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include ops-manager
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py ops-manager
 
 configure-operator:
 	@ scripts/dev/configure_operator.sh
@@ -204,10 +210,10 @@ deploy-and-configure-operator: deploy-operator configure-operator
 
 cert:
 	@ openssl req  -nodes -new -x509  -keyout ca-tls.key -out ca-tls.crt -extensions v3_ca -days 3650
-	@ mv ca-tls.key ca-tls.crt docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/
-	@ cat docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls.crt \
-	docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/mongodb-download.crt \
-	> docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls-full-chain.crt
+	@ mv ca-tls.key ca-tls.crt docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/
+	@ cat docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/ca-tls.crt \
+	docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/mongodb-download.crt \
+	> docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/ca-tls-full-chain.crt
 
 .PHONY: recreate-e2e-multicluster-kind
 recreate-e2e-multicluster-kind:
@@ -256,7 +262,7 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 BUNDLE_IMG ?= controller-bundle:$(VERSION)
 
 # Image URL to use all building/pushing image targets
-IMG ?= mongodb-enterprise-operator:latest
+IMG ?= mongodb-kubernetes-operator:latest
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd"
 
@@ -278,28 +284,37 @@ golang-tests-race:
 	USE_RACE=true scripts/evergreen/unit-tests.sh
 
 sbom-tests:
-	@ scripts/evergreen/run_python.sh -m pytest generate_ssdlc_report_test.py
+	@ scripts/dev/run_python.sh -m pytest generate_ssdlc_report_test.py
 
-# e2e tests are also in python and we will need to ignore them as they are in the docker/mongodb-enterprise-tests folder
-# additionally, we have one lib which we want to test which is in the =docker/mongodb-enterprise-tests folder.
+# e2e tests are also in python and we will need to ignore them as they are in the docker/mongodb-kubernetes-tests folder
+# additionally, we have one lib which we want to test which is in the =docker/mongodb-kubernetes-tests folder.
 python-tests:
-	@ scripts/evergreen/run_python.sh -m pytest docker/mongodb-enterprise-tests/kubeobject
-	@ scripts/evergreen/run_python.sh -m pytest --ignore=docker/mongodb-enterprise-tests
+	@ scripts/dev/run_python.sh -m pytest docker/mongodb-kubernetes-tests/kubeobject
+	@ scripts/dev/run_python.sh -m pytest --ignore=docker/mongodb-kubernetes-tests
 
 generate-ssdlc-report:
-	@ scripts/evergreen/run_python.sh generate_ssdlc_report.py
+	@ scripts/dev/run_python.sh generate_ssdlc_report.py
 
 # test-race runs golang test with race enabled
 test-race: generate fmt vet manifests golang-tests-race
 
 test: generate fmt vet manifests golang-tests
 
-# all-tests will run golang and python tests without race (used locally)
-all-tests: test python-tests
+# helm-tests will run helm chart unit tests
+helm-tests:
+	@echo "Running helm chart unit tests..."
+	@if ! helm plugin list | grep -q unittest; then \
+		echo "Installing helm-unittest plugin..."; \
+		helm plugin install https://github.com/helm-unittest/helm-unittest; \
+	fi
+	helm unittest helm_chart --color
+
+# all-tests will run golang, python, and helm tests without race (used locally)
+all-tests: test python-tests helm-tests
 
 # Build manager binary
 manager: generate fmt vet
-	GOOS=linux GOARCH=amd64 go build -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator main.go
+	GOOS=linux GOARCH=amd64 go build -o docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator main.go
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
@@ -322,9 +337,9 @@ deploy: manifests kustomize
 undeploy:
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
 
-# Generate manifests e.g. CRD, RBAC etc.
+# Generate manifests e.g. CRD etc.
 manifests: controller-gen
-	export PATH="$(PATH)"; export GOROOT=$(GOROOT); $(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role paths=./... output:crd:artifacts:config=config/crd/bases
+	export PATH="$(PATH)"; export GOROOT=$(GOROOT); $(CONTROLLER_GEN) $(CRD_OPTIONS) paths=./... output:crd:artifacts:config=config/crd/bases
 	# copy the CRDs to the public folder
 	cp config/crd/bases/* helm_chart/crds/
 	cat "helm_chart/crds/"* > public/crds.yaml
@@ -353,7 +368,7 @@ docker-push:
 # Download controller-gen locally if necessary
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 controller-gen:
-	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.15.0)
+	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.18.0)
 
 # Download kustomize locally if necessary
 KUSTOMIZE = $(shell pwd)/bin/kustomize
@@ -399,5 +414,13 @@ dockerfiles:
 prepare-local-e2e: reset-mco # prepares the local environment to run a local operator
 	scripts/dev/prepare_local_e2e_run.sh
 
+prepare-local-olm-e2e:
+	DIGEST_PINNING_ENABLED=false VERSION_ID=latest scripts/evergreen/operator-sdk/prepare-openshift-bundles-for-e2e.sh
+	scripts/dev/prepare_local_e2e_olm_run.sh
+
 prepare-operator-configmap: # prepares the local environment to run a local operator
 	source scripts/dev/set_env_context.sh && source scripts/funcs/printing && source scripts/funcs/operator_deployment && prepare_operator_config_map "$(kubectl config current-context)"
+
+# Lint the helm chart using helm chart-testing tool (`ct`) using the default configuration available at `helm_chart/tests/schemas/`
+lint-chart:
+	scripts/dev/lint_helm_chart.sh

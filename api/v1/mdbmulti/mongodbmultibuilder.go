@@ -8,10 +8,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 type MultiReplicaSetBuilder struct {
@@ -46,7 +46,7 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 				Authentication: &mdbv1.Authentication{
 					Modes: []mdbv1.AuthMode{},
 				},
-				Roles: []mdbv1.MongoDbRole{},
+				Roles: []mdbv1.MongoDBRole{},
 			},
 			DuplicateServiceObjects: util.BooleanRef(false),
 		},
@@ -70,6 +70,14 @@ func (m *MultiReplicaSetBuilder) SetVersion(version string) *MultiReplicaSetBuil
 
 func (m *MultiReplicaSetBuilder) SetSecurity(s *mdbv1.Security) *MultiReplicaSetBuilder {
 	m.Spec.Security = s
+	return m
+}
+
+func (m *MultiReplicaSetBuilder) SetRoleRefs(roleRefs []mdbv1.MongoDBRoleRef) *MultiReplicaSetBuilder {
+	if m.Spec.Security == nil {
+		m.Spec.Security = &mdbv1.Security{}
+	}
+	m.Spec.Security.RoleRefs = roleRefs
 	return m
 }
 

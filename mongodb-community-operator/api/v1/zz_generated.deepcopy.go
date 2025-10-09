@@ -21,7 +21,7 @@ limitations under the License.
 package v1
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -313,6 +313,13 @@ func (in *MongoDBUser) DeepCopyInto(out *MongoDBUser) {
 		in, out := &in.Roles, &out.Roles
 		*out = make([]Role, len(*in))
 		copy(*out, *in)
+	}
+	if in.ConnectionStringSecretAnnotations != nil {
+		in, out := &in.ConnectionStringSecretAnnotations, &out.ConnectionStringSecretAnnotations
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
 	}
 	in.AdditionalConnectionStringConfig.DeepCopyInto(&out.AdditionalConnectionStringConfig)
 }

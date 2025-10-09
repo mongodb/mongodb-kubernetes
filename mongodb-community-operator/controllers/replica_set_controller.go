@@ -11,11 +11,14 @@ import (
 	"github.com/imdario/mergo"
 	"github.com/stretchr/objx"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -26,25 +29,27 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/predicates"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/validation"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/watch"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/agent"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/service"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/functions"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/result"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/scale"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/status"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/predicates"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/validation"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/watch"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/functions"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
 
 const (
@@ -82,6 +87,16 @@ func NewReconciler(mgr manager.Manager, mongodbRepoUrl, mongodbImage, mongodbIma
 	}
 }
 
+func findMdbcForSearch(ctx context.Context, rawObj k8sClient.Object) []reconcile.Request {
+	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
+	if mdbSearch.GetMongoDBResourceRef() == nil {
+		return nil
+	}
+	return []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Namespace: mdbSearch.GetMongoDBResourceRef().Namespace, Name: mdbSearch.GetMongoDBResourceRef().Name}},
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager and configures the necessary watches.
 func (r *ReplicaSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -89,6 +104,7 @@ func (r *ReplicaSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&mdbv1.MongoDBCommunity{}, builder.WithPredicates(predicates.OnlyOnSpecChange())).
 		Watches(&corev1.Secret{}, r.secretWatcher).
 		Watches(&corev1.ConfigMap{}, r.configMapWatcher).
+		Watches(&searchv1.MongoDBSearch{}, handler.EnqueueRequestsFromMapFunc(findMdbcForSearch)).
 		Owns(&appsv1.StatefulSet{}).
 		Complete(r)
 }
@@ -252,7 +268,7 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 		return res, nil
 	}
 
-	r.log.Infof("Successfully finished reconciliation, MongoDB.Spec: %+v, MongoDB.Status: %+v", mdb.Spec, mdb.Status)
+	r.log.Infof("Successfully finished reconciliation, MongoDBCommunity.Spec: %+v, MongoDBCommunity.Status: %+v", mdb.Spec, mdb.Status)
 	return res, err
 }
 
@@ -688,6 +704,23 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 		return automationconfig.AutomationConfig{}, err
 	}
 
+	var search *searchv1.MongoDBSearch
+	searchList := &searchv1.MongoDBSearchList{}
+	if err := r.client.List(ctx, searchList, &k8sClient.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, mdb.Namespace+"/"+mdb.Name),
+	}); err != nil {
+		r.log.Debug(err)
+	}
+	// this validates that there is exactly one MongoDBSearch pointing to this resource,
+	// and that this resource passes search validations. If either fails, proceed without a search target
+	// for the mongod automation config.
+	if len(searchList.Items) == 1 {
+		searchSource := searchcontroller.NewCommunityResourceSearchSource(&mdb)
+		if searchSource.Validate() == nil {
+			search = &searchList.Items[0]
+		}
+	}
+
 	automationConfig, err := buildAutomationConfig(
 		mdb,
 		guessEnterprise(mdb, r.mongodbImage),
@@ -697,6 +730,8 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 		customRolesModification,
 		prometheusModification,
 		processPortManager.GetPortsModification(),
+		getMongodConfigSearchModification(search),
+		searchCoordinatorCustomRoleModification(search, mdb.GetMongoDBVersion()),
 	)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, fmt.Errorf("could not create an automation config: %s", err)
@@ -707,6 +742,66 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	}
 
 	return automationConfig, nil
+}
+
+// TODO: remove this as soon as searchCoordinator builtin role is backported
+func searchCoordinatorCustomRoleModification(search *searchv1.MongoDBSearch, mongodbVersion string) automationconfig.Modification {
+	if search == nil || !searchcontroller.NeedsSearchCoordinatorRolePolyfill(mongodbVersion) {
+		return automationconfig.NOOP()
+	}
+
+	return func(ac *automationconfig.AutomationConfig) {
+		searchCoordinatorRole := searchCoordinatorCustomRoleStruct()
+		ac.Roles = append(ac.Roles, searchCoordinatorRole)
+	}
+}
+
+func searchCoordinatorCustomRoleStruct() automationconfig.CustomRole {
+	// direct translation of https://github.com/10gen/mongo/blob/6f8d95a513eea8f91ea9f5d895dd8a288dfcf725/src/mongo/db/auth/builtin_roles.yml#L652
+	return automationconfig.CustomRole{
+		Role: "searchCoordinator",
+		DB:   "admin",
+		Roles: []automationconfig.Role{
+			{
+				Role:     "clusterMonitor",
+				Database: "admin",
+			},
+			{
+				Role:     "directShardOperations",
+				Database: "admin",
+			},
+			{
+				Role:     "readAnyDatabase",
+				Database: "admin",
+			},
+		},
+		Privileges: []automationconfig.Privilege{
+			{
+				Resource: automationconfig.Resource{
+					DB:         ptr.To("__mdb_internal_search"),
+					Collection: ptr.To(""),
+				},
+				Actions: []string{
+					"changeStream", "collStats", "dbHash", "dbStats", "find",
+					"killCursors", "listCollections", "listIndexes", "listSearchIndexes",
+					// performRawDataOperations is available only on mongod master
+					// "performRawDataOperations",
+					"planCacheRead", "cleanupStructuredEncryptionData",
+					"compactStructuredEncryptionData", "convertToCapped", "createCollection",
+					"createIndex", "createSearchIndexes", "dropCollection", "dropIndex",
+					"dropSearchIndex", "insert", "remove", "renameCollectionSameDB",
+					"update", "updateSearchIndex",
+				},
+			},
+			{
+				Resource: automationconfig.Resource{
+					Cluster: true,
+				},
+				Actions: []string{"bypassDefaultMaxTimeMS"},
+			},
+		},
+		AuthenticationRestrictions: nil,
+	}
 }
 
 // OverrideToAutomationConfig turns an automation config override from the resource spec into an automation config
@@ -739,10 +834,29 @@ func getMongodConfigModification(mdb mdbv1.MongoDBCommunity) automationconfig.Mo
 	}
 }
 
+// getMongodConfigModification will merge the additional configuration in the CRD
+// into the configuration set up by the operator.
+func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automationconfig.Modification {
+	// Condition for skipping add parameter if it is external mongod
+	if search == nil || search.IsExternalMongoDBSource() {
+		return automationconfig.NOOP()
+	}
+
+	searchConfigParameters := searchcontroller.GetMongodConfigParameters(search)
+	return func(ac *automationconfig.AutomationConfig) {
+		for i := range ac.Processes {
+			err := mergo.Merge(&ac.Processes[i].Args26, objx.New(searchConfigParameters), mergo.WithOverride)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+}
+
 // buildStatefulSetModificationFunction takes a MongoDB resource and converts it into
 // the corresponding stateful set
 func buildStatefulSetModificationFunction(mdb mdbv1.MongoDBCommunity, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage string) statefulset.Modification {
-	commonModification := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage, true)
+	commonModification := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage, true, "")
 	return statefulset.Apply(
 		commonModification,
 		statefulset.WithOwnerReference(mdb.GetOwnerReferences()),

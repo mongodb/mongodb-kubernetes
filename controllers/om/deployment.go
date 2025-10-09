@@ -12,13 +12,13 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	mdbcv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 type DeploymentType int
@@ -60,7 +60,7 @@ func init() {
 	gob.Register(tls.Prefer)
 	gob.Register(tls.Allow)
 	gob.Register(tls.Disabled)
-	gob.Register([]mdbv1.MongoDbRole{})
+	gob.Register([]mdbv1.MongoDBRole{})
 	gob.Register([]automationconfig.MemberOptions{})
 }
 
@@ -280,13 +280,13 @@ func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger, tls bool, caF
 	d.addBackup(log)
 }
 
-// DEPRECATED: this shouldn't be used as it may panic because of different underlying type; use getReplicaSets instead
+// DEPRECATED: this shouldn't be used as it may panic because of different underlying type; use GetReplicaSets instead
 func (d Deployment) ReplicaSets() []ReplicaSet {
 	return d["replicaSets"].([]ReplicaSet)
 }
 
 func (d Deployment) GetReplicaSetByName(name string) ReplicaSet {
-	for _, rs := range d.getReplicaSets() {
+	for _, rs := range d.GetReplicaSets() {
 		if rs.Name() == name {
 			return rs
 		}
@@ -395,7 +395,7 @@ func (d Deployment) RemoveReplicaSetByName(name string, log *zap.SugaredLogger) 
 		return xerrors.New("ReplicaSet does not exist")
 	}
 
-	currentRs := d.getReplicaSets()
+	currentRs := d.GetReplicaSets()
 	toKeep := make([]ReplicaSet, len(currentRs)-1)
 	i := 0
 	for _, el := range currentRs {
@@ -634,16 +634,27 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
 	return excessProcesses
 }
 
-func (d Deployment) SetRoles(roles []mdbv1.MongoDbRole) {
+func (d Deployment) SetRoles(roles []mdbv1.MongoDBRole) {
 	d["roles"] = roles
 }
 
-func (d Deployment) GetRoles() []mdbv1.MongoDbRole {
-	val, ok := d["roles"].([]mdbv1.MongoDbRole)
-	if !ok {
-		return []mdbv1.MongoDbRole{}
+func (d Deployment) GetRoles() []mdbv1.MongoDBRole {
+	roles, ok := d["roles"]
+	if !ok || roles == nil {
+		return []mdbv1.MongoDBRole{}
 	}
-	return val
+
+	rolesBytes, err := json.Marshal(roles)
+	if err != nil {
+		return []mdbv1.MongoDBRole{}
+	}
+
+	var result []mdbv1.MongoDBRole
+	if err := json.Unmarshal(rolesBytes, &result); err != nil {
+		return []mdbv1.MongoDBRole{}
+	}
+
+	return result
 }
 
 // GetAgentVersion returns the current version of all Agents in the deployment. It's empty until the
@@ -674,7 +685,7 @@ func (d Deployment) ProcessesCopy() []Process {
 
 // ReplicaSetsCopy returns the COPY of replicasets in the deployment.
 func (d Deployment) ReplicaSetsCopy() []ReplicaSet {
-	return d.deepCopy().getReplicaSets()
+	return d.deepCopy().GetReplicaSets()
 }
 
 // ShardedClustersCopy returns the COPY of sharded clusters in the deployment.
@@ -947,7 +958,7 @@ func (d Deployment) getProcessByName(name string) *Process {
 }
 
 func (d Deployment) getReplicaSetByName(name string) *ReplicaSet {
-	for _, r := range d.getReplicaSets() {
+	for _, r := range d.GetReplicaSets() {
 		if r.Name() == name {
 			return &r
 		}
@@ -966,7 +977,7 @@ func (d Deployment) getShardedClusterByName(name string) *ShardedCluster {
 	return nil
 }
 
-func (d Deployment) getReplicaSets() []ReplicaSet {
+func (d Deployment) GetReplicaSets() []ReplicaSet {
 	switch v := d["replicaSets"].(type) {
 	case []ReplicaSet:
 		return v
@@ -986,7 +997,7 @@ func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {
 }
 
 func (d Deployment) addReplicaSet(rs ReplicaSet) {
-	d.setReplicaSets(append(d.getReplicaSets(), rs))
+	d.setReplicaSets(append(d.GetReplicaSets(), rs))
 }
 
 func (d Deployment) getShardedClusters() []ShardedCluster {
@@ -1041,7 +1052,7 @@ func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName string)
 	clusterReplicaSets := shardedCluster.getAllReplicaSets()
 	var ans []string
 
-	for _, v := range d.getReplicaSets() {
+	for _, v := range d.GetReplicaSets() {
 		if !stringutil.Contains(clusterReplicaSets, v.Name()) && isShardOfShardedCluster(clusterName, v.Name()) {
 			ans = append(ans, v.Name())
 		}

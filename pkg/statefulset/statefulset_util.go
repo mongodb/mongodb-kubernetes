@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/zap"
@@ -18,9 +19,10 @@ import (
 	apiEquality "k8s.io/apimachinery/pkg/api/equality"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/inspect"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 )
 
 const PVCSizeAnnotation = "mongodb.com/storageSize"
@@ -104,7 +106,7 @@ func (s StatefulSetCantBeUpdatedError) Error() string {
 // (the random port will be allocated by Kubernetes) otherwise only one service of type "ClusterIP" is created and it
 // won't be connectible from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
-func CreateOrUpdateStatefulset(ctx context.Context, getUpdateCreator statefulset.GetUpdateCreator, ns string, log *zap.SugaredLogger, statefulSetToCreate *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
+func CreateOrUpdateStatefulset(ctx context.Context, getUpdateCreator kubernetesClient.Client, ns string, log *zap.SugaredLogger, statefulSetToCreate *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
 	log = log.With("statefulset", kube.ObjectKey(ns, statefulSetToCreate.Name))
 	existingStatefulSet, err := getUpdateCreator.GetStatefulSet(ctx, kube.ObjectKey(ns, statefulSetToCreate.Name))
 	if err != nil {
@@ -117,14 +119,6 @@ func CreateOrUpdateStatefulset(ctx context.Context, getUpdateCreator statefulset
 		}
 		log.Debug("Created StatefulSet")
 		return statefulSetToCreate, nil
-	}
-	// preserve existing certificate hash if new one is not statefulSetToCreate
-	existingCertHash, okExisting := existingStatefulSet.Spec.Template.Annotations[certs.CertHashAnnotationKey]
-	if newCertHash, okNew := statefulSetToCreate.Spec.Template.Annotations[certs.CertHashAnnotationKey]; existingCertHash != "" && newCertHash == "" && okExisting && okNew {
-		if statefulSetToCreate.Spec.Template.Annotations == nil {
-			statefulSetToCreate.Spec.Template.Annotations = map[string]string{}
-		}
-		statefulSetToCreate.Spec.Template.Annotations[certs.CertHashAnnotationKey] = existingCertHash
 	}
 
 	// there already exists a pvc size annotation, that means we did resize at least once
@@ -152,7 +146,7 @@ func CreateOrUpdateStatefulset(ctx context.Context, getUpdateCreator statefulset
 	return &updatedSts, nil
 }
 
-// AddPVCAnnotation adds pvc annotation to the statefulset.template, this can either trigger a rolling restart
+// AddPVCAnnotation adds pvc annotation to the template, this can either trigger a rolling restart
 // if the template has changed is a noop for an already existing one.
 func AddPVCAnnotation(statefulSetToCreate *appsv1.StatefulSet) error {
 	type pvcSizes struct {
@@ -193,4 +187,35 @@ func GetFilePathFromAnnotationOrDefault(sts appsv1.StatefulSet, key string, path
 	}
 
 	return defaultValue
+}
+
+// GetStatefulSetStatus returns the workflow.Status based on the status of the
+// If the StatefulSet is not ready the request will be retried in 3 seconds (instead of the default 10 seconds)
+// allowing to reach "ready" status sooner
+func GetStatefulSetStatus(ctx context.Context, namespace, name string, client kubernetesClient.Client) workflow.Status {
+	set, err := client.GetStatefulSet(ctx, kube.ObjectKey(namespace, name))
+	i := 0
+
+	// Sometimes it is possible that the StatefulSet which has just been created
+	// returns a not found error when getting it too soon afterwards.
+	for apiErrors.IsNotFound(err) && i < 10 {
+		i++
+		zap.S().Debugf("StatefulSet was not found: %s, attempt %d", err, i)
+		time.Sleep(time.Second * 1)
+		set, err = client.GetStatefulSet(ctx, kube.ObjectKey(namespace, name))
+	}
+
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	if statefulSetState := inspect.StatefulSet(set); !statefulSetState.IsReady() {
+		return workflow.Pending("%s", statefulSetState.GetMessage()).
+			WithResourcesNotReady(statefulSetState.GetResourcesNotReadyStatus()).
+			WithRetry(3)
+	} else {
+		zap.S().Debugf("StatefulSet %s/%s is ready on check attempt #%d, state: %+v: ", namespace, name, i, statefulSetState)
+	}
+
+	return workflow.OK()
 }
