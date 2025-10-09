@@ -8,7 +8,6 @@ variables:
     setup_group:
       - func: clone
       - func: setup_docker_sbom
-      - func: download_kube_tools
       - func: setup_building_host
       - func: quay_login
       - func: switch_context

@@ -10,7 +10,6 @@ task_groups:
   name: e2e_mco_task_group
   setup_group:
   - func: clone
-  - func: download_kube_tools
   - func: setup_building_host
   setup_task:
   - func: cleanup_exec_environment
@@ -144,4 +143,3 @@ tasks:
 - commands:
   - func: e2e_test
   name: statefulset_arbitrary_config_update
-

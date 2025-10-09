@@ -70,7 +70,6 @@ variables:
     setup_group_can_fail_task: true
     setup_group:
       - func: clone
-      - func: download_kube_tools
       - func: setup_building_host
 
   - &setup_group_ibm
@@ -84,7 +83,6 @@ variables:
     setup_group_can_fail_task: true
     setup_group:
       - func: clone
-      - func: download_kube_tools
       - func: setup_building_host
       - func: build_multi_cluster_binary
 
@@ -508,7 +506,6 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: download_kube_tools
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles_for_e2e
 
