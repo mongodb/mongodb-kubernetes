@@ -122,9 +122,9 @@ const (
 	MmsPemKeyFileDirInContainer  = "/opt/mongodb/mms/secrets"
 	AppDBMmsCaFileDirInContainer = "/opt/mongodb/mms/ca/"
 
-	AutomationAgentName         = "mms-automation-agent"
-	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
-	AutomationAgentPemFilePath  = PvcMmsHomeMountPath + "/" + AgentSecretName + "/" + AutomationAgentPemSecretKey
+	AutomationAgentName = "mms-automation-agent"
+	// AgentCertMountPath defines where in the Pod the ca cert will be mounted.
+	AgentCertMountPath = PvcMmsHomeMountPath + "/" + AgentSecretName
 
 	// Key used in concatenated pem secrets to denote the hash of the latest certificate
 	LatestHashSecretKey   = "latestHash"

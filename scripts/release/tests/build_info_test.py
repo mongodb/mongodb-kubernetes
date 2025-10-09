@@ -322,7 +322,7 @@ def test_load_build_info_release():
                 sign=True,
             ),
             "meko-tests": ImageInfo(
-                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                repositories=["quay.io/mongodb/mongodb-kubernetes-tests"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
             ),

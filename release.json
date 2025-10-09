@@ -39,7 +39,8 @@
         "8.0.7",
         "8.0.11",
         "8.0.12",
-        "8.0.13"
+        "8.0.13",
+        "8.0.14"
       ],
       "variants": [
         "ubi"
@@ -92,8 +93,8 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.38.0.9654-1",
-        "cloud_manager_tools": "100.12.2",
+        "cloud_manager": "13.41.0.9830-1",
+        "cloud_manager_tools": "100.13.0",
         "ops_manager": {
           "6.0.27": {
             "agent_version": "12.0.35.7911-1",
@@ -122,10 +123,6 @@
           "7.0.18": {
             "agent_version": "107.0.18.8784-1",
             "tools_version": "100.13.0"
-          },
-          "8.0.0": {
-            "agent_version": "108.0.0.8694-1",
-            "tools_version": "100.10.0"
           },
           "8.0.1": {
             "agent_version": "108.0.1.8718-1",
@@ -164,6 +161,10 @@
             "tools_version": "100.12.2"
           },
           "8.0.13": {
+            "agent_version": "108.0.13.8870-1",
+            "tools_version": "100.13.0"
+          },
+          "8.0.14": {
             "agent_version": "108.0.13.8870-1",
             "tools_version": "100.13.0"
           }
