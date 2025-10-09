@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"testing"
 
@@ -1423,6 +1424,75 @@ func TestValidationsRunOnReconcile(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, status.PhaseFailed, mrs.Status.Phase)
 	assert.Equal(t, fmt.Sprintf("Multiple clusters with the same name (%s) are not allowed", duplicateName), mrs.Status.Message)
+}
+
+func TestReconcileDisableReconciliationAnnotation(t *testing.T) {
+	tests := []struct {
+		name                    string
+		annotations             map[string]string
+		expectedPhase           status.Phase
+		expectedReconcileResult reconcile.Result
+	}{
+		{
+			name:                    "reconciliation disabled when annotation is true",
+			annotations:             map[string]string{util.DisableReconciliation: util.DisableReconciliationValue},
+			expectedPhase:           status.PhaseDisabled,
+			expectedReconcileResult: reconcile.Result{Requeue: false, RequeueAfter: 0},
+		},
+		{
+			name:                    "reconciliation proceeds when annotation is false",
+			annotations:             map[string]string{util.DisableReconciliation: "false"},
+			expectedPhase:           status.PhaseRunning,
+			expectedReconcileResult: reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS},
+		},
+		{
+			name:                    "reconciliation proceeds when annotation is empty string",
+			annotations:             map[string]string{util.DisableReconciliation: ""},
+			expectedPhase:           status.PhaseRunning,
+			expectedReconcileResult: reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS},
+		},
+		{
+			name:                    "reconciliation proceeds when annotation is arbitrary value",
+			annotations:             map[string]string{util.DisableReconciliation: "some-other-value"},
+			expectedPhase:           status.PhaseRunning,
+			expectedReconcileResult: reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS},
+		},
+		{
+			name:                    "reconciliation proceeds when annotation is absent",
+			expectedPhase:           status.PhaseRunning,
+			expectedReconcileResult: reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+
+			// Set up test annotations
+			if mrs.Annotations == nil {
+				mrs.Annotations = map[string]string{}
+			}
+			maps.Copy(mrs.Annotations, tt.annotations)
+
+			reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+
+			// Update the resource with the annotation
+			err := client.Update(ctx, mrs)
+			assert.NoError(t, err)
+
+			// Reconcile should return without error and with expected result
+			result, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedReconcileResult, result)
+
+			// Fetch the updated resource to check the status
+			err = client.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), mrs)
+			assert.NoError(t, err)
+
+			assert.Equal(t, tt.expectedPhase, mrs.Status.Phase)
+		})
+	}
 }
 
 func assertClusterpresent(t *testing.T, m map[string]int, specs mdb.ClusterSpecList, arr []int) {
