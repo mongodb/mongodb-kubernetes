@@ -93,6 +93,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             # This is particularly common when deploying many resources simultaneously.
             "but may still be processing the request",
             "Client.Timeout exceeded while awaiting headers",
+            "context deadline exceeded",
         )
 
         start_time = time.time()
