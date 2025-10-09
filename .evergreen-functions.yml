@@ -517,6 +517,7 @@ functions:
   pipeline:
     - command: subprocess.exec
       retry_on_failure: true
+      type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
@@ -528,6 +529,7 @@ functions:
   pipeline_agent:
     - command: subprocess.exec
       retry_on_failure: true
+      type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
@@ -539,6 +541,7 @@ functions:
   pipeline_ops_manager:
     - command: subprocess.exec
       retry_on_failure: true
+      type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
@@ -548,6 +551,7 @@ functions:
   pipeline_readiness_probe:
     - command: subprocess.exec
       retry_on_failure: true
+      type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
@@ -557,6 +561,7 @@ functions:
   pipeline_version_upgrade_hook:
     - command: subprocess.exec
       retry_on_failure: true
+      type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
