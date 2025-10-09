@@ -8,15 +8,15 @@ MongoDBOpsManager resource
 NAME   REPLICAS   VERSION   STATE (OPSMANAGER)   STATE (APPDB)   STATE (BACKUP)   AGE   WARNINGS
 om                8.0.5     Running              Running         Disabled         19m   
 
-Pods running in cluster gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-mongodb-kubxbf4576-16245
+Pods running in cluster gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-68e798de8f0x76f8823-5445
 NAME        READY   STATUS    RESTARTS   AGE
-om-0-0      2/2     Running   0          2m12s
-om-db-0-0   4/4     Running   0          8m38s
-om-db-0-1   4/4     Running   0          10m
+om-0-0      2/2     Running   0          2m33s
+om-db-0-0   4/4     Running   0          9m3s
+om-db-0-1   4/4     Running   0          11m
 om-db-0-2   4/4     Running   0          12m
 
-Pods running in cluster gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-mongodb-kubxbf4576-16245
+Pods running in cluster gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-68e798de8f0x76f8823-5445
 NAME        READY   STATUS    RESTARTS   AGE
-om-1-0      2/2     Running   0          2m44s
-om-db-1-0   4/4     Running   0          7m22s
-om-db-1-1   4/4     Running   0          5m29s
+om-1-0      2/2     Running   0          3m5s
+om-db-1-0   4/4     Running   0          8m9s
+om-db-1-1   4/4     Running   0          5m58s
