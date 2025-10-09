@@ -71,7 +71,7 @@ configure() {
 
 sync() {
   rsync --verbose --archive --compress --human-readable --recursive --progress \
-  --delete --max-size=1000000 --prune-empty-dirs \
+  --delete --delete-excluded --max-size=1000000 --prune-empty-dirs \
   -e ssh \
   --include-from=.rsyncinclude \
   --exclude-from=.gitignore \
