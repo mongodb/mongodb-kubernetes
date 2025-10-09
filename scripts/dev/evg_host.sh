@@ -110,7 +110,7 @@ get-kubeconfig() {
 
 recreate-kind-clusters() {
   DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK:-"false"}
-  configure "${1-"amd64"}" 2>&1| prepend "evg_host.sh configure"
+  configure 2>&1| prepend "evg_host.sh configure"
   echo "Recreating kind clusters on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
   ssh -T "${host_url}" "cd ~/mongodb-kubernetes; DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK} scripts/dev/recreate_kind_clusters.sh"
@@ -121,7 +121,7 @@ recreate-kind-clusters() {
 recreate-kind-cluster() {
   shift 1
   cluster_name=$1
-  configure "${1-"amd64"}" 2>&1| prepend "evg_host.sh configure"
+  configure 2>&1| prepend "evg_host.sh configure"
   echo "Recreating kind cluster ${cluster_name} on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
   ssh -T "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
@@ -213,8 +213,8 @@ COMMANDS:
 
 case ${cmd} in
 configure) configure "$@" ;;
-recreate-kind-clusters) recreate-kind-clusters "${1-"amd64"}";;
-recreate-kind-cluster) recreate-kind-cluster "$@" ;;
+recreate-kind-clusters) recreate-kind-clusters ;;
+recreate-kind-cluster) recreate-kind-cluster ;;
 get-kubeconfig) get-kubeconfig ;;
 remote-prepare-local-e2e-run) remote-prepare-local-e2e-run ;;
 ssh) ssh_to_host "$@" ;;

@@ -4,6 +4,8 @@
 
 set -Eeou pipefail
 
+source scripts/funcs/install
+
 set_limits() {
   echo "Increasing fs.inotify.max_user_instances"
   sudo sysctl -w fs.inotify.max_user_instances=8192
@@ -33,29 +35,16 @@ set_auto_recreate() {
   sudo systemctl enable kindclusters.service
 }
 
-
 # Detect architecture from the environment
-ARCH=$(uname -m)
-case "${ARCH}" in
-  x86_64)
-    ARCH="amd64"
-    ;;
-  aarch64|arm64)
-    ARCH="arm64"
-    ;;
-  *)
-    echo "Unsupported architecture: ${ARCH}. Supported architectures are x86_64 (amd64) and aarch64/arm64."
-    exit 1
-    ;;
-esac
+ARCH=$(detect_architecture)
 echo "Detected architecture: ${ARCH}"
 
 download_kind() {
   scripts/evergreen/setup_kind.sh /usr/local
 }
 
-download_curl() {
-  echo "Downloading curl..."
+download_kubectl() {
+  echo "Downloading kubectl..."
   curl -s -o kubectl -L https://dl.k8s.io/release/"$(curl -L -s https://dl.k8s.io/release/stable.txt)"/bin/linux/"${ARCH}"/kubectl
   chmod +x kubectl
   sudo mv kubectl /usr/local/bin/kubectl
