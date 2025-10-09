@@ -37,6 +37,7 @@ python-frontmatter==1.1.0
 python-on-whales==0.78.0
 yamale==6.0.0
 yamllint==1.37.1
+PyGithub==2.7.0
 
 # from kubeobject
 freezegun==1.5.5

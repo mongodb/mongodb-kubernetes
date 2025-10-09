@@ -122,6 +122,13 @@ tasks:
       - func: install_goreleaser
       - func: install_macos_notarization_service
       - func: release_kubectl_mongodb_plugin
+    
+  - name: create_chart_release_pr
+    tags: [ "helm_chart_release_pr" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: create_chart_release_pr
 
 ### Release build variants
 buildvariants:
@@ -239,3 +246,12 @@ buildvariants:
     allowed_requesters: [ "patch", "github_tag" ]
     tasks:
       - name: release_kubectl_mongodb_plugin
+
+  - name: create_chart_release_pr
+    display_name: create_chart_release_pr
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: create_chart_release_pr
