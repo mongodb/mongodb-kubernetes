@@ -39,14 +39,24 @@ kubeconfig_path="${HOME}/.operator-dev/evg-host.kubeconfig"
 
 configure() {
   shift 1
-  arch=${1-"amd64"}
+  auto_recreate="false"
 
-  echo "Configuring EVG host ${EVG_HOST_NAME} (${host_url}) with architecture ${arch}"
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --auto-recreate)
+        auto_recreate="true"
+        shift
+        ;;
+      *)
+        echo "Unknown argument: $1"
+        echo "Usage: configure [--auto-recreate]"
+        exit 1
+        ;;
+    esac
+  done
 
-  if [[ "${cmd}" == "configure" && "${arch}" != "amd64" && "${arch}" != "arm64" ]]; then
-    echo "'configure' command supports the following architectures: 'amd64', 'arm64'"
-    exit 1
-  fi
+  echo "Configuring EVG host ${EVG_HOST_NAME} (${host_url}) (auto_recreate: ${auto_recreate})"
 
   ssh -T -q "${host_url}" "sudo chown ubuntu:ubuntu ~/.docker || true; mkdir -p ~/.docker"
   if [[ -f "${HOME}/.docker/config.json" ]]; then
@@ -56,7 +66,7 @@ configure() {
 
   sync
 
-  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${arch}"
+  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${auto_recreate}"
 }
 
 sync() {
@@ -188,7 +198,7 @@ PREREQUISITES:
 
 COMMANDS:
   recreate-kind-clusters                all-you-need to configure host and kind clusters; deletes and recreates all kind clusters (for single and multi runs)
-  configure <architecture>              installs on a host: calls sync, switches context, installs necessary software
+  configure [--auto-recreate]           installs on a host: calls sync, switches context, installs necessary software
   sync                                  rsync of project directory
   recreate-kind-cluster test-cluster    executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
   remote-prepare-local-e2e-run          executes prepare-local-e2e on the remote evg host

@@ -26,11 +26,29 @@ set_limits() {
 EOF
 }
 
-sudo cp /home/ubuntu/mongodb-kubernetes/scripts/dev/kindclusters.service /etc/systemd/system/kindclusters.service
-sudo systemctl enable kindclusters.service
+set_auto_recreate() {
+  echo "Creating systemd service for recreating kind clusters on reboot"
 
-# retrieve arch variable off the shell command line
-ARCH=${1-"amd64"}
+  sudo cp /home/ubuntu/mongodb-kubernetes/scripts/dev/kindclusters.service /etc/systemd/system/kindclusters.service
+  sudo systemctl enable kindclusters.service
+}
+
+
+# Detect architecture from the environment
+ARCH=$(uname -m)
+case "${ARCH}" in
+  x86_64)
+    ARCH="amd64"
+    ;;
+  aarch64|arm64)
+    ARCH="arm64"
+    ;;
+  *)
+    echo "Unsupported architecture: ${ARCH}. Supported architectures are x86_64 (amd64) and aarch64/arm64."
+    exit 1
+    ;;
+esac
+echo "Detected architecture: ${ARCH}"
 
 download_kind() {
   scripts/evergreen/setup_kind.sh /usr/local
@@ -56,5 +74,10 @@ set_limits
 download_kind &
 download_curl &
 download_helm &
+
+AUTO_RECREATE=${1:-false}
+if [[ "${AUTO_RECREATE}" == "true" ]]; then
+  set_auto_recreate &
+fi
 
 wait
