@@ -44,8 +44,10 @@ download_kind() {
 }
 
 download_kubectl() {
-  echo "Downloading kubectl..."
-  curl -s -o kubectl -L -v https://dl.k8s.io/release/"$(curl -L -s https://dl.k8s.io/release/stable.txt)"/bin/linux/"${ARCH}"/kubectl
+  kubectl_version=$(curl --retry 5 --retry-all-errors -L -v https://dl.k8s.io/release/stable.txt)
+  echo "Downloading kubectl ${kubectl_version}..."
+
+  curl --retry 5 --retry-all-errors -o kubectl -L -v "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
   chmod +x kubectl
   sudo mv kubectl /usr/local/bin/kubectl
 }
@@ -61,7 +63,7 @@ download_helm() {
 
 set_limits
 download_kind &
-download_curl &
+download_kubectl &
 download_helm &
 
 AUTO_RECREATE=${1:-false}
