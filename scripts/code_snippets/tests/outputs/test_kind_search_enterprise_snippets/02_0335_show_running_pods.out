@@ -1,16 +1,16 @@
 
 MongoDB resource
 NAME     PHASE     VERSION      TYPE         AGE
-mdb-rs   Running   8.0.10-ent   ReplicaSet   7m
+mdb-rs   Running   8.0.14-ent   ReplicaSet   6m52s
 
 MongoDBSearch resource
 NAME     PHASE     AGE
-mdb-rs   Running   5m11s
+mdb-rs   Running   4m47s
 
 Pods running in cluster kind-kind
-NAME                                          READY   STATUS    RESTARTS        AGE
-mdb-rs-0                                      1/1     Running   0               6m58s
-mdb-rs-1                                      1/1     Running   0               6m33s
-mdb-rs-2                                      1/1     Running   0               6m8s
-mdb-rs-search-0                               1/1     Running   2 (3m44s ago)   4m3s
-mongodb-kubernetes-operator-fc996f567-m79tk   1/1     Running   0               7m2s
+NAME                                          READY   STATUS    RESTARTS       AGE
+mdb-rs-0                                      1/1     Running   0              6m50s
+mdb-rs-1                                      1/1     Running   0              6m24s
+mdb-rs-2                                      1/1     Running   0              5m59s
+mdb-rs-search-0                               1/1     Running   4 (3m2s ago)   4m11s
+mongodb-kubernetes-operator-fc996f567-lqdpz   1/1     Running   0              6m54s

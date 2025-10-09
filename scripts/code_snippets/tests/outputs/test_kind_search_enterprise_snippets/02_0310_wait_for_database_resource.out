@@ -3,11 +3,11 @@ mongodb.mongodb.com/mdb-rs condition met
 
 MongoDB resource
 NAME     PHASE     VERSION      TYPE         AGE
-mdb-rs   Running   8.0.10-ent   ReplicaSet   109s
+mdb-rs   Running   8.0.14-ent   ReplicaSet   2m4s
 
 Pods running in cluster kind-kind
 NAME                                          READY   STATUS    RESTARTS   AGE
-mdb-rs-0                                      1/1     Running   0          107s
-mdb-rs-1                                      0/1     Running   0          82s
-mdb-rs-2                                      1/1     Running   0          57s
-mongodb-kubernetes-operator-fc996f567-m79tk   1/1     Running   0          111s
+mdb-rs-0                                      1/1     Running   0          2m2s
+mdb-rs-1                                      1/1     Running   0          96s
+mdb-rs-2                                      1/1     Running   0          71s
+mongodb-kubernetes-operator-fc996f567-lqdpz   1/1     Running   0          2m6s
