@@ -108,6 +108,7 @@ type DatabaseStatefulSetOptions struct {
 	DatabaseNonStaticImage string
 	MongodbImage           string
 	AgentImage             string
+	AgentSidecarImage      string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -514,7 +515,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	}
 	podTemplateModifications = append(podTemplateModifications, staticMods...)
 
-	return statefulset.Apply(
+	statefulSetModifications := []statefulset.Modification{
 		// StatefulSet metadata
 		statefulset.WithLabels(ssLabels),
 		statefulset.WithName(stsName),
@@ -524,10 +525,14 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		statefulset.WithServiceName(opts.ServiceName),
 		statefulset.WithReplicas(opts.Replicas),
 		statefulset.WithOwnerReference(opts.OwnerReference),
+		// Set OnDelete update strategy for agent-controlled rolling restarts
+		statefulset.WithUpdateStrategyType(appsv1.OnDeleteStatefulSetStrategyType),
 		volumeClaimFuncs,
 		shareProcessNs,
 		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(podTemplateModifications...)),
-	)
+	}
+
+	return statefulset.Apply(statefulSetModifications...)
 }
 
 func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
@@ -714,12 +719,52 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		configureContainerSecurityContext,
 	)}
 
+	// Hardcoded init database image for local development
+	hardcodedInitDatabaseImage := "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/nnguyen-kops/mongodb-kubernetes-init-database:latest"
+
 	agentUtilitiesHolderModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerUtilitiesName),
 		container.WithArgs([]string{""}),
-		container.WithImage(opts.InitDatabaseImage),
+		container.WithImage(hardcodedInitDatabaseImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
+		configureContainerSecurityContext,
+	)}
+
+	// Agent sidecar container for health monitoring and pod deletion
+	agentSidecarModifications := []func(*corev1.Container){container.Apply(
+		container.WithName("agent-sidecar"),
+		container.WithImage(opts.AgentSidecarImage),
+		container.WithEnvs([]corev1.EnvVar{
+			{
+				Name: "POD_NAME",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "metadata.name",
+					},
+				},
+			},
+			{
+				Name: "POD_NAMESPACE",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "metadata.namespace",
+					},
+				},
+			},
+			{
+				Name:  "AGENT_STATUS_FILEPATH",
+				Value: "/var/log/mongodb-mms-automation/agent-health-status.json",
+			},
+		}...),
+		container.WithVolumeMounts([]corev1.VolumeMount{
+			{
+				Name:      util.PvcNameData,
+				MountPath: "/var/log/mongodb-mms-automation",
+				SubPath:   util.PvcNameLogs,
+				ReadOnly:  true,
+			},
+		}),
 		configureContainerSecurityContext,
 	)}
 
@@ -734,6 +779,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		agentContainerModifications = append(agentContainerModifications, hostnameOverrideModification)
 		mongodContainerModifications = append(mongodContainerModifications, hostnameOverrideModification)
 		agentUtilitiesHolderModifications = append(agentUtilitiesHolderModifications, hostnameOverrideModification)
+		agentSidecarModifications = append(agentSidecarModifications, hostnameOverrideModification)
 	}
 
 	mods := []podtemplatespec.Modification{
@@ -743,6 +789,11 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		podtemplatespec.WithContainerByIndex(0, agentContainerModifications...),
 		podtemplatespec.WithContainerByIndex(1, mongodContainerModifications...),
 		podtemplatespec.WithContainerByIndex(2, agentUtilitiesHolderModifications...),
+	}
+
+	// Add agent sidecar container if image is provided
+	if opts.AgentSidecarImage != "" {
+		mods = append(mods, podtemplatespec.WithContainerByIndex(3, agentSidecarModifications...))
 	}
 
 	return podtemplatespec.Apply(mods...)
@@ -774,6 +825,44 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 	)}
 
+	// Agent sidecar container for health monitoring and pod deletion (non-static architecture)
+	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+	agentSidecarModifications := []func(*corev1.Container){container.Apply(
+		container.WithName("agent-sidecar"),
+		container.WithImage(opts.AgentSidecarImage),
+		container.WithEnvs([]corev1.EnvVar{
+			{
+				Name: "POD_NAME",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "metadata.name",
+					},
+				},
+			},
+			{
+				Name: "POD_NAMESPACE",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "metadata.namespace",
+					},
+				},
+			},
+			{
+				Name:  "AGENT_STATUS_FILEPATH",
+				Value: "/var/log/mongodb-mms-automation/agent-health-status.json",
+			},
+		}...),
+		container.WithVolumeMounts([]corev1.VolumeMount{
+			{
+				Name:      util.PvcNameData,
+				MountPath: "/var/log/mongodb-mms-automation",
+				SubPath:   util.PvcNameLogs,
+				ReadOnly:  true,
+			},
+		}),
+		configureContainerSecurityContext,
+	)}
+
 	if opts.HostNameOverrideConfigmapName != "" {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
 		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
@@ -784,6 +873,7 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		})
 		initContainerModifications = append(initContainerModifications, hostnameOverrideModification)
 		databaseContainerModifications = append(databaseContainerModifications, hostnameOverrideModification)
+		agentSidecarModifications = append(agentSidecarModifications, hostnameOverrideModification)
 	}
 
 	mods := []podtemplatespec.Modification{
@@ -793,6 +883,11 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainerByIndex(0, databaseContainerModifications...),
 		podtemplatespec.WithInitContainerByIndex(0, initContainerModifications...),
+	}
+
+	// Add agent sidecar container if image is provided (non-static architecture)
+	if opts.AgentSidecarImage != "" {
+		mods = append(mods, podtemplatespec.WithContainerByIndex(1, agentSidecarModifications...))
 	}
 
 	return podtemplatespec.Apply(mods...)
@@ -954,9 +1049,12 @@ func databaseScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 func buildDatabaseInitContainer(initDatabaseImage string) container.Modification {
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
+	// Hardcoded init database image for local development
+	hardcodedInitDatabaseImage := "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/nnguyen-kops/mongodb-kubernetes-init-database:latest"
+
 	return container.Apply(
 		container.WithName(InitDatabaseContainerName),
-		container.WithImage(initDatabaseImage),
+		container.WithImage(hardcodedInitDatabaseImage),
 		container.WithVolumeMounts([]corev1.VolumeMount{
 			databaseScriptsVolumeMount(false),
 		}),
@@ -1001,6 +1099,24 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		)
 	}
 
+	vars = append(vars, corev1.EnvVar{
+		Name: "POD_NAMESPACE",
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.namespace",
+			},
+		},
+	})
+
+	vars = append(vars, corev1.EnvVar{
+		Name: "POD_NAME",
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.name",
+			},
+		},
+	})
+
 	// This is only used for debugging
 	if useDebugAgent := os.Getenv(util.EnvVarDebug); useDebugAgent != "" { // nolint:forbidigo
 		zap.S().Debugf("running the agent in debug mode")
@@ -1011,6 +1127,12 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 	if agentVersion := os.Getenv(util.EnvVarAgentVersion); agentVersion != "" { // nolint:forbidigo
 		zap.S().Debugf("using a custom agent version: %s", agentVersion)
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: agentVersion})
+	}
+
+	// Support for custom agent URL
+	if customAgentURL := os.Getenv(util.EnvVarCustomAgentURL); customAgentURL != "" { // nolint:forbidigo
+		zap.S().Debugf("using a custom agent URL: %s", customAgentURL)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarCustomAgentURL, Value: customAgentURL})
 	}
 
 	// append any additional env vars specified.

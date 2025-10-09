@@ -85,43 +85,51 @@ download_agent() {
     pushd /tmp >/dev/null || true
 
 
-    if [[ -z "${MDB_AGENT_VERSION-}" ]]; then
-      AGENT_VERSION="latest"
+    # Check if custom agent URL is provided
+    if [[ -n "${MDB_CUSTOM_AGENT_URL-}" ]]; then
+        script_log "Using custom agent URL: ${MDB_CUSTOM_AGENT_URL}"
+        curl_opts=(
+            "${MDB_CUSTOM_AGENT_URL}"
+            "--location" "--silent" "--retry" "3" "--fail" "-v"
+            "--output" "automation-agent.tar.gz"
+        );
+        script_log "Downloading a Mongodb Agent via ${curl_opts[0]:?}"
     else
-      AGENT_VERSION="${MDB_AGENT_VERSION}"
+        AGENT_VERSION="${MDB_AGENT_VERSION:-latest}"
+
+        # Detect architecture for agent download
+        local detected_arch
+        detected_arch=$(uname -m)
+
+        case "${detected_arch}" in
+            x86_64)
+                AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.linux_x86_64.tar.gz"
+                ;;
+            aarch64|arm64)
+                AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.amzn2_aarch64.tar.gz"
+                ;;
+            ppc64le)
+                AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel8_ppc64le.tar.gz"
+                ;;
+            s390x)
+                AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel7_s390x.tar.gz"
+                ;;
+            *)
+                script_log "Error: Unsupported architecture for MongoDB agent: ${detected_arch}"
+                exit 1
+                ;;
+        esac
+
+        script_log "Downloading Agent version: ${AGENT_VERSION}"
+        curl_opts=(
+            "${base_url}/download/agent/automation/${AGENT_FILE}"
+
+            "--location" "--silent" "--retry" "3" "--fail" "-v"
+            "--output" "automation-agent.tar.gz"
+        );
+        script_log "Downloading a Mongodb Agent via ${curl_opts[0]:?}"
     fi
 
-    # Detect architecture for agent download
-    local detected_arch
-    detected_arch=$(uname -m)
-
-    case "${detected_arch}" in
-        x86_64)
-            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.linux_x86_64.tar.gz"
-            ;;
-        aarch64|arm64)
-            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.amzn2_aarch64.tar.gz"
-            ;;
-        ppc64le)
-            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel8_ppc64le.tar.gz"
-            ;;
-        s390x)
-            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel7_s390x.tar.gz"
-            ;;
-        *)
-            script_log "Error: Unsupported architecture for MongoDB agent: ${detected_arch}"
-            exit 1
-            ;;
-    esac
-
-    script_log "Downloading Agent version: ${AGENT_VERSION}"
-    script_log "Downloading a Mongodb Agent from ${base_url:?}"
-    curl_opts=(
-        "${base_url}/download/agent/automation/${AGENT_FILE}"
-
-        "--location" "--silent" "--retry" "3" "--fail" "-v"
-        "--output" "automation-agent.tar.gz"
-    );
 
     if [ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" = "false" ]; then
         # If we are not expecting valid certs, `curl` should be run with `--insecure` option.
