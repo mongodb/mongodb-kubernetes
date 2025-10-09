@@ -213,8 +213,8 @@ COMMANDS:
 
 case ${cmd} in
 configure) configure "$@" ;;
-recreate-kind-clusters) recreate-kind-clusters ;;
-recreate-kind-cluster) recreate-kind-cluster ;;
+recreate-kind-clusters) recreate-kind-clusters "$@" ;;
+recreate-kind-cluster) recreate-kind-cluster "$@" ;;
 get-kubeconfig) get-kubeconfig ;;
 remote-prepare-local-e2e-run) remote-prepare-local-e2e-run ;;
 ssh) ssh_to_host "$@" ;;
