@@ -5,10 +5,9 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/ubuntu/ops-manager-kubernetes
+WorkingDirectory=/home/ubuntu/mongodb-kubernetes
 Environment=HOME=/home/ubuntu
-ExecStart=/home/ubuntu/ops-manager-kubernetes/scripts/dev/recreate_kind_clusters.sh
-ExecStart=/home/ubuntu/ops-manager-kubernetes/scripts/dev/recreate_kind_cluster.sh kind
+ExecStart=/home/ubuntu/mongodb-kubernetes/scripts/dev/recreate_kind_clusters.sh
 RemainAfterExit=yes
 
 [Install]

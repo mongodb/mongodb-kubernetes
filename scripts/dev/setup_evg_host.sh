@@ -26,7 +26,7 @@ set_limits() {
 EOF
 }
 
-sudo cp /home/ubuntu/ops-manager-kubernetes/scripts/dev/kindclusters.service /etc/systemd/system/kindclusters.service
+sudo cp /home/ubuntu/mongodb-kubernetes/scripts/dev/kindclusters.service /etc/systemd/system/kindclusters.service
 sudo systemctl enable kindclusters.service
 
 # retrieve arch variable off the shell command line
