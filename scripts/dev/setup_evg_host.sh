@@ -45,7 +45,7 @@ download_kind() {
 
 download_kubectl() {
   echo "Downloading kubectl..."
-  curl -s -o kubectl -L https://dl.k8s.io/release/"$(curl -L -s https://dl.k8s.io/release/stable.txt)"/bin/linux/"${ARCH}"/kubectl
+  curl -s -o kubectl -L -v https://dl.k8s.io/release/"$(curl -L -s https://dl.k8s.io/release/stable.txt)"/bin/linux/"${ARCH}"/kubectl
   chmod +x kubectl
   sudo mv kubectl /usr/local/bin/kubectl
 }

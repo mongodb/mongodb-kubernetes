@@ -13,7 +13,7 @@ tmpdir="${PROJECT_DIR}/tmp"
 mkdir -p "${bindir}" "${tmpdir}"
 
 echo "Downloading latest kubectl for ${ARCH}"
-curl -s --retry 3 -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl"
+curl -s --retry 3 -LOv "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 chmod +x kubectl
 echo "kubectl version --client"
 ./kubectl version --client
