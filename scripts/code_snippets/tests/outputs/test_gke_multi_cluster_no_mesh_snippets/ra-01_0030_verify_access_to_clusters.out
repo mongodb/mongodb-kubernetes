@@ -1,15 +1,15 @@
-Nodes in cluster gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-mongodb-kubxbf4576-30508
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-68e798de8f0x6f8823-20597
 NAME                                                  STATUS   ROLES    AGE   VERSION
-gke-k8s-mdb-0-mongodb-ku-default-pool-8120fe00-czdz   Ready    <none>   31s   v1.33.4-gke.1036000
-gke-k8s-mdb-0-mongodb-ku-default-pool-8120fe00-dbqp   Ready    <none>   36s   v1.33.4-gke.1036000
-gke-k8s-mdb-0-mongodb-ku-default-pool-8120fe00-twrp   Ready    <none>   36s   v1.33.4-gke.1036000
+gke-k8s-mdb-0-68e798de8f-default-pool-d339f24d-ccw6   Ready    <none>   27s   v1.33.4-gke.1245000
+gke-k8s-mdb-0-68e798de8f-default-pool-d339f24d-gg5n   Ready    <none>   30s   v1.33.4-gke.1245000
+gke-k8s-mdb-0-68e798de8f-default-pool-d339f24d-jnm0   Ready    <none>   30s   v1.33.4-gke.1245000
 
-Nodes in cluster gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-mongodb-kubxbf4576-30508
-NAME                                                  STATUS   ROLES    AGE    VERSION
-gke-k8s-mdb-1-mongodb-ku-default-pool-96a64cd3-4w6b   Ready    <none>   101s   v1.33.4-gke.1036000
-gke-k8s-mdb-1-mongodb-ku-default-pool-96a64cd3-hkd9   Ready    <none>   99s    v1.33.4-gke.1036000
-gke-k8s-mdb-1-mongodb-ku-default-pool-96a64cd3-rnsm   Ready    <none>   98s    v1.33.4-gke.1036000
-
-Nodes in cluster gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-mongodb-kubxbf4576-30508
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-68e798de8f0x6f8823-20597
 NAME                                                  STATUS   ROLES    AGE   VERSION
-gke-k8s-mdb-2-mongodb-ku-default-pool-632f47b3-5f31   Ready    <none>   95s   v1.33.4-gke.1036000
+gke-k8s-mdb-1-68e798de8f-default-pool-e167637c-8rrg   Ready    <none>   31s   v1.33.4-gke.1245000
+gke-k8s-mdb-1-68e798de8f-default-pool-e167637c-hhf1   Ready    <none>   34s   v1.33.4-gke.1245000
+gke-k8s-mdb-1-68e798de8f-default-pool-e167637c-tjfk   Ready    <none>   35s   v1.33.4-gke.1245000
+
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-68e798de8f0x6f8823-20597
+NAME                                                  STATUS   ROLES    AGE   VERSION
+gke-k8s-mdb-2-68e798de8f-default-pool-b1515d77-qb5t   Ready    <none>   44s   v1.33.4-gke.1245000
