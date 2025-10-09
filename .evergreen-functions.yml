@@ -45,7 +45,8 @@ variables:
       - community_private_preview_pullsecret_dockerconfigjson
       - RELEASE_INITIAL_VERSION
       - RELEASE_INITIAL_COMMIT_SHA
-      - RELEASE_OPERATOR_VERSION
+      - OPERATOR_VERSION
+      - BUILD_SCENARIO
 
 functions:
 
@@ -509,21 +510,9 @@ functions:
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        include_expansions_in_env:
-          - version_id
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
-
-  pipeline_migrate_agents:
-    - command: subprocess.exec
-      retry_on_failure: false
-      type: setup
-      params:
-        shell: bash
-        <<: *e2e_include_expansions_in_env
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/release/pipeline_migrate_agent.sh
 
   pipeline:
     - command: subprocess.exec
@@ -533,10 +522,11 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name} ${all_agents} ${build_scenario}
+        binary: scripts/release/pipeline.sh
+        env:
+          IMAGE_NAME: ${IMAGE_NAME}
 
-  # TODO: this function is very similar to pipeline and it will joined with it in the future
-  release_operator_pipeline:
+  pipeline_agent:
     - command: subprocess.exec
       retry_on_failure: true
       type: setup
@@ -544,8 +534,39 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        # By default, use the git tag that triggered the task which can be overridden with RELEASE_OPERATOR_VERSION
-        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario release --version ${RELEASE_OPERATOR_VERSION|*triggered_by_git_tag}
+        binary: scripts/release/pipeline_agent.sh
+        env:
+          FLAGS: ${FLAGS}
+
+  pipeline_ops_manager:
+    - command: subprocess.exec
+      retry_on_failure: true
+      type: setup
+      params:
+        shell: bash
+        <<: *e2e_include_expansions_in_env
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/release/pipeline_ops_manager.sh
+
+  pipeline_readiness_probe:
+    - command: subprocess.exec
+      retry_on_failure: true
+      type: setup
+      params:
+        shell: bash
+        <<: *e2e_include_expansions_in_env
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/release/pipeline_readiness_probe.sh
+
+  pipeline_version_upgrade_hook:
+    - command: subprocess.exec
+      retry_on_failure: true
+      type: setup
+      params:
+        shell: bash
+        <<: *e2e_include_expansions_in_env
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/release/pipeline_version_upgrade_hook.sh
 
   teardown_cloud_qa_all:
     - command: shell.exec
@@ -846,7 +867,7 @@ functions:
           - macos_notary_secret
           - workdir
           - triggered_by_git_tag
-          - RELEASE_OPERATOR_VERSION
+          - OPERATOR_VERSION
         env:
           XDG_CONFIG_HOME: ${go_base_path}${workdir}
           GO111MODULE: "on"
@@ -856,7 +877,7 @@ functions:
         # shell.exec EVG Task doesn't have add_to_path, so we need to explicitly add the path export below.
         script: |
           set -Eeu pipefail
-          export GORELEASER_CURRENT_TAG=${RELEASE_OPERATOR_VERSION|*triggered_by_git_tag}
+          export GORELEASER_CURRENT_TAG=${OPERATOR_VERSION|*triggered_by_git_tag}
           export PATH=$GOROOT/bin:$PATH
           export GITHUB_TOKEN=${generated_token}
           ${workdir}/goreleaser release --clean
