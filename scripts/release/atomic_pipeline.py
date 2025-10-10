@@ -11,7 +11,6 @@ from copy import copy
 from queue import Queue
 from typing import Dict, List, Optional, Tuple
 
-import python_on_whales
 import requests
 from opentelemetry import trace
 
@@ -236,13 +235,7 @@ def build_init_om_image(build_configuration: ImageBuildConfiguration):
 
 
 def build_om_image(build_configuration: ImageBuildConfiguration):
-    # Make this a parameter for the Evergreen build
-    # https://github.com/evergreen-ci/evergreen/wiki/Parameterized-Builds
-    om_version = os.environ.get("om_version")
-    if om_version is None:
-        raise ValueError("`om_version` should be defined.")
-
-    build_configuration.version = om_version
+    om_version = build_configuration.version
 
     om_download_url = os.environ.get("om_download_url", "")
     if om_download_url == "":

@@ -178,6 +178,12 @@
           "linux/arm64",
           "linux/amd64"
         ]
+      },
+      "release": {
+        "repositories": ["quay.io/mongodb/mongodb-kubernetes-tests"],
+        "platforms": [
+          "linux/amd64"
+        ]
       }
     },
     "mco-tests": {
@@ -213,7 +219,6 @@
         ]
       },
       "release": {
-        "version": "1.0.22",
         "sign": true,
         "olm-tag": true,
         "repositories": [
@@ -243,7 +248,6 @@
         ]
       },
       "release": {
-        "version": "1.0.9",
         "sign": true,
         "olm-tag": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
@@ -286,14 +290,12 @@
     "ops-manager": {
       "dockerfile-path": "docker/mongodb-enterprise-ops-manager/Dockerfile",
       "patch": {
-        "version": "om-version-from-release.json",
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
         ]
       },
       "staging": {
-        "version": "om-version-from-release.json",
         "sign": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [

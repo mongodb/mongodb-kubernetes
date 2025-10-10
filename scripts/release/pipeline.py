@@ -98,7 +98,7 @@ def build_image(image_name: str, build_configuration: ImageBuildConfiguration):
 def image_build_config_from_args(args) -> ImageBuildConfiguration:
     image = args.image
 
-    build_scenario = get_scenario_from_arg(args.build_scenario) or BuildScenario.infer_scenario_from_environment()
+    build_scenario = get_scenario_from_arg(args.build_scenario)
     build_info = load_build_info(build_scenario)
     logger.info(f"image is {image}")
     logger.info(f"images are {build_info.images}")
@@ -108,7 +108,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         raise ValueError(f"Image '{image}' is not defined in the build info for scenario '{build_scenario}'")
 
     # Resolve final values with overrides
-    version = args.version or image_build_info.version
+    version = args.version
     latest_tag = image_build_info.latest_tag
     olm_tag = image_build_info.olm_tag
     if args.registry:
@@ -119,9 +119,9 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     sign = args.sign or image_build_info.sign
     dockerfile_path = image_build_info.dockerfile_path
 
-    # Validate version - only ops-manager and agent can have None version as the versions are managed by the agent
-    # and om methods themselves, which are externally retrieved - om_version env var and release.json respectively
-    if version is None and image not in ["ops-manager", "agent"]:
+    # Validate version - only agent can have None version as the versions are managed by the agent
+    # which are externally retrieved from release.json
+    if version is None and image != "agent":
         raise ValueError(f"Version cannot be empty for {image}.")
 
     return ImageBuildConfiguration(
@@ -141,9 +141,6 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
 
 def get_scenario_from_arg(args_scenario: str) -> BuildScenario | None:
-    if not args_scenario:
-        return None
-
     try:
         return BuildScenario(args_scenario)
     except ValueError as e:
@@ -200,8 +197,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="""Builder tool for container images. It allows to push and sign images with multiple architectures using Docker Buildx.
-By default build information is read from 'build_info.json' file in the project root directory based on the build scenario.
-It can be inferred from the environment variables or overridden with the '--build-scenario' option.""",
+By default build information is read from 'build_info.json' file in the project root directory based on the build scenario.""",
     )
     parser.add_argument(
         "image",
@@ -216,10 +212,11 @@ It can be inferred from the environment variables or overridden with the '--buil
         "--build-scenario",
         metavar="",
         action="store",
+        required=True,
         type=str,
         choices=supported_scenarios,
-        help=f"""Override the build scenario instead of inferring from environment. Options: {", ".join(supported_scenarios)}.
-Default is to infer from environment variables. For '{BuildScenario.DEVELOPMENT}' the '{BuildScenario.PATCH}' scenario is used to read values from 'build_info.json'""",
+        help=f"""Build scenario when reading configuration from 'build_info.json'.
+Options: {", ".join(supported_scenarios)}. For '{BuildScenario.DEVELOPMENT}' the '{BuildScenario.PATCH}' scenario is used to read values from 'build_info.json'""",
     )
     parser.add_argument(
         "-p",
@@ -235,7 +232,7 @@ Default is to infer from environment variables. For '{BuildScenario.DEVELOPMENT}
         metavar="",
         action="store",
         type=str,
-        help="Override the version/tag instead of resolving from build scenario. Default is to infer from environment variables based on the selected scenario.",
+        help="Version to use when building container image. Required for all images except for agent where we read it from release.json",
     )
     parser.add_argument(
         "-r",
