@@ -14,6 +14,7 @@ from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_de
 
 VERSION_NOT_IN_WEB_SERVER = "4.2.1"
 
+
 # If this test is failing after an OM Bump, ensure that the nginx deployment fixture contains the associated mongosh
 # version. More details in this ticket: https://jira.mongodb.org/browse/CLOUDP-332640
 
@@ -47,6 +48,10 @@ def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):
             "name": KubernetesTester.random_k8s_name(prefix="mdb-download"),
             "image": "curlimages/curl:latest",
             "command": ["sh", "-c", f"{curl_command} && true"],
+            "securityContext": {
+                # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
+                "runAsUser": "1337",
+            },
             "volumeMounts": [
                 {
                     "name": "mongodb-versions",

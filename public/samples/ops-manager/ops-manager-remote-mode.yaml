@@ -53,6 +53,8 @@ spec:
       initContainers:
         - name: setting-up-rhel-mongodb-4-4
           image: curlimages/curl:latest
+          securityContext:
+            runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
           command:
             - curl
             - -L
@@ -64,6 +66,8 @@ spec:
               mountPath: /mongodb-ops-manager/mongodb-releases/linux
         - name: setting-up-ubuntu-mongodb-4-4
           image: curlimages/curl:latest
+          securityContext:
+            runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
           command:
             - curl
             - -L
@@ -73,9 +77,10 @@ spec:
           volumeMounts:
             - name: mongodb-versions
               mountPath: /mongodb-ops-manager/mongodb-releases/linux
-
         - name: setting-up-rhel-mongodb-4-4-ent
           image: curlimages/curl:latest
+          securityContext:
+            runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
           command:
             - curl
             - -L
@@ -87,6 +92,8 @@ spec:
               mountPath: /mongodb-ops-manager/mongodb-releases/linux
         - name: setting-up-ubuntu-mongodb-4-4-ent
           image: curlimages/curl:latest
+          securityContext:
+            runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
           command:
             - curl
             - -L
@@ -98,6 +105,8 @@ spec:
               mountPath: /mongodb-ops-manager/mongodb-releases/linux
         - name: setting-up-rhel-mongodb-8-0-0
           image: curlimages/curl:latest
+          securityContext:
+            runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
           command:
             - curl
             - -L
