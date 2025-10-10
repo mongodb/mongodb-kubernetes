@@ -21,6 +21,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 )
 
@@ -71,7 +72,8 @@ type MongoDBCommunitySpec struct {
 	Type Type `json:"type"`
 	// Version defines which version of MongoDB will be used
 	Version string `json:"version,omitempty"`
-
+	// +kubebuilder:validation:Format="hostname"
+	ClusterDomain string `json:"clusterDomain,omitempty"`
 	// Arbiters is the number of arbiters to add to the Replica Set.
 	// It is not recommended to have more than one arbiter per Replica Set.
 	// More info: https://www.mongodb.com/docs/manual/tutorial/add-replica-set-arbiter/
@@ -922,30 +924,26 @@ func (m *MongoDBCommunity) GetUserOptionsString(user authtypes.User) string {
 }
 
 // MongoURI returns a mongo uri which can be used to connect to this deployment
-func (m *MongoDBCommunity) MongoURI(clusterDomain string) string {
+func (m *MongoDBCommunity) MongoURI() string {
 	optionsString := m.GetOptionsString()
 
-	return fmt.Sprintf("mongodb://%s/?replicaSet=%s%s", strings.Join(m.Hosts(clusterDomain), ","), m.Name, optionsString)
+	return fmt.Sprintf("mongodb://%s/?replicaSet=%s%s", strings.Join(m.Hosts(), ","), m.Name, optionsString)
 }
 
 // MongoSRVURI returns a mongo srv uri which can be used to connect to this deployment
-func (m *MongoDBCommunity) MongoSRVURI(clusterDomain string) string {
-	if clusterDomain == "" {
-		clusterDomain = defaultClusterDomain
-	}
-
+func (m *MongoDBCommunity) MongoSRVURI() string {
 	optionsString := m.GetOptionsString()
 
-	return fmt.Sprintf("mongodb+srv://%s.%s.svc.%s/?replicaSet=%s%s", m.ServiceName(), m.Namespace, clusterDomain, m.Name, optionsString)
+	return fmt.Sprintf("mongodb+srv://%s.%s.svc.%s/?replicaSet=%s%s", m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Name, optionsString)
 }
 
 // MongoAuthUserURI returns a mongo uri which can be used to connect to this deployment
 // and includes the authentication data for the user
-func (m *MongoDBCommunity) MongoAuthUserURI(user authtypes.User, password string, clusterDomain string) string {
+func (m *MongoDBCommunity) MongoAuthUserURI(user authtypes.User, password string) string {
 	optionsString := m.GetUserOptionsString(user)
 	return fmt.Sprintf("mongodb://%s%s/%s?replicaSet=%s&ssl=%t%s",
 		user.GetLoginString(password),
-		strings.Join(m.Hosts(clusterDomain), ","),
+		strings.Join(m.Hosts(), ","),
 		user.Database,
 		m.Name,
 		m.Spec.Security.TLS.Enabled,
@@ -954,36 +952,28 @@ func (m *MongoDBCommunity) MongoAuthUserURI(user authtypes.User, password string
 
 // MongoAuthUserSRVURI returns a mongo srv uri which can be used to connect to this deployment
 // and includes the authentication data for the user
-func (m *MongoDBCommunity) MongoAuthUserSRVURI(user authtypes.User, password string, clusterDomain string) string {
-	if clusterDomain == "" {
-		clusterDomain = defaultClusterDomain
-	}
-
+func (m *MongoDBCommunity) MongoAuthUserSRVURI(user authtypes.User, password string) string {
 	optionsString := m.GetUserOptionsString(user)
 	return fmt.Sprintf("mongodb+srv://%s%s.%s.svc.%s/%s?replicaSet=%s&ssl=%t%s",
 		user.GetLoginString(password),
 		m.ServiceName(),
 		m.Namespace,
-		clusterDomain,
+		m.Spec.GetClusterDomain(),
 		user.Database,
 		m.Name,
 		m.Spec.Security.TLS.Enabled,
 		optionsString)
 }
 
-func (m *MongoDBCommunity) Hosts(clusterDomain string) []string {
+func (m *MongoDBCommunity) Hosts() []string {
 	hosts := make([]string, m.Spec.Members)
-
-	if clusterDomain == "" {
-		clusterDomain = defaultClusterDomain
-	}
 
 	for i := 0; i < m.Spec.Members; i++ {
 		hosts[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d",
 			m.Name, i,
 			m.ServiceName(),
 			m.Namespace,
-			clusterDomain,
+			m.Spec.GetClusterDomain(),
 			m.GetMongodConfiguration().GetDBPort())
 	}
 	return hosts
@@ -1155,6 +1145,13 @@ func (m MongoDBCommunity) GetAgentLogFile() string {
 
 func (m MongoDBCommunity) GetAgentMaxLogFileDurationHours() int {
 	return m.Spec.AgentConfiguration.MaxLogFileDurationHours
+}
+
+func (m MongoDBCommunitySpec) GetClusterDomain() string {
+	if m.ClusterDomain != "" {
+		return m.ClusterDomain
+	}
+	return envvar.GetEnvOrDefault(constants.ClusterDomainEnv, defaultClusterDomain) // nolint:forbidigo
 }
 
 type automationConfigReplicasScaler struct {

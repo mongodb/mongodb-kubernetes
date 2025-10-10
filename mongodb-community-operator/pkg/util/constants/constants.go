@@ -11,4 +11,5 @@ const (
 	AgentKeyfileKey                       = "keyfile"
 	AgentPemFile                          = "agent-certs-pem"
 	AutomationAgentWindowsKeyFilePath     = "%SystemDrive%\\MMSAutomation\\versions\\keyfile"
+	ClusterDomainEnv                      = "CLUSTER_DOMAIN"
 )
