@@ -421,9 +421,9 @@ spec:
             - name: MDB_COMMUNITY_AGENT_IMAGE
               value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
             - name: VERSION_UPGRADE_HOOK_IMAGE
-              value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"
+              value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.10"
             - name: READINESS_PROBE_IMAGE
-              value: "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.22"
+              value: "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.23"
             - name: MDB_COMMUNITY_IMAGE
               value: "mongodb-community-server"
             - name: MDB_COMMUNITY_REPO_URL
