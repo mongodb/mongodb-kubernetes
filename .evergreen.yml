@@ -54,6 +54,8 @@ variables:
         variant: init_test_run
       - name: build_init_appdb_images_ubi
         variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
 
   - &community_dependency
     depends_on:
@@ -443,6 +445,16 @@ tasks:
       - func: setup_aws
       - func: prepare_aws
       - func: helm_registry_login
+      - func: publish_helm_chart
+
+  - name: publish_helm_chart
+    commands:
+      - func: clone
+      - func: setup_kubectl
+      - func: setup_aws
+      - func: prepare_aws
+      - func: helm_registry_login
+      - func: python_venv
       - func: publish_helm_chart
 
   - name: prepare_aws
