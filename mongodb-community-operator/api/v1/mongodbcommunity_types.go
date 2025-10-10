@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/stretchr/objx"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -22,6 +21,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 )
 
@@ -1146,11 +1146,12 @@ func (m MongoDBCommunity) GetAgentLogFile() string {
 func (m MongoDBCommunity) GetAgentMaxLogFileDurationHours() int {
 	return m.Spec.AgentConfiguration.MaxLogFileDurationHours
 }
+
 func (m MongoDBCommunitySpec) GetClusterDomain() string {
 	if m.ClusterDomain != "" {
 		return m.ClusterDomain
 	}
-	return envvar.GetEnvOrDefault(constants.ClusterDomainEnv, defaultClusterDomain)
+	return envvar.GetEnvOrDefault(constants.ClusterDomainEnv, defaultClusterDomain) // nolint:forbidigo
 }
 
 type automationConfigReplicasScaler struct {
