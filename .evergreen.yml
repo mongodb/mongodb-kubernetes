@@ -438,11 +438,11 @@ tasks:
   - name: publish_helm_chart
     commands:
       - func: clone
+      - func: python_venv
       - func: setup_kubectl
       - func: setup_aws
       - func: prepare_aws
       - func: helm_registry_login
-      - func: python_venv
       - func: publish_helm_chart
 
   - name: prepare_aws
