@@ -17,7 +17,7 @@ PyYAML==6.0.3
 urllib3==2.5.0
 cryptography==46.0.2
 python-dateutil==2.9.0.post0
-python-ldap==3.4.4
+python-ldap==3.4.5
 GitPython==3.1.45
 setuptools>=71.0.3 # not directly required, pinned by Snyk to avoid a vulnerability
 opentelemetry-api
