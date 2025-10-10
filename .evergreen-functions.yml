@@ -229,7 +229,8 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
-      binary: scripts/dev/helm_registry_login.sh
+        - ${PROJECT_DIR}/bin
+      binary: scripts/dev/run_python.sh scripts/release/helm_registry_login.py
 
   # Logs into all used registries
   configure_docker_auth: &configure_docker_auth
