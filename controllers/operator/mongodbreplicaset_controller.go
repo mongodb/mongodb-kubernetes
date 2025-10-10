@@ -244,6 +244,29 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		}
 	}
 
+	// Check if TLS is being disabled. If so, we need to lock replicas at the current member count
+	// to prevent scaling during the TLS disable operation. This decision is made once here and
+	// applied to both the StatefulSet and OM automation config.
+	tlsWillBeDisabled, err := checkIfTLSWillBeDisabled(conn, rs, log)
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to check TLS configuration: %w", err)), log)
+	}
+
+	// Compute effective replicas for this reconciliation
+	var effectiveReplicas int32
+	if tlsWillBeDisabled && rs.Status.Members > 0 {
+		// Lock at current member count during TLS disable, but only if there are existing members.
+		// For initial creation (Members == 0), use normal scaling logic.
+		effectiveReplicas = int32(rs.Status.Members)
+		log.Infof("TLS is being disabled, locking replicas at current member count: %d", rs.Status.Members)
+	} else {
+		// Normal scaling logic
+		effectiveReplicas = int32(scale.ReplicasThisReconciliation(rs))
+	}
+
+	// Apply effective replicas to StatefulSet
+	sts.Spec.Replicas = &effectiveReplicas
+
 	internalClusterCertPath := ""
 	if internalClusterCertHash != "" {
 		internalClusterCertPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, internalClusterCertHash)
@@ -259,7 +282,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, agentCertPath, caFilePath, tlsCertPath, internalClusterCertPath, prometheusCertHash, true, shouldMirrorKeyfile).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, &sts, log, agentCertPath, caFilePath, tlsCertPath, internalClusterCertPath, prometheusCertHash, true, shouldMirrorKeyfile).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		deploymentError := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, rsConfig, log)
 		if deploymentError != nil {
 			log.Errorf("Recovery failed because of deployment errors, %w", deploymentError)
@@ -275,7 +298,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 	status = workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *rs, lastSpec, rsConfig, log),
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, agentCertPath, caFilePath, tlsCertPath, internalClusterCertPath, prometheusCertHash, false, shouldMirrorKeyfile).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, &sts, log, agentCertPath, caFilePath, tlsCertPath, internalClusterCertPath, prometheusCertHash, false, shouldMirrorKeyfile).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
@@ -449,33 +472,28 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, agentCertPath, caFilePath, tlsCertPath, internalClusterCertPath string, prometheusCertHash string, isRecovering bool, shouldMirrorKeyfileForMongot bool) workflow.Status {
+func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set *appsv1.StatefulSet, log *zap.SugaredLogger, agentCertPath, caFilePath, tlsCertPath, internalClusterCertPath string, prometheusCertHash string, isRecovering bool, shouldMirrorKeyfileForMongot bool) workflow.Status {
 	log.Debug("Entering UpdateOMDeployments")
 	// Only "concrete" RS members should be observed
 	// - if scaling down, let's observe only members that will remain after scale-down operation
 	// - if scaling up, observe only current members, because new ones might not exist yet
-	err := agents.WaitForRsAgentsToRegister(set, util_int.Min(membersNumberBefore, int(*set.Spec.Replicas)), rs.Spec.GetClusterDomain(), conn, log, rs)
+	// The effective replica count has already been computed in the caller (Reconcile)
+	// and applied to set.Spec.Replicas. We use that value directly here.
+	effectiveReplicas := int(*set.Spec.Replicas)
+
+	err := agents.WaitForRsAgentsToRegister(*set, util_int.Min(membersNumberBefore, effectiveReplicas), rs.Spec.GetClusterDomain(), conn, log, rs)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
-	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
-	// this is, do not scale them up or down util TLS disabling has completed.
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, membersNumberBefore, rs, set, log, caFilePath, tlsCertPath)
+	// If TLS is being disabled, update the OM automation config to disable it.
+	// The replica count is already locked via set.Spec.Replicas.
+	err = updateOmDeploymentDisableTLSConfiguration(conn, r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, effectiveReplicas, rs, *set, log, caFilePath, tlsCertPath)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
-	var updatedMembers int
-	if shouldLockMembers {
-		// We should not add or remove members during this run, we'll wait for
-		// TLS to be completely disabled first.
-		updatedMembers = membersNumberBefore
-	} else {
-		updatedMembers = int(*set.Spec.Replicas)
-	}
-
-	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, set, rs.GetSpec(), updatedMembers, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
+	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, *set, rs.GetSpec(), effectiveReplicas, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
 	processNames := replicaSet.GetProcessNames()
 
 	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, processNames, rs, agentCertPath, caFilePath, internalClusterCertPath, isRecovering, log)
@@ -512,7 +530,12 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
+	// Only wait for the processes that currently have pods. During scale-up, we add all desired
+	// processes to the automation config, but we only wait for the ones that exist now. The
+	// StatefulSet will be updated after this, creating new pods incrementally.
+	numProcessesToWait := util_int.Min(membersNumberBefore, effectiveReplicas)
+	processesToWait := processNames[:numProcessesToWait]
+	if err := om.WaitForReadyState(conn, processesToWait, isRecovering, log); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -526,8 +549,8 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 	}
 
 	externalDomain := rs.Spec.DbCommonSpec.GetExternalDomain()
-	hostsBefore := getAllHostsRs(set, rs.Spec.GetClusterDomain(), membersNumberBefore, externalDomain)
-	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(rs), externalDomain)
+	hostsBefore := getAllHostsRs(*set, rs.Spec.GetClusterDomain(), membersNumberBefore, externalDomain)
+	hostsAfter := getAllHostsRs(*set, rs.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(rs), externalDomain)
 
 	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil && !isRecovering {
 		return workflow.Failed(err)
@@ -542,23 +565,21 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 }
 
 // updateOmDeploymentDisableTLSConfiguration checks if TLS configuration needs
-// to be disabled. In which case it will disable it and inform to the calling
-// function.
-func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage string, forceEnterprise bool, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath, tlsCertPath string) (bool, error) {
-	tlsConfigWasDisabled := false
-
-	err := conn.ReadUpdateDeployment(
+// to be disabled, and if so, updates the OM automation config to disable it.
+// The effectiveReplicas parameter contains the already-computed replica count to use.
+func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage string, forceEnterprise bool, effectiveReplicas int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath, tlsCertPath string) error {
+	return conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			if !d.TLSConfigurationWillBeDisabled(rs.Spec.GetSecurity()) {
 				return nil
 			}
 
-			tlsConfigWasDisabled = true
+			log.Debug("Disabling TLS in OM automation config")
 			d.ConfigureTLS(rs.Spec.GetSecurity(), caFilePath)
 
-			// configure as many agents/Pods as we currently have, no more (in case
-			// there's a scale up change at the same time).
-			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(mongoDBImage, forceEnterprise, set, rs.GetSpec(), membersNumberBefore, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
+			// Use the effective replica count that was already computed in the caller.
+			// This ensures we use the same locked value during TLS disable.
+			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(mongoDBImage, forceEnterprise, set, rs.GetSpec(), effectiveReplicas, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
 
 			lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
 			if err != nil {
@@ -571,8 +592,16 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage 
 		},
 		log,
 	)
+}
 
-	return tlsConfigWasDisabled, err
+// checkIfTLSWillBeDisabled checks if TLS configuration will be disabled in the next OM update
+// without modifying the deployment. This is used to determine if we should lock StatefulSet replicas.
+func checkIfTLSWillBeDisabled(conn om.Connection, rs *mdbv1.MongoDB, log *zap.SugaredLogger) (bool, error) {
+	deployment, err := conn.ReadDeployment()
+	if err != nil {
+		return false, err
+	}
+	return deployment.TLSConfigurationWillBeDisabled(rs.Spec.GetSecurity()), nil
 }
 
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
