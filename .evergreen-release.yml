@@ -12,8 +12,7 @@ tasks:
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
-          image_name: meko-tests
-          build_scenario: --build-scenario patch
+          IMAGE_NAME: meko-tests
 
   - name: release_operator
     tags: [ "image_release" ]
@@ -22,9 +21,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
-          image_name: operator
+          IMAGE_NAME: operator
 
   # Releases init images to Quay
   - name: release_init_appdb
@@ -34,9 +33,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
-          image_name: init-appdb
+          IMAGE_NAME: init-appdb
 
   - name: release_init_database
     tags: [ "image_release" ]
@@ -45,9 +44,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
-          image_name: init-database
+          IMAGE_NAME: init-database
 
   - name: release_init_ops_manager
     tags: [ "image_release" ]
@@ -56,9 +55,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
-          image_name: init-ops-manager
+          IMAGE_NAME: init-ops-manager
 
   - name: release_database
     tags: [ "image_release" ]
@@ -67,9 +66,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
-          image_name: database
+          IMAGE_NAME: database
 
   - name: prepare_and_upload_openshift_bundles
     tags: [ "openshift_bundles" ]

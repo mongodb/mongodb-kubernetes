@@ -30,17 +30,12 @@ RELEASE_INFO_IMAGES_ORDERED = [
     UPGRADE_HOOK_IMAGE,
 ]
 
+# TODO: this is dummy version, to be replaced with actual versioning logic https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.45ig7xr3e3w4#bookmark=id.748ik8snxcyl
+DUMMY_VERSION = "dummy_version"
 
-def create_release_info_json(
-    repository_path: str, changelog_sub_path: str, initial_commit_sha: str = None, initial_version: str = None
-) -> str:
-    build_info = load_build_info(
-        scenario=BuildScenario.RELEASE,
-        repository_path=repository_path,
-        changelog_sub_path=changelog_sub_path,
-        initial_commit_sha=initial_commit_sha,
-        initial_version=initial_version,
-    )
+
+def create_release_info_json() -> str:
+    build_info = load_build_info(scenario=BuildScenario.RELEASE)
 
     release_info_json = convert_to_release_info_json(build_info)
 
@@ -60,19 +55,19 @@ def convert_to_release_info_json(build_info: BuildInfo) -> dict:
         output["images"][name] = {
             "repositories": image.repositories,
             "platforms": image.platforms,
-            "version": image.version,
+            "version": DUMMY_VERSION,
         }
 
     for name, binary in build_info.binaries.items():
         output["binaries"][name] = {
             "platforms": binary.platforms,
-            "version": binary.version,
+            "version": DUMMY_VERSION,
         }
 
     for name, chart in build_info.helm_charts.items():
         output["helm-charts"][name] = {
             "repositories": chart.repositories,
-            "version": chart.version,
+            "version": DUMMY_VERSION,
         }
 
     return output
@@ -83,53 +78,9 @@ if __name__ == "__main__":
         description="Create relevant release artifacts information in JSON format.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument(
-        "-p",
-        "--path",
-        default=DEFAULT_REPOSITORY_PATH,
-        metavar="",
-        action="store",
-        type=pathlib.Path,
-        help="Path to the Git repository. Default is the current directory '.'",
-    )
-    parser.add_argument(
-        "-c",
-        "--changelog-path",
-        default=DEFAULT_CHANGELOG_PATH,
-        metavar="",
-        action="store",
-        type=str,
-        help=f"Path to the changelog directory relative to a current working directory. Default is '{DEFAULT_CHANGELOG_PATH}'",
-    )
-    parser.add_argument(
-        "-s",
-        "--initial-commit-sha",
-        metavar="",
-        action="store",
-        type=str,
-        help="SHA of the initial commit to start from if no previous version tag is found.",
-    )
-    parser.add_argument(
-        "-v",
-        "--initial-version",
-        default=DEFAULT_RELEASE_INITIAL_VERSION,
-        metavar="",
-        action="store",
-        type=str,
-        help=f"Version to use if no previous version tag is found. Default is '{DEFAULT_RELEASE_INITIAL_VERSION}'",
-    )
-    parser.add_argument(
-        "--output",
-        "-o",
-        metavar="",
-        type=pathlib.Path,
-        help="Path to save the release information file. If not provided, prints to stdout.",
-    )
     args = parser.parse_args()
 
-    release_info = create_release_info_json(
-        args.path, args.changelog_path, args.initial_commit_sha, args.initial_version
-    )
+    release_info = create_release_info_json()
 
     if args.output is not None:
         with open(args.output, "w") as file:

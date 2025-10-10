@@ -88,7 +88,7 @@ def args_for_image(image: str) -> Dict[str, str]:
             name_suffix="-ubi",
         ),
         image_config(
-            image="mongodb-agent", rh_cert_project_id="633fcfd482f7934b1ad3be47", name_prefix="", name_suffix="-ubi"
+            image="mongodb-agent", rh_cert_project_id="68e37c471f673a855dfe1a99", name_prefix="", name_suffix=""
         ),
     ]
     images = {k: v for k, v in image_configs}

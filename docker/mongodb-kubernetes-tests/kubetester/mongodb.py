@@ -89,6 +89,11 @@ class MongoDB(CustomObject, MongoDBCommon):
             "Failed to enable Authentication",
             # Sometimes agents need longer to register with OM.
             "some agents failed to register or the Operator",
+            # Kubernetes API server may timeout during high load, but the request may still complete.
+            # This is particularly common when deploying many resources simultaneously.
+            "but may still be processing the request",
+            "Client.Timeout exceeded while awaiting headers",
+            "context deadline exceeded",
         )
 
         start_time = time.time()
