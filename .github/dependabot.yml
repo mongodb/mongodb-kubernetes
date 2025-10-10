@@ -12,10 +12,25 @@ updates:
           - "*"
     ignore:
       - dependency-name: k8s.io/api
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
       - dependency-name: k8s.io/apimachinery
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
       - dependency-name: k8s.io/client-go
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
       - dependency-name: k8s.io/code-generator
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
       - dependency-name: sigs.k8s.io/controller-runtime
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
     labels:
       - dependencies
       - go
@@ -33,6 +48,8 @@ updates:
           - "*"
     ignore:
        - dependency-name: kubernetes
+         update-types:
+          - version-update:semver-major
     labels:
       - dependencies
       - python
