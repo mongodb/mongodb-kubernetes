@@ -12,10 +12,10 @@ bindir="${PROJECT_DIR}/bin"
 tmpdir="${PROJECT_DIR}/tmp"
 mkdir -p "${bindir}" "${tmpdir}"
 
-kubectl_version=$(curl --retry 5 -L https://dl.k8s.io/release/stable.txt)
+kubectl_version=$(curl --retry 5 -Ls https://dl.k8s.io/release/stable.txt)
 echo "Downloading kubectl ${kubectl_version} for ${ARCH}"
 
-curl --retry 5 -LOv "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
+curl --retry 5 -LOs "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
 chmod +x kubectl
 echo "kubectl version --client"
 ./kubectl version --client
