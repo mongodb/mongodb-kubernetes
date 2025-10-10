@@ -50,7 +50,6 @@ updates:
        - dependency-name: kubernetes
          update-types:
           - version-update:semver-major
-          - version-update:semver-minor
     labels:
       - dependencies
       - python
