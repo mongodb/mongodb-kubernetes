@@ -5,7 +5,7 @@ set -eux
 export CTX_CLUSTER1=${CTX_CLUSTER1:-e2e.cluster1.mongokubernetes.com}
 export CTX_CLUSTER2=${CTX_CLUSTER2:-e2e.cluster2.mongokubernetes.com}
 export CTX_CLUSTER3=${CTX_CLUSTER3:-e2e.cluster3.mongokubernetes.com}
-export VERSION=${VERSION:-1.12.8}
+export VERSION=${VERSION:-1.27.1}
 
 IS_KIND="false"
 if [[ $CTX_CLUSTER1 = kind* ]]; then
@@ -38,6 +38,7 @@ make -f ../tools/certs/Makefile.selfsigned.mk "${CTX_CLUSTER3}-cacerts" || make 
 # create cluster secret objects with the certs and keys
 kubectl --context="${CTX_CLUSTER1}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER1}" create ns istio-system
+kubectl --context="${CTX_CLUSTER1}" label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
 kubectl --context="${CTX_CLUSTER1}" create secret generic cacerts -n istio-system \
   --from-file=${CTX_CLUSTER1}/ca-cert.pem \
   --from-file=${CTX_CLUSTER1}/ca-key.pem \
@@ -46,6 +47,7 @@ kubectl --context="${CTX_CLUSTER1}" create secret generic cacerts -n istio-syste
 
 kubectl --context="${CTX_CLUSTER2}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER2}" create ns istio-system
+kubectl --context="${CTX_CLUSTER2}" label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
 kubectl --context="${CTX_CLUSTER2}" create secret generic cacerts -n istio-system \
   --from-file=${CTX_CLUSTER2}/ca-cert.pem \
   --from-file=${CTX_CLUSTER2}/ca-key.pem \
@@ -54,6 +56,7 @@ kubectl --context="${CTX_CLUSTER2}" create secret generic cacerts -n istio-syste
 
 kubectl --context="${CTX_CLUSTER3}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER3}" create ns istio-system
+kubectl --context="${CTX_CLUSTER3}" label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
 kubectl --context="${CTX_CLUSTER3}" create secret generic cacerts -n istio-system \
   --from-file=${CTX_CLUSTER3}/ca-cert.pem \
   --from-file=${CTX_CLUSTER3}/ca-key.pem \
@@ -67,6 +70,10 @@ apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
   tag: ${VERSION}
+  components:
+    cni:
+      namespace: istio-system
+      enabled: true
   meshConfig:
     defaultConfig:
       terminationDrainDuration: 30s
@@ -81,13 +88,17 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --context="${CTX_CLUSTER1}" -f cluster1.yaml -y &
+bin/istioctl install --context="${CTX_CLUSTER1}" --set components.cni.enabled=true -f cluster1.yaml -y &
 
 cat <<EOF >cluster2.yaml
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
   tag: ${VERSION}
+  components:
+    cni:
+      namespace: istio-system
+      enabled: true
   meshConfig:
     defaultConfig:
       terminationDrainDuration: 30s
@@ -102,13 +113,17 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --context="${CTX_CLUSTER2}" -f cluster2.yaml -y &
+bin/istioctl install --context="${CTX_CLUSTER2}" --set components.cni.enabled=true -f cluster2.yaml -y &
 
 cat <<EOF >cluster3.yaml
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
   tag: ${VERSION}
+  components:
+    cni:
+      namespace: istio-system
+      enabled: true
   meshConfig:
     defaultConfig:
       terminationDrainDuration: 30s
@@ -123,7 +138,7 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --context="${CTX_CLUSTER3}" -f cluster3.yaml -y &
+bin/istioctl install --context="${CTX_CLUSTER3}" --set components.cni.enabled=true -f cluster3.yaml -y &
 
 wait
 
@@ -131,46 +146,46 @@ CLUSTER_1_ADDITIONAL_OPTS=""
 CLUSTER_2_ADDITIONAL_OPTS=""
 CLUSTER_3_ADDITIONAL_OPTS=""
 if [[ $IS_KIND == "true" ]]; then
-  CLUSTER_1_ADDITIONAL_OPTS="--server https://$(kubectl --context=${CTX_CLUSTER1} get node e2e-cluster-1-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
-  CLUSTER_2_ADDITIONAL_OPTS="--server https://$(kubectl --context=${CTX_CLUSTER2} get node e2e-cluster-2-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
-  CLUSTER_3_ADDITIONAL_OPTS="--server https://$(kubectl --context=${CTX_CLUSTER3} get node e2e-cluster-3-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
+  CLUSTER_1_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER1}" get node e2e-cluster-1-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
+  CLUSTER_2_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER2}" get node e2e-cluster-2-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
+  CLUSTER_3_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER3}" get node e2e-cluster-3-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
 fi
 
 # enable endpoint discovery
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER1}" \
   -n istio-system \
-  --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} |
+  --name=cluster1 "${CLUSTER_1_ADDITIONAL_OPTS}" |
   kubectl apply -f - --context="${CTX_CLUSTER2}"
 
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER1}" \
   -n istio-system \
-  --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} |
+  --name=cluster1 "${CLUSTER_1_ADDITIONAL_OPTS}" |
   kubectl apply -f - --context="${CTX_CLUSTER3}"
 
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER2}" \
   -n istio-system \
-  --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} |
+  --name=cluster2 "${CLUSTER_2_ADDITIONAL_OPTS}" |
   kubectl apply -f - --context="${CTX_CLUSTER1}"
 
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER2}" \
   -n istio-system \
-  --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} |
+  --name=cluster2 "${CLUSTER_2_ADDITIONAL_OPTS}" |
   kubectl apply -f - --context="${CTX_CLUSTER3}"
 
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER3}" \
   -n istio-system \
-  --name=cluster3 ${CLUSTER_3_ADDITIONAL_OPTS} |
+  --name=cluster3 "${CLUSTER_3_ADDITIONAL_OPTS}" |
   kubectl apply -f - --context="${CTX_CLUSTER1}"
 
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER3}" \
   -n istio-system \
-  --name=cluster3 ${CLUSTER_3_ADDITIONAL_OPTS} |
+  --name=cluster3 "${CLUSTER_3_ADDITIONAL_OPTS}" |
   kubectl apply -f - --context="${CTX_CLUSTER2}"
 # disable namespace injection explicitly for istio-system namespace
 kubectl --context="${CTX_CLUSTER1}" label namespace istio-system istio-injection=disabled
