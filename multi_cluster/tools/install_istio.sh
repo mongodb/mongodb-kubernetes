@@ -5,7 +5,7 @@ set -eux
 export CTX_CLUSTER1=${CTX_CLUSTER1:-e2e.cluster1.mongokubernetes.com}
 export CTX_CLUSTER2=${CTX_CLUSTER2:-e2e.cluster2.mongokubernetes.com}
 export CTX_CLUSTER3=${CTX_CLUSTER3:-e2e.cluster3.mongokubernetes.com}
-export VERSION=${VERSION:-1.12.8}
+export VERSION=${VERSION:-1.27.1}
 
 IS_KIND="false"
 if [[ $CTX_CLUSTER1 = kind* ]]; then
@@ -127,9 +127,6 @@ spec:
   meshConfig:
     defaultConfig:
       terminationDrainDuration: 30s
-      proxyMetadata:
-        ISTIO_META_DNS_AUTO_ALLOCATE: "true"
-        ISTIO_META_DNS_CAPTURE: "true"
   values:
     global:
       meshID: mesh1
