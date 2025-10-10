@@ -21,6 +21,10 @@ spec:
       actions:
         - "find"
         - "update"
+    - resource:
+        cluster: true
+      actions:
+        - setUserWriteBlockMode
   authenticationRestrictions:
     - clientSource:
         - "127.0.0.0/8"
