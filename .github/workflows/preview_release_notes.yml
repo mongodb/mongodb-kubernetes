@@ -37,7 +37,8 @@ jobs:
           # not be available in the pull requests running from forks.
           RELEASE_INITIAL_COMMIT_SHA: ${{ env.RELEASE_INITIAL_COMMIT_SHA }}
           RELEASE_INITIAL_VERSION: ${{ env.RELEASE_INITIAL_VERSION }}
-      - name: Add disclaimer to release notes preview
+      - name: Add disclaimer to release notes preview for pull requests
+        if: github.event_name == 'pull_request'
         run: |
           echo -e "_:warning: (this preview might not be accurate if the PR is not rebased on current master branch)_\n" > release_notes_preview.md
           cat release_notes_tmp.md >> release_notes_preview.md
