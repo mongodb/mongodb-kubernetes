@@ -11,7 +11,6 @@ from copy import copy
 from queue import Queue
 from typing import Dict, List, Optional, Tuple
 
-import python_on_whales
 import requests
 from opentelemetry import trace
 
@@ -26,7 +25,10 @@ from scripts.release.agent.validation import (
     generate_tools_build_args,
 )
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
-from scripts.release.build.image_build_process import execute_docker_build
+from scripts.release.build.image_build_process import (
+    check_if_image_exists,
+    execute_docker_build,
+)
 from scripts.release.build.image_signing import (
     mongodb_artifactory_login,
     sign_image,
@@ -75,12 +77,20 @@ def build_image(
     # Build the image once with all repository tags
     tags = []
     for registry in registries:
-        tags.append(f"{registry}:{build_configuration.version}")
-        if build_configuration.latest_tag:
-            tags.append(f"{registry}:latest")
-        if build_configuration.olm_tag:
-            olm_tag = create_olm_version_tag(build_configuration.version)
-            tags.append(f"{registry}:{olm_tag}")
+        tag = f"{registry}:{build_configuration.version}"
+        if build_configuration.skip_if_exists and check_if_image_exists(tag):
+            logger.info(f"Image with tag {tag} already exists. Skipping it.")
+        else:
+            tags.append(tag)
+            if build_configuration.latest_tag:
+                tags.append(f"{registry}:latest")
+            if build_configuration.olm_tag:
+                olm_tag = create_olm_version_tag(build_configuration.version)
+                tags.append(f"{registry}:{olm_tag}")
+
+    if not tags:
+        logger.info("All specified image tags already exist. Skipping build.")
+        return
 
     logger.info(
         f"Building image with tags {tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
@@ -236,13 +246,7 @@ def build_init_om_image(build_configuration: ImageBuildConfiguration):
 
 
 def build_om_image(build_configuration: ImageBuildConfiguration):
-    # Make this a parameter for the Evergreen build
-    # https://github.com/evergreen-ci/evergreen/wiki/Parameterized-Builds
-    om_version = os.environ.get("om_version")
-    if om_version is None:
-        raise ValueError("`om_version` should be defined.")
-
-    build_configuration.version = om_version
+    om_version = build_configuration.version
 
     om_download_url = os.environ.get("om_download_url", "")
     if om_download_url == "":

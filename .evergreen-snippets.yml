@@ -6,6 +6,7 @@ variables:
       - func: setup_gcloud_cli
       - func: setup_mongosh
       - func: download_kube_tools
+      - func: switch_context
       - func: build_multi_cluster_binary
     teardown_task:
       - func: upload_e2e_logs
@@ -20,6 +21,7 @@ variables:
       - func: cleanup_exec_environment
       - func: download_kube_tools
       - func: configure_docker_auth
+      - func: switch_context
       - func: setup_kubernetes_environment
       - func: python_venv
       - func: setup_cloud_qa

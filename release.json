@@ -8,6 +8,8 @@
   "initAppDbVersion": "1.4.0",
   "databaseImageVersion": "1.4.0",
   "agentVersion": "108.0.12.8846-1",
+  "readinessProbeVersion": "1.0.23",
+  "versionUpgradeHookVersion": "1.0.10",
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },
@@ -15,24 +17,6 @@
     "version": "0.53.1"
   },
   "supportedImages": {
-    "readinessprobe": {
-      "ssdlc_name": "MongoDB Controllers for Kubernetes Readiness Probe",
-      "versions": [
-        "1.0.22"
-      ],
-      "variants": [
-        "ubi"
-      ]
-    },
-    "operator-version-upgrade-post-start-hook": {
-      "ssdlc_name": "MongoDB Controllers for Kubernetes Operator Version Upgrade Hook",
-      "versions": [
-        "1.0.9"
-      ],
-      "variants": [
-        "ubi"
-      ]
-    },
     "ops-manager": {
       "ssdlc_name": "MongoDB Controllers for Kubernetes Enterprise Ops Manager",
       "versions": [
@@ -139,10 +123,6 @@
           "7.0.18": {
             "agent_version": "107.0.18.8784-1",
             "tools_version": "100.13.0"
-          },
-          "8.0.0": {
-            "agent_version": "108.0.0.8694-1",
-            "tools_version": "100.10.0"
           },
           "8.0.1": {
             "agent_version": "108.0.1.8718-1",
