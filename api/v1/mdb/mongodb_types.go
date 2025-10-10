@@ -1038,7 +1038,7 @@ func (a *Authentication) IsOIDCEnabled() bool {
 	return stringutil.Contains(a.GetModes(), util.OIDC)
 }
 
-// GetModes returns the modes of the Authentication instance of an empty
+// GetModes returns the modes of the Authentication instance, or an empty
 // list if it is nil
 func (a *Authentication) GetModes() []string {
 	if a == nil {
