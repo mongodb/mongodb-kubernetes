@@ -277,8 +277,8 @@ spec:
     {{- end }}
     {{- if .Values.customEnvVars }}
       {{- range split "&" .Values.customEnvVars }}
-            - name: {{ (split "=" .)._0 }}
-              value: '{{ (split "=" .)._1 }}'
+            - name: {{ (splitn "=" 2 . )._0 }}
+              value: '{{ (splitn "=" 2 .)._1 }}'
       {{- end }}
     {{- end }}
 {{- if .Values.multiCluster.clusters }}
