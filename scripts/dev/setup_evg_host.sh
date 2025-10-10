@@ -44,10 +44,10 @@ download_kind() {
 }
 
 download_kubectl() {
-  kubectl_version=$(curl --retry 5 --retry-all-errors -L -v https://dl.k8s.io/release/stable.txt)
+  kubectl_version=$(curl --retry 5 -L -v https://dl.k8s.io/release/stable.txt)
   echo "Downloading kubectl ${kubectl_version}..."
 
-  curl --retry 5 --retry-all-errors -o kubectl -L -v "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
+  curl --retry 5 -o kubectl -L -v "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
   chmod +x kubectl
   sudo mv kubectl /usr/local/bin/kubectl
 }
