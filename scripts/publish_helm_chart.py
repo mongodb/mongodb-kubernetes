@@ -20,7 +20,9 @@ def run_command(command: list[str]):
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Command {' '.join(command)} failed. Stderr: {e.stderr.strip()}") from e
     except FileNotFoundError:
-        raise FileNotFoundError(f"Error: {command[0]} command not found. Ensure {command[0]} is installed and in your PATH.")
+        raise FileNotFoundError(
+            f"Error: {command[0]} command not found. Ensure {command[0]} is installed and in your PATH."
+        )
 
 
 # update_chart_and_get_metadata updates the helm chart's Chart.yaml and sets the version
@@ -71,7 +73,6 @@ def get_oci_registry(chart_info: HelmChartInfo) -> str:
     if not repo:
         raise ValueError("Error: reposiotry doesn't seem to be set in HelmChartInfo.")
 
-    
     oci_registry = f"oci://{registry}/{repo}"
     logger.info(f"Determined OCI Registry: {oci_registry}")
     return oci_registry
