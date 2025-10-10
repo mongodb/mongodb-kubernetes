@@ -69,7 +69,6 @@ def main():
     region = build_info.helm_charts["mongodb-kubernetes"].region
     return helm_registry_login(registry, region)
 
-
 if __name__ == "__main__":
     try:
         main()
