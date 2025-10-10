@@ -94,12 +94,15 @@ def tenant_name() -> str:
 @fixture(scope="module")
 def tenant_domains() -> List[str]:
     return [
-        "tenant-0-pool-0-{0...3}.tenant-0-hl.tenant-0.svc.cluster.local",
+        "tenant-0-pool-0-0.tenant-0-hl.tenant-0.svc.cluster.local",
+        "tenant-0-pool-0-1.tenant-0-hl.tenant-0.svc.cluster.local",
+        "tenant-0-pool-0-2.tenant-0-hl.tenant-0.svc.cluster.local",
+        "tenant-0-pool-0-3.tenant-0-hl.tenant-0.svc.cluster.local",
         "minio.tenant-0.svc.cluster.local",
         "minio.tenant-0",
         "minio.tenant-0.svc",
-        ".tenant-0-hl.tenant-0.svc.cluster.local",
-        ".tenant-0.svc.cluster.local",
+        "*.tenant-0-hl.tenant-0.svc.cluster.local",
+        "*.tenant-0.svc.cluster.local",
     ]
 
 

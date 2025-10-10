@@ -26,7 +26,7 @@ export EVG_HOST_NAME=""
 # - 268558157000.dkr.ecr.us-east-1.amazonaws.com/<your MongoDB username>
 export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/${USER}"
 # The operator image should -in general- be pulled from the user repository
-# In certain case, the /dev repo can be used as well (BASE_REPO_URL_SHARED)
+# In certain case, the /staging repo can be used as well (BASE_REPO_URL_SHARED)
 export OPERATOR_REGISTRY="${BASE_REPO_URL}"
 
 # Set to true if running operator locally and not in a pod
