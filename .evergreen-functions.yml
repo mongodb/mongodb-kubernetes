@@ -866,8 +866,7 @@ functions:
         env:
           GH_TOKEN: ${GH_TOKEN}
           MCK_DIR: ${workdir}/src/github.com/mongodb/mongodb-kubernetes
-        # binary: scripts/dev/run_python.sh scripts/create_chart_release_pr.py --chart_version ${RELEASE_OPERATOR_VERSION|*triggered_by_git_tag}
-        binary: scripts/dev/run_python.sh scripts/create_chart_release_pr.py --chart_version x.y.z
+        binary: scripts/dev/run_python.sh scripts/create_chart_release_pr.py --chart_version ${RELEASE_OPERATOR_VERSION|*triggered_by_git_tag}
 
   release_kubectl_mongodb_plugin:
     - command: github.generate_token
