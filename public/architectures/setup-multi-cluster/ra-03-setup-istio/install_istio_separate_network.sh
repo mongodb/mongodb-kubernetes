@@ -9,7 +9,7 @@
 
 set -eux
 
-export ISTIO_VERSION=${ISTIO_VERSION:-1.27.1}
+export ISTIO_VERSION=${ISTIO_VERSION:-1.20.2}
 
 if [[ ! -d istio-${ISTIO_VERSION} ]]; then
   # download Istio under the path

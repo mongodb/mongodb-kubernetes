@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-export VERSION=${VERSION:-1.27.1}
+export VERSION=${VERSION:-1.16.1}
 ISTIO_SCRIPT_CHECKSUM="254c6bd6aa5b8ac8c552561c84d8e9b3a101d9e613e2a8edd6db1f19c1871dbf"
 
 echo "Checking if we need to download Istio ${VERSION}"
