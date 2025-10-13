@@ -38,7 +38,7 @@ fi
 kubeconfig_path="${HOME}/.operator-dev/evg-host.kubeconfig"
 
 configure() {
-  shift 1
+  shift || true
   auto_recreate="false"
 
   # Parse arguments
@@ -64,7 +64,7 @@ configure() {
     jq '. | with_entries(select(.key == "auths"))' "${HOME}/.docker/config.json" | ssh -T -q "${host_url}" 'cat > /home/ubuntu/.docker/config.json'
   fi
 
-  sync
+  sync | prepend "sync"
 
   ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${auto_recreate}"
 }

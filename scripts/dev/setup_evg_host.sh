@@ -5,6 +5,7 @@
 set -Eeou pipefail
 
 source scripts/funcs/install
+source scripts/funcs/printing
 
 set_limits() {
   echo "Increasing fs.inotify.max_user_instances"
@@ -61,14 +62,14 @@ download_helm() {
   rm -rf linux-"${ARCH}/"
 }
 
-set_limits
-download_kind &
-download_kubectl &
-download_helm &
+set_limits | prepend "set_limits"
+download_kind | prepend "download_kind" &
+download_kubectl | prepend "download_kubectl" &
+download_helm | prepend "download_helm" &
 
 AUTO_RECREATE=${1:-false}
 if [[ "${AUTO_RECREATE}" == "true" ]]; then
-  set_auto_recreate &
+  set_auto_recreate | prepend "set_auto_recreate" &
 fi
 
 wait
