@@ -43,6 +43,7 @@ type Options struct {
 	// so it is possible to use other auth mechanisms without needing to provide client certs.
 	ClientCertificates string
 
+	AutoPEMKeyFilePath
 	CAFilePath string
 
 	// Use Agent Client Auth
@@ -349,7 +350,7 @@ func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *za
 		if opts.AgentsShouldUseClientAuthentication {
 			ac.AgentSSL = &om.AgentSSL{
 				AutoPEMKeyFilePath:    util.AutomationAgentPemFilePath,
-				CAFilePath:            opts.CAFilePath,
+				AutoPEMKeyFilePath:    opts.AutoPEMKeyFilePath,
 				ClientCertificateMode: opts.ClientCertificates,
 			}
 		} else {

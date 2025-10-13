@@ -38,15 +38,25 @@ fi
 kubeconfig_path="${HOME}/.operator-dev/evg-host.kubeconfig"
 
 configure() {
-  shift 1
-  arch=${1-"amd64"}
+  shift || true
+  auto_recreate="false"
 
-  echo "Configuring EVG host ${EVG_HOST_NAME} (${host_url}) with architecture ${arch}"
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --auto-recreate)
+        auto_recreate="true"
+        shift
+        ;;
+      *)
+        echo "Unknown argument: $1"
+        echo "Usage: configure [--auto-recreate]"
+        exit 1
+        ;;
+    esac
+  done
 
-  if [[ "${cmd}" == "configure" && "${arch}" != "amd64" && "${arch}" != "arm64" ]]; then
-    echo "'configure' command supports the following architectures: 'amd64', 'arm64'"
-    exit 1
-  fi
+  echo "Configuring EVG host ${EVG_HOST_NAME} (${host_url}) (auto_recreate: ${auto_recreate})"
 
   ssh -T -q "${host_url}" "sudo chown ubuntu:ubuntu ~/.docker || true; mkdir -p ~/.docker"
   if [[ -f "${HOME}/.docker/config.json" ]]; then
@@ -54,9 +64,9 @@ configure() {
     jq '. | with_entries(select(.key == "auths"))' "${HOME}/.docker/config.json" | ssh -T -q "${host_url}" 'cat > /home/ubuntu/.docker/config.json'
   fi
 
-  sync
+  sync | prepend "sync"
 
-  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${arch}"
+  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${auto_recreate}"
 }
 
 sync() {
@@ -100,7 +110,7 @@ get-kubeconfig() {
 
 recreate-kind-clusters() {
   DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK:-"false"}
-  configure "${1-"amd64"}" 2>&1| prepend "evg_host.sh configure"
+  configure 2>&1| prepend "evg_host.sh configure"
   echo "Recreating kind clusters on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
   ssh -T "${host_url}" "cd ~/mongodb-kubernetes; DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK} scripts/dev/recreate_kind_clusters.sh"
@@ -111,7 +121,7 @@ recreate-kind-clusters() {
 recreate-kind-cluster() {
   shift 1
   cluster_name=$1
-  configure "${1-"amd64"}" 2>&1| prepend "evg_host.sh configure"
+  configure 2>&1| prepend "evg_host.sh configure"
   echo "Recreating kind cluster ${cluster_name} on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
   ssh -T "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
@@ -121,6 +131,7 @@ recreate-kind-cluster() {
 
 tunnel() {
   shift 1
+  get-kubeconfig
   # shellcheck disable=SC2016
   api_servers=$(yq '.contexts[].context.cluster as $cluster | .clusters[] | select(.name == $cluster).cluster.server' < "${kubeconfig_path}" | sed 's/https:\/\///g')
   echo "Extracted the following API server urls from ${kubeconfig_path}: ${api_servers}"
@@ -187,7 +198,7 @@ PREREQUISITES:
 
 COMMANDS:
   recreate-kind-clusters                all-you-need to configure host and kind clusters; deletes and recreates all kind clusters (for single and multi runs)
-  configure <architecture>              installs on a host: calls sync, switches context, installs necessary software
+  configure [--auto-recreate]           installs on a host: calls sync, switches context, installs necessary software
   sync                                  rsync of project directory
   recreate-kind-cluster test-cluster    executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
   remote-prepare-local-e2e-run          executes prepare-local-e2e on the remote evg host
@@ -202,7 +213,7 @@ COMMANDS:
 
 case ${cmd} in
 configure) configure "$@" ;;
-recreate-kind-clusters) recreate-kind-clusters "${1-"amd64"}";;
+recreate-kind-clusters) recreate-kind-clusters "$@" ;;
 recreate-kind-cluster) recreate-kind-cluster "$@" ;;
 get-kubeconfig) get-kubeconfig ;;
 remote-prepare-local-e2e-run) remote-prepare-local-e2e-run ;;

@@ -494,6 +494,8 @@ func (m *AppDBSpec) GetMemberClusterSpecByName(memberClusterName string) mdbv1.C
 
 	// In case the member cluster is not found in the cluster spec list, we return an empty ClusterSpecItem
 	// with 0 members to handle the case of removing a cluster from the spec list without a panic.
+	//
+	// This is not ideal, because we don't consider other fields that were removed i
 	return mdbv1.ClusterSpecItem{
 		ClusterName: memberClusterName,
 		Members:     0,

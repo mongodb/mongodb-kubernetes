@@ -22,7 +22,7 @@ spec:
       serviceAccountName: mongodb-kubernetes-operator
       containers:
         - name: mongodb-kubernetes-operator
-          image: "quay.io/mongodb/mongodb-kubernetes:1.4.0"
+          image: "quay.io/mongodb/mongodb-kubernetes:1.5.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -69,21 +69,21 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: 1.4.0
+              value: 1.5.0
             - name: DATABASE_VERSION
-              value: 1.4.0
+              value: 1.5.0
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: 1.4.0
+              value: 1.5.0
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
-              value: 1.4.0
+              value: 1.5.0
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -112,9 +112,9 @@ spec:
             - name: MDB_COMMUNITY_AGENT_IMAGE
               value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
             - name: VERSION_UPGRADE_HOOK_IMAGE
-              value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"
+              value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.10"
             - name: READINESS_PROBE_IMAGE
-              value: "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.22"
+              value: "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.23"
             - name: MDB_COMMUNITY_IMAGE
               value: "mongodb-community-server"
             - name: MDB_COMMUNITY_REPO_URL
@@ -122,14 +122,14 @@ spec:
             - name: MDB_COMMUNITY_IMAGE_TYPE
               value: "ubi8"
             # Community Env Vars End
-            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_4_0
-              value: "quay.io/mongodb/mongodb-kubernetes-database:1.4.0"
-            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_4_0
-              value: "quay.io/mongodb/mongodb-kubernetes-init-database:1.4.0"
-            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_4_0
-              value: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:1.4.0"
-            - name: RELATED_IMAGE_INIT_APPDB_IMAGE_REPOSITORY_1_4_0
-              value: "quay.io/mongodb/mongodb-kubernetes-init-appdb:1.4.0"
+            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_5_0
+              value: "quay.io/mongodb/mongodb-kubernetes-database:1.5.0"
+            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_5_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-database:1.5.0"
+            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_5_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:1.5.0"
+            - name: RELATED_IMAGE_INIT_APPDB_IMAGE_REPOSITORY_1_5_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-appdb:1.5.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1
               value: "quay.io/mongodb/mongodb-agent:107.0.12.8669-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1
@@ -140,8 +140,6 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:107.0.17.8771-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_18_8784_1
               value: "quay.io/mongodb/mongodb-agent:107.0.18.8784-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_0_8694_1
-              value: "quay.io/mongodb/mongodb-agent:108.0.0.8694-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_1_8718_1
               value: "quay.io/mongodb/mongodb-agent:108.0.1.8718-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_11_8830_1
@@ -162,8 +160,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:108.0.7.8810-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1
               value: "quay.io/mongodb/mongodb-agent:12.0.35.7911-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_13_38_0_9654_1
-              value: "quay.io/mongodb/mongodb-agent:13.38.0.9654-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_13_41_0_9830_1
+              value: "quay.io/mongodb/mongodb-agent:13.41.0.9830-1"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_26
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.26"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_27

@@ -163,6 +163,10 @@ lint_code() {
   scripts/evergreen/lint_code.sh
 }
 
+lint_helm_chart() {
+  scripts/dev/lint_helm_chart.sh
+}
+
 function validate_snippets() {
   scripts/code_snippets/validate_snippets.py
 }
@@ -224,8 +228,17 @@ pre_commit() {
   run_job_in_background "validate_snippets"
 
   if wait_for_all_background_jobs; then
-    echo -e "${GREEN}pre-commit: All checks passed!${NO_COLOR}"
-    return 0
+    # lint_helm_chart must be run after all the background jobs are finished because one of the BG jobs (update_jobs)
+    # updates the helm chart. And lint_helm_chart requires the helm chart to be updated already.
+    lint_helm_chart
+
+    local lint_helm_chart_status=$?
+    if [ "$lint_helm_chart_status" -eq 0 ]; then
+      echo -e "${GREEN}pre-commit: All checks passed!${NO_COLOR}"
+      return 0
+    else
+      return 1
+    fi
   else
     return 1
   fi

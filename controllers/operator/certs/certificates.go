@@ -271,16 +271,6 @@ func validatePemData(data []byte, additionalDomains []string) error {
 	return errs
 }
 
-// validatePemSecret returns true if the given Secret contains a parsable certificate and contains all required domains.
-func validatePemSecret(secret corev1.Secret, key string, additionalDomains []string) error {
-	data, ok := secret.Data[key]
-	if !ok {
-		return xerrors.Errorf("the secret %s does not contain the expected key %s\n", secret.Name, key)
-	}
-
-	return validatePemData(data, additionalDomains)
-}
-
 // ValidateCertificates verifies the Secret containing the certificates and the keys is valid.
 func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name, namespace string, log *zap.SugaredLogger) error {
 	validateCertificates := func() (string, bool) {
@@ -309,14 +299,13 @@ func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name,
 
 // VerifyAndEnsureClientCertificatesForAgentsAndTLSType ensures that agent certs are present and correct, and returns whether they are of the kubernetes.io/tls type.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
-func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName) error {
-	needToCreatePEM := false
+func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName, log *zap.SugaredLogger) error {
 	var secretData map[string][]byte
 	var s corev1.Secret
 	var err error
 
 	if vault.IsVaultSecretBackend() {
-		needToCreatePEM = true
+		databaseSecretPath = secretReadClient.VaultClient.DatabaseSecretPath()
 		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretReadClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
 		if err != nil {
 			return err
@@ -327,25 +316,19 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, s
 			return err
 		}
 
-		if s.Type == corev1.SecretTypeTLS {
-			needToCreatePEM = true
-			secretData = s.Data
+		if s.Type != corev1.SecretTypeTLS {
+			return xerrors.Errorf("the secret object %q containing agent certificate must be of type kubernetes.io/tls. Got: %q", s.Name, s.Type)
 		}
-	}
-	if needToCreatePEM {
-		data, err := VerifyTLSSecretForStatefulSet(secretData, Options{Replicas: 0})
-		if err != nil {
-			return err
-		}
-
-		dataMap := map[string]string{
-			util.AutomationAgentPemSecretKey: data,
-		}
-
-		return CreateOrUpdatePEMSecret(ctx, secretWriteClient, secret, dataMap, []metav1.OwnerReference{}, Database)
+		secretData = s.Data
 	}
 
-	return validatePemSecret(s, util.AutomationAgentPemSecretKey, nil)
+	data, err := VerifyTLSSecretForStatefulSet(secretData, Options{Replicas: 0})
+	if err != nil {
+		return err
+	}
+
+	secretHash := enterprisepem.ReadHashFromSecret(ctx, secretReadClient, secret.Namespace, secret.Name, databaseSecretPath, log)
+	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, secret, secretHash, data, []metav1.OwnerReference{}, Database)
 }
 
 // EnsureSSLCertsForStatefulSet contains logic to ensure that all of the

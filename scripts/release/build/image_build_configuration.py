@@ -14,11 +14,13 @@ class ImageBuildConfiguration:
     olm_tag: bool
     registries: List[str]
     dockerfile_path: str
-
-    parallel: bool = False
-    parallel_factor: int = 0
     platforms: Optional[List[str]] = None
     sign: bool = False
+    skip_if_exists: bool = False
+
+    # Agent specific
+    parallel: bool = False
+    parallel_factor: int = 0
     all_agents: bool = False
     currently_used_agents: bool = False
     architecture_suffix: bool = False

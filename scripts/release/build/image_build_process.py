@@ -40,6 +40,21 @@ def ecr_login_boto3(region: str, account_id: str):
     logger.debug(f"ECR login succeeded: {status}")
 
 
+def check_if_image_exists(image_tag: str) -> bool:
+    docker_cmd = python_on_whales.docker
+
+    try:
+        docker_cmd.buildx.imagetools.inspect(image_tag)
+    except DockerException as e:
+        decoded_stderr = e.stderr.lower()
+        if any(str(error) in decoded_stderr for error in ["no such image", "image not known", "not found"]):
+            return False
+        else:
+            raise e
+    else:
+        return True
+
+
 def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
     """
     Ensures a Docker Buildx builder exists for multi-platform builds.
@@ -73,14 +88,14 @@ def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
 
 
 def execute_docker_build(
-        tags: list[str],
-        dockerfile: str,
-        path: str, args:
-        Dict[str, str],
-        push: bool,
-        platforms: list[str],
-        architecture_suffix: bool = False,
-        builder_name: str = DEFAULT_BUILDER_NAME,
+    tags: list[str],
+    dockerfile: str,
+    path: str, args:
+    Dict[str, str],
+    push: bool,
+    platforms: list[str],
+    architecture_suffix: bool = False,
+    builder_name: str = DEFAULT_BUILDER_NAME,
 ):
     """
     Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
