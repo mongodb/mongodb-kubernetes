@@ -15,21 +15,22 @@ import pytest
 import requests
 import semver
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import build_agent_auth, build_auth, run_periodically
+from kubetester.kubetester import (
+    KubernetesTester,
+    build_agent_auth,
+    build_auth,
+    run_periodically,
+)
 from kubetester.mongotester import BackgroundHealthChecker
 from kubetester.om_queryable_backups import OMQueryableBackup
 from opentelemetry import trace
 from requests.adapters import HTTPAdapter, Retry
+from tests import test_logger
+from tests.common.ops_manager.cloud_manager import is_cloud_qa
 
-from .kubetester import get_env_var_or_fail
+skip_if_cloud_manager = pytest.mark.skipif(is_cloud_qa(), reason="Do not run in Cloud Manager")
 
-
-def running_cloud_manager():
-    "Determines if the current test is running against Cloud Manager"
-    return get_env_var_or_fail("OM_HOST") == "https://cloud-qa.mongodb.com"
-
-
-skip_if_cloud_manager = pytest.mark.skipif(running_cloud_manager(), reason="Do not run in Cloud Manager")
+logger = test_logger.get_test_logger(__name__)
 
 
 class BackupStatus(str, Enum):
@@ -421,7 +422,7 @@ class OMTester(object):
                 span.set_attribute(key=f"mck.om.request.retries", value=retries - retry_count)
                 return resp
             except Exception as e:
-                print(f"Encountered exception: {e} on retry number {retries-retry_count}")
+                print(f"Encountered exception: {e} on retry number {retries - retry_count}")
                 span.set_attribute(key=f"mck.om.request.exception", value=str(e))
                 last_exception = e
                 time.sleep(1)
@@ -684,6 +685,42 @@ class OMTester(object):
     def api_update_version_manifest(self, major_version: str = "8.0"):
         body = requests.get(url=f"https://opsmanager.mongodb.com/static/version_manifest/{major_version}.json").json()
         self.om_request("put", "/versionManifest", json_object=body)
+
+    def api_get_automation_status(self) -> dict[str, str]:
+        return self.om_request("get", f"/groups/{self.context.project_id}/automationStatus").json()
+
+    def wait_agents_ready(self, timeout: Optional[int] = 600):
+        """Waits until all the agents reached the goal automation config version."""
+        log_prefix = f"[{self.context.group_name}/{self.context.project_id}] "
+
+        def agents_are_ready():
+            auto_status = self.api_get_automation_status()
+            goal_version = auto_status.get("goalVersion")
+
+            logger.info(f"{log_prefix}Checking if all agent processes have reached goal version: {goal_version}")
+            processes_not_ready = []
+            for process in auto_status.get("processes", []):
+                process_name = process.get("name", "unknown")
+                process_version = process.get("lastGoalVersionAchieved")
+                if process_version != goal_version:
+                    logger.info(
+                        f"{log_prefix}Process {process_name} at version {process_version}, expected {goal_version}"
+                    )
+                    processes_not_ready.append(process_name)
+
+            all_processes_ready = len(processes_not_ready) == 0
+            if all_processes_ready:
+                logger.info(f"{log_prefix}All agent processes have reached the goal version")
+            else:
+                logger.info(f"{log_prefix}{len(processes_not_ready)} processes have not yet reached the goal version")
+
+            return all_processes_ready
+
+        KubernetesTester.wait_until(
+            agents_are_ready,
+            timeout=timeout,
+            sleep_time=3,
+        )
 
 
 class OMBackgroundTester(BackgroundHealthChecker):

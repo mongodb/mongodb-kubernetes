@@ -30,7 +30,7 @@ RELEASE_INFO_IMAGES_ORDERED = [
     UPGRADE_HOOK_IMAGE,
 ]
 
-# TODO: this is dummy version, to be replaced with actual versioning logic
+# TODO: this is dummy version, to be replaced with actual versioning logic https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.45ig7xr3e3w4#bookmark=id.748ik8snxcyl
 DUMMY_VERSION = "dummy_version"
 
 

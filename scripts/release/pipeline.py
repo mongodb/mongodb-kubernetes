@@ -118,6 +118,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign or image_build_info.sign
     dockerfile_path = image_build_info.dockerfile_path
+    skip_if_exists = image_build_info.skip_if_exists
 
     # Validate version - only agent can have None version as the versions are managed by the agent
     # which are externally retrieved from release.json
@@ -131,9 +132,10 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         olm_tag=olm_tag,
         registries=registries,
         dockerfile_path=dockerfile_path,
-        parallel=args.parallel,
         platforms=platforms,
         sign=sign,
+        skip_if_exists=skip_if_exists,
+        parallel=args.parallel,
         parallel_factor=args.parallel_factor,
         all_agents=args.all_agents,
         currently_used_agents=args.current_agents,

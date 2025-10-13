@@ -98,7 +98,7 @@ create_image_registries_secret() {
     context=$1
     namespace=$2
     secret_name=$3
-    
+
     # Detect the correct config file path based on container runtime
     local config_file
     local temp_config_file=""
@@ -106,7 +106,7 @@ create_image_registries_secret() {
       # For Podman, use root's auth.json since minikube uses sudo podman
       config_file="/root/.config/containers/auth.json"
       echo "Using Podman config: ${config_file}"
-      
+
       # Create a temporary copy that the current user can read
       temp_config_file=$(mktemp)
       sudo cp "${config_file}" "${temp_config_file}"
@@ -117,7 +117,7 @@ create_image_registries_secret() {
       config_file="${HOME}/.docker/config.json"
       echo "Using Docker config: ${config_file}"
     fi
-    
+
     # shellcheck disable=SC2154
     if kubectl --context "${context}" get namespace "${namespace}"; then
       kubectl --context "${context}" -n "${namespace}" delete secret "${secret_name}" --ignore-not-found
@@ -127,7 +127,7 @@ create_image_registries_secret() {
     else
       echo "Skipping creating pull secret in ${context}/${namespace}. The namespace doesn't exist yet."
     fi
-    
+
     # Clean up temporary file
     if [[ -n "${temp_config_file}" ]] && [[ -f "${temp_config_file}" ]]; then
       rm -f "${temp_config_file}"
@@ -156,6 +156,26 @@ create_image_registries_secret() {
   fi
 }
 
+force_delete_all_resources_from_namespace() {
+    resource_type="$1"
+    namespace="$2"
+
+    echo "Attempting normal deletion of ${resource_type} in ${namespace}..."
+    kubectl delete "${resource_type}" --all -n "${namespace}" --wait=true --timeout=10s || true
+
+    # Check if any resources are still stuck
+    echo "Checking if any resources are still stuck:"
+    kubectl get "${resource_type}" -n "${namespace}" --no-headers -o custom-columns=":metadata.name" || true
+    resources=$(kubectl get "${resource_type}" -n "${namespace}" --no-headers -o custom-columns=":metadata.name" 2>/dev/null || true)
+
+    for resource in ${resources}; do
+        echo "${resource_type}/${resource} is still present, force deleting..."
+
+        kubectl patch "${resource_type}" "${resource}" -n "${namespace}" -p '{"metadata":{"finalizers":null}}' --type=merge || true
+        kubectl delete "${resource_type}" "${resource}" -n "${namespace}" --force --grace-period=0 || true
+    done
+}
+
 reset_namespace() {
   context=$1
   namespace=$2
@@ -166,19 +186,23 @@ reset_namespace() {
 
   set +e
 
-  helm uninstall --kube-context="${context}" mongodb-kubernetes-operator || true &
-  helm uninstall --kube-context="${context}" mongodb-kubernetes-operator-multi-cluster || true &
-
   # Cleans the namespace. Note, that fine-grained cleanup is performed instead of just deleting the namespace as it takes
   # considerably less time
   title "Cleaning Kubernetes resources in context: ${context}"
 
   ensure_namespace "${namespace}"
 
-  kubectl delete --context "${context}" mdb --all -n "${namespace}" || true
-  kubectl delete --context "${context}" mdbu --all -n "${namespace}" || true
-  kubectl delete --context "${context}" mdbmc --all -n "${namespace}" || true
-  kubectl delete --context "${context}" om --all -n "${namespace}" || true
+  force_delete_all_resources_from_namespace "mdb" "${namespace}"
+  force_delete_all_resources_from_namespace "mdbu" "${namespace}"
+  force_delete_all_resources_from_namespace "mdbc" "${namespace}"
+  force_delete_all_resources_from_namespace "mdbmc" "${namespace}"
+  force_delete_all_resources_from_namespace "om" "${namespace}"
+  force_delete_all_resources_from_namespace "clustermongodbroles" "${namespace}"
+
+  echo "Sleeping to allow the operator to perform cleanups"
+  sleep 10
+  helm uninstall --kube-context="${context}" mongodb-kubernetes-operator || true &
+  helm uninstall --kube-context="${context}" mongodb-kubernetes-operator-multi-cluster || true &
 
   # Openshift variant runs all tests sequentially. In order to avoid clashes between tests, we need to wait till
   # the namespace is gone. This trigger OpenShift Project deletion, which is a "Namespace on Steroids" and it takes
@@ -255,7 +279,6 @@ run_script_with_wrapped_kubectl() {
     cat > "${wrapper_script}" << EOF
 #!/bin/bash
 # Define kubectl function to include the context
-set -x
 kubectl() {
   command kubectl --context "${context}" "\$@"
 }

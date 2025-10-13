@@ -12,7 +12,7 @@ export MDB_DEFAULT_ARCHITECTURE=static
 
 # This is required to be able to rebuild the om image and use that image which has been rebuilt
 export OPS_MANAGER_REGISTRY="${REGISTRY}"
-CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${script_dir}"/../../../.evergreen.yml | awk '{print $3}')
+CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
 
 export CUSTOM_MDB_PREV_VERSION=6.0.16

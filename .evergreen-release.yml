@@ -70,6 +70,24 @@ tasks:
         vars:
           IMAGE_NAME: database
 
+  - name: release_readiness_probe
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline_readiness_probe
+
+  - name: release_version_upgrade_hook
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline_version_upgrade_hook
+
   - name: prepare_and_upload_openshift_bundles
     tags: [ "openshift_bundles" ]
     allowed_requesters: [ "patch", "github_tag" ]
@@ -121,6 +139,8 @@ buildvariants:
       - name: release_init_database
       - name: release_init_ops_manager
       - name: release_database
+      - name: release_readiness_probe
+      - name: release_version_upgrade_hook
 
   - name: preflight_release_images
     display_name: preflight_release_images

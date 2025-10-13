@@ -15,7 +15,7 @@ latest_version="v0.29.0"
 if [[ "${arch_suffix}" == "amd64" || "${arch_suffix}" == "arm64" ]]; then
   mkdir -p "${PROJECT_DIR}/bin/"
   echo "Saving kind to ${PROJECT_DIR}/bin"
-  curl --retry 3 --silent -L "https://github.com/kubernetes-sigs/kind/releases/download/${latest_version}/kind-${os}-${arch_suffix}" -o kind
+  curl --retry 5 -L "https://github.com/kubernetes-sigs/kind/releases/download/${latest_version}/kind-${os}-${arch_suffix}" -o kind
 
   chmod +x kind
   sudo mv kind "${PROJECT_DIR}/bin"

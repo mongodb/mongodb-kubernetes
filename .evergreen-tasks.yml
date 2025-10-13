@@ -60,16 +60,6 @@ tasks:
         vars:
           image_name: mongodb-agent
 
-  - name: preflight_om_image
-    tags: [ "image_preflight" ]
-    commands:
-      - func: clone
-      - func: python_venv
-      - func: setup_preflight
-      - func: preflight_image
-        vars:
-          image_name: ops-manager
-
 # Code snippets tasks
 # Each task is selected by convention by running scripts/code_snippets/${task_name}_test.sh
   - name: task_gke_multi_cluster_snippets
@@ -1318,4 +1308,3 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
-
