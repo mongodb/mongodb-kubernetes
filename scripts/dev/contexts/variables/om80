@@ -16,3 +16,5 @@ export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
 export CUSTOM_APPDB_VERSION=8.0.6-ent
 export TEST_MODE=opsmanager
 export OPS_MANAGER_REGISTRY="${REGISTRY}"
+
+export ops_manager_version="${CUSTOM_OM_VERSION}"

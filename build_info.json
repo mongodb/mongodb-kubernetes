@@ -221,6 +221,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": [
           "quay.io/mongodb/mongodb-kubernetes-readinessprobe"
         ],
@@ -250,6 +251,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
         "platforms": [
           "linux/arm64",

@@ -19,8 +19,8 @@ export OPS_MANAGER_API_USER="<SET API USER>"
 export OPS_MANAGER_API_KEY="<SET API KEY>"
 export OPS_MANAGER_ORG_ID="<SET ORG ID>"
 
-# minimum required MongoDB version for running MongoDB Search is 8.0.10
-export MDB_VERSION="8.0.14-ent"
+# minimum required MongoDB version for running MongoDB Search is 8.2.0
+export MDB_VERSION="8.2.0-ent"
 
 # root admin user for convenience, not used here at all in this guide
 export MDB_ADMIN_USER_PASSWORD="admin-user-password-CHANGE-ME"
