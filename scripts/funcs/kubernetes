@@ -279,7 +279,6 @@ run_script_with_wrapped_kubectl() {
     cat > "${wrapper_script}" << EOF
 #!/bin/bash
 # Define kubectl function to include the context
-set -x
 kubectl() {
   command kubectl --context "${context}" "\$@"
 }
