@@ -303,6 +303,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, s
 	var secretData map[string][]byte
 	var s corev1.Secret
 	var err error
+	var databaseSecretPath string
 
 	if vault.IsVaultSecretBackend() {
 		databaseSecretPath = secretReadClient.VaultClient.DatabaseSecretPath()

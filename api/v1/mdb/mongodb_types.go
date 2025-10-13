@@ -25,7 +25,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	"github.com/mongodb/mongodb-kubernetes/pkg/multi
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -1666,9 +1666,6 @@ func (m *MongoDbSpec) IsMultiCluster() bool {
 	return m.GetTopology() == ClusterTopologyMultiCluster
 }
 
-ster
-}
-
 func (m *MongoDbSpec) GetShardClusterSpecList() ClusterSpecList {
 	if m.IsMultiCluster() {
 		return m.ShardSpec.ClusterSpecList
@@ -1711,18 +1708,6 @@ func (m *MongoDbSpec) GetConfigSrvClusterSpecList() ClusterSpecList {
 	}
 }
 
-type MongoDBConnectionStringBuilder struct {
-	MongoDB
-	hostnames []string
-}
-
-// NewMongoDBConnectionStringBuilder creates a new instance of MongoDBConnectionStringBuilder.
-// Parameters:
-//   - mdb: The MongoDB resource object containing the configuration and metadata for the MongoDB instance.
-//   - hostnames: A slice of strings representing the hostnames to be included in the connection string,
-//     if this parameter is passed then no other hostnames will be generated or used.
-func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDBConnectionStringBuilder {
-	return &MongoDBConnec
 type MongoDBConnectionStringBuilder struct {
 	MongoDB
 	hostnames []string

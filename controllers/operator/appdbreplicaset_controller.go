@@ -1665,7 +1665,6 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		ClientCertificates: util.OptionalClientCertficates,
 		AutoUser:           util.AutomationAgentUserName,
 		AutoPEMKeyFilePath: agentCertPath,
-		CAFilePath
 		CAFilePath:         util.CAFilePathInContainer,
 	}
 	err = authentication.Configure(conn, opts, false, log)

@@ -426,10 +426,10 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 	if s.AgentCerts != "" {
 		agentCertsPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.AgentCerts)
 
-		annotations["vault.hashicorp.com/agent-inject-secret-mms-automation-agent-pem"] = agentCertsPat
+		annotations["vault.hashicorp.com/agent-inject-secret-mms-automation-agent-pem"] = agentCertsPath
 		annotations["vault.hashicorp.com/agent-inject-file-mms-automation-agent-pem"] = s.AgentCertsHash
 		annotations["vault.hashicorp.com/secret-volume-path-mms-automation-agent-pem"] = util.AgentCertMountPath
-		annotations["vault.hashicorp.com/secret-volume-path-mms-automation-agent-pem"] = "/mongodb-automation/agent-certs"
+		annotations["vault.hashicorp.com/agent-inject-template-mms-automation-agent-pem"] = fmt.Sprintf(
 			DEFAULT_AGENT_INJECT_TEMPLATE, agentCertsPath, s.AgentCertsHash)
 
 		annotations["vault.hashicorp.com/agent-inject-secret-previous-mms-automation-agent-pem"] = agentCertsPath
@@ -439,7 +439,6 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 			PREVIOUS_HASH_INJECT_TEMPLATE, agentCertsPath, util.PreviousHashSecretKey)
 		annotations["vault.hashicorp.com/agent-inject-command-previous-mms-automation-agent-pem"] = fmt.Sprintf(
 			PREVIOUS_HASH_INJECT_COMMAND, util.AgentCertMountPath, util.PreviousHashSecretKey)
-			DEFAULT_AGENT_INJECT_TEMPLATE, agentCertsPath, util.AutomationAgentPemSecretKey)
 	}
 	if s.InternalClusterAuth != "" {
 		internalClusterPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.InternalClusterAuth)

@@ -378,7 +378,7 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName())
 		secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 		secretsToInject.AgentCerts = secretName
-
+		secretsToInject.AgentCertsHash = opts.AgentCertHash
 	}
 
 	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
