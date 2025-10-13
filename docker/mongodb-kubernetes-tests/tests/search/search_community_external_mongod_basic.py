@@ -48,6 +48,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
             "searchIndexManagementHostAndPort": mongot_host,
             "skipAuthenticationToSearchIndexManagementServer": False,
             "searchTLSMode": "disabled",
+            "useGrpcForSearch": True,
         }
     )
 

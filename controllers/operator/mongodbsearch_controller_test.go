@@ -115,13 +115,9 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			DataPath: searchcontroller.MongotDataPath,
 		},
 		Server: mongot.ConfigServer{
-			Wireproto: &mongot.ConfigWireproto{
-				Address: "0.0.0.0:27027",
-				Authentication: &mongot.ConfigAuthentication{
-					Mode:    "keyfile",
-					KeyFile: searchcontroller.TempKeyfilePath,
-				},
-				TLS: mongot.ConfigTLS{Mode: mongot.ConfigTLSModeDisabled},
+			Grpc: &mongot.ConfigGrpc{
+				Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotGrpcPort()),
+				TLS:     &mongot.ConfigGrpcTLS{Mode: mongot.ConfigTLSModeDisabled},
 			},
 		},
 		Metrics: mongot.ConfigMetrics{

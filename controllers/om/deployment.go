@@ -874,7 +874,7 @@ func (d Deployment) GetAllProcessNames() (names []string) {
 	for _, p := range d.getProcesses() {
 		names = append(names, p.Name())
 	}
-	return
+	return names
 }
 
 func (d Deployment) getProcesses() []Process {
