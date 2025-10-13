@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 from github import Github, GithubException
 
@@ -20,22 +21,14 @@ def run_command(command, cwd=None):
     logger.info(f"Running command: {' '.join(command)} in directory {cwd}")
     result = subprocess.run(command, capture_output=True, text=True, cwd=cwd)
     if result.returncode != 0:
-        logger.error("ERROR:")
-        logger.error(result.stdout)
-        logger.error(result.stderr)
-        raise RuntimeError(f"Command failed: {' '.join(command)}")
+        raise RuntimeError(f"Command {' '.join(command)} failed. Stdout: {result.stdout}, stderr: {result.stderr}")
     logger.info("Command succeeded")
     return result.stdout
 
 
-def create_pull_request(branch_name, chart_version):
+# create_pull_request creates the pull request to the helm-charts repo
+def create_pull_request(branch_name, chart_version, github_token):
     logger.info("Creating the pull request in the helm-charts repo.")
-    github_token = os.environ.get("GH_TOKEN")
-
-    if not github_token:
-        logger.info("Warning: GH_TOKEN environment variable not set.")
-        pr_url = f"https://github.com/{REPO_NAME}/pull/new/{branch_name}"
-        logger.info(f"Please create the Pull Request manually by following the link:\n{pr_url}")
 
     try:
         g = Github(github_token)
@@ -50,40 +43,29 @@ def create_pull_request(branch_name, chart_version):
             base=BASE_BRANCH,
         )
         logger.info(f"Successfully created Pull Request {pr.html_url}")
-    except GithubException as e:
-        logger.error(f"ERROR: Could not create Pull Request. GitHub API returned an error: {e.status}")
-        logger.error(f"Details: {e.data}")
-        logger.error("Please check your github token permissions and repository details.")
-        return 1
     except Exception as e:
-        logger.error(f"An unexpected error occurred while creating the PR: {e}")
-        return 1
+        pr_url = f"https://github.com/{REPO_NAME}/pull/new/{branch_name}"
+        logger.error(
+            f"An unexpected error occurred while creating the PR: {e}. Please create the PR manually by following this link {pr_url}"
+        )
+        raise Exception(
+            f"An unexpected error occurred while creating the PR: {e}. Please create the PR manually by following this link {pr_url}"
+        )
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Automate PR creation to release MCK helm chart to github helm chart repo."
-    )
-    parser.add_argument(
-        "--chart_version", help="The version of the chart to be released (e.g., '1.3.0').", required=True
-    )
-    args = parser.parse_args()
-
-    chart_version = args.chart_version
+def commit_and_push_chart(chart_version):
     branch_name = f"mck-release-{chart_version}"
 
-    workdir = os.environ.get("MCK_DIR")
-    if not workdir:
-        logger.info("The workdir environment variable is not set this should be set to the root of MCK code.")
-        return 1
+    mck_dir = Path(".").resolve()
     # source_chart_path is local helm chart in MCK repo
-    source_chart_path = os.path.join(workdir, "helm_chart")
+    source_chart_path = os.path.join(mck_dir, "helm_chart")
 
     if not os.path.isdir(source_chart_path):
-        logger.info(f"The source chart path '{source_chart_path}' is not a valid directory.")
-        return 1
+        raise Exception(f"The source chart path '{source_chart_path}' is not a valid directory.")
 
     github_token = os.environ.get("GH_TOKEN")
+    if not github_token:
+        raise Exception("github token not found. Returning because git push will fail.")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         helm_repo_path = os.path.join(temp_dir, "helm-charts")
@@ -110,22 +92,33 @@ def main():
             run_command(["git", "add", "."], cwd=helm_repo_path)
             run_command(["git", "commit", "-m", commit_message], cwd=helm_repo_path)
 
-            if github_token:
-                logger.info("Configuring remote URL for authenticated push...")
-                # Constructs a URL like https://x-access-token:YOUR_TOKEN@github.com/owner/repo.git
-                authenticated_url = f"https://x-access-token:{github_token}@{REPO_URL.split('//')[1]}"
-                run_command(["git", "remote", "set-url", "origin", authenticated_url], cwd=helm_repo_path)
-            else:
-                logger.error("github token not found. Push may fail if credentials are not cached.")
-                return 1
-
+            logger.info("Configuring remote URL for authenticated push...")
+            # Constructs a URL like https://x-access-token:YOUR_TOKEN@github.com/owner/repo.git
+            authenticated_url = f"https://x-access-token:{github_token}@{REPO_URL.split('//')[1]}"
+            run_command(["git", "remote", "set-url", "origin", authenticated_url], cwd=helm_repo_path)
             run_command(["git", "push", "-u", "origin", branch_name], cwd=helm_repo_path)
 
-            create_pull_request(branch_name, chart_version)
+            create_pull_request(branch_name, chart_version, github_token)
 
-        except (RuntimeError, FileNotFoundError, PermissionError) as e:
-            logger.error(f"\nAn error occurred during local git operations: {e}")
-            return 1
+        except Exception as e:
+            raise Exception(f"An error occurred while performing git commit and push, error: {e}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Automate PR creation to release MCK helm chart to github helm chart repo."
+    )
+    parser.add_argument(
+        "--chart_version", help="The version of the chart to be released (e.g., '1.3.0').", required=True
+    )
+    args = parser.parse_args()
+
+    chart_version = args.chart_version
+    try:
+        commit_and_push_chart(chart_version)
+    except Exception as e:
+        logger.error(f"Failed releasing helm chart, error: {e}")
+        raise e
 
 
 if __name__ == "__main__":
