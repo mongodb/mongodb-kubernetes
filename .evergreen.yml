@@ -1475,7 +1475,7 @@ buildvariants:
         variant: init_test_run_arm
     # TODO: Re-enable when staging is added to pipeline
     # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: false
+    disable: true
     tasks:
       - name: e2e_smoke_arm_task_group
 
