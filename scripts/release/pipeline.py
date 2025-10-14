@@ -120,7 +120,10 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     sign = args.sign or image_build_info.sign
     dockerfile_path = image_build_info.dockerfile_path
     skip_if_exists = image_build_info.skip_if_exists
-    architecture_suffix = args.architecture_suffix or image_build_info.architecture_suffix
+    architecture_suffix = image_build_info.architecture_suffix if args.architecture_suffix is None else args.architecture_suffix
+
+    if architecture_suffix and len(platforms) > 1:
+        raise ValueError("Cannot use architecture suffix with multi-platform builds")
 
     # Validate version - only agent can have None version as the versions are managed by the agent
     # which are externally retrieved from release.json
@@ -279,8 +282,8 @@ Options: {", ".join(supported_scenarios)}. For '{BuildScenario.DEVELOPMENT}' the
     )
     parser.add_argument(
         "--architecture-suffix",
-        action="store_true",
-        help="Append architecture suffix to image tags for single platform builds",
+        action=argparse.BooleanOptionalAction,
+        help="Append architecture suffix to image tags for single platform builds. Can be true or false. This will override the value from build_info.json",
     )
 
     args = parser.parse_args()
