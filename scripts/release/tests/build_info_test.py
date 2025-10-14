@@ -68,11 +68,13 @@ def test_load_build_info_development():
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-agent/Dockerfile",
+                skip_if_exists=True,
             ),
             "ops-manager": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
+                skip_if_exists=True,
             ),
         },
         binaries={
@@ -152,11 +154,13 @@ def test_load_build_info_patch():
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-agent/Dockerfile",
+                skip_if_exists=True,
             ),
             "ops-manager": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
+                skip_if_exists=True,
             ),
         },
         binaries={
@@ -253,6 +257,7 @@ def test_load_build_info_staging():
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-agent/Dockerfile",
                 sign=True,
+                skip_if_exists=True,
             ),
             "ops-manager": ImageInfo(
                 repositories=[
@@ -261,6 +266,7 @@ def test_load_build_info_staging():
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
                 sign=True,
+                skip_if_exists=True,
             ),
         },
         binaries={
@@ -348,30 +354,6 @@ def test_load_build_info_release():
                 olm_tag=True,
                 sign=True,
             ),
-        },
-        binaries={
-            "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/prod",
-                platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
-                sign=True,
-            )
-        },
-        helm_charts={
-            "mongodb-kubernetes": HelmChartInfo(
-                repositories=["quay.io/mongodb/helm-charts"],
-                sign=True,
-            )
-        },
-    )
-
-    build_info = load_build_info(BuildScenario.RELEASE)
-
-    assert build_info == expected_build_info
-
-
-def test_load_build_info_manual_release():
-    expected_build_info = BuildInfo(
-        images={
             "agent": ImageInfo(
                 repositories=["quay.io/mongodb/mongodb-agent-ubi", "quay.io/mongodb/mongodb-agent"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
@@ -389,10 +371,21 @@ def test_load_build_info_manual_release():
                 sign=True,
             ),
         },
-        binaries={},
-        helm_charts={},
+        binaries={
+            "kubectl-mongodb": BinaryInfo(
+                s3_store="s3://kubectl-mongodb/prod",
+                platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
+                sign=True,
+            )
+        },
+        helm_charts={
+            "mongodb-kubernetes": HelmChartInfo(
+                repositories=["quay.io/mongodb/helm-charts"],
+                sign=True,
+            )
+        },
     )
 
-    build_info = load_build_info(BuildScenario.MANUAL_RELEASE)
+    build_info = load_build_info(BuildScenario.RELEASE)
 
     assert build_info == expected_build_info
