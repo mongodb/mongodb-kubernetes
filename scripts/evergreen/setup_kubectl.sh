@@ -14,7 +14,7 @@ mkdir -p "${bindir}" "${tmpdir}"
 
 kubectl_version=$(curl --retry 5 -Ls https://dl.k8s.io/release/stable.txt)
 echo "Downloading kubectl ${kubectl_version} for ${ARCH}"
-kubectl_version=$(echo ${kubectl_version} | tail -n1 | tr -d '\n')
+kubectl_version=$(echo "${kubectl_version}" | tail -n1 | tr -d '\n')
 
 curl --retry 5 -LOs "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
 chmod +x kubectl

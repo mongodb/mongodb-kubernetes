@@ -103,7 +103,7 @@ def build_image(
         args=build_args,
         push=True,
         platforms=build_configuration.platforms,
-        architecture_suffix=build_configuration.architecture_suffix
+        architecture_suffix=build_configuration.architecture_suffix,
     )
 
     if build_configuration.sign:

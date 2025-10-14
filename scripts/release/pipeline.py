@@ -140,7 +140,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         parallel_factor=args.parallel_factor,
         all_agents=args.all_agents,
         currently_used_agents=args.current_agents,
-        architecture_suffix=architecture_suffix
+        architecture_suffix=architecture_suffix,
     )
 
 
@@ -279,7 +279,7 @@ Options: {", ".join(supported_scenarios)}. For '{BuildScenario.DEVELOPMENT}' the
     parser.add_argument(
         "--architecture-suffix",
         action="store_true",
-        help="Append architecture suffix to image tags for single platform builds"
+        help="Append architecture suffix to image tags for single platform builds",
     )
 
     args = parser.parse_args()

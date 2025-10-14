@@ -229,7 +229,7 @@ def test_load_build_info_staging():
             ),
             "meko-tests": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
             ),
             "readiness-probe": ImageInfo(
