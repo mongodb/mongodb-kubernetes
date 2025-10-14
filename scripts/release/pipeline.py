@@ -42,7 +42,7 @@ from scripts.release.build.build_info import (
     OPS_MANAGER_IMAGE,
     READINESS_PROBE_IMAGE,
     UPGRADE_HOOK_IMAGE,
-    load_build_info,
+    load_build_info, MEKO_TESTS_ARM64_IMAGE,
 )
 from scripts.release.build.build_scenario import (
     BuildScenario,
@@ -68,6 +68,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
 
     image_builders = {
         MEKO_TESTS_IMAGE: build_meko_tests_image,
+        MEKO_TESTS_ARM64_IMAGE: build_meko_tests_image,
         OPERATOR_IMAGE: build_operator_image,
         OPERATOR_RACE_IMAGE: partial(build_operator_image, with_race_detection=True),
         MCO_TESTS_IMAGE: build_mco_tests_image,

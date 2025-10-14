@@ -353,8 +353,7 @@ tasks:
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
-          IMAGE_NAME: meko-tests
-          FLAGS: "--platform linux/arm64 --architecture-suffix"
+          IMAGE_NAME: meko-tests-arm64
 
 
   - name: build_test_image_ibm

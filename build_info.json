@@ -185,6 +185,27 @@
         ]
       }
     },
+    "meko-tests-arm64": {
+      "dockerfile-path": "docker/mongodb-kubernetes-tests/Dockerfile",
+      "patch": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/arm64"
+        ],
+        "architecture_suffix": true
+      },
+      "staging": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/arm64"
+        ],
+        "architecture_suffix": true
+      }
+    },
     "mco-tests": {
       "dockerfile-path": "docker/mongodb-community-tests/Dockerfile",
       "patch": {

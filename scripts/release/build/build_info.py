@@ -5,6 +5,7 @@ from typing import Dict, List
 from scripts.release.build.build_scenario import BuildScenario
 
 MEKO_TESTS_IMAGE = "meko-tests"
+MEKO_TESTS_ARM64_IMAGE = "meko-tests-arm64"
 OPERATOR_IMAGE = "operator"
 OPERATOR_RACE_IMAGE = "operator-race"
 MCO_TESTS_IMAGE = "mco-tests"
