@@ -230,7 +230,7 @@ functions:
       add_to_path:
         - ${workdir}/bin
         - ${PROJECT_DIR}/bin
-      binary: scripts/dev/run_python.sh scripts/release/helm_registry_login.py
+      binary: scripts/release/helm_registry_login.sh
 
   # Logs into all used registries
   configure_docker_auth: &configure_docker_auth
@@ -506,9 +506,7 @@ functions:
     - command: subprocess.exec
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        include_expansions_in_env:
-          - version_id
-        binary: scripts/dev/run_python.sh scripts/publish_helm_chart.py
+        binary: scripts/release/publish_helm_chart.sh
 
   build_multi_cluster_binary:
     - command: subprocess.exec

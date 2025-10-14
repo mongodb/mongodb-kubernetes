@@ -1,3 +1,4 @@
+import argparse
 import os
 import subprocess
 import sys
@@ -56,7 +57,12 @@ def helm_registry_login(helm_registry: str, region: str):
 
 
 def main():
-    build_scenario = os.environ.get("BUILD_SCENARIO")
+    parser = argparse.ArgumentParser(description="A temporary script to demonstrate argument parsing.")
+    parser.add_argument("--build_scenario", type=str, help="Build scenario (e.g., patch, staging etc).")
+    args = parser.parse_args()
+
+    build_scenario = args.build_scenario
+
     build_info = load_build_info(build_scenario)
 
     registry = build_info.helm_charts["mongodb-kubernetes"].registry

@@ -1,3 +1,4 @@
+import argparse
 import os
 import subprocess
 import sys
@@ -100,12 +101,16 @@ def publish_helm_chart(chart_info: HelmChartInfo):
                 logger.info(f"Cleaning up local file: {tgz_filename}")
                 os.remove(tgz_filename)
 
-    except (FileNotFoundError, RuntimeError, ValueError) as e:
+    except Exception as e:
         raise Exception(f"Failed publishing the helm chart {e}")
 
 
 def main():
-    build_scenario = os.environ.get("BUILD_SCENARIO")
+    parser = argparse.ArgumentParser(description="A temporary script to demonstrate argument parsing.")
+    parser.add_argument("--build_scenario", type=str, help="Build scenario (e.g., patch, staging etc).")
+    args = parser.parse_args()
+
+    build_scenario = args.build_scenario
     build_info = load_build_info(build_scenario)
 
     return publish_helm_chart(build_info.helm_charts["mongodb-kubernetes"])
