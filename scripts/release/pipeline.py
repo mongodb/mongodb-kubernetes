@@ -16,6 +16,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from lib.base_logger import logger
+from scripts.release.argparse_utils import str2bool
 from scripts.release.atomic_pipeline import (
     build_agent,
     build_database_image,
@@ -100,15 +101,16 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
     build_scenario = get_scenario_from_arg(args.build_scenario)
     build_info = load_build_info(build_scenario)
-    logger.info(f"image is {image}")
-    logger.info(f"images are {build_info.images}")
+    logger.debug(f"image is {image}")
+    logger.debug(f"images are {build_info.images}")
     image_build_info = build_info.images.get(image)
-    logger.info(f"image_build_info is {image_build_info}")
+    logger.debug(f"image_build_info is {image_build_info}")
     if not image_build_info:
         raise ValueError(f"Image '{image}' is not defined in the build info for scenario '{build_scenario}'")
 
     # Resolve final values with overrides
     version = args.version
+    dockerfile_path = image_build_info.dockerfile_path
     latest_tag = image_build_info.latest_tag
     olm_tag = image_build_info.olm_tag
     if args.registry:
@@ -116,9 +118,8 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     else:
         registries = image_build_info.repositories
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
-    sign = args.sign or image_build_info.sign
-    dockerfile_path = image_build_info.dockerfile_path
-    skip_if_exists = image_build_info.skip_if_exists
+    sign = args.sign if args.sign is not None else image_build_info.sign
+    skip_if_exists = args.skip_if_exists if args.skip_if_exists is not None else image_build_info.skip_if_exists
 
     # Validate version - only agent can have None version as the versions are managed by the agent
     # which are externally retrieved from release.json
@@ -249,6 +250,14 @@ Options: {", ".join(supported_scenarios)}. For '{BuildScenario.DEVELOPMENT}' the
         "--sign",
         action="store_true",
         help="If set force image signing. Default is to infer from build scenario.",
+    )
+    parser.add_argument(
+        "--skip-if-exists",
+        metavar="",
+        action="store",
+        type=str2bool,
+        nargs="?",
+        help="Override skip_if_exists behavior instead of resolving from build scenario",
     )
     # For agent builds
     parser.add_argument(
