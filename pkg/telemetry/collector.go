@@ -183,7 +183,7 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 		KubernetesClusterIDs: kubeClusterUUIDList,
 		OperatorID:           operatorUUID,
 		OperatorVersion:      versionutil.StaticContainersOperatorVersion(),
-		OperatorType:         MEKO,
+		OperatorType:         MCK,
 		OperatorArchitecture: runtime.GOARCH,
 		OperatorOS:           runtime.GOOS,
 	}

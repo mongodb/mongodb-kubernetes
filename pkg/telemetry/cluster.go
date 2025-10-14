@@ -23,6 +23,9 @@ const (
 	openshift = "Openshift"
 	rke       = "RKE"
 	rke2      = "RKE2"
+	evg       = "Evergreen"
+	minikube  = "Minikube"
+	k3s       = "K3s"
 )
 
 var kubernetesFlavourLabelsMapping = map[string]string{
@@ -30,11 +33,14 @@ var kubernetesFlavourLabelsMapping = map[string]string{
 	"cloud.google.com/gke-nodepool":  gke,
 	"kubernetes.azure.com/agentpool": aks,
 	"node.openshift.io/os_id":        openshift,
+	"mongodb.com/evergreen":          evg,
+	"minikube.k8s.io/name":           minikube,
 }
 
 var kubernetesFlavourAnnotationsMapping = map[string]string{
 	"rke.cattle.io/external-ip": rke,
 	"rke.cattle.io/internal-ip": rke,
+	"k3s.io/hostname":           k3s,
 }
 
 // detectClusterInfo detects the Kubernetes version and cluster flavor
