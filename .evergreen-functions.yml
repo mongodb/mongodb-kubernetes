@@ -527,6 +527,7 @@ functions:
         binary: scripts/release/pipeline.sh
         env:
           IMAGE_NAME: ${IMAGE_NAME}
+          FLAGS: ${FLAGS}
 
   pipeline_agent:
     - command: subprocess.exec

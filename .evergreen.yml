@@ -353,8 +353,8 @@ tasks:
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
-          image_name: meko-tests
-          platform: "--platform linux/arm64 --architecture-suffix"
+          IMAGE_NAME: meko-tests
+          FLAGS: "--platform linux/arm64 --architecture-suffix"
 
 
   - name: build_test_image_ibm
@@ -1475,7 +1475,7 @@ buildvariants:
         variant: init_test_run_arm
     # TODO: Re-enable when staging is added to pipeline
     # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: true
+    disable: false
     tasks:
       - name: e2e_smoke_arm_task_group
 
