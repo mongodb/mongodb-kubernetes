@@ -27,7 +27,7 @@ jedi
 rope
 black==25.9.0
 flake8
-isort==7.0.0
+isort==6.1.0
 shrub.py==3.10.0
 pytest-mock==3.15.1
 wrapt==1.17.3
