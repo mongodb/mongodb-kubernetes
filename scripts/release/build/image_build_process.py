@@ -105,7 +105,6 @@ def execute_docker_build(
     :param args: Build arguments dictionary
     :param push: Whether to push the image after building
     :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
-    :param architecture_suffix: Whether to add the architecture of the image as a suffix to the tag
     :param builder_name: Name of the buildx builder to use
     """
     # Login to ECR before building
