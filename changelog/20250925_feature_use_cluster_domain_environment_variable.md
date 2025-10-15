@@ -3,6 +3,4 @@ kind: feature
 date: 2025-09-25
 ---
 
-* **MongoDBCommunity**: Add support for custom cluster domains via `CLUSTER_DOMAIN` environment variable and `spec.clusterDomain` resource field
-  * Add optional `clusterDomain` field to MongoDBCommunity CRD with hostname format validation
-  * Fallback hierarchy for cluster domain: `spec.clusterDomain` resource field → `CLUSTER_DOMAIN` environment variable → default `cluster.local`
+* **MongoDBCommunity**: Added support to configure custom cluster domain via newly introduced `spec.clusterDomain` resource field. If `spec.clusterDomain` is not set, environment variable `CLUSTER_DOMAIN` is used as cluster domain. If the environment variable `CLUSTER_DOMAIN` is also not set, operator falls back to `cluster.local` as default cluster domain.
