@@ -71,12 +71,35 @@ type ReconcileMongoDbReplicaSet struct {
 	imageUrls                 images.ImageUrls
 	forceEnterprise           bool
 	enableClusterMongoDBRoles bool
+	deploymentState           *ReplicaSetDeploymentState
 
 	initDatabaseNonStaticImageVersion string
 	databaseNonStaticImageVersion     string
 }
 
+type ReplicaSetDeploymentState struct {
+	LastAchievedSpec *mdbv1.MongoDbSpec `json:"lastAchievedSpec"`
+}
+
+func readState(rs *mdbv1.MongoDB) (*ReplicaSetDeploymentState, error) {
+	// Try to get the last achieved spec from annotations and store it in state
+	if lastAchievedSpec, err := rs.GetLastSpec(); err != nil {
+		return nil, err
+	} else {
+		return &ReplicaSetDeploymentState{LastAchievedSpec: lastAchievedSpec}, nil
+	}
+}
+
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
+
+func (r *ReconcileMongoDbReplicaSet) initializeState(rs *mdbv1.MongoDB) error {
+	if state, err := readState(rs); err == nil {
+		r.deploymentState = state
+		return nil
+	} else {
+		return err
+	}
+}
 
 func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{
@@ -126,6 +149,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
+	}
+
+	if err := r.initializeState(rs); err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to initialize replica set state: %w", err)), log)
 	}
 
 	if !architectures.IsRunningStaticArchitecture(rs.Annotations) {
@@ -238,12 +265,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
-	lastSpec, err := rs.GetLastSpec()
-	if err != nil {
-		lastSpec = &mdbv1.MongoDbSpec{}
-	}
 
-	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, r.client, *rs, lastSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
+	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, r.client, *rs, r.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, log, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
@@ -580,7 +603,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
 	// this is, do not scale them up or down util TLS disabling has completed.
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, membersNumberBefore, rs, log, caFilePath, tlsCertPath)
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, membersNumberBefore, rs, caFilePath, tlsCertPath, r.deploymentState.LastAchievedSpec, log)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
@@ -611,7 +634,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		return status
 	}
 
-	lastRsConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
+	lastRsConfig, err := mdbv1.GetLastAdditionalMongodConfigByType(r.deploymentState.LastAchievedSpec, mdbv1.ReplicaSetConfig)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
@@ -671,7 +694,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 // updateOmDeploymentDisableTLSConfiguration checks if TLS configuration needs
 // to be disabled. In which case it will disable it and inform to the calling
 // function.
-func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage string, forceEnterprise bool, membersNumberBefore int, rs *mdbv1.MongoDB, log *zap.SugaredLogger, caFilePath, tlsCertPath string) (bool, error) {
+func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage string, forceEnterprise bool, membersNumberBefore int, rs *mdbv1.MongoDB, caFilePath, tlsCertPath string, lastSpec *mdbv1.MongoDbSpec, log *zap.SugaredLogger) (bool, error) {
 	tlsConfigWasDisabled := false
 
 	err := conn.ReadUpdateDeployment(
@@ -687,7 +710,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage 
 			// there's a scale up change at the same time).
 			replicaSet := replicaset.BuildFromMongoDBWithReplicas(mongoDBImage, forceEnterprise, rs, membersNumberBefore, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
 
-			lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
+			lastConfig, err := mdbv1.GetLastAdditionalMongodConfigByType(lastSpec, mdbv1.ReplicaSetConfig)
 			if err != nil {
 				return err
 			}
