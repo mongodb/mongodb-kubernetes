@@ -45,9 +45,6 @@ def create_pull_request(branch_name, chart_version, github_token):
         logger.info(f"Successfully created Pull Request {pr.html_url}")
     except Exception as e:
         pr_url = f"https://github.com/{REPO_NAME}/pull/new/{branch_name}"
-        logger.error(
-            f"An unexpected error occurred while creating the PR: {e}. Please create the PR manually by following this link {pr_url}"
-        )
         raise Exception(
             f"An unexpected error occurred while creating the PR: {e}. Please create the PR manually by following this link {pr_url}"
         )
