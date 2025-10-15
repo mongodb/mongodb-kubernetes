@@ -10,9 +10,6 @@ from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
 
-HELM_REGISTRY_AWS_REGION = "us-east-1" 
-HELM_ECR_REGISTRY = "268558157000.dkr.ecr.us-east-1.amazonaws.com"
-
 def helm_template(
     helm_args: Dict,
     helm_chart_path: Optional[str] = "helm_chart",
@@ -146,6 +143,53 @@ def process_run_and_check(args, **kwargs):
         logger.error(f"output: {exc.output}")
         raise
 
+def oci_helm_registry_login(helm_registry: str, region: str):
+    logger.info(f"Attempting to log into ECR registry: {helm_registry}, using helm registry login.")
+
+    aws_command = ["aws", "ecr", "get-login-password", "--region", region]
+
+    # as we can see the password is being provided by stdin, that would mean we will have to
+    # pipe the aws_command (it figures out the password) into helm_command.
+    helm_command = ["helm", "registry", "login", "--username", "AWS", "--password-stdin", helm_registry]
+
+    try:
+        logger.info("Starting AWS ECR credential retrieval.")
+        aws_proc = subprocess.Popen(
+            aws_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True  # Treat input/output as text strings
+        )
+
+        logger.info("Starting Helm registry login.")
+        helm_proc = subprocess.Popen(
+            helm_command, stdin=aws_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+
+        # Close the stdout stream of aws_proc in the parent process
+        # to prevent resource leakage (only needed if you plan to do more processing)
+        aws_proc.stdout.close()
+
+        # Wait for the Helm command (helm_proc) to finish and capture its output
+        helm_stdout, helm_stderr = helm_proc.communicate()
+
+        # Wait for the AWS process to finish as well
+        aws_proc.wait()
+
+        if aws_proc.returncode != 0:
+            _, aws_stderr = aws_proc.communicate()
+            raise Exception(f"aws command to get password failed. Error: {aws_stderr}")
+
+        if helm_proc.returncode == 0:
+            logger.info("Login to helm registry was successful.")
+            logger.info(helm_stdout.strip())
+        else:
+            raise Exception(
+                f"Login to helm registry failed, Exit code: {helm_proc.returncode}, Error: {helm_stderr.strip()}"
+            )
+
+    except FileNotFoundError as e:
+        # This catches errors if 'aws' or 'helm' are not in the PATH
+        raise Exception(f"Command not found. Please ensure '{e.filename}' is installed and in your system's PATH.")
+    except Exception as e:
+        raise Exception(f"An unexpected error occurred: {e}.")
 
 def helm_upgrade(
     name: str,
@@ -168,10 +212,14 @@ def helm_upgrade(
         apply_crds_from_chart(chart_dir)
 
     # login to helm registry because we are going to install published helm chart
-    if not helm_registry_login():
-        raise Exception(f"Failed logging in to the helm registry {HELM_ECR_REGISTRY}")
+    try:
+        registry, repository, region = oci_chart_info()
+        
+        oci_helm_registry_login(registry, region)
+    except Exception as e:
+        raise Exception(f"Failed logging in to the helm registry {registry}. Error: {e}")
 
-    chart_dir = f"oci://{HELM_ECR_REGISTRY}/dev/helm-charts/mongodb-kubernetes"
+    chart_uri = f"oci://{registry}/{repository}"
     command_args = _create_helm_args(helm_args, helm_options)
     args = [
         "helm",
@@ -181,89 +229,28 @@ def helm_upgrade(
         *command_args,
         name,
     ]
-    custom_operator_version = "0.0.0+68e3eec04df1df00072e1bb2"
+    
     if custom_operator_version:
         args.append(f"--version={custom_operator_version}")
+    else:
+        published_chart_version = os.environ.get("OPERATOR_VERSION")
+        if not published_chart_version:
+            logger.info("OPERATOR_VERSION env var is not set")
+        args.append(f"--version=0.0.0+{published_chart_version}")
 
-    args.append(chart_dir)
+    args.append(chart_uri)
 
     command = " ".join(args)
     process_run_and_check(command, check=True, capture_output=True, shell=True)
 
-def helm_registry_login():
-    logger.info(f"Attempting to log into ECR registry: {HELM_ECR_REGISTRY}, using helm registry login.")
-    
-    aws_command = [
-        "aws", 
-        "ecr", 
-        "get-login-password", 
-        "--region", 
-        HELM_REGISTRY_AWS_REGION
-    ]
-    
-    # as we can see the password is being provided by stdin, that would mean we will have to
-    # pipe the aws_command (it figures out the password) into helm_command.
-    helm_command = [
-        "helm", 
-        "registry", 
-        "login", 
-        "--username", 
-        "AWS", 
-        "--password-stdin", 
-        HELM_ECR_REGISTRY
-    ]
+def oci_chart_info():
+    registry = os.environ.get("OCI_HELM_REGISTRY")
+    repository = os.environ.get("OCI_HELM_REPOSITORY")
+    region = os.environ.get("OCI_HELM_REGION")
 
-    try:
-        logger.info("Starting AWS ECR credential retrieval.")
-        aws_proc = subprocess.Popen(
-            aws_command, 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE,
-            text=True  # Treat input/output as text strings
-        )
-        
-        logger.info("Starting Helm registry login.")
-        helm_proc = subprocess.Popen(
-            helm_command, 
-            stdin=aws_proc.stdout, 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        # Close the stdout stream of aws_proc in the parent process 
-        # to prevent resource leakage (only needed if you plan to do more processing)
-        aws_proc.stdout.close() 
+    print(f"oci chart details in test image is registry {registry}, repo {repository}, region {region}")
 
-        # Wait for the Helm command (helm_proc) to finish and capture its output
-        helm_stdout, helm_stderr = helm_proc.communicate()
-        
-        # Wait for the AWS process to finish as well
-        aws_proc.wait() 
-
-        if aws_proc.returncode != 0:
-            logger.error(f"aws command to get password failed, (Exit Code {aws_proc.returncode}).")
-            # We captured AWS stderr directly, so print it
-            _, aws_stderr = aws_proc.communicate() 
-            logger.error(aws_stderr)
-            return False
-            
-        if helm_proc.returncode == 0:
-            logger.info("Login to helm registry was successful.")
-            logger.info(helm_stdout.strip())
-            return True
-        else:
-            logger.error(f"Login to helm registry failed, (Exit Code {helm_proc.returncode}).")
-            logger.error(helm_stderr.strip())
-            return False
-
-    except FileNotFoundError as e:
-        # This catches errors if 'aws' or 'helm' are not in the PATH
-        logger.error(f"Command not found. Please ensure '{e.filename}' is installed and in your system's PATH.")
-        return False
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}.")
-        return False
+    return registry, f"{repository}/mongodb-kubernetes", region
 
 def apply_crds_from_chart(chart_dir: str):
     crd_files = glob.glob(os.path.join(chart_dir, "crds", "*.yaml"))
