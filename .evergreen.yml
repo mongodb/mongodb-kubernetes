@@ -470,16 +470,6 @@ tasks:
       - func: helm_registry_login
       - func: publish_helm_chart
 
-  - name: publish_helm_chart
-    commands:
-      - func: clone
-      - func: setup_kubectl
-      - func: setup_aws
-      - func: prepare_aws
-      - func: helm_registry_login
-      - func: python_venv
-      - func: publish_helm_chart
-
   - name: prepare_aws
     priority: 59
     commands:
