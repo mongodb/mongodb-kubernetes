@@ -85,28 +85,23 @@ def publish_helm_chart(chart_info: HelmChartInfo):
         chart_name, chart_version = update_chart_and_get_metadata(CHART_DIR)
         tgz_filename = f"{chart_name}-{chart_version}.tgz"
 
-        try:
-            logger.info(f"Packaging chart: {chart_name} with Version: {chart_version}")
-            package_command = ["helm", "package", CHART_DIR]
-            run_command(package_command)
+        logger.info(f"Packaging chart: {chart_name} with Version: {chart_version}")
+        package_command = ["helm", "package", CHART_DIR]
+        run_command(package_command)
 
-            logger.info(f"Pushing chart to registry: {oci_registry}")
-            push_command = ["helm", "push", tgz_filename, oci_registry]
-            run_command(push_command)
+        logger.info(f"Pushing chart to registry: {oci_registry}")
+        push_command = ["helm", "push", tgz_filename, oci_registry]
+        run_command(push_command)
 
-            logger.info(f"Helm Chart {chart_name}:{chart_version} was published successfully!")
-        finally:
-            # Cleanup the local .tgz file regardless of push success/failure
-            if os.path.exists(tgz_filename):
-                logger.info(f"Cleaning up local file: {tgz_filename}")
-                os.remove(tgz_filename)
-
+        logger.info(f"Helm Chart {chart_name}:{chart_version} was published successfully!")
     except Exception as e:
         raise Exception(f"Failed publishing the helm chart {e}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="A temporary script to demonstrate argument parsing.")
+    parser = argparse.ArgumentParser(
+        description="Script to publish helm chart to the OCI container registry, based on the build scenario."
+    )
     parser.add_argument("--build_scenario", type=str, help="Build scenario (e.g., patch, staging etc).")
     args = parser.parse_args()
 

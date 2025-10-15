@@ -57,7 +57,7 @@ def helm_registry_login(helm_registry: str, region: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="A temporary script to demonstrate argument parsing.")
+    parser = argparse.ArgumentParser(description="Script to login to the dev/staging helm registries.")
     parser.add_argument("--build_scenario", type=str, help="Build scenario (e.g., patch, staging etc).")
     args = parser.parse_args()
 
