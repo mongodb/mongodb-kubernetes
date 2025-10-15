@@ -37,13 +37,14 @@ from scripts.release.build.build_info import (
     INIT_DATABASE_IMAGE,
     INIT_OPS_MANAGER_IMAGE,
     MCO_TESTS_IMAGE,
+    MEKO_TESTS_ARM64_IMAGE,
     MEKO_TESTS_IMAGE,
     OPERATOR_IMAGE,
     OPERATOR_RACE_IMAGE,
     OPS_MANAGER_IMAGE,
     READINESS_PROBE_IMAGE,
     UPGRADE_HOOK_IMAGE,
-    load_build_info, MEKO_TESTS_ARM64_IMAGE,
+    load_build_info,
 )
 from scripts.release.build.build_scenario import (
     BuildScenario,
@@ -121,13 +122,14 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign if args.sign is not None else image_build_info.sign
     skip_if_exists = args.skip_if_exists if args.skip_if_exists is not None else image_build_info.skip_if_exists
-    architecture_suffix = image_build_info.architecture_suffix if args.architecture_suffix is None else args.architecture_suffix
+    architecture_suffix = (
+        image_build_info.architecture_suffix if args.architecture_suffix is None else args.architecture_suffix
+    )
 
     if architecture_suffix and len(platforms) > 1:
         raise ValueError("Cannot use architecture suffix with multi-platform builds")
 
-
-# Validate version - only agent can have None version as the versions are managed by the agent
+    # Validate version - only agent can have None version as the versions are managed by the agent
     # which are externally retrieved from release.json
     if version is None and image != "agent":
         raise ValueError(f"Version cannot be empty for {image}.")

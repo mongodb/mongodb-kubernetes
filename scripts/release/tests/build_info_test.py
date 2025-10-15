@@ -52,6 +52,12 @@ def test_load_build_info_development():
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
             ),
+            "meko-tests-arm64": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/arm64"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                architecture_suffix=True,
+            ),
             "readiness-probe": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe"],
                 platforms=["linux/amd64"],
@@ -135,6 +141,12 @@ def test_load_build_info_patch():
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+            ),
+            "meko-tests-arm64": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/arm64"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                architecture_suffix=True,
             ),
             "readiness-probe": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe"],
@@ -231,6 +243,12 @@ def test_load_build_info_staging():
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+            ),
+            "meko-tests-arm64": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/arm64"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                architecture_suffix=True,
             ),
             "readiness-probe": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-readinessprobe"],
