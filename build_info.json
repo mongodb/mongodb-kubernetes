@@ -268,6 +268,7 @@
     "agent": {
       "dockerfile-path": "docker/mongodb-agent/Dockerfile",
       "patch": {
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
         "platforms": [
           "linux/amd64"
@@ -275,6 +276,7 @@
       },
       "staging": {
         "sign": true,
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent"],
         "platforms": [
           "linux/arm64",
@@ -283,7 +285,7 @@
           "linux/ppc64le"
         ]
       },
-      "manual_release": {
+      "release": {
         "sign": true,
         "olm-tag": true,
         "skip-if-exists": true,
@@ -299,6 +301,7 @@
     "ops-manager": {
       "dockerfile-path": "docker/mongodb-enterprise-ops-manager/Dockerfile",
       "patch": {
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
@@ -306,12 +309,13 @@
       },
       "staging": {
         "sign": true,
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
         ]
       },
-      "manual_release": {
+      "release": {
         "sign": true,
         "olm-tag": true,
         "skip-if-exists": true,
