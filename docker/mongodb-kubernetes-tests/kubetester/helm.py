@@ -7,14 +7,13 @@ import uuid
 from typing import Dict, List, Optional, Tuple
 
 from tests import test_logger
-from tests.conftest import LOCAL_HELM_CHART_DIR
 
 logger = test_logger.get_test_logger(__name__)
 
 
 def helm_template(
     helm_args: Dict,
-    helm_chart_path: Optional[str] = LOCAL_HELM_CHART_DIR,
+    helm_chart_path: Optional[str] = "helm_chart",
     templates: Optional[str] = None,
     helm_options: Optional[List[str]] = None,
 ) -> str:
@@ -40,7 +39,7 @@ def helm_install(
     name: str,
     namespace: str,
     helm_args: Dict,
-    helm_chart_path: Optional[str] = LOCAL_HELM_CHART_DIR,
+    helm_chart_path: Optional[str] = "helm_chart",
     helm_options: Optional[List[str]] = None,
     custom_operator_version: Optional[str] = None,
 ):
@@ -150,7 +149,7 @@ def helm_upgrade(
     name: str,
     namespace: str,
     helm_args: Dict,
-    helm_chart_path: Optional[str] = LOCAL_HELM_CHART_DIR,
+    helm_chart_path: Optional[str] = "helm_chart",
     helm_options: Optional[List[str]] = None,
     helm_override_path: Optional[bool] = False,
     custom_operator_version: Optional[str] = None,
@@ -158,7 +157,7 @@ def helm_upgrade(
 ):
     if not helm_chart_path:
         logger.warning("Helm chart path is empty, defaulting to 'helm_chart'")
-        helm_chart_path = LOCAL_HELM_CHART_DIR
+        helm_chart_path = "helm_chart"
 
     chart_dir = helm_chart_path if helm_override_path else _helm_chart_dir(helm_chart_path)
 
@@ -233,5 +232,5 @@ def _create_helm_args(helm_args: Dict[str, str], helm_options: Optional[List[str
     return command_args
 
 
-def _helm_chart_dir(default: Optional[str] = LOCAL_HELM_CHART_DIR) -> str:
+def _helm_chart_dir(default: Optional[str] = "helm_chart") -> str:
     return os.environ.get("HELM_CHART_DIR", default)
