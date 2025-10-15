@@ -49,10 +49,7 @@ def test_create_release_info_json():
             }
         },
         "helm-charts": {
-            "mongodb-kubernetes": {
-                "registry": "quay.io",
-                "repository": "mongodb/helm-charts", 
-                "version": DUMMY_VERSION}
+            "mongodb-kubernetes": {"registry": "quay.io", "repository": "mongodb/helm-charts", "version": DUMMY_VERSION}
         },
     }
     expected_release_info_json = json.dumps(expected_json, indent=2)

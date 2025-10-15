@@ -85,7 +85,7 @@ def test_load_build_info_development():
             "mongodb-kubernetes": HelmChartInfo(
                 registry="268558157000.dkr.ecr.us-east-1.amazonaws.com",
                 repository="dev/mongodb/helm-charts",
-                region="us-east-1"
+                region="us-east-1",
             )
         },
     )
@@ -171,7 +171,7 @@ def test_load_build_info_patch():
             "mongodb-kubernetes": HelmChartInfo(
                 region="us-east-1",
                 repository="dev/mongodb/helm-charts",
-                registry="268558157000.dkr.ecr.us-east-1.amazonaws.com"
+                registry="268558157000.dkr.ecr.us-east-1.amazonaws.com",
             )
         },
     )
