@@ -43,6 +43,7 @@ var kubernetesFlavourAnnotationsMapping = map[string]string{
 	"rke.cattle.io/external-ip": rke,
 	"rke.cattle.io/internal-ip": rke,
 	"k3s.io/hostname":           k3s,
+	"k3s.io/internal-ip":        k3s,
 }
 
 // detectClusterInfo detects the Kubernetes version and cluster flavor
@@ -109,6 +110,8 @@ func detectKubernetesFlavour(ctx context.Context, uncachedClient kubeclient.Read
 		return eks
 	case strings.Contains(kubeGitApiVersion, "+vmware"):
 		return vmware
+	case strings.Contains(kubeGitApiVersion, "+k3s"):
+		return k3s
 	}
 
 	// Limit is propagated to the apiserver which propagates to etcd as it is. Thus, there is not a lot of
