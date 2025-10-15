@@ -26,6 +26,7 @@ const (
 	evg       = "Evergreen"
 	minikube  = "Minikube"
 	k3s       = "K3s"
+	microk8s  = "MicroK8s"
 )
 
 var kubernetesFlavourLabelsMapping = map[string]string{
@@ -35,6 +36,7 @@ var kubernetesFlavourLabelsMapping = map[string]string{
 	"node.openshift.io/os_id":        openshift,
 	"mongodb.com/evergreen":          evg,
 	"minikube.k8s.io/name":           minikube,
+	"microk8s.io/cluster":            microk8s,
 }
 
 var kubernetesFlavourAnnotationsMapping = map[string]string{
