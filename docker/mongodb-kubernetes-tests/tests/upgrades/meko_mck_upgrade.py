@@ -17,6 +17,7 @@ from tests.common.constants import MONGODB_PORT
 from tests.conftest import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_NAME,
+    LOCAL_HELM_CHART_DIR,
     MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
     MULTI_CLUSTER_OPERATOR_NAME,
     OPERATOR_NAME,
@@ -142,7 +143,7 @@ def test_upgrade_operator(
         operator = Operator(
             namespace=namespace,
             helm_args=operator_installation_config,
-            helm_chart_path="helm_chart",
+            helm_chart_path=LOCAL_HELM_CHART_DIR,
             name=OPERATOR_NAME,
         )
         operator.install()

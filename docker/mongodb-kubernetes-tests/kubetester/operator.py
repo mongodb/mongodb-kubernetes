@@ -18,6 +18,7 @@ from kubetester.helm import (
     helm_upgrade,
 )
 from tests import test_logger
+from tests.conftest import LOCAL_HELM_CHART_DIR
 
 OPERATOR_CRDS = (
     "mongodb.mongodb.com",
@@ -43,7 +44,7 @@ class Operator(object):
         namespace: str,
         helm_args: Optional[Dict] = None,
         helm_options: Optional[List[str]] = None,
-        helm_chart_path: Optional[str] = "helm_chart",
+        helm_chart_path: Optional[str] = LOCAL_HELM_CHART_DIR,
         name: Optional[str] = "mongodb-kubernetes-operator",
         api_client: Optional[client.api_client.ApiClient] = None,
     ):
