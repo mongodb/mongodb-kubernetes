@@ -63,18 +63,18 @@ def commit_and_push_chart(chart_version):
 
     github_token = os.environ.get("GH_TOKEN")
     if not github_token:
-        raise Exception("github token not found. Returning because git push will fail.")
+        raise Exception("github token not found, git push will fail.")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         helm_repo_path = os.path.join(temp_dir, "helm-charts")
-        logger.info(f"Working in a temporary directory: {temp_dir}")
+        logger.debug(f"Working in a temporary directory: {temp_dir}")
 
         try:
             run_command(["git", "clone", REPO_URL, helm_repo_path])
             run_command(["git", "checkout", "-b", branch_name], cwd=helm_repo_path)
 
             target_dir = os.path.join(helm_repo_path, TARGET_CHART_SUBDIR)
-            logger.info(f"Clearing content from dir '{target_dir}'")
+            logger.debug(f"Clearing content from dir '{target_dir}'")
             if os.path.exists(target_dir):
                 for item in os.listdir(target_dir):
                     item_path = os.path.join(target_dir, item)
@@ -83,14 +83,14 @@ def commit_and_push_chart(chart_version):
                     else:
                         os.remove(item_path)
 
-            logger.info(f"Copying local MCK chart from '{source_chart_path}' to helm repo chart path {target_dir}")
+            logger.debug(f"Copying local MCK chart from '{source_chart_path}' to helm repo chart path {target_dir}")
             shutil.copytree(source_chart_path, target_dir, dirs_exist_ok=True)
 
             commit_message = f"Release MCK {chart_version}"
             run_command(["git", "add", "."], cwd=helm_repo_path)
             run_command(["git", "commit", "-m", commit_message], cwd=helm_repo_path)
 
-            logger.info("Configuring remote URL for authenticated push...")
+            logger.debug("Configuring remote URL for authenticated push...")
             # Constructs a URL like https://x-access-token:YOUR_TOKEN@github.com/owner/repo.git
             authenticated_url = f"https://x-access-token:{github_token}@{REPO_URL.split('//')[1]}"
             run_command(["git", "remote", "set-url", "origin", authenticated_url], cwd=helm_repo_path)
