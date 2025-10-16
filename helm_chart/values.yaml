@@ -47,6 +47,12 @@ operator:
       cpu: 1100m
       memory: 1Gi
 
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 2000
+
+  securityContext: {}
+
   # Control how many reconciles can be performed in parallel.
   # It sets MaxConcurrentReconciles https://pkg.go.dev/github.com/kubernetes-sigs/controller-runtime/pkg/controller#Options).
   # Increasing the number of concurrent reconciles will decrease the time needed to reconcile all watched resources.
