@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Dict, List, Optional
 
@@ -16,6 +17,8 @@ from kubetester.helm import (
     helm_template,
     helm_uninstall,
     helm_upgrade,
+    oci_chart_info,
+    oci_helm_registry_login,
 )
 from tests import test_logger
 
@@ -43,13 +46,27 @@ class Operator(object):
         namespace: str,
         helm_args: Optional[Dict] = None,
         helm_options: Optional[List[str]] = None,
-        helm_chart_path: Optional[str] = "helm_chart",
+        helm_chart_path: Optional[str] = None,
         name: Optional[str] = "mongodb-kubernetes-operator",
         api_client: Optional[client.api_client.ApiClient] = None,
+        operator_version: Optional[str] = None,
     ):
+        if not helm_chart_path:
+            # login to the OCI container registry
+            registry, repository, region = oci_chart_info()
+            try:
+                oci_helm_registry_login(registry, region)
+            except Exception as e:
+                raise e
 
-        # The Operator will be installed from the following repo, so adding it first
-        helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+            # figure out the registry URI, based on dev/staging scenario
+            chart_uri = f"oci://{registry}/{repository}"
+            helm_chart_path = chart_uri
+
+        if not operator_version:
+            # most probably we are trying to install current operator which will be installed
+            # from OCI registry. The version (dev/staging) is set in `OPERATOR_VERSION`
+            operator_version = os.environ.get("OPERATOR_VERSION")
 
         if helm_args is None:
             helm_args = {}
@@ -69,6 +86,7 @@ class Operator(object):
         self.helm_chart_path = helm_chart_path
         self.name = name
         self.api_client = api_client
+        self.operator_version = operator_version
 
     def install_from_template(self):
         """Uses helm to generate yaml specification and then uses python K8s client to apply them to the cluster
@@ -82,6 +100,9 @@ class Operator(object):
 
     def install(self, custom_operator_version: Optional[str] = None) -> Operator:
         """Installs the Operator to Kubernetes cluster using 'helm install', waits until it's running"""
+        if not custom_operator_version:
+            custom_operator_version = self.operator_version
+
         helm_install(
             self.name,
             self.namespace,
@@ -99,6 +120,9 @@ class Operator(object):
         self, multi_cluster: bool = False, custom_operator_version: Optional[str] = None, apply_crds_first: bool = False
     ) -> Operator:
         """Upgrades the Operator in Kubernetes cluster using 'helm upgrade', waits until it's running"""
+        if not custom_operator_version:
+            custom_operator_version = self.operator_version
+
         helm_upgrade(
             self.name,
             self.namespace,

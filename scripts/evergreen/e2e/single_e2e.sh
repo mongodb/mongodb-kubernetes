@@ -49,9 +49,9 @@ deploy_test_app() {
     BUILD_VARIANT="${BUILD_VARIANT:-default_build_variant}"
 
     chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py)
-    helm_oci_regisry=$(echo "$chart_info" | jq -r '.registry' )
-    helm_oci_repository=$(echo "$chart_info" | jq -r '.repository' )
-    helm_oci_registry_region=$(echo "$chart_info" | jq -r '.region' )
+    helm_oci_regisry=$(echo "${chart_info}" | jq -r '.registry' )
+    helm_oci_repository=$(echo "${chart_info}" | jq -r '.repository' )
+    helm_oci_registry_region=$(echo "${chart_info}" | jq -r '.region' )
 
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
