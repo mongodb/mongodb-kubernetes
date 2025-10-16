@@ -317,12 +317,14 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		SetPublishNotReadyAddresses(true).
 		SetOwnerReferences(search.GetOwnerReferences())
 
-	serviceBuilder.AddPort(&corev1.ServicePort{
-		Name:       "mongot-wireproto",
-		Protocol:   corev1.ProtocolTCP,
-		Port:       search.GetMongotWireprotoPort(),
-		TargetPort: intstr.FromInt32(search.GetMongotWireprotoPort()),
-	})
+	if search.IsWireprotoForced() {
+		serviceBuilder.AddPort(&corev1.ServicePort{
+			Name:       "mongot-wireproto",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       search.GetMongotWireprotoPort(),
+			TargetPort: intstr.FromInt32(search.GetMongotWireprotoPort()),
+		})
+	}
 
 	serviceBuilder.AddPort(&corev1.ServicePort{
 		Name:       "mongot-grpc",
