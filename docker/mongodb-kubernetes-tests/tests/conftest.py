@@ -20,7 +20,12 @@ from kubetester import (
     update_configmap,
 )
 from kubetester.awss3client import AwsS3Client
-from kubetester.helm import helm_install_from_chart, helm_repo_add
+from kubetester.helm import (
+    helm_install_from_chart,
+    helm_repo_add,
+    oci_chart_info,
+    oci_helm_registry_login,
+)
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import running_locally
@@ -827,14 +832,31 @@ def _install_multi_cluster_operator(
     helm_opts: dict[str, str],
     central_cluster_name: str,
     operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
-    helm_chart_path: Optional[str] = LOCAL_HELM_CHART_DIR,
+    helm_chart_path: Optional[str] = None,
     custom_operator_version: Optional[str] = None,
     apply_crds_first: bool = False,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
 
     # The Operator will be installed from the following repo, so adding it first
-    helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+    # helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+
+    # login to the OCI container registry
+    registry, repository, region = oci_chart_info()
+    try:
+        oci_helm_registry_login(registry, region)
+    except Exception as e:
+        raise e
+
+    # figure out the registry URI, based on dev/staging scenario
+    chart_uri = f"oci://{registry}/{repository}"
+    if not helm_chart_path:
+        helm_chart_path = chart_uri
+
+    if not custom_operator_version:
+        # most probably we are trying to install current operator which will be installed
+        # from OCI registry. The version (dev/staging) is set in `OPERATOR_VERSION`
+        custom_operator_version = os.environ.get("OPERATOR_VERSION")
 
     prepare_multi_cluster_namespaces(
         namespace,

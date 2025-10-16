@@ -10,6 +10,7 @@ from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
 
+
 def helm_template(
     helm_args: Dict,
     helm_chart_path: Optional[str] = "helm_chart",
@@ -143,6 +144,7 @@ def process_run_and_check(args, **kwargs):
         logger.error(f"output: {exc.output}")
         raise
 
+
 def oci_helm_registry_login(helm_registry: str, region: str):
     logger.info(f"Attempting to log into ECR registry: {helm_registry}, using helm registry login.")
 
@@ -191,6 +193,7 @@ def oci_helm_registry_login(helm_registry: str, region: str):
     except Exception as e:
         raise Exception(f"An unexpected error occurred: {e}.")
 
+
 def helm_upgrade(
     name: str,
     namespace: str,
@@ -208,18 +211,8 @@ def helm_upgrade(
     chart_dir = helm_chart_path if helm_override_path else _helm_chart_dir(helm_chart_path)
 
     if apply_crds_first:
-        # right now tests image has the entire helm_chart directory, maybe we should just copy the CRDs
         apply_crds_from_chart(chart_dir)
 
-    # login to helm registry because we are going to install published helm chart
-    try:
-        registry, repository, region = oci_chart_info()
-        
-        oci_helm_registry_login(registry, region)
-    except Exception as e:
-        raise Exception(f"Failed logging in to the helm registry {registry}. Error: {e}")
-
-    chart_uri = f"oci://{registry}/{repository}"
     command_args = _create_helm_args(helm_args, helm_options)
     args = [
         "helm",
@@ -229,19 +222,15 @@ def helm_upgrade(
         *command_args,
         name,
     ]
-    
+
     if custom_operator_version:
         args.append(f"--version={custom_operator_version}")
-    else:
-        published_chart_version = os.environ.get("OPERATOR_VERSION")
-        if not published_chart_version:
-            logger.info("OPERATOR_VERSION env var is not set")
-        args.append(f"--version=0.0.0+{published_chart_version}")
 
-    args.append(chart_uri)
+    args.append(chart_dir)
 
     command = " ".join(args)
     process_run_and_check(command, check=True, capture_output=True, shell=True)
+
 
 def oci_chart_info():
     registry = os.environ.get("OCI_HELM_REGISTRY")
@@ -251,6 +240,7 @@ def oci_chart_info():
     print(f"oci chart details in test image is registry {registry}, repo {repository}, region {region}")
 
     return registry, f"{repository}/mongodb-kubernetes", region
+
 
 def apply_crds_from_chart(chart_dir: str):
     crd_files = glob.glob(os.path.join(chart_dir, "crds", "*.yaml"))

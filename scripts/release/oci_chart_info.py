@@ -1,10 +1,11 @@
+import json
 import os
 import sys
-import json
-
 from dataclasses import asdict
+
 from lib.base_logger import logger
 from scripts.release.build.build_info import load_build_info
+
 
 def main():
     build_scenario = os.environ.get("BUILD_SCENARIO")
@@ -13,7 +14,6 @@ def main():
 
     j = json.dumps(asdict(chart_info))
     print(j)
-
 
 
 if __name__ == "__main__":
