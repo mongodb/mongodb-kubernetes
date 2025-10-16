@@ -406,6 +406,98 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	assert.NotNil(t, roles[0].Privileges)
 }
 
+func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T) {
+	ctx := context.Background()
+
+	roleWithEmptyStrings := mdbv1.MongoDBRole{
+		Role: "withEmptyStrings",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+		Privileges: []mdbv1.Privilege{
+			{
+				Resource: mdbv1.Resource{
+					Db:         "config",
+					Collection: "", // Explicit empty string
+				},
+				Actions: []string{"find", "update", "insert", "remove"},
+			},
+			{
+				Resource: mdbv1.Resource{
+					Db:         "users",
+					Collection: "usersCollection",
+				},
+				Actions: []string{"update", "insert", "remove"},
+			},
+			{
+				Resource: mdbv1.Resource{
+					Db:         "", // Explicit empty string
+					Collection: "", // Explicit empty string
+				},
+				Actions: []string{"find"},
+			},
+		},
+	}
+
+	// Role without empty strings (fields omitted, which should result in empty strings for string types)
+	roleWithoutEmptyStrings := mdbv1.MongoDBRole{
+		Role: "withoutEmptyFields",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+		Privileges: []mdbv1.Privilege{
+			{
+				Resource: mdbv1.Resource{
+					Db: "config",
+					// field not set, should pass ""
+				},
+				Actions: []string{"find", "update", "insert", "remove"},
+			},
+			{
+				Resource: mdbv1.Resource{
+					Db:         "users",
+					Collection: "usersCollection",
+				},
+				Actions: []string{"update", "insert", "remove"},
+			},
+			{
+				Resource: mdbv1.Resource{
+					// fields not set, should be passed as empty strings
+				},
+				Actions: []string{"find"},
+			},
+		},
+	}
+
+	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{roleWithEmptyStrings, roleWithoutEmptyStrings}).Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+
+	ac, err := mockOm.ReadAutomationConfig()
+	assert.NoError(t, err)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
+	assert.True(t, ok)
+	require.Len(t, roles, 2)
+
+	assert.Equal(t, "config", roles[0].Privileges[0].Resource.Db)
+	assert.Equal(t, "", roles[0].Privileges[0].Resource.Collection)
+
+	assert.Equal(t, "users", roles[0].Privileges[1].Resource.Db)
+	assert.Equal(t, "usersCollection", roles[0].Privileges[1].Resource.Collection)
+
+	assert.Equal(t, "", roles[0].Privileges[2].Resource.Db)
+	assert.Equal(t, "", roles[0].Privileges[2].Resource.Collection)
+
+	assert.True(t, reflect.DeepEqual(roles[0].Privileges, roles[1].Privileges))
+}
+
 func TestSecretWatcherWithAllResources(t *testing.T) {
 	ctx := context.Background()
 	caName := "custom-ca"
