@@ -32,11 +32,10 @@ spec:
 {{- end }}
     spec:
       serviceAccountName: {{ .Values.operator.name }}
-{{- if not .Values.managedSecurityContext }}
+      {{- if and (not .Values.managedSecurityContext) .Values.operator.podSecurityContext }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 2000
-{{- end }}
+        {{- toYaml .Values.operator.podSecurityContext | nindent 8 }}
+      {{- end }}
 {{- if .Values.registry.imagePullSecrets}}
       imagePullSecrets:
         - name: {{ .Values.registry.imagePullSecrets }}
@@ -74,6 +73,10 @@ spec:
             requests:
               cpu: {{ .Values.operator.resources.requests.cpu }}
               memory: {{ .Values.operator.resources.requests.memory }}
+          {{- if and (not .Values.managedSecurityContext) .Values.operator.securityContext }}
+          securityContext:
+            {{- toYaml .Values.operator.securityContext | nindent 12 }}
+          {{- end }}
           env:
             - name: OPERATOR_ENV
               value: {{ .Values.operator.env }}
@@ -277,8 +280,8 @@ spec:
     {{- end }}
     {{- if .Values.customEnvVars }}
       {{- range split "&" .Values.customEnvVars }}
-            - name: {{ (split "=" .)._0 }}
-              value: '{{ (split "=" .)._1 }}'
+            - name: {{ (splitn "=" 2 .)._0 }}
+              value: '{{ (splitn "=" 2 .)._1 }}'
       {{- end }}
     {{- end }}
 {{- if .Values.multiCluster.clusters }}

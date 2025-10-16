@@ -68,11 +68,13 @@ def test_load_build_info_development():
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-agent/Dockerfile",
+                skip_if_exists=True,
             ),
             "ops-manager": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
+                skip_if_exists=True,
             ),
         },
         binaries={
@@ -152,11 +154,13 @@ def test_load_build_info_patch():
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-agent/Dockerfile",
+                skip_if_exists=True,
             ),
             "ops-manager": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
+                skip_if_exists=True,
             ),
         },
         binaries={
@@ -253,6 +257,7 @@ def test_load_build_info_staging():
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-agent/Dockerfile",
                 sign=True,
+                skip_if_exists=True,
             ),
             "ops-manager": ImageInfo(
                 repositories=[
@@ -261,6 +266,7 @@ def test_load_build_info_staging():
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
                 sign=True,
+                skip_if_exists=True,
             ),
         },
         binaries={
@@ -290,6 +296,7 @@ def test_load_build_info_release():
                 repositories=["quay.io/mongodb/mongodb-kubernetes"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
+                skip_if_exists=True,
                 olm_tag=True,
                 sign=True,
             ),
@@ -297,6 +304,7 @@ def test_load_build_info_release():
                 repositories=["quay.io/mongodb/mongodb-kubernetes-init-database"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-init-database/Dockerfile",
+                skip_if_exists=True,
                 olm_tag=True,
                 sign=True,
             ),
@@ -304,6 +312,7 @@ def test_load_build_info_release():
                 repositories=["quay.io/mongodb/mongodb-kubernetes-init-appdb"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
+                skip_if_exists=True,
                 olm_tag=True,
                 sign=True,
             ),
@@ -311,6 +320,7 @@ def test_load_build_info_release():
                 repositories=["quay.io/mongodb/mongodb-kubernetes-init-ops-manager"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
+                skip_if_exists=True,
                 olm_tag=True,
                 sign=True,
             ),
@@ -318,6 +328,7 @@ def test_load_build_info_release():
                 repositories=["quay.io/mongodb/mongodb-kubernetes-database"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
+                skip_if_exists=True,
                 olm_tag=True,
                 sign=True,
             ),
@@ -325,6 +336,7 @@ def test_load_build_info_release():
                 repositories=["quay.io/mongodb/mongodb-kubernetes-tests"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                skip_if_exists=True,
             ),
             "readiness-probe": ImageInfo(
                 repositories=["quay.io/mongodb/mongodb-kubernetes-readinessprobe"],
@@ -338,6 +350,22 @@ def test_load_build_info_release():
                 repositories=["quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
                 platforms=["linux/arm64", "linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
+                skip_if_exists=True,
+                olm_tag=True,
+                sign=True,
+            ),
+            "agent": ImageInfo(
+                repositories=["quay.io/mongodb/mongodb-agent-ubi", "quay.io/mongodb/mongodb-agent"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
+                dockerfile_path="docker/mongodb-agent/Dockerfile",
+                skip_if_exists=True,
+                olm_tag=True,
+                sign=True,
+            ),
+            "ops-manager": ImageInfo(
+                repositories=["quay.io/mongodb/mongodb-enterprise-ops-manager-ubi"],
+                platforms=["linux/amd64"],
+                dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
                 skip_if_exists=True,
                 olm_tag=True,
                 sign=True,
@@ -359,32 +387,5 @@ def test_load_build_info_release():
     )
 
     build_info = load_build_info(BuildScenario.RELEASE)
-
-    assert build_info == expected_build_info
-
-
-def test_load_build_info_manual_release():
-    expected_build_info = BuildInfo(
-        images={
-            "agent": ImageInfo(
-                repositories=["quay.io/mongodb/mongodb-agent-ubi", "quay.io/mongodb/mongodb-agent"],
-                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
-                dockerfile_path="docker/mongodb-agent/Dockerfile",
-                olm_tag=True,
-                sign=True,
-            ),
-            "ops-manager": ImageInfo(
-                repositories=["quay.io/mongodb/mongodb-enterprise-ops-manager-ubi"],
-                platforms=["linux/amd64"],
-                dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
-                olm_tag=True,
-                sign=True,
-            ),
-        },
-        binaries={},
-        helm_charts={},
-    )
-
-    build_info = load_build_info(BuildScenario.MANUAL_RELEASE)
 
     assert build_info == expected_build_info

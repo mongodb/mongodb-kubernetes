@@ -208,6 +208,9 @@ patch_aliases:
   - alias: "release_all_agents_manually"
     variant_tags: [ "release_all_agents_manually" ]
     task: ".*"
+  - alias: "release_current_agents_manually"
+    variant_tags: [ "release_current_agents_manually" ]
+    task: ".*"
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
     task_tags: [ "patch-run" ]
@@ -282,10 +285,10 @@ tasks:
       - func: setup_docker_sbom
       - func: pipeline_agent
         vars:
-          BUILD_SCENARIO: manual_release
+          BUILD_SCENARIO: release
 
   - name: migrate_all_agents
-    # this enables us to run this variant manually to build all the agents for the new registry
+    # this enables us to run this variant manually to build all the agents for the new agent registry
     allowed_requesters: [ "patch" ]
     commands:
       - func: clone
@@ -293,8 +296,8 @@ tasks:
       - func: quay_login
       - func: pipeline_agent
         vars:
-          BUILD_SCENARIO: manual_release
-          FLAGS: "--all-agents -r quay.io/mongodb/mongodb-agent"
+          BUILD_SCENARIO: release
+          FLAGS: "--all-agents -r quay.io/mongodb/mongodb-agent --skip-if-exists=false"
 
   - name: run_precommit_and_push
     tags: [ "patch-run" ]
@@ -315,27 +318,29 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: scripts/evergreen/precommit_bump.sh
 
-  - name: release_all_agents_on_ecr
-    # this enables us to run this manually (patch) and release all agent versions to ECR to verify
+  - name: rebuild_all_agents
+    # this enables us to run this manually (patch) and rebuild all agent versions to verify
     # Dockerfile, script changes etc.
     allowed_requesters: [ "patch" ]
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_login
       - func: pipeline_agent
         vars:
-          FLAGS: "--all-agents"
+          FLAGS: "--all-agents --skip-if-exists=false"
 
-  - name: release_all_currently_used_agents_on_ecr
-    # this enables us to run this manually (patch) and release all agent versions to ECR to verify
+  - name: rebuild_currently_used_agents
+    # this enables us to run this manually (patch) and rebuild current agent versions to verify
     # Dockerfile, script changes etc.
     allowed_requesters: [ "patch" ]
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_login
       - func: pipeline_agent
         vars:
-          FLAGS: "--current-agents"
+          FLAGS: "--current-agents --skip-if-exists=false"
 
   - name: build_test_image
     commands:
@@ -405,7 +410,10 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_login
       - func: pipeline_agent
+        vars:
+          FLAGS: "--current-agents"
 
   - name: build_init_database_image_ubi
     commands:
@@ -491,7 +499,7 @@ tasks:
       - func: setup_docker_sbom
       - func: pipeline_ops_manager
         vars:
-          BUILD_SCENARIO: manual_release
+          BUILD_SCENARIO: release
 
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
@@ -1810,25 +1818,25 @@ buildvariants:
     tasks:
       - name: release_agent
 
-    # Only called manually, It's used for testing the task release_agents_on_ecr in case the release.json
-    # has not changed, and you still want to push the images to ecr.
-  - name: manual_ecr_release_agent
+    # Only called manually, It's used for testing the task release_agents in case the release.json
+    # has not changed, and you still want to push the images to registry.
+  - name: manual_release_all_agents
     display_name: Manual Agent Release for all versions
     tags: [ "manual_patch", "release_all_agents_manually" ]
     run_on:
       - ubuntu2404-large
     tasks:
-      - name: release_all_agents_on_ecr
+      - name: rebuild_all_agents
 
-    # Only called manually, It's used for testing the task release_agents_on_ecr in case the release.json
-    # has not changed, and you still want to push the images to ecr.
-  - name: manual_ecr_release_agent_currently_used
-    display_name: manual_ecr_release_agent_currently_used
-    tags: [ "manual_patch", "release_all_agents_manually" ]
+    # Only called manually, It's used for testing the task release_agents in case the release.json
+    # has not changed, and you still want to push the images to registry.
+  - name: manual_release_agent_currently_used
+    display_name: manual_release_agent_currently_used
+    tags: [ "manual_patch", "release_current_agents_manually" ]
     run_on:
       - ubuntu2404-large
     tasks:
-      - name: release_all_currently_used_agents_on_ecr
+      - name: rebuild_currently_used_agents
 
   ### Build variants for manual patch only
 

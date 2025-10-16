@@ -41,7 +41,7 @@ func (r ReplicaSetReconciler) ensureUserResources(ctx context.Context, mdb mdbv1
 
 // updateConnectionStringSecrets updates secrets where user specific connection strings are stored.
 // The client applications can mount these secrets and connect to the mongodb cluster
-func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context, mdb mdbv1.MongoDBCommunity, clusterDomain string) error {
+func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context, mdb mdbv1.MongoDBCommunity) error {
 	for _, user := range mdb.GetAuthUsers() {
 		secretName := user.ConnectionStringSecretName
 
@@ -75,8 +75,8 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 			SetName(secretName).
 			SetNamespace(secretNamespace).
 			SetAnnotations(user.ConnectionStringSecretAnnotations).
-			SetField("connectionString.standard", mdb.MongoAuthUserURI(user, pwd, clusterDomain)).
-			SetField("connectionString.standardSrv", mdb.MongoAuthUserSRVURI(user, pwd, clusterDomain)).
+			SetField("connectionString.standard", mdb.MongoAuthUserURI(user, pwd)).
+			SetField("connectionString.standardSrv", mdb.MongoAuthUserSRVURI(user, pwd)).
 			SetField("username", user.Username).
 			SetField("password", pwd).
 			SetOwnerReferences(mdb.GetOwnerReferences()).

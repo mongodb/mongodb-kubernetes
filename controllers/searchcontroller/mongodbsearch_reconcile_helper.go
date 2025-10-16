@@ -399,32 +399,30 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 	}
 }
 
-func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]any {
+func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain string) map[string]any {
 	searchTLSMode := automationconfig.TLSModeDisabled
 	if search.Spec.Security.TLS != nil {
 		searchTLSMode = automationconfig.TLSModeRequired
 	}
 
-	parameters := map[string]any{
-		"mongotHost":                                      mongotHostAndPort(search),
-		"searchIndexManagementHostAndPort":                mongotHostAndPort(search),
-		"skipAuthenticationToSearchIndexManagementServer": false,
-		"searchTLSMode":                                   string(searchTLSMode),
-		"useGrpcForSearch":                                !search.IsWireprotoForced(),
-	}
-
 	return map[string]any{
-		"setParameter": parameters,
+		"setParameter": map[string]any{
+			"mongotHost":                                      mongotHostAndPort(search, clusterDomain),
+			"searchIndexManagementHostAndPort":                mongotHostAndPort(search, clusterDomain),
+			"skipAuthenticationToSearchIndexManagementServer": false,
+			"searchTLSMode":                                   string(searchTLSMode),
+			"useGrpcForSearch":                                !search.IsWireprotoForced(),
+		},
 	}
 }
 
-func mongotHostAndPort(search *searchv1.MongoDBSearch) string {
+func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
 	svcName := search.SearchServiceNamespacedName()
 	port := search.GetMongotGrpcPort()
 	if search.IsWireprotoForced() {
 		port = search.GetMongotWireprotoPort()
 	}
-	return fmt.Sprintf("%s.%s.svc.cluster.local:%d", svcName.Name, svcName.Namespace, port)
+	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
