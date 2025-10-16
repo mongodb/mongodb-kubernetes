@@ -211,7 +211,8 @@ def helm_upgrade(
     chart_dir = helm_chart_path if helm_override_path else _helm_chart_dir(helm_chart_path)
 
     if apply_crds_first:
-        apply_crds_from_chart(chart_dir)
+        local_helm_chart_dir = "helm_chart"
+        apply_crds_from_chart(local_helm_chart_dir)
 
     command_args = _create_helm_args(helm_args, helm_options)
     args = [
