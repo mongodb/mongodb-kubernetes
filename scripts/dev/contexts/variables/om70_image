@@ -2,5 +2,5 @@
 
 set -Eeou pipefail
 
-om_version=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" < "${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
-export om_version
+OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" < "${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
+export OM_VERSION

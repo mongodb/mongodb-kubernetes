@@ -4,6 +4,9 @@
 
 set -Eeou pipefail
 
+source scripts/funcs/install
+source scripts/funcs/printing
+
 set_limits() {
   echo "Increasing fs.inotify.max_user_instances"
   sudo sysctl -w fs.inotify.max_user_instances=8192
@@ -26,16 +29,26 @@ set_limits() {
 EOF
 }
 
-# retrieve arch variable off the shell command line
-ARCH=${1-"amd64"}
+set_auto_recreate() {
+  echo "Creating systemd service for recreating kind clusters on reboot"
+
+  sudo cp /home/ubuntu/mongodb-kubernetes/scripts/dev/kindclusters.service /etc/systemd/system/kindclusters.service
+  sudo systemctl enable kindclusters.service
+}
+
+# Detect architecture from the environment
+ARCH=$(detect_architecture)
+echo "Detected architecture: ${ARCH}"
 
 download_kind() {
   scripts/evergreen/setup_kind.sh /usr/local
 }
 
-download_curl() {
-  echo "Downloading curl..."
-  curl -s -o kubectl -L https://dl.k8s.io/release/"$(curl -L -s https://dl.k8s.io/release/stable.txt)"/bin/linux/"${ARCH}"/kubectl
+download_kubectl() {
+  kubectl_version=$(curl --retry 5 -Ls https://dl.k8s.io/release/stable.txt)
+  echo "Downloading kubectl ${kubectl_version}..."
+
+  curl --retry 5 -LOs "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
   chmod +x kubectl
   sudo mv kubectl /usr/local/bin/kubectl
 }
@@ -49,9 +62,14 @@ download_helm() {
   rm -rf linux-"${ARCH}/"
 }
 
-set_limits
-download_kind &
-download_curl &
-download_helm &
+set_limits | prepend "set_limits"
+download_kind | prepend "download_kind" &
+download_kubectl | prepend "download_kubectl" &
+download_helm | prepend "download_helm" &
+
+AUTO_RECREATE=${1:-false}
+if [[ "${AUTO_RECREATE}" == "true" ]]; then
+  set_auto_recreate | prepend "set_auto_recreate" &
+fi
 
 wait

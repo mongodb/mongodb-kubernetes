@@ -21,6 +21,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes"],
         "platforms": [
           "linux/arm64",
@@ -68,6 +69,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-database"],
         "platforms": [
           "linux/arm64",
@@ -99,6 +101,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-appdb"],
         "platforms": [
           "linux/arm64",
@@ -127,6 +130,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-ops-manager"],
         "platforms": [
           "linux/amd64"
@@ -155,6 +159,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-database"],
         "platforms": [
           "linux/arm64",
@@ -176,6 +181,13 @@
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
         "platforms": [
           "linux/arm64",
+          "linux/amd64"
+        ]
+      },
+      "release": {
+        "skip-if-exists": true,
+        "repositories": ["quay.io/mongodb/mongodb-kubernetes-tests"],
+        "platforms": [
           "linux/amd64"
         ]
       }
@@ -213,9 +225,9 @@
         ]
       },
       "release": {
-        "version": "1.0.22",
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": [
           "quay.io/mongodb/mongodb-kubernetes-readinessprobe"
         ],
@@ -243,9 +255,9 @@
         ]
       },
       "release": {
-        "version": "1.0.9",
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
         "platforms": [
           "linux/arm64",
@@ -256,6 +268,7 @@
     "agent": {
       "dockerfile-path": "docker/mongodb-agent/Dockerfile",
       "patch": {
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
         "platforms": [
           "linux/amd64"
@@ -263,6 +276,7 @@
       },
       "staging": {
         "sign": true,
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent"],
         "platforms": [
           "linux/arm64",
@@ -271,9 +285,10 @@
           "linux/ppc64le"
         ]
       },
-      "manual_release": {
+      "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-agent-ubi", "quay.io/mongodb/mongodb-agent"],
         "platforms": [
           "linux/arm64",
@@ -286,23 +301,24 @@
     "ops-manager": {
       "dockerfile-path": "docker/mongodb-enterprise-ops-manager/Dockerfile",
       "patch": {
-        "version": "om-version-from-release.json",
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
         ]
       },
       "staging": {
-        "version": "om-version-from-release.json",
         "sign": true,
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
         ]
       },
-      "manual_release": {
+      "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
