@@ -189,6 +189,15 @@ def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
 
+# After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters to each process.
+# Due to how MongoDB reconciler works (blocking on waiting for agents and not changing the status to pending)
+# the phase won't be updated to Pending and we need to wait by checking agents' status directly in OM.
+@mark.e2e_search_enterprise_tls
+def test_wait_for_agents_ready(mdb: MongoDB):
+    mdb.get_om_tester().wait_agents_ready()
+    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+
+
 @mark.e2e_search_enterprise_tls
 def test_wait_for_mongod_parameters(mdb: MongoDB):
     # After search CR is deployed, MongoDB controller will pick it up
@@ -212,15 +221,6 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
         return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
 
     run_periodically(check_mongod_parameters, timeout=600)
-
-
-# After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters to each process.
-# Due to how MongoDB reconciler works (blocking on waiting for agents and not changing the status to pending)
-# the phase won't be updated to Pending and we need to wait by checking agents' status directly in OM.
-@mark.e2e_search_enterprise_tls
-def test_wait_for_agents_ready(mdb: MongoDB):
-    mdb.get_om_tester().wait_agents_ready()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_search_enterprise_tls
