@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import List, Optional
 
 from github import Github, GithubException
 
@@ -17,12 +18,12 @@ BASE_BRANCH = "main"
 
 
 # run_command runs the command `command` from dir cwd
-def run_command(command, cwd=None):
-    logger.info(f"Running command: {' '.join(command)} in directory {cwd}")
+def run_command(command: List[str], cwd: Optional[str] = None):
+    logger.debug(f"Running command: {' '.join(command)} in directory {cwd}")
     result = subprocess.run(command, capture_output=True, text=True, cwd=cwd)
     if result.returncode != 0:
         raise RuntimeError(f"Command {' '.join(command)} failed. Stdout: {result.stdout}, stderr: {result.stderr}")
-    logger.info("Command succeeded")
+    logger.debug("Command succeeded")
     return result.stdout
 
 
