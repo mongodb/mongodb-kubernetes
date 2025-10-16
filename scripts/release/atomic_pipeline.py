@@ -87,6 +87,9 @@ def build_image(
             if build_configuration.olm_tag:
                 olm_tag = create_olm_version_tag(build_configuration.version)
                 tags.append(f"{registry}:{olm_tag}")
+            if build_configuration.architecture_suffix and len(build_configuration.platforms) == 1:
+                arch = build_configuration.platforms[0].split("/")[1]
+                tags.append(f"{tag}-{arch}")
 
     if not tags:
         logger.info("All specified image tags already exist. Skipping build.")

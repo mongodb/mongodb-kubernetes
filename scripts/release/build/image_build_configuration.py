@@ -23,6 +23,7 @@ class ImageBuildConfiguration:
     parallel_factor: int = 0
     all_agents: bool = False
     currently_used_agents: bool = False
+    architecture_suffix: bool = False
 
     def is_release_scenario(self) -> bool:
         return self.scenario == BuildScenario.RELEASE

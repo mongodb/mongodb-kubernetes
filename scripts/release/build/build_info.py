@@ -5,6 +5,7 @@ from typing import Dict, List
 from scripts.release.build.build_scenario import BuildScenario
 
 MEKO_TESTS_IMAGE = "meko-tests"
+MEKO_TESTS_ARM64_IMAGE = "meko-tests-arm64"
 OPERATOR_IMAGE = "operator"
 OPERATOR_RACE_IMAGE = "operator-race"
 MCO_TESTS_IMAGE = "mco-tests"
@@ -27,6 +28,7 @@ class ImageInfo:
     latest_tag: bool = False
     olm_tag: bool = False
     skip_if_exists: bool = False
+    architecture_suffix: bool = False
 
 
 @dataclass
@@ -80,6 +82,7 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
             latest_tag=scenario_data.get("latest-tag", False),
             olm_tag=scenario_data.get("olm-tag", False),
             skip_if_exists=scenario_data.get("skip-if-exists", False),
+            architecture_suffix=scenario_data.get("architecture_suffix", False),
         )
 
     binaries = {}

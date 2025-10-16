@@ -351,6 +351,16 @@ tasks:
         vars:
           IMAGE_NAME: meko-tests
 
+  - name: build_test_image_arm
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: build_multi_cluster_binary
+      - func: pipeline
+        vars:
+          IMAGE_NAME: meko-tests-arm64
+
+
   - name: build_test_image_ibm
     commands:
       - func: clone
@@ -1386,10 +1396,6 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
-      - name: build_init_om_images_ubi
-        variant: init_test_run
       - name: build_test_image_ibm
         variant: init_test_run_ibm_power
     tasks:
@@ -1411,10 +1417,6 @@ buildvariants:
       - name: build_init_database_image_ubi
         variant: init_test_run
       - name: build_database_image_ubi
-        variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
-      - name: build_init_om_images_ubi
         variant: init_test_run
       - name: build_test_image_ibm
         variant: init_test_run_ibm_power
@@ -1438,10 +1440,6 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
-      - name: build_init_om_images_ubi
-        variant: init_test_run
       - name: build_test_image_ibm
         variant: init_test_run_ibm_z
     tasks:
@@ -1462,12 +1460,6 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
-      - name: build_database_image_ubi
-        variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
-      - name: build_init_om_images_ubi
-        variant: init_test_run
       - name: build_test_image_ibm
         variant: init_test_run_ibm_z
     tasks:
@@ -1479,10 +1471,18 @@ buildvariants:
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "commit" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image_arm
+        variant: init_test_run_arm
     # TODO: Re-enable when staging is added to pipeline
     # https://jira.mongodb.org/browse/CLOUDP-349096
     disable: true
-    <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_smoke_arm_task_group
 
@@ -1492,10 +1492,16 @@ buildvariants:
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "commit" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image_arm
+        variant: init_test_run_arm
     # TODO: Re-enable when staging is added to pipeline
     # https://jira.mongodb.org/browse/CLOUDP-349096
     disable: true
-    <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_smoke_arm_task_group
 
@@ -1726,6 +1732,15 @@ buildvariants:
       - rhel9-zseries-large
     tasks:
       - name: build_test_image_ibm
+
+  - name: init_test_run_arm
+    display_name: init_test_run_arm
+    max_hosts: -1
+    tags: [ "staging" ]
+    run_on:
+      - ubuntu2204-arm64-small
+    tasks:
+      - name: build_test_image_arm
 
   - name: run_pre_commit
     priority: 70
