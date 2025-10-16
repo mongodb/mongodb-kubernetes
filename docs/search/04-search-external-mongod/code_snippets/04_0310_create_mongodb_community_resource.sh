@@ -12,49 +12,6 @@ spec:
       ignoreUnknownUsers: true
       modes:
         - SCRAM
-    roles:
-      - role: searchCoordinator
-        db: admin
-        roles:
-          - name: clusterMonitor
-            db: admin
-          - name: directShardOperations
-            db: admin
-          - name: readAnyDatabase
-            db: admin
-        privileges:
-          - resource:
-              db: "__mdb_internal_search"
-              collection: ""
-            actions:
-              - "changeStream"
-              - "collStats"
-              - "dbHash"
-              - "dbStats"
-              - "find"
-              - "killCursors"
-              - "listCollections"
-              - "listIndexes"
-              - "listSearchIndexes"
-              - "planCacheRead"
-              - "cleanupStructuredEncryptionData"
-              - "compactStructuredEncryptionData"
-              - "convertToCapped"
-              - "createCollection"
-              - "createIndex"
-              - "createSearchIndexes"
-              - "dropCollection"
-              - "dropIndex"
-              - "dropSearchIndex"
-              - "insert"
-              - "remove"
-              - "renameCollectionSameDB"
-              - "update"
-              - "updateSearchIndex"
-          - resource:
-              cluster: true
-            actions:
-              - "bypassDefaultMaxTimeMS"
   additionalMongodConfig:
     setParameter:
       mongotHost: ${MDB_SEARCH_HOSTNAME}:27028
