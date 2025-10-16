@@ -86,14 +86,12 @@ ensure_required_python() {
     # Check if the required version is already installed
     if pyenv versions --bare | grep -q "^${required_version}$"; then
         echo "Python ${required_version} already installed via pyenv" >&2
-        pyenv global "${required_version}"
         return 0
     fi
 
     # Its not installed!
     echo "Installing Python ${required_version} via pyenv..." >&2
     if pyenv install "${required_version}"; then
-        pyenv global "${required_version}"
         return 0
     else
         echo "Error: Failed to install Python ${required_version} via pyenv" >&2
@@ -113,8 +111,8 @@ fi
 # Ensure required Python version is available
 ensure_required_python
 
-echo "Using Python: $(which python) ($(python --version))" >&2
-python -m venv venv
+# We don't need to set pyenv global, because we will later depend on venv with correct python version
+PYENV_VERSION="${PYTHON_VERSION}" python -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 
