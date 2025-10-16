@@ -123,7 +123,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     sign = args.sign if args.sign is not None else image_build_info.sign
     skip_if_exists = args.skip_if_exists if args.skip_if_exists is not None else image_build_info.skip_if_exists
     architecture_suffix = (
-        image_build_info.architecture_suffix if args.architecture_suffix is None else args.architecture_suffix
+        args.architecture_suffix if args.architecture_suffix is not None else image_build_info.architecture_suffix
     )
 
     if architecture_suffix and len(platforms) > 1:
