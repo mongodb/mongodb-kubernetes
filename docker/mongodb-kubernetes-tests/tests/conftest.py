@@ -856,7 +856,8 @@ def _install_multi_cluster_operator(
     if not custom_operator_version:
         # most probably we are trying to install current operator which will be installed
         # from OCI registry. The version (dev/staging) is set in `OPERATOR_VERSION`
-        custom_operator_version = os.environ.get("OPERATOR_VERSION")
+        non_semver_custom_operator_version = os.environ.get("OPERATOR_VERSION")
+        custom_operator_version = f"0.0.0+{non_semver_custom_operator_version}"
 
     prepare_multi_cluster_namespaces(
         namespace,

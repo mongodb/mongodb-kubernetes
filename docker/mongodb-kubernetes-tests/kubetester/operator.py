@@ -66,7 +66,8 @@ class Operator(object):
         if not operator_version:
             # most probably we are trying to install current operator which will be installed
             # from OCI registry. The version (dev/staging) is set in `OPERATOR_VERSION`
-            operator_version = os.environ.get("OPERATOR_VERSION")
+            non_semver_operator_version = os.environ.get("OPERATOR_VERSION")
+            operator_version = f"0.0.0+{non_semver_operator_version}"
 
         if helm_args is None:
             helm_args = {}
