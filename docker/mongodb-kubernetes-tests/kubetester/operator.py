@@ -66,7 +66,10 @@ class Operator(object):
             chart_uri = f"oci://{registry}/{repository}"
             helm_chart_path = chart_uri
 
-        if not operator_version and helm_chart_path not in ("mongodb/mongodb-kubernetes", "mongodb/enterprise-operator"):
+        if not operator_version and helm_chart_path not in (
+            "mongodb/mongodb-kubernetes",
+            "mongodb/enterprise-operator",
+        ):
             # most probably we are trying to install current operator which will be installed
             # from OCI registry. The version (dev/staging) is set in `OPERATOR_VERSION`
             non_semver_operator_version = os.environ.get("OPERATOR_VERSION")
