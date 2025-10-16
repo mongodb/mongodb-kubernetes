@@ -45,7 +45,6 @@ def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
     )
     resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
     resource.set_version(MDB_VERSION_WITHOUT_BUILT_IN_ROLE)
-    resource["metadata"]["annotations"] = {MDB_SEARCH_FORCE_WIREPROTO_ANNOTATION: "true"}
 
     if try_load(resource):
         return resource
@@ -61,6 +60,9 @@ def mdbs(namespace: str) -> MongoDBSearch:
 
     if try_load(resource):
         return resource
+
+    # force the wireproto transport initially because we're starting out with mongod 8.0.10
+    resource["metadata"]["annotations"] = {MDB_SEARCH_FORCE_WIREPROTO_ANNOTATION: "true"}
 
     # Add TLS configuration to MongoDBSearch
     if "spec" not in resource:
@@ -209,7 +211,7 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
         return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
 
-    run_periodically(check_mongod_parameters, timeout=200)
+    run_periodically(check_mongod_parameters, timeout=600)
 
 
 # After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters to each process.
@@ -257,11 +259,14 @@ class TestUpgradeMongod:
         assert len(custom_roles) > 0
         assert "searchCoordinator" in [role["role"] for role in custom_roles]
 
-    def test_upgrade_to_mongo_8_2(self, mdb: MongoDB):
+    def test_upgrade_to_mongo_8_2(self, mdb: MongoDB, mdbs: MongoDBSearch):
         mdb.set_version(MDB_VERSION_WITH_BUILT_IN_ROLE)
-        del mdb["metadata"]["annotations"][MDB_SEARCH_FORCE_WIREPROTO_ANNOTATION]
         mdb.update()
         mdb.assert_reaches_phase(Phase.Running, timeout=600)
+
+        del mdbs["metadata"]["annotations"][MDB_SEARCH_FORCE_WIREPROTO_ANNOTATION]
+        mdbs.update()
+        mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_check_polyfilled_role_not_in_ac(self, mdb: MongoDB):
         custom_roles = mdb.get_automation_config_tester().automation_config.get("roles", [])
