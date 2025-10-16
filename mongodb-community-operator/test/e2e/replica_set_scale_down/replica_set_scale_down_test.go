@@ -53,7 +53,7 @@ func TestReplicaSetScaleDown(t *testing.T) {
 		t.Run("MongoDB Reaches Running Phase", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
 		t.Run("AutomationConfig's version has been increased", mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, 3))
 		t.Run("Test Status Was Updated", mongodbtests.Status(ctx, &mdb, mdbv1.MongoDBCommunityStatus{
-			MongoURI:                   mdb.MongoURI(""),
+			MongoURI:                   mdb.MongoURI(),
 			Phase:                      mdbv1.Running,
 			Version:                    mdb.GetMongoDBVersion(),
 			CurrentMongoDBMembers:      1,
