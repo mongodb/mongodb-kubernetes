@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/ghodss/yaml"
@@ -197,11 +198,8 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
 			search.Spec.LogLevel = "WARN"
-			if tc.withWireproto {
-				if search.Annotations == nil {
-					search.Annotations = map[string]string{}
-				}
-				search.Annotations[searchv1.ForceWireprotoTransportAnnotation] = "true"
+			search.Annotations = map[string]string{
+				searchv1.ForceWireprotoTransportAnnotation: strconv.FormatBool(tc.withWireproto),
 			}
 
 			mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
