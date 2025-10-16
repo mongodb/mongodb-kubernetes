@@ -12,7 +12,7 @@ spec:
       name: my-project
   credentials: my-credentials
   logLevel: DEBUG
-  persistent: false
+  persistent: true
   security:
     authentication:
       agents:

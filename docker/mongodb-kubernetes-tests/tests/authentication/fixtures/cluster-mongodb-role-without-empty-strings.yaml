@@ -1,26 +1,31 @@
 apiVersion: mongodb.com/v1
 kind: ClusterMongoDBRole
 metadata:
-  name: test-customrole
+  name: customrole-without-empty-strings
 spec:
-  role: "test-customrole"
+  role: "myClusterwideAdminWithoutEmptyStrings"
   db: "admin"
   roles:
     - db: "admin"
-      role: "root"
+      role: "read"
   privileges:
     - resource:
-        db: "admin"
-        collection: "system.users"
+        db: "config"
       actions:
         - "find"
         - "update"
+        - "insert"
+        - "remove"
     - resource:
-        db: "admin"
-        collection: "system.roles"
+        db: "users"
+        collection: "usersCollection"
+      actions:
+        - "update"
+        - "insert"
+        - "remove"
+    - resource: {}
       actions:
         - "find"
-        - "update"
   authenticationRestrictions:
     - clientSource:
         - "127.0.0.0/8"
