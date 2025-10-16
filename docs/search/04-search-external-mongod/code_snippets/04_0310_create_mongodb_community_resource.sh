@@ -57,10 +57,11 @@ spec:
               - "bypassDefaultMaxTimeMS"
   additionalMongodConfig:
     setParameter:
-      mongotHost: ${MDB_SEARCH_HOSTNAME}:27027
-      searchIndexManagementHostAndPort: ${MDB_SEARCH_HOSTNAME}:27027
+      mongotHost: ${MDB_SEARCH_HOSTNAME}:27029
+      searchIndexManagementHostAndPort: ${MDB_SEARCH_HOSTNAME}:27028
       skipAuthenticationToSearchIndexManagementServer: false
       searchTLSMode: disabled
+      useGrpcForSearch: true
   agent:
     logLevel: DEBUG
   statefulSet:
