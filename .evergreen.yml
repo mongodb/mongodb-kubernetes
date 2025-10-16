@@ -300,7 +300,7 @@ tasks:
       - func: pipeline_agent
         vars:
           BUILD_SCENARIO: release
-          FLAGS: "--all-agents -r quay.io/mongodb/mongodb-agent --skip-if-exists=false"
+          FLAGS: "--all-agents -r quay.io/mongodb/mongodb-agent --no-skip-if-exists"
 
   - name: run_precommit_and_push
     tags: [ "patch-run" ]
@@ -331,7 +331,7 @@ tasks:
       - func: quay_login
       - func: pipeline_agent
         vars:
-          FLAGS: "--all-agents --skip-if-exists=false"
+          FLAGS: "--all-agents --no-skip-if-exists"
 
   - name: rebuild_currently_used_agents
     # this enables us to run this manually (patch) and rebuild current agent versions to verify
@@ -343,7 +343,7 @@ tasks:
       - func: quay_login
       - func: pipeline_agent
         vars:
-          FLAGS: "--current-agents --skip-if-exists=false"
+          FLAGS: "--current-agents --no-skip-if-exists"
 
   - name: build_test_image
     commands:

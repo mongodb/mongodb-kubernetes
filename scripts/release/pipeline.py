@@ -16,7 +16,6 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from lib.base_logger import logger
-from scripts.release.argparse_utils import str2bool
 from scripts.release.atomic_pipeline import (
     build_agent,
     build_database_image,
@@ -263,9 +262,7 @@ Options: {", ".join(supported_scenarios)}. For '{BuildScenario.DEVELOPMENT}' the
     parser.add_argument(
         "--skip-if-exists",
         metavar="",
-        action="store",
-        type=str2bool,
-        nargs="?",
+        action=argparse.BooleanOptionalAction,
         help="Override skip_if_exists behavior instead of resolving from build scenario",
     )
     # For agent builds
