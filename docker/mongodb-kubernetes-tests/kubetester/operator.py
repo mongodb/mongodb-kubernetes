@@ -51,6 +51,9 @@ class Operator(object):
         api_client: Optional[client.api_client.ApiClient] = None,
         operator_version: Optional[str] = None,
     ):
+        # The Operator will be installed from the following repo, so adding it first
+        helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+
         if not helm_chart_path:
             # login to the OCI container registry
             registry, repository, region = oci_chart_info()
@@ -63,7 +66,7 @@ class Operator(object):
             chart_uri = f"oci://{registry}/{repository}"
             helm_chart_path = chart_uri
 
-        if not operator_version:
+        if not operator_version and helm_chart_path not in ("mongodb/mongodb-kubernetes", "mongodb/enterprise-operator"):
             # most probably we are trying to install current operator which will be installed
             # from OCI registry. The version (dev/staging) is set in `OPERATOR_VERSION`
             non_semver_operator_version = os.environ.get("OPERATOR_VERSION")

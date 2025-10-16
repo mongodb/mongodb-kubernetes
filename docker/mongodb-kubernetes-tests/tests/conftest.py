@@ -839,7 +839,7 @@ def _install_multi_cluster_operator(
     multi_cluster_operator_installation_config.update(helm_opts)
 
     # The Operator will be installed from the following repo, so adding it first
-    # helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+    helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
     # login to the OCI container registry
     registry, repository, region = oci_chart_info()
@@ -853,7 +853,7 @@ def _install_multi_cluster_operator(
     if not helm_chart_path:
         helm_chart_path = chart_uri
 
-    if not custom_operator_version:
+    if not custom_operator_version and helm_chart_path not in (MCK_HELM_CHART, LEGACY_OPERATOR_CHART):
         # most probably we are trying to install current operator which will be installed
         # from OCI registry. The version (dev/staging) is set in `OPERATOR_VERSION`
         non_semver_custom_operator_version = os.environ.get("OPERATOR_VERSION")

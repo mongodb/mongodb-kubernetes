@@ -37,6 +37,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
 
   - &base_no_om_image_dependency
     depends_on:
