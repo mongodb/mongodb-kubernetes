@@ -145,9 +145,8 @@ def main():
     version = os.environ.get("OPERATOR_VERSION")
     upload_artifacts_to_s3(kubectl_plugin_build_info.s3_store, version)
 
-    download_plugin_for_tests_image(
-        kubectl_plugin_build_info.s3_store, version
-    )
+    download_plugin_for_tests_image(kubectl_plugin_build_info.s3_store, version)
+
 
 if __name__ == "__main__":
     main()
