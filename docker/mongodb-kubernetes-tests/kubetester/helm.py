@@ -6,9 +6,13 @@ import subprocess
 import uuid
 from typing import Dict, List, Optional, Tuple
 
+from kubetester.consts import *
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
+
+# LOCAL_CRDs_DIR is the dir where local helm chart's CRDs are copied in tests image
+LOCAL_CRDs_DIR = "helm_chart/crds"
 
 
 def helm_template(
@@ -211,8 +215,7 @@ def helm_upgrade(
     chart_dir = helm_chart_path if helm_override_path else _helm_chart_dir(helm_chart_path)
 
     if apply_crds_first:
-        local_helm_chart_dir = "helm_chart"
-        apply_crds_from_chart(local_helm_chart_dir)
+        apply_crds_from_chart(LOCAL_CRDs_DIR)
 
     command_args = _create_helm_args(helm_args, helm_options)
     args = [
@@ -233,21 +236,24 @@ def helm_upgrade(
     process_run_and_check(command, check=True, capture_output=True, shell=True)
 
 
+# oci_chart_info returns the respective registry/repo and region information
+# based on the build scenario (dev/staging) tests are being run in. These are
+# read from build_info.json and then set to the tests image as env vars.
 def oci_chart_info():
-    registry = os.environ.get("OCI_HELM_REGISTRY")
-    repository = os.environ.get("OCI_HELM_REPOSITORY")
-    region = os.environ.get("OCI_HELM_REGION")
+    registry = os.environ.get(OCI_HELM_REGISTRY_ENV_VAR_NAME)
+    repository = os.environ.get(OCI_HELM_REPOSITORY_ENV_VAR_NAME)
+    region = os.environ.get(OCI_HELM_REGION_ENV_VAR_NAME)
 
-    print(f"oci chart details in test image is registry {registry}, repo {repository}, region {region}")
+    logger.info(f"oci chart details in test image is registry {registry}, repo {repository}, region {region}")
 
     return registry, f"{repository}/mongodb-kubernetes", region
 
 
-def apply_crds_from_chart(chart_dir: str):
-    crd_files = glob.glob(os.path.join(chart_dir, "crds", "*.yaml"))
+def apply_crds_from_chart(crds_dir: str):
+    crd_files = glob.glob(os.path.join(crds_dir, "*.yaml"))
 
     if not crd_files:
-        raise Exception(f"No CRD files found in chart directory: {chart_dir}")
+        raise Exception(f"No CRD files found in chart directory: {crds_dir}")
 
     logger.info(f"Found {len(crd_files)} CRD files to apply:")
 
