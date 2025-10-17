@@ -9,9 +9,6 @@ from lib.base_logger import logger
 from scripts.release.build.build_info import (
     load_build_info,
 )
-from scripts.release.build.build_scenario import (
-    BuildScenario,
-)
 
 AWS_REGION = "eu-north-1"
 KUBECTL_PLUGIN_BINARY_NAME = "kubectl-mongodb"
@@ -101,7 +98,7 @@ def s3_path(local_path: str, version: str):
 def s3_and_local_plugin_path(version: str) -> dict[str, str]:
     s3_common_path = f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{version}/dist"
     local_common_path = "docker/mongodb-kubernetes-tests"
-    # path in s3 : local path
+    # path in s3 : local path where tests image expects the binary
     return {
         f"{s3_common_path}/kubectl-mongodb_linux_amd64_v1/kubectl-mongodb": f"{local_common_path}/multi-cluster-kube-config-creator_amd64",
         f"{s3_common_path}/kubectl-mongodb_linux_arm64/kubectl-mongodb": f"{local_common_path}/multi-cluster-kube-config-creator_arm64",
