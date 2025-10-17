@@ -81,7 +81,7 @@ func Remove(slice []string, s string) (result []string) {
 		}
 		result = append(result, item)
 	}
-	return
+	return result
 }
 
 // UpperCaseFirstChar ensures the message first char is uppercased.

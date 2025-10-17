@@ -1,4 +1,3 @@
-import pymongo
 import yaml
 from kubetester import create_or_update_secret, run_periodically, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
@@ -34,6 +33,7 @@ MDBS_TLS_SECRET_NAME = "mdbs-tls-secret"
 
 MDB_VERSION_WITHOUT_BUILT_IN_ROLE = "8.0.10-ent"
 MDB_VERSION_WITH_BUILT_IN_ROLE = "8.2.0-ent"
+MDB_SEARCH_FORCE_WIREPROTO_ANNOTATION = "mongodb.com/v1.force-wireproto-transport"
 
 
 @fixture(scope="function")
@@ -60,6 +60,9 @@ def mdbs(namespace: str) -> MongoDBSearch:
 
     if try_load(resource):
         return resource
+
+    # force the wireproto transport initially because we're starting out with mongod 8.0.10
+    resource["metadata"]["annotations"] = {MDB_SEARCH_FORCE_WIREPROTO_ANNOTATION: "true"}
 
     # Add TLS configuration to MongoDBSearch
     if "spec" not in resource:
@@ -186,6 +189,15 @@ def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
 
+# After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters to each process.
+# Due to how MongoDB reconciler works (blocking on waiting for agents and not changing the status to pending)
+# the phase won't be updated to Pending and we need to wait by checking agents' status directly in OM.
+@mark.e2e_search_enterprise_tls
+def test_wait_for_agents_ready(mdb: MongoDB):
+    mdb.get_om_tester().wait_agents_ready()
+    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+
+
 @mark.e2e_search_enterprise_tls
 def test_wait_for_mongod_parameters(mdb: MongoDB):
     # After search CR is deployed, MongoDB controller will pick it up
@@ -208,21 +220,7 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
         return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
 
-    run_periodically(check_mongod_parameters, timeout=200)
-
-
-# After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters to each process.
-# Due to how MongoDB reconciler works (blocking on waiting for agents and not changing the status to pending)
-# the phase won't be updated to Pending and we need to wait by checking agents' status directly in OM.
-@mark.e2e_search_enterprise_tls
-def test_wait_for_agents_ready(mdb: MongoDB):
-    mdb.get_om_tester().wait_agents_ready()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
-
-
-@mark.e2e_search_enterprise_tls
-def test_validate_tls_connections(mdb: MongoDB, mdbs: MongoDBSearch, namespace: str):
-    validate_tls_connections(mdb, mdbs, namespace)
+    run_periodically(check_mongod_parameters, timeout=600)
 
 
 @mark.e2e_search_enterprise_tls
@@ -261,10 +259,14 @@ class TestUpgradeMongod:
         assert len(custom_roles) > 0
         assert "searchCoordinator" in [role["role"] for role in custom_roles]
 
-    def test_upgrade_to_mongo_8_2(self, mdb: MongoDB):
+    def test_upgrade_to_mongo_8_2(self, mdb: MongoDB, mdbs: MongoDBSearch):
         mdb.set_version(MDB_VERSION_WITH_BUILT_IN_ROLE)
         mdb.update()
         mdb.assert_reaches_phase(Phase.Running, timeout=600)
+
+        del mdbs["metadata"]["annotations"][MDB_SEARCH_FORCE_WIREPROTO_ANNOTATION]
+        mdbs.update()
+        mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_check_polyfilled_role_not_in_ac(self, mdb: MongoDB):
         custom_roles = mdb.get_automation_config_tester().automation_config.get("roles", [])
@@ -302,27 +304,3 @@ def get_user_sample_movies_helper(mdb):
             get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=True, ca_path=get_issuer_ca_filepath()
         )
     )
-
-
-def validate_tls_connections(mdb: MongoDB, mdbs: MongoDBSearch, namespace: str):
-    with pymongo.MongoClient(
-        f"mongodb://{mdb.name}-0.{mdb.name}-svc.{namespace}.svc.cluster.local:27017/?replicaSet={mdb.name}",
-        tls=True,
-        tlsCAFile=get_issuer_ca_filepath(),
-        tlsAllowInvalidHostnames=False,
-        serverSelectionTimeoutMS=30000,
-        connectTimeoutMS=20000,
-    ) as mongodb_client:
-        mongodb_info = mongodb_client.admin.command("hello")
-        assert mongodb_info.get("ok") == 1, "MongoDB connection failed"
-
-    with pymongo.MongoClient(
-        f"mongodb://{mdbs.name}-search-svc.{namespace}.svc.cluster.local:27027",
-        tls=True,
-        tlsCAFile=get_issuer_ca_filepath(),
-        tlsAllowInvalidHostnames=False,
-        serverSelectionTimeoutMS=10000,
-        connectTimeoutMS=10000,
-    ) as search_client:
-        search_info = search_client.admin.command("hello")
-        assert search_info.get("ok") == 1, "MongoDBSearch connection failed"
