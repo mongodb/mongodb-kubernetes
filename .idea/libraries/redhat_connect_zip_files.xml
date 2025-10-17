@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="redhat_connect_zip_files">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/deploy/redhat_connect_zip_files/mongodb-enterprise.v1.8.0.zip!/" />
+      <root url="jar://$PROJECT_DIR$/deploy/redhat_connect_zip_files/mongodb-enterprise.v1.7.0.zip!/" />
+      <root url="jar://$PROJECT_DIR$/deploy/redhat_connect_zip_files/mongodb-enterprise.v1.7.1.zip!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
