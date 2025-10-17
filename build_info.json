@@ -349,14 +349,14 @@
   "binaries": {
     "kubectl-mongodb": {
       "patch": {
-        "s3-store": "s3://kubectl-mongodb/dev",
+        "s3-store": "mongodb-kubernetes-dev",
         "platforms": [
           "linux/amd64"
         ]
       },
       "staging": {
-        "sign": true,
-        "s3-store": "s3://kubectl-mongodb/staging",
+        "sign": false,
+        "s3-store": "mongodb-kubernetes-staging",
         "platforms": [
           "darwin/amd64",
           "darwin/arm64",
@@ -366,7 +366,7 @@
       },
       "release": {
         "sign": true,
-        "s3-store": "s3://kubectl-mongodb/prod",
+        "s3-store": "mongodb-kubernetes-release",
         "platforms": [
           "darwin/amd64",
           "darwin/arm64",

@@ -82,6 +82,7 @@ variables:
       - func: clone
       - func: switch_context
       - func: setup_building_host_minikube
+      - func: install_goreleaser
       - func: build_multi_cluster_binary
 
   - &setup_group_multi_cluster
@@ -91,6 +92,7 @@ variables:
       - func: download_kube_tools
       - func: switch_context
       - func: setup_building_host
+      - func: install_goreleaser
       - func: build_multi_cluster_binary
 
   - &setup_and_teardown_task_cloudqa
@@ -346,6 +348,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: install_goreleaser
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
@@ -355,6 +358,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: install_goreleaser
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
@@ -373,6 +377,7 @@ tasks:
           add_to_path:
             - ${workdir}/bin
           command: scripts/evergreen/setup_minikube_host.sh
+      - func: install_goreleaser
       - func: build_multi_cluster_binary
       - func: build_test_image_ibm
 
