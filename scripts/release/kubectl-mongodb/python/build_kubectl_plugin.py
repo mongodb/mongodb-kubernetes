@@ -147,6 +147,5 @@ def main():
 
     download_plugin_for_tests_image(kubectl_plugin_build_info.s3_store, version)
 
-
 if __name__ == "__main__":
     main()
