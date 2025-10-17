@@ -14,3 +14,6 @@ export CUSTOM_OM_VERSION
 export MDB_DEFAULT_ARCHITECTURE=static
 # MDB supports s390x on RHEL9 only from 8.0.12 onwards
 export CUSTOM_MDB_VERSION=8.0.12-ent
+
+# During release the meko-tests image is pushed to a staging registry. We don't want to push it to production registry
+export MEKO_TESTS_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"

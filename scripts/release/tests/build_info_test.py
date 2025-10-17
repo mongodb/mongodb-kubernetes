@@ -351,10 +351,15 @@ def test_load_build_info_release():
                 sign=True,
             ),
             "meko-tests": ImageInfo(
-                repositories=["quay.io/mongodb/mongodb-kubernetes-tests"],
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
-                skip_if_exists=True,
+            ),
+            'meko-tests-arm64': ImageInfo(
+                repositories=['268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests'],
+                platforms=['linux/arm64'],
+                dockerfile_path='docker/mongodb-kubernetes-tests/Dockerfile',
+                architecture_suffix=True,
             ),
             "readiness-probe": ImageInfo(
                 repositories=["quay.io/mongodb/mongodb-kubernetes-readinessprobe"],

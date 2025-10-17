@@ -16,3 +16,6 @@ export CUSTOM_MDB_VERSION=7.0.22 # we only have ibm static images starting with 
 export KUBE_ENVIRONMENT_NAME=kind
 export CLUSTER_TYPE=kind
 export MDB_DEFAULT_ARCHITECTURE=static
+
+# During release the meko-tests image is pushed to a staging registry. We don't want to push it to production registry
+export MEKO_TESTS_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"

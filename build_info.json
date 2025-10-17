@@ -184,8 +184,7 @@
         ]
       },
       "release": {
-        "skip-if-exists": true,
-        "repositories": ["quay.io/mongodb/mongodb-kubernetes-tests"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
         "platforms": [
           "linux/amd64"
         ]
@@ -203,6 +202,15 @@
         "architecture_suffix": true
       },
       "staging": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/arm64"
+        ],
+        "architecture_suffix": true
+      },
+      "release": {
         "repositories": [
           "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
         ],
