@@ -295,7 +295,6 @@ def test_load_build_info_staging():
             "kubectl-mongodb": BinaryInfo(
                 s3_store="mongodb-kubernetes-staging",
                 platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
-                version=expected_commit_sha,
                 sign=False,
             )
         },

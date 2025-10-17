@@ -22,7 +22,7 @@ GORELEASER_DIST_DIR = "dist"
 
 def run_goreleaser():
     try:
-        command = ["./goreleaser", "build", "--snapshot", "--clean", "--skip", "post-hooks"]
+        command = ["goreleaser", "build", "--snapshot", "--clean", "--skip", "post-hooks"]
 
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
 
@@ -112,7 +112,7 @@ def s3_and_local_plugin_path(version: str) -> dict[str, str]:
 
 # download_plugin_for_tests_image downloads the plugin for all the architectures and places them to the paths configured in
 # s3_and_local_plugin_path
-def download_plugin_for_tests_image(build_scenario: BuildScenario, s3_bucket: str, version: str):
+def download_plugin_for_tests_image(s3_bucket: str, version: str):
     try:
         s3_client = boto3.client("s3", region_name=AWS_REGION)
     except Exception as e:
@@ -140,17 +140,17 @@ def download_plugin_for_tests_image(build_scenario: BuildScenario, s3_bucket: st
 
 
 def main():
-    build_scenario = BuildScenario.infer_scenario_from_environment()
+    build_scenario = os.environ.get("BUILD_SCENARIO")
     kubectl_plugin_build_info = load_build_info(build_scenario).binaries[KUBECTL_PLUGIN_BINARY_NAME]
 
     run_goreleaser()
 
-    upload_artifacts_to_s3(kubectl_plugin_build_info.s3_store, kubectl_plugin_build_info.version)
+    version = os.environ.get("OPERATOR_VERSION")
+    upload_artifacts_to_s3(kubectl_plugin_build_info.s3_store, version)
 
     download_plugin_for_tests_image(
-        build_scenario, kubectl_plugin_build_info.s3_store, kubectl_plugin_build_info.version
+        kubectl_plugin_build_info.s3_store, version
     )
-
 
 if __name__ == "__main__":
     main()
