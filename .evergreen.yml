@@ -1382,7 +1382,7 @@ buildvariants:
     tasks:
       - name: e2e_operator_race_with_telemetry_task_group
 
-  - name: e2e_smoke_ibm_power
+  - name: e2e_smoke_ibm_power_staging
     display_name: e2e_smoke_ibm_power
     tags: [ "staging", "e2e_smoke_multi_arch" ]
     run_on:
@@ -1401,7 +1401,7 @@ buildvariants:
     tasks:
       - name: e2e_smoke_ibm_task_group
 
-  - name: e2e_static_smoke_ibm_power
+  - name: e2e_static_smoke_ibm_power_staging
     display_name: e2e_static_smoke_ibm_power
     tags: [ "staging", "e2e_smoke_multi_arch", "static" ]
     run_on:
@@ -1420,7 +1420,7 @@ buildvariants:
     tasks:
       - name: e2e_smoke_ibm_task_group
 
-  - name: e2e_smoke_ibm_z
+  - name: e2e_smoke_ibm_z_staging
     display_name: e2e_smoke_ibm_z
     tags: [ "staging", "e2e_smoke_multi_arch" ]
     run_on:
@@ -1439,7 +1439,7 @@ buildvariants:
     tasks:
       - name: e2e_smoke_ibm_task_group
 
-  - name: e2e_static_smoke_ibm_z
+  - name: e2e_static_smoke_ibm_z_staging
     display_name: e2e_static_smoke_ibm_z
     tags: [ "staging", "e2e_smoke_multi_arch", "static" ]
     run_on:
@@ -1456,7 +1456,7 @@ buildvariants:
     tasks:
       - name: e2e_smoke_ibm_task_group
 
-  - name: e2e_smoke_arm
+  - name: e2e_smoke_arm_staging
     display_name: e2e_smoke_arm
     tags: [ "staging", "e2e_smoke_multi_arch"]
     run_on:
@@ -1474,7 +1474,7 @@ buildvariants:
     tasks:
       - name: e2e_smoke_arm_task_group
 
-  - name: e2e_static_smoke_arm
+  - name: e2e_static_smoke_arm_staging
     display_name: e2e_static_smoke_arm
     tags: [ "staging", "e2e_smoke_multi_arch", "static" ]
     run_on:
@@ -1672,7 +1672,7 @@ buildvariants:
 
   ### Prerequisites for E2E test suite
 
-  - name: init_test_run
+  - name: init_test_run_staging
     display_name: init_test_run
     max_hosts: -1
     tags: [ "pr_patch", "staging" ]
@@ -1692,7 +1692,7 @@ buildvariants:
       - name: build_version_upgrade_hook_image
       - name: prepare_aws
 
-  - name: init_test_run_ibm_power
+  - name: init_test_run_ibm_power_staging
     display_name: init_test_run_ibm_power
     max_hosts: -1
     tags: [ "staging" ]
@@ -1702,7 +1702,7 @@ buildvariants:
     tasks:
       - name: build_test_image_ibm
 
-  - name: init_test_run_ibm_z
+  - name: init_test_run_ibm_z_staging
     display_name: init_test_run_ibm_z
     max_hosts: -1
     tags: [ "staging" ]
@@ -1712,7 +1712,7 @@ buildvariants:
     tasks:
       - name: build_test_image_ibm
 
-  - name: init_test_run_arm
+  - name: init_test_run_arm_staging
     display_name: init_test_run_arm
     max_hosts: -1
     tags: [ "staging" ]

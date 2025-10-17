@@ -2,18 +2,6 @@ include:
   - filename: .evergreen-functions.yml
 
 tasks:
-  - name: build_test_image_for_smoke_tests
-    display_name: build_test_image_for_smoke_tests
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: build_multi_cluster_binary
-      - func: pipeline
-        vars:
-          IMAGE_NAME: meko-tests
-
   - name: release_operator
     tags: [ "image_release" ]
     allowed_requesters: [ "patch", "github_tag" ]
@@ -122,7 +110,7 @@ tasks:
       - func: install_goreleaser
       - func: install_macos_notarization_service
       - func: release_kubectl_mongodb_plugin
-    
+
   - name: create_chart_release_pr
     tags: [ "helm_chart_release_pr" ]
     commands:
@@ -203,16 +191,48 @@ buildvariants:
     tasks:
       - name: gke_code_snippets_task_group
 
-  - name: init_smoke_tests
-    display_name: init_smoke_tests
+  - name: init_test_run_release
+    display_name: init_test_run
     tags: [ "release", "e2e_smoke_release_test_suite" ]
     allowed_requesters: [ "patch", "github_tag" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     tasks:
-      - name: build_test_image_for_smoke_tests
+      - name: build_test_image
 
-  - name: e2e_smoke
+  - name: init_smoke_tests_ibm_power_release
+    display_name: init_smoke_tests_ibm_power
+    max_hosts: -1
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    run_on:
+      - release-rhel9-power-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+      - release-rhel9-power-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    tasks:
+      - name: build_test_image_ibm
+
+  - name: init_smoke_tests_ibm_z_release
+    display_name: init_smoke_tests_ibm_z
+    max_hosts: -1
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    run_on:
+      - release-rhel9-zseries-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+      - release-rhel9-zseries-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    tasks:
+      - name: build_test_image_ibm
+
+  - name: init_smoke_tests_arm_release
+    display_name: init_smoke_tests_arm
+    max_hosts: -1
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    run_on:
+      - release-ubuntu2204-arm64-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    tasks:
+      - name: build_test_image_arm
+
+  - name: e2e_smoke_release
     display_name: e2e_smoke
     tags: [ "release", "e2e_smoke_release_test_suite" ]
     run_on:
@@ -222,21 +242,111 @@ buildvariants:
       - name: "*"
         variant: release_images
       - name: "*"
-        variant: init_smoke_tests
+        variant: init_test_run_release
     tasks:
       - name: e2e_smoke_task_group
 
-  - name: e2e_static_smoke
+  - name: e2e_static_smoke_release
     display_name: e2e_static_smoke
-    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: "*"
         variant: release_images
+      - name: "*"
+        variant: init_test_run_release
     tasks:
       - name: e2e_smoke_task_group
+
+  - name: e2e_smoke_ibm_power_release
+    display_name: e2e_smoke_ibm_power
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-power-small
+      - rhel9-power-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_ibm_power_release
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_static_smoke_ibm_power_release
+    display_name: e2e_static_smoke_ibm_power
+    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    run_on:
+      - rhel9-power-small
+      - rhel9-power-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_ibm_power_release
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_smoke_ibm_z_release
+    display_name: e2e_smoke_ibm_z
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_ibm_z_release
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_static_smoke_ibm_z_release
+    display_name: e2e_static_smoke_ibm_z
+    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_ibm_z_release
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_smoke_arm_release
+    display_name: e2e_smoke_arm
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - ubuntu2404-arm64-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_arm_release
+    tasks:
+      - name: e2e_smoke_arm_task_group
+
+  - name: e2e_static_smoke_arm_release
+    display_name: e2e_static_smoke_arm
+    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    run_on:
+      - ubuntu2404-arm64-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_arm_release
+    tasks:
+      - name: e2e_smoke_arm_task_group
 
   - name: release_kubectl_mongodb_plugin
     display_name: release_kubectl_mongodb_plugin
