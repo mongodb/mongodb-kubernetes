@@ -1,15 +1,15 @@
-Nodes in cluster gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-mongodb-kubxbf4576-16245
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-68f234754e9x96b9a1-14765
 NAME                                                  STATUS   ROLES    AGE   VERSION
-gke-k8s-mdb-0-mongodb-ku-default-pool-45d67649-3gpl   Ready    <none>   50s   v1.33.4-gke.1036000
-gke-k8s-mdb-0-mongodb-ku-default-pool-45d67649-7gzr   Ready    <none>   48s   v1.33.4-gke.1036000
-gke-k8s-mdb-0-mongodb-ku-default-pool-45d67649-vddj   Ready    <none>   45s   v1.33.4-gke.1036000
+gke-k8s-mdb-0-68f234754e-default-pool-cafd2d78-bct9   Ready    <none>   87s   v1.33.4-gke.1350000
+gke-k8s-mdb-0-68f234754e-default-pool-cafd2d78-bwg9   Ready    <none>   89s   v1.33.4-gke.1350000
+gke-k8s-mdb-0-68f234754e-default-pool-cafd2d78-nl9n   Ready    <none>   90s   v1.33.4-gke.1350000
 
-Nodes in cluster gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-mongodb-kubxbf4576-16245
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-68f234754e9x96b9a1-14765
 NAME                                                  STATUS   ROLES    AGE   VERSION
-gke-k8s-mdb-1-mongodb-ku-default-pool-d163ac03-2896   Ready    <none>   97s   v1.33.4-gke.1036000
-gke-k8s-mdb-1-mongodb-ku-default-pool-d163ac03-br88   Ready    <none>   97s   v1.33.4-gke.1036000
-gke-k8s-mdb-1-mongodb-ku-default-pool-d163ac03-h8l0   Ready    <none>   95s   v1.33.4-gke.1036000
+gke-k8s-mdb-1-68f234754e-default-pool-35f09a4a-13fx   Ready    <none>   56s   v1.33.5-gke.1080000
+gke-k8s-mdb-1-68f234754e-default-pool-35f09a4a-8q9d   Ready    <none>   55s   v1.33.5-gke.1080000
+gke-k8s-mdb-1-68f234754e-default-pool-35f09a4a-v566   Ready    <none>   56s   v1.33.5-gke.1080000
 
-Nodes in cluster gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-mongodb-kubxbf4576-16245
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-68f234754e9x96b9a1-14765
 NAME                                                  STATUS   ROLES    AGE   VERSION
-gke-k8s-mdb-2-mongodb-ku-default-pool-ca2ff76b-9s0d   Ready    <none>   31s   v1.33.4-gke.1036000
+gke-k8s-mdb-2-68f234754e-default-pool-1fc187e0-926g   Ready    <none>   31s   v1.33.5-gke.1080000
