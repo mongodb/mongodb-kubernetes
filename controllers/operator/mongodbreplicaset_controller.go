@@ -81,7 +81,10 @@ type ReplicaSetDeploymentState struct {
 	LastAchievedSpec *mdbv1.MongoDbSpec `json:"lastAchievedSpec"`
 }
 
-func readState(rs *mdbv1.MongoDB) (*ReplicaSetDeploymentState, error) {
+var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
+
+// readState abstract reading the state of the resource that we store on the cluster between reconciliations.
+func (r *ReconcileMongoDbReplicaSet) readState(rs *mdbv1.MongoDB) (*ReplicaSetDeploymentState, error) {
 	// Try to get the last achieved spec from annotations and store it in state
 	if lastAchievedSpec, err := rs.GetLastSpec(); err != nil {
 		return nil, err
@@ -90,15 +93,62 @@ func readState(rs *mdbv1.MongoDB) (*ReplicaSetDeploymentState, error) {
 	}
 }
 
-var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
+// writeState abstract writing the state of the resource that we store on the cluster between reconciliations.
+func (r *ReconcileMongoDbReplicaSet) writeState(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+	// Serialize the state to annotations
+	annotationsToAdd, err := getAnnotationsForResource(rs)
+	if err != nil {
+		return err
+	}
+
+	// Add vault annotations if needed
+	if vault.IsVaultSecretBackend() {
+		secrets := rs.GetSecretsMountedIntoDBPod()
+		vaultMap := make(map[string]string)
+		for _, s := range secrets {
+			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.DatabaseSecretMetadataPath(), rs.Namespace, s)
+			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+		}
+		path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OperatorScretMetadataPath(), rs.Namespace, rs.Spec.Credentials)
+		vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+		for k, val := range vaultMap {
+			annotationsToAdd[k] = val
+		}
+	}
+
+	// Write annotations back to the resource
+	if err := annotations.SetAnnotations(ctx, rs, annotationsToAdd, r.client); err != nil {
+		return err
+	}
+
+	log.Debugf("Successfully wrote deployment state for ReplicaSet %s/%s", rs.Namespace, rs.Name)
+	return nil
+}
 
 func (r *ReconcileMongoDbReplicaSet) initializeState(rs *mdbv1.MongoDB) error {
-	if state, err := readState(rs); err == nil {
+	if state, err := r.readState(rs); err == nil {
 		r.deploymentState = state
 		return nil
 	} else {
 		return err
 	}
+}
+
+// updateStatus overrides the common controller's updateStatus to ensure that the deployment state
+// is written after every status update. This ensures state consistency even on early returns.
+// It must be executed only once per reconcile (with a return)
+func (r *ReconcileMongoDbReplicaSet) updateStatus(ctx context.Context, resource *mdbv1.MongoDB, status workflow.Status, log *zap.SugaredLogger, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
+	result, err := r.ReconcileCommonController.updateStatus(ctx, resource, status, log, statusOptions...)
+	if err != nil {
+		return result, err
+	}
+
+	// Write deployment state after every status update
+	if err := r.writeState(ctx, resource, log); err != nil {
+		return r.ReconcileCommonController.updateStatus(ctx, resource, workflow.Failed(xerrors.Errorf("Failed to write deployment state after updating status: %w", err)), log)
+	}
+
+	return result, nil
 }
 
 func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
@@ -284,29 +334,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), log, mdbstatus.MembersOption(rs))
 	}
 
-	annotationsToAdd, err := getAnnotationsForResource(rs)
-	if err != nil {
-		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
-	}
-
-	if vault.IsVaultSecretBackend() {
-		secrets := rs.GetSecretsMountedIntoDBPod()
-		vaultMap := make(map[string]string)
-		for _, s := range secrets {
-			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.DatabaseSecretMetadataPath(), rs.Namespace, s)
-			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
-		}
-		path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OperatorScretMetadataPath(), rs.Namespace, rs.Spec.Credentials)
-		vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
-		for k, val := range vaultMap {
-			annotationsToAdd[k] = val
-		}
-	}
-
-	if err := annotations.SetAnnotations(ctx, rs, annotationsToAdd, r.client); err != nil {
-		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
-	}
-
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(ctx, rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
@@ -443,6 +470,8 @@ func (r *ReconcileMongoDbReplicaSet) reconcileStatefulSet(ctx context.Context, r
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
+
+	// TODO: check if updatestatus usage is correct here
 	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
 		_, _ = r.updateStatus(ctx, rs, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
 	}
@@ -683,6 +712,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
+	//TODO: check if updateStatus usage is correct hee
 	if status := r.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, r.SecretClient, log); !status.IsOK() && !isRecovering {
 		return status
 	}
