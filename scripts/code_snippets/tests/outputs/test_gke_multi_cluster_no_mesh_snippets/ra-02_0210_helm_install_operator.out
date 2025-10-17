@@ -1,6 +1,6 @@
 Release "mongodb-kubernetes-operator-multi-cluster" does not exist. Installing it now.
 NAME: mongodb-kubernetes-operator-multi-cluster
-LAST DEPLOYED: Tue Sep 16 15:54:56 2025
+LAST DEPLOYED: Fri Oct 17 12:40:16 2025
 NAMESPACE: mongodb-operator
 STATUS: deployed
 REVISION: 1
@@ -9,9 +9,9 @@ USER-SUPPLIED VALUES:
 dummy: value
 multiCluster:
   clusters:
-  - gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-mongodb-kubxbf4576-30508
-  - gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-mongodb-kubxbf4576-30508
-  - gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-mongodb-kubxbf4576-30508
+  - gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-68f234754e9x96b9a1-23388
+  - gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-68f234754e9x96b9a1-23388
+  - gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-68f234754e9x96b9a1-23388
 namespace: mongodb-operator
 operator:
   createOperatorServiceAccount: false
@@ -51,17 +51,17 @@ community:
     version: 4.4.0
 database:
   name: mongodb-kubernetes-database
-  version: 1.4.0
+  version: 1.5.0
 dummy: value
 initAppDb:
   name: mongodb-kubernetes-init-appdb
-  version: 1.4.0
+  version: 1.5.0
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.4.0
+  version: 1.5.0
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.4.0
+  version: 1.5.0
 managedSecurityContext: false
 mongodb:
   appdbAssumeOldFormat: false
@@ -71,9 +71,9 @@ mongodb:
 multiCluster:
   clusterClientTimeout: 10
   clusters:
-  - gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-mongodb-kubxbf4576-30508
-  - gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-mongodb-kubxbf4576-30508
-  - gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-mongodb-kubxbf4576-30508
+  - gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-68f234754e9x96b9a1-23388
+  - gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-68f234754e9x96b9a1-23388
+  - gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-68f234754e9x96b9a1-23388
   kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
   performFailOver: true
 namespace: mongodb-operator
@@ -93,6 +93,9 @@ operator:
   namespace: mongodb-operator
   nodeSelector: {}
   operator_image_name: mongodb-kubernetes
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 2000
   replicas: 1
   resources:
     limits:
@@ -101,6 +104,7 @@ operator:
     requests:
       cpu: 500m
       memory: 200Mi
+  securityContext: {}
   telemetry:
     collection:
       clusters: {}
@@ -113,7 +117,7 @@ operator:
   vaultSecretBackend:
     enabled: false
     tlsSecretRef: ""
-  version: 1.4.0
+  version: 1.5.0
   watchNamespace: mongodb-om,mongodb
   watchedResources:
   - mongodb
@@ -128,7 +132,7 @@ opsManager:
   name: mongodb-enterprise-ops-manager-ubi
 readinessProbe:
   name: mongodb-kubernetes-readinessprobe
-  version: 1.0.22
+  version: 1.0.23
 registry:
   agent: quay.io/mongodb
   database: quay.io/mongodb
@@ -147,7 +151,7 @@ search:
   version: 0.53.1
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
-  version: 1.0.9
+  version: 1.0.10
 
 HOOKS:
 MANIFEST:
@@ -262,7 +266,7 @@ spec:
         runAsUser: 2000
       containers:
         - name: mongodb-kubernetes-operator-multi-cluster
-          image: "quay.io/mongodb/mongodb-kubernetes:1.4.0"
+          image: "quay.io/mongodb/mongodb-kubernetes:1.5.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -309,21 +313,21 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: 1.4.0
+              value: 1.5.0
             - name: DATABASE_VERSION
-              value: 1.4.0
+              value: 1.5.0
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: 1.4.0
+              value: 1.5.0
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
-              value: 1.4.0
+              value: 1.5.0
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -350,9 +354,9 @@ spec:
             - name: MDB_COMMUNITY_AGENT_IMAGE
               value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
             - name: VERSION_UPGRADE_HOOK_IMAGE
-              value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"
+              value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.10"
             - name: READINESS_PROBE_IMAGE
-              value: "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.22"
+              value: "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.23"
             - name: MDB_COMMUNITY_IMAGE
               value: "mongodb-community-server"
             - name: MDB_COMMUNITY_REPO_URL
