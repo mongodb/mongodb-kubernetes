@@ -45,7 +45,8 @@ RUN apt-get -qq update \
     libldap2-dev \
     libsasl2-dev \
     git \
-    openssl
+    openssl \
+    unzip
 
 RUN mkdir -p /tmp/mongodb-tools && \
     tar xfz /tmp/mongodb-tools.tgz -C /tmp/mongodb-tools && \
@@ -66,6 +67,11 @@ RUN curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -
     && chmod +x ./kubectl \
     && mv ./kubectl /usr/local/bin/kubectl
 
+# install aws, required to run helm registry login while running the tests
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
+    && unzip -q awscliv2.zip \
+    && ./aws/install
+
 COPY --from=builder /venv /venv
 
 ENV PATH="/venv/bin:${PATH}"
@@ -75,8 +81,9 @@ WORKDIR /tests
 
 # copying the test files after python build, otherwise pip install will be called each time the tests change
 COPY . /tests
-# copying the helm_chart directory as well to support installation of the Operator from the test application
-COPY helm_chart /helm_chart
+# copying the helm_chart/crds directory so that we can install CRDs before installing the operator helm chart to run a test.
+# operator is installed via published OCI helm repo and not the local helm repo.
+COPY helm_chart/crds /helm_chart/crds
 COPY release.json /release.json
 # we use the public directory to automatically test resources samples
 COPY public /mongodb-kubernetes/public

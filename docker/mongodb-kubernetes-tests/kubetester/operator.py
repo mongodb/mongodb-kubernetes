@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Dict, List, Optional
 
@@ -9,6 +10,7 @@ from kubernetes import client
 from kubernetes.client import V1CustomResourceDefinition, V1Deployment, V1Pod
 from kubernetes.client.rest import ApiException
 from kubetester import wait_for_webhook
+from kubetester.consts import *
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import (
     helm_install,
@@ -16,6 +18,8 @@ from kubetester.helm import (
     helm_template,
     helm_uninstall,
     helm_upgrade,
+    oci_chart_info,
+    oci_helm_registry_login,
 )
 from tests import test_logger
 
@@ -24,6 +28,7 @@ OPERATOR_CRDS = (
     "mongodbusers.mongodb.com",
     "opsmanagers.mongodb.com",
 )
+
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -43,13 +48,39 @@ class Operator(object):
         namespace: str,
         helm_args: Optional[Dict] = None,
         helm_options: Optional[List[str]] = None,
-        helm_chart_path: Optional[str] = "helm_chart",
+        helm_chart_path: Optional[str] = None,
         name: Optional[str] = "mongodb-kubernetes-operator",
         api_client: Optional[client.api_client.ApiClient] = None,
+        operator_version: Optional[str] = None,
     ):
-
         # The Operator will be installed from the following repo, so adding it first
         helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+
+        # helm_chart_path not being passed would mean we are on evg env and would like to
+        # install helm chart from OCI registry.
+        if not helm_chart_path:
+            # login to the OCI container registry
+            registry, repository, region = oci_chart_info()
+            try:
+                oci_helm_registry_login(registry, region)
+            except Exception as e:
+                raise e
+
+            # figure out the registry URI, based on dev/staging scenario
+            chart_uri = f"oci://{registry}/{repository}"
+            helm_chart_path = chart_uri
+
+        # if operator_version is not specified and we are not installing the MCK or MEKO chart
+        # it would mean we want to install OCI published helm chart. Figure out respective version,
+        # it is set in env var `OPERATOR_VERSION` based on build_scenario.
+        if not operator_version and helm_chart_path not in (
+            MCK_HELM_CHART,
+            LEGACY_OPERATOR_CHART,
+        ):
+            non_semver_operator_version = os.environ.get(OPERATOR_VERSION_ENV_VAR_NAME)
+            # when we publish the helm chart we append `0.0.0+` in the chart version, details are
+            # here https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.gg5ble8qlesq
+            operator_version = f"0.0.0+{non_semver_operator_version}"
 
         if helm_args is None:
             helm_args = {}
@@ -69,6 +100,7 @@ class Operator(object):
         self.helm_chart_path = helm_chart_path
         self.name = name
         self.api_client = api_client
+        self.operator_version = operator_version
 
     def install_from_template(self):
         """Uses helm to generate yaml specification and then uses python K8s client to apply them to the cluster
@@ -82,6 +114,9 @@ class Operator(object):
 
     def install(self, custom_operator_version: Optional[str] = None) -> Operator:
         """Installs the Operator to Kubernetes cluster using 'helm install', waits until it's running"""
+        if not custom_operator_version:
+            custom_operator_version = self.operator_version
+
         helm_install(
             self.name,
             self.namespace,
@@ -99,6 +134,9 @@ class Operator(object):
         self, multi_cluster: bool = False, custom_operator_version: Optional[str] = None, apply_crds_first: bool = False
     ) -> Operator:
         """Upgrades the Operator in Kubernetes cluster using 'helm upgrade', waits until it's running"""
+        if not custom_operator_version:
+            custom_operator_version = self.operator_version
+
         helm_upgrade(
             self.name,
             self.namespace,

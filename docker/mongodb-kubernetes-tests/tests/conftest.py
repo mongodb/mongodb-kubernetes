@@ -20,7 +20,13 @@ from kubetester import (
     update_configmap,
 )
 from kubetester.awss3client import AwsS3Client
-from kubetester.helm import helm_install_from_chart, helm_repo_add
+from kubetester.consts import *
+from kubetester.helm import (
+    helm_install_from_chart,
+    helm_repo_add,
+    oci_chart_info,
+    oci_helm_registry_login,
+)
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import running_locally
@@ -55,9 +61,6 @@ CLUSTER_HOST_MAPPING = {
 LEGACY_CENTRAL_CLUSTER_NAME: str = "__default"
 LEGACY_DEPLOYMENT_STATE_VERSION: str = "1.27.0"
 
-# Helm charts
-LEGACY_OPERATOR_CHART = "mongodb/enterprise-operator"
-MCK_HELM_CHART = "mongodb/mongodb-kubernetes"
 LOCAL_HELM_CHART_DIR = "helm_chart"
 
 OFFICIAL_OPERATOR_IMAGE_NAME = "mongodb-kubernetes"
@@ -827,7 +830,7 @@ def _install_multi_cluster_operator(
     helm_opts: dict[str, str],
     central_cluster_name: str,
     operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
-    helm_chart_path: Optional[str] = LOCAL_HELM_CHART_DIR,
+    helm_chart_path: Optional[str] = None,
     custom_operator_version: Optional[str] = None,
     apply_crds_first: bool = False,
 ) -> Operator:
@@ -835,6 +838,29 @@ def _install_multi_cluster_operator(
 
     # The Operator will be installed from the following repo, so adding it first
     helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+
+    # helm_chart_path not being passed would mean we are on evg env and would like to
+    # install helm chart from OCI registry.
+    if not helm_chart_path:
+        # login to the OCI container registry
+        registry, repository, region = oci_chart_info()
+        try:
+            oci_helm_registry_login(registry, region)
+        except Exception as e:
+            raise e
+
+        # figure out the registry URI, based on dev/staging scenario
+        chart_uri = f"oci://{registry}/{repository}"
+
+        helm_chart_path = chart_uri
+
+    if not custom_operator_version and helm_chart_path not in (MCK_HELM_CHART, LEGACY_OPERATOR_CHART):
+        # custom_operator_version is not set and chart is also neither MCK nor MEKO would mean we are trying to install
+        # the operator from OCI registry. The version based on build scenario (dev/staging) is set in `OPERATOR_VERSION` env var.
+        non_semver_custom_operator_version = os.environ.get(OPERATOR_VERSION_ENV_VAR_NAME)
+        # when we publish the helm chart we append `0.0.0+` in the chart version, details are
+        # here https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.gg5ble8qlesq
+        custom_operator_version = f"0.0.0+{non_semver_custom_operator_version}"
 
     prepare_multi_cluster_namespaces(
         namespace,
