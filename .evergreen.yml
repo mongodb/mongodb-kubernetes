@@ -413,7 +413,7 @@ tasks:
       - func: quay_login
       - func: pipeline_agent
         vars:
-          FLAGS: "--current-agents"
+          FLAGS: "--all-agents"
 
   - name: build_init_database_image_ubi
     commands:
