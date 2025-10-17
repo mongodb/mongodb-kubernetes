@@ -453,6 +453,16 @@ tasks:
       - func: setup_building_host
       - func: pipeline_version_upgrade_hook
 
+  - name: publish_helm_chart
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_kubectl
+      - func: setup_aws
+      - func: prepare_aws
+      - func: helm_registry_login
+      - func: publish_helm_chart
+
   - name: prepare_aws
     priority: 59
     commands:
@@ -1706,6 +1716,7 @@ buildvariants:
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
       - name: prepare_aws
+      - name: publish_helm_chart
 
   - name: init_test_run_ibm_power
     display_name: init_test_run_ibm_power

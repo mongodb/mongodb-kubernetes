@@ -40,7 +40,9 @@ class BinaryInfo:
 
 @dataclass
 class HelmChartInfo:
-    repositories: List[str]
+    repository: str
+    registry: str
+    region: str
     sign: bool = False
 
 
@@ -106,8 +108,10 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
             continue
 
         helm_charts[name] = HelmChartInfo(
-            repositories=scenario_data["repositories"],
+            repository=scenario_data.get("repository"),
             sign=scenario_data.get("sign", False),
+            registry=scenario_data.get("registry"),
+            region=scenario_data.get("region")
         )
 
     return BuildInfo(images=images, binaries=binaries, helm_charts=helm_charts)
