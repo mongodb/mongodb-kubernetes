@@ -10,6 +10,7 @@ from kubernetes import client
 from kubernetes.client import V1CustomResourceDefinition, V1Deployment, V1Pod
 from kubernetes.client.rest import ApiException
 from kubetester import wait_for_webhook
+from kubetester.consts import *
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import (
     helm_install,
@@ -27,6 +28,7 @@ OPERATOR_CRDS = (
     "mongodbusers.mongodb.com",
     "opsmanagers.mongodb.com",
 )
+
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -54,6 +56,8 @@ class Operator(object):
         # The Operator will be installed from the following repo, so adding it first
         helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
+        # helm_chart_path not being passed would mean we are on evg env and would like to
+        # install helm chart from OCI registry.
         if not helm_chart_path:
             # login to the OCI container registry
             registry, repository, region = oci_chart_info()
@@ -66,13 +70,16 @@ class Operator(object):
             chart_uri = f"oci://{registry}/{repository}"
             helm_chart_path = chart_uri
 
+        # if operator_version is not specified and we are not installing the MCK or MEKO chart
+        # it would mean we want to install OCI published helm chart. Figure out respective version,
+        # it is set in env var `OPERATOR_VERSION` based on build_scenario.
         if not operator_version and helm_chart_path not in (
-            "mongodb/mongodb-kubernetes",
-            "mongodb/enterprise-operator",
+            MCK_HELM_CHART,
+            LEGACY_OPERATOR_CHART,
         ):
-            # most probably we are trying to install current operator which will be installed
-            # from OCI registry. The version (dev/staging) is set in `OPERATOR_VERSION`
-            non_semver_operator_version = os.environ.get("OPERATOR_VERSION")
+            non_semver_operator_version = os.environ.get(OPERATOR_VERSION_ENV_VAR_NAME)
+            # when we publish the helm chart we append `0.0.0+` in the chart version, details are
+            # here https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.gg5ble8qlesq
             operator_version = f"0.0.0+{non_semver_operator_version}"
 
         if helm_args is None:
