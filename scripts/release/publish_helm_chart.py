@@ -56,7 +56,7 @@ def update_chart_and_get_metadata(chart_dir: str, build_scenario) -> tuple[str, 
     # if build_scenario is release, the chart.yaml would already have correct chart version
     if build_scenario == BUILD_SCENARIO_RELEASE:
         return chart_name, version_id
-    
+
     new_version = f"0.0.0+{version_id}"
     logger.info(f"New helm chart version will be: {new_version}")
 
