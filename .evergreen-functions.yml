@@ -507,14 +507,13 @@ functions:
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/publish_helm_chart.sh
-
+        
   build_multi_cluster_binary:
     - command: subprocess.exec
-      type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/build_multi_cluster_kubeconfig_creator.sh
-
+        binary: scripts/dev/run_python.sh scripts/release/kubectl-mongodb/python/build_kubectl_plugin.py
+  
   build_and_push_appdb_database:
     - command: subprocess.exec
       params:
@@ -854,6 +853,7 @@ functions:
           curl -fL "${goreleaser_pro_tar_gz}" --output goreleaser_Linux_x86_64.tar.gz
           tar -xf goreleaser_Linux_x86_64.tar.gz
           chmod 755 ./goreleaser
+          sudo cp goreleaser /usr/local/bin/
 
   install_macos_notarization_service:
     - command: shell.exec
