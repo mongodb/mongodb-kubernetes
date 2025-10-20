@@ -129,6 +129,16 @@ tasks:
       - func: clone
       - func: python_venv
       - func: create_chart_release_pr
+  
+  - name: release_chart_to_oci_registry
+    tags: [ "release_chart_to_oci_registry" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_kubectl
+      - func: setup_aws
+      - func: helm_registry_login
+      - func: publish_helm_chart
 
 ### Release build variants
 buildvariants:
@@ -255,3 +265,12 @@ buildvariants:
     allowed_requesters: [ "patch", "github_tag" ]
     tasks:
       - name: create_chart_release_pr
+
+  - name: release_chart_to_oci_registry
+    display_name: release_chart_to_oci_registry
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: release_chart_to_oci_registry

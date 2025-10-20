@@ -6,8 +6,11 @@ import sys
 from lib.base_logger import logger
 from scripts.release.build.build_info import load_build_info
 
+BUILD_SCENARIO_RELEASE="release"
+QUAY_USERNAME_ENV_VAR = "quay_prod_username"
+QUAY_PASSWORD_ENV_VAR = "quay_prod_robot_token"
 
-def helm_registry_login(helm_registry: str, region: str):
+def helm_registry_login_to_nonrelease(helm_registry: str, region: str):
     logger.info(f"Attempting to log into ECR registry: {helm_registry}, using helm registry login.")
 
     aws_command = ["aws", "ecr", "get-login-password", "--region", region]
@@ -67,7 +70,48 @@ def main():
 
     registry = build_info.helm_charts["mongodb-kubernetes"].registry
     region = build_info.helm_charts["mongodb-kubernetes"].region
-    return helm_registry_login(registry, region)
+
+    if build_scenario == BUILD_SCENARIO_RELEASE:
+        helm_registry_login_to_release(registry)
+
+    return helm_registry_login_to_nonrelease(registry, region)
+
+def helm_registry_login_to_release(registry):
+    username = os.environ.get(QUAY_USERNAME_ENV_VAR)
+    password = os.environ.get(QUAY_PASSWORD_ENV_VAR)
+
+    if not username:
+        raise Exception(f"Env var {QUAY_USERNAME_ENV_VAR} must be set with the quay username.")
+    if not password:
+        raise Exception(f"Env var {QUAY_PASSWORD_ENV_VAR} must be set with the quay password.")
+
+    command = [
+        "helm",
+        "registry",
+        "login",
+        "--username", username,
+        "--password-stdin",
+        registry
+    ]
+
+    try:
+        result = subprocess.run(
+                command,
+                input=password,  # Pass the password as input bytes
+                capture_output=True,
+                text=True,
+                check=False  # Do not raise an exception on non-zero exit code
+            )
+
+        if result.returncode == 0:
+            logger.info(f"Successfully logged into helm continer registry {registry}.")
+        else:
+            raise Exception(f"Helm registry login failed to {registry}. Stdout: {result.stderr.strip()}, Stderr: {result.stderr.strip()}")
+
+    except FileNotFoundError:
+        raise Exception("Error: 'helm' command not found. Ensure Helm CLI is installed and in your PATH.")
+    except Exception as e:
+        raise Exception(f"An unexpected error occurred during execution: {e}")
 
 
 if __name__ == "__main__":

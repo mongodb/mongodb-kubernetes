@@ -227,6 +227,9 @@ functions:
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
+      include_expansions_in_env:
+        - quay_prod_username
+        - quay_prod_robot_token
       add_to_path:
         - ${workdir}/bin
         - ${PROJECT_DIR}/bin

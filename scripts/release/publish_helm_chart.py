@@ -7,6 +7,7 @@ import yaml
 
 from lib.base_logger import logger
 from scripts.release.build.build_info import *
+from scripts.release.helm_registry_login import BUILD_SCENARIO_RELEASE
 
 CHART_DIR = "helm_chart"
 
@@ -28,16 +29,13 @@ def run_command(command: list[str]):
 
 # update_chart_and_get_metadata updates the helm chart's Chart.yaml and sets the version
 # to either evg patch id or commit which is set in OPERATOR_VERSION.
-def update_chart_and_get_metadata(chart_dir: str) -> tuple[str, str]:
+def update_chart_and_get_metadata(chart_dir: str, build_scenario) -> tuple[str, str]:
     chart_path = os.path.join(chart_dir, "Chart.yaml")
     version_id = os.environ.get("OPERATOR_VERSION")
     if not version_id:
         raise ValueError(
             "Error: Environment variable 'OPERATOR_VERSION' must be set to determine the chart version to publish."
         )
-
-    new_version = f"0.0.0+{version_id}"
-    logger.info(f"New helm chart version will be: {new_version}")
 
     if not os.path.exists(chart_path):
         raise FileNotFoundError(
@@ -52,7 +50,17 @@ def update_chart_and_get_metadata(chart_dir: str) -> tuple[str, str]:
         chart_name = data.get("name")
         if not chart_name:
             raise ValueError("Chart.yaml is missing required 'name' field.")
+    except Exception as e:
+        raise Exception(f"Unable to load Chart.yaml from dir {chart_path}")
 
+    # if build_scenario is release, the chart.yaml would already have correct chart version
+    if build_scenario == BUILD_SCENARIO_RELEASE:
+        return chart_name, version_id
+    
+    new_version = f"0.0.0+{version_id}"
+    logger.info(f"New helm chart version will be: {new_version}")
+
+    try:
         data["version"] = new_version
 
         with open(chart_path, "w") as f:
@@ -79,10 +87,10 @@ def get_oci_registry(chart_info: HelmChartInfo) -> str:
     return oci_registry
 
 
-def publish_helm_chart(chart_info: HelmChartInfo):
+def publish_helm_chart(chart_info: HelmChartInfo, build_scenario):
     try:
         oci_registry = get_oci_registry(chart_info)
-        chart_name, chart_version = update_chart_and_get_metadata(CHART_DIR)
+        chart_name, chart_version = update_chart_and_get_metadata(CHART_DIR, build_scenario)
         tgz_filename = f"{chart_name}-{chart_version}.tgz"
 
         logger.info(f"Packaging chart: {chart_name} with Version: {chart_version}")
@@ -108,7 +116,7 @@ def main():
     build_scenario = args.build_scenario
     build_info = load_build_info(build_scenario)
 
-    return publish_helm_chart(build_info.helm_charts["mongodb-kubernetes"])
+    return publish_helm_chart(build_info.helm_charts["mongodb-kubernetes"], build_scenario)
 
 
 if __name__ == "__main__":
