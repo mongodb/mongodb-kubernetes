@@ -363,21 +363,29 @@ tasks:
         vars:
           IMAGE_NAME: meko-tests-arm64
 
-
-  - name: build_test_image_ibm
+  - name: build_test_image_ibm_z
     commands:
       - func: clone
-      - command: subprocess.exec
-        type: setup
-        params:
-          env:
-            SKIP_MINIKUBE_SETUP: "true"
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          add_to_path:
-            - ${workdir}/bin
-          command: scripts/evergreen/setup_minikube_host.sh
+      - func: setup_building_host_minikube
+        vars:
+          skip_minikube_setup: true
+          skip_install_python_requirements: false
       - func: build_multi_cluster_binary
-      - func: build_test_image_ibm
+      - func: pipeline
+        vars:
+          IMAGE_NAME: meko-tests-ibm-z
+
+  - name: build_test_image_ibm_power
+    commands:
+      - func: clone
+      - func: setup_building_host_minikube
+        vars:
+          skip_minikube_setup: true
+          skip_install_python_requirements: false
+      - func: build_multi_cluster_binary
+      - func: pipeline
+        vars:
+          IMAGE_NAME: meko-tests-ibm-power
 
   - name: build_mco_test_image
     commands:
@@ -1396,7 +1404,7 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_power
         variant: init_test_run_ibm_power
     tasks:
       - name: e2e_smoke_ibm_task_group
@@ -1415,7 +1423,7 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_power
         variant: init_test_run_ibm_power
     tasks:
       - name: e2e_smoke_ibm_task_group
@@ -1434,7 +1442,7 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_z
         variant: init_test_run_ibm_z
     tasks:
       - name: e2e_smoke_ibm_task_group
@@ -1451,7 +1459,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_z
         variant: init_test_run_ibm_z
     tasks:
       - name: e2e_smoke_ibm_task_group
@@ -1700,7 +1708,7 @@ buildvariants:
       - rhel9-power-small
       - rhel9-power-large
     tasks:
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_power
 
   - name: init_test_run_ibm_z
     display_name: init_test_run_ibm_z
@@ -1710,7 +1718,7 @@ buildvariants:
       - rhel9-zseries-small
       - rhel9-zseries-large
     tasks:
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_z
 
   - name: init_test_run_arm
     display_name: init_test_run_arm

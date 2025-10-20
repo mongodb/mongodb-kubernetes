@@ -209,7 +209,7 @@ buildvariants:
       - release-rhel9-power-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
       - release-rhel9-power-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     tasks:
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_power
 
   - name: init_smoke_tests_ibm_z_release
     display_name: init_smoke_tests_ibm_z
@@ -220,7 +220,7 @@ buildvariants:
       - release-rhel9-zseries-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
       - release-rhel9-zseries-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     tasks:
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_z
 
   - name: init_smoke_tests_arm_release
     display_name: init_smoke_tests_arm
