@@ -59,6 +59,50 @@ type MongoDBSearchReconcileHelper struct {
 	operatorSearchConfig OperatorSearchConfig
 }
 
+type mongotTransportSpec struct {
+	ServerConfig       mongot.ConfigServer
+	ServicePorts       []corev1.ServicePort
+	PrimaryPort        int32
+	UseGrpcForSearch   bool
+	WireprotoEnabled   bool
+	NeedsSourceKeyfile bool
+}
+
+func buildMongotTransportSpec(search *searchv1.MongoDBSearch) mongotTransportSpec {
+	grpcPort := search.GetMongotGrpcPort()
+
+	spec := mongotTransportSpec{
+		ServerConfig: mongot.ConfigServer{
+			Grpc: &mongot.ConfigGrpc{
+				Address: fmt.Sprintf("0.0.0.0:%d", grpcPort),
+				TLS:     &mongot.ConfigGrpcTLS{Mode: mongot.ConfigTLSModeDisabled},
+			},
+		},
+		ServicePorts:     []corev1.ServicePort{createMongotServicePort("mongot-grpc", grpcPort)},
+		PrimaryPort:      grpcPort,
+		UseGrpcForSearch: true,
+	}
+
+	if search.IsWireprotoForced() {
+		wireprotoPort := search.GetMongotWireprotoPort()
+		spec.ServerConfig.Wireproto = &mongot.ConfigWireproto{
+			Address: fmt.Sprintf("0.0.0.0:%d", wireprotoPort),
+			Authentication: &mongot.ConfigAuthentication{
+				Mode:    "keyfile",
+				KeyFile: TempKeyfilePath,
+			},
+			TLS: &mongot.ConfigWireprotoTLS{Mode: mongot.ConfigTLSModeDisabled},
+		}
+		spec.ServicePorts = append(spec.ServicePorts, createMongotServicePort("mongot-wireproto", wireprotoPort))
+		spec.PrimaryPort = wireprotoPort
+		spec.UseGrpcForSearch = false
+		spec.WireprotoEnabled = true
+		spec.NeedsSourceKeyfile = true
+	}
+
+	return spec
+}
+
 func NewMongoDBSearchReconcileHelper(
 	client kubernetesClient.Client,
 	mdbSearch *searchv1.MongoDBSearch,
@@ -97,30 +141,36 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	keyfileStsModification := statefulset.NOOP()
-	if r.mdbSearch.IsWireprotoForced() {
+	transport := buildMongotTransportSpec(r.mdbSearch)
+
+	serverRequirement := statefulset.NOOP()
+	if transport.NeedsSourceKeyfile {
 		var err error
-		keyfileStsModification, err = r.ensureSourceKeyfile(ctx, log)
+		serverRequirement, err = r.ensureSourceKeyfile(ctx, log)
 		if apierrors.IsNotFound(err) {
 			return workflow.Pending("Waiting for keyfile secret to be created")
-		} else if err != nil {
+		}
+		if err != nil {
 			return workflow.Failed(err)
+		}
+		if serverRequirement == nil {
+			serverRequirement = statefulset.NOOP()
 		}
 	}
 
-	if err := r.ensureSearchService(ctx, r.mdbSearch); err != nil {
+	if err := r.ensureSearchService(ctx, r.mdbSearch, transport); err != nil {
 		return workflow.Failed(err)
 	}
 
-	ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx)
+	ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx, transport)
 	if err != nil {
 		return workflow.Failed(err)
 	}
 
-	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
+	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx, transport)
 
 	// the egress TLS modification needs to always be applied after the ingress one, because it toggles mTLS based on the mode set by the ingress modification
-	configHash, err := r.ensureMongotConfig(ctx, log, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification)
+	configHash, err := r.ensureMongotConfig(ctx, log, createMongotConfig(r.mdbSearch, r.db, transport), ingressTlsMongotModification, egressTlsMongotModification)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -131,7 +181,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		},
 	))
 
-	if err := r.createOrUpdateStatefulSet(ctx, log, CreateSearchStatefulSetFunc(r.mdbSearch, r.db, r.buildImageString()), configHashModification, keyfileStsModification, ingressTlsStsModification, egressTlsStsModification); err != nil {
+	if err := r.createOrUpdateStatefulSet(ctx, log, CreateSearchStatefulSetFunc(r.mdbSearch, r.db, r.buildImageString()), configHashModification, serverRequirement, ingressTlsStsModification, egressTlsStsModification); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -185,12 +235,12 @@ func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Con
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, search *searchv1.MongoDBSearch) error {
+func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, search *searchv1.MongoDBSearch, transport mongotTransportSpec) error {
 	svcName := search.SearchServiceNamespacedName()
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName.Name, Namespace: svcName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, svc, func() error {
 		resourceVersion := svc.ResourceVersion
-		*svc = buildSearchHeadlessService(search)
+		*svc = buildSearchHeadlessService(search, transport)
 		svc.ResourceVersion = resourceVersion
 		return nil
 	})
@@ -231,7 +281,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	return hashBytes(configData), nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
+func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context, transport mongotTransportSpec) (mongot.Modification, statefulset.Modification, error) {
 	if r.mdbSearch.Spec.Security.TLS == nil {
 		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
@@ -245,11 +295,9 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 
 	mongotModification := func(config *mongot.Config) {
 		certPath := tls.OperatorSecretMountPath + certFileName
-		config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeTLS
-		config.Server.Grpc.TLS.CertificateKeyFile = ptr.To(certPath)
-		if config.Server.Wireproto != nil {
-			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
-			config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
+		enableGrpcIngressTLS(&config.Server, certPath)
+		if transport.WireprotoEnabled {
+			enableWireprotoIngressTLS(&config.Server, certPath)
 		}
 	}
 
@@ -266,21 +314,19 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	return mongotModification, statefulsetModification, nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification) {
+func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context, _ mongotTransportSpec) (mongot.Modification, statefulset.Modification) {
 	tlsSourceConfig := r.db.TLSConfig()
 	if tlsSourceConfig == nil {
 		return mongot.NOOP(), statefulset.NOOP()
 	}
 
 	mongotModification := func(config *mongot.Config) {
+		caPath := tls.CAMountPath + "/" + tlsSourceConfig.CAFileName
 		config.SyncSource.ReplicaSet.TLS = ptr.To(true)
-		config.SyncSource.CertificateAuthorityFile = ptr.To(tls.CAMountPath + "/" + tlsSourceConfig.CAFileName)
+		config.SyncSource.CertificateAuthorityFile = ptr.To(caPath)
 
 		// if the gRPC server is configured to accept TLS connections then toggle mTLS as well
-		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
-			config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeMTLS
-			config.Server.Grpc.TLS.CertificateAuthorityFile = config.SyncSource.CertificateAuthorityFile
-		}
+		enableGrpcMTLS(&config.Server, caPath)
 	}
 
 	caVolume := tlsSourceConfig.CAVolume
@@ -301,7 +347,7 @@ func hashBytes(bytes []byte) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 
-func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
+func buildSearchHeadlessService(search *searchv1.MongoDBSearch, transport mongotTransportSpec) corev1.Service {
 	labels := map[string]string{}
 	name := search.SearchServiceNamespacedName().Name
 
@@ -317,21 +363,10 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		SetPublishNotReadyAddresses(true).
 		SetOwnerReferences(search.GetOwnerReferences())
 
-	if search.IsWireprotoForced() {
-		serviceBuilder.AddPort(&corev1.ServicePort{
-			Name:       "mongot-wireproto",
-			Protocol:   corev1.ProtocolTCP,
-			Port:       search.GetMongotWireprotoPort(),
-			TargetPort: intstr.FromInt32(search.GetMongotWireprotoPort()),
-		})
+	for _, port := range transport.ServicePorts {
+		portCopy := port
+		serviceBuilder.AddPort(&portCopy)
 	}
-
-	serviceBuilder.AddPort(&corev1.ServicePort{
-		Name:       "mongot-grpc",
-		Protocol:   corev1.ProtocolTCP,
-		Port:       search.GetMongotGrpcPort(),
-		TargetPort: intstr.FromInt32(search.GetMongotGrpcPort()),
-	})
 
 	serviceBuilder.AddPort(&corev1.ServicePort{
 		Name:       "metrics",
@@ -350,7 +385,7 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 	return serviceBuilder.Build()
 }
 
-func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResource) mongot.Modification {
+func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResource, transport mongotTransportSpec) mongot.Modification {
 	return func(config *mongot.Config) {
 		hostAndPorts := db.HostSeeds()
 
@@ -367,26 +402,7 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 		config.Storage = mongot.ConfigStorage{
 			DataPath: MongotDataPath,
 		}
-		config.Server = mongot.ConfigServer{
-			Grpc: &mongot.ConfigGrpc{
-				Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotGrpcPort()),
-				TLS: &mongot.ConfigGrpcTLS{
-					Mode: mongot.ConfigTLSModeDisabled,
-				},
-			},
-		}
-		if search.IsWireprotoForced() {
-			config.Server.Wireproto = &mongot.ConfigWireproto{
-				Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotWireprotoPort()),
-				Authentication: &mongot.ConfigAuthentication{
-					Mode:    "keyfile",
-					KeyFile: TempKeyfilePath,
-				},
-				TLS: &mongot.ConfigWireprotoTLS{
-					Mode: mongot.ConfigTLSModeDisabled,
-				},
-			}
-		}
+		config.Server = transport.ServerConfig
 		config.Metrics = mongot.ConfigMetrics{
 			Enabled: true,
 			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotMetricsPort()),
@@ -402,6 +418,7 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 }
 
 func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain string) map[string]any {
+	transport := buildMongotTransportSpec(search)
 	searchTLSMode := automationconfig.TLSModeDisabled
 	if search.Spec.Security.TLS != nil {
 		searchTLSMode = automationconfig.TLSModeRequired
@@ -409,22 +426,77 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 
 	return map[string]any{
 		"setParameter": map[string]any{
-			"mongotHost":                                      mongotHostAndPort(search, clusterDomain),
-			"searchIndexManagementHostAndPort":                mongotHostAndPort(search, clusterDomain),
+			"mongotHost":                                      mongotHostAndPort(search, clusterDomain, transport.PrimaryPort),
+			"searchIndexManagementHostAndPort":                mongotHostAndPort(search, clusterDomain, transport.PrimaryPort),
 			"skipAuthenticationToSearchIndexManagementServer": false,
 			"searchTLSMode":                                   string(searchTLSMode),
-			"useGrpcForSearch":                                !search.IsWireprotoForced(),
+			"useGrpcForSearch":                                transport.UseGrpcForSearch,
 		},
 	}
 }
 
-func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
+func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string, primaryPort int32) string {
 	svcName := search.SearchServiceNamespacedName()
-	port := search.GetMongotGrpcPort()
-	if search.IsWireprotoForced() {
-		port = search.GetMongotWireprotoPort()
+	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, primaryPort)
+}
+
+func createMongotServicePort(name string, port int32) corev1.ServicePort {
+	return corev1.ServicePort{
+		Name:       name,
+		Protocol:   corev1.ProtocolTCP,
+		Port:       port,
+		TargetPort: intstr.FromInt32(port),
 	}
-	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
+}
+
+func enableGrpcIngressTLS(server *mongot.ConfigServer, certPath string) {
+	if server == nil || server.Grpc == nil {
+		return
+	}
+
+	tlsConfig := ensureGrpcTLS(server.Grpc)
+	tlsConfig.Mode = mongot.ConfigTLSModeTLS
+	tlsConfig.CertificateKeyFile = ptr.To(certPath)
+}
+
+func enableWireprotoIngressTLS(server *mongot.ConfigServer, certPath string) {
+	if server == nil || server.Wireproto == nil {
+		return
+	}
+
+	tlsConfig := ensureWireprotoTLS(server.Wireproto)
+	tlsConfig.Mode = mongot.ConfigTLSModeTLS
+	tlsConfig.CertificateKeyFile = ptr.To(certPath)
+}
+
+func enableGrpcMTLS(server *mongot.ConfigServer, caPath string) {
+	if server == nil || server.Grpc == nil {
+		return
+	}
+
+	tlsConfig := ensureGrpcTLS(server.Grpc)
+	if tlsConfig.Mode != mongot.ConfigTLSModeTLS {
+		return
+	}
+
+	tlsConfig.Mode = mongot.ConfigTLSModeMTLS
+	tlsConfig.CertificateAuthorityFile = ptr.To(caPath)
+}
+
+func ensureGrpcTLS(grpc *mongot.ConfigGrpc) *mongot.ConfigGrpcTLS {
+	if grpc.TLS == nil {
+		grpc.TLS = &mongot.ConfigGrpcTLS{}
+	}
+
+	return grpc.TLS
+}
+
+func ensureWireprotoTLS(wireproto *mongot.ConfigWireproto) *mongot.ConfigWireprotoTLS {
+	if wireproto.TLS == nil {
+		wireproto.TLS = &mongot.ConfigWireprotoTLS{}
+	}
+
+	return wireproto.TLS
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
