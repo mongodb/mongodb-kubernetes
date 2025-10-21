@@ -504,6 +504,7 @@ functions:
   # publish_helm_chart packages and publishes the MCK helm chart to the OCI container registry
   publish_helm_chart:
     - command: subprocess.exec
+      params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/publish_helm_chart.sh
         
@@ -887,7 +888,7 @@ functions:
   release_kubectl_mongodb_plugin:
     - command: github.generate_token
       params:
-        expansion_name: generated_token
+        expansion_name: GH_TOKEN
     - command: shell.exec
       type: setup
       params:
@@ -910,4 +911,5 @@ functions:
           GOROOT: "/opt/golang/go1.24"
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
+          GH_TOKEN: ${GH_TOKEN}
         script: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/python/promote_kubectl_plugin.py

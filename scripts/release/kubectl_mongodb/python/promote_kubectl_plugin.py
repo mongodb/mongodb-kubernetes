@@ -24,12 +24,13 @@ S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = KUBECTL_PLUGIN_BINARY_NAME
 def main():
     release_version = os.environ.get("OPERATOR_VERSION")
 
-    # figure out release and staging buckets using build_scenario
-    build_scenario = os.environ.get("BUILD_SCENARIO")
-    kubectl_plugin_build_info = load_build_info(build_scenario).binaries[KUBECTL_PLUGIN_BINARY_NAME]
-    release_scenario_bucket_name = kubectl_plugin_build_info.s3_store
+    kubectl_plugin_release_info = load_build_info(BUILD_SCENARIO_RELEASE).binaries[KUBECTL_PLUGIN_BINARY_NAME]
+    release_scenario_bucket_name = kubectl_plugin_release_info.s3_store
 
-    download_artifacts_from_s3(release_version, get_commit_from_tag(release_version))
+    kubectl_plugin_staging_info = load_build_info(BUILD_SCENARIO_STAGING).binaries[KUBECTL_PLUGIN_BINARY_NAME]
+    staging_scenario_bucket_name = kubectl_plugin_staging_info.s3_store
+
+    download_artifacts_from_s3(release_version, get_commit_from_tag(release_version), staging_scenario_bucket_name)
 
     notarize_artifacts(release_version)
 
@@ -104,6 +105,9 @@ def promote_artifacts(artifacts: list[str], release_version: str, release_scenar
 
         try:
             s3_client.upload_file(file, release_scenario_bucket_name, s3_key)
+            logger.debug(
+                f"Plugin file {file} was promoted to release bucket {release_scenario_bucket_name}/{s3_key} successfully"
+            )
         except ClientError as e:
             logger.debug(f"failed to upload the file {file}: {e}")
             sys.exit(1)
@@ -179,8 +183,8 @@ def s3_artifacts_path_to_local_path(release_version: str, commit_sha: str):
 # download_artifacts_from_s3 downloads the staging artifacts (only that ones that we would later promote) from S3 and puts
 # them in the local dir LOCAL_ARTIFACTS_DIR.
 # ToDo: if the artifacts are not present at correct location, this is going to fail silently, we should instead fail this
-def download_artifacts_from_s3(release_version: str, commit_sha: str):
-    logger.info(f"Starting download of artifacts from staging S3 bucket: {STAGING_S3_BUCKET_NAME}")
+def download_artifacts_from_s3(release_version: str, commit_sha: str, staging_s3_bucket_name: str):
+    logger.info(f"Starting download of artifacts from staging S3 bucket: {staging_s3_bucket_name}")
 
     try:
         s3_client = boto3.client("s3", region_name=AWS_REGION)
@@ -200,7 +204,7 @@ def download_artifacts_from_s3(release_version: str, commit_sha: str):
     for s3_artifact_dir, local_subdir in artifacts_to_promote.items():
         try:
             paginator = s3_client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=STAGING_S3_BUCKET_NAME, Prefix=s3_artifact_dir)
+            pages = paginator.paginate(Bucket=staging_s3_bucket_name, Prefix=s3_artifact_dir)
             for page in pages:
                 # "Contents" corresponds to the directory in the S3 bucket
                 if "Contents" not in page:
@@ -222,7 +226,7 @@ def download_artifacts_from_s3(release_version: str, commit_sha: str):
                     os.makedirs(os.path.dirname(final_local_path), exist_ok=True)
 
                     logger.info(f"Downloading staging artifact {s3_key} to {final_local_path}")
-                    s3_client.download_file(STAGING_S3_BUCKET_NAME, s3_key, final_local_path)
+                    s3_client.download_file(staging_s3_bucket_name, s3_key, final_local_path)
                     download_count += 1
 
         except ClientError as e:
@@ -231,7 +235,7 @@ def download_artifacts_from_s3(release_version: str, commit_sha: str):
 
     if download_count == 0:
         logger.info(
-            f"Couldn't download artifacts from staging S3 bucket {STAGING_S3_BUCKET_NAME}, please verify that artifacts are available under dir: {commit_sha}"
+            f"Couldn't download artifacts from staging S3 bucket {staging_s3_bucket_name}, please verify that artifacts are available under dir: {commit_sha}"
         )
         sys.exit(1)
 
