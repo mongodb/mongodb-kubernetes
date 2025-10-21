@@ -289,6 +289,7 @@ tasks:
         vars:
           image_name: agent
           build_scenario: release
+          flags: "--all-agents"
 
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new agent registry
