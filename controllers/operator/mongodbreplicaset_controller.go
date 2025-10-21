@@ -766,7 +766,7 @@ func (h *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	// TODO: check if updateStatus usage is correct hee
+	// TODO: check if updateStatus usage is correct here
 	if status := r.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, r.SecretClient, log); !status.IsOK() && !isRecovering {
 		return status
 	}
