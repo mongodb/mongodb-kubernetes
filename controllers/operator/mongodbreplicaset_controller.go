@@ -195,6 +195,7 @@ func (h *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec, "desiredReplicas", scale.ReplicasThisReconciliation(rs), "isScaling", scale.IsStillScaling(rs))
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
+	// TODO: adapt validations to multi cluster
 	if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
 		return h.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
 	}
@@ -431,7 +432,7 @@ func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient
 	return false
 }
 
-func getHostnameOverrideConfigMapForReplicaset(mdb mdbv1.MongoDB) corev1.ConfigMap {
+func getHostnameOverrideConfigMapForReplicaset(mdb *mdbv1.MongoDB) corev1.ConfigMap {
 	data := make(map[string]string)
 
 	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
@@ -451,12 +452,12 @@ func getHostnameOverrideConfigMapForReplicaset(mdb mdbv1.MongoDB) corev1.ConfigM
 	return cm
 }
 
-func (r *ReconcileMongoDbReplicaSet) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger, getUpdateCreator configmap.GetUpdateCreator, mdb mdbv1.MongoDB) error {
-	if mdb.Spec.DbCommonSpec.GetExternalDomain() == nil {
+func (h *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger, getUpdateCreator configmap.GetUpdateCreator) error {
+	if h.resource.Spec.DbCommonSpec.GetExternalDomain() == nil {
 		return nil
 	}
 
-	cm := getHostnameOverrideConfigMapForReplicaset(mdb)
+	cm := getHostnameOverrideConfigMapForReplicaset(h.resource)
 	err := configmap.CreateOrUpdate(ctx, getUpdateCreator, cm)
 	if err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create configmap: %s, err: %w", cm.Name, err)
@@ -475,7 +476,7 @@ func (h *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	log := h.log
 
 	// Reconcile hostname override ConfigMap
-	if err := r.reconcileHostnameOverrideConfigMap(ctx, log, r.client, *rs); err != nil {
+	if err := h.reconcileHostnameOverrideConfigMap(ctx, log, h.reconciler.client); err != nil {
 		return workflow.Failed(xerrors.Errorf("Failed to reconcileHostnameOverrideConfigMap: %w", err))
 	}
 
@@ -808,6 +809,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage 
 	return tlsConfigWasDisabled, err
 }
 
+// TODO: split into subfunctions, follow helper pattern
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
 
