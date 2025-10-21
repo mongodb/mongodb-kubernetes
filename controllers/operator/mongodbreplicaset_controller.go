@@ -195,7 +195,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec, "desiredReplicas", scale.ReplicasThisReconciliation(rs), "isScaling", scale.IsStillScaling(rs))
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
-	// TODO: adapt validations to multi cluster
 	if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
 	}
@@ -518,7 +517,6 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 		return workflowStatus
 	}
 
-	// TODO: check if updatestatus usage is correct here
 	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
 		_, _ = reconciler.updateStatus(ctx, rs, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
 	}
@@ -766,7 +764,6 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	// TODO: check if updateStatus usage is correct here
 	if status := reconciler.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, reconciler.SecretClient, log); !status.IsOK() && !isRecovering {
 		return status
 	}
@@ -858,11 +855,9 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 		return err
 	}
 
-	if err := r.clearProjectAuthenticationSettings(ctx, conn, rs, processNames, log); err != nil {
+	if err := r.reconciler.clearProjectAuthenticationSettings(ctx, conn, rs, processNames, log); err != nil {
 		return err
 	}
-
-	r.resourceWatcher.RemoveDependentWatchedResources(rs.ObjectKey())
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
 	if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
@@ -872,6 +867,14 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 
 	log.Info("Removed replica set from Ops Manager!")
 	return nil
+}
+
+func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
+	helper, err := r.newReconcilerHelper(ctx, obj.(*mdbv1.MongoDB), log)
+	if err != nil {
+		return err
+	}
+	return helper.OnDelete(ctx, obj, log)
 }
 
 func getAllHostsForReplicas(rs *mdbv1.MongoDB, membersCount int) []string {
