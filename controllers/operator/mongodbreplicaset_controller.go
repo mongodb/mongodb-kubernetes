@@ -187,6 +187,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	log := r.log
 	reconciler := r.reconciler
 
+	// === 1. Initial Checks and setup
 	if !architectures.IsRunningStaticArchitecture(rs.Annotations) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: reconciler.client, SecretClient: reconciler.SecretClient}, reconciler.omConnectionFactory, GetWatchedNamespace(), false)
 	}
@@ -229,7 +230,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// === 2. Auth and Certificates
-
 	// Get certificate paths for later use
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)
 	var databaseSecretPath string
@@ -280,7 +280,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	shouldMirrorKeyfileForMongot := r.applySearchOverrides(ctx)
 
 	// 4. Recovery
-
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
@@ -297,7 +296,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
-
 	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
@@ -359,7 +357,6 @@ type deploymentOptionsRS struct {
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	// === 1. Initial Checks and setup
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
 
