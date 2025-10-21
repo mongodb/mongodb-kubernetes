@@ -507,13 +507,13 @@ functions:
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/publish_helm_chart.sh
-        
+
   build_multi_cluster_binary:
     - command: subprocess.exec
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/dev/run_python.sh scripts/release/kubectl-mongodb/python/build_kubectl_plugin.py
-  
+
   build_and_push_appdb_database:
     - command: subprocess.exec
       params:
@@ -542,50 +542,9 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/pipeline.sh
         env:
-          IMAGE_NAME: ${IMAGE_NAME}
-          FLAGS: ${FLAGS}
-
-  pipeline_agent:
-    - command: subprocess.exec
-      retry_on_failure: true
-      type: setup
-      params:
-        shell: bash
-        <<: *e2e_include_expansions_in_env
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/release/pipeline_agent.sh
-        env:
-          FLAGS: ${FLAGS}
-
-  pipeline_ops_manager:
-    - command: subprocess.exec
-      retry_on_failure: true
-      type: setup
-      params:
-        shell: bash
-        <<: *e2e_include_expansions_in_env
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/release/pipeline_ops_manager.sh
-
-  pipeline_readiness_probe:
-    - command: subprocess.exec
-      retry_on_failure: true
-      type: setup
-      params:
-        shell: bash
-        <<: *e2e_include_expansions_in_env
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/release/pipeline_readiness_probe.sh
-
-  pipeline_version_upgrade_hook:
-    - command: subprocess.exec
-      retry_on_failure: true
-      type: setup
-      params:
-        shell: bash
-        <<: *e2e_include_expansions_in_env
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/release/pipeline_version_upgrade_hook.sh
+          IMAGE_NAME: ${image_name}
+          BUILD_SCENARIO_OVERRIDE: ${build_scenario}
+          FLAGS: ${flags}
 
   teardown_cloud_qa_all:
     - command: shell.exec
