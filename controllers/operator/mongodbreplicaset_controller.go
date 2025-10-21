@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -54,6 +55,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -70,6 +72,7 @@ import (
 type ReconcileMongoDbReplicaSet struct {
 	*ReconcileCommonController
 	omConnectionFactory       om.ConnectionFactory
+	memberClustersMap         map[string]client.Client
 	imageUrls                 images.ImageUrls
 	forceEnterprise           bool
 	enableClusterMongoDBRoles bool
@@ -185,6 +188,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec, "desiredReplicas", scale.ReplicasThisReconciliation(rs), "isScaling", scale.IsStillScaling(rs))
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
+	// TODO: adapt validations to multi cluster
 	if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
 	}
@@ -324,10 +328,16 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
-func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
+func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
+	// Initialize member cluster map for single-cluster mode (like ShardedCluster does)
+	// This ensures that even in single-cluster deployments, we have a __default member cluster
+	// This allows the same reconciliation logic to work for both single and multi-cluster topologies
+	memberClusterMap = multicluster.InitializeGlobalMemberClusterMapForSingleCluster(memberClusterMap, kubeClient)
+
 	return &ReconcileMongoDbReplicaSet{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
+		memberClustersMap:         memberClusterMap,
 		imageUrls:                 imageUrls,
 		forceEnterprise:           forceEnterprise,
 		enableClusterMongoDBRoles: enableClusterMongoDBRoles,
@@ -600,9 +610,9 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool) error {
+func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, om.NewOpsManagerConnection)
+	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -672,7 +682,45 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 		return err
 	}
 
+	if err := reconciler.configureMultiCluster(ctx, mgr, c, memberClustersMap); err != nil {
+		return xerrors.Errorf("failed to configure replica set controller in multi cluster mode: %w", err)
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbReplicaSetController)
+
+	return nil
+}
+
+func (r *ReconcileMongoDbReplicaSet) configureMultiCluster(ctx context.Context, mgr manager.Manager, c controller.Controller, memberClustersMap map[string]cluster.Cluster) error {
+	// TODO: Add cross-cluster StatefulSet watches for drift detection (like MongoDBMultiReplicaSet)
+	// This will enable automatic reconciliation when users manually modify StatefulSets in member clusters, based on the MongoDBMultiResourceAnnotation annotation
+	// for k, v := range memberClustersMap {
+	//     err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
+	//     if err != nil {
+	//         return xerrors.Errorf("failed to set Watch on member cluster: %s, err: %w", k, err)
+	//     }
+	// }
+
+	// TODO: Add member cluster health monitoring for automatic failover (like MongoDBMultiReplicaSet)
+	// Need to:
+	// - Start WatchMemberClusterHealth goroutine
+	// - Watch event channel for health changes
+	// - Modify memberwatch.WatchMemberClusterHealth to handle MongoDBReplicaSet (currently only handles MongoDBMultiCluster)
+	//
+	// eventChannel := make(chan event.GenericEvent)
+	// memberClusterHealthChecker := memberwatch.MemberClusterHealthChecker{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
+	// go memberClusterHealthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, r.client, memberClustersMap)
+	// err := c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{}))
+
+	// TODO: Add ConfigMap watch for dynamic member list changes (like MongoDBMultiReplicaSet)
+	// This enables runtime updates to which clusters are part of the deployment
+	// err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
+	//     watch.ConfigMapEventHandler{
+	//         ConfigMapName:      util.MemberListConfigMapName,
+	//         ConfigMapNamespace: env.ReadOrPanic(util.CurrentNamespace),
+	//     },
+	//     predicate.ResourceVersionChangedPredicate{},
+	// ))
 
 	return nil
 }
@@ -752,6 +800,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
+	// TODO: check if updateStatus usage is correct here
 	if status := reconciler.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, reconciler.SecretClient, log); !status.IsOK() && !isRecovering {
 		return status
 	}
