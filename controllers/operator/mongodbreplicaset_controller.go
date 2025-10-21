@@ -112,9 +112,9 @@ func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
 }
 
 // readState abstract reading the state of the resource that we store on the cluster between reconciliations.
-func (h *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, error) {
+func (r *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, error) {
 	// Try to get the last achieved spec from annotations and store it in state
-	if lastAchievedSpec, err := h.resource.GetLastSpec(); err != nil {
+	if lastAchievedSpec, err := r.resource.GetLastSpec(); err != nil {
 		return nil, err
 	} else {
 		return &ReplicaSetDeploymentState{LastAchievedSpec: lastAchievedSpec}, nil
@@ -122,58 +122,58 @@ func (h *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, er
 }
 
 // writeState abstract writing the state of the resource that we store on the cluster between reconciliations.
-func (h *ReplicaSetReconcilerHelper) writeState(ctx context.Context) error {
+func (r *ReplicaSetReconcilerHelper) writeState(ctx context.Context) error {
 	// Serialize the state to annotations
-	annotationsToAdd, err := getAnnotationsForResource(h.resource)
+	annotationsToAdd, err := getAnnotationsForResource(r.resource)
 	if err != nil {
 		return err
 	}
 
 	// Add vault annotations if needed
 	if vault.IsVaultSecretBackend() {
-		secrets := h.resource.GetSecretsMountedIntoDBPod()
+		secrets := r.resource.GetSecretsMountedIntoDBPod()
 		vaultMap := make(map[string]string)
 		for _, s := range secrets {
-			path := fmt.Sprintf("%s/%s/%s", h.reconciler.VaultClient.DatabaseSecretMetadataPath(), h.resource.Namespace, s)
-			vaultMap = merge.StringToStringMap(vaultMap, h.reconciler.VaultClient.GetSecretAnnotation(path))
+			path := fmt.Sprintf("%s/%s/%s", r.reconciler.VaultClient.DatabaseSecretMetadataPath(), r.resource.Namespace, s)
+			vaultMap = merge.StringToStringMap(vaultMap, r.reconciler.VaultClient.GetSecretAnnotation(path))
 		}
-		path := fmt.Sprintf("%s/%s/%s", h.reconciler.VaultClient.OperatorScretMetadataPath(), h.resource.Namespace, h.resource.Spec.Credentials)
-		vaultMap = merge.StringToStringMap(vaultMap, h.reconciler.VaultClient.GetSecretAnnotation(path))
+		path := fmt.Sprintf("%s/%s/%s", r.reconciler.VaultClient.OperatorScretMetadataPath(), r.resource.Namespace, r.resource.Spec.Credentials)
+		vaultMap = merge.StringToStringMap(vaultMap, r.reconciler.VaultClient.GetSecretAnnotation(path))
 		for k, val := range vaultMap {
 			annotationsToAdd[k] = val
 		}
 	}
 
 	// Write annotations back to the resource
-	if err := annotations.SetAnnotations(ctx, h.resource, annotationsToAdd, h.reconciler.client); err != nil {
+	if err := annotations.SetAnnotations(ctx, r.resource, annotationsToAdd, r.reconciler.client); err != nil {
 		return err
 	}
 
-	h.log.Debugf("Successfully wrote deployment state for ReplicaSet %s/%s", h.resource.Namespace, h.resource.Name)
+	r.log.Debugf("Successfully wrote deployment state for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
 	return nil
 }
 
-func (h *ReplicaSetReconcilerHelper) initialize(ctx context.Context) error {
-	state, err := h.readState()
+func (r *ReplicaSetReconcilerHelper) initialize(ctx context.Context) error {
+	state, err := r.readState()
 	if err != nil {
 		return xerrors.Errorf("Failed to initialize replica set state: %w", err)
 	}
-	h.deploymentState = state
+	r.deploymentState = state
 	return nil
 }
 
 // updateStatus overrides the common controller's updateStatus to ensure that the deployment state
 // is written after every status update. This ensures state consistency even on early returns.
 // It must be executed only once per reconcile (with a return)
-func (h *ReplicaSetReconcilerHelper) updateStatus(ctx context.Context, status workflow.Status, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
-	result, err := h.reconciler.updateStatus(ctx, h.resource, status, h.log, statusOptions...)
+func (r *ReplicaSetReconcilerHelper) updateStatus(ctx context.Context, status workflow.Status, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
+	result, err := r.reconciler.updateStatus(ctx, r.resource, status, r.log, statusOptions...)
 	if err != nil {
 		return result, err
 	}
 
 	// Write deployment state after every status update
-	if err := h.writeState(ctx); err != nil {
-		return h.reconciler.updateStatus(ctx, h.resource, workflow.Failed(xerrors.Errorf("Failed to write deployment state after updating status: %w", err)), h.log)
+	if err := r.writeState(ctx); err != nil {
+		return r.reconciler.updateStatus(ctx, r.resource, workflow.Failed(xerrors.Errorf("Failed to write deployment state after updating status: %w", err)), r.log)
 	}
 
 	return result, nil
@@ -182,10 +182,10 @@ func (h *ReplicaSetReconcilerHelper) updateStatus(ctx context.Context, status wo
 // Reconcile performs the full reconciliation logic for a replica set.
 // This is the main entry point for all reconciliation work and contains all
 // state and logic specific to a single reconcile execution.
-func (h *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.Result, error) {
-	rs := h.resource
-	log := h.log
-	reconciler := h.reconciler
+func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.Result, error) {
+	rs := r.resource
+	log := r.log
+	reconciler := r.reconciler
 
 	if !architectures.IsRunningStaticArchitecture(rs.Annotations) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: reconciler.client, SecretClient: reconciler.SecretClient}, reconciler.omConnectionFactory, GetWatchedNamespace(), false)
@@ -197,36 +197,36 @@ func (h *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	// TODO: adapt validations to multi cluster
 	if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
-		return h.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
+		return r.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
 	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, reconciler.client, reconciler.SecretClient, rs, log)
 	if err != nil {
-		return h.updateStatus(ctx, workflow.Failed(err))
+		return r.updateStatus(ctx, workflow.Failed(err))
 	}
 
 	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, log)
 	if err != nil {
-		return h.updateStatus(ctx, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)))
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)))
 	}
 
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
-		return h.updateStatus(ctx, status)
+		return r.updateStatus(ctx, status)
 	}
 
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, rs.Name, log)
 	if !reconcileResult.IsOK() {
-		return h.updateStatus(ctx, reconcileResult)
+		return r.updateStatus(ctx, reconcileResult)
 	}
 
 	if status := validateMongoDBResource(rs, conn); !status.IsOK() {
-		return h.updateStatus(ctx, status)
+		return r.updateStatus(ctx, status)
 	}
 
 	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
-		return h.updateStatus(ctx, status)
+		return r.updateStatus(ctx, status)
 	}
 
 	// === 2. Auth and Certificates
@@ -254,18 +254,18 @@ func (h *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, reconciler.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), certs.Database, log)
 	if err != nil {
-		return h.updateStatus(ctx, workflow.Failed(xerrors.Errorf("Could not generate certificates for Prometheus: %w", err)))
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("Could not generate certificates for Prometheus: %w", err)))
 	}
 
 	currentAgentAuthMode, err := conn.GetAgentAuthMode()
 	if err != nil {
-		return h.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)))
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)))
 	}
 
 	// Check if we need to prepare for scale-down
 	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
 		if err := replicaset.PrepareScaleDownFromMongoDB(conn, rs, log); err != nil {
-			return h.updateStatus(ctx, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
+			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
 		}
 	}
 	deploymentOpts := deploymentOptionsRS{
@@ -278,7 +278,7 @@ func (h *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// 3. Search Overrides
 	// Apply search overrides early so searchCoordinator role is present before ensureRoles runs
 	// This must happen before the ordering logic to ensure roles are synced regardless of order
-	shouldMirrorKeyfileForMongot := h.applySearchOverrides(ctx)
+	shouldMirrorKeyfileForMongot := r.applySearchOverrides(ctx)
 
 	// 4. Recovery
 
@@ -287,8 +287,8 @@ func (h *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := h.updateOmDeploymentRs(ctx, conn, rs.Status.Members, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
-		reconcileStatus := h.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
 		}
@@ -299,26 +299,26 @@ func (h *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
 
-	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, reconciler.client, *rs, h.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
+	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return h.updateOmDeploymentRs(ctx, conn, rs.Status.Members, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			return h.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
+			return r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
 		})
 
 	if !status.IsOK() {
-		return h.updateStatus(ctx, status)
+		return r.updateStatus(ctx, status)
 	}
 
 	// === 6. Final steps
 	if scale.IsStillScaling(rs) {
-		return h.updateStatus(ctx, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), mdbstatus.MembersOption(rs))
+		return r.updateStatus(ctx, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), mdbstatus.MembersOption(rs))
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return h.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
+	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
 func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
@@ -452,12 +452,12 @@ func getHostnameOverrideConfigMapForReplicaset(mdb *mdbv1.MongoDB) corev1.Config
 	return cm
 }
 
-func (h *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger, getUpdateCreator configmap.GetUpdateCreator) error {
-	if h.resource.Spec.DbCommonSpec.GetExternalDomain() == nil {
+func (r *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger, getUpdateCreator configmap.GetUpdateCreator) error {
+	if r.resource.Spec.DbCommonSpec.GetExternalDomain() == nil {
 		return nil
 	}
 
-	cm := getHostnameOverrideConfigMapForReplicaset(h.resource)
+	cm := getHostnameOverrideConfigMapForReplicaset(r.resource)
 	err := configmap.CreateOrUpdate(ctx, getUpdateCreator, cm)
 	if err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create configmap: %s, err: %w", cm.Name, err)
@@ -470,13 +470,13 @@ func (h *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx cont
 // reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
 // All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
 // should be reconciled in this method.
-func (h *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
-	rs := h.resource
-	reconciler := h.reconciler
-	log := h.log
+func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
+	rs := r.resource
+	reconciler := r.reconciler
+	log := r.log
 
 	// Reconcile hostname override ConfigMap
-	if err := h.reconcileHostnameOverrideConfigMap(ctx, log, h.reconciler.client); err != nil {
+	if err := r.reconcileHostnameOverrideConfigMap(ctx, log, r.reconciler.client); err != nil {
 		return workflow.Failed(xerrors.Errorf("Failed to reconcileHostnameOverrideConfigMap: %w", err))
 	}
 
@@ -485,13 +485,13 @@ func (h *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 		return status
 	}
 
-	return h.reconcileStatefulSet(ctx, conn, projectConfig, deploymentOptions)
+	return r.reconcileStatefulSet(ctx, conn, projectConfig, deploymentOptions)
 }
 
-func (h *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
-	rs := h.resource
-	reconciler := h.reconciler
-	log := h.log
+func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
+	rs := r.resource
+	reconciler := r.reconciler
+	log := r.log
 
 	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: reconciler.SecretClient}
 	status := reconciler.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, deploymentOptions.currentAgentAuthMode, log)
@@ -505,7 +505,7 @@ func (h *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	}
 
 	// Build the replica set config
-	rsConfig, err := h.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
+	rsConfig, err := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to build StatefulSet options: %w", err))
 	}
@@ -538,10 +538,10 @@ func (h *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 }
 
 // buildStatefulSetOptions creates the options needed for constructing the StatefulSet
-func (h *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, error) {
-	rs := h.resource
-	reconciler := h.reconciler
-	log := h.log
+func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, error) {
+	rs := r.resource
+	reconciler := r.reconciler
+	log := r.log
 
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)
 
@@ -669,10 +669,10 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (h *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool) workflow.Status {
-	rs := h.resource
-	log := h.log
-	reconciler := h.reconciler
+func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool) workflow.Status {
+	rs := r.resource
+	log := r.log
+	reconciler := r.reconciler
 	log.Debug("Entering UpdateOMDeployments")
 	// Only "concrete" RS members should be observed
 	// - if scaling down, let's observe only members that will remain after scale-down operation
@@ -686,7 +686,7 @@ func (h *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
 	// this is, do not scale them up or down util TLS disabling has completed.
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, reconciler.imageUrls[mcoConstruct.MongodbImageEnv], reconciler.forceEnterprise, membersNumberBefore, rs, caFilePath, tlsCertPath, h.deploymentState.LastAchievedSpec, log)
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, reconciler.imageUrls[mcoConstruct.MongodbImageEnv], reconciler.forceEnterprise, membersNumberBefore, rs, caFilePath, tlsCertPath, r.deploymentState.LastAchievedSpec, log)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
@@ -717,7 +717,7 @@ func (h *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return status
 	}
 
-	lastRsConfig, err := mdbv1.GetLastAdditionalMongodConfigByType(h.deploymentState.LastAchievedSpec, mdbv1.ReplicaSetConfig)
+	lastRsConfig, err := mdbv1.GetLastAdditionalMongodConfigByType(r.deploymentState.LastAchievedSpec, mdbv1.ReplicaSetConfig)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
@@ -733,7 +733,7 @@ func (h *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			if shouldMirrorKeyfileForMongot {
-				if err := h.mirrorKeyfileIntoSecretForMongot(ctx, d); err != nil {
+				if err := r.mirrorKeyfileIntoSecretForMongot(ctx, d); err != nil {
 					return err
 				}
 			}
@@ -879,11 +879,11 @@ func getAllHostsForReplicas(rs *mdbv1.MongoDB, membersCount int) []string {
 	return hostnames
 }
 
-func (h *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) bool {
-	rs := h.resource
-	log := h.log
+func (r *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) bool {
+	rs := r.resource
+	log := r.log
 
-	search := h.lookupCorrespondingSearchResource(ctx)
+	search := r.lookupCorrespondingSearchResource(ctx)
 	if search == nil {
 		log.Debugf("No MongoDBSearch resource found, skipping search overrides")
 		return false
@@ -909,10 +909,10 @@ func (h *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) b
 	return true
 }
 
-func (h *ReplicaSetReconcilerHelper) mirrorKeyfileIntoSecretForMongot(ctx context.Context, d om.Deployment) error {
-	rs := h.resource
-	reconciler := h.reconciler
-	log := h.log
+func (r *ReplicaSetReconcilerHelper) mirrorKeyfileIntoSecretForMongot(ctx context.Context, d om.Deployment) error {
+	rs := r.resource
+	reconciler := r.reconciler
+	log := r.log
 
 	keyfileContents := maputil.ReadMapValueAsString(d, "auth", "key")
 	keyfileSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%s", rs.Name, searchcontroller.MongotKeyfileFilename), Namespace: rs.Namespace}}
@@ -929,10 +929,10 @@ func (h *ReplicaSetReconcilerHelper) mirrorKeyfileIntoSecretForMongot(ctx contex
 	return nil
 }
 
-func (h *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx context.Context) *searchv1.MongoDBSearch {
-	rs := h.resource
-	reconciler := h.reconciler
-	log := h.log
+func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx context.Context) *searchv1.MongoDBSearch {
+	rs := r.resource
+	reconciler := r.reconciler
+	log := r.log
 
 	var search *searchv1.MongoDBSearch
 	searchList := &searchv1.MongoDBSearchList{}
