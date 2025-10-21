@@ -73,7 +73,7 @@ def main():
     region = build_info.helm_charts["mongodb-kubernetes"].region
 
     if build_scenario == BUILD_SCENARIO_RELEASE:
-        helm_registry_login_to_release(registry)
+        return helm_registry_login_to_release(registry)
 
     return helm_registry_login_to_nonrelease(registry, region)
 
