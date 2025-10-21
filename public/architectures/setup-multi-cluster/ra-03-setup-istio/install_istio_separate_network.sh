@@ -80,10 +80,6 @@ cat <<EOF > cluster1.yaml
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
-  components:
-    cni:
-      namespace: istio-system
-      enabled: true
   meshConfig:
     defaultConfig:
       terminationDrainDuration: 30s
@@ -97,7 +93,7 @@ spec:
         clusterName: cluster1
       network: network1
 EOF
-bin/istioctl install --context="${CTX_CLUSTER1}" --set components.cni.enabled=true -f cluster1.yaml -y
+bin/istioctl install --context="${CTX_CLUSTER1}" -f cluster1.yaml -y
 
 samples/multicluster/gen-eastwest-gateway.sh \
     --mesh mesh1 --cluster cluster1 --network network1 | \
@@ -121,10 +117,6 @@ cat <<EOF > cluster2.yaml
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
-  components:
-    cni:
-      namespace: istio-system
-      enabled: true
   meshConfig:
     defaultConfig:
       terminationDrainDuration: 30s
@@ -139,7 +131,7 @@ spec:
       network: network2
 EOF
 
-bin/istioctl install --context="${CTX_CLUSTER2}" --set components.cni.enabled=true -f cluster2.yaml -y
+bin/istioctl install --context="${CTX_CLUSTER2}" -f cluster2.yaml -y
 
 samples/multicluster/gen-eastwest-gateway.sh \
     --mesh mesh1 --cluster cluster2 --network network2 | \
@@ -159,10 +151,6 @@ cat <<EOF > cluster3.yaml
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
-  components:
-    cni:
-      namespace: istio-system
-      enabled: true
   meshConfig:
     defaultConfig:
       terminationDrainDuration: 30s
@@ -177,7 +165,7 @@ spec:
       network: network3
 EOF
 
-bin/istioctl install --context="${CTX_CLUSTER3}" --set components.cni.enabled=true -f cluster3.yaml -y
+bin/istioctl install --context="${CTX_CLUSTER3}" -f cluster3.yaml -y
 
 samples/multicluster/gen-eastwest-gateway.sh \
     --mesh mesh1 --cluster cluster3 --network network3 | \
