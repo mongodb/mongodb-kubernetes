@@ -1666,7 +1666,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_mco_test_suite" ]
     <<: *community_dependency
     run_on:
-      - ubuntu2004-large
+      - ubuntu2404-large
 
   ## Manual (patch) E2E tests not run for every PR and commit
 
