@@ -93,3 +93,6 @@ docs/**/test.sh.run.log
 dist
 logs
 *.run.log
+
+# locally packaged chart
+mongodb-kubernetes-*.tgz

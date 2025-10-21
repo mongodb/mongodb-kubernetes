@@ -222,6 +222,16 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/setup_docker_sbom.sh
 
+  helm_registry_login:
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+        - ${PROJECT_DIR}/bin
+      binary: scripts/release/helm_registry_login.sh
+
   # Logs into all used registries
   configure_docker_auth: &configure_docker_auth
     command: subprocess.exec
@@ -494,13 +504,19 @@ functions:
           - rh_pyxis
         binary: scripts/dev/run_python.sh scripts/preflight_images.py --image ${image_name} --submit "${preflight_submit}"
 
-  build_multi_cluster_binary:
+  # publish_helm_chart packages and publishes the MCK helm chart to the OCI container registry
+  publish_helm_chart:
     - command: subprocess.exec
-      type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/build_multi_cluster_kubeconfig_creator.sh
-
+        binary: scripts/release/publish_helm_chart.sh
+        
+  build_multi_cluster_binary:
+    - command: subprocess.exec
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/dev/run_python.sh scripts/release/kubectl-mongodb/python/build_kubectl_plugin.py
+  
   build_and_push_appdb_database:
     - command: subprocess.exec
       params:
@@ -841,6 +857,7 @@ functions:
           curl -fL "${goreleaser_pro_tar_gz}" --output goreleaser_Linux_x86_64.tar.gz
           tar -xf goreleaser_Linux_x86_64.tar.gz
           chmod 755 ./goreleaser
+          sudo cp goreleaser /usr/local/bin/
 
   install_macos_notarization_service:
     - command: shell.exec

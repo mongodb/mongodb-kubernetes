@@ -15,7 +15,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.18 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.14 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.15 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -82,6 +82,7 @@ variables:
       - func: clone
       - func: switch_context
       - func: setup_building_host_minikube
+      - func: install_goreleaser
       - func: build_multi_cluster_binary
 
   - &setup_group_multi_cluster
@@ -91,6 +92,7 @@ variables:
       - func: download_kube_tools
       - func: switch_context
       - func: setup_building_host
+      - func: install_goreleaser
       - func: build_multi_cluster_binary
 
   - &setup_and_teardown_task_cloudqa
@@ -349,6 +351,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: install_goreleaser
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
@@ -358,6 +361,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: install_goreleaser
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
@@ -370,6 +374,7 @@ tasks:
         vars:
           skip_minikube_setup: true
           skip_install_python_requirements: false
+      - func: install_goreleaser
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
@@ -382,6 +387,7 @@ tasks:
         vars:
           skip_minikube_setup: true
           skip_install_python_requirements: false
+      - func: install_goreleaser
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
@@ -434,7 +440,7 @@ tasks:
       - func: quay_login
       - func: pipeline_agent
         vars:
-          FLAGS: "--current-agents"
+          FLAGS: "--all-agents"
 
   - name: build_init_database_image_ubi
     commands:
@@ -463,6 +469,16 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: pipeline_version_upgrade_hook
+
+  - name: publish_helm_chart
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_kubectl
+      - func: setup_aws
+      - func: prepare_aws
+      - func: helm_registry_login
+      - func: publish_helm_chart
 
   - name: prepare_aws
     priority: 59
@@ -1699,6 +1715,7 @@ buildvariants:
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
       - name: prepare_aws
+      - name: publish_helm_chart
 
   - name: init_test_run_ibm_power
     display_name: init_test_run_ibm_power
