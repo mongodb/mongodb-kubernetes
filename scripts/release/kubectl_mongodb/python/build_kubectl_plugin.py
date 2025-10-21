@@ -6,12 +6,13 @@ import boto3
 from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
 
 from lib.base_logger import logger
-from scripts.release.kubectl_mongodb.python.consts import *
 from scripts.release.build.build_info import (
     load_build_info,
 )
+from scripts.release.kubectl_mongodb.python.consts import *
 
 S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = KUBECTL_PLUGIN_BINARY_NAME
+
 
 def run_goreleaser():
     try:
@@ -142,6 +143,7 @@ def main():
     upload_artifacts_to_s3(kubectl_plugin_build_info.s3_store, version)
 
     download_plugin_for_tests_image(kubectl_plugin_build_info.s3_store, version)
+
 
 if __name__ == "__main__":
     main()

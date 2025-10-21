@@ -11,14 +11,15 @@ from botocore.exceptions import ClientError, NoCredentialsError, PartialCredenti
 from github import Github, GithubException
 
 from lib.base_logger import logger
-from scripts.release.kubectl_mongodb.python.consts import *
 from scripts.release.build.build_info import (
     load_build_info,
 )
+from scripts.release.kubectl_mongodb.python.consts import *
 
 GITHUB_TOKEN = os.environ.get("GH_TOKEN")
 
 S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = KUBECTL_PLUGIN_BINARY_NAME
+
 
 def main():
     release_version = os.environ.get("OPERATOR_VERSION")
@@ -42,28 +43,27 @@ def main():
 
     upload_assets_to_github_release(artifacts, release_version)
 
+
 # get_commit_from_tag gets the commit associated with a release tag, so that we can use that
 # commit to pull the artifacts from staging bucket.
 def get_commit_from_tag(tag: str) -> str:
     try:
-        subprocess.run(
-            ["git", "fetch", "--tags"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        subprocess.run(["git", "fetch", "--tags"], capture_output=True, text=True, check=True)
 
         result = subprocess.run(
-            ["git", "rev-parse", "--short", f"{tag}^{{commit}}"], # git rev-parse v1.1.1^{commit}
+            # using --short because that's how staging version is figured out for staging build scenario
+            # https://github.com/mongodb/mongodb-kubernetes/blob/1.5.0/scripts/dev/contexts/evg-private-context#L137
+            ["git", "rev-parse", "--short", f"{tag}^{{commit}}"],  # git rev-parse v1.1.1^{commit}
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         return result.stdout.strip()
 
     except subprocess.CalledProcessError as e:
         logger.info(f"Failed to get commit for tag: {tag}, err: {e.stderr.strip()}")
         sys.exit(1)
+
 
 # generate_checksums generates checksums for the artifacts that we are going to upload to github release as assets.
 # It's formatted: checksum  artifact_name
@@ -230,7 +230,9 @@ def download_artifacts_from_s3(release_version: str, commit_sha: str):
             return False
 
     if download_count == 0:
-        logger.info(f"Couldn't download artifacts from staging S3 bucket {STAGING_S3_BUCKET_NAME}, please verify that artifacts are available under dir: {commit_sha}")
+        logger.info(
+            f"Couldn't download artifacts from staging S3 bucket {STAGING_S3_BUCKET_NAME}, please verify that artifacts are available under dir: {commit_sha}"
+        )
         sys.exit(1)
 
     logger.info("All the artifacts have been downloaded successfully.")
