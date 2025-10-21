@@ -278,7 +278,7 @@ func (h *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// 3. Search Overrides
 	// Apply search overrides early so searchCoordinator role is present before ensureRoles runs
 	// This must happen before the ordering logic to ensure roles are synced regardless of order
-	shouldMirrorKeyfile := h.applySearchOverrides(ctx)
+	shouldMirrorKeyfileForMongot := h.applySearchOverrides(ctx)
 
 	// 4. Recovery
 
@@ -287,7 +287,7 @@ func (h *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := h.updateOmDeploymentRs(ctx, conn, rs.Status.Members, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfile, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		automationConfigStatus := h.updateOmDeploymentRs(ctx, conn, rs.Status.Members, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := h.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
@@ -302,7 +302,7 @@ func (h *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, r.client, *rs, h.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return h.updateOmDeploymentRs(ctx, conn, rs.Status.Members, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfile, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return h.updateOmDeploymentRs(ctx, conn, rs.Status.Members, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			return h.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
@@ -669,7 +669,7 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (h *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOpts deploymentOptionsRS, shouldMirrorKeyfile bool, isRecovering bool) workflow.Status {
+func (h *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool) workflow.Status {
 	rs := h.resource
 	log := h.log
 	r := h.reconciler
@@ -712,7 +712,7 @@ func (h *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	replicaSet := replicaset.BuildFromMongoDBWithReplicas(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, rs, updatedMembers, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
 	processNames := replicaSet.GetProcessNames()
 
-	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOpts.agentCertPath, caFilePath, internalClusterCertPath, isRecovering, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOptions.agentCertPath, caFilePath, internalClusterCertPath, isRecovering, log)
 	if !status.IsOK() && !isRecovering {
 		return status
 	}
@@ -727,12 +727,12 @@ func (h *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		conn:               conn,
 		secretsClient:      r.SecretClient,
 		namespace:          rs.GetNamespace(),
-		prometheusCertHash: deploymentOpts.prometheusCertHash,
+		prometheusCertHash: deploymentOptions.prometheusCertHash,
 	}
 
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			if shouldMirrorKeyfile {
+			if shouldMirrorKeyfileForMongot {
 				if err := h.mirrorKeyfileIntoSecretForMongot(ctx, d); err != nil {
 					return err
 				}
