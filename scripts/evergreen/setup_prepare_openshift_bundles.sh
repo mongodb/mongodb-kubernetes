@@ -33,7 +33,7 @@ fi
 
 # there is no mac build in for arm64
 opm_arch="amd64"
-curl -L --retry 3 -o opm.tar.gz "https://mirror.openshift.com/pub/openshift-v4/${opm_arch}/clients/ocp/latest-4.12/opm-${opm_os}.tar.gz"
+curl --retry 5 --fail --show-error --max-time 180 -L -o opm.tar.gz "https://mirror.openshift.com/pub/openshift-v4/${opm_arch}/clients/ocp/latest-4.12/opm-${opm_os}.tar.gz"
 
 # TODO: Sometimes tar is failing for unknown reasons in EVG. This is left intentionally. Remove if not causing problems anymore.
 ls -al opm.tar.gz

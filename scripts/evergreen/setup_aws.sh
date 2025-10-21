@@ -19,7 +19,7 @@ install_aws_cli_binary() {
     cd "${temp_dir}"
 
     echo "Downloading AWS CLI v2 for ${aws_arch}..."
-    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "awscliv2.zip"
+    curl --retry 5 --fail --show-error --max-time 180 -s "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "awscliv2.zip"
 
     unzip -q awscliv2.zip
     sudo ./aws/install --update

@@ -46,7 +46,7 @@ download_and_install_binary() {
 
   mkdir -p "${dir}"
   echo "Downloading ${url}"
-  curl --retry 3 --silent -L "${url}" -o "${bin}"
+  curl --retry 5 --fail --show-error --max-time 180 --silent -L "${url}" -o "${bin}"
   chmod +x "${bin}"
   mv "${bin}" "${dir}"
   echo "Installed ${bin} to ${dir}"
