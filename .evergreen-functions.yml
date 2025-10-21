@@ -504,22 +504,6 @@ functions:
   # publish_helm_chart packages and publishes the MCK helm chart to the OCI container registry
   publish_helm_chart:
     - command: subprocess.exec
-      params:
-        include_expansions_in_env:
-          - github_commit
-          - GRS_USERNAME
-          - GRS_PASSWORD
-          - PKCS11_URI
-          - ARTIFACTORY_URL
-          - ARTIFACTORY_PASSWORD
-          - SIGNING_IMAGE_URI
-          - macos_notary_keyid
-          - macos_notary_secret
-          - workdir
-          - triggered_by_git_tag
-        env:
-          MACOS_NOTARY_KEY: ${macos_notary_keyid}
-          MACOS_NOTARY_SECRET: ${macos_notary_secret}
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/publish_helm_chart.sh
         
@@ -527,7 +511,7 @@ functions:
     - command: subprocess.exec
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/release/kubectl-mongodb/python/build_kubectl_plugin.py
+        binary: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/python/build_kubectl_plugin.py
   
   build_and_push_appdb_database:
     - command: subprocess.exec
@@ -926,10 +910,4 @@ functions:
           GOROOT: "/opt/golang/go1.24"
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
-        # shell.exec EVG Task doesn't have add_to_path, so we need to explicitly add the path export below.
-        script: |
-          set -Eeu pipefail
-          export GORELEASER_CURRENT_TAG=${OPERATOR_VERSION|*triggered_by_git_tag}
-          export PATH=$GOROOT/bin:$PATH
-          export GITHUB_TOKEN=${generated_token}
-          ${workdir}/goreleaser release --clean
+        script: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/python/promote_kubectl_plugin.py

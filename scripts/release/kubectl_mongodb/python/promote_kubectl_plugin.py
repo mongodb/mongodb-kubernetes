@@ -12,24 +12,25 @@ from github import Github, GithubException
 
 from lib.base_logger import logger
 from scripts.release.kubectl_mongodb.python.consts import *
+from scripts.release.build.build_info import (
+    load_build_info,
+)
 
 GITHUB_TOKEN = os.environ.get("GH_TOKEN")
 
 S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = KUBECTL_PLUGIN_BINARY_NAME
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--release_version",
-        required=True,
-        help="product release version, ideally should match with github tag/release.",
-    )
-    parser.add_argument("--staging_commit", required=True, help="staging commit that we want to promote to release.")
+    release_version = os.environ.get("OPERATOR_VERSION")
 
-    args = parser.parse_args()
-    download_artifacts_from_s3(args.release_version, args.staging_commit)
+    # figure out release and staging buckets using build_scenario
+    build_scenario = os.environ.get("BUILD_SCENARIO")
+    kubectl_plugin_build_info = load_build_info(build_scenario).binaries[KUBECTL_PLUGIN_BINARY_NAME]
+    release_scenario_bucket_name = kubectl_plugin_build_info.s3_store
 
-    notarize_artifacts(args.release_version)
+    download_artifacts_from_s3(release_version, get_commit_from_tag(release_version))
+
+    notarize_artifacts(release_version)
 
     sign_and_verify_artifacts()
 
@@ -37,9 +38,9 @@ def main():
 
     artifacts = generate_checksums(artifacts_tar)
 
-    promote_artifacts(artifacts, args.release_version)
+    promote_artifacts(artifacts, release_version, release_scenario_bucket_name)
 
-    upload_assets_to_github_release(artifacts, args.release_version)
+    upload_assets_to_github_release(artifacts, release_version)
 
 # get_commit_from_tag gets the commit associated with a release tag, so that we can use that
 # commit to pull the artifacts from staging bucket.
@@ -53,7 +54,7 @@ def get_commit_from_tag(tag: str) -> str:
         )
 
         result = subprocess.run(
-            ["git", "rev-parse", f"{tag}^{{commit}}"], # git rev-parse v1.1.1^{commit}
+            ["git", "rev-parse", "--short", f"{tag}^{{commit}}"], # git rev-parse v1.1.1^{commit}
             capture_output=True,
             text=True,
             check=True
@@ -91,7 +92,7 @@ def generate_checksums(artifacts: list[str]):
 
 
 # promote_artifacts promotes (copies) the downloaded staging artifacts to release S3 bucket.
-def promote_artifacts(artifacts: list[str], release_version: str):
+def promote_artifacts(artifacts: list[str], release_version: str, release_scenario_bucket_name: str):
     s3_client = boto3.client("s3", region_name=AWS_REGION)
     for file in artifacts:
         if not os.path.isfile(file) or not file.endswith((".tar.gz", ".txt")):
@@ -102,7 +103,7 @@ def promote_artifacts(artifacts: list[str], release_version: str):
         s3_key = os.path.join(S3_BUCKET_KUBECTL_PLUGIN_SUBPATH, release_version, file_name)
 
         try:
-            s3_client.upload_file(file, RELEASE_S3_BUCKET_NAME, s3_key)
+            s3_client.upload_file(file, release_scenario_bucket_name, s3_key)
         except ClientError as e:
             logger.debug(f"failed to upload the file {file}: {e}")
             sys.exit(1)

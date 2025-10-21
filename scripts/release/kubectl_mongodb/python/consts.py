@@ -1,8 +1,7 @@
 AWS_REGION = "eu-north-1"
 KUBECTL_PLUGIN_BINARY_NAME = "kubectl-mongodb"
 
-STAGING_S3_BUCKET_NAME = "mongodb-kubernetes-dev"
-RELEASE_S3_BUCKET_NAME = "mongodb-kubernetes-staging"
+STAGING_S3_BUCKET_NAME = "mongodb-kubernetes-staging"
 
 GITHUB_REPO = "mongodb/mongodb-kubernetes"
 
