@@ -12,4 +12,4 @@ CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${PRO
 export CUSTOM_OM_VERSION
 
 # During release the meko-tests image is pushed to a staging registry. We don't want to push it to production registry
-export MEKO_TESTS_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
+export MEKO_TESTS_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
