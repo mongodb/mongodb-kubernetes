@@ -166,14 +166,14 @@ func (h *ReplicaSetReconcilerHelper) initialize(ctx context.Context) error {
 // is written after every status update. This ensures state consistency even on early returns.
 // It must be executed only once per reconcile (with a return)
 func (h *ReplicaSetReconcilerHelper) updateStatus(ctx context.Context, status workflow.Status, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
-	result, err := h.reconciler.ReconcileCommonController.updateStatus(ctx, h.resource, status, h.log, statusOptions...)
+	result, err := h.reconciler.updateStatus(ctx, h.resource, status, h.log, statusOptions...)
 	if err != nil {
 		return result, err
 	}
 
 	// Write deployment state after every status update
 	if err := h.writeState(ctx); err != nil {
-		return h.reconciler.ReconcileCommonController.updateStatus(ctx, h.resource, workflow.Failed(xerrors.Errorf("Failed to write deployment state after updating status: %w", err)), h.log)
+		return h.reconciler.updateStatus(ctx, h.resource, workflow.Failed(xerrors.Errorf("Failed to write deployment state after updating status: %w", err)), h.log)
 	}
 
 	return result, nil
@@ -766,7 +766,7 @@ func (h *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	//TODO: check if updateStatus usage is correct hee
+	// TODO: check if updateStatus usage is correct hee
 	if status := r.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, r.SecretClient, log); !status.IsOK() && !isRecovering {
 		return status
 	}
