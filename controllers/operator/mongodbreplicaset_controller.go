@@ -121,16 +121,17 @@ func (r *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, er
 	}
 }
 
-// writeState abstract writing the state of the resource that we store on the cluster between reconciliations.
-func (r *ReplicaSetReconcilerHelper) writeState(ctx context.Context) error {
+// writeState writes the state of the resource that we store on the cluster between reconciliations.
+// This includes the lastAchievedSpec annotation (always written) and vault secret version annotations on successful
+// reconciliation
+func (r *ReplicaSetReconcilerHelper) writeState(ctx context.Context, includeVaultAnnotations bool) error {
 	// Serialize the state to annotations
 	annotationsToAdd, err := getAnnotationsForResource(r.resource)
 	if err != nil {
 		return err
 	}
 
-	// Add vault annotations if needed
-	if vault.IsVaultSecretBackend() {
+	if includeVaultAnnotations && vault.IsVaultSecretBackend() {
 		secrets := r.resource.GetSecretsMountedIntoDBPod()
 		vaultMap := make(map[string]string)
 		for _, s := range secrets {
@@ -149,7 +150,11 @@ func (r *ReplicaSetReconcilerHelper) writeState(ctx context.Context) error {
 		return err
 	}
 
-	r.log.Debugf("Successfully wrote deployment state for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
+	if includeVaultAnnotations {
+		r.log.Debugf("Successfully wrote deployment state and vault annotations for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
+	} else {
+		r.log.Debugf("Successfully wrote deployment state for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
+	}
 	return nil
 }
 
@@ -164,7 +169,8 @@ func (r *ReplicaSetReconcilerHelper) initialize(ctx context.Context) error {
 
 // updateStatus overrides the common controller's updateStatus to ensure that the deployment state
 // is written after every status update. This ensures state consistency even on early returns.
-// It must be executed only once per reconcile (with a return)
+// Vault annotations are only included when status.IsOK() is true, meaning reconciliation succeeded.
+// This function must be executed only once per reconcile (with a return)
 func (r *ReplicaSetReconcilerHelper) updateStatus(ctx context.Context, status workflow.Status, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
 	result, err := r.reconciler.updateStatus(ctx, r.resource, status, r.log, statusOptions...)
 	if err != nil {
@@ -172,7 +178,8 @@ func (r *ReplicaSetReconcilerHelper) updateStatus(ctx context.Context, status wo
 	}
 
 	// Write deployment state after every status update
-	if err := r.writeState(ctx); err != nil {
+	// Include vault annotations only on successful reconciliation
+	if err := r.writeState(ctx, status.IsOK()); err != nil {
 		return r.reconciler.updateStatus(ctx, r.resource, workflow.Failed(xerrors.Errorf("Failed to write deployment state after updating status: %w", err)), r.log)
 	}
 
