@@ -308,12 +308,11 @@ def _helm_chart_dir(default: Optional[str] = "helm_chart") -> str:
 # to install MEKO's specific version or MCK's specific version, we would expec `helm_chart_path` to set already.
 def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> tuple[str, str]:
     # these are imported here to resolve import cycle issue
-    from tests.conftest import local_operator
-    from tests.conftest import LOCAL_HELM_CHART_DIR
+    from tests.conftest import LOCAL_HELM_CHART_DIR, local_operator
 
     if local_operator():
         return LOCAL_HELM_CHART_DIR, ""
-    
+
     # if operator_version is not specified and we are not installing the MCK or MEKO chart
     # it would mean we want to install OCI published helm chart. Figure out respective version,
     # it is set in env var `OPERATOR_VERSION` based on build_scenario.
@@ -325,7 +324,6 @@ def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> 
         # when we publish the helm chart we append `0.0.0+` in the chart version, details are
         # here https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.gg5ble8qlesq
         operator_version = f"0.0.0+{non_semver_operator_version}"
-
 
     # helm_chart_path not being passed would mean we are on evg env and would like to
     # install helm chart from OCI registry.

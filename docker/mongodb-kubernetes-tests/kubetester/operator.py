@@ -13,6 +13,7 @@ from kubetester import wait_for_webhook
 from kubetester.consts import *
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import (
+    helm_chart_path_and_version,
     helm_install,
     helm_repo_add,
     helm_template,
@@ -20,7 +21,6 @@ from kubetester.helm import (
     helm_upgrade,
     oci_chart_info,
     oci_helm_registry_login,
-    helm_chart_path_and_version,
 )
 from tests import test_logger
 
@@ -57,7 +57,7 @@ class Operator(object):
         # The Operator will be installed from the following repo, so adding it first
         helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
-        helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path, operator_version)        
+        helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path, operator_version)
 
         if helm_args is None:
             helm_args = {}
