@@ -1389,7 +1389,7 @@ buildvariants:
     display_name: e2e_operator_race_ubi_with_telemetry
     tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu1804-xlarge
+      - ubuntu2404-xlarge
     <<: *base_om7_dependency_with_race
     tasks:
       - name: e2e_operator_race_with_telemetry_task_group
@@ -1666,7 +1666,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_mco_test_suite" ]
     <<: *community_dependency
     run_on:
-      - ubuntu2004-large
+      - ubuntu2404-large
 
   ## Manual (patch) E2E tests not run for every PR and commit
 
