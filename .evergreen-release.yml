@@ -121,6 +121,7 @@ tasks:
       - func: clone
       - func: install_goreleaser
       - func: install_macos_notarization_service
+      - func: python_venv
       - func: release_kubectl_mongodb_plugin
     
   - name: create_chart_release_pr
