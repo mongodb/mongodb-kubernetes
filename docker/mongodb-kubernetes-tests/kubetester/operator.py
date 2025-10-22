@@ -20,6 +20,7 @@ from kubetester.helm import (
     helm_upgrade,
     oci_chart_info,
     oci_helm_registry_login,
+    helm_chart_path_and_version,
 )
 from tests import test_logger
 
@@ -56,31 +57,7 @@ class Operator(object):
         # The Operator will be installed from the following repo, so adding it first
         helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
-        # helm_chart_path not being passed would mean we are on evg env and would like to
-        # install helm chart from OCI registry.
-        if not helm_chart_path:
-            # login to the OCI container registry
-            registry, repository, region = oci_chart_info()
-            try:
-                oci_helm_registry_login(registry, region)
-            except Exception as e:
-                raise e
-
-            # figure out the registry URI, based on dev/staging scenario
-            chart_uri = f"oci://{registry}/{repository}"
-            helm_chart_path = chart_uri
-
-        # if operator_version is not specified and we are not installing the MCK or MEKO chart
-        # it would mean we want to install OCI published helm chart. Figure out respective version,
-        # it is set in env var `OPERATOR_VERSION` based on build_scenario.
-        if not operator_version and helm_chart_path not in (
-            MCK_HELM_CHART,
-            LEGACY_OPERATOR_CHART,
-        ):
-            non_semver_operator_version = os.environ.get(OPERATOR_VERSION_ENV_VAR_NAME)
-            # when we publish the helm chart we append `0.0.0+` in the chart version, details are
-            # here https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.gg5ble8qlesq
-            operator_version = f"0.0.0+{non_semver_operator_version}"
+        helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path, operator_version)        
 
         if helm_args is None:
             helm_args = {}
