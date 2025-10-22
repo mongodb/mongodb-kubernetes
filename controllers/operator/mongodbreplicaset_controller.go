@@ -516,13 +516,8 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
 
 	// Handle PVC resize if needed
-	workflowStatus := create.HandlePVCResize(ctx, reconciler.client, &sts, log)
-	if !workflowStatus.IsOK() {
+	if workflowStatus := r.handlePVCResize(ctx, &sts); !workflowStatus.IsOK() {
 		return workflowStatus
-	}
-
-	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
-		_, _ = reconciler.updateStatus(ctx, rs, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
 	}
 
 	// Create or update the StatefulSet in Kubernetes
@@ -536,6 +531,20 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	}
 
 	log.Info("Updated StatefulSet for replica set")
+	return workflow.OK()
+}
+
+func (r *ReplicaSetReconcilerHelper) handlePVCResize(ctx context.Context, sts *appsv1.StatefulSet) workflow.Status {
+	workflowStatus := create.HandlePVCResize(ctx, r.reconciler.client, sts, r.log)
+	if !workflowStatus.IsOK() {
+		return workflowStatus
+	}
+
+	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
+		if _, err := r.reconciler.updateStatus(ctx, r.resource, workflow.Pending(""), r.log, workflowStatus.StatusOptions()...); err != nil {
+			return workflow.Failed(xerrors.Errorf("error updating status: %w", err))
+		}
+	}
 	return workflow.OK()
 }
 
