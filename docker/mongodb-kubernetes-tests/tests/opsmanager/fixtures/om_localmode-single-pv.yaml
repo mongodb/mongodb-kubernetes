@@ -35,6 +35,8 @@ spec:
           initContainers:
             - name: setting-up-rhel-mongodb-4-2-8
               image: curlimages/curl:latest
+              securityContext:
+                runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
               command:
                 - curl
                 - -L
@@ -46,6 +48,8 @@ spec:
                   mountPath: /mongodb-ops-manager/mongodb-releases
             - name: setting-up-rhel-mongodb-6-0-21
               image: curlimages/curl:latest
+              securityContext:
+                runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
               command:
                 - curl
                 - -L
@@ -57,6 +61,8 @@ spec:
                   mountPath: /mongodb-ops-manager/mongodb-releases
             - name: setting-up-rhel-mongodb-7-0
               image: curlimages/curl:latest
+              securityContext:
+                runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
               command:
                 - curl
                 - -L
@@ -68,6 +74,8 @@ spec:
                   mountPath: /mongodb-ops-manager/mongodb-releases
             - name: setting-up-rhel-mongodb-8-0
               image: curlimages/curl:latest
+              securityContext:
+                runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
               command:
                 - curl
                 - -L
