@@ -31,8 +31,8 @@ def run_command(command: list[str]):
 # to either evg patch id or commit which is set in OPERATOR_VERSION.
 def update_chart_and_get_metadata(chart_dir: str, build_scenario) -> tuple[str, str]:
     chart_path = os.path.join(chart_dir, "Chart.yaml")
-    version_id = os.environ.get("OPERATOR_VERSION")
-    if not version_id:
+    version = os.environ.get("OPERATOR_VERSION")
+    if not version:
         raise ValueError(
             "Error: Environment variable 'OPERATOR_VERSION' must be set to determine the chart version to publish."
         )
@@ -55,9 +55,9 @@ def update_chart_and_get_metadata(chart_dir: str, build_scenario) -> tuple[str, 
 
     # if build_scenario is release, the chart.yaml would already have correct chart version
     if build_scenario == BUILD_SCENARIO_RELEASE:
-        return chart_name, version_id
+        return chart_name, version
 
-    new_version = f"0.0.0+{version_id}"
+    new_version = f"0.0.0+{version}"
     logger.info(f"New helm chart version will be: {new_version}")
 
     try:
