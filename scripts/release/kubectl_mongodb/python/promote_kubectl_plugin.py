@@ -242,11 +242,13 @@ def download_artifacts_from_s3(release_version: str, commit_sha: str, staging_s3
     logger.info("All the artifacts have been downloaded successfully.")
     return True
 
+
 def set_permissions_filter(tarinfo):
     if tarinfo.name == "kubectl-mongodb":
         # This is the binary, make it executable: rwxr-xr-x
         tarinfo.mode = 0o755
     return tarinfo
+
 
 # create_tarballs creates `.tar.gz` archives for the artifacts that before promoting them.
 def create_tarballs():
@@ -268,10 +270,8 @@ def create_tarballs():
                         # Add just the binary (kubectl-mongodb_None_linux_s390x/kubectl-mongodb) to the tar
                         # instead of adding the dir.
                         # filter is passed to make the binary file executable
-                        tar.add(full_item_path, 
-                                arcname=item_name, 
-                                filter=set_permissions_filter)
-                        
+                        tar.add(full_item_path, arcname=item_name, filter=set_permissions_filter)
+
                 full_archive_path = os.path.join(original_cwd, LOCAL_ARTIFACTS_DIR, archive_name)
                 logger.info(f"Successfully created archive at {full_archive_path}")
                 created_archives.append(full_archive_path)
