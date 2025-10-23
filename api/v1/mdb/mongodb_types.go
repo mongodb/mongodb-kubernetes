@@ -443,6 +443,8 @@ type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+
+	ClusterSpecList ClusterSpecList `json:"clusterSpecList,omitempty"`
 }
 
 func (m *MongoDbSpec) GetExternalDomain() *string {

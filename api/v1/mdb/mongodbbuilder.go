@@ -23,6 +23,12 @@ func NewDefaultReplicaSetBuilder() *MongoDBBuilder {
 	return defaultMongoDB(ReplicaSet)
 }
 
+func NewDefaultMultiReplicaSetBuilder() *MongoDBBuilder {
+	return defaultMongoDB(ReplicaSet).
+		SetMultiClusterTopology().
+		SetDefaultClusterSpecList()
+}
+
 func NewDefaultShardedClusterBuilder() *MongoDBBuilder {
 	return defaultMongoDB(ShardedCluster).
 		SetShardCountSpec(3).
@@ -261,6 +267,24 @@ func (b *MongoDBBuilder) SetMultiClusterTopology() *MongoDBBuilder {
 
 func (b *MongoDBBuilder) AddDummyOpsManagerConfig() *MongoDBBuilder {
 	b.mdb.Spec.OpsManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "dummy"}}
+	return b
+}
+
+func (b *MongoDBBuilder) SetDefaultClusterSpecList() *MongoDBBuilder {
+	b.mdb.Spec.ClusterSpecList = ClusterSpecList{
+		{
+			ClusterName: "test-cluster-0",
+			Members:     1,
+		},
+		{
+			ClusterName: "test-cluster-1",
+			Members:     1,
+		},
+		{
+			ClusterName: "test-cluster-2",
+			Members:     1,
+		},
+	}
 	return b
 }
 
