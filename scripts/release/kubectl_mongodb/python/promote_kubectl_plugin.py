@@ -267,7 +267,6 @@ def create_tarballs():
                         full_item_path = os.path.join(dir_name, item_name)
                         # Add just the binary (kubectl-mongodb_None_linux_s390x/kubectl-mongodb) to the tar
                         # instead of adding the dir.
-                        tar.add(full_item_path, arcname=item_name)
                         # filter is passed to make the binary file executable
                         tar.add(full_item_path, 
                                 arcname=item_name, 
