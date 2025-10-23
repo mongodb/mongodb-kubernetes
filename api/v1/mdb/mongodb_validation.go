@@ -327,7 +327,7 @@ func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
 }
 
 func replicasetMemberIsSpecified(ms MongoDbSpec) v1.ValidationResult {
-	if ms.ResourceType == ReplicaSet && ms.Members == 0 {
+	if ms.ResourceType == ReplicaSet && !ms.IsMultiCluster() && ms.Members == 0 {
 		return v1.ValidationError("'spec.members' must be specified if type of MongoDB is %s", ms.ResourceType)
 	}
 	return v1.ValidationSuccess()
