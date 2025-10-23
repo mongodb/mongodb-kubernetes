@@ -31,10 +31,6 @@ MDB_RESOURCE_NAME = "mdb-ent-tls"
 # MongoDBSearch TLS configuration
 MDBS_TLS_SECRET_NAME = "mdbs-tls-secret"
 
-MDB_VERSION_WITHOUT_BUILT_IN_ROLE = "8.0.10-ent"
-MDB_VERSION_WITH_BUILT_IN_ROLE = "8.2.0-ent"
-MDB_SEARCH_FORCE_WIREPROTO_ANNOTATION = "mongodb.com/v1.force-wireproto-transport"
-
 
 @fixture(scope="function")
 def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
@@ -43,12 +39,11 @@ def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
         name=MDB_RESOURCE_NAME,
         namespace=namespace,
     )
-    resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
-    resource.set_version(MDB_VERSION_WITHOUT_BUILT_IN_ROLE)
 
     if try_load(resource):
         return resource
 
+    resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
     resource.configure_custom_tls(issuer_ca_configmap, "certs")
 
     return resource
@@ -60,9 +55,6 @@ def mdbs(namespace: str) -> MongoDBSearch:
 
     if try_load(resource):
         return resource
-
-    # force the wireproto transport initially because we're starting out with mongod 8.0.10
-    resource["metadata"]["annotations"] = {MDB_SEARCH_FORCE_WIREPROTO_ANNOTATION: "true"}
 
     # Add TLS configuration to MongoDBSearch
     if "spec" not in resource:
@@ -166,21 +158,19 @@ def test_create_users(
         namespace, name=admin_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": ADMIN_USER_PASSWORD}
     )
     admin_user.update()
+    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
         namespace, name=user["spec"]["passwordSecretKeyRef"]["name"], data={"password": USER_PASSWORD}
     )
     user.update()
-
-    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
     user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
         namespace, name=mongot_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": MONGOT_USER_PASSWORD}
     )
     mongot_user.update()
-    # we deliberately don't wait for this user to be ready, because to be reconciled successfully it needs the searchCoordinator role
-    # which the ReplicaSet reconciler will only define in the automation config after the MongoDBSearch resource is created.
+    mongot_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
 
 @mark.e2e_search_enterprise_tls
@@ -201,8 +191,7 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 @mark.e2e_search_enterprise_tls
 def test_wait_for_mongod_parameters(mdb: MongoDB):
     # After search CR is deployed, MongoDB controller will pick it up
-    # and start adding searchCoordinator role and search-related
-    # parameters to the automation config.
+    # and start adding search-related parameters to the automation config.
     def check_mongod_parameters():
         parameters_are_set = True
         pod_parameters = []
@@ -236,52 +225,6 @@ def test_search_create_search_index(mdb: MongoDB):
 @mark.e2e_search_enterprise_tls
 def test_search_assert_search_query(mdb: MongoDB):
     get_user_sample_movies_helper(mdb).assert_search_query(retry_timeout=60)
-
-
-@mark.e2e_search_enterprise_tls
-# This test class verifies if mongodb <8.2 can be upgraded to mongodb >=8.2
-# For mongod <8.2 the operator is automatically creating searchCoordinator customRole.
-# We test here that the role exists before upgrade, because
-# after mongodb is upgraded, the role should be removed from AC
-# From 8.2 searchCoordinator role is a built-in role.
-class TestUpgradeMongod:
-    def test_mongod_version(self, mdb: MongoDB):
-        # This test is redundant when looking at the context of the full test file,
-        # as we deploy MDB_VERSION_WITHOUT_BUILT_IN_ROLE initially
-        # But it makes sense if we take into consideration TestUpgradeMongod test class alone.
-        # This checks the most important prerequisite for this test class to work.
-        # We check the version in case the test class is reused in another place
-        # or executed again when running locally.
-        mdb.tester(ca_path=get_issuer_ca_filepath(), use_ssl=True).assert_version(MDB_VERSION_WITHOUT_BUILT_IN_ROLE)
-
-    def test_check_polyfilled_role_in_ac(self, mdb: MongoDB):
-        custom_roles = mdb.get_automation_config_tester().automation_config.get("roles", [])
-        assert len(custom_roles) > 0
-        assert "searchCoordinator" in [role["role"] for role in custom_roles]
-
-    def test_upgrade_to_mongo_8_2(self, mdb: MongoDB, mdbs: MongoDBSearch):
-        mdb.set_version(MDB_VERSION_WITH_BUILT_IN_ROLE)
-        mdb.update()
-        mdb.assert_reaches_phase(Phase.Running, timeout=600)
-
-        del mdbs["metadata"]["annotations"][MDB_SEARCH_FORCE_WIREPROTO_ANNOTATION]
-        mdbs.update()
-        mdbs.assert_reaches_phase(Phase.Running, timeout=300)
-
-    def test_check_polyfilled_role_not_in_ac(self, mdb: MongoDB):
-        custom_roles = mdb.get_automation_config_tester().automation_config.get("roles", [])
-        assert len(custom_roles) >= 0
-        assert "searchCoordinator" not in [role["role"] for role in custom_roles]
-
-    def test_mongod_version_after_upgrade(self, mdb: MongoDB):
-        mdb_tester = mdb.tester(ca_path=get_issuer_ca_filepath(), use_ssl=True)
-        mdb_tester.assert_scram_sha_authentication(
-            ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "SCRAM-SHA-256", 1, ssl=True, tlsCAFile=get_issuer_ca_filepath()
-        )
-        mdb_tester.assert_version(MDB_VERSION_WITH_BUILT_IN_ROLE)
-
-    def test_search_assert_search_query_after_upgrade(self, mdb: MongoDB):
-        get_user_sample_movies_helper(mdb).assert_search_query(retry_timeout=60)
 
 
 def get_connection_string(mdb: MongoDB, user_name: str, user_password: str) -> str:
