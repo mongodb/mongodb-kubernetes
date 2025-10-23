@@ -20,16 +20,27 @@ set -Eeou pipefail
 # This depends on binaries being generated in a goreleaser manner and gon being set up.
 # goreleaser should already take care of calling this script as a hook.
 
-if [[ -f "./dist/kubectl-mongodb_darwin_amd64_v1/kubectl-mongodb" && -f "./dist/kubectl-mongodb_darwin_arm64/kubectl-mongodb" && ! -f "./dist/kubectl-mongodb_macos_signed.zip" ]]; then
+if [ -z "${1-}" ]; then
+  echo "Error: Missing required argument <version> as first positional parameter to script"
+  echo "Usage: ./kubectl_mac_notarize.sh <version>"
+  exit 1
+fi
+
+version=$1
+
+darwin_amd64_dir="./artifacts/kubectl-mongodb_${version}_darwin_amd64"
+darwin_arm64_dir="./artifacts/kubectl-mongodb_${version}_darwin_arm64"
+
+if [[ -f "${darwin_amd64_dir}/kubectl-mongodb" && -f "${darwin_arm64_dir}/kubectl-mongodb" && ! -f "./artifacts/kubectl-mongodb_macos_signed.zip" ]]; then
 	echo "notarizing macOs binaries"
-	zip -r ./dist/kubectl-mongodb_amd64_arm64_bin.zip ./dist/kubectl-mongodb_darwin_amd64_v1/kubectl-mongodb ./dist/kubectl-mongodb_darwin_arm64/kubectl-mongodb # The Notarization Service takes an archive as input
+	zip -r ./artifacts/kubectl-mongodb_amd64_arm64_bin.zip "${darwin_amd64_dir}/kubectl-mongodb" "${darwin_arm64_dir}/kubectl-mongodb" # The Notarization Service takes an archive as input
 	"${workdir:-.}"/linux_amd64/macnotary \
-		-f ./dist/kubectl-mongodb_amd64_arm64_bin.zip \
+		-f ./artifacts/kubectl-mongodb_amd64_arm64_bin.zip \
 		-m notarizeAndSign -u https://dev.macos-notary.build.10gen.cc/api \
 		-b com.mongodb.mongodb-kubectl-mongodb \
-		-o ./dist/kubectl-mongodb_macos_signed.zip
+		-o ./artifacts/kubectl-mongodb_macos_signed.zip
 
 	echo "replacing original files"
-	unzip -oj ./dist/kubectl-mongodb_macos_signed.zip dist/kubectl-mongodb_darwin_amd64_v1/kubectl-mongodb -d ./dist/kubectl-mongodb_darwin_amd64_v1/
-	unzip -oj ./dist/kubectl-mongodb_macos_signed.zip dist/kubectl-mongodb_darwin_arm64/kubectl-mongodb -d ./dist/kubectl-mongodb_darwin_arm64/
+	unzip -oj ./artifacts/kubectl-mongodb_macos_signed.zip "artifacts/kubectl-mongodb_${version}_darwin_amd64/kubectl-mongodb" -d "${darwin_amd64_dir}/"
+	unzip -oj ./artifacts/kubectl-mongodb_macos_signed.zip "artifacts/kubectl-mongodb_${version}_darwin_arm64/kubectl-mongodb" -d "${darwin_arm64_dir}/"
 fi

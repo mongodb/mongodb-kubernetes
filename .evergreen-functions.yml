@@ -512,8 +512,8 @@ functions:
     - command: subprocess.exec
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/release/kubectl-mongodb/python/build_kubectl_plugin.py
-
+        binary: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/python/build_kubectl_plugin.py
+  
   build_and_push_appdb_database:
     - command: subprocess.exec
       params:
@@ -847,7 +847,7 @@ functions:
   release_kubectl_mongodb_plugin:
     - command: github.generate_token
       params:
-        expansion_name: generated_token
+        expansion_name: GH_TOKEN
     - command: shell.exec
       type: setup
       params:
@@ -870,10 +870,5 @@ functions:
           GOROOT: "/opt/golang/go1.24"
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
-        # shell.exec EVG Task doesn't have add_to_path, so we need to explicitly add the path export below.
-        script: |
-          set -Eeu pipefail
-          export GORELEASER_CURRENT_TAG=${OPERATOR_VERSION|*triggered_by_git_tag}
-          export PATH=$GOROOT/bin:$PATH
-          export GITHUB_TOKEN=${generated_token}
-          ${workdir}/goreleaser release --clean
+          GH_TOKEN: ${GH_TOKEN}
+        script: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/python/promote_kubectl_plugin.py
