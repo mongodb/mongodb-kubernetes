@@ -23,6 +23,10 @@ const (
 	openshift = "Openshift"
 	rke       = "RKE"
 	rke2      = "RKE2"
+	evg       = "Evergreen"
+	minikube  = "Minikube"
+	k3s       = "K3s"
+	microk8s  = "MicroK8s"
 )
 
 var kubernetesFlavourLabelsMapping = map[string]string{
@@ -30,11 +34,16 @@ var kubernetesFlavourLabelsMapping = map[string]string{
 	"cloud.google.com/gke-nodepool":  gke,
 	"kubernetes.azure.com/agentpool": aks,
 	"node.openshift.io/os_id":        openshift,
+	"mongodb.com/evergreen":          evg,
+	"minikube.k8s.io/name":           minikube,
+	"microk8s.io/cluster":            microk8s,
 }
 
 var kubernetesFlavourAnnotationsMapping = map[string]string{
 	"rke.cattle.io/external-ip": rke,
 	"rke.cattle.io/internal-ip": rke,
+	"k3s.io/hostname":           k3s,
+	"k3s.io/internal-ip":        k3s,
 }
 
 // detectClusterInfo detects the Kubernetes version and cluster flavor
@@ -101,6 +110,8 @@ func detectKubernetesFlavour(ctx context.Context, uncachedClient kubeclient.Read
 		return eks
 	case strings.Contains(kubeGitApiVersion, "+vmware"):
 		return vmware
+	case strings.Contains(kubeGitApiVersion, "+k3s"):
+		return k3s
 	}
 
 	// Limit is propagated to the apiserver which propagates to etcd as it is. Thus, there is not a lot of
