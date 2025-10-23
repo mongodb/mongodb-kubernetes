@@ -285,9 +285,10 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline_agent
+      - func: pipeline
         vars:
-          BUILD_SCENARIO: release
+          image_name: agent
+          build_scenario: release
 
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new agent registry
@@ -296,10 +297,11 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_agent
+      - func: pipeline
         vars:
-          BUILD_SCENARIO: release
-          FLAGS: "--all-agents -r quay.io/mongodb/mongodb-agent --skip-if-exists=false"
+          image_name: agent
+          build_scenario: release
+          flags: "--parallel --all-agents -r quay.io/mongodb/mongodb-agent --skip-if-exists=false"
 
   - name: run_precommit_and_push
     tags: [ "patch-run" ]
@@ -328,9 +330,10 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_agent
+      - func: pipeline
         vars:
-          FLAGS: "--all-agents --skip-if-exists=false"
+          image_name: agent
+          flags: "--parallel --all-agents --skip-if-exists=false"
 
   - name: rebuild_currently_used_agents
     # this enables us to run this manually (patch) and rebuild current agent versions to verify
@@ -340,9 +343,10 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_agent
+      - func: pipeline
         vars:
-          FLAGS: "--current-agents --skip-if-exists=false"
+          image_name: agent
+          flags: "--parallel --current-agents --skip-if-exists=false"
 
   - name: build_test_image
     commands:
@@ -352,7 +356,7 @@ tasks:
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
-          IMAGE_NAME: meko-tests
+          image_name: meko-tests
 
   - name: build_test_image_arm
     commands:
@@ -362,8 +366,7 @@ tasks:
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
-          IMAGE_NAME: meko-tests-arm64
-
+          image_name: meko-tests-arm64
 
   - name: build_test_image_ibm
     commands:
@@ -387,7 +390,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: mco-tests
+          image_name: mco-tests
 
   - name: build_operator_ubi
     commands:
@@ -395,7 +398,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: operator
+          image_name: operator
 
   - name: build_operator_race_ubi
     commands:
@@ -403,7 +406,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: operator-race
+          image_name: operator-race
 
   - name: build_init_om_images_ubi
     commands:
@@ -411,7 +414,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: init-ops-manager
+          image_name: init-ops-manager
 
   - name: build_init_appdb_images_ubi
     commands:
@@ -419,16 +422,17 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: init-appdb
+          image_name: init-appdb
 
   - name: build_agent_images_ubi
     commands:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_agent
+      - func: pipeline
         vars:
-          FLAGS: "--all-agents"
+          image_name: agent
+          flags: "--parallel --all-agents"
 
   - name: build_init_database_image_ubi
     commands:
@@ -436,7 +440,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: init-database
+          image_name: init-database
 
   - name: build_database_image_ubi
     commands:
@@ -444,19 +448,23 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: database
+          image_name: database
 
   - name: build_readiness_probe_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline_readiness_probe
+      - func: pipeline
+        vars:
+          image_name: readiness-probe
 
   - name: build_version_upgrade_hook_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline_version_upgrade_hook
+      - func: pipeline
+        vars:
+          image_name: upgrade-hook
 
   - name: publish_helm_chart
     commands:
@@ -513,7 +521,9 @@ tasks:
       - func: clone
       - func: switch_context
       - func: setup_building_host
-      - func: pipeline_ops_manager
+      - func: pipeline
+        vars:
+          image_name: ops-manager
 
   - name: publish_ops_manager
     commands:
@@ -522,9 +532,10 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline_ops_manager
+      - func: pipeline
         vars:
-          BUILD_SCENARIO: release
+          image_name: ops-manager
+          build_scenario: release
 
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
