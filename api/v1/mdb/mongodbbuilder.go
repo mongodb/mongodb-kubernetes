@@ -24,9 +24,16 @@ func NewDefaultReplicaSetBuilder() *MongoDBBuilder {
 }
 
 func NewDefaultMultiReplicaSetBuilder() *MongoDBBuilder {
-	return defaultMongoDB(ReplicaSet).
-		SetMultiClusterTopology().
-		SetDefaultClusterSpecList()
+	b := defaultMongoDB(ReplicaSet).
+		SetMultiClusterTopology()
+
+	// Set test OpsManager config and credentials (matching multi-cluster test fixtures)
+	b.mdb.Spec.OpsManagerConfig = &PrivateCloudConfig{
+		ConfigMapRef: ConfigMapRef{Name: "my-project"},
+	}
+	b.mdb.Spec.Credentials = "my-credentials"
+
+	return b
 }
 
 func NewDefaultShardedClusterBuilder() *MongoDBBuilder {
@@ -288,6 +295,16 @@ func (b *MongoDBBuilder) SetDefaultClusterSpecList() *MongoDBBuilder {
 	return b
 }
 
+func (b *MongoDBBuilder) SetClusterSpectList(clusters []string) *MongoDBBuilder {
+	for _, e := range clusters {
+		b.mdb.Spec.ClusterSpecList = append(b.mdb.Spec.ClusterSpecList, ClusterSpecItem{
+			ClusterName: e,
+			Members:     1, // number of cluster members b/w 1 to 5
+		})
+	}
+	return b
+}
+
 func (b *MongoDBBuilder) SetAllClusterSpecLists(clusterSpecList ClusterSpecList) *MongoDBBuilder {
 	b.mdb.Spec.ShardSpec.ClusterSpecList = clusterSpecList
 	b.mdb.Spec.ConfigSrvSpec.ClusterSpecList = clusterSpecList
@@ -314,7 +331,7 @@ func defaultMongoDB(resourceType ResourceType) *MongoDBBuilder {
 			ResourceType: resourceType,
 		},
 	}
-	mdb := &MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "test-mdb", Namespace: "testNS"}}
+	mdb := &MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "test-mdb", Namespace: "my-namespace"}}
 	mdb.InitDefaults()
 	return &MongoDBBuilder{mdb}
 }
