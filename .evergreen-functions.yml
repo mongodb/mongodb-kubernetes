@@ -291,6 +291,9 @@ functions:
     - command: subprocess.exec
       type: setup
       params:
+        env:
+          SKIP_MINIKUBE_SETUP: ${skip_minikube_setup!|false}
+          SKIP_INSTALL_REQUIREMENTS: ${skip_install_python_requirements!|true}
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
@@ -523,15 +526,6 @@ functions:
           - ${workdir}/bin
           - ${workdir}
 
-  build_test_image_ibm:
-    - command: subprocess.exec
-      params:
-        shell: bash
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        add_to_path:
-          - ${workdir}/bin
-        binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
-
   pipeline:
     - command: subprocess.exec
       retry_on_failure: true
@@ -540,6 +534,8 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
         binary: scripts/release/pipeline.sh
         env:
           IMAGE_NAME: ${IMAGE_NAME}
@@ -553,6 +549,8 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
         binary: scripts/release/pipeline_agent.sh
         env:
           FLAGS: ${FLAGS}
@@ -565,6 +563,8 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
         binary: scripts/release/pipeline_ops_manager.sh
 
   pipeline_readiness_probe:
@@ -575,6 +575,8 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
         binary: scripts/release/pipeline_readiness_probe.sh
 
   pipeline_version_upgrade_hook:
@@ -585,6 +587,8 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
         binary: scripts/release/pipeline_version_upgrade_hook.sh
 
   teardown_cloud_qa_all:

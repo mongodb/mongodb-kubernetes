@@ -3,7 +3,6 @@ import pathlib
 
 from git import Repo
 
-from scripts.release.argparse_utils import str2bool
 from scripts.release.changelog import get_changelog_entries
 from scripts.release.constants import DEFAULT_CHANGELOG_PATH, DEFAULT_REPOSITORY_PATH
 
@@ -41,12 +40,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-f",
-        "--fail-on-no-changes",
+        "--fail-if-no-changes",
         default=True,
         metavar="",
-        action="store",
-        type=str2bool,
-        nargs="?",
+        action=argparse.BooleanOptionalAction,
         help="Fail if no changelog entries are found. Default is True.",
     )
     args = parser.parse_args()
