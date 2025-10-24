@@ -9,9 +9,10 @@ from scripts.release.build.build_info import load_build_info
 BUILD_SCENARIO_RELEASE = "release"
 QUAY_USERNAME_ENV_VAR = "quay_prod_username"
 QUAY_PASSWORD_ENV_VAR = "quay_prod_robot_token"
+QUAY_REGISTRY = "quay.io"
 
 
-def helm_registry_login_to_nonrelease(helm_registry: str, region: str):
+def helm_registry_login_to_ecr(helm_registry: str, region: str):
     logger.info(f"Attempting to log into ECR registry: {helm_registry}, using helm registry login.")
 
     aws_command = ["aws", "ecr", "get-login-password", "--region", region]
@@ -72,13 +73,13 @@ def main():
     registry = build_info.helm_charts["mongodb-kubernetes"].registry
     region = build_info.helm_charts["mongodb-kubernetes"].region
 
-    if build_scenario == BUILD_SCENARIO_RELEASE:
-        return helm_registry_login_to_release(registry)
+    if registry == QUAY_REGISTRY:
+        return helm_registry_login_to_quay(registry)
 
-    return helm_registry_login_to_nonrelease(registry, region)
+    return helm_registry_login_to_ecr(registry, region)
 
 
-def helm_registry_login_to_release(registry):
+def helm_registry_login_to_quay(registry):
     username = os.environ.get(QUAY_USERNAME_ENV_VAR)
     password = os.environ.get(QUAY_PASSWORD_ENV_VAR)
 
