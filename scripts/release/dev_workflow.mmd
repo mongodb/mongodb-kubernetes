@@ -1,0 +1,27 @@
+%%{
+  init: {
+    'flowchart': {
+      'htmlLabels': true
+    }
+  }
+}%%
+flowchart LR
+%% ─────────────── Build stage ───────────────
+    subgraph Build ["Build"]
+        direction LR
+        CONTAINER_IMAGES["<b>Build Container Images</b><br/>Arch: multi<br/>Signing: yes<br/>Tag: <code>build_id</code><br/>Registry: ECR dev"]
+        KUBECTL_MONGODB["<b>Build kubectl-mongodb</b><br/>Arch: multi<br/>Signing: yes<br/>Tag: <code>build_id</code><br/>Store: S3 dev<br/>"]
+        HELM_CHARTS["<b>Helm charts</b><br/>Signing: yes<br/>Tag: <code>build_id</code><br/>Registry: OCI ECR dev"]
+        OLM_BUNDLES["<b>Openshift Bundles</b><br/>Push to dev S3<br/>Tag: <code>build_id</code>"]
+    end
+
+%% ─────────────── Test stage ───────────────
+    subgraph Testing ["Testing"]
+        direction LR
+        TESTS["Run e2e tests"]
+        OLM_TESTS["Run OLM e2e tests"]
+    end
+
+%% ─────────────── Dependencies ───────────────
+
+    Build --> Testing
