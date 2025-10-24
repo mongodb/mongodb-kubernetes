@@ -24,17 +24,17 @@ def replica_set(namespace: str, server_certs: str, issuer_ca_configmap: str) -> 
     return res.create()
 
 
-@pytest.mark.e2e_disable_tls_scale_up
+@pytest.mark.e2e_disable_tls_and_scale
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-@pytest.mark.e2e_disable_tls_scale_up
+@pytest.mark.e2e_disable_tls_and_scale
 def test_rs_is_running(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@pytest.mark.e2e_disable_tls_scale_up
+@pytest.mark.e2e_disable_tls_and_scale
 def test_validation_error_on_simultaneous_tls_disable_and_scale(replica_set: MongoDB):
     """Test that attempting to disable TLS and scale simultaneously fails validation."""
     replica_set.load()
@@ -54,7 +54,7 @@ def test_validation_error_on_simultaneous_tls_disable_and_scale(replica_set: Mon
         ), f"Expected validation error about simultaneous TLS disable and scaling, got: {error_message}"
 
 
-@pytest.mark.e2e_disable_tls_scale_up
+@pytest.mark.e2e_disable_tls_and_scale
 def test_scale_up_without_tls_change(replica_set: MongoDB):
     """Test that scaling up without TLS changes works."""
     replica_set.load()
@@ -64,7 +64,7 @@ def test_scale_up_without_tls_change(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@pytest.mark.e2e_disable_tls_scale_up
+@pytest.mark.e2e_disable_tls_and_scale
 def test_disable_tls_without_scaling(replica_set: MongoDB):
     """Test that disabling TLS without scaling works."""
     replica_set.load()
@@ -75,7 +75,7 @@ def test_disable_tls_without_scaling(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=800)
 
 
-@pytest.mark.e2e_disable_tls_scale_up
+@pytest.mark.e2e_disable_tls_and_scale
 def test_scale_down_after_tls_change(replica_set: MongoDB):
     """Test that scaling down after disabling TLS works."""
     replica_set.load()
