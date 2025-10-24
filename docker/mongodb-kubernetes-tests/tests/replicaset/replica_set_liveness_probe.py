@@ -25,26 +25,17 @@ def _get_pods(podname_template: str, qty: int = 3):
 
 @skip_if_static_containers
 @pytest.mark.e2e_replica_set_liveness_probe
+@pytest.mark.flaky(reruns=10, reruns_delay=30)
 def test_pods_are_running(replica_set: MongoDB, namespace: str):
     corev1_client = client.CoreV1Api()
     running_pods: Set[str] = set()
-    tries = 10
     # Wait for all the pods to be running
     # We can't wait for the replica set to be running
     # as it will never get to it (mongod is not starting)
-    while tries:
-        if len(running_pods) == 3:
-            break
-        for podname in _get_pods("my-replica-set-{}", 3):
-            try:
-                pod = corev1_client.read_namespaced_pod(podname, namespace)
-                if pod.status.phase == "Running":
-                    running_pods.add(podname)
-            except:
-                # Pod not found, will retry
-                pass
-        tries -= 1
-        time.sleep(30)
+    for podname in _get_pods("my-replica-set-{}", 3):
+        pod = corev1_client.read_namespaced_pod(podname, namespace)
+        if pod.status.phase == "Running":
+            running_pods.add(podname)
     assert len(running_pods) == 3
 
 

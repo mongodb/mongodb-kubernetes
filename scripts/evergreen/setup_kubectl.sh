@@ -12,8 +12,11 @@ bindir="${PROJECT_DIR}/bin"
 tmpdir="${PROJECT_DIR}/tmp"
 mkdir -p "${bindir}" "${tmpdir}"
 
-echo "Downloading latest kubectl for ${ARCH}"
-curl -s --retry 3 -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl"
+kubectl_version=$(curl --retry 5 -Ls https://dl.k8s.io/release/stable.txt)
+echo "Downloading kubectl ${kubectl_version} for ${ARCH}"
+kubectl_version=$(echo "${kubectl_version}" | tail -n1 | tr -d '\n')
+
+curl --retry 5 -LOs "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
 chmod +x kubectl
 echo "kubectl version --client"
 ./kubectl version --client
@@ -22,7 +25,7 @@ mv kubectl "${bindir}"
 echo "Downloading helm for ${ARCH}"
 helm_archive="${tmpdir}/helm.tgz"
 helm_version="v3.17.1"
-curl -s https://get.helm.sh/helm-${helm_version}-linux-"${ARCH}".tar.gz --output "${helm_archive}"
+curl --retry 5 --retry-delay 3 --retry-all-errors --fail --show-error --max-time 180 -s https://get.helm.sh/helm-${helm_version}-linux-"${ARCH}".tar.gz --output "${helm_archive}"
 
 tar xfz "${helm_archive}" -C "${tmpdir}" &> /dev/null
 mv "${tmpdir}/linux-${ARCH}/helm" "${bindir}"

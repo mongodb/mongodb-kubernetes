@@ -55,7 +55,7 @@ spec:
   containers:
   - image: public.ecr.aws/docker/library/busybox:1.37.0
     name: keepalive
-    command: ["/bin/sh", "-c", "while true; do sleep 3600; done"]
+    command: ["/bin/sh", "-c", "while true; do sleep 7200; done"]
     volumeMounts:
       - name: results
         mountPath: /tmp/results
@@ -115,7 +115,7 @@ spec:
     - name: POD_NAME
       value: 'mongodb-enterprise-operator-testing-pod'
     - name: VERSION_ID
-      value: {{ .Values.tag }}
+      value: {{ .Values.versionId }}
     - name: REGISTRY
       value: {{ .Values.registry }}
     {{- if .Values.multiCluster.memberClusters }}
@@ -190,7 +190,7 @@ spec:
       value: {{ .Values.cognito_workload_url }}
     - name: cognito_workload_user_id
       value: {{ .Values.cognito_workload_user_id }}
-    image: {{ .Values.repo }}/mongodb-kubernetes-tests:{{ .Values.tag }}
+    image: "{{ .Values.mekoTestsRegistry }}/mongodb-kubernetes-tests:{{ .Values.mekoTestsVersion }}"
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
     {{ if .Values.otel_endpoint }}

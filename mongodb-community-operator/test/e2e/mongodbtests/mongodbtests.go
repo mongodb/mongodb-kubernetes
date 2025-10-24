@@ -501,7 +501,7 @@ func BasicFunctionality(ctx context.Context, mdb *mdbv1.MongoDBCommunity, skipSt
 		// TODO: this is temporary, remove the need for skipStatuscheck after 0.7.4 operator release
 		if len(skipStatusCheck) > 0 && !skipStatusCheck[0] {
 			t.Run("Test Status Was Updated", Status(ctx, mdb, mdbv1.MongoDBCommunityStatus{
-				MongoURI:                   mdb.MongoURI(""),
+				MongoURI:                   mdb.MongoURI(),
 				Phase:                      mdbv1.Running,
 				Version:                    mdb.GetMongoDBVersion(),
 				CurrentMongoDBMembers:      mdb.Spec.Members,

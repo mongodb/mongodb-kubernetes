@@ -1,40 +1,22 @@
 {
   "mongodbToolsBundle": {
-    "ubi": "mongodb-database-tools-rhel88-x86_64-100.12.2.tgz"
+    "ubi": "mongodb-database-tools-rhel88-x86_64-100.13.0.tgz"
   },
-  "mongodbOperator": "1.3.0",
-  "initDatabaseVersion": "1.3.0",
-  "initOpsManagerVersion": "1.3.0",
-  "initAppDbVersion": "1.3.0",
-  "databaseImageVersion": "1.3.0",
+  "mongodbOperator": "1.5.0",
+  "initDatabaseVersion": "1.5.0",
+  "initOpsManagerVersion": "1.5.0",
+  "initAppDbVersion": "1.5.0",
+  "databaseImageVersion": "1.5.0",
   "agentVersion": "108.0.12.8846-1",
+  "readinessProbeVersion": "1.0.23",
+  "versionUpgradeHookVersion": "1.0.10",
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },
   "search": {
-    "community": {
-      "version": "1.47.0"
-    }
+    "version": "0.53.1"
   },
   "supportedImages": {
-    "readinessprobe": {
-      "ssdlc_name": "MongoDB Controllers for Kubernetes Readiness Probe",
-      "versions": [
-        "1.0.22"
-      ],
-      "variants": [
-        "ubi"
-      ]
-    },
-    "operator-version-upgrade-post-start-hook": {
-      "ssdlc_name": "MongoDB Controllers for Kubernetes Operator Version Upgrade Hook",
-      "versions": [
-        "1.0.9"
-      ],
-      "variants": [
-        "ubi"
-      ]
-    },
     "ops-manager": {
       "ssdlc_name": "MongoDB Controllers for Kubernetes Enterprise Ops Manager",
       "versions": [
@@ -46,6 +28,7 @@
         "7.0.14",
         "7.0.15",
         "7.0.17",
+        "7.0.18",
         "8.0.0",
         "8.0.1",
         "8.0.2",
@@ -55,7 +38,10 @@
         "8.0.6",
         "8.0.7",
         "8.0.11",
-        "8.0.12"
+        "8.0.12",
+        "8.0.13",
+        "8.0.14",
+        "8.0.15"
       ],
       "variants": [
         "ubi"
@@ -68,7 +54,9 @@
         "1.0.1",
         "1.1.0",
         "1.2.0",
-        "1.3.0"
+        "1.3.0",
+        "1.4.0",
+        "1.5.0"
       ],
       "variants": [
         "ubi"
@@ -107,8 +95,8 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.38.0.9654-1",
-        "cloud_manager_tools": "100.12.2",
+        "cloud_manager": "13.41.0.9830-1",
+        "cloud_manager_tools": "100.13.0",
         "ops_manager": {
           "6.0.27": {
             "agent_version": "12.0.35.7911-1",
@@ -134,9 +122,9 @@
             "agent_version": "107.0.17.8771-1",
             "tools_version": "100.12.2"
           },
-          "8.0.0": {
-            "agent_version": "108.0.0.8694-1",
-            "tools_version": "100.10.0"
+          "7.0.18": {
+            "agent_version": "107.0.18.8784-1",
+            "tools_version": "100.13.0"
           },
           "8.0.1": {
             "agent_version": "108.0.1.8718-1",
@@ -173,6 +161,18 @@
           "8.0.12": {
             "agent_version": "108.0.12.8846-1",
             "tools_version": "100.12.2"
+          },
+          "8.0.13": {
+            "agent_version": "108.0.13.8870-1",
+            "tools_version": "100.13.0"
+          },
+          "8.0.14": {
+            "agent_version": "108.0.13.8870-1",
+            "tools_version": "100.13.0"
+          },
+          "8.0.15": {
+            "agent_version": "108.0.15.8888-1",
+            "tools_version": "100.13.0"
           }
         }
       },
@@ -187,7 +187,9 @@
         "1.0.1",
         "1.1.0",
         "1.2.0",
-        "1.3.0"
+        "1.3.0",
+        "1.4.0",
+        "1.5.0"
       ],
       "variants": [
         "ubi"
@@ -200,7 +202,9 @@
         "1.0.1",
         "1.1.0",
         "1.2.0",
-        "1.3.0"
+        "1.3.0",
+        "1.4.0",
+        "1.5.0"
       ],
       "variants": [
         "ubi"
@@ -213,7 +217,9 @@
         "1.0.1",
         "1.1.0",
         "1.2.0",
-        "1.3.0"
+        "1.3.0",
+        "1.4.0",
+        "1.5.0"
       ],
       "variants": [
         "ubi"
@@ -226,7 +232,9 @@
         "1.0.1",
         "1.1.0",
         "1.2.0",
-        "1.3.0"
+        "1.3.0",
+        "1.4.0",
+        "1.5.0"
       ],
       "variants": [
         "ubi"

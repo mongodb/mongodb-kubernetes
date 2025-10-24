@@ -42,7 +42,7 @@ dump_cluster_information() {
     done
   else
     # Dump all the information we can from this namespace
-    dump_all || true
+    dump_all "$(kubectl config current-context)" || true
   fi
 }
 
@@ -123,7 +123,7 @@ echo "TEST_NAME is set to: ${TEST_NAME}"
 
 delete_operator "${NAMESPACE}"
 
-# We'll have the task running for the alloca  ted time, minus the time it took us
+# We'll have the task running for the allocated time, minus the time it took us
 # to get all the way here, assuming configuring and deploying the operator can
 # take a bit of time. This is needed because Evergreen kills the process *AND*
 # Docker containers running on the host when it hits a timeout. Under these

@@ -91,3 +91,8 @@ docs/**/test.sh.run.log
 
 # goreleaser generated files
 dist
+logs
+*.run.log
+
+# locally packaged chart
+mongodb-kubernetes-*.tgz

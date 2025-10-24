@@ -33,26 +33,6 @@ else
 fi
 export NAMESPACE
 
-export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
-
-export REGISTRY="${BASE_REPO_URL}"
-export QUAY_REGISTRY=quay.io/mongodb
-export OPERATOR_REGISTRY=${REGISTRY}
-export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-${REGISTRY}}
-export INIT_APPDB_REGISTRY=${INIT_IMAGES_REGISTRY}
-export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY-"${QUAY_REGISTRY}"}
-export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
-export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
-export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
-export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-database"
-export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-database"
-export MDB_AGENT_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-agent"
-
-# these are needed to deploy OM
-export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-appdb"
-export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
-export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-ops-manager
-
 export CLUSTER_TYPE="kind"
 # Empty sting means that we're not using it.
 export EVG_HOST_NAME=""
@@ -93,6 +73,8 @@ export IS_PATCH="${is_patch:-"unknown"}"
 export BUILD_ID="${build_id:-"unknown"}"
 export EXECUTION="${execution:-"unknown"}"
 export BUILD_VARIANT="${build_variant:-"unknown"}"
+export VERSION_ID="${version_id:-"unknown"}"
+export GIT_TAG="${triggered_by_git_tag:-}"
 
 # var used in pipeline.py to determine if we're running on EVG host
 # used to discern between local pipeline image build and the build in pipeline
@@ -104,13 +86,8 @@ export DELETE_KIND_NETWORK="true"
 # it's also set explicitly in public_*_snippets variants
 export CODE_SNIPPETS_COMMIT_OUTPUT=${code_snippets_commit_output:-"false"}
 
-# MCO
 # shellcheck disable=SC2154
-export READINESS_PROBE_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-readinessprobe:${version_id}"
-export VERSION_UPGRADE_HOOK_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"
-
-# TODO to be removed at public preview stage of community-search
-export COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON="${community_private_preview_pullsecret_dockerconfigjson}"
+export PRERELEASE_PULLSECRET_DOCKERCONFIGJSON="${community_private_preview_pullsecret_dockerconfigjson}"
 
 export cognito_user_pool_id="${cognito_user_pool_id}"
 export cognito_workload_federation_client_id="${cognito_workload_federation_client_id}"
@@ -121,3 +98,57 @@ export cognito_workload_url="${cognito_workload_url}"
 export cognito_workload_user_id="${cognito_workload_user_id}"
 
 export MDB_UPDATE_LICENSES=true
+
+# Set BUILD_SCENARIO based on evergreen variables
+# BUILD_SCENARIO can be overridden externally if needed
+BUILD_SCENARIO_RELEASE="release" # Official release triggered by a git tag
+BUILD_SCENARIO_STAGING="staging" # CI build from a merge to the master
+BUILD_SCENARIO_PATCH="patch" # CI build for a patch/pull request
+if [ -n "${BUILD_SCENARIO-}" ]; then
+  echo "Build scenario has been set externally, not overriding it"
+elif [ "${GIT_TAG}" ]; then
+  BUILD_SCENARIO=$BUILD_SCENARIO_RELEASE
+elif [ "${IS_PATCH}" == "true" ]; then
+  BUILD_SCENARIO=$BUILD_SCENARIO_PATCH
+else
+  BUILD_SCENARIO=$BUILD_SCENARIO_STAGING
+fi
+echo "Setting BUILD_SCENARIO=${BUILD_SCENARIO}"
+export BUILD_SCENARIO="${BUILD_SCENARIO}"
+
+# Set REGISTRY and OPERATOR_VERSION, READINESS_PROBE_VERSION, VERSION_UPGRADE_HOOK_VERSION based on build scenario
+# REGISTRY and OPERATOR_VERSION, READINESS_PROBE_VERSION, VERSION_UPGRADE_HOOK_VERSION can be overridden externally if needed
+PATCH_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+STAGING_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
+RELEASE_REGISTRY="quay.io/mongodb"
+case $BUILD_SCENARIO in
+  "${BUILD_SCENARIO_RELEASE}")
+    REGISTRY="${REGISTRY:-$RELEASE_REGISTRY}"
+    OPERATOR_VERSION="${OPERATOR_VERSION:-$GIT_TAG}"
+    READINESS_PROBE_VERSION_FROM_RELEASE_JSON="$(jq -r '.readinessProbeVersion' "${PROJECT_DIR}/release.json")"
+    READINESS_PROBE_VERSION="${READINESS_PROBE_VERSION:-$READINESS_PROBE_VERSION_FROM_RELEASE_JSON}"
+    VERSION_UPGRADE_HOOK_VERSION_FROM_RELEASE_JSON="$(jq -r '.versionUpgradeHookVersion' "${PROJECT_DIR}/release.json")"
+    VERSION_UPGRADE_HOOK_VERSION="${VERSION_UPGRADE_HOOK_VERSION:-$VERSION_UPGRADE_HOOK_VERSION_FROM_RELEASE_JSON}"
+    ;;
+
+  "${BUILD_SCENARIO_STAGING}")
+    COMMIT_SHA_SHORT=$(git rev-parse --short=8 HEAD)
+    REGISTRY="${REGISTRY:-$STAGING_REGISTRY}"
+    OPERATOR_VERSION="${OPERATOR_VERSION:-$COMMIT_SHA_SHORT}"
+    READINESS_PROBE_VERSION="${READINESS_PROBE_VERSION:-$COMMIT_SHA_SHORT}"
+    VERSION_UPGRADE_HOOK_VERSION="${VERSION_UPGRADE_HOOK_VERSION:-$COMMIT_SHA_SHORT}"
+    ;;
+
+  "${BUILD_SCENARIO_PATCH}")
+    REGISTRY="${REGISTRY:-$PATCH_REGISTRY}"
+    OPERATOR_VERSION="${OPERATOR_VERSION:-$VERSION_ID}"
+    READINESS_PROBE_VERSION="${READINESS_PROBE_VERSION:-$VERSION_ID}"
+    VERSION_UPGRADE_HOOK_VERSION="${VERSION_UPGRADE_HOOK_VERSION:-$VERSION_ID}"
+    ;;
+
+  *)
+    echo "Unknown BUILD_SCENARIO=${BUILD_SCENARIO}, exiting"
+    exit 1
+    ;;
+esac
+echo "Setting REGISTRY=${REGISTRY} and OPERATOR_VERSION=${OPERATOR_VERSION}, READINESS_PROBE_VERSION=${READINESS_PROBE_VERSION}, VERSION_UPGRADE_HOOK_VERSION=${VERSION_UPGRADE_HOOK_VERSION} for ${BUILD_SCENARIO} build scenario"

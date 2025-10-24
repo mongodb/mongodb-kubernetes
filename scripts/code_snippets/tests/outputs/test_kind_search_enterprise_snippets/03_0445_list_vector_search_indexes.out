@@ -1,0 +1,40 @@
+{
+  cursor: {
+    id: 0,
+    ns: 'sample_mflix.embedded_movies',
+    firstBatch: [
+      {
+        id: '68c974c345ccb96c3ca77233',
+        name: 'vector_index',
+        type: 'vectorSearch',
+        latestDefinition: {
+          type: 'vectorSearch',
+          indexID: ObjectId('68c974c345ccb96c3ca77233'),
+          name: 'vector_index',
+          database: 'sample_mflix',
+          lastObservedCollectionName: 'embedded_movies',
+          collectionUUID: UUID('98eeef92-0c1f-4d3c-a005-1835b1151c15'),
+          numPartitions: 1,
+          fields: [
+            {
+              type: 'vector',
+              path: 'plot_embedding_voyage_3_large',
+              numDimensions: 2048,
+              similarity: 'dotProduct',
+              quantization: 'scalar'
+            }
+          ]
+        }
+      }
+    ]
+  },
+  ok: 1,
+  '$clusterTime': {
+    clusterTime: Timestamp({ t: 1758033151, i: 1 }),
+    signature: {
+      hash: Binary.createFromBase64('7YKI4GnZNUUOJIozX2eTcoQsFe0=', 0),
+      keyId: Long('7550693252446289925')
+    }
+  },
+  operationTime: Timestamp({ t: 1758033151, i: 1 })
+}

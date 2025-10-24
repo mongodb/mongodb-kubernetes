@@ -9,21 +9,21 @@ get_operator_helm_values() {
 
   declare -a config=(
     "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
-    "registry.operator=${OPERATOR_REGISTRY:-${REGISTRY}}"
+    "registry.operator=${OPERATOR_REGISTRY}"
     "registry.imagePullSecrets=image-registries-secret"
     "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY}"
     "registry.initAppDb=${INIT_APPDB_REGISTRY}"
     "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
-    "registry.agent=${AGENT_BASE_REGISTRY:-${REGISTRY}}"
+    "registry.agent=${MDB_AGENT_REGISTRY}"
     "registry.opsManager=${OPS_MANAGER_REGISTRY}"
     "registry.database=${database_registry}"
     "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager-ubi}"
     "database.name=${database_name:=mongodb-kubernetes-database}"
-    "operator.version=${OPERATOR_VERSION-${VERSION_ID}}"
-    "initOpsManager.version=${INIT_OPS_MANAGER_VERSION:-${VERSION_ID}}"
-    "initAppDb.version=${INIT_APPDB_VERSION:-${VERSION_ID}}"
-    "initDatabase.version=${INIT_DATABASE_VERSION:-${VERSION_ID}}"
-    "database.version=${DATABASE_VERSION:-${VERSION_ID}}"
+    "operator.version=${OPERATOR_VERSION}"
+    "initOpsManager.version=${INIT_OPS_MANAGER_VERSION}"
+    "initAppDb.version=${INIT_APPDB_VERSION}"
+    "initDatabase.version=${INIT_DATABASE_VERSION}"
+    "database.version=${DATABASE_VERSION}"
     "agent.version=${AGENT_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
     "mongodb.imageType=${MDB_IMAGE_TYPE:-ubi8}"
@@ -33,7 +33,10 @@ get_operator_helm_values() {
     "operator.telemetry.send.enabled=${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}"
     # lets collect and save in the configmap as frequently as we can
     "operator.telemetry.collection.frequency=${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}"
-    "community.registry.agent=${AGENT_BASE_REGISTRY:-${REGISTRY}}"
+    "search.repo=${MDB_SEARCH_REPO_URL}"
+    "search.name=${MDB_SEARCH_NAME}"
+    "search.version=${MDB_SEARCH_VERSION}"
+    "community.registry.agent=${MDB_AGENT_REGISTRY}"
   )
 
   if [[ "${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION:-}" != "" ]]; then
@@ -66,9 +69,11 @@ get_operator_helm_values() {
 
   # shellcheck disable=SC2154
   if [[ "${KUBE_ENVIRONMENT_NAME-}" = "multi" ]]; then
-    comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
-    # shellcheck disable=SC2154
-    config+=("multiCluster.clusters={${comma_separated_list}}")
+    if [[ -n "${MEMBER_CLUSTERS:-}" ]]; then
+      comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
+      # shellcheck disable=SC2154
+      config+=("multiCluster.clusters={${comma_separated_list}}")
+    fi
     config+=("operator.createOperatorServiceAccount=false")
   fi
 

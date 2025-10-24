@@ -43,7 +43,7 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
-	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
@@ -390,10 +390,10 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 }
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
-	return operator.AddMongoDBSearchController(ctx, mgr, search_controller.OperatorSearchConfig{
-		SearchRepo:    env.ReadOrPanic("MDB_SEARCH_COMMUNITY_REPO_URL"),
-		SearchName:    env.ReadOrPanic("MDB_SEARCH_COMMUNITY_NAME"),
-		SearchVersion: env.ReadOrPanic("MDB_SEARCH_COMMUNITY_VERSION"),
+	return operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
+		SearchRepo:    env.ReadOrPanic("MDB_SEARCH_REPO_URL"),
+		SearchName:    env.ReadOrPanic("MDB_SEARCH_NAME"),
+		SearchVersion: env.ReadOrPanic("MDB_SEARCH_VERSION"),
 	})
 }
 

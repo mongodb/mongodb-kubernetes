@@ -60,33 +60,27 @@ tasks:
         vars:
           image_name: mongodb-agent
 
-  - name: preflight_om_image
-    tags: [ "image_preflight" ]
-    commands:
-      - func: clone
-      - func: python_venv
-      - func: setup_preflight
-      - func: preflight_image
-        vars:
-          image_name: ops-manager
-
 # Code snippets tasks
 # Each task is selected by convention by running scripts/code_snippets/${task_name}_test.sh
   - name: task_gke_multi_cluster_snippets
     tags: [ "code_snippets" ]
-    allowed_requesters: [ "patch", "github_tag" ]
     commands:
       - func: test_code_snippets
       - func: sample_commit_output
 
   - name: task_gke_multi_cluster_no_mesh_snippets
     tags: [ "code_snippets" ]
-    allowed_requesters: [ "patch", "github_tag" ]
     commands:
       - func: test_code_snippets
       - func: sample_commit_output
 
-  - name: task_kind_community_search_snippets
+  - name: task_kind_search_community_snippets
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: sample_commit_output
+
+  - name: task_kind_search_enterprise_snippets
     tags: [ "code_snippets", "patch-run" ]
     commands:
       - func: test_code_snippets
@@ -791,7 +785,6 @@ tasks:
 
   - name: e2e_om_ops_manager_backup
     tags: [ "patch-run" ]
-    allowed_requesters: [ "github_tag", "patch" ]
     commands:
       - func: "e2e_test"
 
@@ -864,6 +857,8 @@ tasks:
 
   - name: e2e_om_ops_manager_pod_spec
     tags: [ "patch-run" ]
+    run_on:
+      - ubuntu2404-large
     commands:
       - func: e2e_test
 
@@ -1286,5 +1281,30 @@ tasks:
 
   - name: e2e_search_community_basic
     tags: ["patch-run"]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_community_tls
+    tags: ["patch-run"]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_external_basic
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_external_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_enterprise_basic
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_enterprise_tls
+    tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

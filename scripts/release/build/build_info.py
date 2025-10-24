@@ -3,15 +3,9 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 from scripts.release.build.build_scenario import BuildScenario
-from scripts.release.constants import (
-    DEFAULT_REPOSITORY_PATH,
-    DEFAULT_CHANGELOG_PATH,
-    RELEASE_INITIAL_VERSION_ENV_VAR,
-    get_initial_version,
-    get_initial_commit_sha,
-)
 
 MEKO_TESTS_IMAGE = "meko-tests"
+MEKO_TESTS_ARM64_IMAGE = "meko-tests-arm64"
 OPERATOR_IMAGE = "operator"
 OPERATOR_RACE_IMAGE = "operator-race"
 MCO_TESTS_IMAGE = "mco-tests"
@@ -29,25 +23,26 @@ OPS_MANAGER_IMAGE = "ops-manager"
 class ImageInfo:
     repositories: List[str]
     platforms: list[str]
-    version: str | None
     dockerfile_path: str
     sign: bool = False
     latest_tag: bool = False
     olm_tag: bool = False
+    skip_if_exists: bool = False
+    architecture_suffix: bool = False
 
 
 @dataclass
 class BinaryInfo:
     s3_store: str
     platforms: list[str]
-    version: str | None
     sign: bool = False
 
 
 @dataclass
 class HelmChartInfo:
-    repositories: List[str]
-    version: str | None
+    repository: str
+    registry: str
+    region: str
     sign: bool = False
 
 
@@ -58,31 +53,13 @@ class BuildInfo:
     helm_charts: Dict[str, HelmChartInfo]
 
 
-def load_build_info(
-    scenario: BuildScenario,
-    repository_path: str = DEFAULT_REPOSITORY_PATH,
-    changelog_sub_path: str = DEFAULT_CHANGELOG_PATH,
-    initial_commit_sha: str = None,
-    initial_version: str = None,
-) -> BuildInfo:
+def load_build_info(scenario: BuildScenario) -> BuildInfo:
     f"""
     Load build information based on the specified scenario.
 
     :param scenario: BuildScenario enum value indicating the build scenario (e.g. "development", "patch", "staging", "release"). "development" scenario will return build info for "patch" scenario.
-    :param repository_path: Path to the Git repository. Default is the current directory `{DEFAULT_REPOSITORY_PATH}`.
-    :param changelog_sub_path: Path to the changelog directory relative to the repository root. Default is '{DEFAULT_CHANGELOG_PATH}'.
-    :param initial_commit_sha: SHA of the initial commit to start from if no previous version tag is found. If not provided, it will be determined based on `{RELEASE_INITIAL_VERSION_ENV_VAR} environment variable.
-    :param initial_version: Initial version to use if no previous version tag is found. If not provided, it will be determined based on `{RELEASE_INITIAL_VERSION_ENV_VAR}` environment variable.
     :return: BuildInfo object containing images, binaries, and helm charts information for specified scenario.
     """
-
-    if not initial_commit_sha:
-        initial_commit_sha = get_initial_commit_sha()
-    if not initial_version:
-        initial_version = get_initial_version()
-
-    version = scenario.get_version(repository_path, changelog_sub_path, initial_commit_sha, initial_version)
-    # For manual_release, version can be None and will be set by image-specific logic
 
     with open("build_info.json", "r") as f:
         build_info = json.load(f)
@@ -99,19 +76,15 @@ def load_build_info(
             # If no scenario_data is available for the scenario, skip this image
             continue
 
-        # Only update the image_version if it is not already set in the build_info.json file
-        image_version = scenario_data.get("version")
-        if not image_version and version is not None:
-            image_version = version
-
         images[name] = ImageInfo(
             repositories=scenario_data["repositories"],
             platforms=scenario_data["platforms"],
-            version=image_version,
             dockerfile_path=data["dockerfile-path"],
             sign=scenario_data.get("sign", False),
             latest_tag=scenario_data.get("latest-tag", False),
             olm_tag=scenario_data.get("olm-tag", False),
+            skip_if_exists=scenario_data.get("skip-if-exists", False),
+            architecture_suffix=scenario_data.get("architecture_suffix", False),
         )
 
     binaries = {}
@@ -124,7 +97,6 @@ def load_build_info(
         binaries[name] = BinaryInfo(
             s3_store=scenario_data["s3-store"],
             platforms=scenario_data["platforms"],
-            version=version,
             sign=scenario_data.get("sign", False),
         )
 
@@ -136,9 +108,10 @@ def load_build_info(
             continue
 
         helm_charts[name] = HelmChartInfo(
-            repositories=scenario_data["repositories"],
-            version=version,
+            repository=scenario_data.get("repository"),
             sign=scenario_data.get("sign", False),
+            registry=scenario_data.get("registry"),
+            region=scenario_data.get("region")
         )
 
     return BuildInfo(images=images, binaries=binaries, helm_charts=helm_charts)

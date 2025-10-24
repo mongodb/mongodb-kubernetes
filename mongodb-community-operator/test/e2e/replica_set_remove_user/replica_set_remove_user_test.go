@@ -111,7 +111,7 @@ func TestCleanupUsers(t *testing.T) {
 	t.Run("Basic tests", mongodbtests.BasicFunctionality(ctx, &mdb))
 	t.Run("Keyfile authentication is configured", tester.HasKeyfileAuth(3))
 	t.Run("Test Basic Connectivity", tester.ConnectivitySucceeds())
-	t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI("")), WithoutTls(), WithReplicaSet(mdb.Name)))
+	t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI()), WithoutTls(), WithReplicaSet(mdb.Name)))
 	t.Run("Add new user to MongoDB Resource", mongodbtests.AddUserToMongoDBCommunity(ctx, &mdb, newUser))
 	t.Run("MongoDB reaches Running phase", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
 	editedUser := mdb.Spec.Users[1]
