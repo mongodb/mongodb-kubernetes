@@ -6,9 +6,13 @@ import subprocess
 import uuid
 from typing import Dict, List, Optional, Tuple
 
+from kubetester.consts import *
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
+
+# LOCAL_CRDs_DIR is the dir where local helm chart's CRDs are copied in tests image
+LOCAL_CRDs_DIR = "helm_chart/crds"
 
 
 def helm_template(
@@ -145,6 +149,55 @@ def process_run_and_check(args, **kwargs):
         raise
 
 
+def oci_helm_registry_login(helm_registry: str, region: str):
+    logger.info(f"Attempting to log into ECR registry: {helm_registry}, using helm registry login.")
+
+    aws_command = ["aws", "ecr", "get-login-password", "--region", region]
+
+    # as we can see the password is being provided by stdin, that would mean we will have to
+    # pipe the aws_command (it figures out the password) into helm_command.
+    helm_command = ["helm", "registry", "login", "--username", "AWS", "--password-stdin", helm_registry]
+
+    try:
+        logger.info("Starting AWS ECR credential retrieval.")
+        aws_proc = subprocess.Popen(
+            aws_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True  # Treat input/output as text strings
+        )
+
+        logger.info("Starting Helm registry login.")
+        helm_proc = subprocess.Popen(
+            helm_command, stdin=aws_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+
+        # Close the stdout stream of aws_proc in the parent process
+        # to prevent resource leakage (only needed if you plan to do more processing)
+        aws_proc.stdout.close()
+
+        # Wait for the Helm command (helm_proc) to finish and capture its output
+        helm_stdout, helm_stderr = helm_proc.communicate()
+
+        # Wait for the AWS process to finish as well
+        aws_proc.wait()
+
+        if aws_proc.returncode != 0:
+            _, aws_stderr = aws_proc.communicate()
+            raise Exception(f"aws command to get password failed. Error: {aws_stderr}")
+
+        if helm_proc.returncode == 0:
+            logger.info("Login to helm registry was successful.")
+            logger.info(helm_stdout.strip())
+        else:
+            raise Exception(
+                f"Login to helm registry failed, Exit code: {helm_proc.returncode}, Error: {helm_stderr.strip()}"
+            )
+
+    except FileNotFoundError as e:
+        # This catches errors if 'aws' or 'helm' are not in the PATH
+        raise Exception(f"Command not found. Please ensure '{e.filename}' is installed and in your system's PATH.")
+    except Exception as e:
+        raise Exception(f"An unexpected error occurred: {e}.")
+
+
 def helm_upgrade(
     name: str,
     namespace: str,
@@ -162,7 +215,7 @@ def helm_upgrade(
     chart_dir = helm_chart_path if helm_override_path else _helm_chart_dir(helm_chart_path)
 
     if apply_crds_first:
-        apply_crds_from_chart(chart_dir)
+        apply_crds_from_chart(LOCAL_CRDs_DIR)
 
     command_args = _create_helm_args(helm_args, helm_options)
     args = [
@@ -183,11 +236,24 @@ def helm_upgrade(
     process_run_and_check(command, check=True, capture_output=True, shell=True)
 
 
-def apply_crds_from_chart(chart_dir: str):
-    crd_files = glob.glob(os.path.join(chart_dir, "crds", "*.yaml"))
+# oci_chart_info returns the respective registry/repo and region information
+# based on the build scenario (dev/staging) tests are being run in. These are
+# read from build_info.json and then set to the tests image as env vars.
+def oci_chart_info():
+    registry = os.environ.get(OCI_HELM_REGISTRY_ENV_VAR_NAME)
+    repository = os.environ.get(OCI_HELM_REPOSITORY_ENV_VAR_NAME)
+    region = os.environ.get(OCI_HELM_REGION_ENV_VAR_NAME)
+
+    logger.info(f"oci chart details in test image is registry {registry}, repo {repository}, region {region}")
+
+    return registry, f"{repository}/mongodb-kubernetes", region
+
+
+def apply_crds_from_chart(crds_dir: str):
+    crd_files = glob.glob(os.path.join(crds_dir, "*.yaml"))
 
     if not crd_files:
-        raise Exception(f"No CRD files found in chart directory: {chart_dir}")
+        raise Exception(f"No CRD files found in chart directory: {crds_dir}")
 
     logger.info(f"Found {len(crd_files)} CRD files to apply:")
 
@@ -234,3 +300,43 @@ def _create_helm_args(helm_args: Dict[str, str], helm_options: Optional[List[str
 
 def _helm_chart_dir(default: Optional[str] = "helm_chart") -> str:
     return os.environ.get("HELM_CHART_DIR", default)
+
+
+# helm_chart_path_and_version returns the chart path and version that we would like to install to run the E2E tests.
+# for local tests it returns early with local helm chart dir and for other scenarios it figure out the chart and version
+# based on the caller. In most of the cases we will install chart from OCI registry but for the tests where we would like
+# to install MEKO's specific version or MCK's specific version, we would expec `helm_chart_path` to set already.
+def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> tuple[str, str]:
+    # these are imported here to resolve import cycle issue
+    from tests.conftest import LOCAL_HELM_CHART_DIR, local_operator
+
+    if local_operator():
+        return LOCAL_HELM_CHART_DIR, ""
+
+    # if operator_version is not specified and we are not installing the MCK or MEKO chart
+    # it would mean we want to install OCI published helm chart. Figure out respective version,
+    # it is set in env var `OPERATOR_VERSION` based on build_scenario.
+    if not operator_version and helm_chart_path not in (
+        MCK_HELM_CHART,
+        LEGACY_OPERATOR_CHART,
+    ):
+        non_semver_operator_version = os.environ.get(OPERATOR_VERSION_ENV_VAR_NAME)
+        # when we publish the helm chart we append `0.0.0+` in the chart version, details are
+        # here https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.gg5ble8qlesq
+        operator_version = f"0.0.0+{non_semver_operator_version}"
+
+    # helm_chart_path not being passed would mean we are on evg env and would like to
+    # install helm chart from OCI registry.
+    if not helm_chart_path:
+        # login to the OCI container registry
+        registry, repository, region = oci_chart_info()
+        try:
+            oci_helm_registry_login(registry, region)
+        except Exception as e:
+            raise e
+
+        # figure out the registry URI, based on dev/staging scenario
+        chart_uri = f"oci://{registry}/{repository}"
+        helm_chart_path = chart_uri
+
+    return helm_chart_path, operator_version
