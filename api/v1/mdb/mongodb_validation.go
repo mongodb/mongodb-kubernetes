@@ -369,6 +369,25 @@ func noTopologyMigration(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func noSimultaneousTLSDisablingAndScaling(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if newObj.ResourceType != ReplicaSet {
+		return v1.ValidationSuccess()
+	}
+
+	// Check if TLS is being disabled (was enabled, now disabled)
+	tlsWasEnabled := oldObj.DbCommonSpec.IsSecurityTLSConfigEnabled()
+	tlsWillBeDisabled := !newObj.DbCommonSpec.IsSecurityTLSConfigEnabled()
+
+	// Check if members count is changing
+	membersChanging := oldObj.Members != newObj.Members
+
+	if tlsWasEnabled && tlsWillBeDisabled && membersChanging {
+		return v1.ValidationError("Cannot disable TLS and change member count simultaneously. Please apply these changes separately.")
+	}
+
+	return v1.ValidationSuccess()
+}
+
 // specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
 // is configured, doing the "oneOf" validation in the webhook.
 func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
@@ -437,6 +456,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
 		resourceTypeImmutable,
 		noTopologyMigration,
+		noSimultaneousTLSDisablingAndScaling,
 	}
 
 	var validationResults []v1.ValidationResult

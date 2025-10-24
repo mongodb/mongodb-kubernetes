@@ -35,21 +35,43 @@ def test_rs_is_running(replica_set: MongoDB):
 
 
 @pytest.mark.e2e_disable_tls_scale_up
-def test_tls_is_disabled_and_scaled_up(replica_set: MongoDB):
+def test_validation_error_on_simultaneous_tls_disable_and_scale(replica_set: MongoDB):
+    """Test that attempting to disable TLS and scale simultaneously fails validation."""
+    replica_set.load()
+    replica_set["spec"]["members"] = 5
+    replica_set["spec"]["security"]["tls"]["enabled"] = False
+    del replica_set["spec"]["additionalMongodConfig"]
+
+    try:
+        replica_set.update()
+        # If update succeeds, the test should fail
+        assert False, "Expected validation error but update succeeded"
+    except Exception as e:
+        # Verify the error message contains our validation error
+        error_message = str(e)
+        assert "Cannot disable TLS and change member count simultaneously" in error_message, \
+            f"Expected validation error about simultaneous TLS disable and scaling, got: {error_message}"
+
+
+@pytest.mark.e2e_disable_tls_scale_up
+def test_scale_up_without_tls_change(replica_set: MongoDB):
+    """Test that scaling up without TLS changes works."""
     replica_set.load()
     replica_set["spec"]["members"] = 5
 
     replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @pytest.mark.e2e_disable_tls_scale_up
-def test_tls_is_disabled_and_scaled_up(replica_set: MongoDB):
+def test_disable_tls_without_scaling(replica_set: MongoDB):
+    """Test that disabling TLS without scaling works."""
     replica_set.load()
     replica_set["spec"]["security"]["tls"]["enabled"] = False
     del replica_set["spec"]["additionalMongodConfig"]
 
     replica_set.update()
 
-    # timeout is longer because the operator first needs to
-    # disable TLS and then, scale down one by one.
+    # timeout is longer because the operator needs to
+    # disable TLS step by step.
     replica_set.assert_reaches_phase(Phase.Running, timeout=800)
