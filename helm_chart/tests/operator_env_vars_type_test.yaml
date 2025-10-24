@@ -2,12 +2,39 @@ suite: Environment Variable Quoting Check
 templates:
   - operator.yaml
 tests:
-  - it: should correctly quote the the value for the env vars for container images
+  - it: should correctly quote the value for the env vars for container images
     set:
       initDatabase.version: 1234
       database.version: 12d3f4
       initOpsManager.version: 1.2.3
       initAppDb.version: abc
+    asserts:      
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: INIT_DATABASE_VERSION
+            value: "1234"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATABASE_VERSION
+            value: "12d3f4"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: INIT_OPS_MANAGER_VERSION
+            value: "1.2.3"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: INIT_APPDB_VERSION
+            value: "abc"
+  - it: should correctly quote the value for the env vars for container images even when they are passed quoted
+    set:
+      initDatabase.version: "1234"
+      database.version: "12d3f4"
+      initOpsManager.version: "1.2.3"
+      initAppDb.version: "abc"
     asserts:      
       - contains:
           path: spec.template.spec.containers[0].env
