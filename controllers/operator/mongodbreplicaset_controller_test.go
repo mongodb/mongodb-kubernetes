@@ -68,7 +68,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	connection := omConnectionFactory.GetConnection()
 	connection.(*om.MockedOmConnection).CheckDeployment(t, deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs), "auth", "ssl")
-	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 2)
+	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
 }
 
 func TestReplicaSetRace(t *testing.T) {
