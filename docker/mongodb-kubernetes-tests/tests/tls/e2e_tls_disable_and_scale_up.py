@@ -71,7 +71,13 @@ def test_disable_tls_without_scaling(replica_set: MongoDB):
     del replica_set["spec"]["additionalMongodConfig"]
 
     replica_set.update()
-
-    # timeout is longer because the operator needs to
-    # disable TLS step by step.
     replica_set.assert_reaches_phase(Phase.Running, timeout=800)
+
+@pytest.mark.e2e_disable_tls_scale_up
+def test_scale_down_after_tls_change(replica_set: MongoDB):
+    """Test that scaling down after disabling TLS works."""
+    replica_set.load()
+    replica_set["spec"]["members"] = 3
+
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
