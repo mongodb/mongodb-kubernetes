@@ -26,7 +26,7 @@ func CreateFromReplicaSet(mongoDBImage string, forceEnterprise bool, rs *mdb.Mon
 	), zap.S())
 	d := om.NewDeployment()
 
-	lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdb.ReplicaSetConfig)
+	lastConfig, err := mdb.GetLastAdditionalMongodConfigByType(nil, mdb.ReplicaSetConfig)
 	if err != nil {
 		panic(err)
 	}

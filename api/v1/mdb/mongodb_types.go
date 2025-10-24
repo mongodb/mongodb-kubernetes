@@ -243,6 +243,9 @@ func GetLastAdditionalMongodConfigByType(lastSpec *MongoDbSpec, configType Addit
 
 // GetLastAdditionalMongodConfigByType returns the last successfully achieved AdditionalMongodConfigType for the given component.
 func (m *MongoDB) GetLastAdditionalMongodConfigByType(configType AdditionalMongodConfigType) (*AdditionalMongodConfig, error) {
+	if m.Spec.GetResourceType() == ReplicaSet {
+		panic(errors.Errorf("this method cannot be used from ReplicaSet controller; use non-method GetLastAdditionalMongodConfigByType and pass lastSpec from the deployment state."))
+	}
 	if m.Spec.GetResourceType() == ShardedCluster {
 		panic(errors.Errorf("this method cannot be used from ShardedCluster controller; use non-method GetLastAdditionalMongodConfigByType and pass lastSpec from the deployment state."))
 	}
