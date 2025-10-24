@@ -1,4 +1,3 @@
-import argparse
 import hashlib
 import os
 import subprocess
@@ -6,43 +5,62 @@ import sys
 import tarfile
 from pathlib import Path
 
-import boto3
-from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
+from botocore.exceptions import ClientError
 from github import Github, GithubException
 
 from lib.base_logger import logger
 from scripts.release.build.build_info import (
+    KUBECTL_PLUGIN_BINARY,
     load_build_info,
 )
-from scripts.release.kubectl_mongodb.python.consts import *
+from scripts.release.build.build_scenario import BuildScenario
+from scripts.release.kubectl_mongodb.download_kubectl_plugin import (
+    download_kubectl_plugin_from_s3,
+)
+from scripts.release.kubectl_mongodb.utils import (
+    CHECKSUMS_PATH,
+    GITHUB_REPO,
+    LOCAL_ARTIFACTS_DIR,
+    create_s3_client,
+    kubectl_plugin_name,
+    parse_platform,
+    s3_path,
+)
 
 GITHUB_TOKEN = os.environ.get("GH_TOKEN")
-
-S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = KUBECTL_PLUGIN_BINARY_NAME
 
 
 def main():
     release_version = os.environ.get("OPERATOR_VERSION")
 
-    kubectl_plugin_release_info = load_build_info(BUILD_SCENARIO_RELEASE).binaries[KUBECTL_PLUGIN_BINARY_NAME]
+    kubectl_plugin_release_info = load_build_info(BuildScenario.RELEASE).binaries[KUBECTL_PLUGIN_BINARY]
     release_scenario_bucket_name = kubectl_plugin_release_info.s3_store
+    release_platforms = kubectl_plugin_release_info.platforms
 
-    kubectl_plugin_staging_info = load_build_info(BUILD_SCENARIO_STAGING).binaries[KUBECTL_PLUGIN_BINARY_NAME]
+    kubectl_plugin_staging_info = load_build_info(BuildScenario.STAGING).binaries[KUBECTL_PLUGIN_BINARY]
     staging_scenario_bucket_name = kubectl_plugin_staging_info.s3_store
+    staging_version = get_commit_from_tag(release_version)
 
-    download_artifacts_from_s3(release_version, get_commit_from_tag(release_version), staging_scenario_bucket_name)
+    artifacts_dict = download_artifacts_from_s3(
+        release_version, release_platforms, staging_version, staging_scenario_bucket_name
+    )
 
     notarize_artifacts(release_version)
 
-    sign_and_verify_artifacts()
+    sign_and_verify_artifacts(list(artifacts_dict.keys()))
 
     artifacts_tar = create_tarballs()
 
-    artifacts = generate_checksums(artifacts_tar)
+    checksum_file = generate_checksums(artifacts_tar)
 
-    promote_artifacts(artifacts, release_version, release_scenario_bucket_name)
+    artifacts_tar_dict = {path: os.path.basename(path) for path in artifacts_tar}
+    checksum_file_dict = {checksum_file: os.path.basename(checksum_file)}
 
-    upload_assets_to_github_release(artifacts, release_version)
+    s3_artifacts = artifacts_dict | artifacts_tar_dict | checksum_file_dict
+    promote_artifacts_to_s3(s3_artifacts, release_version, release_scenario_bucket_name)
+
+    github_artifacts = artifacts_tar + [checksum_file]
+    upload_assets_to_github_release(github_artifacts, release_version)
 
 
 # get_commit_from_tag gets the commit associated with a release tag, so that we can use that
@@ -66,7 +84,7 @@ def get_commit_from_tag(tag: str) -> str:
         sys.exit(1)
 
 
-# generate_checksums generates checksums for the artifacts that we are going to upload to github release as assets.
+# generate_checksums generates checksums for the artifacts that we are going to upload to GitHub release as assets.
 # It's formatted: checksum  artifact_name
 def generate_checksums(artifacts: list[str]):
     checksums_path = Path(CHECKSUMS_PATH)
@@ -88,39 +106,54 @@ def generate_checksums(artifacts: list[str]):
             out_file.write(checksum_line + "\n")
 
     logger.info(f"Checksums written to {checksums_path}")
-    all_artifacts = list(artifacts) + [str(checksums_path.resolve())]
-    return all_artifacts
+    return str(checksums_path.resolve())
 
 
 # promote_artifacts promotes (copies) the downloaded staging artifacts to release S3 bucket.
-def promote_artifacts(artifacts: list[str], release_version: str, release_scenario_bucket_name: str):
-    s3_client = boto3.client("s3", region_name=AWS_REGION)
-    for file in artifacts:
-        if not os.path.isfile(file) or not file.endswith((".tar.gz", ".txt")):
-            logger.info(f"Skipping invalid or non-tar/checksum file: {file}")
+def promote_artifacts_to_s3(artifacts: dict[str, str], release_version: str, release_scenario_bucket_name: str):
+    s3_client = create_s3_client()
+
+    for local_file_path, s3_file_name in artifacts.items():
+        if not is_expected_artifact_for_promotion(local_file_path):
+            logger.warning(f"Skipping invalid or non-tar/checksum artifact: {local_file_path}")
             continue
 
-        file_name = os.path.basename(file)
-        s3_key = os.path.join(S3_BUCKET_KUBECTL_PLUGIN_SUBPATH, release_version, file_name)
+        s3_key = s3_path(s3_file_name, release_version)
 
         try:
-            s3_client.upload_file(file, release_scenario_bucket_name, s3_key)
-            logger.debug(
-                f"Plugin file {file} was promoted to release bucket {release_scenario_bucket_name}/{s3_key} successfully"
-            )
+            s3_client.upload_file(local_file_path, release_scenario_bucket_name, s3_key)
+            logger.debug(f"{local_file_path} was promoted to s3://{release_scenario_bucket_name}/{s3_key} successfully")
         except ClientError as e:
-            logger.debug(f"failed to upload the file {file}: {e}")
-            sys.exit(1)
+            raise Exception(f"failed to upload the file {local_file_path}: {e}")
 
-    logger.info("Artifacts were promoted to release bucket successfully")
+    logger.info("All artifacts were promoted to release bucket successfully")
 
 
-# notarize_artifacts notarizes the darwin goreleaser binaries in-place.
+def is_expected_artifact_for_promotion(file_path: str) -> bool:
+    if not os.path.isfile(file_path):
+        return False
+
+    if file_path.endswith(".txt"):
+        logger.debug(f"Promoting checksum file: {file_path}")
+    elif file_path.endswith(".tar.gz"):
+        logger.debug(f"Promoting tarball file: {file_path}")
+    elif file_path.endswith(KUBECTL_PLUGIN_BINARY):
+        logger.debug(f"Promoting binary required for e2e tests: {file_path}")
+    else:
+        return False
+
+    return True
+
+
+# notarize_artifacts notarizes the darwin binaries in-place.
 def notarize_artifacts(release_version: str):
     notarize_result = subprocess.run(
-        ["scripts/release/kubectl_mongodb/kubectl_mac_notarize.sh", release_version], capture_output=True, text=True
+        ["scripts/release/kubectl_mongodb/kubectl_mac_notarize.sh", release_version],
+        capture_output=True,
+        text=True,
     )
     if notarize_result.returncode == 0:
+        print(notarize_result.stdout)
         logger.info("Notarization of artifacts was successful")
     else:
         logger.debug(
@@ -129,118 +162,65 @@ def notarize_artifacts(release_version: str):
         sys.exit(1)
 
 
-# sign_and_verify_artifacts iterates over the goreleaser artifacts, that have been downloaded from S3, and
-# signs and verifies them.
-def sign_and_verify_artifacts():
-    cwd = os.getcwd()
-    artifacts_dir = os.path.join(cwd, LOCAL_ARTIFACTS_DIR)
+# sign_and_verify_artifacts iterates over the artifacts, that have been downloaded from S3, signs and verifies them.
+def sign_and_verify_artifacts(artifacts: list[str]):
+    for file_path in artifacts:
+        # signing an already signed artifact fails with `Signature already exists. Displaying proof`.
+        sign_result = subprocess.run(
+            ["scripts/release/kubectl_mongodb/sign.sh", file_path], capture_output=True, text=True
+        )
+        if sign_result.returncode == 0:
+            print(sign_result.stdout)
+            logger.info(f"Artifact {file_path} was signed successfully")
+        else:
+            logger.debug(
+                f"Signing the artifact {file_path} failed. \nstdout: {sign_result.stdout} \nstderr: {sign_result.stderr}"
+            )
+            sys.exit(1)
 
-    for subdir in os.listdir(artifacts_dir):
-        subdir_path = os.path.join(artifacts_dir, subdir)
-
-        # just work on dirs and not files
-        if os.path.isdir(subdir_path):
-            for file in os.listdir(subdir_path):
-                file_path = os.path.join(subdir_path, file)
-
-                if os.path.isfile(file_path):
-                    # signing an already signed artifact fails with `Signature already exixts. Displaying proof`.
-                    sign_result = subprocess.run(
-                        ["scripts/release/kubectl_mongodb/sign.sh", file_path], capture_output=True, text=True
-                    )
-                    if sign_result.returncode == 0:
-                        logger.info(f"Artifact {file_path} was signed successfully")
-                    else:
-                        logger.debug(
-                            f"Signing the artifact {file_path} failed. \nstdout: {sign_result.stdout} \nstderr: {sign_result.stderr}"
-                        )
-                        sys.exit(1)
-
-                    verify_result = subprocess.run(
-                        ["scripts/release/kubectl_mongodb/verify.sh", file_path], capture_output=True, text=True
-                    )
-                    if verify_result.returncode == 0:
-                        logger.info(f"Artifact {file_path} was verified successfully")
-                    else:
-                        logger.debug(
-                            f"Verification of the artifact {file_path} failed. \nstdout: {verify_result.stdout} \nstderr: {verify_result.stderr}"
-                        )
-                        sys.exit(1)
-
-
-def s3_artifacts_path_to_local_path(release_version: str, commit_sha: str):
-    s3_common_path = f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist"
-    return {
-        f"{s3_common_path}/kubectl-mongodb_darwin_amd64_v1/": f"kubectl-mongodb_{release_version}_darwin_amd64",
-        f"{s3_common_path}/kubectl-mongodb_darwin_arm64/": f"kubectl-mongodb_{release_version}_darwin_arm64",
-        f"{s3_common_path}/kubectl-mongodb_linux_amd64_v1/": f"kubectl-mongodb_{release_version}_linux_amd64",
-        f"{s3_common_path}/kubectl-mongodb_linux_arm64/": f"kubectl-mongodb_{release_version}_linux_arm64",
-        f"{s3_common_path}/kubectl-mongodb_linux_ppc64le/": f"kubectl-mongodb_{release_version}_linux_ppc64le",
-        f"{s3_common_path}/kubectl-mongodb_linux_s390x/": f"kubectl-mongodb_{release_version}_linux_s390x",
-    }
+        verify_result = subprocess.run(
+            ["scripts/release/kubectl_mongodb/verify.sh", file_path], capture_output=True, text=True
+        )
+        if verify_result.returncode == 0:
+            print(verify_result.stdout)
+            logger.info(f"Artifact {file_path} was verified successfully")
+        else:
+            logger.debug(
+                f"Verification of the artifact {file_path} failed. \nstdout: {verify_result.stdout} \nstderr: {verify_result.stderr}"
+            )
+            sys.exit(1)
 
 
 # download_artifacts_from_s3 downloads the staging artifacts (only that ones that we would later promote) from S3 and puts
-# them in the local dir LOCAL_ARTIFACTS_DIR.
-# ToDo: if the artifacts are not present at correct location, this is going to fail silently, we should instead fail this
-def download_artifacts_from_s3(release_version: str, commit_sha: str, staging_s3_bucket_name: str):
+# them in the local temp dir.
+def download_artifacts_from_s3(
+    release_version: str,
+    release_platforms: list[str],
+    staging_version: str,
+    staging_s3_bucket_name: str,
+) -> dict[str, str]:
     logger.info(f"Starting download of artifacts from staging S3 bucket: {staging_s3_bucket_name}")
-
-    try:
-        s3_client = boto3.client("s3", region_name=AWS_REGION)
-    except (NoCredentialsError, PartialCredentialsError):
-        logger.debug("ERROR: AWS credentials were not set.")
-        sys.exit(1)
-    except Exception as e:
-        logger.debug(f"An error occurred connecting to S3: {e}")
-        sys.exit(1)
-
-    artifacts_to_promote = s3_artifacts_path_to_local_path(release_version, commit_sha)
 
     # Create the local temporary directory if it doesn't exist
     os.makedirs(LOCAL_ARTIFACTS_DIR, exist_ok=True)
 
-    download_count = 0
-    for s3_artifact_dir, local_subdir in artifacts_to_promote.items():
-        try:
-            paginator = s3_client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=staging_s3_bucket_name, Prefix=s3_artifact_dir)
-            for page in pages:
-                # "Contents" corresponds to the directory in the S3 bucket
-                if "Contents" not in page:
-                    continue
-                for obj in page["Contents"]:
-                    # obj is the S3 object in page["Contents"] directory
-                    s3_key = obj["Key"]
-                    if s3_key.endswith("/"):
-                        # it's a directory
-                        continue
+    artifacts = {}
+    for platform in release_platforms:
+        os_name, arch_name = parse_platform(platform)
 
-                    # Get the path of the file relative to its S3 prefix, this would mostly be the object name itself
-                    # if s3_artifact_dir doesn't container directories and has just the objects.
-                    relative_path = os.path.relpath(s3_key, s3_artifact_dir)
+        local_plugin_dir = f"{KUBECTL_PLUGIN_BINARY}_{release_version}_{os_name}_{arch_name}"
+        local_artifact_dir_path = os.path.join(LOCAL_ARTIFACTS_DIR, local_plugin_dir)
+        os.makedirs(local_artifact_dir_path, exist_ok=True)
+        local_artifact_file_path = os.path.join(local_artifact_dir_path, KUBECTL_PLUGIN_BINARY)
 
-                    final_local_path = os.path.join(LOCAL_ARTIFACTS_DIR, local_subdir, relative_path)
+        s3_filename = kubectl_plugin_name(os_name, arch_name)
+        staging_s3_plugin_path = s3_path(s3_filename, staging_version)
 
-                    # Create the local directory structure if it doesn't exist
-                    os.makedirs(os.path.dirname(final_local_path), exist_ok=True)
-
-                    logger.info(f"Downloading staging artifact {s3_key} to {final_local_path}")
-                    s3_client.download_file(staging_s3_bucket_name, s3_key, final_local_path)
-                    download_count += 1
-
-        except ClientError as e:
-            logger.debug(f"ERROR: Failed to list or download from prefix '{s3_artifact_dir}'. S3 Client Error: {e}")
-            return False
-
-    if download_count == 0:
-        logger.info(
-            f"Couldn't download artifacts from staging S3 bucket {staging_s3_bucket_name}, please verify that artifacts are available under dir: {commit_sha}"
-        )
-        sys.exit(1)
+        download_kubectl_plugin_from_s3(staging_s3_bucket_name, staging_s3_plugin_path, local_artifact_file_path)
+        artifacts[local_artifact_file_path] = s3_filename
 
     logger.info("All the artifacts have been downloaded successfully.")
-    return True
+    return artifacts
 
 
 def set_permissions_filter(tarinfo):
@@ -286,8 +266,8 @@ def create_tarballs():
 
 
 # upload_assets_to_github_release uploads the release artifacts (downloaded notarized/signed staging artifacts) to
-# the github release as assets.
-def upload_assets_to_github_release(asset_paths, release_version: str):
+# the GitHub release as assets.
+def upload_assets_to_github_release(asset_paths: list[str], release_version: str):
     if not GITHUB_TOKEN:
         logger.info("ERROR: GITHUB_TOKEN environment variable not set.")
         sys.exit(1)
