@@ -79,7 +79,8 @@ type ReconcileMongoDbReplicaSet struct {
 }
 
 type ReplicaSetDeploymentState struct {
-	LastAchievedSpec *mdbv1.MongoDbSpec `json:"lastAchievedSpec"`
+	LastAchievedSpec  *mdbv1.MongoDbSpec `json:"lastAchievedSpec"`
+	MemberCountBefore int                `json:"memberCountBefore"`
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
@@ -114,11 +115,19 @@ func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
 // readState abstract reading the state of the resource that we store on the cluster between reconciliations.
 func (r *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, error) {
 	// Try to get the last achieved spec from annotations and store it in state
-	if lastAchievedSpec, err := r.resource.GetLastSpec(); err != nil {
+	lastAchievedSpec, err := r.resource.GetLastSpec()
+	if err != nil {
 		return nil, err
-	} else {
-		return &ReplicaSetDeploymentState{LastAchievedSpec: lastAchievedSpec}, nil
 	}
+
+	// Read current member count from Status once at initialization. This provides a stable view throughout
+	// reconciliation and prepares for eventually storing this in ConfigMap state instead of ephemeral status.
+	memberCountBefore := r.resource.Status.Members
+
+	return &ReplicaSetDeploymentState{
+		LastAchievedSpec:  lastAchievedSpec,
+		MemberCountBefore: memberCountBefore,
+	}, nil
 }
 
 // writeState writes the state of the resource that we store on the cluster between reconciliations.
@@ -269,7 +278,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// Check if we need to prepare for scale-down
-	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
+	if scale.ReplicasThisReconciliation(rs) < r.deploymentState.MemberCountBefore {
 		if err := replicaset.PrepareScaleDownFromMongoDB(conn, rs, log); err != nil {
 			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
 		}
@@ -292,7 +301,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.MemberCountBefore, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
@@ -306,7 +315,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.MemberCountBefore, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			return r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
@@ -871,6 +880,8 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 		}
 	}
 
+	// During deletion, calculate the maximum number of hosts that could possibly exist to ensure complete cleanup.
+	// Reading from Status here is appropriate since this is outside the reconciliation loop.
 	hostsToRemove, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), util.MaxInt(rs.Status.Members, rs.Spec.Members), nil)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 
