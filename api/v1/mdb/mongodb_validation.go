@@ -375,8 +375,8 @@ func noSimultaneousTLSDisablingAndScaling(newObj, oldObj MongoDbSpec) v1.Validat
 	}
 
 	// Check if TLS is being disabled (was enabled, now disabled)
-	tlsWasEnabled := oldObj.DbCommonSpec.IsSecurityTLSConfigEnabled()
-	tlsWillBeDisabled := !newObj.DbCommonSpec.IsSecurityTLSConfigEnabled()
+	tlsWasEnabled := oldObj.IsSecurityTLSConfigEnabled()
+	tlsWillBeDisabled := !newObj.IsSecurityTLSConfigEnabled()
 
 	// Check if members count is changing
 	membersChanging := oldObj.Members != newObj.Members

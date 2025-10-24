@@ -49,8 +49,9 @@ def test_validation_error_on_simultaneous_tls_disable_and_scale(replica_set: Mon
     except Exception as e:
         # Verify the error message contains our validation error
         error_message = str(e)
-        assert "Cannot disable TLS and change member count simultaneously" in error_message, \
-            f"Expected validation error about simultaneous TLS disable and scaling, got: {error_message}"
+        assert (
+            "Cannot disable TLS and change member count simultaneously" in error_message
+        ), f"Expected validation error about simultaneous TLS disable and scaling, got: {error_message}"
 
 
 @pytest.mark.e2e_disable_tls_scale_up
@@ -72,6 +73,7 @@ def test_disable_tls_without_scaling(replica_set: MongoDB):
 
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=800)
+
 
 @pytest.mark.e2e_disable_tls_scale_up
 def test_scale_down_after_tls_change(replica_set: MongoDB):
