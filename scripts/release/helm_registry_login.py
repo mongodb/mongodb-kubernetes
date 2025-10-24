@@ -2,6 +2,7 @@ import argparse
 import os
 import subprocess
 import sys
+from shlex import quote
 
 from lib.base_logger import logger
 from scripts.release.build.build_info import load_build_info
@@ -88,12 +89,13 @@ def helm_registry_login_to_quay(registry):
     if not password:
         raise Exception(f"Env var {QUAY_PASSWORD_ENV_VAR} must be set with the quay password.")
 
-    command = ["helm", "registry", "login", "--username", username, "--password-stdin", registry]
+    # using quote will help us avoid command injectin issues, was reported by semggrep in PR
+    command = ["helm", "registry", "login", "--username", quote(username), "--password-stdin", quote(registry)]
 
     try:
         result = subprocess.run(
             command,
-            input=password,  # Pass the password as input bytes
+            input=quote(password),  # Pass the password as input bytes
             capture_output=True,
             text=True,
             check=False,  # Do not raise an exception on non-zero exit code
