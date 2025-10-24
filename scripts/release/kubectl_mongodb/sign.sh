@@ -6,7 +6,6 @@
 set -euo pipefail
 
 # Sign a binary using garasign credentials
-# goreleaser takes care of calling this script as a hook.
 
 ARTIFACT=$1
 SIGNATURE="${ARTIFACT}.sig"

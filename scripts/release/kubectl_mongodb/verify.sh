@@ -3,7 +3,6 @@
 set -euo pipefail
 
 # Verify the signature of a binary with the operator's public key
-# goreleaser takes care of calling this script as a hook.
 
 ARTIFACT=$1
 SIGNATURE="${ARTIFACT}.sig"
