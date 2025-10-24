@@ -159,10 +159,10 @@ spec:
     {{- $initAppDbImageRepositoryEnv := "INIT_APPDB_IMAGE_REPOSITORY" -}}
     {{- $agentImageEnv := "AGENT_IMAGE" -}}
     {{- $mongodbImageEnv := "MONGODB_IMAGE" -}}
-    {{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") -}}
-    {{- $databaseVersion := print .Values.database.version (.Values.build | default "") -}}
-    {{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") -}}
-    {{- $initAppDbVersion := print .Values.initAppDb.version (.Values.build | default "") -}}
+    {{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") | quote -}}
+    {{- $databaseVersion := print .Values.database.version (.Values.build | default "") | quote -}}
+    {{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") | quote -}}
+    {{- $initAppDbVersion := print .Values.initAppDb.version (.Values.build | default "") | quote -}}
     {{- $agentVersion := .Values.agent.version }}
             - name: IMAGE_PULL_POLICY
               value: {{ .Values.registry.pullPolicy }}
