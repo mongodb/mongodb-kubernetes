@@ -515,16 +515,13 @@ functions:
     - command: subprocess.exec
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/python/build_kubectl_plugin.py
-  
-  build_and_push_appdb_database:
+        binary: scripts/release/kubectl_mongodb/build_kubectl_plugin.sh
+
+  download_multi_cluster_binary:
     - command: subprocess.exec
       params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-appdb-database
-        binary: ./build_and_push_appdb_database_images.sh
-        add_to_path:
-          - ${workdir}/bin
-          - ${workdir}
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/release/kubectl_mongodb/download_kubectl_plugin.sh
 
   build_test_image_ibm:
     - command: subprocess.exec
@@ -801,22 +798,6 @@ functions:
         script: |
           ./scripts/code_snippets/tests/${task_name}
 
-  #
-  # kubectl mongodb plugin release functions
-  #
-  install_goreleaser:
-    - command: shell.exec
-      type: setup
-      include_expansions_in_env:
-        - goreleaser_pro_tar_gz
-      params:
-        script: |
-          set -Eeu pipefail
-          curl -fL "${goreleaser_pro_tar_gz}" --output goreleaser_Linux_x86_64.tar.gz
-          tar -xf goreleaser_Linux_x86_64.tar.gz
-          chmod 755 ./goreleaser
-          sudo cp goreleaser /usr/local/bin/
-
   install_macos_notarization_service:
     - command: shell.exec
       type: setup
@@ -851,7 +832,7 @@ functions:
     - command: github.generate_token
       params:
         expansion_name: GH_TOKEN
-    - command: shell.exec
+    - command: subprocess.exec
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -868,10 +849,7 @@ functions:
           - triggered_by_git_tag
           - OPERATOR_VERSION
         env:
-          XDG_CONFIG_HOME: ${go_base_path}${workdir}
-          GO111MODULE: "on"
-          GOROOT: "/opt/golang/go1.24"
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
           GH_TOKEN: ${GH_TOKEN}
-        script: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/python/promote_kubectl_plugin.py
+        binary: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/promote_kubectl_plugin.py

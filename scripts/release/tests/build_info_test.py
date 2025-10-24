@@ -295,7 +295,14 @@ def test_load_build_info_staging():
         binaries={
             "kubectl-mongodb": BinaryInfo(
                 s3_store="mongodb-kubernetes-staging",
-                platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
+                platforms=[
+                    "darwin/amd64",
+                    "darwin/arm64",
+                    "linux/amd64",
+                    "linux/arm64",
+                    "linux/s390x",
+                    "linux/ppc64le",
+                ],
                 sign=False,
             )
         },
@@ -399,7 +406,14 @@ def test_load_build_info_release():
         binaries={
             "kubectl-mongodb": BinaryInfo(
                 s3_store="mongodb-kubernetes-release",
-                platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
+                platforms=[
+                    "darwin/amd64",
+                    "darwin/arm64",
+                    "linux/amd64",
+                    "linux/arm64",
+                    "linux/s390x",
+                    "linux/ppc64le",
+                ],
                 sign=True,
             )
         },

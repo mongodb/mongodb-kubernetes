@@ -159,7 +159,7 @@ build-and-push-operator-image: aws_login
 build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image
 
-build-and-push-test-image: aws_login build-multi-cluster-binary
+build-and-push-test-image: aws_login
 	@ if [[ -z "$(local)" ]]; then \
 		scripts/dev/run_python.sh scripts/release/pipeline.py test; \
 	fi
@@ -168,9 +168,6 @@ build-and-push-mco-test-image: aws_login
 	@ if [[ -z "$(local)" ]]; then \
 		scripts/dev/run_python.sh scripts/release/pipeline.py mco-test; \
 	fi
-
-build-multi-cluster-binary:
-	scripts/evergreen/build_multi_cluster_kubeconfig_creator.sh
 
 # builds all app images in parallel
 # note that we cannot build both appdb and database init images in parallel as they change the same docker file

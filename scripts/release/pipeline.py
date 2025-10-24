@@ -16,7 +16,11 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from lib.base_logger import logger
-from scripts.release.argparse_utils import str2bool
+from scripts.release.argparse_utils import (
+    get_platforms_from_arg,
+    get_scenario_from_arg,
+    str2bool,
+)
 from scripts.release.atomic_pipeline import (
     build_agent,
     build_database_image,
@@ -47,10 +51,10 @@ from scripts.release.build.build_info import (
     load_build_info,
 )
 from scripts.release.build.build_scenario import (
+    SUPPORTED_SCENARIOS,
     BuildScenario,
 )
 from scripts.release.build.image_build_configuration import (
-    SUPPORTED_PLATFORMS,
     ImageBuildConfiguration,
 )
 from scripts.release.build.image_build_process import (
@@ -152,25 +156,6 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     )
 
 
-def get_scenario_from_arg(args_scenario: str) -> BuildScenario | None:
-    try:
-        return BuildScenario(args_scenario)
-    except ValueError as e:
-        raise ValueError(f"Invalid scenario '{args_scenario}': {e}")
-
-
-def get_platforms_from_arg(args_platforms: str) -> list[str] | None:
-    if not args_platforms:
-        return None
-
-    platforms = [p.strip() for p in args_platforms.split(",")]
-    if any(p not in SUPPORTED_PLATFORMS for p in platforms):
-        raise ValueError(
-            f"Unsupported platform in --platforms '{args_platforms}'. Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}"
-        )
-    return platforms
-
-
 def _setup_tracing():
     trace_id = os.environ.get("otel_trace_id")
     parent_id = os.environ.get("otel_parent_id")
@@ -205,7 +190,6 @@ def _setup_tracing():
 def main():
     _setup_tracing()
     supported_images = list(get_builder_function_for_image_name().keys())
-    supported_scenarios = list(BuildScenario)
 
     parser = argparse.ArgumentParser(
         description="""Builder tool for container images. It allows to push and sign images with multiple architectures using Docker Buildx.
@@ -226,9 +210,9 @@ By default build information is read from 'build_info.json' file in the project 
         action="store",
         required=True,
         type=str,
-        choices=supported_scenarios,
+        choices=SUPPORTED_SCENARIOS,
         help=f"""Build scenario when reading configuration from 'build_info.json'.
-Options: {", ".join(supported_scenarios)}. For '{BuildScenario.DEVELOPMENT}' the '{BuildScenario.PATCH}' scenario is used to read values from 'build_info.json'""",
+Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the '{BuildScenario.PATCH}' scenario is used to read values from 'build_info.json'""",
     )
     parser.add_argument(
         "-p",

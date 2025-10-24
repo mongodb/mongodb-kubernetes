@@ -7,7 +7,7 @@ variables:
       - func: setup_mongosh
       - func: download_kube_tools
       - func: switch_context
-      - func: build_multi_cluster_binary
+      - func: download_multi_cluster_binary
     teardown_task:
       - func: upload_e2e_logs
       - func: upload_code_snippets_logs
