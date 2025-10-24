@@ -152,20 +152,6 @@ func TestConfigureSSL_Deployment(t *testing.T) {
 	assert.Equal(t, d["tls"], map[string]any{"clientCertificateMode": string(automationconfig.ClientCertificateModeOptional)})
 }
 
-func TestTLSConfigurationWillBeDisabled(t *testing.T) {
-	d := Deployment{}
-	d.ConfigureTLS(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: false}}, util.CAFilePathInContainer)
-
-	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: false}}))
-	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}))
-
-	d = Deployment{}
-	d.ConfigureTLS(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}, util.CAFilePathInContainer)
-
-	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}))
-	assert.True(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: false}}))
-}
-
 // TestMergeDeployment_BigReplicaset ensures that adding a big replica set (> 7 members) works correctly and no more than
 // 7 voting members are added
 func TestMergeDeployment_BigReplicaset(t *testing.T) {

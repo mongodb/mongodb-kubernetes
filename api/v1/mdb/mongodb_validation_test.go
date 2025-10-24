@@ -80,6 +80,88 @@ func TestMongoDB_ResourceTypeImmutable(t *testing.T) {
 	assert.Errorf(t, err, "'resourceType' cannot be changed once created")
 }
 
+func TestMongoDB_NoSimultaneousTLSDisablingAndScaling(t *testing.T) {
+	tests := []struct {
+		name                 string
+		oldTLSEnabled        bool
+		oldMembers           int
+		newTLSEnabled        bool
+		newMembers           int
+		expectError          bool
+		expectedErrorMessage string
+	}{
+		{
+			name:                 "Simultaneous TLS disabling and scaling is blocked",
+			oldTLSEnabled:        true,
+			oldMembers:           3,
+			newTLSEnabled:        false,
+			newMembers:           5,
+			expectError:          true,
+			expectedErrorMessage: "Cannot disable TLS and change member count simultaneously. Please apply these changes separately.",
+		},
+		{
+			name:          "TLS disabling without scaling is allowed",
+			oldTLSEnabled: true,
+			oldMembers:    3,
+			newTLSEnabled: false,
+			newMembers:    3,
+			expectError:   false,
+		},
+		{
+			name:          "Scaling without TLS changes is allowed",
+			oldTLSEnabled: true,
+			oldMembers:    3,
+			newTLSEnabled: true,
+			newMembers:    5,
+			expectError:   false,
+		},
+		{
+			name:          "TLS enabling with scaling is allowed",
+			oldTLSEnabled: false,
+			oldMembers:    3,
+			newTLSEnabled: true,
+			newMembers:    5,
+			expectError:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Build old ReplicaSet
+			oldBuilder := NewReplicaSetBuilder()
+			if tt.oldTLSEnabled {
+				oldBuilder = oldBuilder.SetSecurityTLSEnabled()
+			}
+			oldRs := oldBuilder.Build()
+			oldRs.Spec.CloudManagerConfig = &PrivateCloudConfig{
+				ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},
+			}
+			oldRs.Spec.Members = tt.oldMembers
+
+			// Build new ReplicaSet
+			newBuilder := NewReplicaSetBuilder()
+			if tt.newTLSEnabled {
+				newBuilder = newBuilder.SetSecurityTLSEnabled()
+			}
+			newRs := newBuilder.Build()
+			newRs.Spec.CloudManagerConfig = &PrivateCloudConfig{
+				ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},
+			}
+			newRs.Spec.Members = tt.newMembers
+
+			// Validate
+			_, err := newRs.ValidateUpdate(oldRs)
+
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Equal(t, tt.expectedErrorMessage, err.Error())
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestSpecProjectOnlyOneValue(t *testing.T) {
 	rs := NewReplicaSetBuilder().Build()
 	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
