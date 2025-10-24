@@ -82,10 +82,6 @@ export RUNNING_IN_EVG="true"
 
 export DELETE_KIND_NETWORK="true"
 
-# code_snippets_commit_output can be set in evergreen patch by --param code_snippets_commit_output=true
-# it's also set explicitly in public_*_snippets variants
-export CODE_SNIPPETS_COMMIT_OUTPUT=${code_snippets_commit_output:-"false"}
-
 # shellcheck disable=SC2154
 export PRERELEASE_PULLSECRET_DOCKERCONFIGJSON="${community_private_preview_pullsecret_dockerconfigjson}"
 
