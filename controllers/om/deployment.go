@@ -100,24 +100,6 @@ func NewDeployment() Deployment {
 	return ans
 }
 
-// TLSConfigurationWillBeDisabled checks that if applying this security configuration the Deployment
-// TLS configuration will go from Enabled -> Disabled.
-func (d Deployment) TLSConfigurationWillBeDisabled(security *mdbv1.Security) bool {
-	tlsIsCurrentlyEnabled := false
-
-	// To detect that TLS is enabled, it is sufficient to check for the
-	// d["tls"]["CAFilePath"] attribute to have a value different from nil.
-	if tlsMap, ok := d["tls"]; ok {
-		if caFilePath, ok := tlsMap.(map[string]interface{})["CAFilePath"]; ok {
-			if caFilePath != nil {
-				tlsIsCurrentlyEnabled = true
-			}
-		}
-	}
-
-	return tlsIsCurrentlyEnabled && !security.IsTLSEnabled()
-}
-
 // ConfigureTLS configures the deployment's TLS settings from the security
 // specification provided by the user in the mongodb resource.
 func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
