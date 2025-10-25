@@ -1,5 +1,5 @@
 # GCP project name - this is the only parameter that is mandatory to change here
-export MDB_GKE_PROJECT="${MDB_GKE_PROJECT:="### Set your GKE project name here ###"}"
+export MDB_GKE_PROJECT="scratch-kubernetes-team"
 
 # Adjust the values for each Kubernetes cluster in your deployment.
 # The deployment script references the following variables to get values for each cluster.

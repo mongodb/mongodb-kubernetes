@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"k8s.io/utils/ptr"
 	"path/filepath"
 	"reflect"
 
@@ -132,12 +133,24 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 	if reflect.DeepEqual(dRoles, roles) {
 		return workflow.OK()
 	}
-	// HELP-20798: the agent deals correctly with a null value for
-	// privileges only when creating a role, not when updating
-	// we work around it by explicitly passing empty array
-	for i, role := range roles {
-		if role.Privileges == nil {
-			roles[i].Privileges = []mdbv1.Privilege{}
+
+	// clone roles list to avoid mutating the spec in normalizePrivilegeResource
+	newRoles := make([]mdbv1.MongoDBRole, len(roles))
+	for i := range roles {
+		newRoles[i] = *roles[i].DeepCopy()
+	}
+	roles = newRoles
+
+	for roleIdx := range roles {
+		// HELP-20798: the agent deals correctly with a null value for
+		// privileges only when creating a role, not when updating
+		// we work around it by explicitly passing empty array
+		if roles[roleIdx].Privileges == nil {
+			roles[roleIdx].Privileges = []mdbv1.Privilege{}
+		}
+
+		for privilegeIdx := range roles[roleIdx].Privileges {
+			roles[roleIdx].Privileges[privilegeIdx].Resource = normalizePrivilegeResource(roles[roleIdx].Privileges[privilegeIdx].Resource)
 		}
 	}
 
@@ -153,6 +166,27 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 		return workflow.Failed(err)
 	}
 	return workflow.OK()
+}
+
+// normalizePrivilegeResource ensures that mutually exclusive fields are not passed at the same time and ensures backwards compatibility by
+// preserving empty strings for db and collection.
+// This function was introduced after we've changed db and collection fields to *string allowing to omit the field from serialization (CLOUDP-349078).
+func normalizePrivilegeResource(resource mdbv1.Resource) mdbv1.Resource {
+	if resource.Cluster != nil && *resource.Cluster {
+		// for cluster-wide privilege mongod is not accepting even empty strings in db and collection
+		resource.Db = nil
+		resource.Collection = nil
+	} else {
+		// for backwards compatibility we must convert "not specified" fields as empty strings
+		if resource.Db == nil {
+			resource.Db = ptr.To("")
+		}
+		if resource.Collection == nil {
+			resource.Collection = ptr.To("")
+		}
+	}
+
+	return resource
 }
 
 // getRoleRefs retrieves the roles from the referenced resources. It will return an error if any of the referenced resources are not found.
