@@ -89,7 +89,9 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if err := r.ValidateSearchImageVersion(); err != nil {
+	version := r.getMongotVersion()
+
+	if err := r.ValidateSearchImageVersion(version); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -136,6 +138,8 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, r.mdbSearch.StatefulSetNamespacedName().Name, r.client); !statefulSetStatus.IsOK() {
 		return statefulSetStatus
 	}
+
+	r.mdbSearch.Status.Version = version
 
 	return workflow.OK()
 }
@@ -435,9 +439,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
-	version := r.getMongotImage()
-
+func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.Contains(version, unsupportedSearchVersion) {
 		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
 	}
@@ -445,14 +447,15 @@ func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
+func (r *MongoDBSearchReconcileHelper) getMongotVersion() string {
 	version := strings.TrimSpace(r.mdbSearch.Spec.Version)
 	if version != "" {
 		return version
 	}
 
-	if r.operatorSearchConfig.SearchVersion != "" {
-		return r.operatorSearchConfig.SearchVersion
+	version = strings.TrimSpace(r.operatorSearchConfig.SearchVersion)
+	if version != "" {
+		return version
 	}
 
 	if r.mdbSearch.Spec.StatefulSetConfiguration == nil {
@@ -461,8 +464,27 @@ func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
 
 	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
 		if container.Name == MongotContainerName {
-			return container.Image
+			return extractImageTag(container.Image)
 		}
+	}
+
+	return ""
+}
+
+func extractImageTag(image string) string {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return ""
+	}
+
+	if at := strings.Index(image, "@"); at != -1 {
+		image = image[:at]
+	}
+
+	lastSlash := strings.LastIndex(image, "/")
+	lastColon := strings.LastIndex(image, ":")
+	if lastColon > lastSlash {
+		return image[lastColon+1:]
 	}
 
 	return ""
