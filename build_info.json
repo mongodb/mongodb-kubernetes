@@ -10,6 +10,7 @@
       },
       "staging": {
         "sign": true,
+        "latest-tag": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
         "platforms": [
           "linux/arm64",
