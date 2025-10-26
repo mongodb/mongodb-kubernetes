@@ -143,6 +143,9 @@ func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		s.Status.Warnings = append(s.Status.Warnings, option.(status.WarningsOption).Warnings...)
 	}
+	if option, exists := status.GetOption(statusOptions, MongoDBSearchVersionOption{}); exists {
+		s.Status.Version = option.(MongoDBSearchVersionOption).Version
+	}
 }
 
 func (s *MongoDBSearch) NamespacedName() types.NamespacedName {

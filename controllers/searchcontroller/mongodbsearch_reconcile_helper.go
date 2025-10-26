@@ -139,9 +139,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return statefulSetStatus
 	}
 
-	r.mdbSearch.Status.Version = version
-
-	return workflow.OK()
+	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureSourceKeyfile(ctx context.Context, log *zap.SugaredLogger) (statefulset.Modification, error) {
