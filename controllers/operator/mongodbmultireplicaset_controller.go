@@ -166,11 +166,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	r.SetupCommonWatchers(&mrs, nil, nil, mrs.Name)
 
-	publishAutomationConfigFirst, err := r.publishAutomationConfigFirstMultiCluster(ctx, &mrs, log)
-	if err != nil {
-		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
-	}
-
 	// If tls is enabled we need to configure the "processes" array in opsManager/Cloud Manager with the
 	// correct tlsCertPath, with the new tls design, this path has the certHash in it(so that cert can be rotated
 	// without pod restart).
@@ -179,6 +174,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	if mrs.Spec.Security.IsTLSEnabled() {
 		certSecretName := mrs.Spec.GetSecurity().MemberCertificateSecretName(mrs.Name)
 		internalClusterCertSecretName := mrs.Spec.GetSecurity().InternalClusterAuthSecretName(mrs.Name)
+		// TODO: check if it makes sense to define funcs reading hash in the common controller. See agentCertHashAndPath for a reference.
 		tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, certSecretName, "", log)
 		internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, internalClusterCertSecretName, "", log)
 
@@ -191,13 +187,16 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		}
 	}
 
+	agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.GetName())
+	agentCertHash, agentCertPath := r.agentCertHashAndPath(ctx, log, mrs.Namespace, agentCertSecretName, "")
+
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(mrs.Status.Phase != mdbstatus.PhaseRunning, mrs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", mrs.Namespace, mrs.Name, mrs.Status.Phase, mrs.Status.LastTransition)
-		automationConfigError := r.updateOmDeploymentRs(ctx, conn, mrs, tlsCertPath, internalClusterCertPath, true, log)
-		reconcileStatus := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig)
+		automationConfigError := r.updateOmDeploymentRs(ctx, conn, mrs, agentCertPath, tlsCertPath, internalClusterCertPath, true, log)
+		reconcileStatus := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
 		}
@@ -206,15 +205,20 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		}
 	}
 
+	publishAutomationConfigFirst, err := r.publishAutomationConfigFirstMultiCluster(ctx, &mrs, log)
+	if err != nil {
+		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
+	}
+
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			if err := r.updateOmDeploymentRs(ctx, conn, mrs, tlsCertPath, internalClusterCertPath, false, log); err != nil {
+			if err := r.updateOmDeploymentRs(ctx, conn, mrs, agentCertPath, tlsCertPath, internalClusterCertPath, false, log); err != nil {
 				return workflow.Failed(err)
 			}
 			return workflow.OK()
 		},
 		func() workflow.Status {
-			return r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig)
+			return r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash)
 		})
 
 	if !status.IsOK() {
@@ -231,23 +235,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("Failed to set annotation: %w", err)), log)
 	}
 
-	// for purposes of comparison, we don't want to compare entries with 0 members since they will not be present
-	// as a desired entry.
 	desiredSpecList := mrs.GetDesiredSpecList()
 	actualSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
 	}
 
-	effectiveSpecList := filterClusterSpecItem(actualSpecList, func(item mdb.ClusterSpecItem) bool {
-		return item.Members > 0
-	})
-
-	// sort both actual and desired to match the effective and desired list version before comparing
-	sortClusterSpecList(desiredSpecList)
-	sortClusterSpecList(effectiveSpecList)
-
-	needToRequeue := !clusterSpecListsEqual(effectiveSpecList, desiredSpecList)
+	needToRequeue := !clusterSpecListsEqual(actualSpecList, desiredSpecList)
 	if needToRequeue {
 		return r.updateStatus(ctx, &mrs, workflow.Pending("MongoDBMultiCluster deployment is not yet ready, requeuing reconciliation."), log)
 	}
@@ -368,7 +362,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) firstStatefulSet(ctx context.Context, 
 // reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
 // All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
 // should be reconciled in this method.
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig) workflow.Status {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig, agentCertHash string) workflow.Status {
 	err := r.reconcileServices(ctx, log, mrs)
 	if err != nil {
 		return workflow.Failed(err)
@@ -392,7 +386,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 		return status
 	}
 
-	return r.reconcileStatefulSets(ctx, mrs, log, conn, projectConfig)
+	return r.reconcileStatefulSets(ctx, mrs, log, conn, projectConfig, agentCertHash)
 }
 
 type stsIdentifier struct {
@@ -402,7 +396,7 @@ type stsIdentifier struct {
 	clusterName string
 }
 
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig) workflow.Status {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig, agentCertHash string) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to read cluster spec list: %w", err))
@@ -524,6 +518,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
+			AgentCertHash(agentCertHash),
 			InternalClusterHash(internalCertHash),
 			WithLabels(mrs.GetOwnerLabels()),
 			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
@@ -697,7 +692,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, tlsCertPath, internalClusterCertPath string, isRecovering bool, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, agentCertPath, tlsCertPath, internalClusterCertPath string, isRecovering bool, log *zap.SugaredLogger) error {
 	reachableHostnames := make([]string, 0)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
@@ -757,8 +752,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
-	agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.GetName())
-	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertSecretName, caFilePath, internalClusterCertPath, isRecovering, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertPath, caFilePath, internalClusterCertPath, isRecovering, log)
 	if !status.IsOK() && !isRecovering {
 		return xerrors.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
 	}
@@ -1272,6 +1266,32 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Con
 	return errs
 }
 
+func sortClusterSpecList(clusterSpecList mdb.ClusterSpecList) {
+	sort.SliceStable(clusterSpecList, func(i, j int) bool {
+		return clusterSpecList[i].ClusterName < clusterSpecList[j].ClusterName
+	})
+}
+
+func clusterSpecListsEqual(effective, desired mdb.ClusterSpecList) bool {
+	// for purposes of comparison, we don't want to compare entries with 0 members
+	effective = filterClusterSpecItem(effective, func(item mdb.ClusterSpecItem) bool {
+		return item.Members > 0
+	})
+	desired = filterClusterSpecItem(desired, func(item mdb.ClusterSpecItem) bool {
+		return item.Members > 0
+	})
+
+	// sort both actual and desired to match the effective and desired list version before comparing
+	sortClusterSpecList(effective)
+	sortClusterSpecList(desired)
+
+	comparer := cmp.Comparer(func(x, y automationconfig.MemberOptions) bool {
+		return true
+	})
+
+	return cmp.Equal(effective, desired, comparer)
+}
+
 // filterClusterSpecItem filters items out of a list based on provided predicate.
 func filterClusterSpecItem(items mdb.ClusterSpecList, fn func(item mdb.ClusterSpecItem) bool) mdb.ClusterSpecList {
 	var result mdb.ClusterSpecList
@@ -1281,17 +1301,4 @@ func filterClusterSpecItem(items mdb.ClusterSpecList, fn func(item mdb.ClusterSp
 		}
 	}
 	return result
-}
-
-func sortClusterSpecList(clusterSpecList mdb.ClusterSpecList) {
-	sort.SliceStable(clusterSpecList, func(i, j int) bool {
-		return clusterSpecList[i].ClusterName < clusterSpecList[j].ClusterName
-	})
-}
-
-func clusterSpecListsEqual(effective, desired mdb.ClusterSpecList) bool {
-	comparer := cmp.Comparer(func(x, y automationconfig.MemberOptions) bool {
-		return true
-	})
-	return cmp.Equal(effective, desired, comparer)
 }

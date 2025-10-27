@@ -4,7 +4,11 @@ set -Eeou pipefail
 source scripts/funcs/printing
 source scripts/dev/set_env_context.sh
 
-tools="kubectl helm coreutils kind jq shellcheck python@${PYTHON_VERSION} chart-testing"
+# our version is pinned, so it removes the last patch version from it for bew
+# shellcheck disable=SC2153
+python_version="${PYTHON_VERSION%.*}"
+
+tools="kubectl helm coreutils kind jq shellcheck python@${python_version} chart-testing"
 echo "The following tools will be installed using homebrew: ${tools}"
 echo "Note, that you must download 'go' and Docker by yourself"
 

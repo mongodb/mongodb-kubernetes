@@ -128,7 +128,7 @@ spec:
     - name: POD_NAME
       value: 'mongodb-enterprise-operator-testing-pod'
     - name: VERSION_ID
-      value: {{ .Values.tag }}
+      value: {{ .Values.versionId }}
     - name: REGISTRY
       value: {{ .Values.registry }}
     {{- if .Values.multiCluster.memberClusters }}
@@ -203,10 +203,10 @@ spec:
       value: {{ .Values.cognito_workload_url }}
     - name: cognito_workload_user_id
       value: {{ .Values.cognito_workload_user_id }}
-    # Used by helm to create .config and .cache directories. Also used by some tests that need to write files.
     - name: HOME
       value: /home/tests-home
-    image: {{ .Values.repo }}/mongodb-kubernetes-tests:{{ .Values.tag }}
+    image: "{{ .Values.mekoTestsRegistry }}/mongodb-kubernetes-tests:{{ .Values.mekoTestsVersion }}"
+    # Used by helm to create .config and .cache directories. Also used by some tests that need to write files.
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
     {{ if .Values.otel_endpoint }}

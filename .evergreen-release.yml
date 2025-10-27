@@ -13,7 +13,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: meko-tests
-          build_scenario: --build-scenario patch
 
   - name: release_operator
     tags: [ "image_release" ]
@@ -22,7 +21,7 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
           image_name: operator
 
@@ -34,7 +33,7 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
           image_name: init-appdb
 
@@ -45,7 +44,7 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
           image_name: init-database
 
@@ -56,7 +55,7 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
           image_name: init-ops-manager
 
@@ -67,9 +66,31 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
           image_name: database
+
+  - name: release_readiness_probe
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: readiness-probe
+
+  - name: release_version_upgrade_hook
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: upgrade-hook
 
   - name: prepare_and_upload_openshift_bundles
     tags: [ "openshift_bundles" ]
@@ -104,7 +125,25 @@ tasks:
       - func: clone
       - func: install_goreleaser
       - func: install_macos_notarization_service
+      - func: python_venv
       - func: release_kubectl_mongodb_plugin
+
+  - name: create_chart_release_pr
+    tags: [ "helm_chart_release_pr" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: create_chart_release_pr
+  
+  - name: release_chart_to_oci_registry
+    tags: [ "release_chart_to_oci_registry" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_kubectl
+      - func: setup_aws
+      - func: helm_registry_login
+      - func: publish_helm_chart
 
 ### Release build variants
 buildvariants:
@@ -122,6 +161,8 @@ buildvariants:
       - name: release_init_database
       - name: release_init_ops_manager
       - name: release_database
+      - name: release_readiness_probe
+      - name: release_version_upgrade_hook
 
   - name: preflight_release_images
     display_name: preflight_release_images
@@ -220,3 +261,21 @@ buildvariants:
     allowed_requesters: [ "patch", "github_tag" ]
     tasks:
       - name: release_kubectl_mongodb_plugin
+
+  - name: create_chart_release_pr
+    display_name: create_chart_release_pr
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: create_chart_release_pr
+
+  - name: release_chart_to_oci_registry
+    display_name: release_chart_to_oci_registry
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: release_chart_to_oci_registry

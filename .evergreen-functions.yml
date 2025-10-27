@@ -45,7 +45,10 @@ variables:
       - community_private_preview_pullsecret_dockerconfigjson
       - RELEASE_INITIAL_VERSION
       - RELEASE_INITIAL_COMMIT_SHA
-      - RELEASE_OPERATOR_VERSION
+      - OPERATOR_VERSION
+      - READINESS_PROBE_VERSION
+      - VERSION_UPGRADE_HOOK_VERSION
+      - BUILD_SCENARIO
 
 functions:
 
@@ -77,19 +80,15 @@ functions:
         echo "Finished initializing to the root context"
 
   switch_context: &switch_context
-    command: shell.exec
+    command: subprocess.exec
     type: setup
     params:
-      shell: bash
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       <<: *e2e_include_expansions_in_env
       add_to_path:
         - ${workdir}/bin
         - ${workdir}/google-cloud-sdk/bin
-      script: |
-        echo "Switching context"
-        scripts/dev/switch_context.sh "${build_variant}"
-        echo "Finished switching context"
+      command: scripts/dev/switch_context.sh "${build_variant}"
 
   python_venv: &python_venv
     command: subprocess.exec
@@ -223,6 +222,19 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/setup_docker_sbom.sh
 
+  helm_registry_login:
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      include_expansions_in_env:
+        - quay_prod_username
+        - quay_prod_robot_token
+      add_to_path:
+        - ${workdir}/bin
+        - ${PROJECT_DIR}/bin
+      binary: scripts/release/helm_registry_login.sh
+
   # Logs into all used registries
   configure_docker_auth: &configure_docker_auth
     command: subprocess.exec
@@ -249,7 +261,7 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
-      command: scripts/dev/setup_chart_testing_cli.sh  
+      command: scripts/dev/setup_chart_testing_cli.sh
 
   lint_repo:
     - command: subprocess.exec
@@ -271,7 +283,6 @@ functions:
 
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
-    - *switch_context
     - *python_venv
     - *setup_aws
     - *setup_evg_host
@@ -280,7 +291,6 @@ functions:
   # This differs for normal evg_host as we require minikube instead of kind for
   # IBM machines also install aws cli via pip instead and use podman
   setup_building_host_minikube:
-    - *switch_context
     - command: subprocess.exec
       type: setup
       params:
@@ -305,7 +315,6 @@ functions:
   # the task configures the set of tools necessary for any task working with K8 cluster:
   # installs kubectl, jq, kind (if necessary), configures docker authentication
   download_kube_tools:
-    - *switch_context
     - *setup_kubectl
     - *setup_jq
     # we need aws to configure docker authentication
@@ -355,7 +364,6 @@ functions:
         command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
 
   setup_cloud_qa:
-    - *switch_context
     - command: shell.exec
       type: setup
       params:
@@ -486,7 +494,6 @@ functions:
         files: [ "src/github.com/mongodb/mongodb-kubernetes/logs/*.suite" ]
 
   preflight_image:
-    - *switch_context
     - command: subprocess.exec
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -497,13 +504,19 @@ functions:
           - rh_pyxis
         binary: scripts/dev/run_python.sh scripts/preflight_images.py --image ${image_name} --submit "${preflight_submit}"
 
-  build_multi_cluster_binary:
+  # publish_helm_chart packages and publishes the MCK helm chart to the OCI container registry
+  publish_helm_chart:
     - command: subprocess.exec
-      type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/build_multi_cluster_kubeconfig_creator.sh
+        binary: scripts/release/publish_helm_chart.sh
 
+  build_multi_cluster_binary:
+    - command: subprocess.exec
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/python/build_kubectl_plugin.py
+  
   build_and_push_appdb_database:
     - command: subprocess.exec
       params:
@@ -514,30 +527,15 @@ functions:
           - ${workdir}
 
   build_test_image_ibm:
-    - *switch_context
     - command: subprocess.exec
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        include_expansions_in_env:
-          - version_id
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
 
-  pipeline_migrate_agents:
-    - *switch_context
-    - command: subprocess.exec
-      retry_on_failure: false
-      type: setup
-      params:
-        shell: bash
-        <<: *e2e_include_expansions_in_env
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/release/pipeline_migrate_agent.sh
-
   pipeline:
-    - *switch_context
     - command: subprocess.exec
       retry_on_failure: true
       type: setup
@@ -545,23 +543,13 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name} ${all_agents} ${build_scenario}
-
-  # TODO: this function is very similar to pipeline and it will joined with it in the future
-  release_operator_pipeline:
-    - *switch_context
-    - command: subprocess.exec
-      retry_on_failure: true
-      type: setup
-      params:
-        shell: bash
-        <<: *e2e_include_expansions_in_env
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        # By default, use the git tag that triggered the task which can be overridden with RELEASE_OPERATOR_VERSION
-        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario release --version ${RELEASE_OPERATOR_VERSION|*triggered_by_git_tag}
+        binary: scripts/release/pipeline.sh
+        env:
+          IMAGE_NAME: ${image_name}
+          BUILD_SCENARIO_OVERRIDE: ${build_scenario}
+          FLAGS: ${flags}
 
   teardown_cloud_qa_all:
-    - *switch_context
     - command: shell.exec
       type: setup
       params:
@@ -717,7 +705,6 @@ functions:
           make sbom-tests
 
   generate_perf_tests_tasks:
-    - *switch_context
     - command: shell.exec
       type: setup
       params:
@@ -802,7 +789,6 @@ functions:
 
   # it executes a script by convention: ./scripts/code_snippets/tests/${task_name}
   test_code_snippets:
-    - *switch_context
     - command: shell.exec
       params:
         shell: bash
@@ -829,6 +815,7 @@ functions:
           curl -fL "${goreleaser_pro_tar_gz}" --output goreleaser_Linux_x86_64.tar.gz
           tar -xf goreleaser_Linux_x86_64.tar.gz
           chmod 755 ./goreleaser
+          sudo cp goreleaser /usr/local/bin/
 
   install_macos_notarization_service:
     - command: shell.exec
@@ -843,10 +830,27 @@ functions:
           unzip -u macos-notary.zip
           chmod 755 ./linux_amd64/macnotary
 
+  create_chart_release_pr:
+    - command: github.generate_token
+      params:
+        repo: helm-charts
+        expansion_name: GH_TOKEN
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - GH_TOKEN
+          - workdir
+          - OPERATOR_VERSION
+        env:
+          GH_TOKEN: ${GH_TOKEN}
+        binary: scripts/dev/run_python.sh scripts/release/create_chart_release_pr.py --chart_version ${OPERATOR_VERSION|*triggered_by_git_tag}
+
   release_kubectl_mongodb_plugin:
     - command: github.generate_token
       params:
-        expansion_name: generated_token
+        expansion_name: GH_TOKEN
     - command: shell.exec
       type: setup
       params:
@@ -862,17 +866,12 @@ functions:
           - macos_notary_secret
           - workdir
           - triggered_by_git_tag
-          - RELEASE_OPERATOR_VERSION
+          - OPERATOR_VERSION
         env:
           XDG_CONFIG_HOME: ${go_base_path}${workdir}
           GO111MODULE: "on"
           GOROOT: "/opt/golang/go1.24"
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
-        # shell.exec EVG Task doesn't have add_to_path, so we need to explicitly add the path export below.
-        script: |
-          set -Eeu pipefail
-          export GORELEASER_CURRENT_TAG=${RELEASE_OPERATOR_VERSION|*triggered_by_git_tag}
-          export PATH=$GOROOT/bin:$PATH
-          export GITHUB_TOKEN=${generated_token}
-          ${workdir}/goreleaser release --clean
+          GH_TOKEN: ${GH_TOKEN}
+        script: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/python/promote_kubectl_plugin.py

@@ -89,6 +89,11 @@ class MongoDB(CustomObject, MongoDBCommon):
             "Failed to enable Authentication",
             # Sometimes agents need longer to register with OM.
             "some agents failed to register or the Operator",
+            # Kubernetes API server may timeout during high load, but the request may still complete.
+            # This is particularly common when deploying many resources simultaneously.
+            "but may still be processing the request",
+            "Client.Timeout exceeded while awaiting headers",
+            "context deadline exceeded",
         )
 
         start_time = time.time()
@@ -230,7 +235,18 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def configure(
         self,
-        om: MongoDBOpsManager,
+        om: Optional[MongoDBOpsManager],
+        project_name: str,
+        api_client: Optional[client.ApiClient] = None,
+    ) -> MongoDB:
+        if om is not None:
+            return self.configure_ops_manager(om, project_name, api_client=api_client)
+        else:
+            return self.configure_cloud_qa(project_name, api_client=api_client)
+
+    def configure_ops_manager(
+        self,
+        om: Optional[MongoDBOpsManager],
         project_name: str,
         api_client: Optional[client.ApiClient] = None,
     ) -> MongoDB:
@@ -245,6 +261,29 @@ class MongoDB(CustomObject, MongoDBCommon):
         # Note that if the MongoDB object is created in a different namespace than the Operator
         # then the secret needs to be copied there manually
         self["spec"]["credentials"] = om.api_key_secret(self.namespace, api_client=api_client)
+        return self
+
+    def configure_cloud_qa(
+        self,
+        project_name,
+        api_client: Optional[client.ApiClient] = None,
+    ) -> MongoDB:
+        if "opsManager" in self["spec"]:
+            del self["spec"]["opsManager"]
+
+        src_project_config_map_name = "my-project"
+        if "cloudManager" in self["spec"]:
+            src_project_config_map_name = self["spec"]["cloudManager"]["configMapRef"]["name"]
+
+        src_cm = read_configmap(self.namespace, src_project_config_map_name, api_client=api_client)
+
+        new_project_config_map_name = f"{self.name}-project-config"
+        ensure_nested_objects(self, ["spec", "cloudManager", "configMapRef"])
+        self["spec"]["cloudManager"]["configMapRef"]["name"] = new_project_config_map_name
+
+        src_cm.update({"projectName": f"{self.namespace}-{project_name}"})
+        create_or_update_configmap(self.namespace, new_project_config_map_name, src_cm, api_client=api_client)
+
         return self
 
     def configure_backup(self, mode: str = "enabled") -> MongoDB:
@@ -449,6 +488,9 @@ class MongoDB(CustomObject, MongoDBCommon):
     def config_map_name(self) -> str:
         if "opsManager" in self["spec"]:
             return self["spec"]["opsManager"]["configMapRef"]["name"]
+        elif "cloudManager" in self["spec"]:
+            return self["spec"]["cloudManager"]["configMapRef"]["name"]
+
         return self["spec"]["project"]
 
     def shard_replicaset_names(self) -> List[str]:

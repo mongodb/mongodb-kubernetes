@@ -98,3 +98,6 @@ class TestShardedClusterEnableAllOptions:
 
     def test_rotate_mongos_cert(self, sc: MongoDB, namespace: str):
         rotate_and_assert_certificates(sc, namespace, f"{MDB_RESOURCE_NAME}-mongos-cert")
+
+    def test_rotate_agent_certificate(self, sc: MongoDB, namespace: str):
+        rotate_and_assert_certificates(sc, namespace, "agent-certs")

@@ -46,7 +46,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
@@ -89,6 +91,13 @@ func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imag
 	}
 }
 
+type deploymentOptionsRS struct {
+	agentCertPath        string
+	agentCertHash        string
+	prometheusCertHash   string
+	currentAgentAuthMode string
+}
+
 // Generic Kubernetes Resources
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=list;watch,namespace=placeholder
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch,namespace=placeholder
@@ -108,6 +117,7 @@ func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imag
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+	// === 1. Initial Checks and setup
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
 
@@ -155,153 +165,98 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, status, log)
 	}
 
-	status := certs.EnsureSSLCertsForStatefulSet(ctx, r.SecretClient, r.SecretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
-	if !status.IsOK() {
-		return r.updateStatus(ctx, rs, status, log)
-	}
-
-	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, r.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), certs.Database, log)
-	if err != nil {
-		log.Infof("Could not generate certificates for Prometheus: %s", err)
-		return r.updateStatus(ctx, rs, workflow.Pending("%s", err.Error()), log)
-	}
-
 	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(ctx, rs, status, log)
 	}
 
-	currentAgentAuthMode, err := conn.GetAgentAuthMode()
-	if err != nil {
-		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
-	}
+	// === 2. Auth and Certificates
 
-	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: r.SecretClient}
-	status = r.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, currentAgentAuthMode, log)
-	if !status.IsOK() {
-		return r.updateStatus(ctx, rs, status, log)
-	}
-
+	// Get certificate paths for later use
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)
-
-	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
 	if r.VaultClient != nil {
-		vaultConfig = r.VaultClient.VaultConfig
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
-
-	var automationAgentVersion string
-	if architectures.IsRunningStaticArchitecture(rs.Annotations) {
-		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
-		// happens after creating the StatefulSet definition.
-		if !rs.IsAgentImageOverridden() {
-			automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
-			if err != nil {
-				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
-				status := workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
-				return r.updateStatus(ctx, rs, status, log)
-			}
-		}
-	}
-
 	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
 	internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)
 
-	rsConfig := construct.ReplicaSetOptions(
-		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
-		CurrentAgentAuthMechanism(currentAgentAuthMode),
-		CertificateHash(tlsCertHash),
-		InternalClusterHash(internalClusterCertHash),
-		PrometheusTLSCertHash(prometheusCertHash),
-		WithVaultConfig(vaultConfig),
-		WithLabels(rs.Labels),
-		WithAdditionalMongodConfig(rs.Spec.GetAdditionalMongodConfig()),
-		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
-		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
-		WithMongodbImage(images.GetOfficialImage(r.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
-	)
-
-	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
-
-	if err := r.reconcileHostnameOverrideConfigMap(ctx, log, r.client, *rs); err != nil {
-		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to reconcileHostnameOverrideConfigMap: %w", err)), log)
-	}
-
-	shouldMirrorKeyfile := r.applySearchOverrides(ctx, rs, log)
-
-	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
-	if status := r.ensureRoles(ctx, rs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(rs), log); !status.IsOK() {
-		return r.updateStatus(ctx, rs, status, log)
-	}
-
-	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
-		if err := replicaset.PrepareScaleDownFromStatefulSet(conn, sts, rs, log); err != nil {
-			return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)), log)
-		}
-	}
-
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	agentCertSecretSelector.Name += certs.OperatorGeneratedCertSuffix
-
+	tlsCertPath := ""
 	internalClusterCertPath := ""
 	if internalClusterCertHash != "" {
 		internalClusterCertPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, internalClusterCertHash)
 	}
-
-	tlsCertPath := ""
 	if tlsCertHash != "" {
 		tlsCertPath = fmt.Sprintf("%s/%s", util.TLSCertMountPath, tlsCertHash)
 	}
+
+	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
+	agentCertHash, agentCertPath := r.agentCertHashAndPath(ctx, log, rs.Namespace, agentCertSecretName, databaseSecretPath)
+
+	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, r.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), certs.Database, log)
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("could not generate certificates for Prometheus: %w", err)), log)
+	}
+
+	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)), log)
+	}
+
+	// Check if we need to prepare for scale-down
+	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
+		if err := replicaset.PrepareScaleDownFromMongoDB(conn, rs, log); err != nil {
+			return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)), log)
+		}
+	}
+	deploymentOpts := deploymentOptionsRS{
+		prometheusCertHash:   prometheusCertHash,
+		agentCertPath:        agentCertPath,
+		agentCertHash:        agentCertHash,
+		currentAgentAuthMode: currentAgentAuthMode,
+	}
+
+	// 3. Search Overrides
+	// Apply search overrides early so searchCoordinator role is present before ensureRoles runs
+	// This must happen before the ordering logic to ensure roles are synced regardless of order
+	shouldMirrorKeyfileForMongot := r.applySearchOverrides(ctx, rs, log)
+
+	// 4. Recovery
 
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, tlsCertPath, internalClusterCertPath, agentCertSecretSelector, prometheusCertHash, true, shouldMirrorKeyfile).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
-		deploymentError := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, rsConfig, log)
-		if deploymentError != nil {
-			log.Errorf("Recovery failed because of deployment errors, %w", deploymentError)
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, log, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		reconcileStatus := r.reconcileMemberResources(ctx, rs, conn, log, projectConfig, deploymentOpts)
+		if !reconcileStatus.IsOK() {
+			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
 		}
 		if !automationConfigStatus.IsOK() {
 			log.Errorf("Recovery failed because of Automation Config update errors, %v", automationConfigStatus)
 		}
 	}
 
+	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
 	lastSpec, err := rs.GetLastSpec()
 	if err != nil {
 		lastSpec = &mdbv1.MongoDbSpec{}
 	}
-	status = workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *rs, lastSpec, rsConfig, log),
+
+	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, r.client, *rs, lastSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
+	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, tlsCertPath, internalClusterCertPath, agentCertSecretSelector, prometheusCertHash, false, shouldMirrorKeyfile).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, log, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
-			if !workflowStatus.IsOK() {
-				return workflowStatus
-			}
-			if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
-				_, _ = r.updateStatus(ctx, rs, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
-			}
-
-			if err := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, rsConfig, log); err != nil {
-				return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
-			}
-
-			if status := statefulset.GetStatefulSetStatus(ctx, rs.Namespace, rs.Name, r.client); !status.IsOK() {
-				return status
-			}
-
-			log.Info("Updated StatefulSet for replica set")
-			return workflow.OK()
+			return r.reconcileMemberResources(ctx, rs, conn, log, projectConfig, deploymentOpts)
 		})
 
 	if !status.IsOK() {
 		return r.updateStatus(ctx, rs, status, log)
 	}
 
+	// === 6. Final steps
 	if scale.IsStillScaling(rs) {
 		return r.updateStatus(ctx, rs, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), log, mdbstatus.MembersOption(rs))
 	}
@@ -331,6 +286,57 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(ctx, rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
+}
+
+func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, currentAgentAuthMode string, sslMMSCAConfigMap string, log *zap.SugaredLogger) bool {
+	namespacedName := kube.ObjectKey(mdb.Namespace, mdb.Name)
+	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// No need to publish state as this is a new StatefulSet
+			log.Debugf("New StatefulSet %s", namespacedName)
+			return false
+		}
+
+		log.Debugw(fmt.Sprintf("Error getting StatefulSet %s", namespacedName), "error", err)
+		return false
+	}
+
+	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
+	volumeMounts := databaseContainer.VolumeMounts
+
+	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(ctx, getter, currentSts, mdb, log) {
+		log.Debug(automationConfigFirstMsg("security.tls.enabled", "false"))
+		return true
+	}
+
+	if mdb.Spec.Security.TLSConfig.CA == "" && wasCAConfigMapMounted(ctx, getter, currentSts, mdb, log) {
+		log.Debug(automationConfigFirstMsg("security.tls.CA", "empty"))
+		return true
+	}
+
+	if sslMMSCAConfigMap == "" && statefulset.VolumeMountWithNameExists(volumeMounts, construct.CaCertName) {
+		log.Debug(automationConfigFirstMsg("SSLMMSCAConfigMap", "empty"))
+		return true
+	}
+
+	if mdb.Spec.Security.GetAgentMechanism(currentAgentAuthMode) != util.X509 && statefulset.VolumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
+		log.Debug(automationConfigFirstMsg("project.AuthMode", "empty"))
+		return true
+	}
+
+	if mdb.Spec.Members < int(*currentSts.Spec.Replicas) {
+		log.Debug("Scaling down operation. automationConfig needs to be updated first")
+		return true
+	}
+
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+		if mdb.Spec.IsInChangeVersion(lastSpec) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func getHostnameOverrideConfigMapForReplicaset(mdb mdbv1.MongoDB) corev1.ConfigMap {
@@ -366,6 +372,117 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHostnameOverrideConfigMap(ctx cont
 	log.Infof("Successfully ensured configmap: %s", cm.Name)
 
 	return nil
+}
+
+// reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
+// All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
+// should be reconciled in this method.
+func (r *ReconcileMongoDbReplicaSet) reconcileMemberResources(ctx context.Context, rs *mdbv1.MongoDB, conn om.Connection,
+	log *zap.SugaredLogger, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS,
+) workflow.Status {
+	// Reconcile hostname override ConfigMap
+	if err := r.reconcileHostnameOverrideConfigMap(ctx, log, r.client, *rs); err != nil {
+		return workflow.Failed(xerrors.Errorf("Failed to reconcileHostnameOverrideConfigMap: %w", err))
+	}
+
+	// Ensure roles are properly configured
+	if status := r.ensureRoles(ctx, rs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(rs), log); !status.IsOK() {
+		return status
+	}
+
+	return r.reconcileStatefulSet(ctx, rs, log, conn, projectConfig, deploymentOptions)
+}
+
+func (r *ReconcileMongoDbReplicaSet) reconcileStatefulSet(ctx context.Context, rs *mdbv1.MongoDB,
+	log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS,
+) workflow.Status {
+	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: r.SecretClient}
+	status := r.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, deploymentOptions.currentAgentAuthMode, log)
+	if !status.IsOK() {
+		return status
+	}
+
+	status = certs.EnsureSSLCertsForStatefulSet(ctx, r.SecretClient, r.SecretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
+	if !status.IsOK() {
+		return status
+	}
+
+	// Build the replica set config
+	rsConfig, err := r.buildStatefulSetOptions(ctx, rs, conn, projectConfig, deploymentOptions.currentAgentAuthMode, deploymentOptions.prometheusCertHash, deploymentOptions.agentCertHash, log)
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to build StatefulSet options: %w", err))
+	}
+
+	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+
+	// Handle PVC resize if needed
+	workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
+	if !workflowStatus.IsOK() {
+		return workflowStatus
+	}
+	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
+		_, _ = r.updateStatus(ctx, rs, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+	}
+
+	// Create or update the StatefulSet in Kubernetes
+	if err := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, rsConfig, log); err != nil {
+		return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
+	}
+
+	// Check StatefulSet status
+	if status := statefulset.GetStatefulSetStatus(ctx, rs.Namespace, rs.Name, r.client); !status.IsOK() {
+		return status
+	}
+
+	log.Info("Updated StatefulSet for replica set")
+	return workflow.OK()
+}
+
+// buildStatefulSetOptions creates the options needed for constructing the StatefulSet
+func (r *ReconcileMongoDbReplicaSet) buildStatefulSetOptions(ctx context.Context, rs *mdbv1.MongoDB, conn om.Connection, projectConfig mdbv1.ProjectConfig, currentAgentAuthMode string, prometheusCertHash string, agentCertHash string, log *zap.SugaredLogger) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, error) {
+	rsCertsConfig := certs.ReplicaSetConfig(*rs)
+
+	var vaultConfig vault.VaultConfiguration
+	var databaseSecretPath string
+	if r.VaultClient != nil {
+		vaultConfig = r.VaultClient.VaultConfig
+		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
+	}
+
+	// Determine automation agent version for static architecture
+	var automationAgentVersion string
+	if architectures.IsRunningStaticArchitecture(rs.Annotations) {
+		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
+		// happens after creating the StatefulSet definition.
+		if !rs.IsAgentImageOverridden() {
+			var err error
+			automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
+			if err != nil {
+				return nil, xerrors.Errorf("Impossible to get agent version, please override the agent image by providing a pod template: %w", err)
+			}
+		}
+	}
+
+	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
+	internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)
+
+	rsConfig := construct.ReplicaSetOptions(
+		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
+		CurrentAgentAuthMechanism(currentAgentAuthMode),
+		CertificateHash(tlsCertHash),
+		AgentCertHash(agentCertHash),
+		InternalClusterHash(internalClusterCertHash),
+		PrometheusTLSCertHash(prometheusCertHash),
+		WithVaultConfig(vaultConfig),
+		WithLabels(rs.Labels),
+		WithAdditionalMongodConfig(rs.Spec.GetAdditionalMongodConfig()),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
+	)
+
+	return rsConfig, nil
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
@@ -449,36 +566,47 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath, tlsCertPath, internalClusterCertPath string, agentCertSecretSelector corev1.SecretKeySelector, prometheusCertHash string, isRecovering bool, shouldMirrorKeyfileForMongot bool) workflow.Status {
+func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, log *zap.SugaredLogger, tlsCertPath, internalClusterCertPath string, deploymentOptionsRS deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool) workflow.Status {
 	log.Debug("Entering UpdateOMDeployments")
 	// Only "concrete" RS members should be observed
 	// - if scaling down, let's observe only members that will remain after scale-down operation
 	// - if scaling up, observe only current members, because new ones might not exist yet
-	err := agents.WaitForRsAgentsToRegister(set, util_int.Min(membersNumberBefore, int(*set.Spec.Replicas)), rs.Spec.GetClusterDomain(), conn, log, rs)
+	replicasTarget := scale.ReplicasThisReconciliation(rs)
+	err := agents.WaitForRsAgentsToRegisterByResource(rs, util_int.Min(membersNumberBefore, replicasTarget), conn, log)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
+	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
 	// this is, do not scale them up or down util TLS disabling has completed.
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, membersNumberBefore, rs, set, log, caFilePath, tlsCertPath)
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, membersNumberBefore, rs, log, caFilePath, tlsCertPath)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
 	var updatedMembers int
+	// This lock member logic will be removed soon, we should rather block possibility to disable tls + scale
+	// Tracked in CLOUDP-349087
 	if shouldLockMembers {
 		// We should not add or remove members during this run, we'll wait for
 		// TLS to be completely disabled first.
-		updatedMembers = membersNumberBefore
+		// However, on first reconciliation (membersNumberBefore=0), we need to use replicasTarget
+		// because the OM deployment is initialized with TLS enabled by default.
+		log.Debugf("locking members for this reconciliation because TLS was disabled")
+		if membersNumberBefore == 0 {
+			updatedMembers = replicasTarget
+		} else {
+			updatedMembers = membersNumberBefore
+		}
 	} else {
-		updatedMembers = int(*set.Spec.Replicas)
+		updatedMembers = replicasTarget
 	}
 
-	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, set, rs.GetSpec(), updatedMembers, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
+	replicaSet := replicaset.BuildFromMongoDBWithReplicas(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, rs, updatedMembers, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
 	processNames := replicaSet.GetProcessNames()
 
-	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, processNames, rs, agentCertSecretSelector, caFilePath, internalClusterCertPath, isRecovering, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOptionsRS.agentCertPath, caFilePath, internalClusterCertPath, isRecovering, log)
 	if !status.IsOK() && !isRecovering {
 		return status
 	}
@@ -488,12 +616,12 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	p := PrometheusConfiguration{
+	prometheusConfiguration := PrometheusConfiguration{
 		prometheus:         rs.GetPrometheus(),
 		conn:               conn,
 		secretsClient:      r.SecretClient,
 		namespace:          rs.GetNamespace(),
-		prometheusCertHash: prometheusCertHash,
+		prometheusCertHash: deploymentOptionsRS.prometheusCertHash,
 	}
 
 	err = conn.ReadUpdateDeployment(
@@ -503,7 +631,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &p, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
 		},
 		log,
 	)
@@ -525,9 +653,8 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Pending("Performing multi stage reconciliation")
 	}
 
-	externalDomain := rs.Spec.DbCommonSpec.GetExternalDomain()
-	hostsBefore := getAllHostsRs(set, rs.Spec.GetClusterDomain(), membersNumberBefore, externalDomain)
-	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(rs), externalDomain)
+	hostsBefore := getAllHostsForReplicas(rs, membersNumberBefore)
+	hostsAfter := getAllHostsForReplicas(rs, scale.ReplicasThisReconciliation(rs))
 
 	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil && !isRecovering {
 		return workflow.Failed(err)
@@ -544,7 +671,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 // updateOmDeploymentDisableTLSConfiguration checks if TLS configuration needs
 // to be disabled. In which case it will disable it and inform to the calling
 // function.
-func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage string, forceEnterprise bool, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath, tlsCertPath string) (bool, error) {
+func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage string, forceEnterprise bool, membersNumberBefore int, rs *mdbv1.MongoDB, log *zap.SugaredLogger, caFilePath, tlsCertPath string) (bool, error) {
 	tlsConfigWasDisabled := false
 
 	err := conn.ReadUpdateDeployment(
@@ -558,7 +685,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage 
 
 			// configure as many agents/Pods as we currently have, no more (in case
 			// there's a scale up change at the same time).
-			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(mongoDBImage, forceEnterprise, set, rs.GetSpec(), membersNumberBefore, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
+			replicaSet := replicaset.BuildFromMongoDBWithReplicas(mongoDBImage, forceEnterprise, rs, membersNumberBefore, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
 
 			lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
 			if err != nil {
@@ -639,8 +766,8 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 	return nil
 }
 
-func getAllHostsRs(set appsv1.StatefulSet, clusterName string, membersCount int, externalDomain *string) []string {
-	hostnames, _ := dns.GetDnsForStatefulSetReplicasSpecified(set, clusterName, membersCount, externalDomain)
+func getAllHostsForReplicas(rs *mdbv1.MongoDB, membersCount int) []string {
+	hostnames, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), membersCount, rs.Spec.DbCommonSpec.GetExternalDomain())
 	return hostnames
 }
 
@@ -656,7 +783,7 @@ func (r *ReconcileMongoDbReplicaSet) applySearchOverrides(ctx context.Context, r
 	if rs.Spec.AdditionalMongodConfig == nil {
 		rs.Spec.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
-	searchMongodConfig := searchcontroller.GetMongodConfigParameters(search)
+	searchMongodConfig := searchcontroller.GetMongodConfigParameters(search, rs.Spec.GetClusterDomain())
 	rs.Spec.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
 
 	if searchcontroller.NeedsSearchCoordinatorRolePolyfill(rs.Spec.GetMongoDBVersion()) {

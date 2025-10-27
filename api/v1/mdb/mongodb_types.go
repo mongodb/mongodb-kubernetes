@@ -25,6 +25,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -195,7 +196,7 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 			secrets = append(secrets, tls)
 		}
 	}
-	agentCerts := m.GetSecurity().AgentClientCertificateSecretName(m.Name).Name
+	agentCerts := m.GetSecurity().AgentClientCertificateSecretName(m.Name)
 	if agentCerts != "" {
 		secrets = append(secrets, agentCerts)
 	}
@@ -852,7 +853,7 @@ func (s *Security) ShouldUseX509(currentAgentAuthMode string) bool {
 // AgentClientCertificateSecretName returns the name of the Secret that holds the agent
 // client TLS certificates.
 // If no custom name has been defined, it returns the default one.
-func (s Security) AgentClientCertificateSecretName(resourceName string) corev1.SecretKeySelector {
+func (s Security) AgentClientCertificateSecretName(resourceName string) string {
 	secretName := util.AgentSecretName
 
 	if s.CertificatesSecretsPrefix != "" {
@@ -862,10 +863,7 @@ func (s Security) AgentClientCertificateSecretName(resourceName string) corev1.S
 		secretName = s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name
 	}
 
-	return corev1.SecretKeySelector{
-		Key:                  util.AutomationAgentPemSecretKey,
-		LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-	}
+	return secretName
 }
 
 // The customer has set ClientCertificateSecretRef. This signals that client certs are required,
@@ -1040,7 +1038,7 @@ func (a *Authentication) IsOIDCEnabled() bool {
 	return stringutil.Contains(a.GetModes(), util.OIDC)
 }
 
-// GetModes returns the modes of the Authentication instance of an empty
+// GetModes returns the modes of the Authentication instance, or an empty
 // list if it is nil
 func (a *Authentication) GetModes() []string {
 	if a == nil {
@@ -1666,6 +1664,48 @@ func (m *MongoDbSpec) GetTopology() string {
 
 func (m *MongoDbSpec) IsMultiCluster() bool {
 	return m.GetTopology() == ClusterTopologyMultiCluster
+}
+
+func (m *MongoDbSpec) GetShardClusterSpecList() ClusterSpecList {
+	if m.IsMultiCluster() {
+		return m.ShardSpec.ClusterSpecList
+	} else {
+		return ClusterSpecList{
+			{
+				ClusterName:  multicluster.LegacyCentralClusterName,
+				Members:      m.MongodsPerShardCount,
+				MemberConfig: m.MemberConfig,
+			},
+		}
+	}
+}
+
+func (m *MongoDbSpec) GetMongosClusterSpecList() ClusterSpecList {
+	if m.IsMultiCluster() {
+		return m.MongosSpec.ClusterSpecList
+	} else {
+		return ClusterSpecList{
+			{
+				ClusterName:                 multicluster.LegacyCentralClusterName,
+				Members:                     m.MongosCount,
+				ExternalAccessConfiguration: m.ExternalAccessConfiguration,
+			},
+		}
+	}
+}
+
+func (m *MongoDbSpec) GetConfigSrvClusterSpecList() ClusterSpecList {
+	if m.IsMultiCluster() {
+		return m.ConfigSrvSpec.ClusterSpecList
+	} else {
+		return ClusterSpecList{
+			{
+				ClusterName:  multicluster.LegacyCentralClusterName,
+				Members:      m.ConfigServerCount,
+				MemberConfig: m.MemberConfig,
+			},
+		}
+	}
 }
 
 type MongoDBConnectionStringBuilder struct {

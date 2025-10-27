@@ -2,6 +2,7 @@ from typing import List
 
 import kubernetes
 import pytest
+from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -59,7 +60,10 @@ def server_certs(
 
 @pytest.fixture(scope="module")
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
-    return mongodb_multi_unmarshalled.create()
+    if try_load(mongodb_multi_unmarshalled):
+        return mongodb_multi_unmarshalled
+
+    return mongodb_multi_unmarshalled.update()
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_down
@@ -101,8 +105,9 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
     mongodb_multi["spec"]["clusterSpecList"][0]["members"] = 1
-    mongodb_multi["spec"]["clusterSpecList"][1]["members"] = 1
-    mongodb_multi["spec"]["clusterSpecList"][2]["members"] = 1
+    # Testing scaling down to zero is required to test fix for https://jira.mongodb.org/browse/CLOUDP-324655
+    mongodb_multi["spec"]["clusterSpecList"][1]["members"] = 0
+    mongodb_multi["spec"]["clusterSpecList"][2]["members"] = 2
     mongodb_multi.update()
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
@@ -120,11 +125,11 @@ def test_statefulsets_have_been_scaled_down_correctly(
 
     cluster_two_client = member_cluster_clients[1]
     cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert cluster_two_sts.status.ready_replicas == 1
+    assert cluster_two_sts.status.ready_replicas is None
 
     cluster_three_client = member_cluster_clients[2]
     cluster_three_sts = statefulsets[cluster_three_client.cluster_name]
-    assert cluster_three_sts.status.ready_replicas == 1
+    assert cluster_three_sts.status.ready_replicas == 2
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_down

@@ -10,6 +10,7 @@
       },
       "staging": {
         "sign": true,
+        "latest-tag": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
         "platforms": [
           "linux/arm64",
@@ -21,6 +22,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes"],
         "platforms": [
           "linux/arm64",
@@ -68,6 +70,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-database"],
         "platforms": [
           "linux/arm64",
@@ -99,6 +102,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-appdb"],
         "platforms": [
           "linux/arm64",
@@ -127,6 +131,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-ops-manager"],
         "platforms": [
           "linux/amd64"
@@ -155,6 +160,7 @@
       "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-database"],
         "platforms": [
           "linux/arm64",
@@ -175,9 +181,36 @@
       "staging": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
         "platforms": [
-          "linux/arm64",
           "linux/amd64"
         ]
+      },
+      "release": {
+        "skip-if-exists": true,
+        "repositories": ["quay.io/mongodb/mongodb-kubernetes-tests"],
+        "platforms": [
+          "linux/amd64"
+        ]
+      }
+    },
+    "meko-tests-arm64": {
+      "dockerfile-path": "docker/mongodb-kubernetes-tests/Dockerfile",
+      "patch": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/arm64"
+        ],
+        "architecture_suffix": true
+      },
+      "staging": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/arm64"
+        ],
+        "architecture_suffix": true
       }
     },
     "mco-tests": {
@@ -213,9 +246,9 @@
         ]
       },
       "release": {
-        "version": "1.0.22",
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": [
           "quay.io/mongodb/mongodb-kubernetes-readinessprobe"
         ],
@@ -243,9 +276,9 @@
         ]
       },
       "release": {
-        "version": "1.0.9",
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
         "platforms": [
           "linux/arm64",
@@ -256,6 +289,7 @@
     "agent": {
       "dockerfile-path": "docker/mongodb-agent/Dockerfile",
       "patch": {
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
         "platforms": [
           "linux/amd64"
@@ -263,6 +297,7 @@
       },
       "staging": {
         "sign": true,
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent"],
         "platforms": [
           "linux/arm64",
@@ -271,9 +306,10 @@
           "linux/ppc64le"
         ]
       },
-      "manual_release": {
+      "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-agent-ubi", "quay.io/mongodb/mongodb-agent"],
         "platforms": [
           "linux/arm64",
@@ -286,23 +322,24 @@
     "ops-manager": {
       "dockerfile-path": "docker/mongodb-enterprise-ops-manager/Dockerfile",
       "patch": {
-        "version": "om-version-from-release.json",
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
         ]
       },
       "staging": {
-        "version": "om-version-from-release.json",
         "sign": true,
+        "skip-if-exists": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
         ]
       },
-      "manual_release": {
+      "release": {
         "sign": true,
         "olm-tag": true,
+        "skip-if-exists": true,
         "repositories": ["quay.io/mongodb/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
@@ -313,14 +350,14 @@
   "binaries": {
     "kubectl-mongodb": {
       "patch": {
-        "s3-store": "s3://kubectl-mongodb/dev",
+        "s3-store": "mongodb-kubernetes-dev",
         "platforms": [
           "linux/amd64"
         ]
       },
       "staging": {
-        "sign": true,
-        "s3-store": "s3://kubectl-mongodb/staging",
+        "sign": false,
+        "s3-store": "mongodb-kubernetes-staging",
         "platforms": [
           "darwin/amd64",
           "darwin/arm64",
@@ -330,7 +367,7 @@
       },
       "release": {
         "sign": true,
-        "s3-store": "s3://kubectl-mongodb/prod",
+        "s3-store": "mongodb-kubernetes-release",
         "platforms": [
           "darwin/amd64",
           "darwin/arm64",
@@ -343,15 +380,20 @@
   "helm-charts": {
     "mongodb-kubernetes": {
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/helm-charts"]
+        "registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com",
+        "region": "us-east-1",
+        "repository": "dev/mongodb/helm-charts"
       },
       "staging": {
         "sign": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/helm-charts"]
+        "registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com",
+        "region": "us-east-1",
+        "repository": "staging/mongodb/helm-charts"
       },
       "release": {
         "sign": true,
-        "repositories": ["quay.io/mongodb/helm-charts"]
+        "registry": "quay.io",
+        "repository": "mongodb/helm-charts"
       }
     }
   }

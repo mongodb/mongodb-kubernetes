@@ -24,7 +24,7 @@ usage:
 	@ echo "  full:                           ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
 	@ echo "                                  resources, build-push-deploy operator, push-deploy database, create secrets, "
 	@ echo "                                  config map, resources etc"
-	@ echo "  appdb:                          build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
+	@ echo "  appdb:                          build and push AppDB image. Specify 'OM_VERSION' in format '4.2.1' to provide the already released Ops Manager"
 	@ echo "                                  version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
 	@ echo "                                  if Ops Manager is not released yet and you want to have some git branch as the source "
 	@ echo "                                  parameters in ~/operator-dev/om"
@@ -75,13 +75,13 @@ operator: configure-operator build-and-push-operator-image
 
 # build-push, (todo) restart database
 database: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py database
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py database
 
 readiness_probe: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py readiness-probe
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py readiness-probe
 
 upgrade_hook: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py upgrade-hook
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py upgrade-hook
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
@@ -90,7 +90,7 @@ full: build-and-push-images
 
 # build-push appdb image
 appdb: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py --include appdb
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py --include appdb
 
 # runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
 # The e2e test image is built and pushed together with all main ones (operator, database, init containers)
@@ -154,19 +154,19 @@ aws_cleanup:
 	@ scripts/evergreen/prepare_aws.sh
 
 build-and-push-operator-image: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py operator
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator
 
 build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image
 
 build-and-push-test-image: aws_login build-multi-cluster-binary
 	@ if [[ -z "$(local)" ]]; then \
-		scripts/dev/run_python.sh scripts/release/pipeline_main.py test; \
+		scripts/dev/run_python.sh scripts/release/pipeline.py test; \
 	fi
 
 build-and-push-mco-test-image: aws_login
 	@ if [[ -z "$(local)" ]]; then \
-		scripts/dev/run_python.sh scripts/release/pipeline_main.py mco-test; \
+		scripts/dev/run_python.sh scripts/release/pipeline.py mco-test; \
 	fi
 
 build-multi-cluster-binary:
@@ -181,27 +181,27 @@ build-and-push-images: build-and-push-operator-image appdb-init-image om-init-im
 build-and-push-init-images: appdb-init-image om-init-image database-init-image
 
 database-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py init-database
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-database
 
 appdb-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py init-appdb
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-appdb
 
 # Not setting a parallel-factor will default to 0 which will lead to using all CPUs, that can cause docker to die.
 # Here we are defaulting to 6, a higher value might work for you.
 agent-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel --parallel-factor 6 agent
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py --parallel --parallel-factor 6 agent
 
 agent-image-slow:
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel-factor 1 agent
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py --parallel-factor 1 agent
 
 operator-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py operator
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator
 
 om-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py init-ops-manager
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-ops-manager
 
 om-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py ops-manager
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py ops-manager
 
 configure-operator:
 	@ scripts/dev/configure_operator.sh
