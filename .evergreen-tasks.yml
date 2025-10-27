@@ -502,7 +502,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_disable_tls_scale_up
+  - name: e2e_disable_tls_and_scale
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
