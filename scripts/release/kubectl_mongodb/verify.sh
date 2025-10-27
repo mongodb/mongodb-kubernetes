@@ -18,7 +18,7 @@ echo "Verifying signature bundle ${SIGNATURE_BUNDLE} of artifact ${ARTIFACT}"
 echo "Keyfile is ${KEY_FILE}"
 
 # When working locally, the following command can be used instead of Docker
-# cosign verify-blob --key ${KEY_FILE} --bundle ${SIGNATURE_BUNDLE} ${ARTIFACT}
+# cosign verify-blob --key ${KEY_FILE} --insecure-ignore-tlog --bundle ${SIGNATURE_BUNDLE} ${ARTIFACT}
 
 docker run \
   --rm \
@@ -26,7 +26,7 @@ docker run \
   -v "${KEY_FILE}":"${KEY_FILE}" \
   -w "$(pwd)" \
   "${SIGNING_IMAGE_URI}" \
-  cosign verify-blob --key "${KEY_FILE}" --bundle "${SIGNATURE_BUNDLE}" "${ARTIFACT}"
+  cosign verify-blob --key "${KEY_FILE}" --insecure-ignore-tlog --bundle "${SIGNATURE_BUNDLE}" "${ARTIFACT}"
 
 # Without below line, Evergreen fails at archiving with "open dist/kubectl-[...]/kubectl-mongodb.bundle: permission denied
 sudo chmod 666 "${SIGNATURE_BUNDLE}"

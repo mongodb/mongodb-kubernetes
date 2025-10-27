@@ -40,4 +40,4 @@ docker run \
   -v "$(pwd)":"$(pwd)" \
   -w "$(pwd)" \
   "${SIGNING_IMAGE_URI}" \
-  cosign sign-blob --key "${PKCS11_URI}" --bundle "${SIGNATURE_BUNDLE}" "${ARTIFACT}" --yes
+  cosign sign-blob --key "${PKCS11_URI}" --tlog-upload=false --use-signing-config=false --bundle "${SIGNATURE_BUNDLE}" "${ARTIFACT}" --yes
