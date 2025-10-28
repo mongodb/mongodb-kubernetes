@@ -659,15 +659,6 @@ func (r *ReconcileMongoDbReplicaSet) applySearchOverrides(ctx context.Context, r
 	searchMongodConfig := searchcontroller.GetMongodConfigParameters(search, rs.Spec.GetClusterDomain())
 	rs.Spec.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
 
-	if searchcontroller.NeedsSearchCoordinatorRolePolyfill(rs.Spec.GetMongoDBVersion()) {
-		log.Infof("Polyfilling the searchCoordinator role for MongoDB %s", rs.Spec.GetMongoDBVersion())
-
-		if rs.Spec.Security == nil {
-			rs.Spec.Security = &mdbv1.Security{}
-		}
-		rs.Spec.Security.Roles = append(rs.Spec.Security.Roles, searchcontroller.SearchCoordinatorRole())
-	}
-
 	return true
 }
 
