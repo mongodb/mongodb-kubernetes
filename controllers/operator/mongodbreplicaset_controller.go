@@ -170,7 +170,7 @@ func (r *ReplicaSetReconcilerHelper) writeState(ctx context.Context, includeVaul
 func (r *ReplicaSetReconcilerHelper) initialize(ctx context.Context) error {
 	state, err := r.readState()
 	if err != nil {
-		return xerrors.Errorf("Failed to initialize replica set state: %w", err)
+		return xerrors.Errorf("failed to initialize replica set state: %w", err)
 	}
 	r.deploymentState = state
 	return nil
@@ -189,7 +189,7 @@ func (r *ReplicaSetReconcilerHelper) updateStatus(ctx context.Context, status wo
 	// Write deployment state after every status update
 	// Include vault annotations only on successful reconciliation
 	if err := r.writeState(ctx, status.IsOK()); err != nil {
-		return r.reconciler.updateStatus(ctx, r.resource, workflow.Failed(xerrors.Errorf("Failed to write deployment state after updating status: %w", err)), r.log)
+		return r.reconciler.updateStatus(ctx, r.resource, workflow.Failed(xerrors.Errorf("failed to write deployment state after updating status: %w", err)), r.log)
 	}
 
 	return result, nil
@@ -223,7 +223,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, log)
 	if err != nil {
-		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)))
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
 	}
 
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
@@ -269,7 +269,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, reconciler.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), certs.Database, log)
 	if err != nil {
-		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("Could not generate certificates for Prometheus: %w", err)))
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not generate certificates for Prometheus: %w", err)))
 	}
 
 	currentAgentAuthMode, err := conn.GetAgentAuthMode()
@@ -280,7 +280,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// Check if we need to prepare for scale-down
 	if scale.ReplicasThisReconciliation(rs) < r.deploymentState.MemberCountBefore {
 		if err := replicaset.PrepareScaleDownFromMongoDB(conn, rs, log); err != nil {
-			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
+			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
 		}
 	}
 	deploymentOpts := deploymentOptionsRS{
@@ -301,7 +301,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.MemberCountBefore, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.MemberCountBefore, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
@@ -315,7 +315,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.MemberCountBefore, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.MemberCountBefore, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			return r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
@@ -489,7 +489,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 
 	// Reconcile hostname override ConfigMap
 	if err := r.reconcileHostnameOverrideConfigMap(ctx, log, r.reconciler.client); err != nil {
-		return workflow.Failed(xerrors.Errorf("Failed to reconcileHostnameOverrideConfigMap: %w", err))
+		return workflow.Failed(xerrors.Errorf("failed to reconcile hostname override ConfigMap: %w", err))
 	}
 
 	// Ensure roles are properly configured
@@ -531,7 +531,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 
 	// Create or update the StatefulSet in Kubernetes
 	if err := create.DatabaseInKubernetes(ctx, reconciler.client, *rs, sts, rsConfig, log); err != nil {
-		return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
+		return workflow.Failed(xerrors.Errorf("failed to create/update (Kubernetes reconciliation phase): %w", err))
 	}
 
 	// Check StatefulSet status
@@ -581,7 +581,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 			var err error
 			automationAgentVersion, err = reconciler.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
 			if err != nil {
-				return nil, xerrors.Errorf("Impossible to get agent version, please override the agent image by providing a pod template: %w", err)
+				return nil, xerrors.Errorf("impossible to get agent version, please override the agent image by providing a pod template: %w", err)
 			}
 		}
 	}
@@ -961,7 +961,7 @@ func (r *ReplicaSetReconcilerHelper) mirrorKeyfileIntoSecretForMongot(ctx contex
 		return controllerutil.SetOwnerReference(rs, keyfileSecret, reconciler.client.Scheme())
 	})
 	if err != nil {
-		return xerrors.Errorf("Failed to mirror the replicaset's keyfile into a secret: %w", err)
+		return xerrors.Errorf("failed to mirror the replicaset's keyfile into a secret: %w", err)
 	}
 	return nil
 }
