@@ -102,6 +102,7 @@ type MongoDBSearchStatus struct {
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
+// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="MongoDB Search version reconciled by the operator."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB resource was created."
 // +kubebuilder:resource:path=mongodbsearch,scope=Namespaced,shortName=mdbs
 type MongoDBSearch struct {
@@ -141,6 +142,9 @@ func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status
 	s.Status.UpdateCommonFields(phase, s.GetGeneration(), statusOptions...)
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		s.Status.Warnings = append(s.Status.Warnings, option.(status.WarningsOption).Warnings...)
+	}
+	if option, exists := status.GetOption(statusOptions, MongoDBSearchVersionOption{}); exists {
+		s.Status.Version = option.(MongoDBSearchVersionOption).Version
 	}
 }
 
