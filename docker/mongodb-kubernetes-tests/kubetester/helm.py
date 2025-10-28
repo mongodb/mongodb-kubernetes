@@ -13,6 +13,7 @@ logger = test_logger.get_test_logger(__name__)
 
 # LOCAL_CRDs_DIR is the dir where local helm chart's CRDs are copied in tests image
 LOCAL_CRDs_DIR = "helm_chart/crds"
+OCI_HELM_REGISTRY_ECR = "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 
 
 def helm_template(
@@ -314,15 +315,12 @@ def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> 
         return LOCAL_HELM_CHART_DIR, ""
 
     # if operator_version is not specified, and we are not installing the MCK or MEKO chart
-    # it would mean we want to install OCI published helm chart. Figure out respective version,
-    # it is set in env var `OPERATOR_VERSION` based on build_scenario.
+    # it would mean we want to install OCI published helm chart.
     if not operator_version and helm_chart_path not in (
         MCK_HELM_CHART,
         LEGACY_OPERATOR_CHART,
     ):
-        non_semver_operator_version = os.environ.get(OPERATOR_VERSION_ENV_VAR_NAME)
-        # when we publish the helm chart we append `0.0.0+` in the chart version, details are
-        # here https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.gg5ble8qlesq
+        non_semver_operator_version = os.environ.get(OCI_HELM_VERSION)
         operator_version = f"0.0.0+{non_semver_operator_version}"
 
     # helm_chart_path not being passed would mean we are on evg env and would like to
@@ -330,7 +328,7 @@ def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> 
     if not helm_chart_path:
         registry, repository, region = oci_chart_info()
         # If ECR we need to login first to the OCI container registry
-        if registry == "268558157000.dkr.ecr.us-east-1.amazonaws.com":
+        if registry == OCI_HELM_REGISTRY_ECR:
             try:
                 helm_registry_login_to_ecr(registry, region)
             except Exception as e:

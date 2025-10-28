@@ -16,11 +16,12 @@ RUN apt-get -qq update \
 
 COPY requirements.txt requirements.txt
 
+# install aws, required to run helm registry login while running the tests
 RUN python3 -m venv /venv  \
     && . /venv/bin/activate  \
     && pip install --upgrade pip  \
     && GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 pip install -r requirements.txt \
-    && pip install awscli # install aws, required to run helm registry login while running the tests
+    && pip install awscli
 
 FROM scratch AS tools_downloader
 
@@ -48,6 +49,8 @@ RUN apt-get -qq update \
     curl \
     libldap2-dev \
     libsasl2-dev \
+    git \
+    openssl
 
 RUN mkdir -p /tmp/mongodb-tools && \
     tar xfz /tmp/mongodb-tools.tgz -C /tmp/mongodb-tools && \

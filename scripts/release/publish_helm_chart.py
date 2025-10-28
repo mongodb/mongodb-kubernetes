@@ -1,7 +1,6 @@
 import argparse
 import os
 import subprocess
-import sys
 
 import yaml
 
@@ -28,7 +27,7 @@ def run_command(command: list[str]):
 
 # update_chart_and_get_metadata updates the helm chart's Chart.yaml and sets the version
 # to either evg patch id or commit which is set in OPERATOR_VERSION.
-def update_chart_and_get_metadata(chart_dir: str, build_scenario) -> tuple[str, str]:
+def update_chart_and_get_metadata(chart_dir: str, version_prefix: str = None) -> tuple[str, str]:
     chart_path = os.path.join(chart_dir, "Chart.yaml")
     version = os.environ.get("OPERATOR_VERSION")
     if not version:
@@ -50,13 +49,15 @@ def update_chart_and_get_metadata(chart_dir: str, build_scenario) -> tuple[str, 
         if not chart_name:
             raise ValueError("Chart.yaml is missing required 'name' field.")
     except Exception as e:
-        raise Exception(f"Unable to load Chart.yaml from dir {chart_path}")
+        raise Exception(f"Unable to load Chart.yaml from dir {chart_path}: {e}")
 
-    # if build_scenario is release, the chart.yaml would already have correct chart version
-    if build_scenario == BuildScenario.RELEASE:
+    # If version_prefix is not specified, the chart.yaml would already have correct chart version
+    if version_prefix is None:
         return chart_name, version
 
-    new_version = f"0.0.0+{version}"
+    # When we publish the helm chart to dev and staging we append `0.0.0+` in the chart version, details are
+    # here https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.gg5ble8qlesq
+    new_version = f"{version_prefix}{version}"
     logger.info(f"New helm chart version will be: {new_version}")
 
     try:
@@ -79,7 +80,7 @@ def get_oci_registry(chart_info: HelmChartInfo) -> str:
         raise ValueError("Error: registry doesn't seem to be set in HelmChartInfo.")
 
     if not repo:
-        raise ValueError("Error: reposiotry doesn't seem to be set in HelmChartInfo.")
+        raise ValueError("Error: repository doesn't seem to be set in HelmChartInfo.")
 
     oci_registry = f"oci://{registry}/{repo}"
     logger.info(f"Determined OCI Registry: {oci_registry}")
@@ -89,7 +90,7 @@ def get_oci_registry(chart_info: HelmChartInfo) -> str:
 def publish_helm_chart(chart_info: HelmChartInfo, build_scenario):
     try:
         oci_registry = get_oci_registry(chart_info)
-        chart_name, chart_version = update_chart_and_get_metadata(CHART_DIR, build_scenario)
+        chart_name, chart_version = update_chart_and_get_metadata(CHART_DIR, chart_info.version_prefix)
         tgz_filename = f"{chart_name}-{chart_version}.tgz"
 
         logger.info(f"Packaging chart: {chart_name} with Version: {chart_version}")
@@ -121,6 +122,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
-        logger.error(f"Failure in the helm publishing process {e}")
-        sys.exit(1)
+    except Exception as main_err:
+        raise Exception(f"Failure in the helm publishing process {main_err}")

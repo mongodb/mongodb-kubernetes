@@ -48,9 +48,7 @@ omDebugHttp:
 # to run a test.
 helm:
   oci:
+    version: ""
     registry: ""
     repository: ""
     region: ""
-
-operator:
-  version: ""

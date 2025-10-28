@@ -44,7 +44,8 @@ class BinaryInfo:
 class HelmChartInfo:
     repository: str
     registry: str
-    region: str
+    region: str = None
+    version_prefix: str = None
     sign: bool = False
 
 
@@ -112,6 +113,7 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
         helm_charts[name] = HelmChartInfo(
             repository=scenario_data.get("repository"),
             sign=scenario_data.get("sign", False),
+            version_prefix=scenario_data.get("version-prefix"),
             registry=scenario_data.get("registry"),
             region=scenario_data.get("region")
         )
