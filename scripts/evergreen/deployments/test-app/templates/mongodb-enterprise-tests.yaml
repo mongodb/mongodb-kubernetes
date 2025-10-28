@@ -174,13 +174,13 @@ spec:
     - name: OM_DEBUG_HTTP
       value: "{{ .Values.omDebugHttp }}"
     {{ end }}
+    {{ if .Values.helm.oci.version }}
+    - name: OCI_HELM_VERSION
+      value: "{{ .Values.helm.oci.version }}"
+    {{ end }}
     {{ if .Values.helm.oci.registry }}
     - name: OCI_HELM_REGISTRY
       value: "{{ .Values.helm.oci.registry }}"
-    {{ end }}
-    {{ if .Values.operator.version }}
-    - name: OPERATOR_VERSION
-      value: "{{ .Values.operator.version }}"
     {{ end }}
     {{ if .Values.helm.oci.repository }}
     - name: OCI_HELM_REPOSITORY
