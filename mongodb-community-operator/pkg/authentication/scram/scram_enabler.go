@@ -1,19 +1,21 @@
 package scram
 
 import (
+	"context"
 	"errors"
 
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/contains"
 )
 
 // enableAgentAuthentication updates the provided auth struct and configures scram authentication based on the provided
 // values and configuration options.
-func enableAgentAuthentication(auth *automationconfig.Auth, agentPassword, agentKeyFileContents string, opts authtypes.Options) error {
+func enableAgentAuthentication(client kubernetesClient.Client, ctx context.Context, auth *automationconfig.Auth, agentPassword, agentKeyFileContents string, opts authtypes.Options) error {
 	if err := validateAgentOptions(opts); err != nil {
 		return err
 	}

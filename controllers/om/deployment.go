@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"math"
 	"regexp"
 
@@ -466,6 +467,27 @@ func (d Deployment) GetProcessNames(kind interface{}, name string) []string {
 	default:
 		panic(xerrors.Errorf("unexpected kind: %v", kind))
 	}
+}
+
+// GenerateFNVSecretIdentifier creates a short, Kubernetes-compliant identifier with "secret-" prefix for the Deployment.
+func (d Deployment) GenerateFNVSecretIdentifier() (string, error) {
+	// Serialize the Deployment structure to JSON
+	serializedDeployment, err := json.Marshal(d.ToCanonicalForm())
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize Deployment: %w", err)
+	}
+
+	// Use FNV-1a hash algorithm
+	hash := fnv.New32a() // Initialize FNV-1a for 32-bit hash
+	_, err = hash.Write(serializedDeployment)
+	if err != nil {
+		return "", fmt.Errorf("failed to compute hash: %w", err)
+	}
+
+	// Convert the hash into a hex string
+	identifier := fmt.Sprintf("secret-%x", hash.Sum32()) // Prepend prefix "secret-" to the hash
+
+	return identifier, nil
 }
 
 // ConfigureInternalClusterAuthentication configures all processes in processNames to have the corresponding

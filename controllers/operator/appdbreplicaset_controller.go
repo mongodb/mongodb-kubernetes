@@ -1063,7 +1063,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 	auth := automationconfig.Auth{}
 	appDBConfigurable := omv1.AppDBConfigurable{AppDBSpec: rs, OpsManager: *opsManager}
 
-	if err := scram.Enable(ctx, &auth, r.SecretClient, &appDBConfigurable); err != nil {
+	if err := scram.Enable(r.client, ctx, &auth, r.SecretClient, &appDBConfigurable); err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
 
@@ -1667,7 +1667,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		AutoPEMKeyFilePath: agentCertPath,
 		CAFilePath:         util.CAFilePathInContainer,
 	}
-	err = authentication.Configure(conn, opts, false, log)
+	err = authentication.Configure(r.client, ctx, conn, opts, false, log)
 	if err != nil {
 		log.Errorf("Could not set Automation Authentication options in Ops/Cloud Manager for the Application Database. "+
 			"Application Database is always configured with authentication enabled, but this will not be "+

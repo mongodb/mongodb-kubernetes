@@ -514,7 +514,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 			authOpts.UserOptions = userOpts
 		}
 
-		if err := authentication.Configure(conn, authOpts, isRecovering, log); err != nil {
+		if err := authentication.Configure(r.client, ctx, conn, authOpts, isRecovering, log); err != nil {
 			return workflow.Failed(err), false
 		}
 	} else if wantToEnableAuthentication {
@@ -533,7 +533,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		}
 
 		authOpts.UserOptions = userOpts
-		if err := authentication.Disable(conn, authOpts, false, log); err != nil {
+		if err := authentication.Disable(r.client, ctx, conn, authOpts, false, log); err != nil {
 			return workflow.Failed(err), false
 		}
 	}
@@ -597,7 +597,7 @@ func (r *ReconcileCommonController) clearProjectAuthenticationSettings(ctx conte
 		UserOptions:  userOpts,
 	}
 
-	return authentication.Disable(conn, disableOpts, true, log)
+	return authentication.Disable(r.client, ctx, conn, disableOpts, true, log)
 }
 
 // ensureX509SecretAndCheckTLSType checks if the secrets containing the certificates are present and whether the certificate are of kubernetes.io/tls type.

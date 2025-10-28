@@ -13,6 +13,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
@@ -32,7 +33,7 @@ const (
 // Enable will configure all of the required Kubernetes resources for SCRAM-SHA to be enabled.
 // The agent password and keyfile contents will be configured and stored in a secret.
 // the user credentials will be generated if not present, or existing credentials will be read.
-func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable) error {
+func Enable(client kubernetesClient.Client, ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable) error {
 	opts := mdb.GetAuthOptions()
 
 	desiredUsers, err := convertMongoDBResourceUsersToAutomationConfigUsers(ctx, secretGetUpdateCreateDeleter, mdb)
@@ -41,7 +42,7 @@ func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCre
 	}
 
 	if opts.AutoAuthMechanism == constants.Sha256 || opts.AutoAuthMechanism == constants.Sha1 {
-		if err := ensureAgent(ctx, auth, secretGetUpdateCreateDeleter, mdb); err != nil {
+		if err := ensureAgent(client, ctx, auth, secretGetUpdateCreateDeleter, mdb); err != nil {
 			return err
 		}
 	}
@@ -49,7 +50,7 @@ func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCre
 	return enableClientAuthentication(auth, opts, desiredUsers)
 }
 
-func ensureAgent(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable) error {
+func ensureAgent(client kubernetesClient.Client, ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable) error {
 	generatedPassword, err := generate.RandomFixedLengthStringOfSize(20)
 	if err != nil {
 		return fmt.Errorf("could not generate password: %s", err)
@@ -72,7 +73,7 @@ func ensureAgent(ctx context.Context, auth *automationconfig.Auth, secretGetUpda
 		return err
 	}
 
-	return enableAgentAuthentication(auth, agentPassword, agentKeyFile, mdb.GetAuthOptions())
+	return enableAgentAuthentication(client, ctx, auth, agentPassword, agentKeyFile, mdb.GetAuthOptions())
 }
 
 // ensureScramCredentials will ensure that the ScramSha1 & ScramSha256 credentials exist and are stored in the credentials

@@ -1,9 +1,12 @@
 package authentication
 
 import (
+	"context"
+
 	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
@@ -18,9 +21,9 @@ func (s *automationConfigScramSha) GetName() MechanismName {
 	return s.MechanismName
 }
 
-func (s *automationConfigScramSha) EnableAgentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func (s *automationConfigScramSha) EnableAgentAuthentication(client kubernetesClient.Client, ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		if err := configureScramAgentUsers(ac, opts); err != nil {
+		if err := configureScramAgentUsers(client, ctx, ac, opts); err != nil {
 			return err
 		}
 		if err := ac.EnsureKeyFileContents(); err != nil {
@@ -91,8 +94,8 @@ func (s *automationConfigScramSha) IsDeploymentAuthenticationEnabled(ac *om.Auto
 }
 
 // configureScramAgentUsers makes sure that the given automation config always has the correct SCRAM-SHA users
-func configureScramAgentUsers(ac *om.AutomationConfig, authOpts Options) error {
-	agentPassword, err := ac.EnsurePassword()
+func configureScramAgentUsers(client kubernetesClient.Client, ctx context.Context, ac *om.AutomationConfig, authOpts Options) error {
+	agentPassword, err := ac.EnsurePassword(client, ctx)
 	if err != nil {
 		return err
 	}
@@ -101,6 +104,6 @@ func configureScramAgentUsers(ac *om.AutomationConfig, authOpts Options) error {
 		auth.AutoUser = authOpts.AutoUser
 	}
 	auth.AutoPwd = agentPassword
-
+	auth.Key = agentPassword
 	return nil
 }

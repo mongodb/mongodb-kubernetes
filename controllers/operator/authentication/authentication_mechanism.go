@@ -1,6 +1,7 @@
 package authentication
 
 import (
+	"context"
 	"slices"
 	"strings"
 
@@ -8,12 +9,13 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // Mechanism is an interface that needs to be implemented for any Ops Manager authentication mechanism
 type Mechanism interface {
-	EnableAgentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error
+	EnableAgentAuthentication(client kubernetesClient.Client, ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error
 	DisableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error
 	EnableDeploymentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error
 	DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error

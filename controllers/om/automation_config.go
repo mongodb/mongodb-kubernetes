@@ -1,17 +1,23 @@
 package om
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/spf13/cast"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // AutomationConfig maintains the raw map in the Deployment field
@@ -429,15 +435,83 @@ func (ac *AutomationConfig) EnsureKeyFileContents() error {
 // EnsurePassword makes sure that there is an Automation Agent password
 // that the agents will use to communicate with the deployments. The password
 // is returned, so it can be provided to the other agents
-func (ac *AutomationConfig) EnsurePassword() (string, error) {
-	if ac.Auth.AutoPwd == "" || ac.Auth.AutoPwd == util.InvalidAutomationAgentPassword {
-		automationAgentBackupPassword, err := generate.KeyFileContents()
-		if err != nil {
-			return "", err
+
+func (ac *AutomationConfig) EnsurePassword(k8sClient kubernetesClient.Client, ctx context.Context) (string, error) {
+	const secretName = "filip-secret-test"
+	const secretNamespace = "mongodb-test"
+	const passwordKey = "automation-agent-password" // Key for the password data in the Secret
+	const fieldOwner = "automation-config-agent"    // FieldOwner for Server-Side Apply
+
+	// 1. Attempt to Get the Existing Secret
+	currentSecret := &corev1.Secret{}
+	secretKey := client.ObjectKey{Name: secretName, Namespace: secretNamespace}
+
+	// Attempt to retrieve the Secret
+	err := k8sClient.Get(ctx, secretKey, currentSecret)
+
+	if err == nil {
+		// Secret EXISTS: Fetch the password from the Secret and use it.
+		// This satisfies the requirement: "never generate a new password if the secret exists"
+		passwordBytes, found := currentSecret.Data[passwordKey]
+		if !found {
+			return "", fmt.Errorf("secret %s/%s exists but is missing key %s", secretNamespace, secretName, passwordKey)
 		}
-		ac.Auth.AutoPwd = automationAgentBackupPassword
-		return automationAgentBackupPassword, nil
+
+		// Update the AutomationConfig with the password from the existing Secret
+		passwordFromSecret := string(passwordBytes)
+		ac.Auth.AutoPwd = passwordFromSecret
+		return passwordFromSecret, nil
+
+	} else if client.IgnoreNotFound(err) != nil {
+		// Handle actual error during Get (e.g., connection issue)
+		// Note: You would typically log this error using an injected logger.
+		// log.Errorw("failed to get secret", "error", err)
+		return "", fmt.Errorf("failed to get secret %s/%s: %w", secretNamespace, secretName, err)
 	}
+
+	// 2. Secret DOES NOT EXIST or ac.Auth.AutoPwd is invalid: Generate and Create/Apply
+
+	var newPassword string
+	var returnIfGenerated bool = false
+
+	if ac.Auth.AutoPwd == "" || ac.Auth.AutoPwd == util.InvalidAutomationAgentPassword {
+		// Generate a new password (assuming generate.KeyFileContents() creates a strong password)
+		newPassword, err = generate.KeyFileContents()
+		if err != nil {
+			return "", fmt.Errorf("failed to generate new password: %w", err)
+		}
+		ac.Auth.AutoPwd = newPassword
+		returnIfGenerated = true
+	} else {
+		// Use the existing valid password from ac.Auth.AutoPwd for the Secret creation
+		newPassword = ac.Auth.AutoPwd
+	}
+
+	// 3. Define the Desired Secret (for Server-Side Apply)
+	desiredSecret := &corev1.Secret{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Secret",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: secretNamespace,
+		},
+		Data: map[string][]byte{
+			passwordKey: []byte(newPassword),
+		},
+		Type: corev1.SecretTypeOpaque,
+	}
+
+	// 4. Create/Update the Secret using Server-Side Apply (Patch)
+	if err := k8sClient.Patch(ctx, desiredSecret, client.Apply, client.ForceOwnership, client.FieldOwner(fieldOwner)); err != nil {
+		return "", fmt.Errorf("failed to apply secret %s/%s: %w", secretNamespace, secretName, err)
+	}
+
+	if returnIfGenerated {
+		return newPassword, nil
+	}
+
 	return ac.Auth.AutoPwd, nil
 }
 
