@@ -207,6 +207,11 @@ dump_pod_readiness_state() {
     ([[ -f "${agent_health_status}" ]] && jq . < "${agent_health_status}" > tmpfile && mv tmpfile "${agent_health_status}")
 
     if [[ ! -f "${agent_health_status}" ]]; then
+      kubectl --context="${context}" cp -c "mongodb-enterprise-database" "${namespace}/${pod}:/var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}" &> /dev/null
+      ([[ -f "${agent_health_status}" ]] && jq . < "${agent_health_status}" > tmpfile && mv tmpfile "${agent_health_status}")
+    fi
+
+    if [[ ! -f "${agent_health_status}" ]]; then
       echo "Agent health status not found; trying community health status: "
       kubectl --context="${context}" cp -c "mongodb-agent" "${namespace}/${pod}:/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json" "${agent_health_status}" &> /dev/null
       ([[ -f "${agent_health_status}" ]] && jq . < "${agent_health_status}" > tmpfile && mv tmpfile "${agent_health_status}")

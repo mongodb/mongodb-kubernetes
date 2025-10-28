@@ -645,7 +645,7 @@ class BackgroundHealthChecker(threading.Thread):
                 self.health_function(**self.health_function_params)
                 consecutive_failure = 0
             except Exception as e:
-                print(f"Error in {self.__class__.__name__}: {e})")
+                logging.error(f"Error in {self.__class__.__name__}: {e})")
                 self.last_exception = e
                 consecutive_failure = consecutive_failure + 1
                 self.max_consecutive_failure = max(self.max_consecutive_failure, consecutive_failure)
