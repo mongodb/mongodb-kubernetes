@@ -130,40 +130,51 @@ func (r *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, er
 	}, nil
 }
 
-// writeState writes the state of the resource that we store on the cluster between reconciliations.
-// This includes the lastAchievedSpec annotation (always written) and vault secret version annotations on successful
-// reconciliation
-func (r *ReplicaSetReconcilerHelper) writeState(ctx context.Context, includeVaultAnnotations bool) error {
-	// Serialize the state to annotations
+// writeState writes the lastAchievedSpec annotation to the resource.
+// This should only be called on successful reconciliation.
+// The state is currently split between the annotations and the member count in status. Both should be migrated
+// to config maps
+func (r *ReplicaSetReconcilerHelper) writeState(ctx context.Context) error {
+	// Get lastAchievedSpec annotation
 	annotationsToAdd, err := getAnnotationsForResource(r.resource)
 	if err != nil {
 		return err
 	}
 
-	if includeVaultAnnotations && vault.IsVaultSecretBackend() {
-		secrets := r.resource.GetSecretsMountedIntoDBPod()
-		vaultMap := make(map[string]string)
-		for _, s := range secrets {
-			path := fmt.Sprintf("%s/%s/%s", r.reconciler.VaultClient.DatabaseSecretMetadataPath(), r.resource.Namespace, s)
-			vaultMap = merge.StringToStringMap(vaultMap, r.reconciler.VaultClient.GetSecretAnnotation(path))
-		}
-		path := fmt.Sprintf("%s/%s/%s", r.reconciler.VaultClient.OperatorScretMetadataPath(), r.resource.Namespace, r.resource.Spec.Credentials)
-		vaultMap = merge.StringToStringMap(vaultMap, r.reconciler.VaultClient.GetSecretAnnotation(path))
-		for k, val := range vaultMap {
-			annotationsToAdd[k] = val
-		}
-	}
-
-	// Write annotations back to the resource
+	// Write to CR
 	if err := annotations.SetAnnotations(ctx, r.resource, annotationsToAdd, r.reconciler.client); err != nil {
 		return err
 	}
 
-	if includeVaultAnnotations {
-		r.log.Debugf("Successfully wrote deployment state and vault annotations for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
-	} else {
-		r.log.Debugf("Successfully wrote deployment state for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
+	r.log.Debugf("Successfully wrote deployment state for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
+	return nil
+}
+
+// writeVaultAnnotations writes vault secret version annotations to the CR.
+// This should only be called on successful reconciliation.
+func (r *ReplicaSetReconcilerHelper) writeVaultAnnotations(ctx context.Context) error {
+	if !vault.IsVaultSecretBackend() {
+		return nil
 	}
+
+	vaultMap := make(map[string]string)
+	secrets := r.resource.GetSecretsMountedIntoDBPod()
+
+	for _, s := range secrets {
+		path := fmt.Sprintf("%s/%s/%s", r.reconciler.VaultClient.DatabaseSecretMetadataPath(),
+			r.resource.Namespace, s)
+		vaultMap = merge.StringToStringMap(vaultMap, r.reconciler.VaultClient.GetSecretAnnotation(path))
+	}
+
+	path := fmt.Sprintf("%s/%s/%s", r.reconciler.VaultClient.OperatorScretMetadataPath(),
+		r.resource.Namespace, r.resource.Spec.Credentials)
+	vaultMap = merge.StringToStringMap(vaultMap, r.reconciler.VaultClient.GetSecretAnnotation(path))
+
+	if err := annotations.SetAnnotations(ctx, r.resource, vaultMap, r.reconciler.client); err != nil {
+		return err
+	}
+
+	r.log.Debugf("Successfully wrote vault annotations for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
 	return nil
 }
 
@@ -176,23 +187,11 @@ func (r *ReplicaSetReconcilerHelper) initialize(ctx context.Context) error {
 	return nil
 }
 
-// updateStatus overrides the common controller's updateStatus to ensure that the deployment state
-// is written after every status update. This ensures state consistency even on early returns.
-// Vault annotations are only included when status.IsOK() is true, meaning reconciliation succeeded.
-// This function must be executed only once per reconcile (with a return)
+// updateStatus is a pass-through method that calls the reconciler updateStatus.
+// In the future (multi-cluster epic), this will be enhanced to write deployment state to ConfigMap after every status
+// update (similar to sharded cluster pattern), but for now it just delegates to maintain the same architecture.
 func (r *ReplicaSetReconcilerHelper) updateStatus(ctx context.Context, status workflow.Status, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
-	result, err := r.reconciler.updateStatus(ctx, r.resource, status, r.log, statusOptions...)
-	if err != nil {
-		return result, err
-	}
-
-	// Write deployment state after every status update
-	// Include vault annotations only on successful reconciliation
-	if err := r.writeState(ctx, status.IsOK()); err != nil {
-		return r.reconciler.updateStatus(ctx, r.resource, workflow.Failed(xerrors.Errorf("failed to write deployment state after updating status: %w", err)), r.log)
-	}
-
-	return result, nil
+	return r.reconciler.updateStatus(ctx, r.resource, status, r.log, statusOptions...)
 }
 
 // Reconcile performs the full reconciliation logic for a replica set.
@@ -328,6 +327,15 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// === 6. Final steps
 	if scale.IsStillScaling(rs) {
 		return r.updateStatus(ctx, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), mdbstatus.MembersOption(rs))
+	}
+
+	// Write state and vault annotations on successful reconciliation
+	if err := r.writeState(ctx); err != nil {
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to write state: %w", err)))
+	}
+
+	if err := r.writeVaultAnnotations(ctx); err != nil {
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to write vault annotations: %w", err)))
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
