@@ -388,6 +388,11 @@ spec:
                 format: hostname
                 type: string
               clusterSpecList:
+                description: |-
+                  ClusterSpecList defines the configuration for MongoDB instances across multiple Kubernetes clusters.
+                  This field is used when Topology is set to "MultiCluster" and specifies how MongoDB members
+                  are distributed across different clusters, including member counts, service configurations,
+                  and external access settings for each cluster.
                 items:
                   description: |-
                     ClusterSpecItem is the mongodb multi-cluster spec that is specific to a

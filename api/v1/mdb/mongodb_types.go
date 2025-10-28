@@ -421,6 +421,13 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	// ClusterSpecList defines the configuration for MongoDB instances across multiple Kubernetes clusters.
+	// This field is used when Topology is set to "MultiCluster" and specifies how MongoDB members
+	// are distributed across different clusters, including member counts, service configurations,
+	// and external access settings for each cluster.
+	// +optional
+	ClusterSpecList ClusterSpecList `json:"clusterSpecList,omitempty"`
 }
 
 type MongoDbSpec struct {
