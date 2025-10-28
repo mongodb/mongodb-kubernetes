@@ -79,8 +79,8 @@ type ReconcileMongoDbReplicaSet struct {
 }
 
 type ReplicaSetDeploymentState struct {
-	LastAchievedSpec  *mdbv1.MongoDbSpec `json:"lastAchievedSpec"`
-	MemberCountBefore int                `json:"memberCountBefore"`
+	LastAchievedSpec         *mdbv1.MongoDbSpec `json:"lastAchievedSpec"`
+	LastReconcileMemberCount int                `json:"memberCountBefore"`
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
@@ -125,8 +125,8 @@ func (r *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, er
 	memberCountBefore := r.resource.Status.Members
 
 	return &ReplicaSetDeploymentState{
-		LastAchievedSpec:  lastAchievedSpec,
-		MemberCountBefore: memberCountBefore,
+		LastAchievedSpec:         lastAchievedSpec,
+		LastReconcileMemberCount: memberCountBefore,
 	}, nil
 }
 
@@ -277,7 +277,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// Check if we need to prepare for scale-down
-	if scale.ReplicasThisReconciliation(rs) < r.deploymentState.MemberCountBefore {
+	if scale.ReplicasThisReconciliation(rs) < r.deploymentState.LastReconcileMemberCount {
 		if err := replicaset.PrepareScaleDownFromMongoDB(conn, rs, log); err != nil {
 			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
 		}
@@ -300,7 +300,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.MemberCountBefore, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
@@ -314,7 +314,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.MemberCountBefore, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			return r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
