@@ -204,6 +204,7 @@ def test_load_build_info_staging():
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
+                latest_tag=True,
                 sign=True,
             ),
             "operator-race": ImageInfo(
