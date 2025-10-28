@@ -7,7 +7,6 @@ import yaml
 
 from lib.base_logger import logger
 from scripts.release.build.build_info import *
-from scripts.release.helm_registry_login import BUILD_SCENARIO_RELEASE
 
 CHART_DIR = "helm_chart"
 
@@ -54,7 +53,7 @@ def update_chart_and_get_metadata(chart_dir: str, build_scenario) -> tuple[str, 
         raise Exception(f"Unable to load Chart.yaml from dir {chart_path}")
 
     # if build_scenario is release, the chart.yaml would already have correct chart version
-    if build_scenario == BUILD_SCENARIO_RELEASE:
+    if build_scenario == BuildScenario.RELEASE:
         return chart_name, version
 
     new_version = f"0.0.0+{version}"

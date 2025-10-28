@@ -18,6 +18,8 @@ INIT_DATABASE_IMAGE = "init-database"
 INIT_OPS_MANAGER_IMAGE = "init-ops-manager"
 OPS_MANAGER_IMAGE = "ops-manager"
 
+KUBECTL_PLUGIN_BINARY = "kubectl-mongodb"
+
 
 @dataclass
 class ImageInfo:
