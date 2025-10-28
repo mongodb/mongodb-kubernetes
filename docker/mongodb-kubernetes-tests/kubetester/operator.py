@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-import os
 import time
 from typing import Dict, List, Optional
 
@@ -10,7 +8,6 @@ from kubernetes import client
 from kubernetes.client import V1CustomResourceDefinition, V1Deployment, V1Pod
 from kubernetes.client.rest import ApiException
 from kubetester import wait_for_webhook
-from kubetester.consts import *
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import (
     helm_chart_path_and_version,
@@ -19,8 +16,6 @@ from kubetester.helm import (
     helm_template,
     helm_uninstall,
     helm_upgrade,
-    oci_chart_info,
-    oci_helm_registry_login,
 )
 from tests import test_logger
 

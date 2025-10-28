@@ -149,7 +149,7 @@ def process_run_and_check(args, **kwargs):
         raise
 
 
-def oci_helm_registry_login(helm_registry: str, region: str):
+def helm_registry_login_to_ecr(helm_registry: str, region: str):
     logger.info(f"Attempting to log into ECR registry: {helm_registry}, using helm registry login.")
 
     aws_command = ["aws", "ecr", "get-login-password", "--region", region]
@@ -303,9 +303,9 @@ def _helm_chart_dir(default: Optional[str] = "helm_chart") -> str:
 
 
 # helm_chart_path_and_version returns the chart path and version that we would like to install to run the E2E tests.
-# for local tests it returns early with local helm chart dir and for other scenarios it figure out the chart and version
+# for local tests it returns early with local helm chart dir and for other scenarios it figures out the chart and version
 # based on the caller. In most of the cases we will install chart from OCI registry but for the tests where we would like
-# to install MEKO's specific version or MCK's specific version, we would expec `helm_chart_path` to set already.
+# to install MEKO's specific version or MCK's specific version, we would expect `helm_chart_path` to set already.
 def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> tuple[str, str]:
     # these are imported here to resolve import cycle issue
     from tests.conftest import LOCAL_HELM_CHART_DIR, local_operator
@@ -313,7 +313,7 @@ def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> 
     if local_operator():
         return LOCAL_HELM_CHART_DIR, ""
 
-    # if operator_version is not specified and we are not installing the MCK or MEKO chart
+    # if operator_version is not specified, and we are not installing the MCK or MEKO chart
     # it would mean we want to install OCI published helm chart. Figure out respective version,
     # it is set in env var `OPERATOR_VERSION` based on build_scenario.
     if not operator_version and helm_chart_path not in (
@@ -328,12 +328,13 @@ def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> 
     # helm_chart_path not being passed would mean we are on evg env and would like to
     # install helm chart from OCI registry.
     if not helm_chart_path:
-        # login to the OCI container registry
         registry, repository, region = oci_chart_info()
-        try:
-            oci_helm_registry_login(registry, region)
-        except Exception as e:
-            raise e
+        # If ECR we need to login first to the OCI container registry
+        if registry == "268558157000.dkr.ecr.us-east-1.amazonaws.com":
+            try:
+                helm_registry_login_to_ecr(registry, region)
+            except Exception as e:
+                raise Exception(f"Failed to login to ECR helm registry {registry}. Error: {e}")
 
         # figure out the registry URI, based on dev/staging scenario
         chart_uri = f"oci://{registry}/{repository}"

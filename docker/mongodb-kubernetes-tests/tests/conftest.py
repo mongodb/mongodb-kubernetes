@@ -22,11 +22,8 @@ from kubetester import (
 from kubetester.awss3client import AwsS3Client
 from kubetester.consts import *
 from kubetester.helm import (
-    helm_chart_path_and_version,
     helm_install_from_chart,
     helm_repo_add,
-    oci_chart_info,
-    oci_helm_registry_login,
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
@@ -840,8 +837,6 @@ def _install_multi_cluster_operator(
     # The Operator will be installed from the following repo, so adding it first
     helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
-    helm_chart_path, custom_operator_version = helm_chart_path_and_version(helm_chart_path, custom_operator_version)
-
     prepare_multi_cluster_namespaces(
         namespace,
         multi_cluster_operator_installation_config,
@@ -857,6 +852,7 @@ def _install_multi_cluster_operator(
         helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
         helm_chart_path=helm_chart_path,
+        operator_version=custom_operator_version,
     ).upgrade(multi_cluster=True, custom_operator_version=custom_operator_version, apply_crds_first=apply_crds_first)
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.

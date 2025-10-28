@@ -48,14 +48,15 @@ deploy_test_app() {
     BUILD_ID="${BUILD_ID:-default_build_id}"
     BUILD_VARIANT="${BUILD_VARIANT:-default_build_variant}"
 
-    chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py)
-    helm_oci_regisry=$(echo "${chart_info}" | jq -r '.registry' )
+    chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py --build_scenario "${BUILD_SCENARIO}")
+    helm_oci_registry=$(echo "${chart_info}" | jq -r '.registry' )
     helm_oci_repository=$(echo "${chart_info}" | jq -r '.repository' )
     helm_oci_registry_region=$(echo "${chart_info}" | jq -r '.region' )
 
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
         "--set" "taskId=${task_id:-'not-specified'}"
+        "--set" "operator.version=${OPERATOR_VERSION}"
         "--set" "namespace=${NAMESPACE}"
         "--set" "taskName=${task_name}"
         "--set" "mekoTestsRegistry=${MEKO_TESTS_REGISTRY}"
@@ -81,6 +82,9 @@ deploy_test_app() {
         "--set" "cognito_user_password=${cognito_user_password}"
         "--set" "cognito_workload_url=${cognito_workload_url}"
         "--set" "cognito_workload_user_id=${cognito_workload_user_id}"
+        "--set" "helm.oci.registry=${helm_oci_registry}"
+        "--set" "helm.oci.repository=${helm_oci_repository}"
+        "--set" "helm.oci.region=${helm_oci_registry_region}"
     )
 
     # shellcheck disable=SC2154
@@ -145,22 +149,6 @@ deploy_test_app() {
 
     if [[ "${OM_DEBUG_HTTP}" == "true" ]]; then
         helm_params+=("--set" "omDebugHttp=true")
-    fi
-
-    if [[ -n "${helm_oci_regisry:-}" ]]; then
-        helm_params+=("--set" "helm.oci.registry=${helm_oci_regisry}")
-    fi
-
-    if [[ -n "${helm_oci_repository:-}" ]]; then
-        helm_params+=("--set" "helm.oci.repository=${helm_oci_repository}")
-    fi
-
-    if [[ -n "${helm_oci_registry_region:-}" ]]; then
-        helm_params+=("--set" "helm.oci.region=${helm_oci_registry_region}")
-    fi
-
-    if [[ -n "${OPERATOR_VERSION:-}" ]]; then
-        helm_params+=("--set" "operator.version=${OPERATOR_VERSION}")
     fi
 
     helm_params+=("--set" "opsManagerVersion=${ops_manager_version}")

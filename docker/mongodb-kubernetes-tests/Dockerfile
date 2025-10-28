@@ -16,7 +16,11 @@ RUN apt-get -qq update \
 
 COPY requirements.txt requirements.txt
 
-RUN python3 -m venv /venv && . /venv/bin/activate && pip install --upgrade pip && GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 pip install -r requirements.txt
+RUN python3 -m venv /venv  \
+    && . /venv/bin/activate  \
+    && pip install --upgrade pip  \
+    && GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 pip install -r requirements.txt \
+    && pip install awscli # install aws, required to run helm registry login while running the tests
 
 FROM scratch AS tools_downloader
 
@@ -44,9 +48,7 @@ RUN apt-get -qq update \
     curl \
     libldap2-dev \
     libsasl2-dev \
-    git \
-    openssl \
-    unzip
+    git
 
 RUN mkdir -p /tmp/mongodb-tools && \
     tar xfz /tmp/mongodb-tools.tgz -C /tmp/mongodb-tools && \
@@ -66,11 +68,6 @@ RUN curl --fail --retry 3 -L -o "${HELM_NAME}" "https://get.helm.sh/${HELM_NAME}
 RUN curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/${TARGETARCH}/kubectl" \
     && chmod +x ./kubectl \
     && mv ./kubectl /usr/local/bin/kubectl
-
-# install aws, required to run helm registry login while running the tests
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
-    && unzip -q awscliv2.zip \
-    && ./aws/install
 
 COPY --from=builder /venv /venv
 
