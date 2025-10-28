@@ -48,7 +48,6 @@ RUN apt-get -qq update \
     curl \
     libldap2-dev \
     libsasl2-dev \
-    git
 
 RUN mkdir -p /tmp/mongodb-tools && \
     tar xfz /tmp/mongodb-tools.tgz -C /tmp/mongodb-tools && \

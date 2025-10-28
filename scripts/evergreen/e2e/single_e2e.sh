@@ -48,7 +48,10 @@ deploy_test_app() {
     BUILD_ID="${BUILD_ID:-default_build_id}"
     BUILD_VARIANT="${BUILD_VARIANT:-default_build_variant}"
 
-    chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py --build_scenario "${BUILD_SCENARIO}")
+    if ! chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py --build-scenario "${BUILD_SCENARIO}" 2>&1); then
+        echo "${chart_info}"
+        exit 1
+    fi
     helm_oci_registry=$(echo "${chart_info}" | jq -r '.registry' )
     helm_oci_repository=$(echo "${chart_info}" | jq -r '.repository' )
     helm_oci_registry_region=$(echo "${chart_info}" | jq -r '.region' )

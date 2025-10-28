@@ -2,9 +2,8 @@ import argparse
 import json
 from dataclasses import asdict
 
-from release.build.build_scenario import BuildScenario
-
 from scripts.release.build.build_info import load_build_info
+from scripts.release.build.build_scenario import BuildScenario
 
 
 def main():
