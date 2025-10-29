@@ -11,9 +11,16 @@ spec:
     image: mongodb/mongodb-community-server:${MDB_VERSION%-ent}-ubi8
     command: ["/bin/bash", "-c"]
     args: ["sleep infinity"]
+    volumeMounts:
+    - name: mongo-ca
+      mountPath: /tls
+      readOnly: true
   restartPolicy: Never
+  volumes:
+  - name: mongo-ca
+    secret:
+      secretName: ${MDB_TLS_CA_SECRET}
 EOF
 
 echo "Waiting for the mongodb-tools to be ready..."
-kubectl --context "${K8S_CTX}" -n "${MDB_NS}" wait \
-  --for=condition=Ready pod/mongodb-tools-pod --timeout=60s
+kubectl --context "${K8S_CTX}" -n "${MDB_NS}" wait --for=condition=Ready pod/mongodb-tools-pod --timeout=60s
