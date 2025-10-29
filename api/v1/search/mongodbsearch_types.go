@@ -17,10 +17,13 @@ import (
 )
 
 const (
-	MongotDefaultPort               = 27027
+	MongotDefaultWireprotoPort      = 27027
+	MongotDefaultGrpcPort           = 27028
 	MongotDefaultMetricsPort        = 9946
 	MongotDefautHealthCheckPort     = 8080
 	MongotDefaultSyncSourceUsername = "search-sync-source"
+
+	ForceWireprotoTransportAnnotation = "mongodb.com/v1.force-wireproto-transport"
 )
 
 func init() {
@@ -207,8 +210,12 @@ func (s *MongoDBSearch) GetMongoDBResourceRef() *userv1.MongoDBResourceRef {
 	return &mdbResourceRef
 }
 
-func (s *MongoDBSearch) GetMongotPort() int32 {
-	return MongotDefaultPort
+func (s *MongoDBSearch) GetMongotWireprotoPort() int32 {
+	return MongotDefaultWireprotoPort
+}
+
+func (s *MongoDBSearch) GetMongotGrpcPort() int32 {
+	return MongotDefaultGrpcPort
 }
 
 func (s *MongoDBSearch) GetMongotMetricsPort() int32 {
@@ -240,4 +247,9 @@ func (s *MongoDBSearch) GetLogLevel() mdb.LogLevel {
 	}
 
 	return s.Spec.LogLevel
+}
+
+func (s *MongoDBSearch) IsWireprotoForced() bool {
+	val, ok := s.Annotations[ForceWireprotoTransportAnnotation]
+	return ok && val == "true"
 }
