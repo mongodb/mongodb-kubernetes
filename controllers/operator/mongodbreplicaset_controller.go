@@ -712,32 +712,8 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	}
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
-	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
-	// this is, do not scale them up or down util TLS disabling has completed.
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, reconciler.imageUrls[mcoConstruct.MongodbImageEnv], reconciler.forceEnterprise, membersNumberBefore, rs, caFilePath, tlsCertPath, r.deploymentState.LastAchievedSpec, log)
-	if err != nil && !isRecovering {
-		return workflow.Failed(err)
-	}
 
-	var updatedMembers int
-	// This lock member logic will be removed soon, we should rather block possibility to disable tls + scale
-	// Tracked in CLOUDP-349087
-	if shouldLockMembers {
-		// We should not add or remove members during this run, we'll wait for
-		// TLS to be completely disabled first.
-		// However, on first reconciliation (membersNumberBefore=0), we need to use replicasTarget
-		// because the OM deployment is initialized with TLS enabled by default.
-		log.Debugf("locking members for this reconciliation because TLS was disabled")
-		if membersNumberBefore == 0 {
-			updatedMembers = replicasTarget
-		} else {
-			updatedMembers = membersNumberBefore
-		}
-	} else {
-		updatedMembers = replicasTarget
-	}
-
-	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[mcoConstruct.MongodbImageEnv], reconciler.forceEnterprise, rs, updatedMembers, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
+	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[mcoConstruct.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
 	processNames := replicaSet.GetProcessNames()
 
 	status, additionalReconciliationRequired := reconciler.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOptions.agentCertPath, caFilePath, internalClusterCertPath, isRecovering, log)
@@ -800,40 +776,6 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	log.Info("Updated Ops Manager for replica set")
 	return workflow.OK()
-}
-
-// updateOmDeploymentDisableTLSConfiguration checks if TLS configuration needs
-// to be disabled. In which case it will disable it and inform to the calling
-// function.
-func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage string, forceEnterprise bool, membersNumberBefore int, rs *mdbv1.MongoDB, caFilePath, tlsCertPath string, lastSpec *mdbv1.MongoDbSpec, log *zap.SugaredLogger) (bool, error) {
-	tlsConfigWasDisabled := false
-
-	err := conn.ReadUpdateDeployment(
-		func(d om.Deployment) error {
-			if !d.TLSConfigurationWillBeDisabled(rs.Spec.GetSecurity()) {
-				return nil
-			}
-
-			tlsConfigWasDisabled = true
-			d.ConfigureTLS(rs.Spec.GetSecurity(), caFilePath)
-
-			// configure as many agents/Pods as we currently have, no more (in case
-			// there's a scale up change at the same time).
-			replicaSet := replicaset.BuildFromMongoDBWithReplicas(mongoDBImage, forceEnterprise, rs, membersNumberBefore, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
-
-			lastConfig, err := mdbv1.GetLastAdditionalMongodConfigByType(lastSpec, mdbv1.ReplicaSetConfig)
-			if err != nil {
-				return err
-			}
-
-			d.MergeReplicaSet(replicaSet, rs.Spec.AdditionalMongodConfig.ToMap(), lastConfig.ToMap(), log)
-
-			return nil
-		},
-		log,
-	)
-
-	return tlsConfigWasDisabled, err
 }
 
 func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {

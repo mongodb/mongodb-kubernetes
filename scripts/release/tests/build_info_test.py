@@ -204,6 +204,7 @@ def test_load_build_info_staging():
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
+                latest_tag=True,
                 sign=True,
             ),
             "operator-race": ImageInfo(
@@ -294,7 +295,14 @@ def test_load_build_info_staging():
         binaries={
             "kubectl-mongodb": BinaryInfo(
                 s3_store="mongodb-kubernetes-staging",
-                platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
+                platforms=[
+                    "darwin/amd64",
+                    "darwin/arm64",
+                    "linux/amd64",
+                    "linux/arm64",
+                    "linux/s390x",
+                    "linux/ppc64le",
+                ],
                 sign=False,
             )
         },
@@ -398,7 +406,14 @@ def test_load_build_info_release():
         binaries={
             "kubectl-mongodb": BinaryInfo(
                 s3_store="mongodb-kubernetes-release",
-                platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
+                platforms=[
+                    "darwin/amd64",
+                    "darwin/arm64",
+                    "linux/amd64",
+                    "linux/arm64",
+                    "linux/s390x",
+                    "linux/ppc64le",
+                ],
                 sign=True,
             )
         },

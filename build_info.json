@@ -10,6 +10,7 @@
       },
       "staging": {
         "sign": true,
+        "latest-tag": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
         "platforms": [
           "linux/arm64",
@@ -355,13 +356,14 @@
         ]
       },
       "staging": {
-        "sign": false,
         "s3-store": "mongodb-kubernetes-staging",
         "platforms": [
           "darwin/amd64",
           "darwin/arm64",
           "linux/amd64",
-          "linux/arm64"
+          "linux/arm64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -371,7 +373,9 @@
           "darwin/amd64",
           "darwin/arm64",
           "linux/amd64",
-          "linux/arm64"
+          "linux/arm64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     }
