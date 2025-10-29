@@ -181,7 +181,7 @@ func Disable(client kubernetesClient.Client, ctx context.Context, conn om.Connec
 	}
 
 	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		if err := ac.EnsureKeyFileContents(); err != nil {
+		if err := ac.EnsureKeyFileContents(client, ctx); err != nil {
 			return xerrors.Errorf("error ensuring keyfile contents: %w", err)
 		}
 		if _, err := ac.EnsurePassword(client, ctx); err != nil {

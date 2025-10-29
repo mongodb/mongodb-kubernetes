@@ -421,74 +421,102 @@ type MongoDbVersionConfig struct {
 }
 
 // EnsureKeyFileContents makes sure a valid keyfile is generated and used for internal cluster authentication
-func (ac *AutomationConfig) EnsureKeyFileContents() error {
-	if ac.Auth.Key == "" || ac.Auth.Key == util.InvalidKeyFileContents {
-		keyfileContents, err := generate.KeyFileContents()
-		if err != nil {
-			return err
+func (ac *AutomationConfig) EnsureKeyFileContents(k8sClient kubernetesClient.Client, ctx context.Context) error {
+	const (
+		secretName      = "keyfile-secret"
+		secretNamespace = "mongodb-test"
+		keyFileKey      = "cluster-auth-key"
+		fieldOwner      = "automation-config-agent"
+	)
+
+	secretKey := client.ObjectKey{Name: secretName, Namespace: secretNamespace}
+	currentSecret := &corev1.Secret{}
+
+	if err := k8sClient.Get(ctx, secretKey, currentSecret); err == nil {
+		keyFileContents, found := currentSecret.Data[keyFileKey]
+		if !found || len(keyFileContents) == 0 {
+			generatedKeyFile, genErr := generate.KeyFileContents()
+			if genErr != nil {
+				return fmt.Errorf("failed to generate keyfile contents: %w", genErr)
+			}
+
+			currentSecret.Data[keyFileKey] = []byte(generatedKeyFile)
+			if patchErr := k8sClient.Patch(ctx, currentSecret, client.Apply, client.ForceOwnership); patchErr != nil {
+				return fmt.Errorf("failed to update keyfile secret: %w", patchErr)
+			}
+
+			ac.Auth.Key = generatedKeyFile
+		} else {
+			ac.Auth.Key = string(keyFileContents)
 		}
-		ac.Auth.Key = keyfileContents
+		return nil
+	} else if client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("failed to get keyfile secret %s/%s: %w", secretNamespace, secretName, err)
 	}
+
+	generatedKeyFile, err := generate.KeyFileContents()
+	if err != nil {
+		return fmt.Errorf("failed to generate keyfile contents: %w", err)
+	}
+
+	desiredSecret := generateSecret(secretName, secretNamespace, keyFileKey, generatedKeyFile)
+	if err := k8sClient.Patch(ctx, desiredSecret, client.Apply, client.ForceOwnership, client.FieldOwner(fieldOwner)); err != nil {
+		return fmt.Errorf("failed to create keyfile secret %s/%s: %w", secretNamespace, secretName, err)
+	}
+
+	ac.Auth.Key = generatedKeyFile
 	return nil
 }
 
 // EnsurePassword makes sure that there is an Automation Agent password
 // that the agents will use to communicate with the deployments. The password
 // is returned, so it can be provided to the other agents
-
 func (ac *AutomationConfig) EnsurePassword(k8sClient kubernetesClient.Client, ctx context.Context) (string, error) {
-	const secretName = "filip-secret-test"
-	const secretNamespace = "mongodb-test"
-	const passwordKey = "automation-agent-password" // Key for the password data in the Secret
-	const fieldOwner = "automation-config-agent"    // FieldOwner for Server-Side Apply
+	const (
+		secretName      = "password-secret"
+		secretNamespace = "mongodb-test"
+		passwordKey     = "automation-agent-password"
+		fieldOwner      = "automation-config-agent"
+	)
 
-	// 1. Attempt to Get the Existing Secret
-	currentSecret := &corev1.Secret{}
 	secretKey := client.ObjectKey{Name: secretName, Namespace: secretNamespace}
+	currentSecret := &corev1.Secret{}
 
-	// Attempt to retrieve the Secret
-	err := k8sClient.Get(ctx, secretKey, currentSecret)
-
-	if err == nil {
-		// Secret EXISTS: Fetch the password from the Secret and use it.
-		// This satisfies the requirement: "never generate a new password if the secret exists"
+	if err := k8sClient.Get(ctx, secretKey, currentSecret); err == nil {
 		passwordBytes, found := currentSecret.Data[passwordKey]
 		if !found {
 			return "", fmt.Errorf("secret %s/%s exists but is missing key %s", secretNamespace, secretName, passwordKey)
 		}
 
-		// Update the AutomationConfig with the password from the existing Secret
 		passwordFromSecret := string(passwordBytes)
 		ac.Auth.AutoPwd = passwordFromSecret
 		return passwordFromSecret, nil
-
 	} else if client.IgnoreNotFound(err) != nil {
-		// Handle actual error during Get (e.g., connection issue)
-		// Note: You would typically log this error using an injected logger.
-		// log.Errorw("failed to get secret", "error", err)
 		return "", fmt.Errorf("failed to get secret %s/%s: %w", secretNamespace, secretName, err)
 	}
 
-	// 2. Secret DOES NOT EXIST or ac.Auth.AutoPwd is invalid: Generate and Create/Apply
-
 	var newPassword string
-	var returnIfGenerated bool = false
-
 	if ac.Auth.AutoPwd == "" || ac.Auth.AutoPwd == util.InvalidAutomationAgentPassword {
-		// Generate a new password (assuming generate.KeyFileContents() creates a strong password)
-		newPassword, err = generate.KeyFileContents()
-		if err != nil {
-			return "", fmt.Errorf("failed to generate new password: %w", err)
+		var genErr error
+		newPassword, genErr = generate.KeyFileContents()
+		if genErr != nil {
+			return "", fmt.Errorf("failed to generate new password: %w", genErr)
 		}
 		ac.Auth.AutoPwd = newPassword
-		returnIfGenerated = true
 	} else {
-		// Use the existing valid password from ac.Auth.AutoPwd for the Secret creation
 		newPassword = ac.Auth.AutoPwd
 	}
 
-	// 3. Define the Desired Secret (for Server-Side Apply)
-	desiredSecret := &corev1.Secret{
+	desiredSecret := generateSecret(secretName, secretNamespace, passwordKey, newPassword)
+	if err := k8sClient.Patch(ctx, desiredSecret, client.Apply, client.ForceOwnership, client.FieldOwner(fieldOwner)); err != nil {
+		return "", fmt.Errorf("failed to apply secret %s/%s: %w", secretNamespace, secretName, err)
+	}
+
+	return ac.Auth.AutoPwd, nil
+}
+
+func generateSecret(secretName string, secretNamespace string, secretKey string, data string) *corev1.Secret {
+	return &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Secret",
 			APIVersion: "v1",
@@ -498,21 +526,10 @@ func (ac *AutomationConfig) EnsurePassword(k8sClient kubernetesClient.Client, ct
 			Namespace: secretNamespace,
 		},
 		Data: map[string][]byte{
-			passwordKey: []byte(newPassword),
+			secretKey: []byte(data),
 		},
 		Type: corev1.SecretTypeOpaque,
 	}
-
-	// 4. Create/Update the Secret using Server-Side Apply (Patch)
-	if err := k8sClient.Patch(ctx, desiredSecret, client.Apply, client.ForceOwnership, client.FieldOwner(fieldOwner)); err != nil {
-		return "", fmt.Errorf("failed to apply secret %s/%s: %w", secretNamespace, secretName, err)
-	}
-
-	if returnIfGenerated {
-		return newPassword, nil
-	}
-
-	return ac.Auth.AutoPwd, nil
 }
 
 func (ac *AutomationConfig) CanEnableX509ProjectAuthentication() (bool, string) {

@@ -26,7 +26,7 @@ func (s *automationConfigScramSha) EnableAgentAuthentication(client kubernetesCl
 		if err := configureScramAgentUsers(client, ctx, ac, opts); err != nil {
 			return err
 		}
-		if err := ac.EnsureKeyFileContents(); err != nil {
+		if err := ac.EnsureKeyFileContents(client, ctx); err != nil {
 			return err
 		}
 
