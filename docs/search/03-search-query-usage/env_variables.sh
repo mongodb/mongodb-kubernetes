@@ -15,6 +15,11 @@
 # user only for the connection string in MDB_CONNECTION_STRING env var below
 #export MDB_RESOURCE_NAME="mdbc-rs"
 
+# TLS-related secret names used by the snippets in this module
+#export MDB_TLS_CA_SECRET_NAME="${MDB_RESOURCE_NAME}-ca"
+#export MDB_TLS_SERVER_CERT_SECRET_NAME="${MDB_RESOURCE_NAME}-tls"
+#export MDB_SEARCH_TLS_SECRET_NAME="${MDB_RESOURCE_NAME}-search-tls"
+
 # default connection string if MongoDB database is deployed using the operator
 #export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME}-0.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_RESOURCE_NAME}"
 

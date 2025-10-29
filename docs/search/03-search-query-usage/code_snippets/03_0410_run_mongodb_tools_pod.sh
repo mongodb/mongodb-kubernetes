@@ -19,7 +19,7 @@ spec:
   volumes:
   - name: mongo-ca
     secret:
-      secretName: ${MDB_TLS_CA_SECRET}
+      secretName: ${MDB_TLS_CA_SECRET_NAME}
 EOF
 
 echo "Waiting for the mongodb-tools to be ready..."

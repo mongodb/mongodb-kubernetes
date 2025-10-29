@@ -10,9 +10,9 @@ export MDB_RESOURCE_NAME="mdbc-rs"
 export MDB_MEMBERS=3
 
 # TLS-related secret names used for MongoDBCommunity and MongoDBSearch
-export MDB_TLS_CA_SECRET="${MDB_RESOURCE_NAME}-ca"
-export MDB_TLS_CERT_SECRET="${MDB_RESOURCE_NAME}-tls"
-export MDB_SEARCH_TLS_SECRET="${MDB_RESOURCE_NAME}-search-tls"
+export MDB_TLS_CA_SECRET_NAME="${MDB_RESOURCE_NAME}-ca"
+export MDB_TLS_SERVER_CERT_SECRET_NAME="${MDB_RESOURCE_NAME}-tls"
+export MDB_SEARCH_TLS_SECRET_NAME="${MDB_RESOURCE_NAME}-search-tls"
 # Set to "1" to use cert-manager for TLS certificate management instead of self-managed certificates
 export MDB_USE_CERT_MANAGER_TLS="0"
 

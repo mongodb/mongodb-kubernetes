@@ -7,7 +7,7 @@ spec:
   security:
     tls:
       certificateKeySecretRef:
-        name: ${MDB_SEARCH_TLS_SECRET}
+        name: ${MDB_SEARCH_TLS_SECRET_NAME}
   resourceRequirements:
     limits:
       cpu: "3"

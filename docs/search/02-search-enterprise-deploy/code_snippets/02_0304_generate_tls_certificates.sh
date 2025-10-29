@@ -4,7 +4,7 @@ kind: Certificate
 metadata:
   name: ${MDB_RESOURCE_NAME}-server-tls
 spec:
-  secretName: ${MDB_TLS_SERVER_CERT_SECRET}
+  secretName: ${MDB_TLS_SERVER_CERT_SECRET_NAME}
   issuerRef:
     name: ${MDB_TLS_CLUSTER_ISSUER}
     kind: ClusterIssuer

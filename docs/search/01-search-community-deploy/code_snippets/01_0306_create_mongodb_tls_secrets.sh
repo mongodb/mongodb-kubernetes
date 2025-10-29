@@ -168,8 +168,8 @@ create_tls_secret() {
 
 # Create all secrets
 echo "Creating Kubernetes secrets..."
-create_tls_secret "${MDB_TLS_CA_SECRET}" "${tmpdir}/ca.crt" "" "generic"
-create_tls_secret "${MDB_TLS_CERT_SECRET}" "${tmpdir}/mongodb.crt" "${tmpdir}/mongodb.key"
-create_tls_secret "${MDB_SEARCH_TLS_SECRET}" "${tmpdir}/mongot.crt" "${tmpdir}/mongot.key"
+create_tls_secret "${MDB_TLS_CA_SECRET_NAME}" "${tmpdir}/ca.crt" "" "generic"
+create_tls_secret "${MDB_TLS_SERVER_CERT_SECRET_NAME}" "${tmpdir}/mongodb.crt" "${tmpdir}/mongodb.key"
+create_tls_secret "${MDB_SEARCH_TLS_SECRET_NAME}" "${tmpdir}/mongot.crt" "${tmpdir}/mongot.key"
 
 echo "TLS certificates and secrets created successfully"

@@ -9,7 +9,7 @@ echo "Starting cert-manager TLS certificate setup..."
 
 # Function to check for required environment variables
 check_required_vars() {
-    local required_vars=("MDB_RESOURCE_NAME" "MDB_NS" "K8S_CTX" "MDB_TLS_CA_SECRET" "MDB_TLS_CERT_SECRET" "MDB_SEARCH_TLS_SECRET")
+    local required_vars=("MDB_RESOURCE_NAME" "MDB_NS" "K8S_CTX" "MDB_TLS_CA_SECRET_NAME" "MDB_TLS_SERVER_CERT_SECRET_NAME" "MDB_SEARCH_TLS_SECRET_NAME")
     local missing_vars=()
 
     for var in "${required_vars[@]}"; do
@@ -30,7 +30,7 @@ force_cleanup_cert_manager_resources() {
     echo "Force cleaning up cert-manager resources to prevent conflicts..."
 
     # Force delete certificates (remove finalizers if stuck)
-    for cert in "${MDB_SEARCH_TLS_SECRET}" "${MDB_TLS_CERT_SECRET}" "${MDB_TLS_CA_SECRET}"; do
+    for cert in "${MDB_SEARCH_TLS_SECRET_NAME}" "${MDB_TLS_SERVER_CERT_SECRET_NAME}" "${MDB_TLS_CA_SECRET_NAME}"; do
         if kubectl get certificate "${cert}" --context "${K8S_CTX}" -n "${MDB_NS}" >/dev/null 2>&1; then
             echo "Force deleting certificate ${cert}..."
             kubectl patch certificate "${cert}" --context "${K8S_CTX}" -n "${MDB_NS}" -p '{"metadata":{"finalizers":null}}' --type=merge || true
@@ -48,7 +48,7 @@ force_cleanup_cert_manager_resources() {
     done
 
     # Delete related secrets if they exist in bad state
-    for secret in "${MDB_SEARCH_TLS_SECRET}" "${MDB_TLS_CERT_SECRET}" "${MDB_TLS_CA_SECRET}"; do
+    for secret in "${MDB_SEARCH_TLS_SECRET_NAME}" "${MDB_TLS_SERVER_CERT_SECRET_NAME}" "${MDB_TLS_CA_SECRET_NAME}"; do
         if kubectl get secret "${secret}" --context "${K8S_CTX}" -n "${MDB_NS}" >/dev/null 2>&1; then
             echo "Cleaning up secret ${secret}..."
             kubectl delete secret "${secret}" --context "${K8S_CTX}" -n "${MDB_NS}" --ignore-not-found=true
@@ -60,7 +60,7 @@ force_cleanup_cert_manager_resources() {
 
     # Verify cleanup completed
     local cleanup_failed=false
-    for resource in "${MDB_SEARCH_TLS_SECRET}" "${MDB_TLS_CERT_SECRET}" "${MDB_TLS_CA_SECRET}"; do
+    for resource in "${MDB_SEARCH_TLS_SECRET_NAME}" "${MDB_TLS_SERVER_CERT_SECRET_NAME}" "${MDB_TLS_CA_SECRET_NAME}"; do
         if kubectl get certificate "${resource}" --context "${K8S_CTX}" -n "${MDB_NS}" >/dev/null 2>&1; then
             echo "WARNING: Certificate ${resource} still exists after cleanup"
             cleanup_failed=true
@@ -391,13 +391,13 @@ kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF_CA_CERT
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: ${MDB_TLS_CA_SECRET}
+  name: ${MDB_TLS_CA_SECRET_NAME}
   namespace: ${MDB_NS}
   annotations:
     cert-manager.io/revision: "$(date +%s)"
 spec:
   isCA: true
-  secretName: ${MDB_TLS_CA_SECRET}
+  secretName: ${MDB_TLS_CA_SECRET_NAME}
   commonName: "${ca_common_name}"
   duration: 240h
   renewBefore: 120h
@@ -413,8 +413,8 @@ spec:
     kind: Issuer
 EOF_CA_CERT
 
-wait_for_certificate "${MDB_TLS_CA_SECRET}"
-ensure_ca_secret_has_ca_crt "${MDB_TLS_CA_SECRET}"
+wait_for_certificate "${MDB_TLS_CA_SECRET_NAME}"
+ensure_ca_secret_has_ca_crt "${MDB_TLS_CA_SECRET_NAME}"
 
 # Step 3: Create CA issuer
 echo "Step 3: Creating CA issuer..."
@@ -428,7 +428,7 @@ metadata:
     cert-manager.io/revision: "$(date +%s)"
 spec:
   ca:
-    secretName: ${MDB_TLS_CA_SECRET}
+    secretName: ${MDB_TLS_CA_SECRET_NAME}
 EOF_CA_ISSUER
 
 wait_for_issuer "${MDB_TLS_CA_ISSUER}"
@@ -439,12 +439,12 @@ kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF_MONGODB_CERT
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: ${MDB_TLS_CERT_SECRET}
+  name: ${MDB_TLS_SERVER_CERT_SECRET_NAME}
   namespace: ${MDB_NS}
   annotations:
     cert-manager.io/revision: "$(date +%s)"
 spec:
-  secretName: ${MDB_TLS_CERT_SECRET}
+  secretName: ${MDB_TLS_SERVER_CERT_SECRET_NAME}
   duration: 240h
   renewBefore: 120h
   usages:
@@ -464,12 +464,12 @@ kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF_SEARCH_CERT
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: ${MDB_SEARCH_TLS_SECRET}
+  name: ${MDB_SEARCH_TLS_SECRET_NAME}
   namespace: ${MDB_NS}
   annotations:
     cert-manager.io/revision: "$(date +%s)"
 spec:
-  secretName: ${MDB_SEARCH_TLS_SECRET}
+  secretName: ${MDB_SEARCH_TLS_SECRET_NAME}
   duration: 240h
   renewBefore: 120h
   usages:
@@ -486,14 +486,14 @@ EOF_SEARCH_CERT
 
 # Wait for all certificates with enhanced monitoring
 echo "Waiting for MongoDB certificates to be issued..."
-wait_for_certificate "${MDB_TLS_CERT_SECRET}"
-wait_for_certificate "${MDB_SEARCH_TLS_SECRET}"
+wait_for_certificate "${MDB_TLS_SERVER_CERT_SECRET_NAME}"
+wait_for_certificate "${MDB_SEARCH_TLS_SECRET_NAME}"
 
 echo "All TLS certificates have been successfully created by cert-manager"
 echo "Performing final verification..."
 
 # Enhanced verification with SSL certificate details
-for secret in "${MDB_TLS_CA_SECRET}" "${MDB_TLS_CERT_SECRET}" "${MDB_SEARCH_TLS_SECRET}"; do
+for secret in "${MDB_TLS_CA_SECRET_NAME}" "${MDB_TLS_SERVER_CERT_SECRET_NAME}" "${MDB_SEARCH_TLS_SECRET_NAME}"; do
     if kubectl get secret "${secret}" --context "${K8S_CTX}" -n "${MDB_NS}" >/dev/null 2>&1; then
         echo "✓ Secret ${secret} exists"
 
@@ -520,9 +520,9 @@ metadata:
   namespace: ${MDB_NS}
 data:
   status: "ready"
-  ca-secret: "${MDB_TLS_CA_SECRET}"
-  mongodb-secret: "${MDB_TLS_CERT_SECRET}"
-  search-secret: "${MDB_SEARCH_TLS_SECRET}"
+  ca-secret: "${MDB_TLS_CA_SECRET_NAME}"
+  mongodb-secret: "${MDB_TLS_SERVER_CERT_SECRET_NAME}"
+  search-secret: "${MDB_SEARCH_TLS_SECRET_NAME}"
   created: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 EOF_STATUS
 

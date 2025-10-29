@@ -34,9 +34,9 @@ export OPERATOR_HELM_CHART="mongodb/mongodb-kubernetes"
 export OPERATOR_ADDITIONAL_HELM_VALUES=""
 
 ## TLS-related secret names used for MongoDB and MongoDBSearch
-#export MDB_TLS_CA_SECRET="${MDB_RESOURCE_NAME}-ca"              # legacy CA secret (not used by Enterprise CR directly)
-#export MDB_TLS_CERT_SECRET="${MDB_RESOURCE_NAME}-tls"          # legacy direct cert secret (not used by Enterprise CR directly)
-#export MDB_SEARCH_TLS_SECRET="${MDB_RESOURCE_NAME}-search-tls"  # used by MongoDBSearch
+#export MDB_TLS_CA_SECRET_NAME="${MDB_RESOURCE_NAME}-ca"              # legacy CA secret (not used by Enterprise CR directly)
+#export MDB_TLS_SERVER_CERT_SECRET_NAME="${MDB_RESOURCE_NAME}-tls"    # legacy direct cert secret (not used by Enterprise CR directly)
+#export MDB_SEARCH_TLS_SECRET_NAME="${MDB_RESOURCE_NAME}-search-tls"  # used by MongoDBSearch
 ## New variables for Enterprise MongoDB TLS configuration using certsSecretPrefix + tls.ca
 export MDB_TLS_CERT_SECRET_PREFIX="certs"
 export MDB_TLS_CA_CONFIGMAP="${MDB_RESOURCE_NAME}-ca-configmap"
@@ -48,7 +48,7 @@ export MDB_TLS_SELF_SIGNED_CLUSTER_ISSUER="selfsigned-cluster-issuer"
 export MDB_TLS_CA_CERT_NAME="my-selfsigned-ca"
 export MDB_TLS_CA_SECRET_NAME="root-secret"
 export MDB_TLS_CLUSTER_ISSUER="my-ca-issuer"
-export MDB_TLS_SERVER_CERT_SECRET="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-cert"
+export MDB_TLS_SERVER_CERT_SECRET_NAME="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-cert"
 export MDB_SEARCH_TLS_SECRET_NAME="${MDB_RESOURCE_NAME}-search-tls"
 
 export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_RESOURCE_NAME}&tls=true"
