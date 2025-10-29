@@ -678,7 +678,7 @@ task_groups:
       - e2e_tls_rs_external_access
       - e2e_replica_set_tls_require
       - e2e_replica_set_tls_certs_secret_prefix
-      - e2e_disable_tls_scale_up
+      - e2e_disable_tls_and_scale
       - e2e_replica_set_tls_require_and_disable
       # e2e_x509_task_group
       - e2e_configure_tls_and_x509_simultaneously_st
