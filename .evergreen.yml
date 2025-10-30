@@ -1754,6 +1754,9 @@ buildvariants:
     display_name: init_test_run_ibm_z
     max_hosts: -1
     tags: [ "staging" ]
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
+    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large

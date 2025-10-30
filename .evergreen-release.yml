@@ -313,6 +313,8 @@ buildvariants:
   - name: e2e_smoke_ibm_z_release
     display_name: e2e_smoke_ibm_z
     tags: [ "release", "e2e_smoke_release_test_suite" ]
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
     disable: true
     run_on:
       - rhel9-zseries-small
@@ -329,6 +331,8 @@ buildvariants:
   - name: e2e_static_smoke_ibm_z_release
     display_name: e2e_static_smoke_ibm_z
     tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
     disable: true
     run_on:
       - rhel9-zseries-small
