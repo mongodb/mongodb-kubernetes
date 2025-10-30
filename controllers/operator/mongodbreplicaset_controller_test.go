@@ -386,7 +386,6 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
 }
 
-
 // TestCreateDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset
 func TestCreateDeleteReplicaSet(t *testing.T) {
 	ctx := context.Background()
