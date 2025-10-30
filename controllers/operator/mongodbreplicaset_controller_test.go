@@ -68,7 +68,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	connection := omConnectionFactory.GetConnection()
 	connection.(*om.MockedOmConnection).CheckDeployment(t, deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs), "auth", "ssl")
-	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 2)
+	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
 }
 
 func TestReplicaSetRace(t *testing.T) {
@@ -383,41 +383,6 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 	sslConfig := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS()
 	assert.Equal(t, fmt.Sprintf("%s/%s", util.TLSCaMountPath, "ca-pem"), sslConfig["CAFilePath"])
 	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
-}
-
-// TestUpdateDeploymentTLSConfiguration a combination of tests checking that:
-//
-// TLS Disabled -> TLS Disabled: should not lock members
-// TLS Disabled -> TLS Enabled: should not lock members
-// TLS Enabled -> TLS Enabled: should not lock members
-// TLS Enabled -> TLS Disabled: *should lock members*
-func TestUpdateDeploymentTLSConfiguration(t *testing.T) {
-	rsWithTLS := mdbv1.NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
-	rsNoTLS := mdbv1.NewReplicaSetBuilder().Build()
-	deploymentWithTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsWithTLS)
-	deploymentNoTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsNoTLS)
-	stsWithTLS := construct.DatabaseStatefulSet(*rsWithTLS, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zap.S())
-	stsNoTLS := construct.DatabaseStatefulSet(*rsNoTLS, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zap.S())
-
-	// TLS Disabled -> TLS Disabled
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Disabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Enabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Enabled -> TLS Disabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.True(t, shouldLockMembers)
 }
 
 // TestCreateDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset
@@ -1201,4 +1166,205 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.DeepCopy()
+}
+
+// Helper functions for TestPublishAutomationConfigFirstRS
+
+func baseTestStatefulSet(name string, replicas int32) *appsv1.StatefulSet {
+	return &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: mock.TestNamespace,
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: ptr.To(replicas),
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: util.DatabaseContainerName},
+					},
+				},
+			},
+		},
+	}
+}
+
+func baseTestMongoDB(name string, members int) mdbv1.MongoDB {
+	return mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: mock.TestNamespace,
+		},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				Security: &mdbv1.Security{
+					TLSConfig:      &mdbv1.TLSConfig{},
+					Authentication: &mdbv1.Authentication{},
+				},
+			},
+			Members: members,
+		},
+	}
+}
+
+// TestPublishAutomationConfigFirstRS tests the publishAutomationConfigFirstRS function which determines
+// whether the OM automation config should be updated before the StatefulSet in certain scenarios
+// (e.g., TLS disabled, CA removed, scaling down, agent auth changes, version changes).
+func TestPublishAutomationConfigFirstRS(t *testing.T) {
+	ctx := context.Background()
+
+	testCases := []struct {
+		name                   string
+		existingSts            *appsv1.StatefulSet
+		mdb                    mdbv1.MongoDB
+		lastSpec               *mdbv1.MongoDbSpec
+		currentAgentAuthMode   string
+		sslMMSCAConfigMap      string
+		extraObjects           []client.Object
+		expectedPublishACFirst bool
+	}{
+		{
+			name:        "New StatefulSet",
+			existingSts: nil,
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Spec.Security = nil // Simple case without security
+				return m
+			}(),
+			expectedPublishACFirst: false,
+		},
+		{
+			name:                   "Scaling down",
+			existingSts:            baseTestStatefulSet("test-rs", 5),
+			mdb:                    baseTestMongoDB("test-rs", 3),
+			expectedPublishACFirst: true,
+		},
+		{
+			name: "TLS disabled with mounted cert",
+			existingSts: func() *appsv1.StatefulSet {
+				sts := baseTestStatefulSet("test-rs", 3)
+				sts.Spec.Template.Spec.Volumes = []corev1.Volume{
+					{
+						Name: util.SecretVolumeName,
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{SecretName: "test-rs-cert"},
+						},
+					},
+				}
+				sts.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{Name: util.SecretVolumeName, MountPath: "/tls"},
+				}
+				return sts
+			}(),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Spec.Security.TLSConfig.Enabled = false
+				return m
+			}(),
+			extraObjects: []client.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-rs-cert", Namespace: mock.TestNamespace},
+				},
+			},
+			expectedPublishACFirst: true,
+		},
+		{
+			name: "CA configmap removed",
+			existingSts: func() *appsv1.StatefulSet {
+				sts := baseTestStatefulSet("test-rs", 3)
+				sts.Spec.Template.Spec.Volumes = []corev1.Volume{
+					{
+						Name: util.ConfigMapVolumeCAMountPath,
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{Name: "custom-ca-configmap"},
+							},
+						},
+					},
+				}
+				sts.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{Name: util.ConfigMapVolumeCAMountPath, MountPath: "/ca"},
+				}
+				return sts
+			}(),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Spec.Security.TLSConfig.Enabled = true
+				m.Spec.Security.TLSConfig.CA = ""
+				return m
+			}(),
+			extraObjects: []client.Object{
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: "custom-ca-configmap", Namespace: mock.TestNamespace},
+				},
+			},
+			expectedPublishACFirst: true,
+		},
+		{
+			name: "SSL MMS CA removed",
+			existingSts: func() *appsv1.StatefulSet {
+				sts := baseTestStatefulSet("test-rs", 3)
+				sts.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{Name: construct.CaCertName, MountPath: "/mms-ca"},
+				}
+				return sts
+			}(),
+			mdb:                    baseTestMongoDB("test-rs", 3),
+			sslMMSCAConfigMap:      "",
+			expectedPublishACFirst: true,
+		},
+		{
+			name: "Agent X509 disabled",
+			existingSts: func() *appsv1.StatefulSet {
+				sts := baseTestStatefulSet("test-rs", 3)
+				sts.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{Name: util.AgentSecretName, MountPath: "/agent-certs"},
+				}
+				return sts
+			}(),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Spec.Security.Authentication.Agents = mdbv1.AgentAuthentication{Mode: "SCRAM"}
+				return m
+			}(),
+			currentAgentAuthMode:   "X509",
+			expectedPublishACFirst: true,
+		},
+		{
+			name:        "Version change in static architecture",
+			existingSts: baseTestStatefulSet("test-rs", 3),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Annotations = map[string]string{
+					architectures.ArchitectureAnnotation: string(architectures.Static),
+				}
+				m.Spec.Version = "8.0.0"
+				return m
+			}(),
+			lastSpec: &mdbv1.MongoDbSpec{
+				DbCommonSpec: mdbv1.DbCommonSpec{Version: "7.0.0"},
+			},
+			expectedPublishACFirst: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			objects := []client.Object{}
+			if tc.existingSts != nil {
+				objects = append(objects, tc.existingSts)
+			}
+			objects = append(objects, tc.extraObjects...)
+
+			fakeClient := mock.NewEmptyFakeClientBuilder().
+				WithObjects(objects...).
+				WithObjects(mock.GetDefaultResources()...).
+				Build()
+			kubeClient := kubernetesClient.NewClient(fakeClient)
+
+			result := publishAutomationConfigFirstRS(ctx, kubeClient, tc.mdb, tc.lastSpec, tc.currentAgentAuthMode, tc.sslMMSCAConfigMap, zap.S())
+
+			assert.Equal(t, tc.expectedPublishACFirst, result)
+		})
+	}
 }
