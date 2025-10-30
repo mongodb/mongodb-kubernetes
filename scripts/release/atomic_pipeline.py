@@ -77,19 +77,20 @@ def build_image(
     # Build the image once with all repository tags
     tags = []
     for registry in registries:
-        tag = f"{registry}:{build_configuration.version}"
+        arch_suffix = ""
+        if build_configuration.architecture_suffix and len(build_configuration.platforms) == 1:
+            arch_suffix = f"-{build_configuration.platforms[0].split("/")[1]}"
+
+        tag = f"{registry}:{build_configuration.version}{arch_suffix}"
         if build_configuration.skip_if_exists and check_if_image_exists(tag):
             logger.info(f"Image with tag {tag} already exists. Skipping it.")
         else:
             tags.append(tag)
             if build_configuration.latest_tag:
-                tags.append(f"{registry}:latest")
+                tags.append(f"{registry}:latest{arch_suffix}")
             if build_configuration.olm_tag:
                 olm_tag = create_olm_version_tag(build_configuration.version)
-                tags.append(f"{registry}:{olm_tag}")
-            if build_configuration.architecture_suffix and len(build_configuration.platforms) == 1:
-                arch = build_configuration.platforms[0].split("/")[1]
-                tags.append(f"{tag}-{arch}")
+                tags.append(f"{registry}:{olm_tag}{arch_suffix}")
 
     if not tags:
         logger.info("All specified image tags already exist. Skipping build.")

@@ -3,10 +3,10 @@ import os
 import subprocess
 
 import yaml
-from release.build.build_scenario import SUPPORTED_SCENARIOS
 
 from lib.base_logger import logger
 from scripts.release.build.build_info import *
+from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS
 
 CHART_DIR = "helm_chart"
 

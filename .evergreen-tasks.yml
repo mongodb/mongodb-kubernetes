@@ -1116,7 +1116,6 @@ tasks:
 
   - name: e2e_multi_cluster_validation
     tags: [ "patch-run" ]
-    exec_timeout_secs: 1000
     commands:
       - func: e2e_test
 
