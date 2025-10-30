@@ -1,6 +1,8 @@
 # Summary
 
-<!-- Enter your issue summary here.-->
+<!-- Enter your PR summary here. Try to emphasize on WHY this change is needed, followed by what's being done in the PR.
+Doing this will help reviewers understand the PR better and it will be easier for them to review the PR. 
+This is not a replacement for creating jira tickets. -->
 
 ## Proof of Work
 
