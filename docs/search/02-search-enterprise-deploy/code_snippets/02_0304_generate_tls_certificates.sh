@@ -10,6 +10,11 @@ spec:
     kind: ClusterIssuer
   duration: 240h0m0s
   renewBefore: 120h0m0s
+  usages:
+  - digital signature
+  - key encipherment
+  - server auth
+  - client auth
   dnsNames:
   - "${MDB_RESOURCE_NAME}-0"
   - "${MDB_RESOURCE_NAME}-1"
@@ -29,6 +34,11 @@ spec:
     kind: ClusterIssuer
   duration: 240h0m0s
   renewBefore: 120h0m0s
+  usages:
+  - digital signature
+  - key encipherment
+  - server auth
+  - client auth
   dnsNames:
   - "${MDB_RESOURCE_NAME}-search-0"
   - "${MDB_RESOURCE_NAME}-search-0.${MDB_RESOURCE_NAME}-search-svc.${MDB_NS}.svc.cluster.local"

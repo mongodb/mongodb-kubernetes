@@ -16,6 +16,9 @@ export MDB_SEARCH_TLS_SECRET_NAME="${MDB_RESOURCE_NAME}-search-tls"
 # Set to "1" to use cert-manager for TLS certificate management instead of self-managed certificates
 export MDB_USE_CERT_MANAGER_TLS="0"
 
+# ConfigMap holding CA certificate when using cert-manager (community)
+export MDB_TLS_CA_CONFIGMAP_NAME="${MDB_RESOURCE_NAME}-ca-configmap"
+
 # minimum required MongoDB version for running MongoDB Search is 8.2.0
 export MDB_VERSION="8.2.0"
 
@@ -32,3 +35,5 @@ export OPERATOR_ADDITIONAL_HELM_VALUES=""
 
 # TLS is mandatory; connection string must include tls=true
 export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME}-0.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_RESOURCE_NAME}&tls=true"
+
+export CERT_MANAGER_NAMESPACE="cert-manager"

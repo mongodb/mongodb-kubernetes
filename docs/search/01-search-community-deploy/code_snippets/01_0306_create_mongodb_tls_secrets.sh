@@ -23,6 +23,10 @@ mongodb_dns_entries() {
   wildcard="$(mongodb_wildcard_fqdn)"
 
   for ((member = 0; member < members; member++)); do
+    printf '%s-%s\n' "${MDB_RESOURCE_NAME}" "${member}"
+  done
+
+  for ((member = 0; member < members; member++)); do
     printf '%s-%s.%s\n' "${MDB_RESOURCE_NAME}" "${member}" "${service}"
   done
 
@@ -33,20 +37,14 @@ mongot_service_fqdn() {
   printf '%s-search-svc.%s.svc.cluster.local' "${MDB_RESOURCE_NAME}" "${MDB_NS}"
 }
 
-mongot_wildcard_fqdn() {
-  printf '*.%s-search.%s.svc.cluster.local' "${MDB_RESOURCE_NAME}" "${MDB_NS}"
-}
-
 mongot_dns_entries() {
-  mongot_service_fqdn
-  printf '\n'
-  mongot_wildcard_fqdn
-  printf '\n'
-  # Add individual search pod hostname for proper TLS validation
-  printf '%s-search-0.%s-search-svc.%s.svc.cluster.local\n' "${MDB_RESOURCE_NAME}" "${MDB_RESOURCE_NAME}" "${MDB_NS}"
-  # Add localhost and IP for local connections
-  printf 'localhost\n'
-  printf '127.0.0.1\n'
+  local search_service
+
+  search_service="$(mongot_service_fqdn)"
+
+  printf '%s-search-0\n' "${MDB_RESOURCE_NAME}"
+  printf '%s-search-0.%s\n' "${MDB_RESOURCE_NAME}" "${search_service}"
+  printf '%s\n' "${search_service}"
 }
 
 tls_ca_common_name() {
@@ -93,7 +91,7 @@ openssl_exec() {
 
 # Create CA certificate
 echo "Generating CA certificate..."
-openssl_exec openssl ecparam -name prime256v1 -genkey -noout -out "${tmpdir}/ca.key"
+openssl_exec openssl genrsa -out "${tmpdir}/ca.key" 2048
 openssl_exec openssl req -x509 -new -key "${tmpdir}/ca.key" \
   -out "${tmpdir}/ca.crt" \
   -days 365 \
@@ -112,7 +110,7 @@ sign_cert() {
     echo "Generating certificate for ${name}..."
 
     # Generate private key
-    openssl_exec openssl ecparam -name prime256v1 -genkey -noout -out "${tmpdir}/${name}.key"
+    openssl_exec openssl genrsa -out "${tmpdir}/${name}.key" 2048
 
     # Create CSR
     openssl_exec openssl req -new \

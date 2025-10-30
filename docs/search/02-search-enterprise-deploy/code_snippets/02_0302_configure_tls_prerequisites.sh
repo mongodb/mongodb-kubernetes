@@ -44,20 +44,9 @@ kubectl --context "${K8S_CTX}" wait --for=condition=Ready clusterissuer "${MDB_T
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
-openssl s_client -showcerts -verify 2 \
-  -connect downloads.mongodb.com:443 -servername downloads.mongodb.com < /dev/null \
-  | awk -v DIR="${TMP_DIR}" '/BEGIN/,/END/{ if(/BEGIN/){a++}; out=DIR"/cert"a".crt"; print > out }'
-
 kubectl --context "${K8S_CTX}" get secret "${MDB_TLS_CA_SECRET_NAME}" -n "${CERT_MANAGER_NAMESPACE}" -o jsonpath="{.data['ca\\.crt']}" | base64 --decode > "${TMP_DIR}/ca.crt"
 
-# Build the full CA chain dynamically instead of assuming cert2/3 names
-chain_files=$(ls "${TMP_DIR}"/cert*.crt 2>/dev/null | sort || true)
-if [ -z "${chain_files}" ]; then
-  echo "Warning: No intermediate certificates captured from downloads.mongodb.com; proceeding with ca.crt only" >&2
-  cat "${TMP_DIR}/ca.crt" > "${TMP_DIR}/mms-ca.crt"
-else
-  cat "${TMP_DIR}/ca.crt" ${chain_files} > "${TMP_DIR}/mms-ca.crt"
-fi
+cat "${TMP_DIR}/ca.crt" > "${TMP_DIR}/mms-ca.crt"
 
 kubectl --context "${K8S_CTX}" create configmap "${MDB_TLS_CA_CONFIGMAP}" -n "${MDB_NS}" \
   --from-file=ca-pem="${TMP_DIR}/mms-ca.crt" --from-file=mms-ca.crt="${TMP_DIR}/mms-ca.crt" \
