@@ -63,8 +63,9 @@ def main():
     s3_artifacts = artifacts_dict | artifacts_tar_dict | checksum_file_dict
     promote_artifacts_to_s3(s3_artifacts, release_version, release_scenario_bucket_name)
 
-    github_artifacts = artifacts_tar + [checksum_file]
-    upload_assets_to_github_release(github_artifacts, release_version)
+    if os.environ.get("SKIP_GITHUB_RELEASE_UPLOAD", "false").lower() == "false":
+        github_artifacts = artifacts_tar + [checksum_file]
+        upload_assets_to_github_release(github_artifacts, release_version)
 
 
 # get_commit_from_tag gets the commit associated with a release tag, so that we can use that
