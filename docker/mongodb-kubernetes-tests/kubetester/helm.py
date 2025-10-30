@@ -314,18 +314,9 @@ def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> 
     if local_operator():
         return LOCAL_HELM_CHART_DIR, ""
 
-    # if operator_version is not specified, and we are not installing the MCK or MEKO chart
-    # it would mean we want to install OCI published helm chart.
-    if not operator_version and helm_chart_path not in (
-        MCK_HELM_CHART,
-        LEGACY_OPERATOR_CHART,
-    ):
-        non_semver_operator_version = os.environ.get(OCI_HELM_VERSION)
-        operator_version = f"0.0.0+{non_semver_operator_version}"
-
-    # helm_chart_path not being passed would mean we are on evg env and would like to
-    # install helm chart from OCI registry.
+    # helm_chart_path not being passed would mean we would like to install helm chart from OCI registry.
     if not helm_chart_path:
+        operator_version = os.environ.get(OCI_HELM_VERSION)
         registry, repository, region = oci_chart_info()
         # If ECR we need to login first to the OCI container registry
         if registry == OCI_HELM_REGISTRY_ECR:
