@@ -249,7 +249,17 @@ func (s *MongoDBSearch) GetLogLevel() mdb.LogLevel {
 	return s.Spec.LogLevel
 }
 
-func (s *MongoDBSearch) IsWireprotoForced() bool {
+// mongot configuration defaults to the gRPC server. on rare occasions we might advise users to enable the legacy
+// wireproto server. Once the deprecated wireproto server is removed, this function, annotation, and all code guarded
+// by this check should be removed.
+func (s *MongoDBSearch) IsWireprotoEnabled() bool {
 	val, ok := s.Annotations[ForceWireprotoTransportAnnotation]
 	return ok && val == "true"
+}
+
+func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
+	if s.IsWireprotoEnabled() {
+		return s.GetMongotWireprotoPort()
+	}
+	return s.GetMongotGrpcPort()
 }

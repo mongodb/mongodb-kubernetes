@@ -103,7 +103,7 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 	}
 
 	var wireprotoServer *mongot.ConfigWireproto
-	if search.IsWireprotoForced() {
+	if search.IsWireprotoEnabled() {
 		wireprotoServer = &mongot.ConfigWireproto{
 			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotWireprotoPort()),
 			Authentication: &mongot.ConfigAuthentication{
