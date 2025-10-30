@@ -2,12 +2,14 @@
 set -euo pipefail
 
 # Always provision cert-manager TLS assets in a fresh environment.
-# Installs cert-manager (v1.19.1), waits for webhook readiness, then creates:
+# Installs cert-manager, waits for webhook readiness, then creates:
 #  - Self-signed Issuer
 #  - CA Certificate (secret)
 #  - CA Issuer
 #  - Server & Search Certificates
 #  - CA ConfigMap (optional consumer)
+
+: "${CERT_MANAGER_NAMESPACE:=cert-manager}"
 
 required=(K8S_CTX MDB_NS MDB_RESOURCE_NAME MDB_TLS_CA_SECRET_NAME MDB_TLS_SERVER_CERT_SECRET_NAME MDB_SEARCH_TLS_SECRET_NAME MDB_TLS_CA_CONFIGMAP_NAME)
 missing=()
@@ -15,36 +17,31 @@ for v in "${required[@]}"; do [[ -z "${!v:-}" ]] && missing+=("$v"); done
 if (( ${#missing[@]} )); then
   echo "Missing required env vars: ${missing[*]}" >&2; exit 1; fi
 
-CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.19.1}"
-
 install_cert_manager() {
-  echo "Installing cert-manager ${CERT_MANAGER_VERSION}..."
-  kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.crds.yaml"
-  helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true
-  helm repo update >/dev/null 2>&1 || true
+  echo "Installing cert-manager..."
+  helm repo add jetstack https://charts.jetstack.io --force-update >/dev/null 2>&1 || true
   helm upgrade --install cert-manager jetstack/cert-manager \
-    -n cert-manager --create-namespace \
-    --version "${CERT_MANAGER_VERSION}" \
-    --set installCRDs=false \
-    --set global.leaderElection.namespace=cert-manager \
-    --set webhook.timeoutSeconds=30 1>/dev/null
+    --kube-context "${K8S_CTX}" \
+    --namespace "${CERT_MANAGER_NAMESPACE}" \
+    --create-namespace \
+    --set crds.enabled=true 1>/dev/null
 
   echo "Waiting for cert-manager deployments to be Available..."
   for dep in cert-manager cert-manager-cainjector cert-manager-webhook; do
-    kubectl wait -n cert-manager --for=condition=Available deployment/${dep} --timeout=300s || {
+    kubectl --context "${K8S_CTX}" wait -n "${CERT_MANAGER_NAMESPACE}" --for=condition=Available deployment/${dep} --timeout=300s || {
       echo "ERROR: deployment ${dep} not Available" >&2; exit 1; }
   done
 
   echo "Waiting for webhook service existence..."
   local tries=0 max_tries=30
-  until kubectl get svc cert-manager-webhook -n cert-manager >/dev/null 2>&1; do
+  until kubectl --context "${K8S_CTX}" get svc cert-manager-webhook -n "${CERT_MANAGER_NAMESPACE}" >/dev/null 2>&1; do
     ((tries++)); [[ $tries -ge $max_tries ]] && { echo "ERROR: cert-manager-webhook service not found" >&2; exit 1; }
     sleep 5
   done
 
   echo "Waiting for webhook endpoints to have at least one address..."
   tries=0
-  until [[ $(kubectl get endpoints cert-manager-webhook -n cert-manager -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo '') != '' ]]; do
+  until [[ $(kubectl --context "${K8S_CTX}" get endpoints cert-manager-webhook -n "${CERT_MANAGER_NAMESPACE}" -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo '') != '' ]]; do
     ((tries++)); [[ $tries -ge $max_tries ]] && { echo "ERROR: webhook endpoints have no addresses" >&2; exit 1; }
     sleep 5
   done
@@ -184,10 +181,16 @@ fi
 if ! kubectl get configmap "${MDB_TLS_CA_CONFIGMAP_NAME}" --context "${K8S_CTX}" -n "${MDB_NS}" >/dev/null 2>&1; then
   ca_b64=$(kubectl get secret "${MDB_TLS_CA_SECRET_NAME}" --context "${K8S_CTX}" -n "${MDB_NS}" -o jsonpath='{.data.ca\.crt}' || true)
   if [[ -n "$ca_b64" ]]; then
-    printf '%s' "$ca_b64" | base64 --decode > /tmp/ca.crt
-    kubectl create configmap "${MDB_TLS_CA_CONFIGMAP_NAME}" --from-file=ca-pem=/tmp/ca.crt --from-file=ca.crt=/tmp/ca.crt --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f -
-    rm -f /tmp/ca.crt
+    tmp_ca_file="$(mktemp)"
+    printf '%s' "$ca_b64" | base64 --decode > "${tmp_ca_file}"
+    kubectl create configmap "${MDB_TLS_CA_CONFIGMAP_NAME}" \
+      --context "${K8S_CTX}" \
+      --from-file=ca-pem="${tmp_ca_file}" \
+      --from-file=ca.crt="${tmp_ca_file}" \
+      --dry-run=client -o yaml \
+      | kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f -
+    rm -f "${tmp_ca_file}"
   fi
 fi
 
-echo "Community cert-manager TLS assets ready (v${CERT_MANAGER_VERSION})."
+echo "Community cert-manager TLS assets ready."

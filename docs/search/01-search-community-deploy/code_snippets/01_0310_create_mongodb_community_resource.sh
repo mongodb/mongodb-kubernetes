@@ -12,6 +12,9 @@ spec:
       enabled: true
       certificateKeySecretRef:
         name: ${MDB_TLS_SERVER_CERT_SECRET_NAME}
+      # If both the CA secret and ConfigMap are defined, the operator uses the secret and ignores the ConfigMap.
+      caCertificateSecretRef:
+        name: ${MDB_TLS_CA_SECRET_NAME}
       caConfigMapRef:
         name: ${MDB_TLS_CA_CONFIGMAP_NAME}
     authentication:
