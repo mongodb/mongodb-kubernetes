@@ -199,7 +199,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
 			search.Spec.LogLevel = "WARN"
 			search.Annotations = map[string]string{
-				searchv1.ForceWireprotoTransportAnnotation: strconv.FormatBool(tc.withWireproto),
+				searchv1.ForceWireprotoAnnotation: strconv.FormatBool(tc.withWireproto),
 			}
 
 			mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)

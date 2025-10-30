@@ -23,7 +23,7 @@ const (
 	MongotDefautHealthCheckPort     = 8080
 	MongotDefaultSyncSourceUsername = "search-sync-source"
 
-	ForceWireprotoTransportAnnotation = "mongodb.com/v1.force-wireproto-transport"
+	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 )
 
 func init() {
@@ -253,7 +253,7 @@ func (s *MongoDBSearch) GetLogLevel() mdb.LogLevel {
 // wireproto server. Once the deprecated wireproto server is removed, this function, annotation, and all code guarded
 // by this check should be removed.
 func (s *MongoDBSearch) IsWireprotoEnabled() bool {
-	val, ok := s.Annotations[ForceWireprotoTransportAnnotation]
+	val, ok := s.Annotations[ForceWireprotoAnnotation]
 	return ok && val == "true"
 }
 
