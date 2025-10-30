@@ -844,6 +844,7 @@ functions:
           - workdir
           - triggered_by_git_tag
           - OPERATOR_VERSION
+          - STAGING_VERSION_OVERRIDE
         env:
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}

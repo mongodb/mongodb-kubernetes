@@ -39,7 +39,11 @@ def main():
 
     kubectl_plugin_staging_info = load_build_info(BuildScenario.STAGING).binaries[KUBECTL_PLUGIN_BINARY]
     staging_scenario_bucket_name = kubectl_plugin_staging_info.s3_store
-    staging_version = get_commit_from_tag(release_version)
+    staging_version_override = os.environ.get("STAGING_VERSION_OVERRIDE")
+    if staging_version_override:
+        staging_version = staging_version_override
+    else:
+        staging_version = get_commit_from_tag(release_version)
 
     artifacts_dict = download_artifacts_from_s3(
         release_version, release_platforms, staging_version, staging_scenario_bucket_name

@@ -211,6 +211,9 @@ buildvariants:
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: release_kubectl_mongodb_plugin
+        variant: release_kubectl_mongodb_plugin
     tasks:
       - name: build_test_image
 
@@ -222,6 +225,9 @@ buildvariants:
       - release-rhel9-power-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
       - release-rhel9-power-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: release_kubectl_mongodb_plugin
+        variant: release_kubectl_mongodb_plugin
     tasks:
       - name: build_test_image_ibm_power
 
@@ -236,6 +242,9 @@ buildvariants:
       - release-rhel9-zseries-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
       - release-rhel9-zseries-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: release_kubectl_mongodb_plugin
+        variant: release_kubectl_mongodb_plugin
     tasks:
       - name: build_test_image_ibm_z
 
