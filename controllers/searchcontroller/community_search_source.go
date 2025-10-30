@@ -64,8 +64,8 @@ func (r *CommunitySearchSource) Validate() error {
 	version, err := semver.ParseTolerant(r.GetMongoDBVersion())
 	if err != nil {
 		return xerrors.Errorf("error parsing MongoDB version '%s': %w", r.Spec.Version, err)
-	} else if version.LT(semver.MustParse("8.0.10")) {
-		return xerrors.New("MongoDB version must be 8.0.10 or higher")
+	} else if version.LT(semver.MustParse("8.2.0")) {
+		return xerrors.New("MongoDB version must be 8.2.0 or higher")
 	}
 
 	foundScram := false

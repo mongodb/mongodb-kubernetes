@@ -36,7 +36,7 @@ func newMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
 		Spec: mdbcv1.MongoDBCommunitySpec{
 			Type:    mdbcv1.ReplicaSet,
 			Members: 1,
-			Version: "8.0.10",
+			Version: "8.2.0",
 		},
 	}
 }
