@@ -50,8 +50,14 @@ operator:
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 2000
+    seccompProfile:
+      type: RuntimeDefault
 
-  securityContext: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
 
   # Control how many reconciles can be performed in parallel.
   # It sets MaxConcurrentReconciles https://pkg.go.dev/github.com/kubernetes-sigs/controller-runtime/pkg/controller#Options).

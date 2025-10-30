@@ -5,6 +5,7 @@ from kubernetes.client.rest import ApiException
 from kubetester import (
     create_or_update_secret,
     get_default_storage_class,
+    label_namespace,
     try_load,
     wait_until,
 )
@@ -43,14 +44,24 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 
 
 @fixture(scope="module")
+def enforced_pss_namespace(namespace: str) -> str:
+    # Change pod-security mode from warn to enforce. This will make test fail if operator and deployments don't support enforce mode
+    # This will not work in multi-cluster, because Istio injects sidecar and that breaks restricted level
+    if not is_multi_cluster():
+        label_namespace(namespace, {"pod-security.kubernetes.io/enforce": "restricted"})
+
+    return namespace
+
+
+@fixture(scope="module")
 def ops_manager(
-    namespace: str,
+    enforced_pss_namespace: str,
     s3_bucket: str,
     custom_version: Optional[str],
     custom_appdb_version: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_backup.yaml"), namespace=namespace
+        yaml_fixture("om_ops_manager_backup.yaml"), namespace=enforced_pss_namespace
     )
 
     try_load(resource)
