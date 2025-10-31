@@ -525,6 +525,8 @@ functions:
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/kubectl_mongodb/download_kubectl_plugin.sh
+        env:
+          PLATFORM: ${platform}
 
   pipeline:
     - command: subprocess.exec
