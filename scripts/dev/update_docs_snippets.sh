@@ -1,20 +1,30 @@
 #!/usr/bin/env bash
 
-# script to update code snippets file from MCK in docs repository
+# Script to create PR in docs repository with updates of code snippets and outputs.
+# Prerequisites:
+#  * OUTPUTS_VERSION_ID - evergreen version id from a snippets run, which archives outputs from tests to s3:
+#    * evergreen patch -p mongodb-kubernetes -v public_kind_code_snippets -v public_gke_code_snippets -t all -f -y -u --browse
+#    * or generally any test run (i.e. public run executed as part of a tag)
+#  * 10gen/docs-mongodb-internal repository cloned to DOCS_DIR
+# It copies (replaces whole directories):
+#  * snippets scripts (from the current branch)
+#  * snippets outputs archived from s3
 # Usage:
 #   cd <mongodb-kubernetes directory>
 #   ./scripts/dev/update_docs_snippets.sh
 #
 # To customize directories run
-#   MCK_DIR=<path to MCK repository> DOCS_DIR=<path to docs repository> ./update_docs_snippets.sh
-# Example:
-#   MCK_DIR=~/mdb/mongodb-kubernetes DOCS_DIR=~/mdb/docs-k8s-operator ./update_docs_snippets.sh
+#   MCK_DIR=<path to MCK repository> DOCS_DIR=<path to docs repository> scripts/dev/update_docs_snippets.sh
+#
+# Examples:
+#   MCK_DIR=~/mdb/mongodb-kubernetes DOCS_DIR=~/mdb/docs-k8s-operator scripts/dev/update_docs_snippets.sh
+#   MCK_DIR=$(pwd) MCK_BRANCH=archive-snippets-outputs DOCS_DIR=~/mdb/docs-mongodb-internal \
+#    version_id=69038706b0fce50007f25a9d scripts/dev/update_docs_snippets.sh
 
 set -eou pipefail
-set -x
 
+OUTPUTS_VERSION_ID=${OUTPUTS_VERSION_ID:-${version_id:?}}
 MCK_DIR=${MCK_DIR:-"mongodb-kubernetes"}
-MCK_BRANCH=${MCK_BRANCH:-"master"}
 DOCS_DIR=${DOCS_DIR:-"docs-mongodb-internal"}
 DOCS_BRANCH=${DOCS_BRANCH:-"main"}
 DOCS_VERSION=${DOCS_VERSION:-"upcoming"}
@@ -31,8 +41,8 @@ function prepare_repositories() {
   git checkout "${DOCS_BRANCH}"
   git reset --hard "origin/${DOCS_BRANCH}"
 
-  git branch "MCK-snippets-update-${version_id}" || true
-  git checkout "MCK-snippets-update-${version_id}"
+  git branch "MCK-snippets-update-${OUTPUTS_VERSION_ID}" || true
+  git checkout "MCK-snippets-update-${OUTPUTS_VERSION_ID}"
 
   popd
 }
@@ -56,19 +66,6 @@ function download_snippets_outputs() {
   fi
 }
 
-function copy_files() {
-  local src_dir="$1"
-  local dst_dir="$2"
-
-  rm -rf "${dst_dir}"
-  mkdir -p "${dst_dir}"
-
-  cp -r "${src_dir}/code_snippets" "${dst_dir}" 2>/dev/null || true
-  cp -r "${src_dir}/output" "${dst_dir}" 2>/dev/null || true
-  cp "${src_dir}/env_variables.sh" "${dst_dir}" 2>/dev/null || true
-  cp -r "${src_dir}/yamls" "${dst_dir}" 2>/dev/null || true
-}
-
 function prepare_docs_pr() {
   pushd "${DOCS_DIR}"
   if [[ -z "$(git status --porcelain)" ]]; then
@@ -86,10 +83,10 @@ pushd ../
 prepare_repositories
 
 tmp_dir=$(mktemp -d)
-download_snippets_outputs "${tmp_dir}" "${version_id}"
-outputs_dir="${tmp_dir}/${version_id}/scripts/code_snippets/tests/outputs"
+download_snippets_outputs "${tmp_dir}" "${OUTPUTS_VERSION_ID}"
+outputs_dir="${tmp_dir}/${OUTPUTS_VERSION_ID}/scripts/code_snippets/tests/outputs"
 
-for test_dir in ${outputs_dir}/test_*; do
+for test_dir in "${outputs_dir}"/test_*; do
   echo "Replacing outputs for test: ${test_dir}"
   rm -rf "${DOCS_INCLUDE_CODE_EXAMPLES_DIR}/outputs/$(basename "${test_dir}")"
   cp -r "${test_dir}" "${DOCS_INCLUDE_CODE_EXAMPLES_DIR}/outputs/$(basename "${test_dir}")"
