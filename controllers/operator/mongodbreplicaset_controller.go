@@ -78,7 +78,7 @@ type ReconcileMongoDbReplicaSet struct {
 	databaseNonStaticImageVersion     string
 }
 
-type ReplicaSetDeploymentState struct {
+type replicaSetDeploymentState struct {
 	LastAchievedSpec         *mdbv1.MongoDbSpec
 	LastReconcileMemberCount int
 }
@@ -89,7 +89,7 @@ var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
 // This object is NOT shared between reconcile invocations.
 type ReplicaSetReconcilerHelper struct {
 	resource        *mdbv1.MongoDB
-	deploymentState *ReplicaSetDeploymentState
+	deploymentState *replicaSetDeploymentState
 	reconciler      *ReconcileMongoDbReplicaSet
 	log             *zap.SugaredLogger
 }
@@ -113,7 +113,7 @@ func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
 }
 
 // readState abstract reading the state of the resource that we store on the cluster between reconciliations.
-func (r *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, error) {
+func (r *ReplicaSetReconcilerHelper) readState() (*replicaSetDeploymentState, error) {
 	// Try to get the last achieved spec from annotations and store it in state
 	lastAchievedSpec, err := r.resource.GetLastSpec()
 	if err != nil {
@@ -124,7 +124,7 @@ func (r *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, er
 	// reconciliation and prepares for eventually storing this in ConfigMap state instead of ephemeral status.
 	lastReconcileMemberCount := r.resource.Status.Members
 
-	return &ReplicaSetDeploymentState{
+	return &replicaSetDeploymentState{
 		LastAchievedSpec:         lastAchievedSpec,
 		LastReconcileMemberCount: lastReconcileMemberCount,
 	}, nil
