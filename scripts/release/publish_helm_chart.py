@@ -1,14 +1,12 @@
 import argparse
-import os
 import subprocess
-
-import yaml
 
 from lib.base_logger import logger
 from scripts.release.build.build_info import *
 from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS
 
 CHART_DIR = "helm_chart"
+MONGODB_KUBERNETES_CHART = "mongodb-kubernetes"
 
 
 def run_command(command: list[str]):
@@ -26,44 +24,6 @@ def run_command(command: list[str]):
         )
 
 
-# update_chart_and_get_metadata updates the helm chart's Chart.yaml and sets the proper version
-# When we publish the helm chart to dev and staging we append `0.0.0+` in the chart version, details are
-# here https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.gg5ble8qlesq
-def update_chart_and_get_metadata(chart_dir: str, version: str) -> tuple[str, str]:
-    chart_path = os.path.join(chart_dir, "Chart.yaml")
-
-    if not os.path.exists(chart_path):
-        raise FileNotFoundError(
-            f"Error: Chart.yaml not found in directory '{chart_dir}'. "
-            "Please ensure the directory exists and contains a valid Chart.yaml."
-        )
-
-    try:
-        with open(chart_path, "r") as f:
-            data = yaml.safe_load(f)
-
-        chart_name = data.get("name")
-        if not chart_name:
-            raise ValueError("Chart.yaml is missing required 'name' field.")
-    except Exception as e:
-        raise Exception(f"Unable to load Chart.yaml from dir {chart_path}: {e}")
-
-    if data["version"] == version:
-        logger.info(f"Chart '{chart_name}' already has version '{version}'. No update needed.")
-        return chart_name, version
-
-    try:
-        data["version"] = version
-
-        with open(chart_path, "w") as f:
-            yaml.safe_dump(data, f, sort_keys=False)
-
-        logger.info(f"Successfully updated version for chart '{chart_name}' to '{version}'.")
-        return chart_name, version
-    except Exception as e:
-        raise RuntimeError(f"Failed to read or update Chart.yaml: {e}")
-
-
 def get_oci_registry(chart_info: HelmChartInfo) -> str:
     registry = chart_info.registry
     repo = chart_info.repository
@@ -79,19 +39,18 @@ def get_oci_registry(chart_info: HelmChartInfo) -> str:
     return oci_registry
 
 
-def publish_helm_chart(chart_info: HelmChartInfo, operator_version: str):
+def publish_helm_chart(chart_name: str, chart_info: HelmChartInfo, operator_version: str):
     try:
-        # If version_prefix is not specified, the chart.yaml would already have correct chart version
+        # If version_prefix is not specified, use the operator_version as is.
         if chart_info.version_prefix is not None:
-            helm_version = f"{chart_info.version_prefix}{operator_version}"
+            chart_version = f"{chart_info.version_prefix}{operator_version}"
         else:
-            helm_version = operator_version
+            chart_version = operator_version
 
-        chart_name, chart_version = update_chart_and_get_metadata(CHART_DIR, helm_version)
         tgz_filename = f"{chart_name}-{chart_version}.tgz"
 
         logger.info(f"Packaging chart: {chart_name} with Version: {chart_version}")
-        package_command = ["helm", "package", CHART_DIR]
+        package_command = ["helm", "package", "--version", chart_version, CHART_DIR]
         run_command(package_command)
 
         oci_registry = get_oci_registry(chart_info)
@@ -134,7 +93,7 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
     build_scenario = args.build_scenario
     build_info = load_build_info(build_scenario)
 
-    return publish_helm_chart(build_info.helm_charts["mongodb-kubernetes"], args.version)
+    return publish_helm_chart(MONGODB_KUBERNETES_CHART, build_info.helm_charts[MONGODB_KUBERNETES_CHART], args.version)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ from kubetester import (
 from kubetester.awss3client import AwsS3Client
 from kubetester.consts import *
 from kubetester.helm import (
+    helm_chart_path_and_version,
     helm_install_from_chart,
     helm_repo_add,
 )
@@ -836,6 +837,8 @@ def _install_multi_cluster_operator(
 
     # The Operator will be installed from the following repo, so adding it first
     helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+
+    helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path, custom_operator_version)
 
     prepare_multi_cluster_namespaces(
         namespace,

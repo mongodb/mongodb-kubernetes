@@ -1,5 +1,4 @@
 import glob
-import logging
 import os
 import re
 import subprocess
@@ -30,7 +29,7 @@ def helm_template(
         command_args.append("--show-only")
         command_args.append(templates)
 
-    args = ("helm", "template", *(command_args), _helm_chart_dir(helm_chart_path))
+    args = ("helm", "template", *command_args, _helm_chart_dir(helm_chart_path))
     logger.info(" ".join(args))
 
     yaml_file_name = "{}.yaml".format(str(uuid.uuid4()))
@@ -316,7 +315,10 @@ def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> 
 
     # helm_chart_path not being passed would mean we would like to install helm chart from OCI registry.
     if not helm_chart_path:
-        operator_version = os.environ.get(OCI_HELM_VERSION)
+        # If operator_version is not passed, we want to install the current version.
+        if not operator_version:
+            operator_version = os.environ.get(OCI_HELM_VERSION)
+
         registry, repository, region = oci_chart_info()
         # If ECR we need to login first to the OCI container registry
         if registry == OCI_HELM_REGISTRY_ECR:
