@@ -79,8 +79,8 @@ type ReconcileMongoDbReplicaSet struct {
 }
 
 type ReplicaSetDeploymentState struct {
-	LastAchievedSpec         *mdbv1.MongoDbSpec `json:"lastAchievedSpec"`
-	LastReconcileMemberCount int                `json:"memberCountBefore"`
+	LastAchievedSpec         *mdbv1.MongoDbSpec
+	LastReconcileMemberCount int
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
@@ -122,11 +122,11 @@ func (r *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, er
 
 	// Read current member count from Status once at initialization. This provides a stable view throughout
 	// reconciliation and prepares for eventually storing this in ConfigMap state instead of ephemeral status.
-	memberCountBefore := r.resource.Status.Members
+	lastReconcileMemberCount := r.resource.Status.Members
 
 	return &ReplicaSetDeploymentState{
 		LastAchievedSpec:         lastAchievedSpec,
-		LastReconcileMemberCount: memberCountBefore,
+		LastReconcileMemberCount: lastReconcileMemberCount,
 	}, nil
 }
 
