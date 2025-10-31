@@ -172,7 +172,12 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	search.Spec.LogLevel = "WARN"
 
 	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-	reconciler, c := newSearchReconciler(mdbc, search)
+	operatorConfig := searchcontroller.OperatorSearchConfig{
+		SearchRepo:    "testrepo",
+		SearchName:    "mongot",
+		SearchVersion: "1.48.0",
+	}
+	reconciler, c := newSearchReconcilerWithOperatorConfig(mdbc, operatorConfig, search)
 
 	res, err := reconciler.Reconcile(
 		ctx,
@@ -181,6 +186,11 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	expected, _ := workflow.OK().ReconcileResult()
 	assert.NoError(t, err)
 	assert.Equal(t, expected, res)
+
+	// BEFORE readiness: version should still be empty (controller sets Version only after StatefulSet ready)
+	searchPending := &searchv1.MongoDBSearch{}
+	assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, searchPending))
+	assert.Empty(t, searchPending.Status.Version, "Status.Version must be empty before StatefulSet is marked ready")
 
 	svc := &corev1.Service{}
 	err = c.Get(ctx, search.SearchServiceNamespacedName(), svc)
@@ -194,9 +204,18 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, string(configYaml), cm.Data[searchcontroller.MongotConfigFilename])
 
-	sts := &appsv1.StatefulSet{}
-	err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
+	markStatefulSetReady(ctx, t, c, search.StatefulSetNamespacedName())
+
+	res, err = reconciler.Reconcile(
+		ctx,
+		reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}},
+	)
 	assert.NoError(t, err)
+	assert.Equal(t, expected, res)
+
+	updatedSearch := &searchv1.MongoDBSearch{}
+	assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updatedSearch))
+	assert.Equal(t, operatorConfig.SearchVersion, updatedSearch.Status.Version)
 }
 
 func checkSearchReconcileFailed(
@@ -295,4 +314,19 @@ func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 			checkSearchReconcileFailed(ctx, t, reconciler, reconciler.kubeClient, search, expectedMsg)
 		})
 	}
+}
+
+func markStatefulSetReady(ctx context.Context, t *testing.T, c client.Client, name types.NamespacedName) {
+	t.Helper()
+
+	sts := &appsv1.StatefulSet{}
+	assert.NoError(t, c.Get(ctx, name, sts))
+
+	sts.Status.UpdatedReplicas = 1
+	sts.Status.ReadyReplicas = 1
+	sts.Status.CurrentReplicas = 1
+	sts.Status.Replicas = 1
+	sts.Status.ObservedGeneration = sts.Generation
+
+	assert.NoError(t, c.Status().Update(ctx, sts))
 }
