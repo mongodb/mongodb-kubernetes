@@ -39,14 +39,6 @@ kubectl --context "${K8S_CTX}" get secret "${MDB_TLS_CA_SECRET_NAME}" -n "${CERT
 
 cat "${TMP_DIR}/ca.crt" > "${TMP_DIR}/mms-ca.crt"
 
-# Publish the CA certificate through a ConfigMap because the MongoDB Enterprise
-# Operator reads the `spec.security.tls.ca` reference from the MongoDB custom
-# resource and mounts the ConfigMap contents into both the database and Search
-# (mongot) pods. The duplicate keys (`ca-pem` and `mms-ca.crt`) keep parity with
-# the default file names that the Automation Agent expects when it provisions
-# TLS assets inside the pods. Without this ConfigMap the Operator cannot inject
-# the CA bundle required for TLS validation, so the deployment fails during the
-# initial automation bootstrap.
 kubectl --context "${K8S_CTX}" create configmap "${MDB_TLS_CA_CONFIGMAP}" -n "${MDB_NS}" \
   --from-file=ca-pem="${TMP_DIR}/mms-ca.crt" --from-file=mms-ca.crt="${TMP_DIR}/mms-ca.crt" \
   --dry-run=client -o yaml | kubectl --context "${K8S_CTX}" apply -f -
@@ -58,9 +50,6 @@ if ! kubectl --context "${K8S_CTX}" -n "${MDB_NS}" get secret "${MDB_TLS_CA_SECR
     | kubectl --context "${K8S_CTX}" apply -n "${MDB_NS}" -f - || echo "Warning: failed to copy ${MDB_TLS_CA_SECRET_NAME} to ${MDB_NS}" >&2
 fi
 
-# Create a namespaced CA Issuer for the application namespace once the CA
-# secret is available locally. This Issuer is referenced by the Search
-# resources to issue workload certificates.
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF_MANIFEST
 apiVersion: cert-manager.io/v1
 kind: Issuer
