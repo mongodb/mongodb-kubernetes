@@ -6,8 +6,8 @@ metadata:
 spec:
   secretName: ${MDB_TLS_SERVER_CERT_SECRET_NAME}
   issuerRef:
-    name: ${MDB_TLS_CLUSTER_ISSUER}
-    kind: ClusterIssuer
+    name: ${MDB_TLS_CA_ISSUER}
+    kind: Issuer
   duration: 240h0m0s
   renewBefore: 120h0m0s
   usages:
@@ -30,8 +30,8 @@ metadata:
 spec:
   secretName: ${MDB_SEARCH_TLS_SECRET_NAME}
   issuerRef:
-    name: ${MDB_TLS_CLUSTER_ISSUER}
-    kind: ClusterIssuer
+    name: ${MDB_TLS_CA_ISSUER}
+    kind: Issuer
   duration: 240h0m0s
   renewBefore: 120h0m0s
   usages:

@@ -13,11 +13,6 @@ export MDB_MEMBERS=3
 export MDB_TLS_CA_SECRET_NAME="${MDB_RESOURCE_NAME}-ca"
 export MDB_TLS_SERVER_CERT_SECRET_NAME="${MDB_RESOURCE_NAME}-tls"
 export MDB_SEARCH_TLS_SECRET_NAME="${MDB_RESOURCE_NAME}-search-tls"
-# Set to "1" to use cert-manager for TLS certificate management instead of self-managed certificates
-export MDB_USE_CERT_MANAGER_TLS="0"
-
-# ConfigMap holding CA certificate when using cert-manager (community)
-export MDB_TLS_CA_CONFIGMAP_NAME="${MDB_RESOURCE_NAME}-ca-configmap"
 
 # minimum required MongoDB version for running MongoDB Search is 8.2.0
 export MDB_VERSION="8.2.0"

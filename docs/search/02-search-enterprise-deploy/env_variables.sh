@@ -37,10 +37,10 @@ export MDB_TLS_CERT_SECRET_PREFIX="certs"
 export MDB_TLS_CA_CONFIGMAP="${MDB_RESOURCE_NAME}-ca-configmap"
 
 export CERT_MANAGER_NAMESPACE="cert-manager"
-export MDB_TLS_SELF_SIGNED_CLUSTER_ISSUER="selfsigned-cluster-issuer"
+export MDB_TLS_SELF_SIGNED_ISSUER="selfsigned-bootstrap-issuer"
 export MDB_TLS_CA_CERT_NAME="my-selfsigned-ca"
 export MDB_TLS_CA_SECRET_NAME="root-secret"
-export MDB_TLS_CLUSTER_ISSUER="my-ca-issuer"
+export MDB_TLS_CA_ISSUER="my-ca-issuer"
 export MDB_TLS_SERVER_CERT_SECRET_NAME="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-cert"
 export MDB_SEARCH_TLS_SECRET_NAME="${MDB_RESOURCE_NAME}-search-tls"
 
