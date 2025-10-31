@@ -20,7 +20,7 @@ import (
 )
 
 // The constants for the authentication secret
-const agentAuthenticationSecretName = "-agent-auth-secret"
+const agentAuthenticationSecretSuffix = "-agent-auth-secret"
 const autoPwdSecretKey = "automation-agent-password"
 
 // AutomationConfig maintains the raw map in the Deployment field
@@ -442,7 +442,7 @@ func (ac *AutomationConfig) EnsureKeyFileContents(k8sClient secret.GetUpdateCrea
 // that the agents will use to communicate with the deployments. The password
 // is returned, so it can be provided to the other agents.
 func (ac *AutomationConfig) EnsurePassword(k8sClient secret.GetUpdateCreator, ctx context.Context, mdbNamespacedName *types.NamespacedName) (string, error) {
-	secretNamespacedName := client.ObjectKey{Name: mdbNamespacedName.Name + agentAuthenticationSecretName, Namespace: mdbNamespacedName.Namespace}
+	secretNamespacedName := client.ObjectKey{Name: mdbNamespacedName.Name + agentAuthenticationSecretSuffix, Namespace: mdbNamespacedName.Namespace}
 
 	var password string
 
