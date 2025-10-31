@@ -16,7 +16,12 @@ RUN apt-get -qq update \
 
 COPY requirements.txt requirements.txt
 
-RUN python3 -m venv /venv && . /venv/bin/activate && pip install --upgrade pip && GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 pip install -r requirements.txt
+# install aws, required to run helm registry login while running the tests
+RUN python3 -m venv /venv  \
+    && . /venv/bin/activate  \
+    && pip install --upgrade pip  \
+    && GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 pip install -r requirements.txt \
+    && pip install awscli
 
 FROM scratch AS tools_downloader
 
@@ -75,8 +80,9 @@ WORKDIR /tests
 
 # copying the test files after python build, otherwise pip install will be called each time the tests change
 COPY . /tests
-# copying the helm_chart directory as well to support installation of the Operator from the test application
-COPY helm_chart /helm_chart
+# copying the helm_chart/crds directory so that we can install CRDs before installing the operator helm chart to run a test.
+# operator is installed via published OCI helm repo and not the local helm repo.
+COPY helm_chart/crds /helm_chart/crds
 COPY release.json /release.json
 # we use the public directory to automatically test resources samples
 COPY public /mongodb-kubernetes/public

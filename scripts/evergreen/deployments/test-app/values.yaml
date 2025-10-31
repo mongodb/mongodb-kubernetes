@@ -43,3 +43,12 @@ mdbImageType: "ubi8"
 
 # set to "true" to set OM_DEBUG_HTTP=true for the operator
 omDebugHttp:
+
+# sets the configuration using which we can figure out the helm OCI repo of the MCK operator while deploying it
+# to run a test.
+helm:
+  oci:
+    version: ""
+    registry: ""
+    repository: ""
+    region: ""
