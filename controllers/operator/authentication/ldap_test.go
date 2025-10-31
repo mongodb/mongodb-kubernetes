@@ -1,14 +1,17 @@
 package authentication
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 )
 
 var ldapPlainMechanism = getMechanismByName(LDAPPlain)
@@ -45,6 +48,10 @@ func TestLdapDeploymentMechanism(t *testing.T) {
 }
 
 func TestLdapEnableAgentAuthentication(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mdbNamespacedName := &types.NamespacedName{Namespace: "test", Name: "test"}
+
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	opts := Options{
 		AgentMechanism: "LDAP",
@@ -55,7 +62,7 @@ func TestLdapEnableAgentAuthentication(t *testing.T) {
 		AutoPwd:          "LDAPPassword.",
 	}
 
-	err := ldapPlainMechanism.EnableAgentAuthentication(conn, opts, zap.S())
+	err := ldapPlainMechanism.EnableAgentAuthentication(kubeClient, ctx, mdbNamespacedName, conn, opts, zap.S())
 	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()

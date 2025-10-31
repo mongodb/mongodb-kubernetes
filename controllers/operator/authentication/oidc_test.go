@@ -1,14 +1,17 @@
 package authentication
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 )
 
@@ -77,6 +80,10 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 }
 
 func TestOIDC_EnableAgentAuthentication(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mdbNamespacedName := &types.NamespacedName{Namespace: "test", Name: "test"}
+
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	opts := Options{
 		Mechanisms: []string{string(MongoDBOIDC)},
@@ -88,7 +95,7 @@ func TestOIDC_EnableAgentAuthentication(t *testing.T) {
 	configured := mongoDBOIDCMechanism.IsAgentAuthenticationConfigured(ac, opts)
 	assert.False(t, configured)
 
-	err = mongoDBOIDCMechanism.EnableAgentAuthentication(conn, opts, zap.S())
+	err = mongoDBOIDCMechanism.EnableAgentAuthentication(kubeClient, ctx, mdbNamespacedName, conn, opts, zap.S())
 	require.Error(t, err)
 
 	err = mongoDBOIDCMechanism.DisableAgentAuthentication(conn, zap.S())

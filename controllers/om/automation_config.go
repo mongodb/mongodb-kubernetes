@@ -1,18 +1,27 @@
 package om
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/spf13/cast"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
+
+// The constants for the authentication secret
+const agentAuthenticationSecretSuffix = "-agent-auth-secret"
+const autoPwdSecretKey = "automation-agent-password"
 
 // AutomationConfig maintains the raw map in the Deployment field
 // and constructs structs to make use of go's type safety
@@ -429,16 +438,63 @@ func (ac *AutomationConfig) EnsureKeyFileContents() error {
 // EnsurePassword makes sure that there is an Automation Agent password
 // that the agents will use to communicate with the deployments. The password
 // is returned, so it can be provided to the other agents
-func (ac *AutomationConfig) EnsurePassword() (string, error) {
-	if ac.Auth.AutoPwd == "" || ac.Auth.AutoPwd == util.InvalidAutomationAgentPassword {
-		automationAgentBackupPassword, err := generate.KeyFileContents()
+// EnsurePassword makes sure that there is an Automation Agent password
+// that the agents will use to communicate with the deployments. The password
+// is returned, so it can be provided to the other agents.
+func (ac *AutomationConfig) EnsurePassword(k8sClient secret.GetUpdateCreator, ctx context.Context, mdbNamespacedName *types.NamespacedName) (string, error) {
+	secretNamespacedName := client.ObjectKey{Name: mdbNamespacedName.Name + agentAuthenticationSecretSuffix, Namespace: mdbNamespacedName.Namespace}
+
+	var password string
+
+	data, err := secret.ReadStringData(ctx, k8sClient, secretNamespacedName)
+	if err == nil {
+		if val, ok := data[autoPwdSecretKey]; ok && len(val) > 0 {
+			password = val
+		}
+	} else if secret.SecretNotExist(err) {
+		if ac.Auth.AutoPwd != "" && ac.Auth.AutoPwd != util.InvalidAutomationAgentPassword {
+			password = ac.Auth.AutoPwd
+		}
+
+		err := EnsureEmptySecret(ctx, k8sClient, secretNamespacedName)
 		if err != nil {
 			return "", err
 		}
-		ac.Auth.AutoPwd = automationAgentBackupPassword
-		return automationAgentBackupPassword, nil
 	}
-	return ac.Auth.AutoPwd, nil
+
+	if password == "" {
+		generatedPassword, genErr := generate.KeyFileContents()
+		if genErr != nil {
+			return "", genErr
+		}
+		password = generatedPassword
+	}
+
+	ac.Auth.AutoPwd = password
+	err = secret.UpdateField(ctx, k8sClient, secretNamespacedName, autoPwdSecretKey, password)
+	if err != nil {
+		return "", fmt.Errorf("failed to update password field in shared secret %s/%s: %w", secretNamespacedName.Namespace, secretNamespacedName.Name, err)
+	}
+
+	return password, nil
+}
+
+func EnsureEmptySecret(ctx context.Context, k8sClient secret.GetUpdateCreator, secretNamespacedName types.NamespacedName) error {
+	dataFields := map[string]string{
+		autoPwdSecretKey: "",
+	}
+
+	emptySecret := secret.Builder().
+		SetName(secretNamespacedName.Name).
+		SetNamespace(secretNamespacedName.Namespace).
+		SetStringMapToData(dataFields).
+		Build()
+
+	if err := secret.CreateOrUpdateIfNeeded(ctx, k8sClient, emptySecret); err != nil {
+		return fmt.Errorf("failed to create or update empty secret %s/%s: %w", secretNamespacedName.Namespace, secretNamespacedName.Name, err)
+	}
+
+	return nil
 }
 
 func (ac *AutomationConfig) CanEnableX509ProjectAuthentication() (bool, string) {
