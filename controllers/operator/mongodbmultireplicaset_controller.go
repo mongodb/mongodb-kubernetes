@@ -1236,7 +1236,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 		ProcessNames:     processNames,
 	}
 
-	if err := authentication.Disable(r.client, ctx, conn, opts, true, log); err != nil {
+	if err := authentication.Disable(r.client, ctx, &types.NamespacedName{Namespace: mrs.GetNamespace(), Name: mrs.GetName()}, conn, opts, true, log); err != nil {
 		return err
 	}
 	log.Infof("Removed deployment %s from Ops Manager at %s", mrs.Name, conn.BaseURL())

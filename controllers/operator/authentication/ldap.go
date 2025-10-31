@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
@@ -18,10 +19,10 @@ func (l *ldapAuthMechanism) GetName() MechanismName {
 	return LDAPPlain
 }
 
-func (l *ldapAuthMechanism) EnableAgentAuthentication(client kubernetesClient.Client, ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func (l *ldapAuthMechanism) EnableAgentAuthentication(client kubernetesClient.Client, ctx context.Context, namespacedName *types.NamespacedName, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	log.Info("Configuring LDAP authentication")
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		if err := ac.EnsureKeyFileContents(client, ctx); err != nil {
+		if err := ac.EnsureKeyFileContents(client, ctx, namespacedName); err != nil {
 			return err
 		}
 		auth := ac.Auth

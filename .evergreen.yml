@@ -667,6 +667,7 @@ task_groups:
       - e2e_replica_set_scram_x509_ic_manual_certs
       - e2e_sharded_cluster_scram_sha_1_upgrade
       - e2e_sharded_cluster_scram_sha_256_user_connectivity
+      - e2e_sharded_cluster_scram_sha_256_switch_project
       - e2e_sharded_cluster_scram_sha_1_user_connectivity
       - e2e_sharded_cluster_scram_x509_ic_manual_certs
       - e2e_sharded_cluster_external_access

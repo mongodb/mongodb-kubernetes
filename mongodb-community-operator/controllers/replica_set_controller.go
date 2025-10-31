@@ -675,7 +675,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	}
 
 	auth := automationconfig.Auth{}
-	if err := authentication.Enable(r.client, ctx, &auth, r.client, &mdb, mdb.AgentCertificateSecretNamespacedName()); err != nil {
+	if err := authentication.Enable(ctx, &auth, r.client, &mdb, mdb.AgentCertificateSecretNamespacedName()); err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
 

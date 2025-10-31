@@ -20,7 +20,6 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
@@ -29,13 +28,13 @@ import (
 // Enable will configure all of the required Kubernetes resources for X509 to be enabled.
 // The agent password and keyfile contents will be configured and stored in a secret.
 // the user credentials will be generated if not present, or existing credentials will be read.
-func Enable(client kubernetesClient.Client, ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable, agentCertSecret types.NamespacedName) error {
+func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable, agentCertSecret types.NamespacedName) error {
 	opts := mdb.GetAuthOptions()
 
 	desiredUsers := convertMongoDBResourceUsersToAutomationConfigUsers(mdb)
 
 	if opts.AutoAuthMechanism == constants.X509 {
-		if err := ensureAgent(client, ctx, auth, secretGetUpdateCreateDeleter, mdb, agentCertSecret); err != nil {
+		if err := ensureAgent(ctx, auth, secretGetUpdateCreateDeleter, mdb, agentCertSecret); err != nil {
 			return err
 		}
 	}
@@ -43,7 +42,7 @@ func Enable(client kubernetesClient.Client, ctx context.Context, auth *automatio
 	return enableClientAuthentication(auth, opts, desiredUsers)
 }
 
-func ensureAgent(client kubernetesClient.Client, ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable, agentCertSecret types.NamespacedName) error {
+func ensureAgent(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable, agentCertSecret types.NamespacedName) error {
 	generatedContents, err := generate.KeyFileContents()
 	if err != nil {
 		return fmt.Errorf("could not generate keyfile contents: %s", err)
@@ -69,7 +68,7 @@ func ensureAgent(client kubernetesClient.Client, ctx context.Context, auth *auto
 		return fmt.Errorf("agent subject: %s is not a valid subject", agentSubject)
 	}
 
-	return enableAgentAuthentication(client, ctx, auth, agentKeyFile, agentSubject, mdb.GetAuthOptions())
+	return enableAgentAuthentication(auth, agentKeyFile, agentSubject, mdb.GetAuthOptions())
 }
 
 // convertMongoDBResourceUsersToAutomationConfigUsers returns a list of users that are able to be set in the AutomationConfig

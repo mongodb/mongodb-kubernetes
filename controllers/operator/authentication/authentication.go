@@ -5,6 +5,7 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/types"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -85,7 +86,7 @@ type UserOptions struct {
 
 // Configure will configure all the specified authentication Mechanisms. We need to ensure we wait for
 // the agents to reach ready state after each operation as prematurely updating the automation config can cause the agents to get stuck.
-func Configure(client kubernetesClient.Client, ctx context.Context, conn om.Connection, opts Options, isRecovering bool, log *zap.SugaredLogger) error {
+func Configure(client kubernetesClient.Client, ctx context.Context, namespacedName *types.NamespacedName, conn om.Connection, opts Options, isRecovering bool, log *zap.SugaredLogger) error {
 	log.Infow("ensuring correct deployment mechanisms", "ProcessNames", opts.ProcessNames, "Mechanisms", opts.Mechanisms)
 
 	// In case we're recovering, we can push all changes at once, because the mechanism is triggered after 20min by default.
@@ -116,7 +117,7 @@ func Configure(client kubernetesClient.Client, ctx context.Context, conn om.Conn
 
 	// once we have made sure that the deployment authentication mechanism array contains the desired auth mechanism
 	// we can then configure the agent authentication.
-	if err := enableAgentAuthentication(client, ctx, conn, opts, log); err != nil {
+	if err := enableAgentAuthentication(client, ctx, namespacedName, conn, opts, log); err != nil {
 		return xerrors.Errorf("error enabling agent authentication: %w", err)
 	}
 	if err := waitForReadyStateIfNeeded(); err != nil {
@@ -154,7 +155,7 @@ func Configure(client kubernetesClient.Client, ctx context.Context, conn om.Conn
 
 // Disable disables all authentication mechanisms, and waits for the agents to reach goal state. It is still required to provide
 // automation agent username, password and keyfile contents to ensure a valid Automation Config.
-func Disable(client kubernetesClient.Client, ctx context.Context, conn om.Connection, opts Options, deleteUsers bool, log *zap.SugaredLogger) error {
+func Disable(client kubernetesClient.Client, ctx context.Context, namespacedName *types.NamespacedName, conn om.Connection, opts Options, deleteUsers bool, log *zap.SugaredLogger) error {
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
@@ -181,10 +182,10 @@ func Disable(client kubernetesClient.Client, ctx context.Context, conn om.Connec
 	}
 
 	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		if err := ac.EnsureKeyFileContents(client, ctx); err != nil {
+		if err := ac.EnsureKeyFileContents(client, ctx, namespacedName); err != nil {
 			return xerrors.Errorf("error ensuring keyfile contents: %w", err)
 		}
-		if _, err := ac.EnsurePassword(client, ctx); err != nil {
+		if _, err := ac.EnsurePassword(client, ctx, namespacedName); err != nil {
 			return xerrors.Errorf("error ensuring agent password: %w", err)
 		}
 
@@ -261,7 +262,7 @@ func removeUnsupportedAgentMechanisms(conn om.Connection, opts Options, log *zap
 
 // enableAgentAuthentication determines which agent authentication mechanism should be configured
 // and enables it in Ops Manager
-func enableAgentAuthentication(client kubernetesClient.Client, ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func enableAgentAuthentication(client kubernetesClient.Client, ctx context.Context, namespacedName *types.NamespacedName, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
@@ -270,7 +271,7 @@ func enableAgentAuthentication(client kubernetesClient.Client, ctx context.Conte
 	// we then configure the agent authentication for that type
 	mechanism := convertToMechanismOrPanic(opts.AgentMechanism, ac)
 
-	if err := ensureAgentAuthenticationIsConfigured(client, ctx, conn, opts, ac, mechanism, log); err != nil {
+	if err := ensureAgentAuthenticationIsConfigured(client, ctx, namespacedName, conn, opts, ac, mechanism, log); err != nil {
 		return xerrors.Errorf("error ensuring agent authentication is configured: %w", err)
 	}
 
@@ -368,14 +369,14 @@ func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *za
 }
 
 // ensureAgentAuthenticationIsConfigured will configure the agent authentication settings based on the desiredAgentAuthMechanism
-func ensureAgentAuthenticationIsConfigured(client kubernetesClient.Client, ctx context.Context, conn om.Connection, opts Options, ac *om.AutomationConfig, mechanism Mechanism, log *zap.SugaredLogger) error {
+func ensureAgentAuthenticationIsConfigured(client kubernetesClient.Client, ctx context.Context, namespacedName *types.NamespacedName, conn om.Connection, opts Options, ac *om.AutomationConfig, mechanism Mechanism, log *zap.SugaredLogger) error {
 	if mechanism.IsAgentAuthenticationConfigured(ac, opts) {
 		log.Infof("Agent authentication mechanism %s is already configured", mechanism.GetName())
 		return nil
 	}
 
 	log.Infof("Enabling %s agent authentication", mechanism.GetName())
-	return mechanism.EnableAgentAuthentication(client, ctx, conn, opts, log)
+	return mechanism.EnableAgentAuthentication(client, ctx, namespacedName, conn, opts, log)
 }
 
 // ensureDeploymentMechanisms configures the given AutomationConfig to allow deployments to
