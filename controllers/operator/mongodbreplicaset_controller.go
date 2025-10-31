@@ -134,11 +134,17 @@ func (r *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, er
 // This should only be called on successful reconciliation.
 // The state is currently split between the annotations and the member count in status. Both should be migrated
 // to config maps
-func (r *ReplicaSetReconcilerHelper) writeState(ctx context.Context) error {
+// To avoid posting twice to the API server, we optionally include the vault annotations here, even though they are not
+// considered as proper state. The reconciler does not rely on them, they are write-only
+func (r *ReplicaSetReconcilerHelper) writeState(ctx context.Context, vaultAnnotations map[string]string) error {
 	// Get lastAchievedSpec annotation
 	annotationsToAdd, err := getAnnotationsForResource(r.resource)
 	if err != nil {
 		return err
+	}
+
+	for k, val := range vaultAnnotations {
+		annotationsToAdd[k] = val
 	}
 
 	// Write to CR
@@ -150,9 +156,8 @@ func (r *ReplicaSetReconcilerHelper) writeState(ctx context.Context) error {
 	return nil
 }
 
-// writeVaultAnnotations writes vault secret version annotations to the CR.
-// This should only be called on successful reconciliation.
-func (r *ReplicaSetReconcilerHelper) writeVaultAnnotations(ctx context.Context) error {
+// getVaultAnnotations gets vault secret version annotations to write to the CR.
+func (r *ReplicaSetReconcilerHelper) getVaultAnnotations() map[string]string {
 	if !vault.IsVaultSecretBackend() {
 		return nil
 	}
@@ -170,12 +175,7 @@ func (r *ReplicaSetReconcilerHelper) writeVaultAnnotations(ctx context.Context) 
 		r.resource.Namespace, r.resource.Spec.Credentials)
 	vaultMap = merge.StringToStringMap(vaultMap, r.reconciler.VaultClient.GetSecretAnnotation(path))
 
-	if err := annotations.SetAnnotations(ctx, r.resource, vaultMap, r.reconciler.client); err != nil {
-		return err
-	}
-
-	r.log.Debugf("Successfully wrote vault annotations for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
-	return nil
+	return vaultMap
 }
 
 func (r *ReplicaSetReconcilerHelper) initialize(ctx context.Context) error {
@@ -330,12 +330,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// Write state and vault annotations on successful reconciliation
-	if err := r.writeState(ctx); err != nil {
+	if err := r.writeState(ctx, r.getVaultAnnotations()); err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to write state: %w", err)))
-	}
-
-	if err := r.writeVaultAnnotations(ctx); err != nil {
-		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to write vault annotations: %w", err)))
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
