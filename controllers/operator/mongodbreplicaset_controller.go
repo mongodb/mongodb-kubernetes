@@ -130,32 +130,6 @@ func (r *ReplicaSetReconcilerHelper) readState() (*replicaSetDeploymentState, er
 	}, nil
 }
 
-// writeState writes the lastAchievedSpec annotation to the resource.
-// This should only be called on successful reconciliation.
-// The state is currently split between the annotations and the member count in status. Both should be migrated
-// to config maps
-// To avoid posting twice to the API server, we optionally include the vault annotations here, even though they are not
-// considered as proper state. The reconciler does not rely on them, they are write-only
-func (r *ReplicaSetReconcilerHelper) writeState(ctx context.Context, vaultAnnotations map[string]string) error {
-	// Get lastAchievedSpec annotation
-	annotationsToAdd, err := getAnnotationsForResource(r.resource)
-	if err != nil {
-		return err
-	}
-
-	for k, val := range vaultAnnotations {
-		annotationsToAdd[k] = val
-	}
-
-	// Write to CR
-	if err := annotations.SetAnnotations(ctx, r.resource, annotationsToAdd, r.reconciler.client); err != nil {
-		return err
-	}
-
-	r.log.Debugf("Successfully wrote deployment state for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
-	return nil
-}
-
 // getVaultAnnotations gets vault secret version annotations to write to the CR.
 func (r *ReplicaSetReconcilerHelper) getVaultAnnotations() map[string]string {
 	if !vault.IsVaultSecretBackend() {
@@ -329,9 +303,21 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), mdbstatus.MembersOption(rs))
 	}
 
-	// Write state and vault annotations on successful reconciliation
-	if err := r.writeState(ctx, r.getVaultAnnotations()); err != nil {
-		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to write state: %w", err)))
+	// Get lastspec, vault annotations when needed and write them to the resource.
+	// These operations should only be performed on successful reconciliations.
+	// The state of replica sets is currently split between the annotations and the member count in status. Both should
+	// be migrated to config maps
+	annotationsToAdd, err := getAnnotationsForResource(r.resource)
+	if err != nil {
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not get resource annotations: %w", err)))
+	}
+
+	for k, val := range r.getVaultAnnotations() {
+		annotationsToAdd[k] = val
+	}
+
+	if err := annotations.SetAnnotations(ctx, r.resource, annotationsToAdd, r.reconciler.client); err != nil {
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not update resource annotations: %w", err)))
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
