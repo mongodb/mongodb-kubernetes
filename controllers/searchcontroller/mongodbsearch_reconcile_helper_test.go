@@ -176,7 +176,7 @@ func TestGetMongodConfigParameters_TransportAndPorts(t *testing.T) {
 				},
 			}
 			if tc.withWireproto {
-				search.Annotations = map[string]string{searchv1.ForceWireprotoTransportAnnotation: "true"}
+				search.Annotations = map[string]string{searchv1.ForceWireprotoAnnotation: "true"}
 			}
 
 			clusterDomain := "cluster.local"

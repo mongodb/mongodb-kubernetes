@@ -9,7 +9,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: build_multi_cluster_binary
+      - func: download_multi_cluster_binary
       - func: pipeline
         vars:
           image_name: meko-tests
@@ -123,9 +123,8 @@ tasks:
     tags: [ "binary_release" ]
     commands:
       - func: clone
-      - func: install_goreleaser
-      - func: install_macos_notarization_service
       - func: python_venv
+      - func: install_macos_notarization_service
       - func: release_kubectl_mongodb_plugin
 
   - name: create_chart_release_pr
@@ -134,6 +133,16 @@ tasks:
       - func: clone
       - func: python_venv
       - func: create_chart_release_pr
+
+  - name: release_chart_to_oci_registry
+    tags: [ "release_chart_to_oci_registry" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_kubectl
+      - func: setup_aws
+      - func: helm_registry_login
+      - func: publish_helm_chart
 
 ### Release build variants
 buildvariants:
@@ -214,6 +223,9 @@ buildvariants:
     allowed_requesters: [ "patch", "github_tag" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    depends_on:
+      - name: release_kubectl_mongodb_plugin
+        variant: release_kubectl_mongodb_plugin
     tasks:
       - name: build_test_image_for_smoke_tests
 
@@ -240,6 +252,8 @@ buildvariants:
     depends_on:
       - name: "*"
         variant: release_images
+      - name: "*"
+        variant: init_smoke_tests
     tasks:
       - name: e2e_smoke_task_group
 
@@ -260,3 +274,12 @@ buildvariants:
     allowed_requesters: [ "patch", "github_tag" ]
     tasks:
       - name: create_chart_release_pr
+
+  - name: release_chart_to_oci_registry
+    display_name: release_chart_to_oci_registry
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: release_chart_to_oci_registry

@@ -68,7 +68,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	connection := omConnectionFactory.GetConnection()
 	connection.(*om.MockedOmConnection).CheckDeployment(t, deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs), "auth", "ssl")
-	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 2)
+	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
 }
 
 func TestReplicaSetRace(t *testing.T) {
@@ -383,39 +383,6 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 	sslConfig := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS()
 	assert.Equal(t, fmt.Sprintf("%s/%s", util.TLSCaMountPath, "ca-pem"), sslConfig["CAFilePath"])
 	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
-}
-
-// TestUpdateDeploymentTLSConfiguration a combination of tests checking that:
-//
-// TLS Disabled -> TLS Disabled: should not lock members
-// TLS Disabled -> TLS Enabled: should not lock members
-// TLS Enabled -> TLS Enabled: should not lock members
-// TLS Enabled -> TLS Disabled: *should lock members*
-func TestUpdateDeploymentTLSConfiguration(t *testing.T) {
-	rsWithTLS := mdbv1.NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
-	rsNoTLS := mdbv1.NewReplicaSetBuilder().Build()
-	deploymentWithTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsWithTLS)
-	deploymentNoTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsNoTLS)
-
-	// TLS Disabled -> TLS Disabled
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsNoTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Disabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsWithTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Enabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsWithTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Enabled -> TLS Disabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsNoTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.True(t, shouldLockMembers)
 }
 
 // TestCreateDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset
