@@ -18,7 +18,10 @@ run_for_output 01_0090_helm_add_mogodb_repo.sh
 run_for_output 01_0100_install_operator.sh
 run_for_output 01_0110_wait_for_operator_deployment.sh
 run 01_0305_create_mongodb_community_user_secrets.sh
-run 01_0306_configure_cert_manager_tls.sh
+
+run 01_0306_install_cert_manager.sh
+run 01_0307_prepare_cert_manager_issuer.sh
+run 01_0308_issue_tls_certificates.sh
 
 run 01_0310_create_mongodb_community_resource.sh
 run_for_output 01_0315_wait_for_community_resource.sh
