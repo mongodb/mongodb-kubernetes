@@ -209,7 +209,7 @@ run_tests() {
 
     wait_until_pod_is_running_or_failed_or_succeeded "${test_pod_context}"
 
-    title "Running e2e test ${task_name} (tag: ${TEST_IMAGE_TAG})"
+    title "Running e2e test ${task_name}"
 
     # we don't output logs to file when running tests locally
     if [[ "${MODE-}" == "dev" ]]; then

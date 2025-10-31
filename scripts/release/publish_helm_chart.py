@@ -79,7 +79,7 @@ def get_oci_registry(chart_info: HelmChartInfo) -> str:
         raise ValueError("Error: registry doesn't seem to be set in HelmChartInfo.")
 
     if not repo:
-        raise ValueError("Error: reposiotry doesn't seem to be set in HelmChartInfo.")
+        raise ValueError("Error: repository doesn't seem to be set in HelmChartInfo.")
 
     oci_registry = f"oci://{registry}/{repo}"
     logger.info(f"Determined OCI Registry: {oci_registry}")

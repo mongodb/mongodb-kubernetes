@@ -15,6 +15,7 @@ class ImageBuildConfiguration:
     olm_tag: bool
     registries: List[str]
     dockerfile_path: str
+    builder: str
     platforms: Optional[List[str]] = None
     sign: bool = False
     skip_if_exists: bool = False

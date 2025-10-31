@@ -6,6 +6,7 @@ import datetime
 import json
 import os
 import shutil
+import subprocess
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
@@ -24,6 +25,7 @@ from scripts.release.agent.validation import (
     generate_agent_build_args,
     generate_tools_build_args,
 )
+from scripts.release.build.build_info import BUILDER_DOCKER, BUILDER_PODMAN
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import (
     check_if_image_exists,
@@ -96,26 +98,59 @@ def build_image(
         logger.info("All specified image tags already exist. Skipping build.")
         return
 
-    logger.info(
-        f"Building image with tags {tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
-    )
+    if build_configuration.builder == BUILDER_PODMAN:
+        logger.info(
+            f"Building image with podman, tags {tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
+        )
+        try:
+            build_command = [
+                "sudo",
+                "podman",
+                "buildx",
+                "build",
+                "--progress",
+                "plain",
+                build_path,
+                "-f",
+                build_configuration.dockerfile_path,
+            ]
+            for tag in tags:
+                build_command.extend(["-t", tag])
+            for key, value in build_args.items():
+                build_command.extend(["--build-arg", f"{key}={value}"])
 
-    execute_docker_build(
-        tags=tags,
-        dockerfile=build_configuration.dockerfile_path,
-        path=build_path,
-        args=build_args,
-        push=True,
-        platforms=build_configuration.platforms,
-    )
+            result = subprocess.run(build_command, capture_output=True, text=True, check=True)
+            logger.debug(result.stdout)
 
-    if build_configuration.sign:
-        logger.info("Logging in MongoDB Artifactory for Garasign image")
-        mongodb_artifactory_login()
-        logger.info("Signing image")
-        for registry in registries:
-            sign_image(registry, build_configuration.version)
-            verify_signature(registry, build_configuration.version)
+            for tag in tags:
+                push_command = ["sudo", "podman", "push", "--authfile=/root/.config/containers/auth.json", tag]
+                result = subprocess.run(push_command, capture_output=True, text=True, check=True)
+                logger.debug(result.stdout)
+        except subprocess.CalledProcessError as e:
+            raise Exception(f"Podman command failed with code {e.returncode}, output: {e.stdout}: {e.stderr}")
+    elif build_configuration.builder == BUILDER_DOCKER:
+        logger.info(
+            f"Building image with docker, tags {tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
+        )
+
+        execute_docker_build(
+            tags=tags,
+            dockerfile=build_configuration.dockerfile_path,
+            path=build_path,
+            args=build_args,
+            push=True,
+            platforms=build_configuration.platforms,
+        )
+
+        if build_configuration.sign:
+            logger.info("Logging in MongoDB Artifactory for Garasign image")
+            mongodb_artifactory_login()
+            logger.info("Signing image")
+            for registry in registries:
+                sign_image(registry, build_configuration.version)
+                verify_signature(registry, build_configuration.version)
+    else:
+        raise ValueError(f"Unsupported builder type: {build_configuration.builder}")
 
 
 def build_meko_tests_image(build_configuration: ImageBuildConfiguration):

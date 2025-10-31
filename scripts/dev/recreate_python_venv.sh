@@ -113,8 +113,8 @@ fi
 # Ensure required Python version is available
 ensure_required_python
 
-echo "Using Python: $(which python) ($(python --version))" >&2
-python -m venv venv
+# Make sure we are using the correct Python version when setting up venv
+PYENV_VERSION="${PYTHON_VERSION}" python -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 

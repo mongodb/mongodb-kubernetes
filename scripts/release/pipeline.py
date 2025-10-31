@@ -36,12 +36,15 @@ from scripts.release.atomic_pipeline import (
 )
 from scripts.release.build.build_info import (
     AGENT_IMAGE,
+    BUILDER_DOCKER,
     DATABASE_IMAGE,
     INIT_APPDB_IMAGE,
     INIT_DATABASE_IMAGE,
     INIT_OPS_MANAGER_IMAGE,
     MCO_TESTS_IMAGE,
     MEKO_TESTS_ARM64_IMAGE,
+    MEKO_TESTS_IBM_POWER_IMAGE,
+    MEKO_TESTS_IBM_Z_IMAGE,
     MEKO_TESTS_IMAGE,
     OPERATOR_IMAGE,
     OPERATOR_RACE_IMAGE,
@@ -75,6 +78,8 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
     image_builders = {
         MEKO_TESTS_IMAGE: build_meko_tests_image,
         MEKO_TESTS_ARM64_IMAGE: build_meko_tests_image,
+        MEKO_TESTS_IBM_Z_IMAGE: build_meko_tests_image,
+        MEKO_TESTS_IBM_POWER_IMAGE: build_meko_tests_image,
         OPERATOR_IMAGE: build_operator_image,
         OPERATOR_RACE_IMAGE: partial(build_operator_image, with_race_detection=True),
         MCO_TESTS_IMAGE: build_mco_tests_image,
@@ -117,6 +122,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     # Resolve final values with overrides
     version = args.version
     dockerfile_path = image_build_info.dockerfile_path
+    builder = image_build_info.builder
     latest_tag = image_build_info.latest_tag
     olm_tag = image_build_info.olm_tag
     if args.registry:
@@ -145,6 +151,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         olm_tag=olm_tag,
         registries=registries,
         dockerfile_path=dockerfile_path,
+        builder=builder,
         platforms=platforms,
         sign=sign,
         skip_if_exists=skip_if_exists,
@@ -290,8 +297,10 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
 
     # Create buildx builder
     # It must be initialized here as opposed to in build_images.py so that parallel calls (such as agent builds) can access it
-    # and not face race conditions
-    ensure_buildx_builder(DEFAULT_BUILDER_NAME)
+    # and not face race conditions. For IBM Z and Power we use podman and cannot set docker buildx builder
+    if build_config.builder == BUILDER_DOCKER:
+        ensure_buildx_builder(DEFAULT_BUILDER_NAME)
+
     build_image(args.image, build_config)
 
 
