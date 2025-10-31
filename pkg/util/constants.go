@@ -285,6 +285,10 @@ const (
 	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 
+	// Used by MongoDB replica set until we transition to config map
+	ClusterMappingAnnotation        = "mongodb.com/v1.clusterMapping"
+	LastAppliedMemberSpecAnnotation = "mongodb.com/v1.lastAppliedMemberSpec"
+
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 

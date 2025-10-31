@@ -728,7 +728,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return err
 	}
 
-	processIds := getReplicaSetProcessIdsFromReplicaSets(mrs.Name, existingDeployment)
+	processIds := getReplicaSetProcessIdsFromDeployment(mrs.Name, existingDeployment)
 
 	// If there is no replicaset configuration saved in OM, it might be a new project, so we check the ids saved in annotation
 	// A project migration can happen if .spec.opsManager.configMapRef is changed, or the original configMap has been modified.
@@ -793,21 +793,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return err
 	}
 	return nil
-}
-
-func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om.Deployment) map[string]int {
-	processIds := map[string]int{}
-
-	replicaSet := deployment.GetReplicaSetByName(replicaSetName)
-	if replicaSet == nil {
-		return map[string]int{}
-	}
-
-	for _, m := range replicaSet.Members() {
-		processIds[m.Name()] = m.Id()
-	}
-
-	return processIds
 }
 
 func getReplicaSetProcessIdsFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) (map[string]int, error) {

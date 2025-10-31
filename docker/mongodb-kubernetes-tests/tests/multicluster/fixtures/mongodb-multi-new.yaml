@@ -1,21 +1,18 @@
-# sample mongodb-multi replicaset yaml
 ---
 apiVersion: mongodb.com/v1
 kind: MongoDB
 metadata:
   name: multi-replica-set
 spec:
-  version: 7.0.25-ubi8
+  version: 4.4.0-ent
   type: ReplicaSet
   topology: MultiCluster
-  persistent: false
   duplicateServiceObjects: false
   credentials: my-credentials
   opsManager:
     configMapRef:
       name: my-project
   clusterSpecList:
-    # cluster names where you want to deploy the replicaset
     - clusterName: kind-e2e-cluster-1
       members: 2
     - clusterName: kind-e2e-cluster-2
