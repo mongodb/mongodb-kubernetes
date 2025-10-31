@@ -195,6 +195,8 @@ def sign_image(repository: str, tag: str) -> None:
         "sign",
         f"--key={pkcs11_uri}",
         f"--sign-container-identity={image}",
+        f"--use-signing-config=false",
+        f"--new-bundle-format=false",
         f"--tlog-upload=false",
         image_ref,
     ]
