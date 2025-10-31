@@ -1,20 +1,27 @@
 package authentication
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 var mongoDBX509Mechanism = getMechanismByName(MongoDBX509)
 
 func TestX509EnableAgentAuthentication(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mdbNamespacedName := &types.NamespacedName{Namespace: "test", Name: "test"}
+
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
 	options := Options{
@@ -25,7 +32,7 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 		},
 		AuthoritativeSet: true,
 	}
-	if err := mongoDBX509Mechanism.EnableAgentAuthentication(conn, options, zap.S()); err != nil {
+	if err := mongoDBX509Mechanism.EnableAgentAuthentication(kubeClient, ctx, mdbNamespacedName, conn, options, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1667,7 +1667,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		AutoPEMKeyFilePath: agentCertPath,
 		CAFilePath:         util.CAFilePathInContainer,
 	}
-	err = authentication.Configure(conn, opts, false, log)
+	err = authentication.Configure(r.client, ctx, &types.NamespacedName{Namespace: opsManager.Namespace, Name: opsManager.Name}, conn, opts, false, log)
 	if err != nil {
 		log.Errorf("Could not set Automation Authentication options in Ops/Cloud Manager for the Application Database. "+
 			"Application Database is always configured with authentication enabled, but this will not be "+

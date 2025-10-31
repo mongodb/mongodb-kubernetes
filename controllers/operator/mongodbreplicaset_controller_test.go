@@ -61,7 +61,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	assert.Len(t, mock.GetMapForObject(client, &corev1.Service{}), 1)
 	assert.Len(t, mock.GetMapForObject(client, &appsv1.StatefulSet{}), 1)
-	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 2)
+	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 3)
 
 	sts, err := client.GetStatefulSet(ctx, rs.ObjectKey())
 	assert.NoError(t, err)
