@@ -1,5 +1,5 @@
 kubectl exec --context "${K8S_CTX}" -n "${MDB_NS}" mongodb-tools-pod -- \
-  mongosh --quiet "${MDB_CONNECTION_STRING}" \
+  mongosh --quiet --tls --tlsCAFile /tls/ca.crt "${MDB_CONNECTION_STRING}" \
     --eval "use sample_mflix" \
     --eval 'db.embedded_movies.createSearchIndex("vector_index", "vectorSearch",
     { "fields": [ {
