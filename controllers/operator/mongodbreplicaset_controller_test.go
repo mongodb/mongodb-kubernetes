@@ -896,7 +896,7 @@ func TestReplicaSetAnnotations_NotWrittenOnFailure(t *testing.T) {
 		WithObjects(mock.GetProjectConfigMap(mock.TestProjectConfigMapName, "testProject", "testOrg")).
 		Build()
 
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, nil)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, nil, nil)
 
 	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
 	require.NoError(t, err, "Reconcile should not return error (error captured in status)")
@@ -917,7 +917,7 @@ func TestReplicaSetAnnotations_PreservedOnSubsequentFailure(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, nil, omConnectionFactory.GetConnectionFunc)
 
 	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
 	require.NoError(t, err)

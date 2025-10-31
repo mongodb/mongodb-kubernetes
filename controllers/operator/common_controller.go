@@ -299,6 +299,25 @@ func checkIfHasExcessProcesses(conn om.Connection, resourceName string, log *zap
 	return workflow.Pending("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 }
 
+// getReplicaSetProcessIdsFromDeployment extracts replica set member IDs from the OM deployment.
+// This is used to preserve stable member IDs across reconciliations in multi-cluster deployments,
+// preventing ID conflicts when clusters scale independently.
+// Returns a map of process name to replica set member ID (e.g., {"my-rs-0-0": 0, "my-rs-1-0": 1}).
+func getReplicaSetProcessIdsFromDeployment(replicaSetName string, deployment om.Deployment) map[string]int {
+	processIds := map[string]int{}
+
+	replicaSet := deployment.GetReplicaSetByName(replicaSetName)
+	if replicaSet == nil {
+		return map[string]int{}
+	}
+
+	for _, m := range replicaSet.Members() {
+		processIds[m.Name()] = m.Id()
+	}
+
+	return processIds
+}
+
 // validateInternalClusterCertsAndCheckTLSType verifies that all the x509 internal cluster certs exist and return whether they are built following the kubernetes.io/tls secret type (tls.crt/tls.key entries).
 // TODO: this is almost the same as certs.EnsureSSLCertsForStatefulSet, we should centralize the functionality
 func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(ctx context.Context, configurator certs.X509CertConfigurator, opts certs.Options, log *zap.SugaredLogger) error {

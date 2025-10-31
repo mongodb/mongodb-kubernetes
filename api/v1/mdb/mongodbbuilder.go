@@ -295,13 +295,8 @@ func (b *MongoDBBuilder) SetDefaultClusterSpecList() *MongoDBBuilder {
 	return b
 }
 
-func (b *MongoDBBuilder) SetClusterSpectList(clusters []string) *MongoDBBuilder {
-	for _, e := range clusters {
-		b.mdb.Spec.ClusterSpecList = append(b.mdb.Spec.ClusterSpecList, ClusterSpecItem{
-			ClusterName: e,
-			Members:     1, // number of cluster members b/w 1 to 5
-		})
-	}
+func (b *MongoDBBuilder) SetClusterSpecList(clusterSpecList ClusterSpecList) *MongoDBBuilder {
+	b.mdb.Spec.ClusterSpecList = clusterSpecList
 	return b
 }
 

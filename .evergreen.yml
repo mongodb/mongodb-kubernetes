@@ -838,6 +838,7 @@ task_groups:
       - e2e_multi_cluster_mtls_test
       - e2e_multi_cluster_replica_set_deletion
       - e2e_multi_cluster_replica_set_scale_up
+      - e2e_multi_cluster_new_replica_set_scale_up
       - e2e_multi_cluster_scale_up_cluster
       - e2e_multi_cluster_scale_up_cluster_new_cluster
       - e2e_multi_cluster_replica_set_scale_down

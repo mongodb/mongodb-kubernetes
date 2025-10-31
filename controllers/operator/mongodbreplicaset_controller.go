@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -37,11 +38,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -81,9 +85,18 @@ type ReconcileMongoDbReplicaSet struct {
 	databaseNonStaticImageVersion     string
 }
 
-type replicaSetDeploymentState struct {
-	LastAchievedSpec         *mdbv1.MongoDbSpec
-	LastReconcileMemberCount int
+// ReplicaSetDeploymentState represents the state that is persisted between reconciliations.
+type ReplicaSetDeploymentState struct {
+	// What the spec looked like when we last reached Running state
+	LastAchievedSpec *mdbv1.MongoDbSpec
+
+	// Each cluster gets a stable index for StatefulSet naming (e.g. {"cluster-a": 0, "cluster-b": 1}).
+	// These indexes stick around forever, even when clusters come and go.
+	ClusterMapping map[string]int
+
+	// Tracks replica count per cluster from last reconciliation (e.g. {"cluster-a": 3, "cluster-b": 5}).
+	// We compare this to the current desired state to detect scale-downs and trigger proper MongoDB cleanup.
+	LastAppliedMemberSpec map[string]int
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
@@ -92,9 +105,10 @@ var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
 // This object is NOT shared between reconcile invocations.
 type ReplicaSetReconcilerHelper struct {
 	resource        *mdbv1.MongoDB
-	deploymentState *replicaSetDeploymentState
+	deploymentState *ReplicaSetDeploymentState
 	reconciler      *ReconcileMongoDbReplicaSet
 	log             *zap.SugaredLogger
+	MemberClusters  []multicluster.MemberCluster
 }
 
 func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
@@ -116,23 +130,94 @@ func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
 }
 
 // readState abstract reading the state of the resource that we store on the cluster between reconciliations.
-func (r *ReplicaSetReconcilerHelper) readState() (*replicaSetDeploymentState, error) {
+func (r *ReplicaSetReconcilerHelper) readState() (*ReplicaSetDeploymentState, error) {
 	// Try to get the last achieved spec from annotations and store it in state
 	lastAchievedSpec, err := r.resource.GetLastSpec()
 	if err != nil {
 		return nil, err
 	}
 
-	// Read current member count from Status once at initialization. This provides a stable view throughout
-	// reconciliation and prepares for eventually storing this in ConfigMap state instead of ephemeral status.
-	lastReconcileMemberCount := r.resource.Status.Members
+	state := &ReplicaSetDeploymentState{
+		LastAchievedSpec:      lastAchievedSpec,
+		ClusterMapping:        map[string]int{},
+		LastAppliedMemberSpec: map[string]int{},
+	}
 
-	return &replicaSetDeploymentState{
-		LastAchievedSpec:         lastAchievedSpec,
-		LastReconcileMemberCount: lastReconcileMemberCount,
-	}, nil
+	// Try to read ClusterMapping from annotation
+	if clusterMappingStr := annotations.GetAnnotation(r.resource, util.ClusterMappingAnnotation); clusterMappingStr != "" {
+		if err := json.Unmarshal([]byte(clusterMappingStr), &state.ClusterMapping); err != nil {
+			r.log.Warnf("Failed to unmarshal ClusterMapping annotation: %v", err)
+		}
+	}
+
+	// Try to read LastAppliedMemberSpec from annotation
+	if lastAppliedMemberSpecStr := annotations.GetAnnotation(r.resource, util.LastAppliedMemberSpecAnnotation); lastAppliedMemberSpecStr != "" {
+		if err := json.Unmarshal([]byte(lastAppliedMemberSpecStr), &state.LastAppliedMemberSpec); err != nil {
+			r.log.Warnf("Failed to unmarshal LastAppliedMemberSpec annotation: %v", err)
+		}
+	}
+
+	// MIGRATION: If LastAppliedMemberSpec is empty, initialize from Status.Members
+	// This ensures backward compatibility with existing single-cluster deployments
+	// For multi-cluster, leave empty - it will be initialized during initializeMemberClusters
+	if len(state.LastAppliedMemberSpec) == 0 && !r.resource.Spec.IsMultiCluster() {
+		state.LastAppliedMemberSpec[multicluster.LegacyCentralClusterName] = r.resource.Status.Members
+		r.log.Debugf("Initialized LastAppliedMemberSpec from Status.Members for single-cluster: %d", r.resource.Status.Members)
+	}
+
+	return state, nil
 }
 
+// writeClusterMapping writes the ClusterMapping and LastAppliedMemberSpec annotations.
+// This should be called on EVERY reconciliation (Pending, Failed, Running) to maintain accurate state.
+func (r *ReplicaSetReconcilerHelper) writeClusterMapping(ctx context.Context) error {
+	clusterMappingBytes, err := json.Marshal(r.deploymentState.ClusterMapping)
+	if err != nil {
+		return xerrors.Errorf("failed to marshal ClusterMapping: %w", err)
+	}
+
+	lastAppliedMemberSpecBytes, err := json.Marshal(r.deploymentState.LastAppliedMemberSpec)
+	if err != nil {
+		return xerrors.Errorf("failed to marshal LastAppliedMemberSpec: %w", err)
+	}
+
+	annotationsToAdd := map[string]string{
+		util.ClusterMappingAnnotation:        string(clusterMappingBytes),
+		util.LastAppliedMemberSpecAnnotation: string(lastAppliedMemberSpecBytes),
+	}
+
+	if err := annotations.SetAnnotations(ctx, r.resource, annotationsToAdd, r.reconciler.client); err != nil {
+		return err
+	}
+
+	r.log.Debugf("Successfully wrote ClusterMapping=%v and LastAppliedMemberSpec=%v for ReplicaSet %s/%s",
+		r.deploymentState.ClusterMapping, r.deploymentState.LastAppliedMemberSpec, r.resource.Namespace, r.resource.Name)
+	return nil
+}
+
+// writeLastAchievedSpec writes the lastAchievedSpec and vault annotations to the resource.
+// This should ONLY be called on successful reconciliation when the deployment reaches Running state.
+// To avoid posting twice to the API server, we include the vault annotations here.
+func (r *ReplicaSetReconcilerHelper) writeLastAchievedSpec(ctx context.Context, vaultAnnotations map[string]string) error {
+	// Get lastAchievedSpec annotation
+	annotationsToAdd, err := getAnnotationsForResource(r.resource)
+	if err != nil {
+		return err
+	}
+
+	// Merge vault annotations
+	for k, val := range vaultAnnotations {
+		annotationsToAdd[k] = val
+	}
+
+	// Write to CR
+	if err := annotations.SetAnnotations(ctx, r.resource, annotationsToAdd, r.reconciler.client); err != nil {
+		return err
+	}
+
+	r.log.Debugf("Successfully wrote lastAchievedSpec and vault annotations for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
+	return nil
+}
 // getVaultAnnotations gets vault secret version annotations to write to the CR.
 func (r *ReplicaSetReconcilerHelper) getVaultAnnotations() map[string]string {
 	if !vault.IsVaultSecretBackend() {
@@ -161,14 +246,123 @@ func (r *ReplicaSetReconcilerHelper) initialize(ctx context.Context) error {
 		return xerrors.Errorf("failed to initialize replica set state: %w", err)
 	}
 	r.deploymentState = state
+
+	// Initialize member clusters for multi-cluster support
+	if err := r.initializeMemberClusters(r.reconciler.memberClustersMap); err != nil {
+		return xerrors.Errorf("failed to initialize member clusters: %w", err)
+	}
+
 	return nil
 }
 
-// updateStatus is a pass-through method that calls the reconciler updateStatus.
-// In the future (multi-cluster epic), this will be enhanced to write deployment state to ConfigMap after every status
-// update (similar to sharded cluster pattern), but for now it just delegates to maintain the same architecture.
+// initializeMemberClusters initializes the MemberClusters field with an ordered list
+// of member clusters to iterate over during reconciliation.
+//
+// For single-cluster mode:
+// - Creates a single "legacy" member cluster using __default cluster name
+// - Uses ClusterMapping[__default] (or Status.Members as fallback) for replica count
+// - Sets Legacy=true to use old naming conventions (no cluster index in names)
+//
+// For multi-cluster mode:
+// - Updates ClusterMapping to assign stable indexes for new clusters
+// - Creates member clusters from ClusterSpecList using createMemberClusterListFromClusterSpecList
+// - Includes removed clusters (in ClusterMapping but not in spec) with replicas > 0
+// - Returns Active=true for current clusters, Active=false for removed clusters
+// - Returns Healthy=true for reachable clusters, Healthy=false for unreachable clusters
+func (r *ReplicaSetReconcilerHelper) initializeMemberClusters(
+	globalMemberClustersMap map[string]client.Client,
+) error {
+	rs := r.resource
+
+	if rs.Spec.IsMultiCluster() {
+		// === Multi-Cluster Mode ===
+
+		// Validation
+		if !multicluster.IsMemberClusterMapInitializedForMultiCluster(globalMemberClustersMap) {
+			return xerrors.Errorf("member clusters must be initialized for MultiCluster topology")
+		}
+		if len(rs.Spec.ClusterSpecList) == 0 {
+			return xerrors.Errorf("clusterSpecList must be non-empty for MultiCluster topology")
+		}
+
+		// 1. Update ClusterMapping to assign stable indexes
+		clusterNames := []string{}
+		for _, item := range rs.Spec.ClusterSpecList {
+			clusterNames = append(clusterNames, item.ClusterName)
+		}
+		r.deploymentState.ClusterMapping = multicluster.AssignIndexesForMemberClusterNames(
+			r.deploymentState.ClusterMapping,
+			clusterNames,
+		)
+
+		// 2. Define callback to get last applied member count from LastAppliedMemberSpec
+		getLastAppliedMemberCountFunc := func(memberClusterName string) int {
+			if count, ok := r.deploymentState.LastAppliedMemberSpec[memberClusterName]; ok {
+				return count
+			}
+			return 0
+		}
+
+		// 3. Create member cluster list using existing utility function
+		// This function handles:
+		// - Creating MemberCluster objects with proper clients and indexes
+		// - Including removed clusters (not in spec but in ClusterMapping) if replicas > 0
+		// - Marking unhealthy clusters (no client available) as Healthy=false
+		// - Sorting by index for deterministic ordering
+		// TODO: all our multi cluster controllers rely on createMemberClusterListFromClusterSpecList, we should unit test it
+		r.MemberClusters = createMemberClusterListFromClusterSpecList(
+			rs.Spec.ClusterSpecList,
+			globalMemberClustersMap,
+			r.log,
+			r.deploymentState.ClusterMapping,
+			getLastAppliedMemberCountFunc,
+			false, // legacyMemberCluster - use new naming with cluster index
+		)
+
+	} else {
+		// === Single-Cluster Mode ===
+
+		// Get last applied member count from LastAppliedMemberSpec with fallback to Status.Members
+		// This ensures backward compatibility with deployments created before LastAppliedMemberSpec
+		memberCount, ok := r.deploymentState.LastAppliedMemberSpec[multicluster.LegacyCentralClusterName]
+		if !ok || memberCount == 0 {
+			memberCount = rs.Status.Members
+		}
+
+		// Create single legacy member cluster which
+		r.MemberClusters = []multicluster.MemberCluster{
+			multicluster.GetLegacyCentralMemberCluster(
+				memberCount,
+				0, // index always 0 for single cluster
+				r.reconciler.client,
+				r.reconciler.SecretClient,
+			),
+		}
+	}
+
+	r.log.Debugf("Initialized member cluster list: %+v", util.Transform(r.MemberClusters, func(m multicluster.MemberCluster) string {
+		return fmt.Sprintf("{Name: %s, Index: %d, Replicas: %d, Active: %t, Healthy: %t}", m.Name, m.Index, m.Replicas, m.Active, m.Healthy)
+	}))
+
+	return nil
+}
+
+// updateStatus updates the status and writes ClusterMapping on every reconciliation.
+// ClusterMapping tracks the current member count per cluster and must be updated on every status change
+// (Pending, Failed, Running) to maintain accurate state for scale operations and multi-cluster coordination.
 func (r *ReplicaSetReconcilerHelper) updateStatus(ctx context.Context, status workflow.Status, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
-	return r.reconciler.updateStatus(ctx, r.resource, status, r.log, statusOptions...)
+	// First update the status
+	result, err := r.reconciler.updateStatus(ctx, r.resource, status, r.log, statusOptions...)
+	if err != nil {
+		return result, err
+	}
+
+	// Write ClusterMapping after every status update to track current deployment state
+	if err := r.writeClusterMapping(ctx); err != nil {
+		return result, err
+	}
+
+	return result, nil
 }
 
 // Reconcile performs the full reconciliation logic for a replica set.
@@ -192,6 +386,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
 	}
+
+	// TODO: add something similar to blockNonEmptyClusterSpecItemRemoval
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, reconciler.client, reconciler.SecretClient, rs, log)
 	if err != nil {
@@ -254,8 +450,14 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)))
 	}
 
-	// Check if we need to prepare for scale-down
-	if scale.ReplicasThisReconciliation(rs) < r.deploymentState.LastReconcileMemberCount {
+	// Check if we need to prepare for scale-down by comparing total current vs previous member count
+	previousTotalMembers := 0
+	for _, count := range r.deploymentState.LastAppliedMemberSpec {
+		previousTotalMembers += count
+	}
+	currentTotalMembers := r.calculateTotalMembers()
+
+	if currentTotalMembers < previousTotalMembers {
 		if err := replicaset.PrepareScaleDownFromMongoDB(conn, rs, log); err != nil {
 			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
 		}
@@ -278,7 +480,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, previousTotalMembers, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
@@ -292,7 +494,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(ctx, conn, previousTotalMembers, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			return r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
@@ -303,25 +505,21 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// === 6. Final steps
-	if scale.IsStillScaling(rs) {
-		return r.updateStatus(ctx, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), mdbstatus.MembersOption(rs))
+	// Check if any cluster is still scaling
+	if r.shouldContinueScaling() {
+		// Calculate total target members across all clusters
+		totalTargetMembers := 0
+		for _, memberCluster := range r.MemberClusters {
+			totalTargetMembers += r.GetReplicaSetScaler(memberCluster).TargetReplicas()
+		}
+		currentTotalMembers := r.calculateTotalMembers()
+		return r.updateStatus(ctx, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), totalTargetMembers, currentTotalMembers), mdbstatus.MembersOption(rs))
 	}
 
-	// Get lastspec, vault annotations when needed and write them to the resource.
-	// These operations should only be performed on successful reconciliations.
-	// The state of replica sets is currently split between the annotations and the member count in status. Both should
-	// be migrated to config maps
-	annotationsToAdd, err := getAnnotationsForResource(r.resource)
-	if err != nil {
-		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not get resource annotations: %w", err)))
-	}
-
-	for k, val := range r.getVaultAnnotations() {
-		annotationsToAdd[k] = val
-	}
-
-	if err := annotations.SetAnnotations(ctx, r.resource, annotationsToAdd, r.reconciler.client); err != nil {
-		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not update resource annotations: %w", err)))
+	// Write lastAchievedSpec and vault annotations ONLY on successful reconciliation when reaching Running state.
+	// ClusterMapping is already written in updateStatus() for every reconciliation.
+	if err := r.writeLastAchievedSpec(ctx, r.getVaultAnnotations()); err != nil {
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to write lastAchievedSpec and vault annotations: %w", err)))
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
@@ -479,6 +677,31 @@ func (r *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx cont
 	return nil
 }
 
+// replicateAgentKeySecret ensures the agent API key secret exists in all healthy member clusters.
+// This is required for multi-cluster deployments where agents in member clusters need to authenticate with Ops Manager.
+func (r *ReplicaSetReconcilerHelper) replicateAgentKeySecret(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
+	rs := r.resource
+	reconciler := r.reconciler
+
+	for _, memberCluster := range r.MemberClusters {
+		// Skip legacy (single-cluster) and unhealthy clusters
+		if memberCluster.Legacy || !memberCluster.Healthy {
+			continue
+		}
+
+		var databaseSecretPath string
+		if reconciler.VaultClient != nil {
+			databaseSecretPath = reconciler.VaultClient.DatabaseSecretPath()
+		}
+
+		if _, err := agents.EnsureAgentKeySecretExists(ctx, memberCluster.SecretClient, conn, rs.Namespace, "", conn.GroupID(), databaseSecretPath, log); err != nil {
+			return xerrors.Errorf("failed to ensure agent key secret in member cluster %s: %w", memberCluster.Name, err)
+		}
+		log.Debugf("Successfully synced agent API key secret to member cluster %s", memberCluster.Name)
+	}
+	return nil
+}
+
 // reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
 // All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
 // should be reconciled in this method.
@@ -497,27 +720,67 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 		return status
 	}
 
-	return r.reconcileStatefulSet(ctx, conn, projectConfig, deploymentOptions)
+	// Replicate agent API key to all healthy member clusters upfront
+	if err := r.replicateAgentKeySecret(ctx, conn, log); err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to replicate agent key secret: %w", err))
+	}
+
+	return r.reconcileStatefulSets(ctx, conn, projectConfig, deploymentOptions)
 }
 
-func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) reconcileStatefulSets(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
+	for _, memberCluster := range r.MemberClusters {
+		if status := r.reconcileStatefulSet(ctx, conn, memberCluster.Client, memberCluster.SecretClient, projectConfig, deploymentOptions, memberCluster); !status.IsOK() {
+			return status
+		}
+
+		// Update LastAppliedMemberSpec with current replica count for this cluster
+		// This will be persisted to annotations and used in the next reconciliation
+		scaler := r.GetReplicaSetScaler(memberCluster)
+		currentReplicas := scale.ReplicasThisReconciliation(scaler)
+		if memberCluster.Legacy {
+			r.deploymentState.LastAppliedMemberSpec[multicluster.LegacyCentralClusterName] = currentReplicas
+		} else {
+			r.deploymentState.LastAppliedMemberSpec[memberCluster.Name] = currentReplicas
+		}
+	}
+	return workflow.OK()
+}
+
+func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, client kubernetesClient.Client, secretClient secrets.SecretClient, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS, memberCluster multicluster.MemberCluster) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
 
-	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: reconciler.SecretClient}
+	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: secretClient}
 	status := reconciler.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, deploymentOptions.currentAgentAuthMode, log)
 	if !status.IsOK() {
 		return status
 	}
 
-	status = certs.EnsureSSLCertsForStatefulSet(ctx, reconciler.SecretClient, reconciler.SecretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
+	status = certs.EnsureSSLCertsForStatefulSet(ctx, reconciler.SecretClient, secretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
 	if !status.IsOK() {
 		return status
 	}
 
+	// Copy CA ConfigMap from central cluster to member cluster if specified
+	// Only needed in multi-cluster mode; in Legacy mode, member cluster == central cluster
+	caConfigMapName := rs.Spec.Security.TLSConfig.CA
+	if caConfigMapName != "" && !memberCluster.Legacy {
+		cm, err := reconciler.client.GetConfigMap(ctx, kube.ObjectKey(rs.Namespace, caConfigMapName))
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("expected CA ConfigMap not found on central cluster: %s", caConfigMapName))
+		}
+		memberCm := configmap.Builder().SetName(caConfigMapName).SetNamespace(rs.Namespace).SetData(cm.Data).Build()
+		err = configmap.CreateOrUpdate(ctx, client, memberCm)
+		if err != nil && !errors.IsAlreadyExists(err) {
+			return workflow.Failed(xerrors.Errorf("failed to sync CA ConfigMap in member cluster, err: %w", err))
+		}
+		log.Debugf("Successfully synced CA ConfigMap %s to member cluster", caConfigMapName)
+	}
+
 	// Build the replica set config
-	rsConfig, err := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
+	rsConfig, err := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions, memberCluster)
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to build StatefulSet options: %w", err))
 	}
@@ -525,17 +788,18 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
 
 	// Handle PVC resize if needed
-	if workflowStatus := r.handlePVCResize(ctx, &sts); !workflowStatus.IsOK() {
+	if workflowStatus := r.handlePVCResize(ctx, client, &sts); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
 
 	// Create or update the StatefulSet in Kubernetes
-	if err := create.DatabaseInKubernetes(ctx, reconciler.client, *rs, sts, rsConfig, log); err != nil {
+	if err := create.DatabaseInKubernetes(ctx, client, *rs, sts, rsConfig, log); err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to create/update (Kubernetes reconciliation phase): %w", err))
 	}
 
 	// Check StatefulSet status
-	if status := statefulset.GetStatefulSetStatus(ctx, rs.Namespace, rs.Name, reconciler.client); !status.IsOK() {
+	stsName := r.GetReplicaSetStsName(memberCluster)
+	if status := statefulset.GetStatefulSetStatus(ctx, rs.Namespace, stsName, client); !status.IsOK() {
 		return status
 	}
 
@@ -543,8 +807,8 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	return workflow.OK()
 }
 
-func (r *ReplicaSetReconcilerHelper) handlePVCResize(ctx context.Context, sts *appsv1.StatefulSet) workflow.Status {
-	workflowStatus := create.HandlePVCResize(ctx, r.reconciler.client, sts, r.log)
+func (r *ReplicaSetReconcilerHelper) handlePVCResize(ctx context.Context, client kubernetesClient.Client, sts *appsv1.StatefulSet) workflow.Status {
+	workflowStatus := create.HandlePVCResize(ctx, client, sts, r.log)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
@@ -558,7 +822,7 @@ func (r *ReplicaSetReconcilerHelper) handlePVCResize(ctx context.Context, sts *a
 }
 
 // buildStatefulSetOptions creates the options needed for constructing the StatefulSet
-func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, error) {
+func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS, memberCluster multicluster.MemberCluster) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, error) {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -603,9 +867,196 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithDatabaseNonStaticImage(images.ContainerImage(reconciler.imageUrls, util.NonStaticDatabaseEnterpriseImage, reconciler.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(reconciler.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
 		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
+		// Multi-cluster support: cluster-specific naming and replica count
+		StatefulSetNameOverride(r.GetReplicaSetStsName(memberCluster)),
+		ServiceName(r.GetReplicaSetServiceName(memberCluster)),
+		Replicas(scale.ReplicasThisReconciliation(r.GetReplicaSetScaler(memberCluster))),
 	)
 
 	return rsConfig, nil
+}
+
+// getClusterSpecList returns the ClusterSpecList or creates a synthetic one for single-cluster mode.
+// This is critical for backward compatibility - without it, the scaler would return TargetReplicas=0
+// for existing single-cluster deployments that don't have ClusterSpecList configured.
+func (r *ReplicaSetReconcilerHelper) getClusterSpecList() mdbv1.ClusterSpecList {
+	rs := r.resource
+	if rs.Spec.IsMultiCluster() {
+		return rs.Spec.ClusterSpecList
+	}
+
+	// Single-cluster mode: Create synthetic ClusterSpecList
+	// This ensures the scaler returns Spec.Members as the target replica count
+	return mdbv1.ClusterSpecList{
+		{
+			ClusterName: multicluster.LegacyCentralClusterName,
+			Members:     rs.Spec.Members,
+		},
+	}
+}
+
+// GetReplicaSetStsName returns the StatefulSet name for a member cluster.
+// For Legacy mode (single-cluster), it returns the resource name without cluster index.
+// For multi-cluster mode, it returns the name with cluster index suffix.
+func (r *ReplicaSetReconcilerHelper) GetReplicaSetStsName(memberCluster multicluster.MemberCluster) string {
+	if memberCluster.Legacy {
+		return r.resource.Name
+	}
+	return dns.GetMultiStatefulSetName(r.resource.Name, memberCluster.Index)
+}
+
+// GetReplicaSetServiceName returns the service name for a member cluster.
+// For Legacy mode (single-cluster), it uses the existing ServiceName() method.
+// For multi-cluster mode, it returns the name with cluster index suffix.
+func (r *ReplicaSetReconcilerHelper) GetReplicaSetServiceName(memberCluster multicluster.MemberCluster) string {
+	if memberCluster.Legacy {
+		return r.resource.ServiceName()
+	}
+	return dns.GetMultiHeadlessServiceName(r.resource.Name, memberCluster.Index)
+}
+
+// GetReplicaSetScaler returns a scaler for calculating replicas in a member cluster.
+// Uses synthetic ClusterSpecList for single-cluster mode to ensure backward compatibility.
+func (r *ReplicaSetReconcilerHelper) GetReplicaSetScaler(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
+	return scalers.NewMultiClusterReplicaSetScaler(
+		"replicaset",
+		r.getClusterSpecList(),
+		memberCluster.Name,
+		memberCluster.Index,
+		r.MemberClusters)
+}
+
+// calculateTotalMembers returns the total member count across all clusters.
+func (r *ReplicaSetReconcilerHelper) calculateTotalMembers() int {
+	total := 0
+	for _, memberCluster := range r.MemberClusters {
+		scaler := r.GetReplicaSetScaler(memberCluster)
+		total += scale.ReplicasThisReconciliation(scaler)
+	}
+	return total
+}
+
+// shouldContinueScaling checks if any cluster is still in the process of scaling.
+func (r *ReplicaSetReconcilerHelper) shouldContinueScaling() bool {
+	for _, memberCluster := range r.MemberClusters {
+		scaler := r.GetReplicaSetScaler(memberCluster)
+		if scale.ReplicasThisReconciliation(scaler) != scaler.TargetReplicas() {
+			return true
+		}
+	}
+	return false
+}
+
+// ============================================================================
+// Multi-Cluster OM Registration Helpers
+// ============================================================================
+
+// buildReachableHostnames  is used for agent registration and goal state checking
+func (r *ReplicaSetReconcilerHelper) buildReachableHostnames() []string {
+	reachable := []string{}
+	for _, mc := range multicluster.GetHealthyMemberClusters(r.MemberClusters) {
+		memberCount := r.GetReplicaSetScaler(mc).DesiredReplicas()
+		if memberCount == 0 {
+			r.log.Debugf("Skipping cluster %s (0 members)", mc.Name)
+			continue
+		}
+
+		hostnames := dns.GetMultiClusterProcessHostnames(
+			r.resource.Name,
+			r.resource.Namespace,
+			mc.Index,
+			memberCount,
+			r.resource.Spec.GetClusterDomain(),
+			r.resource.Spec.GetExternalDomainForMemberCluster(mc.Name),
+		)
+		reachable = append(reachable, hostnames...)
+	}
+	return reachable
+}
+
+// filterReachableProcessNames returns only process names from healthy clusters. Used when waiting for OM goal state
+func (r *ReplicaSetReconcilerHelper) filterReachableProcessNames(allProcesses []om.Process) []string {
+	healthyProcessNames := make(map[string]bool)
+	for _, mc := range multicluster.GetHealthyMemberClusters(r.MemberClusters) {
+		memberCount := r.GetReplicaSetScaler(mc).DesiredReplicas()
+		for podNum := 0; podNum < memberCount; podNum++ {
+			processName := fmt.Sprintf("%s-%d-%d", r.resource.Name, mc.Index, podNum)
+			healthyProcessNames[processName] = true
+		}
+	}
+
+	// Filter allProcesses to only include healthy ones
+	reachable := []string{}
+	for _, proc := range allProcesses {
+		if healthyProcessNames[proc.Name()] {
+			reachable = append(reachable, proc.Name())
+		}
+	}
+	return reachable
+}
+
+// buildMultiClusterProcesses creates OM processes for multi-cluster deployment. Returns processes with multi-cluster
+// hostnames (e.g., my-rs-0-0, my-rs-1-0).
+func (r *ReplicaSetReconcilerHelper) buildMultiClusterProcesses(
+	mongoDBImage string,
+	tlsCertPath string,
+) ([]om.Process, error) {
+	processes := []om.Process{}
+
+	for _, mc := range r.MemberClusters {
+		memberCount := r.GetReplicaSetScaler(mc).DesiredReplicas()
+		if memberCount == 0 {
+			r.log.Debugf("Skipping process creation for cluster %s (0 members)", mc.Name)
+			continue
+		}
+
+		// Get hostnames for this cluster
+		hostnames := dns.GetMultiClusterProcessHostnames(
+			r.resource.Name,
+			r.resource.Namespace,
+			mc.Index,
+			memberCount,
+			r.resource.Spec.GetClusterDomain(),
+			r.resource.Spec.GetExternalDomainForMemberCluster(mc.Name),
+		)
+
+		// Create process for each hostname
+		// Process names follow pattern: <rs-name>-<clusterIndex>-<podNum>
+		for podNum, hostname := range hostnames {
+			processName := fmt.Sprintf("%s-%d-%d", r.resource.Name, mc.Index, podNum)
+			proc, err := r.createProcessFromHostname(processName, hostname, mongoDBImage, tlsCertPath)
+			if err != nil {
+				return nil, xerrors.Errorf("failed to create process %s for hostname %s: %w", processName, hostname, err)
+			}
+			processes = append(processes, proc)
+		}
+	}
+
+	return processes, nil
+}
+
+// createProcessFromHostname creates a single OM process with correct configuration.
+func (r *ReplicaSetReconcilerHelper) createProcessFromHostname(
+	name string,
+	hostname string,
+	mongoDBImage string,
+	tlsCertPath string,
+) (om.Process, error) {
+	rs := r.resource
+
+	proc := om.NewMongodProcess(
+		name,     // process name (e.g., "my-rs-0-0")
+		hostname, // hostname for the process
+		mongoDBImage,
+		r.reconciler.forceEnterprise,
+		rs.Spec.GetAdditionalMongodConfig(),
+		&rs.Spec,
+		tlsCertPath,
+		rs.Annotations,
+		rs.CalculateFeatureCompatibilityVersion(),
+	)
+
+	return proc, nil
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
@@ -732,19 +1183,60 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	log := r.log
 	reconciler := r.reconciler
 	log.Debug("Entering UpdateOMDeployments")
-	// Only "concrete" RS members should be observed
-	// - if scaling down, let's observe only members that will remain after scale-down operation
-	// - if scaling up, observe only current members, because new ones might not exist yet
-	replicasTarget := scale.ReplicasThisReconciliation(rs)
-	err := agents.WaitForRsAgentsToRegisterByResource(rs, util_int.Min(membersNumberBefore, replicasTarget), conn, log)
-	if err != nil && !isRecovering {
-		return workflow.Failed(err)
-	}
-
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
-	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[mcoConstruct.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
-	processNames := replicaSet.GetProcessNames()
+	var replicaSet om.ReplicaSetWithProcesses
+	var processNames []string
+
+	if rs.Spec.IsMultiCluster() {
+		reachableHostnames := r.buildReachableHostnames()
+
+		err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, reachableHostnames, log)
+		if err != nil && !isRecovering {
+			return workflow.Failed(err)
+		}
+
+		existingDeployment, err := conn.ReadDeployment()
+		if err != nil && !isRecovering {
+			return workflow.Failed(err)
+		}
+
+		// We get the IDs from the deployment for stability
+		processIds := getReplicaSetProcessIdsFromDeployment(rs.Name, existingDeployment)
+		log.Debugf("Existing process IDs: %+v", processIds)
+
+		processes, err := r.buildMultiClusterProcesses(
+			reconciler.imageUrls[mcoConstruct.MongodbImageEnv],
+			tlsCertPath,
+		)
+		if err != nil && !isRecovering {
+			return workflow.Failed(xerrors.Errorf("failed to build multi-cluster processes: %w", err))
+		}
+
+		replicaSet = om.NewMultiClusterReplicaSetWithProcesses(
+			om.NewReplicaSet(rs.Name, rs.Spec.Version),
+			processes,
+			rs.Spec.GetMemberOptions(),
+			processIds,
+			rs.Spec.Connectivity,
+		)
+		processNames = replicaSet.GetProcessNames()
+
+	} else {
+		// Single cluster path
+
+		// Only "concrete" RS members should be observed
+		// - if scaling down, let's observe only members that will remain after scale-down operation
+		// - if scaling up, observe only current members, because new ones might not exist yet
+		replicasTarget := r.calculateTotalMembers()
+		err := agents.WaitForRsAgentsToRegisterByResource(rs, util_int.Min(membersNumberBefore, replicasTarget), conn, log)
+		if err != nil && !isRecovering {
+			return workflow.Failed(err)
+		}
+
+		replicaSet = replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[mcoConstruct.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
+		processNames = replicaSet.GetProcessNames()
+	}
 
 	status, additionalReconciliationRequired := reconciler.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOptions.agentCertPath, caFilePath, internalClusterCertPath, isRecovering, log)
 	if !status.IsOK() && !isRecovering {
@@ -780,7 +1272,14 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
+	// For multi-cluster, filter to only reachable processes (skip failed clusters)
+	processNamesToWaitFor := processNames
+	if rs.Spec.IsMultiCluster() {
+		processNamesToWaitFor = r.filterReachableProcessNames(replicaSet.Processes)
+		log.Debugf("Waiting for reachable processes: %+v", processNamesToWaitFor)
+	}
+
+	if err := om.WaitForReadyState(conn, processNamesToWaitFor, isRecovering, log); err != nil {
 		return workflow.Failed(err)
 	}
 

@@ -279,3 +279,14 @@ func InitializeGlobalMemberClusterMapForSingleCluster(globalMemberClustersMap ma
 
 	return globalMemberClustersMap
 }
+
+// GetHealthyMemberClusters filters and returns only healthy member clusters.
+func GetHealthyMemberClusters(memberClusters []MemberCluster) []MemberCluster {
+	var result []MemberCluster
+	for i := range memberClusters {
+		if memberClusters[i].Healthy {
+			result = append(result, memberClusters[i])
+		}
+	}
+	return result
+}

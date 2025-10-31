@@ -2213,7 +2213,7 @@ func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise b
 func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB, memberOptions []automationconfig.MemberOptions, deployment om.Deployment) (om.ReplicaSetWithProcesses, error) {
 	replicaSet := om.NewReplicaSet(name, mdb.Spec.GetMongoDBVersion())
 
-	existingProcessIds := getReplicaSetProcessIdsFromReplicaSets(replicaSet.Name(), deployment)
+	existingProcessIds := getReplicaSetProcessIdsFromDeployment(replicaSet.Name(), deployment)
 	var rsWithProcesses om.ReplicaSetWithProcesses
 	if mdb.Spec.IsMultiCluster() {
 		// we're passing nil as connectivity argument as in sharded clusters horizons don't make much sense as we don't expose externally individual shards
