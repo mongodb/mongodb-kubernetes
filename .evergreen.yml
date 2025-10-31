@@ -191,9 +191,9 @@ parameters:
     value: "false"
     description: set this to true if you would like to delete the resources created in the code snippet tests, but keep the clusters
 
-  - key: code_snippets_commit_output
-    value: "false"
-    description: set this to true if you would like the pipeline to automatically push a branch with updated snippets outputs
+  - key: MDB_BASH_DEBUG
+    value: "0"
+    description: set this to 1 if you want shell scripts to enable set -x
 
 # Triggered manually or by PCT.
 patch_aliases:

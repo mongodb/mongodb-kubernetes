@@ -14,8 +14,6 @@ export K8S_CLUSTER_SUFFIX
 
 export MDB_GKE_PROJECT="scratch-kubernetes-team"
 
-export CODE_SNIPPETS_COMMIT_OUTPUT=true
-
 # we reset evg host to use a default ~/.kube/config for GKE instead of the one from evg host
 export EVG_HOST_NAME=""
 
