@@ -1,7 +1,3 @@
-#!/usr/bin/env bash
-
-set -euo pipefail
-
 required=(
   K8S_CTX
   MDB_NS

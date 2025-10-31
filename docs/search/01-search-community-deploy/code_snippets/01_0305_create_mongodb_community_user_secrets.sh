@@ -1,7 +1,3 @@
-#!/usr/bin/env bash
-
-set -euo pipefail
-
 create_secret() {
     local secret_name="$1"
     local password_var="$2"
