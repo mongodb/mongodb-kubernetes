@@ -1,11 +1,10 @@
 export K8S_CTX="kind-kind"
 
 # patch id from evergreen patch
-#version_id="68fa1f21b204e200079816eb"
+version_id="68b05bc033f868000714f715"
 
-#search_image_repo="quay.io/mongodb"
-
-#search_image_hash="fbd60fb055dd500058edcb45677ea85d19421f47"
+search_image_repo="268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
+search_image_hash="fbd60fb055dd500058edcb45677ea85d19421f47"
 
 ecr="268558157000.dkr.ecr.us-east-1.amazonaws.com"
 declare -a helm_values=(
@@ -23,9 +22,9 @@ declare -a helm_values=(
 "initAppDb.version=${version_id}"
 "initDatabase.version=${version_id}"
 "database.version=${version_id}"
-#"search.community.repo=${search_image_repo}"
-#"search.community.name=mongodb-search"
-#"search.community.version=${search_image_hash}"
+"search.community.repo=${search_image_repo}"
+"search.community.name=community"
+"search.community.version=${search_image_hash}"
 )
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
