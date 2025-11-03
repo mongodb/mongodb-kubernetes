@@ -2,12 +2,19 @@ FROM scratch AS base
 
 COPY ./docker/mongodb-kubernetes-database/LICENSE /data/licenses/mongodb-kubernetes-database
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal
+FROM registry.access.redhat.com/ubi9/ubi-minimal
 
 ENV MMS_HOME=/mongodb-automation
 ENV MMS_LOG_DIR=/var/log/mongodb-mms-automation
 
 RUN microdnf update -y && rm -rf /var/cache/yum
+
+# Replace libcurl-minimal and curl-minimal with the full versions
+# https://bugzilla.redhat.com/show_bug.cgi?id=1994521
+RUN  microdnf install -y libssh libpsl libbrotli \
+    && microdnf download curl libcurl \
+    && rpm -Uvh --nodeps --replacefiles "*curl*$( uname -i ).rpm" \
+    && microdnf remove -y libcurl-minimal curl-minimal
 
 # these are the packages needed for the agent
 RUN microdnf install -y --disableplugin=subscription-manager --setopt=install_weak_deps=0 nss_wrapper
@@ -22,7 +29,6 @@ RUN microdnf install -y --disableplugin=subscription-manager \
         cyrus-sasl-gssapi \
         cyrus-sasl-plain \
         krb5-libs \
-        libcurl \
         lm_sensors-libs \
         net-snmp \
         net-snmp-agent-libs \
@@ -32,8 +38,6 @@ RUN microdnf install -y --disableplugin=subscription-manager \
         tar \
         xz-libs \
         findutils
-
-RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
 
 # Set the required perms
 RUN mkdir -p "${MMS_LOG_DIR}" \
