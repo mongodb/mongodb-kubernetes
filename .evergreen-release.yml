@@ -9,10 +9,10 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: build_multi_cluster_binary
+      - func: download_multi_cluster_binary
       - func: pipeline
         vars:
-          IMAGE_NAME: meko-tests
+          image_name: meko-tests
 
   - name: release_operator
     tags: [ "image_release" ]
@@ -23,7 +23,7 @@ tasks:
       - func: quay_login
       - func: pipeline
         vars:
-          IMAGE_NAME: operator
+          image_name: operator
 
   # Releases init images to Quay
   - name: release_init_appdb
@@ -35,7 +35,7 @@ tasks:
       - func: quay_login
       - func: pipeline
         vars:
-          IMAGE_NAME: init-appdb
+          image_name: init-appdb
 
   - name: release_init_database
     tags: [ "image_release" ]
@@ -46,7 +46,7 @@ tasks:
       - func: quay_login
       - func: pipeline
         vars:
-          IMAGE_NAME: init-database
+          image_name: init-database
 
   - name: release_init_ops_manager
     tags: [ "image_release" ]
@@ -57,7 +57,7 @@ tasks:
       - func: quay_login
       - func: pipeline
         vars:
-          IMAGE_NAME: init-ops-manager
+          image_name: init-ops-manager
 
   - name: release_database
     tags: [ "image_release" ]
@@ -68,7 +68,7 @@ tasks:
       - func: quay_login
       - func: pipeline
         vars:
-          IMAGE_NAME: database
+          image_name: database
 
   - name: release_readiness_probe
     tags: [ "image_release" ]
@@ -77,7 +77,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_readiness_probe
+      - func: pipeline
+        vars:
+          image_name: readiness-probe
 
   - name: release_version_upgrade_hook
     tags: [ "image_release" ]
@@ -86,7 +88,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_version_upgrade_hook
+      - func: pipeline
+        vars:
+          image_name: upgrade-hook
 
   - name: prepare_and_upload_openshift_bundles
     tags: [ "openshift_bundles" ]
@@ -119,9 +123,26 @@ tasks:
     tags: [ "binary_release" ]
     commands:
       - func: clone
-      - func: install_goreleaser
+      - func: python_venv
       - func: install_macos_notarization_service
       - func: release_kubectl_mongodb_plugin
+
+  - name: create_chart_release_pr
+    tags: [ "helm_chart_release_pr" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: create_chart_release_pr
+
+  - name: release_chart_to_oci_registry
+    tags: [ "release_chart_to_oci_registry" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_kubectl
+      - func: setup_aws
+      - func: helm_registry_login
+      - func: publish_helm_chart
 
 ### Release build variants
 buildvariants:
@@ -202,6 +223,9 @@ buildvariants:
     allowed_requesters: [ "patch", "github_tag" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    depends_on:
+      - name: release_kubectl_mongodb_plugin
+        variant: release_kubectl_mongodb_plugin
     tasks:
       - name: build_test_image_for_smoke_tests
 
@@ -228,6 +252,8 @@ buildvariants:
     depends_on:
       - name: "*"
         variant: release_images
+      - name: "*"
+        variant: init_smoke_tests
     tasks:
       - name: e2e_smoke_task_group
 
@@ -239,3 +265,21 @@ buildvariants:
     allowed_requesters: [ "patch", "github_tag" ]
     tasks:
       - name: release_kubectl_mongodb_plugin
+
+  - name: create_chart_release_pr
+    display_name: create_chart_release_pr
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: create_chart_release_pr
+
+  - name: release_chart_to_oci_registry
+    display_name: release_chart_to_oci_registry
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: release_chart_to_oci_registry

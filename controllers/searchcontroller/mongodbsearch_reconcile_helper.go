@@ -96,7 +96,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	}
 
 	keyfileStsModification := statefulset.NOOP()
-	if r.mdbSearch.IsWireprotoForced() {
+	if r.mdbSearch.IsWireprotoEnabled() {
 		var err error
 		keyfileStsModification, err = r.ensureSourceKeyfile(ctx, log)
 		if apierrors.IsNotFound(err) {
@@ -315,7 +315,7 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		SetPublishNotReadyAddresses(true).
 		SetOwnerReferences(search.GetOwnerReferences())
 
-	if search.IsWireprotoForced() {
+	if search.IsWireprotoEnabled() {
 		serviceBuilder.AddPort(&corev1.ServicePort{
 			Name:       "mongot-wireproto",
 			Protocol:   corev1.ProtocolTCP,
@@ -373,7 +373,7 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 				},
 			},
 		}
-		if search.IsWireprotoForced() {
+		if search.IsWireprotoEnabled() {
 			config.Server.Wireproto = &mongot.ConfigWireproto{
 				Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotWireprotoPort()),
 				Authentication: &mongot.ConfigAuthentication{
@@ -411,17 +411,14 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 			"searchIndexManagementHostAndPort":                mongotHostAndPort(search, clusterDomain),
 			"skipAuthenticationToSearchIndexManagementServer": false,
 			"searchTLSMode":                                   string(searchTLSMode),
-			"useGrpcForSearch":                                !search.IsWireprotoForced(),
+			"useGrpcForSearch":                                !search.IsWireprotoEnabled(),
 		},
 	}
 }
 
 func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
 	svcName := search.SearchServiceNamespacedName()
-	port := search.GetMongotGrpcPort()
-	if search.IsWireprotoForced() {
-		port = search.GetMongotWireprotoPort()
-	}
+	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
 }
 

@@ -16,7 +16,11 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from lib.base_logger import logger
-from scripts.release.argparse_utils import str2bool
+from scripts.release.argparse_utils import (
+    get_platforms_from_arg,
+    get_scenario_from_arg,
+    str2bool,
+)
 from scripts.release.atomic_pipeline import (
     build_agent,
     build_database_image,
@@ -37,6 +41,7 @@ from scripts.release.build.build_info import (
     INIT_DATABASE_IMAGE,
     INIT_OPS_MANAGER_IMAGE,
     MCO_TESTS_IMAGE,
+    MEKO_TESTS_ARM64_IMAGE,
     MEKO_TESTS_IMAGE,
     OPERATOR_IMAGE,
     OPERATOR_RACE_IMAGE,
@@ -46,10 +51,10 @@ from scripts.release.build.build_info import (
     load_build_info,
 )
 from scripts.release.build.build_scenario import (
+    SUPPORTED_SCENARIOS,
     BuildScenario,
 )
 from scripts.release.build.image_build_configuration import (
-    SUPPORTED_PLATFORMS,
     ImageBuildConfiguration,
 )
 from scripts.release.build.image_build_process import (
@@ -69,6 +74,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
 
     image_builders = {
         MEKO_TESTS_IMAGE: build_meko_tests_image,
+        MEKO_TESTS_ARM64_IMAGE: build_meko_tests_image,
         OPERATOR_IMAGE: build_operator_image,
         OPERATOR_RACE_IMAGE: partial(build_operator_image, with_race_detection=True),
         MCO_TESTS_IMAGE: build_mco_tests_image,
@@ -120,6 +126,12 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign if args.sign is not None else image_build_info.sign
     skip_if_exists = args.skip_if_exists if args.skip_if_exists is not None else image_build_info.skip_if_exists
+    architecture_suffix = (
+        args.architecture_suffix if args.architecture_suffix is not None else image_build_info.architecture_suffix
+    )
+
+    if architecture_suffix and len(platforms) > 1:
+        raise ValueError("Cannot use architecture suffix with multi-platform builds")
 
     # Validate version - only agent can have None version as the versions are managed by the agent
     # which are externally retrieved from release.json
@@ -140,26 +152,8 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         parallel_factor=args.parallel_factor,
         all_agents=args.all_agents,
         currently_used_agents=args.current_agents,
+        architecture_suffix=architecture_suffix,
     )
-
-
-def get_scenario_from_arg(args_scenario: str) -> BuildScenario | None:
-    try:
-        return BuildScenario(args_scenario)
-    except ValueError as e:
-        raise ValueError(f"Invalid scenario '{args_scenario}': {e}")
-
-
-def get_platforms_from_arg(args_platforms: str) -> list[str] | None:
-    if not args_platforms:
-        return None
-
-    platforms = [p.strip() for p in args_platforms.split(",")]
-    if any(p not in SUPPORTED_PLATFORMS for p in platforms):
-        raise ValueError(
-            f"Unsupported platform in --platforms '{args_platforms}'. Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}"
-        )
-    return platforms
 
 
 def _setup_tracing():
@@ -196,7 +190,6 @@ def _setup_tracing():
 def main():
     _setup_tracing()
     supported_images = list(get_builder_function_for_image_name().keys())
-    supported_scenarios = list(BuildScenario)
 
     parser = argparse.ArgumentParser(
         description="""Builder tool for container images. It allows to push and sign images with multiple architectures using Docker Buildx.
@@ -217,9 +210,9 @@ By default build information is read from 'build_info.json' file in the project 
         action="store",
         required=True,
         type=str,
-        choices=supported_scenarios,
+        choices=SUPPORTED_SCENARIOS,
         help=f"""Build scenario when reading configuration from 'build_info.json'.
-Options: {", ".join(supported_scenarios)}. For '{BuildScenario.DEVELOPMENT}' the '{BuildScenario.PATCH}' scenario is used to read values from 'build_info.json'""",
+Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the '{BuildScenario.PATCH}' scenario is used to read values from 'build_info.json'""",
     )
     parser.add_argument(
         "-p",
@@ -282,6 +275,11 @@ Options: {", ".join(supported_scenarios)}. For '{BuildScenario.DEVELOPMENT}' the
         "--current-agents",
         action="store_true",
         help="Build all currently used agent images.",
+    )
+    parser.add_argument(
+        "--architecture-suffix",
+        action=argparse.BooleanOptionalAction,
+        help="Append architecture suffix to image tags for single platform builds. Can be true or false. This will override the value from build_info.json",
     )
 
     args = parser.parse_args()
