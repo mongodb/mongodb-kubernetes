@@ -1307,3 +1307,8 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
+
+  - name: e2e_search_enterprise_x509_cluster_auth
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"

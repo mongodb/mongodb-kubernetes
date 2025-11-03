@@ -10,7 +10,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 )
 
-func newEnterpriseSearchSource(version string, topology string, resourceType mdbv1.ResourceType, authModes []string, internalClusterAuth string) EnterpriseResourceSearchSource {
+func newEnterpriseSearchSource(version string, topology string, resourceType mdbv1.ResourceType, authModes []string) EnterpriseResourceSearchSource {
 	authModesList := make([]mdbv1.AuthMode, len(authModes))
 	for i, mode := range authModes {
 		authModesList[i] = mdbv1.AuthMode(mode)
@@ -18,12 +18,11 @@ func newEnterpriseSearchSource(version string, topology string, resourceType mdb
 
 	// Create security with authentication if needed
 	var security *mdbv1.Security
-	if len(authModes) > 0 || internalClusterAuth != "" {
+	if len(authModes) > 0 {
 		security = &mdbv1.Security{
 			Authentication: &mdbv1.Authentication{
-				Enabled:         len(authModes) > 0,
-				Modes:           authModesList,
-				InternalCluster: internalClusterAuth,
+				Enabled: len(authModes) > 0,
+				Modes:   authModesList,
 			},
 		}
 	}
@@ -51,14 +50,13 @@ func newEnterpriseSearchSource(version string, topology string, resourceType mdb
 
 func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 	cases := []struct {
-		name                string
-		version             string
-		topology            string
-		resourceType        mdbv1.ResourceType
-		authModes           []string
-		internalClusterAuth string
-		expectError         bool
-		expectedErrMsg      string
+		name           string
+		version        string
+		topology       string
+		resourceType   mdbv1.ResourceType
+		authModes      []string
+		expectError    bool
+		expectedErrMsg string
 	}{
 		// Version validation tests
 		{
@@ -215,35 +213,6 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			authModes:    []string{"SCRAM", "SCRAM-SHA-1", "SCRAM-SHA-256"},
 			expectError:  false,
 		},
-		// Internal cluster authentication tests
-		{
-			name:                "X509 internal cluster auth not supported",
-			version:             "8.0.10",
-			topology:            mdbv1.ClusterTopologySingleCluster,
-			resourceType:        mdbv1.ReplicaSet,
-			authModes:           []string{"SCRAM-SHA-256"},
-			internalClusterAuth: "X509",
-			expectError:         true,
-			expectedErrMsg:      "MongoDBSearch does not support X.509 internal cluster authentication",
-		},
-		{
-			name:                "Valid internal cluster auth - empty",
-			version:             "8.0.10",
-			topology:            mdbv1.ClusterTopologySingleCluster,
-			resourceType:        mdbv1.ReplicaSet,
-			authModes:           []string{"SCRAM-SHA-256"},
-			internalClusterAuth: "",
-			expectError:         false,
-		},
-		{
-			name:                "Valid internal cluster auth - SCRAM",
-			version:             "8.0.10",
-			topology:            mdbv1.ClusterTopologySingleCluster,
-			resourceType:        mdbv1.ReplicaSet,
-			authModes:           []string{"SCRAM-SHA-256"},
-			internalClusterAuth: "SCRAM",
-			expectError:         false,
-		},
 		// Combined validation tests
 		{
 			name:           "Multiple validation failures - version takes precedence",
@@ -276,7 +245,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			src := newEnterpriseSearchSource(c.version, c.topology, c.resourceType, c.authModes, c.internalClusterAuth)
+			src := newEnterpriseSearchSource(c.version, c.topology, c.resourceType, c.authModes)
 			err := src.Validate()
 
 			if c.expectError {

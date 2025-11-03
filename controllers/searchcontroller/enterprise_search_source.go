@@ -81,9 +81,5 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled")
 	}
 
-	if r.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
-		return xerrors.New("MongoDBSearch does not support X.509 internal cluster authentication")
-	}
-
 	return nil
 }
