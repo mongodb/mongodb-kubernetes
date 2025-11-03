@@ -1,6 +1,8 @@
 package searchcontroller
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -143,6 +145,61 @@ func TestNeedsSearchCoordinatorRolePolyfill(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			actual := NeedsSearchCoordinatorRolePolyfill(c.version)
 			assert.Equal(t, c.expected, actual)
+		})
+	}
+}
+
+func TestGetMongodConfigParameters_TransportAndPorts(t *testing.T) {
+	cases := []struct {
+		name            string
+		withWireproto   bool
+		expectedUseGrpc bool
+	}{
+		{
+			name:            "grpc only (default)",
+			withWireproto:   false,
+			expectedUseGrpc: true,
+		},
+		{
+			name:            "grpc + wireproto via annotation",
+			withWireproto:   true,
+			expectedUseGrpc: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			search := &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-mongodb-search",
+					Namespace: "test",
+				},
+			}
+			if tc.withWireproto {
+				search.Annotations = map[string]string{searchv1.ForceWireprotoAnnotation: "true"}
+			}
+
+			clusterDomain := "cluster.local"
+			params := GetMongodConfigParameters(search, clusterDomain)
+
+			setParams := params["setParameter"].(map[string]any)
+
+			useGrpc := setParams["useGrpcForSearch"].(bool)
+			assert.Equal(t, tc.expectedUseGrpc, useGrpc)
+
+			expectedPort := search.GetMongotGrpcPort()
+			if tc.withWireproto {
+				expectedPort = search.GetMongotWireprotoPort()
+			}
+			expectedPrefix := fmt.Sprintf("%s.%s.svc.%s", search.Name+"-search-svc", search.Namespace, clusterDomain)
+			expectedSuffix := fmt.Sprintf(":%d", expectedPort)
+
+			for _, key := range []string{"mongotHost", "searchIndexManagementHostAndPort"} {
+				value := setParams[key].(string)
+				if !strings.HasPrefix(value, expectedPrefix) || !strings.HasSuffix(value, expectedSuffix) {
+					t.Fatalf("%s mismatch: expected prefix %q and suffix %q, got %q", key, expectedPrefix, expectedSuffix, value)
+				}
+			}
 		})
 	}
 }
