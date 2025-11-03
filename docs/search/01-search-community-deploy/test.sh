@@ -11,6 +11,7 @@ cd "${script_dir}"
 
 prepare_snippets
 
+run 01_0040_validate_env.sh
 run 01_0045_create_namespaces.sh
 run 01_0046_create_image_pull_secrets.sh
 run 01_0048_configure_prerelease_image_pullsecret.sh

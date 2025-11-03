@@ -1,21 +1,3 @@
-required=(
-  K8S_CTX
-  MDB_NS
-  MDB_RESOURCE_NAME
-  MDB_MEMBERS
-  MDB_TLS_CA_SECRET_NAME
-  MDB_TLS_SERVER_CERT_SECRET_NAME
-  MDB_SEARCH_TLS_SECRET_NAME
-)
-missing=()
-for var in "${required[@]}"; do
-  [[ -n "${!var:-}" ]] || missing+=("${var}")
-done
-if (( ${#missing[@]} )); then
-  echo "Missing required environment variables: ${missing[*]}" >&2
-  exit 1
-fi
-
 ca_issuer="${MDB_RESOURCE_NAME}-ca-issuer"
 server_certificate="${MDB_RESOURCE_NAME}-server-tls"
 search_certificate="${MDB_RESOURCE_NAME}-search-tls"
@@ -31,8 +13,6 @@ mongo_dns_names+=(
 )
 
 search_dns_names=(
-  "${MDB_RESOURCE_NAME}-search-0"
-  "${MDB_RESOURCE_NAME}-search-0.${MDB_RESOURCE_NAME}-search-svc.${MDB_NS}.svc.cluster.local"
   "${MDB_RESOURCE_NAME}-search-svc.${MDB_NS}.svc.cluster.local"
 )
 

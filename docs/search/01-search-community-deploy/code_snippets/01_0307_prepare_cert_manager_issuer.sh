@@ -1,18 +1,3 @@
-required=(
-  K8S_CTX
-  MDB_NS
-  MDB_RESOURCE_NAME
-  MDB_TLS_CA_SECRET_NAME
-)
-missing=()
-for var in "${required[@]}"; do
-  [[ -n "${!var:-}" ]] || missing+=("${var}")
-done
-if (( ${#missing[@]} )); then
-  echo "Missing required environment variables: ${missing[*]}" >&2
-  exit 1
-fi
-
 self_signed_issuer="${MDB_RESOURCE_NAME}-selfsigned-issuer"
 ca_cert_name="${MDB_RESOURCE_NAME}-ca"
 ca_issuer="${MDB_RESOURCE_NAME}-ca-issuer"

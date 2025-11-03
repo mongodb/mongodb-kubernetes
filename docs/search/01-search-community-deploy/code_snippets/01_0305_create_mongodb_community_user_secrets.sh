@@ -1,13 +1,16 @@
-create_secret() {
-    local secret_name="$1"
-    local password_var="$2"
+# Create admin user secret
+kubectl create secret generic mdb-admin-user-password \
+  --from-literal=password="${MDB_ADMIN_USER_PASSWORD}" \
+  --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" --namespace "${MDB_NS}" -f -
 
-    kubectl create secret generic "${secret_name}" \
-        --from-literal=password="${password_var}" \
-        --dry-run=client -o yaml \
-        | kubectl apply --context "${K8S_CTX}" --namespace "${MDB_NS}" -f -
-}
+# Create search sync source user secret
+kubectl create secret generic "${MDB_RESOURCE_NAME}-search-sync-source-password" \
+  --from-literal=password="${MDB_SEARCH_SYNC_USER_PASSWORD}" \
+  --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" --namespace "${MDB_NS}" -f -
 
-create_secret "mdb-admin-user-password" "${MDB_ADMIN_USER_PASSWORD}"
-create_secret "${MDB_RESOURCE_NAME}-search-sync-source-password" "${MDB_SEARCH_SYNC_USER_PASSWORD}"
-create_secret "mdb-user-password" "${MDB_USER_PASSWORD}"
+# Create regular user secret
+kubectl create secret generic mdb-user-password \
+  --from-literal=password="${MDB_USER_PASSWORD}" \
+  --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" --namespace "${MDB_NS}" -f -
+
+echo "User secrets created."

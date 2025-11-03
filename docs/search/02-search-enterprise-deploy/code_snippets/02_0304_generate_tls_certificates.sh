@@ -40,8 +40,6 @@ spec:
   - server auth
   - client auth
   dnsNames:
-  - "${MDB_RESOURCE_NAME}-search-0"
-  - "${MDB_RESOURCE_NAME}-search-0.${MDB_RESOURCE_NAME}-search-svc.${MDB_NS}.svc.cluster.local"
   - "${MDB_RESOURCE_NAME}-search-svc.${MDB_NS}.svc.cluster.local"
 EOF_MANIFEST
 
