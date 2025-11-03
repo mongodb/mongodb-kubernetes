@@ -590,6 +590,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_scram_sha_256_switch_project
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_sharded_cluster_scram_sha_1_user_connectivity
     tags: [ "patch-run" ]
     commands:
