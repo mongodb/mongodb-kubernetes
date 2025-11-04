@@ -16,7 +16,7 @@ CONFIG_MAP_KEYS = {
     "ORG_ID": "orgId",
 }
 
-MDB_RESOURCE_NAME = "sharded-cluster-scram-sha-256-switch-project"
+MDB_RESOURCE_NAME = "sharded-cluster-scram-sha-1-switch-project"
 MDB_FIXTURE_NAME = MDB_RESOURCE_NAME
 
 
@@ -41,10 +41,10 @@ def sharded_cluster(namespace: str) -> MongoDB:
     return resource
 
 
-@pytest.mark.e2e_sharded_cluster_scram_sha_256_switch_project
+@pytest.mark.e2e_sharded_cluster_scram_sha_1_switch_project
 class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     """
-    E2E test suite for sharded cluster creation, user connectivity with SCRAM-SHA-256 authentication and switching Ops Manager project reference.
+    E2E test suite for sharded cluster creation, user connectivity with SCRAM-SHA-1 authentication and switching Ops Manager project reference.
     """
 
     def test_create_sharded_cluster(self, custom_mdb_version: str, sharded_cluster: MongoDB):
@@ -66,8 +66,10 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
         Ensure Ops Manager state is correctly updated in the original cluster.
         """
         tester = sharded_cluster.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
-        tester.assert_authentication_enabled()
+        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
+        tester.assert_authoritative_set(True)
+        tester.assert_authentication_enabled(2)
+        tester.assert_expected_users(0)
 
     def test_switch_sharded_cluster_project(
         self, custom_mdb_version: str, sharded_cluster: MongoDB, namespace: str, project_name_prefix: str
@@ -105,5 +107,7 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
         Ensure Ops Manager state is correctly updated in the moved cluster after the project switch.
         """
         tester = sharded_cluster.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
-        tester.assert_authentication_enabled()
+        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
+        tester.assert_authoritative_set(True)
+        tester.assert_authentication_enabled(2)
+        tester.assert_expected_users(0)

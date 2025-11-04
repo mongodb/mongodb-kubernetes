@@ -20,8 +20,9 @@ import (
 )
 
 // The constants for the authentication secret
-const agentAuthenticationSecretSuffix = "-agent-auth-secret"
-const autoPwdSecretKey = "automation-agent-password"
+const (
+	autoPwdSecretKey = "automation-agent-password"
+)
 
 // AutomationConfig maintains the raw map in the Deployment field
 // and constructs structs to make use of go's type safety
@@ -435,6 +436,12 @@ func (ac *AutomationConfig) EnsureKeyFileContents() error {
 	return nil
 }
 
+// AuthSecretName for a given mdbName (`mdbName`) returns the name of
+// the secret associated with it.
+func AuthSecretName(mdbName string) string {
+	return fmt.Sprintf("%s-agent-auth-secre", mdbName)
+}
+
 // EnsurePassword makes sure that there is an Automation Agent password
 // that the agents will use to communicate with the deployments. The password
 // is returned, so it can be provided to the other agents
@@ -442,8 +449,8 @@ func (ac *AutomationConfig) EnsureKeyFileContents() error {
 // that the agents will use to communicate with the deployments. The password
 // is returned, so it can be provided to the other agents.
 func (ac *AutomationConfig) EnsurePassword(k8sClient secret.GetUpdateCreator, ctx context.Context, mdbNamespacedName *types.NamespacedName) (string, error) {
-	secretNamespacedName := client.ObjectKey{Name: mdbNamespacedName.Name + agentAuthenticationSecretSuffix, Namespace: mdbNamespacedName.Namespace}
-
+	secretName := AuthSecretName(mdbNamespacedName.Name)
+	secretNamespacedName := client.ObjectKey{Name: secretName, Namespace: mdbNamespacedName.Namespace}
 	var password string
 
 	data, err := secret.ReadStringData(ctx, k8sClient, secretNamespacedName)

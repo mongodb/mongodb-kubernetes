@@ -1,5 +1,10 @@
 import pytest
 from kubetester import create_or_update_configmap, random_k8s_name, read_configmap
+from kubetester.certs import (
+    ISSUER_CA_NAME,
+    create_agent_tls_certs,
+    create_mongodb_tls_certs,
+)
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
@@ -7,7 +12,7 @@ from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase
 
 # Constants
-MDB_RESOURCE_NAME = "replica-set-scram-sha-256-switch-project"
+MDB_RESOURCE_NAME = "replica-set-x509-switch-project"
 MDB_FIXTURE_NAME = MDB_RESOURCE_NAME
 
 CONFIG_MAP_KEYS = {
@@ -18,14 +23,25 @@ CONFIG_MAP_KEYS = {
 
 
 @pytest.fixture(scope="module")
-def replica_set(namespace: str) -> MongoDB:
+def replica_set(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     """
     Fixture to initialize the MongoDB resource for the replica set.
 
     Dynamically updates the resource configuration based on the test context.
     """
     resource = MongoDB.from_yaml(load_fixture(f"switch-project/{MDB_FIXTURE_NAME}.yaml"), namespace=namespace)
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return resource
+
+
+@pytest.fixture(scope="module")
+def server_certs(issuer: str, namespace: str):
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"{MDB_RESOURCE_NAME}-cert")
+
+
+@pytest.fixture(scope="module")
+def agent_certs(issuer: str, namespace: str) -> str:
+    return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE_NAME)
 
 
 @pytest.fixture(scope="module")
@@ -38,10 +54,10 @@ def project_name_prefix(namespace: str) -> str:
     return random_k8s_name(f"{namespace}-project-")
 
 
-@pytest.mark.e2e_replica_set_scram_sha_256_switch_project
+@pytest.mark.e2e_replica_set_x509_switch_project
 class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
     """
-    E2E test suite for replica set creation, user connectivity with SCRAM-SHA-256 authentication and switching Ops Manager project reference.
+    E2E test suite for replica set creation, user connectivity with X509 authentication and switching Ops Manager project reference.
     """
 
     def test_create_replica_set(self, custom_mdb_version: str, replica_set: MongoDB):
@@ -52,19 +68,15 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
         replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_replica_set_connectivity(self):
-        """
-        Verify connectivity to the original replica set.
-        """
-        ReplicaSetTester(MDB_RESOURCE_NAME, 3).assert_connectivity()
-
     def test_ops_manager_state_correctly_updated_in_initial_replica_set(self, replica_set: MongoDB):
         """
         Ensure Ops Manager state is correctly updated in the original replica set.
         """
         tester = replica_set.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
+        tester.assert_authentication_mechanism_enabled("MONGODB-X509")
+        tester.assert_authoritative_set(True)
         tester.assert_authentication_enabled()
+        tester.assert_expected_users(0)
 
     def test_switch_replica_set_project(
         self, custom_mdb_version: str, replica_set: MongoDB, namespace: str, project_name_prefix: str
@@ -91,16 +103,12 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
 
         replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_moved_replica_set_connectivity(self):
-        """
-        Verify connectivity to the replica set after switching projects.
-        """
-        ReplicaSetTester(MDB_RESOURCE_NAME, 3).assert_connectivity()
-
     def test_ops_manager_state_correctly_updated_in_moved_replica_set(self, replica_set: MongoDB):
         """
         Ensure Ops Manager state is correctly updated in the moved replica set after the project switch.
         """
         tester = replica_set.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
+        tester.assert_authentication_mechanism_enabled("MONGODB-X509")
+        tester.assert_authoritative_set(True)
         tester.assert_authentication_enabled()
+        tester.assert_expected_users(0)

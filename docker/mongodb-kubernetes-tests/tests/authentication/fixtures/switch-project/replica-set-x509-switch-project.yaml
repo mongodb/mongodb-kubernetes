@@ -1,0 +1,23 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: replica-set-x509-switch-project
+spec:
+  members: 3
+  version: 4.4.0-ent
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+  persistent: false
+  security:
+    tls:
+      enabled: true
+    authentication:
+      agents:
+        mode: X509
+      enabled: true
+      modes: ["X509"]
