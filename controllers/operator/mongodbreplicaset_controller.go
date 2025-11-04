@@ -218,6 +218,7 @@ func (r *ReplicaSetReconcilerHelper) writeLastAchievedSpec(ctx context.Context, 
 	r.log.Debugf("Successfully wrote lastAchievedSpec and vault annotations for ReplicaSet %s/%s", r.resource.Namespace, r.resource.Name)
 	return nil
 }
+
 // getVaultAnnotations gets vault secret version annotations to write to the CR.
 func (r *ReplicaSetReconcilerHelper) getVaultAnnotations() map[string]string {
 	if !vault.IsVaultSecretBackend() {
