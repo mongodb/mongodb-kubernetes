@@ -1170,7 +1170,6 @@ task_groups:
     <<: *setup_group
     <<: *setup_and_teardown_task
     tasks:
-      - e2e_search_enterprise_basic
       - e2e_search_enterprise_tls
       - e2e_search_enterprise_x509_cluster_auth
     <<: *teardown_group
