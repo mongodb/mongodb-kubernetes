@@ -18,8 +18,11 @@ spec:
   restartPolicy: Never
   volumes:
   - name: mongo-ca
-    secret:
-      secretName: ${MDB_TLS_CA_SECRET_NAME}
+    configMap:
+      name: ${MDB_TLS_CA_CONFIGMAP}
+      items:
+      - key: ca.crt
+        path: ca.crt
 EOF
 
 echo "Waiting for the mongodb-tools to be ready..."
