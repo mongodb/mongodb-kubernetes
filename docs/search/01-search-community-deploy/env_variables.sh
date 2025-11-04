@@ -14,6 +14,11 @@ export MDB_TLS_CA_SECRET_NAME="${MDB_RESOURCE_NAME}-ca"
 export MDB_TLS_SERVER_CERT_SECRET_NAME="${MDB_RESOURCE_NAME}-tls"
 export MDB_SEARCH_TLS_SECRET_NAME="${MDB_RESOURCE_NAME}-search-tls"
 
+export MDB_TLS_CA_CONFIGMAP="${MDB_RESOURCE_NAME}-ca-configmap"
+export MDB_TLS_SELF_SIGNED_ISSUER="${MDB_RESOURCE_NAME}-selfsigned-cluster-issuer"
+export MDB_TLS_CA_CERT_NAME="${MDB_RESOURCE_NAME}-selfsigned-ca"
+export MDB_TLS_CA_ISSUER="${MDB_RESOURCE_NAME}-cluster-issuer"
+
 # minimum required MongoDB version for running MongoDB Search is 8.2.0
 export MDB_VERSION="8.2.0"
 

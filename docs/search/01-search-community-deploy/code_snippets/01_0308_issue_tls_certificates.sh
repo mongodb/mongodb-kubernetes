@@ -1,4 +1,3 @@
-ca_issuer="${MDB_RESOURCE_NAME}-ca-issuer"
 server_certificate="${MDB_RESOURCE_NAME}-server-tls"
 search_certificate="${MDB_RESOURCE_NAME}-search-tls"
 
@@ -32,8 +31,8 @@ metadata:
 spec:
   secretName: ${MDB_TLS_SERVER_CERT_SECRET_NAME}
   issuerRef:
-    kind: Issuer
-    name: ${ca_issuer}
+    name: ${MDB_TLS_CA_ISSUER}
+    kind: ClusterIssuer
   duration: 240h0m0s
   renewBefore: 120h0m0s
   usages:
@@ -52,8 +51,8 @@ metadata:
 spec:
   secretName: ${MDB_SEARCH_TLS_SECRET_NAME}
   issuerRef:
-    kind: Issuer
-    name: ${ca_issuer}
+    name: ${MDB_TLS_CA_ISSUER}
+    kind: ClusterIssuer
   duration: 240h0m0s
   renewBefore: 120h0m0s
   usages:

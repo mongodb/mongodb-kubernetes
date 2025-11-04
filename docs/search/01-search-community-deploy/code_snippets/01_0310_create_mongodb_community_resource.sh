@@ -12,8 +12,8 @@ spec:
       enabled: true
       certificateKeySecretRef:
         name: ${MDB_TLS_SERVER_CERT_SECRET_NAME}
-      caCertificateSecretRef:
-        name: ${MDB_TLS_CA_SECRET_NAME}
+      caConfigMapRef:
+        name: ${MDB_TLS_CA_CONFIGMAP}
     authentication:
       ignoreUnknownUsers: true
       modes:
