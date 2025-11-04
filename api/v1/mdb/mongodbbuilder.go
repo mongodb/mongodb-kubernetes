@@ -326,7 +326,7 @@ func defaultMongoDB(resourceType ResourceType) *MongoDBBuilder {
 			ResourceType: resourceType,
 		},
 	}
-	mdb := &MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "test-mdb", Namespace: "my-namespace"}}
+	mdb := &MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "test-mdb", Namespace: "testNS"}}
 	mdb.InitDefaults()
 	return &MongoDBBuilder{mdb}
 }
