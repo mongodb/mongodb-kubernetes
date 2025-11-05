@@ -2,18 +2,12 @@ kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodbcommunity.mongodb.com/v1
 kind: MongoDBCommunity
 metadata:
-  name: ${MDB_RESOURCE_NAME}
+  name: mdbc-rs
 spec:
   version: ${MDB_VERSION}
   type: ReplicaSet
-  members: ${MDB_MEMBERS}
+  members: 3
   security:
-    tls:
-      enabled: true
-      certificateKeySecretRef:
-        name: ${MDB_TLS_SERVER_CERT_SECRET_NAME}
-      caConfigMapRef:
-        name: ${MDB_TLS_CA_CONFIGMAP}
     authentication:
       ignoreUnknownUsers: true
       modes:
@@ -74,8 +68,8 @@ spec:
       db: admin
       # a reference to the secret that will be used to generate the user's password
       passwordSecretRef:
-        name: ${MDB_RESOURCE_NAME}-search-sync-source-password
-      scramCredentialsSecretName: ${MDB_RESOURCE_NAME}-search-sync-source
+        name: mdbc-rs-search-sync-source-password
+      scramCredentialsSecretName: mdbc-rs-search-sync-source
       roles:
         - name: searchCoordinator
           db: admin
