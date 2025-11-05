@@ -17,6 +17,7 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from lib.base_logger import logger
 from scripts.release.argparse_utils import (
+    get_image_builder_from_arg,
     get_platforms_from_arg,
     get_scenario_from_arg,
     str2bool,
@@ -42,6 +43,8 @@ from scripts.release.build.build_info import (
     INIT_OPS_MANAGER_IMAGE,
     MCO_TESTS_IMAGE,
     MEKO_TESTS_ARM64_IMAGE,
+    MEKO_TESTS_IBM_POWER_IMAGE,
+    MEKO_TESTS_IBM_Z_IMAGE,
     MEKO_TESTS_IMAGE,
     OPERATOR_IMAGE,
     OPERATOR_RACE_IMAGE,
@@ -57,10 +60,7 @@ from scripts.release.build.build_scenario import (
 from scripts.release.build.image_build_configuration import (
     ImageBuildConfiguration,
 )
-from scripts.release.build.image_build_process import (
-    DEFAULT_BUILDER_NAME,
-    ensure_buildx_builder,
-)
+from scripts.release.build.image_build_process import PodmanImageBuilder
 
 """
 The goal of main.py, image_build_configuration.py and build_context.py is to provide a single source of truth for the build
@@ -75,6 +75,8 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
     image_builders = {
         MEKO_TESTS_IMAGE: build_meko_tests_image,
         MEKO_TESTS_ARM64_IMAGE: build_meko_tests_image,
+        MEKO_TESTS_IBM_Z_IMAGE: build_meko_tests_image,
+        MEKO_TESTS_IBM_POWER_IMAGE: build_meko_tests_image,
         OPERATOR_IMAGE: build_operator_image,
         OPERATOR_RACE_IMAGE: partial(build_operator_image, with_race_detection=True),
         MCO_TESTS_IMAGE: build_mco_tests_image,
@@ -117,6 +119,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     # Resolve final values with overrides
     version = args.version
     dockerfile_path = image_build_info.dockerfile_path
+    builder = get_image_builder_from_arg(image_build_info.builder)
     latest_tag = image_build_info.latest_tag
     olm_tag = image_build_info.olm_tag
     if args.registry:
@@ -133,6 +136,9 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     if architecture_suffix and len(platforms) > 1:
         raise ValueError("Cannot use architecture suffix with multi-platform builds")
 
+    if type(builder) is PodmanImageBuilder and len(platforms) > 1:
+        raise ValueError("Cannot use Podman builder with multi-platform builds")
+
     # Validate version - only agent can have None version as the versions are managed by the agent
     # which are externally retrieved from release.json
     if version is None and image != "agent":
@@ -145,6 +151,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         olm_tag=olm_tag,
         registries=registries,
         dockerfile_path=dockerfile_path,
+        builder=builder,
         platforms=platforms,
         sign=sign,
         skip_if_exists=skip_if_exists,
@@ -241,7 +248,7 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
     parser.add_argument(
         "-s",
         "--sign",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         help="If set force image signing. Default is to infer from build scenario.",
     )
     parser.add_argument(
@@ -290,8 +297,9 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
 
     # Create buildx builder
     # It must be initialized here as opposed to in build_images.py so that parallel calls (such as agent builds) can access it
-    # and not face race conditions
-    ensure_buildx_builder(DEFAULT_BUILDER_NAME)
+    # and not face race conditions. For IBM Z and Power we use podman and cannot set docker buildx builder
+    build_config.builder.prepare_builder()
+
     build_image(args.image, build_config)
 
 

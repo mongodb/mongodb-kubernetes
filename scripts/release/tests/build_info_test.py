@@ -1,4 +1,5 @@
 from scripts.release.build.build_info import (
+    BUILDER_PODMAN,
     BinaryInfo,
     BuildInfo,
     HelmChartInfo,
@@ -51,6 +52,20 @@ def test_load_build_info_development():
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+            ),
+            "meko-tests-ibm-power": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/ppc64le"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-z": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/s390x"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
             ),
             "meko-tests-arm64": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
@@ -151,6 +166,20 @@ def test_load_build_info_patch():
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
                 platforms=["linux/arm64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-power": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/ppc64le"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-z": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/s390x"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
                 architecture_suffix=True,
             ),
             "readiness-probe": ImageInfo(
@@ -261,6 +290,20 @@ def test_load_build_info_staging():
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
                 architecture_suffix=True,
             ),
+            "meko-tests-ibm-power": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/ppc64le"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-z": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/s390x"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
+            ),
             "readiness-probe": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-readinessprobe"],
                 platforms=["linux/arm64", "linux/amd64"],
@@ -368,10 +411,29 @@ def test_load_build_info_release():
                 sign=True,
             ),
             "meko-tests": ImageInfo(
-                repositories=["quay.io/mongodb/mongodb-kubernetes-tests"],
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
-                skip_if_exists=True,
+            ),
+            "meko-tests-arm64": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/arm64"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-power": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/ppc64le"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-z": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/s390x"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
             ),
             "readiness-probe": ImageInfo(
                 repositories=["quay.io/mongodb/mongodb-kubernetes-readinessprobe"],

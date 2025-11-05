@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
+from scripts.release.build.image_build_process import ImageBuilder
 from scripts.release.build.build_scenario import BuildScenario
 
 SUPPORTED_PLATFORMS = ["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64", "linux/s390x",
@@ -15,6 +16,7 @@ class ImageBuildConfiguration:
     olm_tag: bool
     registries: List[str]
     dockerfile_path: str
+    builder: ImageBuilder
     platforms: Optional[List[str]] = None
     sign: bool = False
     skip_if_exists: bool = False

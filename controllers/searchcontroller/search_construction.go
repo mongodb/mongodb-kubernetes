@@ -62,14 +62,10 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
 	dataVolumeName := "data"
-	keyfileVolumeName := "keyfile"
 	sourceUserPasswordVolumeName := "password"
 	mongotConfigVolumeName := "config"
 
 	pvcVolumeMount := statefulset.CreateVolumeMount(dataVolumeName, MongotDataPath, statefulset.WithSubPath("data"))
-
-	keyfileVolume := statefulset.CreateVolumeFromSecret(keyfileVolumeName, sourceDBResource.KeyfileSecretName())
-	keyfileVolumeMount := statefulset.CreateVolumeMount(keyfileVolumeName, MongotKeyfilePath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotKeyfileFilename))
 
 	sourceUserPasswordSecretKey := mdbSearch.SourceUserPasswordSecretRef()
 	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
@@ -90,7 +86,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 
 	volumeMounts := []corev1.VolumeMount{
 		pvcVolumeMount,
-		keyfileVolumeMount,
 		tmpVolumeMount,
 		mongotConfigVolumeMount,
 		sourceUserPasswordVolumeMount,
@@ -98,7 +93,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 
 	volumes := []corev1.Volume{
 		tmpVolume,
-		keyfileVolume,
 		mongotConfigVolume,
 		sourceUserPasswordVolume,
 	}
@@ -135,6 +129,26 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 	return statefulset.Apply(stsModifications...)
 }
 
+func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modification {
+	keyfileVolumeName := "keyfile"
+	keyfileVolume := statefulset.CreateVolumeFromSecret(keyfileVolumeName, keyfileSecretName)
+	keyfileVolumeMount := statefulset.CreateVolumeMount(keyfileVolumeName, MongotKeyfilePath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotKeyfileFilename))
+
+	return statefulset.Apply(
+		statefulset.WithPodSpecTemplate(
+			podtemplatespec.Apply(
+				podtemplatespec.WithVolumes([]corev1.Volume{keyfileVolume}),
+				podtemplatespec.WithContainer(MongotContainerName,
+					container.Apply(
+						container.WithVolumeMounts([]corev1.VolumeMount{keyfileVolumeMount}),
+						prependCommand(sensitiveFilePermissionsWorkaround(MongotKeyfilePath, TempKeyfilePath)),
+					),
+				),
+			),
+		),
+	)
+}
+
 func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	return container.Apply(
@@ -148,18 +162,9 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 		container.WithCommand([]string{"sh"}),
 		container.WithArgs([]string{
 			"-c",
-			fmt.Sprintf(`
-cp %[1]s %[2]s
-chown 2000:2000 %[2]s
-chmod 0600 %[2]s
-
-cp %[3]s %[4]s
-chown 2000:2000 %[4]s
-chmod 0600 %[4]s
-
-/mongot-community/mongot --config /mongot/config.yml
-`, MongotKeyfilePath, TempKeyfilePath, MongotSourceUserPasswordPath, TempSourceUserPasswordPath),
+			"/mongot-community/mongot --config /mongot/config.yml",
 		}),
+		prependCommand(sensitiveFilePermissionsWorkaround(MongotSourceUserPasswordPath, TempSourceUserPasswordPath)),
 		containerSecurityContext,
 	)
 }
@@ -216,4 +221,24 @@ func newSearchDefaultRequirements() corev1.ResourceRequirements {
 			corev1.ResourceMemory: construct.ParseQuantityOrZero("2G"),
 		},
 	}
+}
+
+// The container command is set to "sh" and args is ["-c", "<script>"]
+// this modifies the second argument to prepend a command to the script
+// a new line is always inserted after the prepended command
+func prependCommand(commands string) container.Modification {
+	return func(c *corev1.Container) {
+		c.Args[1] = fmt.Sprintf("%s\n%s", commands, c.Args[1])
+	}
+}
+
+// mongot requires certain senstive files to have 600 permissions
+// but we can't get secret subPaths to have those permissions directly
+// so we copy them to a temp folder and set the permissions there
+func sensitiveFilePermissionsWorkaround(filePath, tempFilePath string) string {
+	return fmt.Sprintf(`
+cp %[1]s %[2]s
+chown 2000:2000 %[2]s
+chmod 0600 %[2]s
+`, filePath, tempFilePath)
 }
