@@ -1,7 +1,3 @@
-#!/usr/bin/env bash
-
-set -euo pipefail
-
 # Bootstrap a self-signed ClusterIssuer that will mint the CA material consumed by
 # the MongoDBCommunity deployment.
 kubectl apply --context "${K8S_CTX}" -f - <<EOF_MANIFEST
