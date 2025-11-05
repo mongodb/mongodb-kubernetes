@@ -4,7 +4,7 @@ kind: MongoDBCommunity
 metadata:
   name: mdbc-rs
 spec:
-  version: 8.0.10
+  version: 8.2.0
   type: ReplicaSet
   members: 3
   security:
@@ -12,49 +12,6 @@ spec:
       ignoreUnknownUsers: true
       modes:
         - SCRAM
-    roles:
-      - role: searchCoordinator
-        db: admin
-        roles:
-          - name: clusterMonitor
-            db: admin
-          - name: directShardOperations
-            db: admin
-          - name: readAnyDatabase
-            db: admin
-        privileges:
-          - resource:
-              db: "__mdb_internal_search"
-              collection: ""
-            actions:
-              - "changeStream"
-              - "collStats"
-              - "dbHash"
-              - "dbStats"
-              - "find"
-              - "killCursors"
-              - "listCollections"
-              - "listIndexes"
-              - "listSearchIndexes"
-              - "planCacheRead"
-              - "cleanupStructuredEncryptionData"
-              - "compactStructuredEncryptionData"
-              - "convertToCapped"
-              - "createCollection"
-              - "createIndex"
-              - "createSearchIndexes"
-              - "dropCollection"
-              - "dropIndex"
-              - "dropSearchIndex"
-              - "insert"
-              - "remove"
-              - "renameCollectionSameDB"
-              - "update"
-              - "updateSearchIndex"
-          - resource:
-              cluster: true
-            actions:
-              - "bypassDefaultMaxTimeMS"
   agent:
     logLevel: DEBUG
   statefulSet:

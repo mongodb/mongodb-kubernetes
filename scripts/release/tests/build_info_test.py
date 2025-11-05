@@ -1,4 +1,5 @@
 from scripts.release.build.build_info import (
+    BUILDER_PODMAN,
     BinaryInfo,
     BuildInfo,
     HelmChartInfo,
@@ -52,6 +53,26 @@ def test_load_build_info_development():
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
             ),
+            "meko-tests-ibm-power": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/ppc64le"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-z": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/s390x"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
+            ),
+            "meko-tests-arm64": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/arm64"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                architecture_suffix=True,
+            ),
             "readiness-probe": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe"],
                 platforms=["linux/amd64"],
@@ -79,13 +100,15 @@ def test_load_build_info_development():
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/dev",
+                s3_store="mongodb-kubernetes-dev",
                 platforms=["linux/amd64"],
             )
         },
         helm_charts={
             "mongodb-kubernetes": HelmChartInfo(
-                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/helm-charts"],
+                registry="268558157000.dkr.ecr.us-east-1.amazonaws.com",
+                repository="dev/mongodb/helm-charts",
+                region="us-east-1",
             )
         },
     )
@@ -138,6 +161,26 @@ def test_load_build_info_patch():
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
             ),
+            "meko-tests-arm64": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/arm64"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-power": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/ppc64le"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-z": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+                platforms=["linux/s390x"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
+            ),
             "readiness-probe": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe"],
                 platforms=["linux/amd64"],
@@ -165,13 +208,15 @@ def test_load_build_info_patch():
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/dev",
+                s3_store="mongodb-kubernetes-dev",
                 platforms=["linux/amd64"],
             )
         },
         helm_charts={
             "mongodb-kubernetes": HelmChartInfo(
-                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/helm-charts"],
+                region="us-east-1",
+                repository="dev/mongodb/helm-charts",
+                registry="268558157000.dkr.ecr.us-east-1.amazonaws.com",
             )
         },
     )
@@ -188,6 +233,7 @@ def test_load_build_info_staging():
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
+                latest_tag=True,
                 sign=True,
             ),
             "operator-race": ImageInfo(
@@ -233,8 +279,28 @@ def test_load_build_info_staging():
             ),
             "meko-tests": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+            ),
+            "meko-tests-arm64": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/arm64"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-power": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/ppc64le"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-z": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/s390x"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
             ),
             "readiness-probe": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-readinessprobe"],
@@ -271,14 +337,23 @@ def test_load_build_info_staging():
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/staging",
-                platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
-                sign=True,
+                s3_store="mongodb-kubernetes-staging",
+                platforms=[
+                    "darwin/amd64",
+                    "darwin/arm64",
+                    "linux/amd64",
+                    "linux/arm64",
+                    "linux/s390x",
+                    "linux/ppc64le",
+                ],
+                sign=False,
             )
         },
         helm_charts={
             "mongodb-kubernetes": HelmChartInfo(
-                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/helm-charts"],
+                registry="268558157000.dkr.ecr.us-east-1.amazonaws.com",
+                repository="staging/mongodb/helm-charts",
+                region="us-east-1",
                 sign=True,
             )
         },
@@ -333,10 +408,29 @@ def test_load_build_info_release():
                 sign=True,
             ),
             "meko-tests": ImageInfo(
-                repositories=["quay.io/mongodb/mongodb-kubernetes-tests"],
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
-                skip_if_exists=True,
+            ),
+            "meko-tests-arm64": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/arm64"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-power": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/ppc64le"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
+            ),
+            "meko-tests-ibm-z": ImageInfo(
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+                platforms=["linux/s390x"],
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
+                builder=BUILDER_PODMAN,
+                architecture_suffix=True,
             ),
             "readiness-probe": ImageInfo(
                 repositories=["quay.io/mongodb/mongodb-kubernetes-readinessprobe"],
@@ -373,14 +467,23 @@ def test_load_build_info_release():
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/prod",
-                platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
+                s3_store="mongodb-kubernetes-release",
+                platforms=[
+                    "darwin/amd64",
+                    "darwin/arm64",
+                    "linux/amd64",
+                    "linux/arm64",
+                    "linux/s390x",
+                    "linux/ppc64le",
+                ],
                 sign=True,
             )
         },
         helm_charts={
             "mongodb-kubernetes": HelmChartInfo(
-                repositories=["quay.io/mongodb/helm-charts"],
+                registry="quay.io",
+                repository="mongodb/helm-charts",
+                region=None,
                 sign=True,
             )
         },

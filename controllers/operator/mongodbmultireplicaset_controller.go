@@ -166,11 +166,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	r.SetupCommonWatchers(&mrs, nil, nil, mrs.Name)
 
-	publishAutomationConfigFirst, err := r.publishAutomationConfigFirstMultiCluster(ctx, &mrs, log)
-	if err != nil {
-		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
-	}
-
 	// If tls is enabled we need to configure the "processes" array in opsManager/Cloud Manager with the
 	// correct tlsCertPath, with the new tls design, this path has the certHash in it(so that cert can be rotated
 	// without pod restart).
@@ -208,6 +203,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		if automationConfigError != nil {
 			log.Errorf("Recovery failed because of Automation Config update errors, %w", automationConfigError)
 		}
+	}
+
+	publishAutomationConfigFirst, err := r.publishAutomationConfigFirstMultiCluster(ctx, &mrs, log)
+	if err != nil {
+		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
 	}
 
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,

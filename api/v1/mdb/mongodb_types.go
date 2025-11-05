@@ -243,6 +243,9 @@ func GetLastAdditionalMongodConfigByType(lastSpec *MongoDbSpec, configType Addit
 
 // GetLastAdditionalMongodConfigByType returns the last successfully achieved AdditionalMongodConfigType for the given component.
 func (m *MongoDB) GetLastAdditionalMongodConfigByType(configType AdditionalMongodConfigType) (*AdditionalMongodConfig, error) {
+	if m.Spec.GetResourceType() == ReplicaSet {
+		panic(errors.Errorf("this method cannot be used from ReplicaSet controller; use non-method GetLastAdditionalMongodConfigByType and pass lastSpec from the deployment state."))
+	}
 	if m.Spec.GetResourceType() == ShardedCluster {
 		panic(errors.Errorf("this method cannot be used from ShardedCluster controller; use non-method GetLastAdditionalMongodConfigByType and pass lastSpec from the deployment state."))
 	}
@@ -1038,7 +1041,7 @@ func (a *Authentication) IsOIDCEnabled() bool {
 	return stringutil.Contains(a.GetModes(), util.OIDC)
 }
 
-// GetModes returns the modes of the Authentication instance of an empty
+// GetModes returns the modes of the Authentication instance, or an empty
 // list if it is nil
 func (a *Authentication) GetModes() []string {
 	if a == nil {

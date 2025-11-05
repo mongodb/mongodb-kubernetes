@@ -22,6 +22,18 @@ func CreateMongodProcessesWithLimit(mongoDBImage string, forceEnterprise bool, s
 	return processes
 }
 
+// CreateMongodProcessesFromMongoDB creates mongod processes directly from MongoDB resource without StatefulSet
+func CreateMongodProcessesFromMongoDB(mongoDBImage string, forceEnterprise bool, mdb *mdbv1.MongoDB, limit int, fcv string, tlsCertPath string) []om.Process {
+	hostnames, names := dns.GetDNSNames(mdb.Name, mdb.ServiceName(), mdb.Namespace, mdb.Spec.GetClusterDomain(), limit, mdb.Spec.DbCommonSpec.GetExternalDomain())
+	processes := make([]om.Process, len(hostnames))
+
+	for idx, hostname := range hostnames {
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, mdb.Spec.GetAdditionalMongodConfig(), &mdb.Spec, tlsCertPath, mdb.Annotations, fcv)
+	}
+
+	return processes
+}
+
 // CreateMongodProcessesWithLimitMulti creates the process array for automationConfig based on MultiCluster CR spec
 func CreateMongodProcessesWithLimitMulti(mongoDBImage string, forceEnterprise bool, mrs mdbmultiv1.MongoDBMultiCluster, certFileName string) ([]om.Process, error) {
 	hostnames := make([]string, 0)

@@ -32,11 +32,10 @@ spec:
 {{- end }}
     spec:
       serviceAccountName: {{ .Values.operator.name }}
-{{- if not .Values.managedSecurityContext }}
+      {{- if and (not .Values.managedSecurityContext) .Values.operator.podSecurityContext }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 2000
-{{- end }}
+        {{- toYaml .Values.operator.podSecurityContext | nindent 8 }}
+      {{- end }}
 {{- if .Values.registry.imagePullSecrets}}
       imagePullSecrets:
         - name: {{ .Values.registry.imagePullSecrets }}
@@ -74,6 +73,10 @@ spec:
             requests:
               cpu: {{ .Values.operator.resources.requests.cpu }}
               memory: {{ .Values.operator.resources.requests.memory }}
+          {{- if and (not .Values.managedSecurityContext) .Values.operator.securityContext }}
+          securityContext:
+            {{- toYaml .Values.operator.securityContext | nindent 12 }}
+          {{- end }}
           env:
             - name: OPERATOR_ENV
               value: {{ .Values.operator.env }}
@@ -169,21 +172,21 @@ spec:
             - name: {{ $initDatabaseImageRepositoryEnv }}
               value: {{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}
             - name: INIT_DATABASE_VERSION
-              value: {{ $initDatabaseVersion }}
+              value: {{ $initDatabaseVersion | quote }}
             - name: DATABASE_VERSION
-              value: {{ $databaseVersion }}
+              value: {{ $databaseVersion | quote }}
             # Ops Manager
             - name: {{ $opsManagerImageRepositoryEnv }}
               value: {{ .Values.registry.opsManager }}/{{ .Values.opsManager.name }}
             - name: {{ $initOpsManagerImageRepositoryEnv }}
               value: {{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}
             - name: INIT_OPS_MANAGER_VERSION
-              value: {{ $initOpsManagerVersion }}
+              value: {{ $initOpsManagerVersion | quote }}
             # AppDB
             - name: {{ $initAppDbImageRepositoryEnv }}
               value: {{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}
             - name: INIT_APPDB_VERSION
-              value: {{ $initAppDbVersion }}
+              value: {{ $initAppDbVersion | quote }}
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: {{ .Values.registry.pullPolicy }}
             - name: {{ $agentImageEnv }}
@@ -257,7 +260,7 @@ spec:
             - name: RELATED_IMAGE_{{ $opsManagerImageRepositoryEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.registry.opsManager }}/{{ $.Values.opsManager.name }}:{{ $version }}"
       {{- end }}
-      # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
+            # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
       {{- range $version := .Values.relatedImages.mongodb }}
             - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"

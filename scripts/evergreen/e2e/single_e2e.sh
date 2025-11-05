@@ -28,6 +28,9 @@ deploy_test_app() {
     arch=$(uname -m)
 
     case "${arch}" in
+        aarch64|arm64)
+            meko_tests_version="${meko_tests_version}-arm64"
+            ;;
         ppc64le)
             meko_tests_version="${meko_tests_version}-ppc64le"
             ;;
@@ -35,7 +38,7 @@ deploy_test_app() {
             meko_tests_version="${meko_tests_version}-s390x"
             ;;
         *)
-            echo "Not IBM host, using default meko_tests_version"
+            echo "amd64 host, using default meko_tests_version"
             ;;
     esac
 
@@ -206,7 +209,7 @@ run_tests() {
 
     wait_until_pod_is_running_or_failed_or_succeeded "${test_pod_context}"
 
-    title "Running e2e test ${task_name} (tag: ${TEST_IMAGE_TAG})"
+    title "Running e2e test ${task_name}"
 
     # we don't output logs to file when running tests locally
     if [[ "${MODE-}" == "dev" ]]; then
