@@ -358,6 +358,8 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: download_multi_cluster_binary
+        vars:
+          platform: linux/amd64
       - func: pipeline
         vars:
           image_name: meko-tests
@@ -367,6 +369,8 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: download_multi_cluster_binary
+        vars:
+          platform: linux/arm64
       - func: pipeline
         vars:
           image_name: meko-tests-arm64
@@ -379,6 +383,8 @@ tasks:
           skip_minikube_setup: true
           skip_install_python_requirements: false
       - func: download_multi_cluster_binary
+        vars:
+          platform: linux/s390x
       - func: pipeline
         vars:
           image_name: meko-tests-ibm-z
@@ -391,6 +397,8 @@ tasks:
           skip_minikube_setup: true
           skip_install_python_requirements: false
       - func: download_multi_cluster_binary
+        vars:
+          platform: linux/ppc64le
       - func: pipeline
         vars:
           image_name: meko-tests-ibm-power
