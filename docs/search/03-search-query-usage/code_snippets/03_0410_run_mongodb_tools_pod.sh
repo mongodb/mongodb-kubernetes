@@ -20,6 +20,7 @@ spec:
   - name: mongo-ca
     configMap:
       name: ${MDB_TLS_CA_CONFIGMAP}
+      optional: true
       items:
       - key: ca.crt
         path: ca.crt
