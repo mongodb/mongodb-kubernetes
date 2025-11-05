@@ -248,7 +248,7 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
     parser.add_argument(
         "-s",
         "--sign",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         help="If set force image signing. Default is to infer from build scenario.",
     )
     parser.add_argument(

@@ -57,7 +57,11 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, err
 	}
 
-	r.watch.AddWatchedResourceIfNotAdded(searchSource.KeyfileSecretName(), mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+	if mdbSearch.IsWireprotoEnabled() {
+		log.Info("Enabling the mongot wireproto server as required by annotation")
+		// the keyfile secret is necessary for wireproto authentication
+		r.watch.AddWatchedResourceIfNotAdded(searchSource.KeyfileSecretName(), mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+	}
 
 	// Watch for changes in database source CA certificate secrets or configmaps
 	tlsSourceConfig := searchSource.TLSConfig()
