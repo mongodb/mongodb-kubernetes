@@ -17,6 +17,7 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from lib.base_logger import logger
 from scripts.release.argparse_utils import (
+    get_image_builder_from_arg,
     get_platforms_from_arg,
     get_scenario_from_arg,
     str2bool,
@@ -36,7 +37,6 @@ from scripts.release.atomic_pipeline import (
 )
 from scripts.release.build.build_info import (
     AGENT_IMAGE,
-    BUILDER_DOCKER,
     DATABASE_IMAGE,
     INIT_APPDB_IMAGE,
     INIT_DATABASE_IMAGE,
@@ -60,10 +60,7 @@ from scripts.release.build.build_scenario import (
 from scripts.release.build.image_build_configuration import (
     ImageBuildConfiguration,
 )
-from scripts.release.build.image_build_process import (
-    DEFAULT_BUILDER_NAME,
-    ensure_buildx_builder,
-)
+from scripts.release.build.image_build_process import PodmanImageBuilder
 
 """
 The goal of main.py, image_build_configuration.py and build_context.py is to provide a single source of truth for the build
@@ -122,7 +119,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     # Resolve final values with overrides
     version = args.version
     dockerfile_path = image_build_info.dockerfile_path
-    builder = image_build_info.builder
+    builder = get_image_builder_from_arg(image_build_info.builder)
     latest_tag = image_build_info.latest_tag
     olm_tag = image_build_info.olm_tag
     if args.registry:
@@ -138,6 +135,9 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
     if architecture_suffix and len(platforms) > 1:
         raise ValueError("Cannot use architecture suffix with multi-platform builds")
+
+    if type(builder) is PodmanImageBuilder and len(platforms) > 1:
+        raise ValueError("Cannot use Podman builder with multi-platform builds")
 
     # Validate version - only agent can have None version as the versions are managed by the agent
     # which are externally retrieved from release.json
@@ -248,7 +248,7 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
     parser.add_argument(
         "-s",
         "--sign",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         help="If set force image signing. Default is to infer from build scenario.",
     )
     parser.add_argument(
@@ -298,8 +298,7 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
     # Create buildx builder
     # It must be initialized here as opposed to in build_images.py so that parallel calls (such as agent builds) can access it
     # and not face race conditions. For IBM Z and Power we use podman and cannot set docker buildx builder
-    if build_config.builder == BUILDER_DOCKER:
-        ensure_buildx_builder(DEFAULT_BUILDER_NAME)
+    build_config.builder.prepare_builder()
 
     build_image(args.image, build_config)
 
