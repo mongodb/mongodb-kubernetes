@@ -212,8 +212,8 @@ patch_aliases:
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
     task_tags: [ "patch-run" ]
-  - alias: "smoke_multi_arch_test"
-    variant_tags: [ "e2e_smoke_multi_arch" ]
+  - alias: "smoke_test"
+    variant_tags: [ "e2e_smoke_test_suite" ]
     task_tags: [ "patch-run" ]
   - alias: "patch-run-cloudqa"
     variant_tags: [ "cloudqa_non_static" ]
@@ -1442,7 +1442,6 @@ buildvariants:
       - rhel9-power-small
       - rhel9-power-large
     allowed_requesters: [ "patch", "commit" ]
-    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
