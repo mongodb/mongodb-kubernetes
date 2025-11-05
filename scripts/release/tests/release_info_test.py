@@ -44,7 +44,14 @@ def test_create_release_info_json():
         },
         "binaries": {
             "kubectl-mongodb": {
-                "platforms": ["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
+                "platforms": [
+                    "darwin/amd64",
+                    "darwin/arm64",
+                    "linux/amd64",
+                    "linux/arm64",
+                    "linux/s390x",
+                    "linux/ppc64le",
+                ],
                 "version": DUMMY_VERSION,
             }
         },

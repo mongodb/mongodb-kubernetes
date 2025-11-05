@@ -1,6 +1,8 @@
 package searchcontroller
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -96,53 +98,57 @@ func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource
 	}
 }
 
-func TestNeedsSearchCoordinatorRolePolyfill(t *testing.T) {
+func TestGetMongodConfigParameters_TransportAndPorts(t *testing.T) {
 	cases := []struct {
-		name     string
-		version  string
-		expected bool
+		name            string
+		withWireproto   bool
+		expectedUseGrpc bool
 	}{
 		{
-			name:     "MongoDB 7.x and below do not require polyfill (unsupported by Search)",
-			version:  "7.3.0",
-			expected: false,
+			name:            "grpc only (default)",
+			withWireproto:   false,
+			expectedUseGrpc: true,
 		},
 		{
-			name:     "MongoDB 8.0.x requires polyfill",
-			version:  "8.0.10",
-			expected: true,
-		},
-		{
-			name:     "MongoDB 8.1.x requires polyfill",
-			version:  "8.1.0",
-			expected: true,
-		},
-		{
-			name:     "MongoDB 8.2.0-rc0 treated as 8.2 (no polyfill)",
-			version:  "8.2.0-rc0",
-			expected: false,
-		},
-		{
-			name:     "MongoDB 8.2.0 and above do not require polyfill",
-			version:  "8.2.0",
-			expected: false,
-		},
-		{
-			name:     "MongoDB 8.2.0-ent treated as 8.2 (no polyfill)",
-			version:  "8.2.0-ent",
-			expected: false,
-		},
-		{
-			name:     "MongoDB 9.0.0 and above do not require polyfill",
-			version:  "9.0.0",
-			expected: false,
+			name:            "grpc + wireproto via annotation",
+			withWireproto:   true,
+			expectedUseGrpc: false,
 		},
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			actual := NeedsSearchCoordinatorRolePolyfill(c.version)
-			assert.Equal(t, c.expected, actual)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			search := &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-mongodb-search",
+					Namespace: "test",
+				},
+			}
+			if tc.withWireproto {
+				search.Annotations = map[string]string{searchv1.ForceWireprotoAnnotation: "true"}
+			}
+
+			clusterDomain := "cluster.local"
+			params := GetMongodConfigParameters(search, clusterDomain)
+
+			setParams := params["setParameter"].(map[string]any)
+
+			useGrpc := setParams["useGrpcForSearch"].(bool)
+			assert.Equal(t, tc.expectedUseGrpc, useGrpc)
+
+			expectedPort := search.GetMongotGrpcPort()
+			if tc.withWireproto {
+				expectedPort = search.GetMongotWireprotoPort()
+			}
+			expectedPrefix := fmt.Sprintf("%s.%s.svc.%s", search.Name+"-search-svc", search.Namespace, clusterDomain)
+			expectedSuffix := fmt.Sprintf(":%d", expectedPort)
+
+			for _, key := range []string{"mongotHost", "searchIndexManagementHostAndPort"} {
+				value := setParams[key].(string)
+				if !strings.HasPrefix(value, expectedPrefix) || !strings.HasSuffix(value, expectedSuffix) {
+					t.Fatalf("%s mismatch: expected prefix %q and suffix %q, got %q", key, expectedPrefix, expectedSuffix, value)
+				}
+			}
 		})
 	}
 }

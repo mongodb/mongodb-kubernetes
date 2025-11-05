@@ -77,20 +77,20 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{},
 			expectError:    true,
-			expectedErrMsg: "MongoDB version must be 8.0.10 or higher",
+			expectedErrMsg: "MongoDB version must be 8.2.0 or higher",
 		},
 		{
 			name:           "Version just below minimum",
-			version:        "8.0.9",
+			version:        "8.1.9",
 			topology:       mdbv1.ClusterTopologySingleCluster,
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{},
 			expectError:    true,
-			expectedErrMsg: "MongoDB version must be 8.0.10 or higher",
+			expectedErrMsg: "MongoDB version must be 8.2.0 or higher",
 		},
 		{
 			name:         "Valid minimum version",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -98,7 +98,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Version above minimum",
-			version:      "8.1.0",
+			version:      "8.3.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -107,7 +107,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		// Topology validation tests
 		{
 			name:           "Invalid topology - MultiCluster",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologyMultiCluster,
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{},
@@ -116,7 +116,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Valid topology - SingleCluster",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -124,7 +124,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Empty topology defaults to SingleCluster",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     "",
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -133,7 +133,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		// Resource type validation tests
 		{
 			name:           "Invalid resource type - Standalone",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologySingleCluster,
 			resourceType:   mdbv1.Standalone,
 			authModes:      []string{},
@@ -142,7 +142,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:           "Invalid resource type - ShardedCluster",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologySingleCluster,
 			resourceType:   mdbv1.ShardedCluster,
 			authModes:      []string{},
@@ -151,7 +151,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Valid resource type - ReplicaSet",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -160,7 +160,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		// Authentication mode tests
 		{
 			name:           "No SCRAM authentication",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologySingleCluster,
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{"X509"},
@@ -169,7 +169,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Empty authentication modes",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
@@ -177,7 +177,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Nil authentication modes",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    nil,
@@ -185,7 +185,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Valid SCRAM authentication",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{"SCRAM-SHA-256"},
@@ -193,7 +193,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Mixed auth modes with SCRAM",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{"X509", "SCRAM-SHA-256"},
@@ -201,7 +201,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "Case insensitive SCRAM",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{"scram-sha-256"},
@@ -209,7 +209,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:         "SCRAM variants",
-			version:      "8.0.10",
+			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{"SCRAM", "SCRAM-SHA-1", "SCRAM-SHA-256"},
@@ -218,7 +218,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		// Internal cluster authentication tests
 		{
 			name:                "X509 internal cluster auth not supported",
-			version:             "8.0.10",
+			version:             "8.2.0",
 			topology:            mdbv1.ClusterTopologySingleCluster,
 			resourceType:        mdbv1.ReplicaSet,
 			authModes:           []string{"SCRAM-SHA-256"},
@@ -228,7 +228,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:                "Valid internal cluster auth - empty",
-			version:             "8.0.10",
+			version:             "8.2.0",
 			topology:            mdbv1.ClusterTopologySingleCluster,
 			resourceType:        mdbv1.ReplicaSet,
 			authModes:           []string{"SCRAM-SHA-256"},
@@ -237,7 +237,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:                "Valid internal cluster auth - SCRAM",
-			version:             "8.0.10",
+			version:             "8.2.0",
 			topology:            mdbv1.ClusterTopologySingleCluster,
 			resourceType:        mdbv1.ReplicaSet,
 			authModes:           []string{"SCRAM-SHA-256"},
@@ -252,11 +252,11 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			resourceType:   mdbv1.Standalone,
 			authModes:      []string{"X509"},
 			expectError:    true,
-			expectedErrMsg: "MongoDB version must be 8.0.10 or higher",
+			expectedErrMsg: "MongoDB version must be 8.2.0 or higher",
 		},
 		{
 			name:           "Valid version, invalid topology",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologyMultiCluster,
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{},
@@ -265,7 +265,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:           "Valid version and topology, invalid resource type",
-			version:        "8.0.10",
+			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologySingleCluster,
 			resourceType:   mdbv1.Standalone,
 			authModes:      []string{},

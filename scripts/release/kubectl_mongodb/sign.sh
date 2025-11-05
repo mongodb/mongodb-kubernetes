@@ -6,10 +6,9 @@
 set -euo pipefail
 
 # Sign a binary using garasign credentials
-# goreleaser takes care of calling this script as a hook.
 
 ARTIFACT=$1
-SIGNATURE="${ARTIFACT}.sig"
+SIGNATURE_BUNDLE="${ARTIFACT}.bundle"
 
 TMPDIR=${TMPDIR:-/tmp}
 SIGNING_ENVFILE="${TMPDIR}/signing-envfile"
@@ -22,7 +21,7 @@ SIGNING_IMAGE_URI=${SIGNING_IMAGE_URI}
 ARTIFACTORY_PASSWORD=${ARTIFACTORY_PASSWORD}
 ARTIFACTORY_USERNAME=${ARTIFACTORY_USERNAME}
 
-echo "Signing artifact ${ARTIFACT} and saving signature to ${SIGNATURE}"
+echo "Signing artifact ${ARTIFACT} and saving signature bundle to ${SIGNATURE_BUNDLE}"
 
 {
   echo "GRS_CONFIG_USER1_USERNAME=${GRS_USERNAME}";
@@ -41,4 +40,4 @@ docker run \
   -v "$(pwd)":"$(pwd)" \
   -w "$(pwd)" \
   "${SIGNING_IMAGE_URI}" \
-  cosign sign-blob --key "${PKCS11_URI}" --output-signature "${SIGNATURE}" "${ARTIFACT}" --yes
+  cosign sign-blob --key "${PKCS11_URI}" --tlog-upload=false --use-signing-config=false --bundle "${SIGNATURE_BUNDLE}" "${ARTIFACT}" --yes

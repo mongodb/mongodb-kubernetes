@@ -17,8 +17,6 @@
 set -Eeou pipefail
 
 # Notarize generated binaries with Apple and replace the original binary with the notarized one
-# This depends on binaries being generated in a goreleaser manner and gon being set up.
-# goreleaser should already take care of calling this script as a hook.
 
 if [ -z "${1-}" ]; then
   echo "Error: Missing required argument <version> as first positional parameter to script"
@@ -32,7 +30,7 @@ darwin_amd64_dir="./artifacts/kubectl-mongodb_${version}_darwin_amd64"
 darwin_arm64_dir="./artifacts/kubectl-mongodb_${version}_darwin_arm64"
 
 if [[ -f "${darwin_amd64_dir}/kubectl-mongodb" && -f "${darwin_arm64_dir}/kubectl-mongodb" && ! -f "./artifacts/kubectl-mongodb_macos_signed.zip" ]]; then
-	echo "notarizing macOs binaries"
+	echo "notarizing MacOS binaries"
 	zip -r ./artifacts/kubectl-mongodb_amd64_arm64_bin.zip "${darwin_amd64_dir}/kubectl-mongodb" "${darwin_arm64_dir}/kubectl-mongodb" # The Notarization Service takes an archive as input
 	"${workdir:-.}"/linux_amd64/macnotary \
 		-f ./artifacts/kubectl-mongodb_amd64_arm64_bin.zip \

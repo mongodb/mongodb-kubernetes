@@ -82,8 +82,6 @@ variables:
       - func: clone
       - func: switch_context
       - func: setup_building_host_minikube
-      - func: install_goreleaser
-      - func: build_multi_cluster_binary
 
   - &setup_group_multi_cluster
     setup_group_can_fail_task: true
@@ -92,8 +90,6 @@ variables:
       - func: download_kube_tools
       - func: switch_context
       - func: setup_building_host
-      - func: install_goreleaser
-      - func: build_multi_cluster_binary
 
   - &setup_and_teardown_task_cloudqa
     setup_task_can_fail_task: true
@@ -215,6 +211,9 @@ patch_aliases:
     task: ".*"
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
+    task_tags: [ "patch-run" ]
+  - alias: "smoke_test"
+    variant_tags: [ "e2e_smoke_test_suite" ]
     task_tags: [ "patch-run" ]
   - alias: "patch-run-cloudqa"
     variant_tags: [ "cloudqa_non_static" ]
@@ -348,12 +347,19 @@ tasks:
           image_name: agent
           flags: "--parallel --current-agents --skip-if-exists=false"
 
+  - name: build_kubectl_mongodb_plugin
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: build_multi_cluster_binary
+
   - name: build_test_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: install_goreleaser
-      - func: build_multi_cluster_binary
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/amd64
       - func: pipeline
         vars:
           image_name: meko-tests
@@ -362,27 +368,40 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: install_goreleaser
-      - func: build_multi_cluster_binary
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/arm64
       - func: pipeline
         vars:
           image_name: meko-tests-arm64
 
-  - name: build_test_image_ibm
+  - name: build_test_image_ibm_z
     commands:
       - func: clone
-      - command: subprocess.exec
-        type: setup
-        params:
-          env:
-            SKIP_MINIKUBE_SETUP: "true"
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          add_to_path:
-            - ${workdir}/bin
-          command: scripts/evergreen/setup_minikube_host.sh
-      - func: install_goreleaser
-      - func: build_multi_cluster_binary
-      - func: build_test_image_ibm
+      - func: setup_building_host_minikube
+        vars:
+          skip_minikube_setup: true
+          skip_install_python_requirements: false
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/s390x
+      - func: pipeline
+        vars:
+          image_name: meko-tests-ibm-z
+
+  - name: build_test_image_ibm_power
+    commands:
+      - func: clone
+      - func: setup_building_host_minikube
+        vars:
+          skip_minikube_setup: true
+          skip_install_python_requirements: false
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/ppc64le
+      - func: pipeline
+        vars:
+          image_name: meko-tests-ibm-power
 
   - name: build_mco_test_image
     commands:
@@ -679,7 +698,7 @@ task_groups:
       - e2e_tls_rs_external_access
       - e2e_replica_set_tls_require
       - e2e_replica_set_tls_certs_secret_prefix
-      - e2e_disable_tls_scale_up
+      - e2e_disable_tls_and_scale
       - e2e_replica_set_tls_require_and_disable
       # e2e_x509_task_group
       - e2e_configure_tls_and_x509_simultaneously_st
@@ -1412,9 +1431,6 @@ buildvariants:
       - rhel9-power-small
       - rhel9-power-large
     allowed_requesters: [ "patch", "commit" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1422,7 +1438,7 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_power
         variant: init_test_run_ibm_power
     tasks:
       - name: e2e_smoke_ibm_task_group
@@ -1434,9 +1450,6 @@ buildvariants:
       - rhel9-power-small
       - rhel9-power-large
     allowed_requesters: [ "patch", "commit" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1444,7 +1457,7 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_power
         variant: init_test_run_ibm_power
     tasks:
       - name: e2e_smoke_ibm_task_group
@@ -1456,8 +1469,8 @@ buildvariants:
       - rhel9-zseries-small
       - rhel9-zseries-large
     allowed_requesters: [ "patch", "commit" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
     disable: true
     depends_on:
       - name: build_operator_ubi
@@ -1466,7 +1479,7 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_z
         variant: init_test_run_ibm_z
     tasks:
       - name: e2e_smoke_ibm_task_group
@@ -1474,8 +1487,8 @@ buildvariants:
   - name: e2e_static_smoke_ibm_z
     display_name: e2e_static_smoke_ibm_z
     tags: [ "staging", "e2e_smoke_test_suite", "static" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
     disable: true
     run_on:
       - rhel9-zseries-small
@@ -1486,7 +1499,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_z
         variant: init_test_run_ibm_z
     tasks:
       - name: e2e_smoke_ibm_task_group
@@ -1506,9 +1519,6 @@ buildvariants:
         variant: init_test_run
       - name: build_test_image_arm
         variant: init_test_run_arm
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: true
     tasks:
       - name: e2e_smoke_arm_task_group
 
@@ -1525,9 +1535,6 @@ buildvariants:
         variant: init_test_run
       - name: build_test_image_arm
         variant: init_test_run_arm
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: true
     tasks:
       - name: e2e_smoke_arm_task_group
 
@@ -1723,6 +1730,8 @@ buildvariants:
       - name: build_operator_ubi
       - name: build_operator_race_ubi
       - name: build_test_image
+        depends_on:
+          - name: build_kubectl_mongodb_plugin
       - name: build_mco_test_image
       - name: build_init_appdb_images_ubi
       - name: build_init_om_images_ubi
@@ -1731,6 +1740,7 @@ buildvariants:
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
+      - name: build_kubectl_mongodb_plugin
       - name: prepare_aws
       - name: publish_helm_chart
 
@@ -1738,27 +1748,30 @@ buildvariants:
     display_name: init_test_run_ibm_power
     max_hosts: -1
     tags: [ "staging" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: true
     run_on:
       - rhel9-power-small
       - rhel9-power-large
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
     tasks:
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_power
 
   - name: init_test_run_ibm_z
     display_name: init_test_run_ibm_z
     max_hosts: -1
     tags: [ "staging" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
     disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
     tasks:
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_z
 
   - name: init_test_run_arm
     display_name: init_test_run_arm
@@ -1766,6 +1779,9 @@ buildvariants:
     tags: [ "staging" ]
     run_on:
       - ubuntu2204-arm64-small
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
     tasks:
       - name: build_test_image_arm
 
