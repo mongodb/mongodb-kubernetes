@@ -50,7 +50,6 @@ EOF_MANIFEST
 kubectl --context "${K8S_CTX}" wait --for=condition=Ready clusterissuer "${MDB_TLS_CA_ISSUER}"
 
 TMP_CA_CERT="$(mktemp)"
-trap 'rm -f "${TMP_CA_CERT}"' EXIT
 
 kubectl --context "${K8S_CTX}" \
   get secret "${MDB_TLS_CA_SECRET_NAME}" -n "${CERT_MANAGER_NAMESPACE}" \

@@ -34,6 +34,6 @@ export OPERATOR_HELM_CHART="mongodb/mongodb-kubernetes"
 export OPERATOR_ADDITIONAL_HELM_VALUES=""
 
 # TLS is mandatory; connection string must include tls=true
-export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME}-0.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_RESOURCE_NAME}&tls=true"
+export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME}-0.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_RESOURCE_NAME}&tls=true&tlsCAFile=/tls/ca.crt"
 
 export CERT_MANAGER_NAMESPACE="cert-manager"

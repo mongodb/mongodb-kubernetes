@@ -14,23 +14,11 @@ required=(
   OPERATOR_HELM_CHART
 )
 
-optional=(
-  OPERATOR_ADDITIONAL_HELM_VALUES
-  PRERELEASE_IMAGE_PULLSECRET
-)
-
 missing_req=()
 for v in "${required[@]}"; do [[ -n "${!v:-}" ]] || missing_req+=("$v"); done
 if (( ${#missing_req[@]} )); then
   echo "ERROR: Missing required environment variables:" >&2
   for m in "${missing_req[@]}"; do echo "  - $m" >&2; done
-  exit 1
 fi
-
-missing_opt=()
-for v in "${optional[@]}"; do [[ -n "${!v:-}" ]] || missing_opt+=("$v"); done
 
 echo "All required environment variables present."
-if (( ${#missing_opt[@]} )); then
-  echo "Optional variables missing (will continue): ${missing_opt[*]}"
-fi
