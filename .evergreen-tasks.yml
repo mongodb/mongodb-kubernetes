@@ -66,25 +66,25 @@ tasks:
     tags: [ "code_snippets" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
   - name: task_gke_multi_cluster_no_mesh_snippets
     tags: [ "code_snippets" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
   - name: task_kind_search_community_snippets
     tags: [ "code_snippets", "patch-run" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
   - name: task_kind_search_enterprise_snippets
     tags: [ "code_snippets", "patch-run" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
 ## Below are only e2e runs for .evergreen.yml ##
 
