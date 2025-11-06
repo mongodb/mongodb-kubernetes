@@ -2,8 +2,14 @@
 
 set -Eeou pipefail
 
+echo "Cleaning DNF cache..."
+sudo dnf clean all && sudo rm -r /var/cache/dnf
+
 echo "Installing/upgrading crun..."
-sudo dnf upgrade -y crun --disableplugin=subscription-manager || sudo dnf install -y crun --disableplugin=subscription-manager || sudo yum upgrade -y crun || sudo yum install -y crun
+sudo dnf upgrade -y crun --disableplugin=subscription-manager || \
+sudo dnf install -y crun --disableplugin=subscription-manager || \
+sudo yum upgrade -y crun --disableplugin=subscription-manager || \
+sudo yum install -y crun --disableplugin=subscription-manager
 
 if ! crun --version &>/dev/null; then
   echo "❌ crun installation failed"
