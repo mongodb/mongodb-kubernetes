@@ -40,7 +40,7 @@ run_setup_step() {
 
 # Setup Python environment (needed for AWS CLI pip installation)
 export GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1
-export SKIP_INSTALL_REQUIREMENTS=true
+export SKIP_INSTALL_REQUIREMENTS=${SKIP_INSTALL_REQUIREMENTS:-true}
 run_setup_step "Python Virtual Environment" "scripts/dev/recreate_python_venv.sh"
 
 run_setup_step "AWS CLI Setup" "scripts/evergreen/setup_aws.sh"
