@@ -25,6 +25,9 @@ echo "Sourcing env variables for ${CODE_SNIPPETS_FLAVOR} flavor"
 test -f "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh" && source "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh"
 ${test_dir}/test.sh
 
+echo "Sleeping for 120s to let replicaset nodes restarted and configured with the search configuration."
+sleep 120
+
 test_dir="./docs/search/03-search-query-usage"
 echo "Sourcing env variables for ${CODE_SNIPPETS_FLAVOR} flavor"
 # shellcheck disable=SC1090
