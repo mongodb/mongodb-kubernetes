@@ -439,7 +439,7 @@ func (ac *AutomationConfig) EnsureKeyFileContents() error {
 // AuthSecretName for a given mdbName (`mdbName`) returns the name of
 // the secret associated with it.
 func AuthSecretName(mdbName string) string {
-	return fmt.Sprintf("%s-agent-auth-secre", mdbName)
+	return fmt.Sprintf("%s-agent-auth-secret", mdbName)
 }
 
 // EnsurePassword makes sure that there is an Automation Agent password

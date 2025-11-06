@@ -1,8 +1,14 @@
 import pytest
-from kubetester import create_or_update_configmap, random_k8s_name, read_configmap
+from kubetester import (
+    create_or_update_configmap,
+    create_or_update_secret,
+    random_k8s_name,
+    read_configmap,
+)
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
+from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase
 
@@ -44,6 +50,10 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
     E2E test suite for replica set creation, user connectivity with SCRAM-SHA-1 authentication and switching Ops Manager project reference.
     """
 
+    PASSWORD_SECRET_NAME = "mms-user-1-password"
+    USER_PASSWORD = "my-password"
+    USER_NAME = "mms-user-1"
+
     def test_create_replica_set(self, custom_mdb_version: str, replica_set: MongoDB):
         """
         Test replica set creation ensuring resources are applied correctly and set reaches Running phase.
@@ -67,6 +77,40 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
         tester.assert_authoritative_set(True)
         tester.assert_authentication_enabled(2)
         tester.assert_expected_users(0)
+
+    def test_create_secret(self):
+        print(f"creating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME} ")
+
+        create_or_update_secret(
+            KubernetesTester.get_namespace(),
+            self.PASSWORD_SECRET_NAME,
+            {
+                "password": self.USER_PASSWORD,
+            },
+        )
+
+    def test_create_user(self, namespace: str):
+        mdb = MongoDBUser.from_yaml(
+            load_fixture("scram-sha-user.yaml"),
+            namespace=namespace,
+        )
+        mdb["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
+
+        mdb.update()
+        mdb.assert_reaches_phase(Phase.Updated, timeout=150)
+
+    def test_ops_manager_state_with_users_correctly_updated(self, replica_set: MongoDB):
+        expected_roles = {
+            ("admin", "clusterAdmin"),
+            ("admin", "userAdminAnyDatabase"),
+            ("admin", "readWrite"),
+            ("admin", "userAdminAnyDatabase"),
+        }
+
+        tester = replica_set.get_automation_config_tester()
+        tester.assert_has_user(self.USER_NAME)
+        tester.assert_user_has_roles(self.USER_NAME, expected_roles)
+        tester.assert_expected_users(1)
 
     def test_switch_replica_set_project(
         self, custom_mdb_version: str, replica_set: MongoDB, namespace: str, project_name_prefix: str
@@ -107,4 +151,16 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_authoritative_set(True)
         tester.assert_authentication_enabled(2)
-        tester.assert_expected_users(0)
+
+    def test_ops_manager_state_with_users_correctly_updated_after_switch(self, replica_set: MongoDB):
+        expected_roles = {
+            ("admin", "clusterAdmin"),
+            ("admin", "userAdminAnyDatabase"),
+            ("admin", "readWrite"),
+            ("admin", "userAdminAnyDatabase"),
+        }
+
+        tester = replica_set.get_automation_config_tester()
+        tester.assert_has_user(self.USER_NAME)
+        tester.assert_user_has_roles(self.USER_NAME, expected_roles)
+        tester.assert_expected_users(1)

@@ -720,6 +720,16 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_ldap_switch_project
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_ldap_switch_project
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   # TODO: not used in any variant
   - name: e2e_replica_set_scram_x509_internal_cluster
     tags: [ "patch-run" ]

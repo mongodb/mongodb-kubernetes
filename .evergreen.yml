@@ -719,6 +719,8 @@ task_groups:
       - e2e_replica_set_scram_sha_256_switch_project
       - e2e_replica_set_scram_sha_1_switch_project
       - e2e_replica_set_x509_switch_project
+      - e2e_replica_set_ldap_switch_project
+      - e2e_sharded_cluster_ldap_switch_project
       # e2e_auth_transitions_task_group
       - e2e_replica_set_scram_sha_and_x509
       - e2e_replica_set_x509_to_scram_transition
