@@ -160,7 +160,9 @@ class TestReplicaSetLDAPProjectSwitch(KubernetesTester):
 
         replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_ops_manager_state_correctly_updated_in_moved_cluster(self, replica_set: MongoDB,  user_ldap: MongoDBUser, ca_path: str):
+    def test_ops_manager_state_correctly_updated_in_moved_cluster(
+        self, replica_set: MongoDB, user_ldap: MongoDBUser, ca_path: str
+    ):
         tester = replica_set.get_automation_config_tester()
         tester.assert_authentication_mechanism_enabled(LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=True)
         # tester.assert_expected_users(1)

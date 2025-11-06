@@ -49,7 +49,7 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
     """
     E2E test suite for replica set creation, user connectivity with SCRAM-SHA-256 authentication and switching Ops Manager project reference.
     """
-    
+
     PASSWORD_SECRET_NAME = "mms-user-1-password"
     USER_PASSWORD = "my-password"
     USER_NAME = "mms-user-1"
