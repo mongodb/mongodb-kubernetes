@@ -41,12 +41,18 @@ def download_kubectl_plugin_from_s3(
         # change the file's permissions to make file executable
         os.chmod(local_path, 0o755)
 
-        if copy_to_bin_path:
-            shutil.copyfile(local_path, KUBECTL_MONGODB_PLUGIN_BIN_PATH)
+        logger.info(f"Successfully downloaded artifact to {local_path}")
 
-        logger.info(
-            f"Successfully downloaded artifact to {local_path}{f" and {KUBECTL_MONGODB_PLUGIN_BIN_PATH}" if copy_to_bin_path else ""}"
-        )
+        if copy_to_bin_path:
+            kubectl_mongodb_workdir_path = os.path.join(os.getenv("workdir", ""), KUBECTL_MONGODB_PLUGIN_BIN_PATH)
+            # copy content, stat-info (mode too), timestamps..
+            shutil.copy2(local_path, kubectl_mongodb_workdir_path)
+            # preserve owner and group
+            st = os.stat(local_path)
+            os.chown(kubectl_mongodb_workdir_path, st.st_uid, st.st_gid)
+
+            logger.info(f"Copied kubectl-mongodb plugin to {kubectl_mongodb_workdir_path} for tests usage")
+
     except ClientError as e:
         if e.response["Error"]["Code"] == "404":
             raise Exception(f"Artifact not found at s3://{s3_bucket}/{s3_plugin_path}: {e}")
