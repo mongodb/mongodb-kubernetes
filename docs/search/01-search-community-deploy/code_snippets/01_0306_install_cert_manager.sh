@@ -1,10 +1,10 @@
-helm repo add jetstack https://charts.jetstack.io --force-update >/dev/null 2>&1 || true
 helm upgrade --install \
-  cert-manager jetstack/cert-manager \
+  cert-manager \
+  oci://quay.io/jetstack/charts/cert-manager \
   --kube-context "${K8S_CTX}" \
   --namespace "${CERT_MANAGER_NAMESPACE}" \
   --create-namespace \
-  --set crds.enabled=true >/dev/null 2>&1
+  --set crds.enabled=true
 
 for deployment in cert-manager cert-manager-cainjector cert-manager-webhook; do
   kubectl --context "${K8S_CTX}" \
