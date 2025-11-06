@@ -432,4 +432,4 @@ spec:
             - name: MDB_SEARCH_NAME
               value: "mongodb-search"
             - name: MDB_SEARCH_VERSION
-              value: "0.53.1"
+              value: "0.55.0"
