@@ -2,7 +2,7 @@ server_certificate="${MDB_RESOURCE_NAME}-server-tls"
 search_certificate="${MDB_RESOURCE_NAME}-search-tls"
 
 mongo_dns_names=()
-for ((member = 0; member < ${MDB_MEMBERS}; member++)); do
+for ((member = 0; member < MDB_MEMBERS; member++)); do
   mongo_dns_names+=("${MDB_RESOURCE_NAME}-${member}")
   mongo_dns_names+=("${MDB_RESOURCE_NAME}-${member}.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local")
 done
