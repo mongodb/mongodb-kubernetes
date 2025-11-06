@@ -18,9 +18,9 @@ spec:
       modes:
       - SCRAM
     certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-      tls:
-        enabled: true
-        ca: ${MDB_TLS_CA_CONFIGMAP}
+    tls:
+      enabled: true
+      ca: ${MDB_TLS_CA_CONFIGMAP}
   agent:
     logLevel: INFO
   podSpec:
