@@ -19,7 +19,7 @@ spec:
   volumes:
   - name: mongo-ca
     configMap:
-      name: ${MDB_TLS_CA_CONFIGMAP}
+      name: ${MDB_TLS_CA_CONFIGMAP:-"${MDB_RESOURCE_NAME}-ca-configmap"}
       optional: true
       items:
       - key: ca.crt
