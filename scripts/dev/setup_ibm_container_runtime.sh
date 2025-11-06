@@ -3,7 +3,7 @@
 set -Eeou pipefail
 
 echo "Installing/upgrading crun..."
-sudo dnf upgrade -y crun || sudo dnf install -y crun || sudo yum upgrade -y crun || sudo yum install -y crun
+sudo dnf upgrade -y crun --disableplugin=subscription-manager || sudo dnf install -y crun --disableplugin=subscription-manager || sudo yum upgrade -y crun || sudo yum install -y crun
 
 if ! crun --version &>/dev/null; then
   echo "❌ crun installation failed"
