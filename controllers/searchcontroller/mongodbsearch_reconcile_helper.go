@@ -391,6 +391,7 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 		if prometheus := search.GetPrometheus(); prometheus != nil {
 			port := search.GetMongotMetricsPort()
 			if prometheus.Port != 0 {
+				//nolint:gosec
 				port = int32(prometheus.Port)
 			}
 			config.Metrics = mongot.ConfigMetrics{

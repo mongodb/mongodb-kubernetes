@@ -234,6 +234,7 @@ func (s *MongoDBSearch) GetMongotMetricsPort() int32 {
 		return MongotDefaultPrometheusPort
 	}
 
+	//nolint:gosec
 	return int32(s.Spec.Prometheus.Port)
 }
 
