@@ -25,10 +25,6 @@ from scripts.release.agent.validation import (
     generate_tools_build_args,
 )
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
-from scripts.release.build.image_build_process import (
-    check_if_image_exists,
-    execute_docker_build,
-)
 from scripts.release.build.image_signing import (
     mongodb_artifactory_login,
     sign_image,
@@ -62,6 +58,7 @@ def build_image(
     Build an image, sign (optionally) it, then tag and push to all repositories in the registry list.
     """
     image_name = build_configuration.image_name()
+    builder = build_configuration.builder
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
 
@@ -82,7 +79,7 @@ def build_image(
             arch_suffix = f"-{build_configuration.platforms[0].split("/")[1]}"
 
         tag = f"{registry}:{build_configuration.version}{arch_suffix}"
-        if build_configuration.skip_if_exists and check_if_image_exists(tag):
+        if build_configuration.skip_if_exists and builder.check_if_image_exists(tag):
             logger.info(f"Image with tag {tag} already exists. Skipping it.")
         else:
             tags.append(tag)
@@ -96,16 +93,11 @@ def build_image(
         logger.info("All specified image tags already exist. Skipping build.")
         return
 
-    logger.info(
-        f"Building image with tags {tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
-    )
-
-    execute_docker_build(
+    builder.build_image(
         tags=tags,
         dockerfile=build_configuration.dockerfile_path,
         path=build_path,
         args=build_args,
-        push=True,
         platforms=build_configuration.platforms,
     )
 

@@ -1,7 +1,12 @@
 import argparse
 
+from scripts.release.build.build_info import BUILDER_DOCKER, BUILDER_PODMAN
 from scripts.release.build.build_scenario import BuildScenario
 from scripts.release.build.image_build_configuration import SUPPORTED_PLATFORMS
+from scripts.release.build.image_build_process import (
+    DockerImageBuilder,
+    PodmanImageBuilder,
+)
 
 
 def str2bool(v):
@@ -32,3 +37,12 @@ def get_platforms_from_arg(args_platforms: str) -> list[str] | None:
             f"Unsupported platform in --platforms '{args_platforms}'. Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}"
         )
     return platforms
+
+
+def get_image_builder_from_arg(builder_name: str):
+    if builder_name == BUILDER_DOCKER:
+        return DockerImageBuilder()
+    elif builder_name == BUILDER_PODMAN:
+        return PodmanImageBuilder()
+    else:
+        raise ValueError(f"Unsupported image builder '{builder_name}'. Supported builders: docker, podman")

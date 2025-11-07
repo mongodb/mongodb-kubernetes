@@ -49,6 +49,7 @@ variables:
       - READINESS_PROBE_VERSION
       - VERSION_UPGRADE_HOOK_VERSION
       - BUILD_SCENARIO
+      - MDB_BASH_DEBUG
 
 functions:
 
@@ -294,6 +295,9 @@ functions:
     - command: subprocess.exec
       type: setup
       params:
+        env:
+          SKIP_MINIKUBE_SETUP: ${skip_minikube_setup!|false}
+          SKIP_INSTALL_REQUIREMENTS: ${skip_install_python_requirements!|true}
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
@@ -522,15 +526,8 @@ functions:
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/kubectl_mongodb/download_kubectl_plugin.sh
-
-  build_test_image_ibm:
-    - command: subprocess.exec
-      params:
-        shell: bash
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        add_to_path:
-          - ${workdir}/bin
-        binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
+        env:
+          PLATFORM: ${platform}
 
   pipeline:
     - command: subprocess.exec
@@ -540,6 +537,8 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
         binary: scripts/release/pipeline.sh
         env:
           IMAGE_NAME: ${image_name}
@@ -771,18 +770,14 @@ functions:
   #
   # Code snippet test automation
   #
-
-  sample_commit_output:
-    - command: github.generate_token
-      params:
-        expansion_name: GH_TOKEN
+  archive_snippets_output:
     - command: subprocess.exec
       params:
         include_expansions_in_env:
           - GH_TOKEN
-          - code_snippets_commit_output
+          - MDB_BASH_DEBUG
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/code_snippets/sample_commit_output.sh
+        binary: scripts/code_snippets/archive_snippets_output.sh
 
   # it executes a script by convention: ./scripts/code_snippets/tests/${task_name}
   test_code_snippets:
@@ -795,6 +790,7 @@ functions:
           - code_snippets_teardown
           - code_snippets_reset
           - task_name
+          - MDB_BASH_DEBUG
         script: |
           ./scripts/code_snippets/tests/${task_name}
 
@@ -848,6 +844,8 @@ functions:
           - workdir
           - triggered_by_git_tag
           - OPERATOR_VERSION
+          - STAGING_VERSION_OVERRIDE
+          - SKIP_GITHUB_RELEASE_UPLOAD
         env:
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
