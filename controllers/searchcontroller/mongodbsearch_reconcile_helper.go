@@ -76,7 +76,7 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
 		return workflow.Failed(err)
 	}
-	return workflow.OK()
+	return workflowStatus
 }
 
 func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
@@ -312,7 +312,7 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		SetLabels(labels).
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetClusterIP("None").
-		SetPublishNotReadyAddresses(true).
+		SetPublishNotReadyAddresses(false).
 		SetOwnerReferences(search.GetOwnerReferences())
 
 	if search.IsWireprotoEnabled() {
@@ -331,12 +331,14 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		TargetPort: intstr.FromInt32(search.GetMongotGrpcPort()),
 	})
 
-	serviceBuilder.AddPort(&corev1.ServicePort{
-		Name:       "metrics",
-		Protocol:   corev1.ProtocolTCP,
-		Port:       search.GetMongotMetricsPort(),
-		TargetPort: intstr.FromInt32(search.GetMongotMetricsPort()),
-	})
+	if search.GetPrometheus() != nil {
+		serviceBuilder.AddPort(&corev1.ServicePort{
+			Name:       "prometheus",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       search.GetMongotMetricsPort(),
+			TargetPort: intstr.FromInt32(search.GetMongotMetricsPort()),
+		})
+	}
 
 	serviceBuilder.AddPort(&corev1.ServicePort{
 		Name:       "healthcheck",
@@ -385,10 +387,18 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 				},
 			}
 		}
-		config.Metrics = mongot.ConfigMetrics{
-			Enabled: true,
-			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotMetricsPort()),
+
+		if prometheus := search.GetPrometheus(); prometheus != nil {
+			port := search.GetMongotMetricsPort()
+			if prometheus.Port != 0 {
+				port = int32(prometheus.Port)
+			}
+			config.Metrics = mongot.ConfigMetrics{
+				Enabled: true,
+				Address: fmt.Sprintf("0.0.0.0:%d", port),
+			}
 		}
+
 		config.HealthCheck = mongot.ConfigHealthCheck{
 			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
 		}

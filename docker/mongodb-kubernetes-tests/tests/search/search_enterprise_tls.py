@@ -1,5 +1,5 @@
 import yaml
-from kubetester import create_or_update_secret, run_periodically, try_load
+from kubetester import create_or_update_secret, run_periodically, try_load, get_service, kubetester
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -213,6 +213,38 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
 
 @mark.e2e_search_enterprise_tls
+def test_search_verify_prometheus_disabled_initially(mdbs: MongoDBSearch):
+    assert_search_service_prometheus_port(mdbs, should_exist=False)
+    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=False)
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_enable_prometheus_on_default_port(mdbs: MongoDBSearch):
+    mdbs["spec"]["prometheus"] = {}
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_verify_prometheus_enabled(mdbs: MongoDBSearch):
+    assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=9946)
+    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=True, port=9946)
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_change_prometheus_to_custom_port(mdbs: MongoDBSearch):
+    mdbs["spec"]["prometheus"] = {"port": 10000}
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_verify_prometheus_enabled_on_custom_port(mdbs: MongoDBSearch):
+    assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=10000)
+    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=True, port=10000)
+
+
+@mark.e2e_search_enterprise_tls
 def test_search_restore_sample_database(mdb: MongoDB):
     get_admin_sample_movies_helper(mdb).restore_sample_database()
 
@@ -247,3 +279,44 @@ def get_user_sample_movies_helper(mdb):
             get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=True, ca_path=get_issuer_ca_filepath()
         )
     )
+
+
+def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: bool, expected_port: int = 9946):
+    service_name = f"{mdbs.name}-search-svc"
+    service = get_service(mdbs.namespace, service_name)
+
+    assert service is not None, f"Service {service_name} should exist"
+
+    ports = {p.name: p.port for p in service.spec.ports}
+
+    if should_exist:
+        assert "prometheus" in ports, "Prometheus port should be in service when prometheus is enabled"
+        assert ports["prometheus"] == expected_port, f"Prometheus port should be {expected_port} but was {ports['prometheus']}"
+    else:
+        assert "prometheus" not in ports, "Prometheus port should not be in service when prometheus is disabled"
+
+
+def assert_search_pod_prometheus_endpoint(mdbs: MongoDBSearch, should_be_accessible: bool, port: int = 9946):
+    pod_name = f"{mdbs.name}-search-0"
+    url = f"http://localhost:{port}/metrics"
+
+    if should_be_accessible:
+        result = KubernetesTester.run_command_in_pod_container(
+            pod_name,
+            mdbs.namespace,
+            ["curl", "-f", url],
+            container="mongot"
+        )
+        assert "# HELP" in result or "# TYPE" in result, f"Prometheus metrics endpoint should return valid metrics, got: {result[:200]}"
+        logger.info(f"Prometheus endpoint is accessible and returning metrics")
+    else:
+        try:
+            result = KubernetesTester.run_command_in_pod_container(
+                pod_name,
+                mdbs.namespace,
+                ["curl", "-f", url],
+                container_name="mongot"
+            )
+            assert False, f"Prometheus endpoint should not be accessible but got: {result}"
+        except Exception as e:
+            logger.info(f"Expected failure: Prometheus endpoint is not accessible: {e}")

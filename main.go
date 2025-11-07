@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	golog "log"
 	"os"
 	"runtime/debug"
 	"slices"
@@ -528,8 +529,8 @@ func getOperatorEnv() util.OperatorEnvironment {
 	operatorEnv := util.OperatorEnvironment(operatorFromEnv)
 	if !validateOperatorEnv(operatorEnv) {
 		operatorEnvOnce.Do(func() {
-			log.Infof("Configured environment %s, not recognized. Must be one of %v", operatorEnv, operatorEnvironments)
-			log.Infof("Using default environment, %s, instead", util.OperatorEnvironmentDev)
+			golog.Printf("Configured environment %s, not recognized. Must be one of %v", operatorEnv, operatorEnvironments)
+			golog.Printf("Using default environment, %s, instead", util.OperatorEnvironmentDev)
 		})
 		operatorEnv = util.OperatorEnvironmentDev
 	}
