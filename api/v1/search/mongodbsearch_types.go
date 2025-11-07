@@ -38,6 +38,15 @@ type Prometheus struct {
 	Port int `json:"port,omitempty"`
 }
 
+func (p *Prometheus) GetPort() int32 {
+	if p.Port == 0 {
+		return MongotDefaultPrometheusPort
+	}
+
+	//nolint:gosec
+	return int32(p.Port)
+}
+
 type MongoDBSearchSpec struct {
 	// Optional version of MongoDB Search component (mongot). If not set, then the operator will set the most appropriate version of MongoDB Search.
 	// +optional
@@ -227,15 +236,6 @@ func (s *MongoDBSearch) GetMongotWireprotoPort() int32 {
 
 func (s *MongoDBSearch) GetMongotGrpcPort() int32 {
 	return MongotDefaultGrpcPort
-}
-
-func (s *MongoDBSearch) GetMongotMetricsPort() int32 {
-	if s.Spec.Prometheus == nil || s.Spec.Prometheus.Port == 0 {
-		return MongotDefaultPrometheusPort
-	}
-
-	//nolint:gosec
-	return int32(s.Spec.Prometheus.Port)
 }
 
 // TLSSecretNamespacedName will get the namespaced name of the Secret containing the server certificate and key

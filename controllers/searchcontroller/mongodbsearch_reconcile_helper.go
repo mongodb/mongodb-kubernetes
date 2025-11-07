@@ -331,12 +331,12 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		TargetPort: intstr.FromInt32(search.GetMongotGrpcPort()),
 	})
 
-	if search.GetPrometheus() != nil {
+	if prometheus := search.GetPrometheus(); prometheus != nil {
 		serviceBuilder.AddPort(&corev1.ServicePort{
 			Name:       "prometheus",
 			Protocol:   corev1.ProtocolTCP,
-			Port:       search.GetMongotMetricsPort(),
-			TargetPort: intstr.FromInt32(search.GetMongotMetricsPort()),
+			Port:       prometheus.GetPort(),
+			TargetPort: intstr.FromInt32(prometheus.GetPort()),
 		})
 	}
 
@@ -389,14 +389,9 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 		}
 
 		if prometheus := search.GetPrometheus(); prometheus != nil {
-			port := search.GetMongotMetricsPort()
-			if prometheus.Port != 0 {
-				//nolint:gosec
-				port = int32(prometheus.Port)
-			}
 			config.Metrics = mongot.ConfigMetrics{
 				Enabled: true,
-				Address: fmt.Sprintf("0.0.0.0:%d", port),
+				Address: fmt.Sprintf("0.0.0.0:%d", prometheus.GetPort()),
 			}
 		}
 
@@ -484,9 +479,9 @@ func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
 		return ""
 	}
 
-	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
-		if container.Name == MongotContainerName {
-			return container.Image
+	for _, c := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
+		if c.Name == MongotContainerName {
+			return c.Image
 		}
 	}
 

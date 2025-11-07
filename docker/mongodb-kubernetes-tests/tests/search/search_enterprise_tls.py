@@ -295,7 +295,6 @@ def get_user_sample_movies_helper(mdb):
 def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: bool, expected_port: int = 9946):
     service_name = f"{mdbs.name}-search-svc"
     service = get_service(mdbs.namespace, service_name)
-
     assert service is not None
 
     ports = {p.name: p.port for p in service.spec.ports}
@@ -308,6 +307,10 @@ def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: boo
 
 
 def deploy_mongodb_tools_pod(namespace: str):
+    """
+    Deploys a bastion pod to perform connectivty checks using pod exec. It's similar to how we
+    run connectivity checks in snippets.
+    """
     from kubetester import get_pod_when_ready
 
     pod_body = {
@@ -345,6 +348,8 @@ def assert_search_pod_prometheus_endpoint(mdbs: MongoDBSearch, should_be_accessi
     url = f"http://{service_fqdn}:{port}/metrics"
 
     if should_be_accessible:
+        # We don't necessarily need the connectivity test to run via a bastion pod as we could connect to it directly when running test in pod.
+        # But it's not requiring forwarding when running locally.
         result = KubernetesTester.run_command_in_pod_container(
             "mongodb-tools-pod", mdbs.namespace, ["curl", "-f", "-s", url], container="mongodb-tools"
         )

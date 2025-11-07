@@ -8,6 +8,7 @@ import (
 
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,12 +23,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func newMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
@@ -135,10 +136,6 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			},
 			Wireproto: wireprotoServer,
 		},
-		Metrics: mongot.ConfigMetrics{
-			Enabled: true,
-			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotMetricsPort()),
-		},
 		HealthCheck: mongot.ConfigHealthCheck{
 			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
 		},
@@ -205,22 +202,16 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
 			reconciler, c := newSearchReconciler(mdbc, search)
 
-			res, err := reconciler.Reconcile(
-				ctx,
-				reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}},
-			)
-			expected, _ := workflow.OK().ReconcileResult()
-			assert.NoError(t, err)
-			assert.Equal(t, expected, res)
+			checkSearchReconcileSuccessful(ctx, t, reconciler, c, search)
 
 			svc := &corev1.Service{}
-			err = c.Get(ctx, search.SearchServiceNamespacedName(), svc)
+			err := c.Get(ctx, search.SearchServiceNamespacedName(), svc)
 			assert.NoError(t, err)
 			servicePortNames := []string{}
 			for _, port := range svc.Spec.Ports {
 				servicePortNames = append(servicePortNames, port.Name)
 			}
-			expectedPortNames := []string{"mongot-grpc", "metrics", "healthcheck"}
+			expectedPortNames := []string{"mongot-grpc", "healthcheck"}
 			if tc.withWireproto {
 				expectedPortNames = append(expectedPortNames, "mongot-wireproto")
 			}
@@ -254,12 +245,40 @@ func checkSearchReconcileFailed(
 		reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}},
 	)
 	assert.NoError(t, err)
-	assert.True(t, res.RequeueAfter > 0)
+	assert.Less(t, res.RequeueAfter, util.TWENTY_FOUR_HOURS)
 
 	updated := &searchv1.MongoDBSearch{}
 	assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updated))
 	assert.Equal(t, status.PhaseFailed, updated.Status.Phase)
 	assert.Contains(t, updated.Status.Message, expectedMsg)
+}
+
+// checkSearchReconcileSuccessful performs reconcile to check if it gets to a Running state.
+// In case it's a first reconcile and still Pending it's retried with mocked sts simulated as ready.
+func checkSearchReconcileSuccessful(
+	ctx context.Context,
+	t *testing.T,
+	reconciler *MongoDBSearchReconciler,
+	c client.Client,
+	search *searchv1.MongoDBSearch,
+) {
+	namespacedName := types.NamespacedName{Name: search.Name, Namespace: search.Namespace}
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+	require.NoError(t, err)
+	mdbs := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, namespacedName, mdbs))
+	if mdbs.Status.Phase == status.PhasePending {
+		// mark mocked search statefulset as ready to not return Pending this time
+		require.NoError(t, mock.MarkAllStatefulSetsAsReady(ctx, search.Namespace, c))
+
+		res, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+		require.NoError(t, err)
+		mdbs = &searchv1.MongoDBSearch{}
+		require.NoError(t, c.Get(ctx, namespacedName, mdbs))
+	}
+
+	require.Equal(t, util.TWENTY_FOUR_HOURS, res.RequeueAfter)
+	require.Equal(t, status.PhaseRunning, mdbs.Status.Phase)
 }
 
 func TestMongoDBSearchReconcile_InvalidVersion(t *testing.T) {

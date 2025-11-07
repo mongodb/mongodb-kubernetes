@@ -4134,7 +4134,7 @@ spec:
                 properties:
                   port:
                     description: Port where metrics endpoint will be exposed on. Defaults
-                      to 9216.
+                      to 9946.
                     maximum: 65535
                     minimum: 0
                     type: integer
