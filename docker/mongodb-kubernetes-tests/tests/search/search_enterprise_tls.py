@@ -219,6 +219,11 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
 
 @mark.e2e_search_enterprise_tls
+def test_search_deploy_tools_pod(namespace: str):
+    deploy_mongodb_tools_pod(namespace)
+
+
+@mark.e2e_search_enterprise_tls
 def test_search_verify_prometheus_disabled_initially(mdbs: MongoDBSearch):
     assert_search_service_prometheus_port(mdbs, should_exist=False)
     assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=False)
@@ -291,36 +296,69 @@ def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: boo
     service_name = f"{mdbs.name}-search-svc"
     service = get_service(mdbs.namespace, service_name)
 
-    assert service is not None, f"Service {service_name} should exist"
+    assert service is not None
 
     ports = {p.name: p.port for p in service.spec.ports}
 
     if should_exist:
-        assert "prometheus" in ports, "Prometheus port should be in service when prometheus is enabled"
-        assert (
-            ports["prometheus"] == expected_port
-        ), f"Prometheus port should be {expected_port} but was {ports['prometheus']}"
+        assert "prometheus" in ports
+        assert ports["prometheus"] == expected_port
     else:
-        assert "prometheus" not in ports, "Prometheus port should not be in service when prometheus is disabled"
+        assert "prometheus" not in ports
+
+
+def deploy_mongodb_tools_pod(namespace: str):
+    from kubetester import get_pod_when_ready
+
+    pod_body = {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": "mongodb-tools-pod",
+            "labels": {"app": "mongodb-tools"},
+        },
+        "spec": {
+            "containers": [
+                {
+                    "name": "mongodb-tools",
+                    "image": "mongodb/mongodb-community-server:8.0-ubi8",
+                    "command": ["/bin/bash", "-c"],
+                    "args": ["sleep infinity"],
+                }
+            ],
+            "restartPolicy": "Never",
+        },
+    }
+
+    try:
+        KubernetesTester.create_pod(namespace, pod_body)
+        logger.info(f"Created mongodb-tools-pod in namespace {namespace}")
+    except Exception as e:
+        logger.info(f"Pod may already exist: {e}")
+
+    get_pod_when_ready(namespace, "app=mongodb-tools", default_retry=60)
+    logger.info("mongodb-tools-pod is ready")
 
 
 def assert_search_pod_prometheus_endpoint(mdbs: MongoDBSearch, should_be_accessible: bool, port: int = 9946):
-    pod_name = f"{mdbs.name}-search-0"
-    url = f"http://localhost:{port}/metrics"
+    service_fqdn = f"{mdbs.name}-search-svc.{mdbs.namespace}.svc.cluster.local"
+    url = f"http://{service_fqdn}:{port}/metrics"
 
     if should_be_accessible:
         result = KubernetesTester.run_command_in_pod_container(
-            pod_name, mdbs.namespace, ["curl", "-f", url], container="mongot"
+            "mongodb-tools-pod", mdbs.namespace, ["curl", "-f", "-s", url], container="mongodb-tools"
         )
-        assert (
-            "# HELP" in result or "# TYPE" in result
-        ), f"Prometheus metrics endpoint should return valid metrics, got: {result[:200]}"
-        logger.info(f"Prometheus endpoint is accessible and returning metrics")
+        assert "# HELP" in result or "# TYPE" in result
+
+        logger.info(f"Prometheus endpoint is accessible at {url} and returning metrics")
     else:
         try:
             result = KubernetesTester.run_command_in_pod_container(
-                pod_name, mdbs.namespace, ["curl", "-f", url], container_name="mongot"
+                "mongodb-tools-pod",
+                mdbs.namespace,
+                ["curl", "-f", "-s", "--max-time", "5", url],
+                container="mongodb-tools",
             )
             assert False, f"Prometheus endpoint should not be accessible but got: {result}"
         except Exception as e:
-            logger.info(f"Expected failure: Prometheus endpoint is not accessible: {e}")
+            logger.info(f"Expected failure: Prometheus endpoint is not accessible at {url}: {e}")
