@@ -20,19 +20,17 @@ python-dateutil==2.9.0.post0
 python-ldap==3.4.5
 GitPython==3.1.45
 setuptools>=71.0.3 # not directly required, pinned by Snyk to avoid a vulnerability
-opentelemetry-api
-opentelemetry-sdk
+opentelemetry-api==1.38.0
+opentelemetry-sdk==1.38.0
 pytest-opentelemetry==1.1.0
-jedi
-rope
 black==25.9.0
-flake8
+flake8==7.3.0
 isort==7.0.0
 shrub.py==3.10.0
 pytest-mock==3.15.1
-wrapt==2.0.0
-botocore==1.40.65
-boto3==1.40.65
+wrapt==1.17.3
+botocore==1.40.68
+boto3==1.40.68
 python-frontmatter==1.1.0
 python-on-whales==0.79.0
 yamale==6.0.0
