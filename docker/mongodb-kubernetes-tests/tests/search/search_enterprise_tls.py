@@ -1,5 +1,11 @@
 import yaml
-from kubetester import create_or_update_secret, run_periodically, try_load, get_service, kubetester
+from kubetester import (
+    create_or_update_secret,
+    get_service,
+    kubetester,
+    run_periodically,
+    try_load,
+)
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -291,7 +297,9 @@ def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: boo
 
     if should_exist:
         assert "prometheus" in ports, "Prometheus port should be in service when prometheus is enabled"
-        assert ports["prometheus"] == expected_port, f"Prometheus port should be {expected_port} but was {ports['prometheus']}"
+        assert (
+            ports["prometheus"] == expected_port
+        ), f"Prometheus port should be {expected_port} but was {ports['prometheus']}"
     else:
         assert "prometheus" not in ports, "Prometheus port should not be in service when prometheus is disabled"
 
@@ -302,20 +310,16 @@ def assert_search_pod_prometheus_endpoint(mdbs: MongoDBSearch, should_be_accessi
 
     if should_be_accessible:
         result = KubernetesTester.run_command_in_pod_container(
-            pod_name,
-            mdbs.namespace,
-            ["curl", "-f", url],
-            container="mongot"
+            pod_name, mdbs.namespace, ["curl", "-f", url], container="mongot"
         )
-        assert "# HELP" in result or "# TYPE" in result, f"Prometheus metrics endpoint should return valid metrics, got: {result[:200]}"
+        assert (
+            "# HELP" in result or "# TYPE" in result
+        ), f"Prometheus metrics endpoint should return valid metrics, got: {result[:200]}"
         logger.info(f"Prometheus endpoint is accessible and returning metrics")
     else:
         try:
             result = KubernetesTester.run_command_in_pod_container(
-                pod_name,
-                mdbs.namespace,
-                ["curl", "-f", url],
-                container_name="mongot"
+                pod_name, mdbs.namespace, ["curl", "-f", url], container_name="mongot"
             )
             assert False, f"Prometheus endpoint should not be accessible but got: {result}"
         except Exception as e:
