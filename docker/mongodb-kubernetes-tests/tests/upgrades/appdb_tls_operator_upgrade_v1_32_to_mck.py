@@ -7,15 +7,17 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import (
+    get_default_operator,
+    get_multi_cluster_operator,
+    install_official_operator,
+    is_multi_cluster,
+)
+from tests.constants import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_CHART,
     LEGACY_OPERATOR_IMAGE_NAME,
     LEGACY_OPERATOR_NAME,
     MULTI_CLUSTER_OPERATOR_NAME,
-    get_default_operator,
-    get_multi_cluster_operator,
-    install_official_operator,
-    is_multi_cluster,
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 from tests.upgrades import downscale_operator_deployment

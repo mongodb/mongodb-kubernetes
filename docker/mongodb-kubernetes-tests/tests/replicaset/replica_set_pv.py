@@ -6,7 +6,7 @@ from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
-from tests.conftest import LEGACY_OPERATOR_NAME, OPERATOR_NAME
+from tests.constants import LEGACY_OPERATOR_NAME, OPERATOR_NAME
 
 
 @pytest.mark.e2e_replica_set_pv

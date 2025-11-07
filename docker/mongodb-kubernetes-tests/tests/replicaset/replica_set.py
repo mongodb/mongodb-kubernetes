@@ -17,13 +17,11 @@ from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase
 from pytest import fixture
 from tests.conftest import (
-    DATABASE_SA_NAME,
-    LEGACY_OPERATOR_NAME,
-    OPERATOR_NAME,
     assert_log_rotation_backup_monitoring,
     assert_log_rotation_process,
     setup_log_rotate_for_agents,
 )
+from tests.constants import DATABASE_SA_NAME, LEGACY_OPERATOR_NAME, OPERATOR_NAME
 
 DEFAULT_BACKUP_VERSION = "11.12.0.7388-1"
 DEFAULT_MONITORING_AGENT_VERSION = "11.12.0.7388-1"

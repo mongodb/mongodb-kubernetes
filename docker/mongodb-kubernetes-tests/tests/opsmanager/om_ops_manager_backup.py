@@ -23,7 +23,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from kubetester.test_identifiers import set_test_identifier
 from pytest import fixture, mark
-from tests.conftest import AWS_REGION, is_multi_cluster
+from tests.conftest import is_multi_cluster
+from tests.constants import AWS_REGION
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 

@@ -7,7 +7,6 @@ from kubetester.mongodb import MongoDB
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from tests.conftest import (
-    LEGACY_CENTRAL_CLUSTER_NAME,
     get_central_cluster_client,
     get_central_cluster_name,
     get_default_operator,
@@ -19,6 +18,7 @@ from tests.conftest import (
     is_multi_cluster,
     read_deployment_state,
 )
+from tests.constants import LEGACY_CENTRAL_CLUSTER_NAME
 from tests.multicluster.conftest import cluster_spec_list
 
 

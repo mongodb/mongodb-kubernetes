@@ -11,12 +11,14 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import (
-    LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
-    MULTI_CLUSTER_OPERATOR_NAME,
     get_central_cluster_name,
     get_custom_appdb_version,
     install_legacy_deployment_state_meko,
     log_deployments_info,
+)
+from tests.constants import (
+    LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
+    MULTI_CLUSTER_OPERATOR_NAME,
 )
 from tests.multicluster.conftest import cluster_spec_list
 from tests.upgrades import downscale_operator_deployment

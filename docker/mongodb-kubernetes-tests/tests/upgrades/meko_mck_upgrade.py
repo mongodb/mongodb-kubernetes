@@ -13,18 +13,18 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.common.constants import MONGODB_PORT
 from tests.conftest import (
+    get_multi_cluster_operator,
+    is_multi_cluster,
+    log_deployments_info,
+)
+from tests.constants import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_NAME,
     LOCAL_HELM_CHART_DIR,
     MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
     MULTI_CLUSTER_OPERATOR_NAME,
     OPERATOR_NAME,
-    get_multi_cluster_operator,
-    is_multi_cluster,
-    log_deployments_info,
-    setup_log_rotate_for_agents,
 )
 from tests.multicluster.conftest import cluster_spec_list
 from tests.multicluster_appdb.multicluster_appdb_upgrade_downgrade_v1_27_to_mck import (

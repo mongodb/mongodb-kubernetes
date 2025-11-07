@@ -5,7 +5,7 @@ from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
 from kubetester.multicluster_client import MultiClusterClient
 from tests import test_logger
-from tests.conftest import LOCAL_HELM_CHART_DIR
+from tests.constants import LOCAL_HELM_CHART_DIR
 
 logger = test_logger.get_test_logger(__name__)
 

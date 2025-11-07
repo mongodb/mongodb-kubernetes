@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import time
 from typing import Dict, List, Optional
 
@@ -18,7 +17,7 @@ from kubetester.helm import (
     helm_upgrade,
 )
 from tests import test_logger
-from tests.conftest import LOCAL_HELM_CHART_DIR
+from tests.constants import LOCAL_HELM_CHART_DIR
 
 OPERATOR_CRDS = (
     "mongodb.mongodb.com",
