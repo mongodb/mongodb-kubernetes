@@ -37,10 +37,7 @@ func GetMultiServiceFQDN(stsName string, namespace string, clusterNum int, podNu
 		domain = strings.TrimPrefix(clusterDomain, ".")
 	}
 
-	// For StatefulSet pods, DNS format is: <pod-name>.<headless-service>.<namespace>.svc.<domain>
-	podName := GetMultiPodName(stsName, clusterNum, podNum)
-	headlessService := GetMultiHeadlessServiceName(stsName, clusterNum)
-	return fmt.Sprintf("%s.%s.%s.svc.%s", podName, headlessService, namespace, domain)
+	return fmt.Sprintf("%s.%s.svc.%s", GetMultiServiceName(stsName, clusterNum, podNum), namespace, domain)
 }
 
 func GetMultiServiceExternalDomain(stsName, externalDomain string, clusterNum, podNum int) string {
