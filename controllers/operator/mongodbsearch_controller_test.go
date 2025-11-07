@@ -204,7 +204,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, string(configYaml), cm.Data[searchcontroller.MongotConfigFilename])
 
-	markStatefulSetReady(ctx, t, c, search.StatefulSetNamespacedName())
+	assert.NoError(t, mock.MarkAllStatefulSetsAsReady(ctx, search.StatefulSetNamespacedName().Namespace, c))
 
 	res, err = reconciler.Reconcile(
 		ctx,
@@ -314,19 +314,4 @@ func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 			checkSearchReconcileFailed(ctx, t, reconciler, reconciler.kubeClient, search, expectedMsg)
 		})
 	}
-}
-
-func markStatefulSetReady(ctx context.Context, t *testing.T, c client.Client, name types.NamespacedName) {
-	t.Helper()
-
-	sts := &appsv1.StatefulSet{}
-	assert.NoError(t, c.Get(ctx, name, sts))
-
-	sts.Status.UpdatedReplicas = 1
-	sts.Status.ReadyReplicas = 1
-	sts.Status.CurrentReplicas = 1
-	sts.Status.Replicas = 1
-	sts.Status.ObservedGeneration = sts.Generation
-
-	assert.NoError(t, c.Status().Update(ctx, sts))
 }
