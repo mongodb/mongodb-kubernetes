@@ -31,7 +31,7 @@ func init() {
 }
 
 type Prometheus struct {
-	// Port where metrics endpoint will be exposed on. Defaults to 9216.
+	// Port where metrics endpoint will be exposed on. Defaults to 9946.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=65535
