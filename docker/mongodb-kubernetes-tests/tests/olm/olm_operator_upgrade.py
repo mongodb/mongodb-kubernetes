@@ -5,7 +5,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import get_default_architecture
 from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
-from tests.conftest import OPERATOR_NAME
+from tests.constants import OPERATOR_NAME
 from tests.olm.olm_test_commons import (
     get_catalog_image,
     get_catalog_source_resource,

@@ -17,7 +17,8 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import AWS_REGION, is_multi_cluster
+from tests.conftest import is_multi_cluster
+from tests.constants import AWS_REGION
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 HEAD_PATH = "/head/"

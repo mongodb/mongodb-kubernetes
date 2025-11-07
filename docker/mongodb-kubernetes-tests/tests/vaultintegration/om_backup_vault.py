@@ -24,7 +24,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
-from ..conftest import (
+from ..constants import (
     APPDB_SA_NAME,
     AWS_REGION,
     DATABASE_SA_NAME,
