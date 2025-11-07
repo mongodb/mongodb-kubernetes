@@ -49,6 +49,7 @@ variables:
       - READINESS_PROBE_VERSION
       - VERSION_UPGRADE_HOOK_VERSION
       - BUILD_SCENARIO
+      - MDB_BASH_DEBUG
 
 functions:
 
@@ -523,6 +524,8 @@ functions:
   download_multi_cluster_binary:
     - command: subprocess.exec
       params:
+        include_expansions_in_env:
+          - workdir
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/kubectl_mongodb/download_kubectl_plugin.sh
         env:
@@ -769,18 +772,14 @@ functions:
   #
   # Code snippet test automation
   #
-
-  sample_commit_output:
-    - command: github.generate_token
-      params:
-        expansion_name: GH_TOKEN
+  archive_snippets_output:
     - command: subprocess.exec
       params:
         include_expansions_in_env:
           - GH_TOKEN
-          - code_snippets_commit_output
+          - MDB_BASH_DEBUG
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/code_snippets/sample_commit_output.sh
+        binary: scripts/code_snippets/archive_snippets_output.sh
 
   # it executes a script by convention: ./scripts/code_snippets/tests/${task_name}
   test_code_snippets:
@@ -793,6 +792,9 @@ functions:
           - code_snippets_teardown
           - code_snippets_reset
           - task_name
+          - MDB_BASH_DEBUG
+        add_to_path:
+          - ${workdir}/bin
         script: |
           ./scripts/code_snippets/tests/${task_name}
 

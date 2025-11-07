@@ -29,7 +29,7 @@ def helm_template(
         command_args.append("--show-only")
         command_args.append(templates)
 
-    args = ("helm", "template", *command_args, _helm_chart_dir(helm_chart_path))
+    args = ("helm", "template", *command_args, helm_chart_path)
     logger.info(" ".join(args))
 
     yaml_file_name = "{}.yaml".format(str(uuid.uuid4()))
@@ -55,7 +55,7 @@ def helm_install(
         f"--namespace={namespace}",
         *command_args,
         name,
-        _helm_chart_dir(helm_chart_path),
+        helm_chart_path,
     ]
     if custom_operator_version:
         args.append(f"--version={custom_operator_version}")
@@ -212,7 +212,7 @@ def helm_upgrade(
         logger.warning("Helm chart path is empty, defaulting to 'helm_chart'")
         helm_chart_path = "helm_chart"
 
-    chart_dir = helm_chart_path if helm_override_path else _helm_chart_dir(helm_chart_path)
+    chart_dir = helm_chart_path
 
     if apply_crds_first:
         apply_crds_from_chart(LOCAL_CRDs_DIR)
@@ -296,10 +296,6 @@ def _create_helm_args(helm_args: Dict[str, str], helm_options: Optional[List[str
         command_args.extend(helm_options)
 
     return command_args
-
-
-def _helm_chart_dir(default: Optional[str] = "helm_chart") -> str:
-    return os.environ.get("HELM_CHART_DIR", default)
 
 
 # helm_chart_path_and_version returns the chart path and version that we would like to install to run the E2E tests.

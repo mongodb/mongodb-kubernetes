@@ -6,12 +6,12 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
-    OPERATOR_NAME,
     assert_log_rotation_backup_monitoring,
     assert_log_rotation_process,
     is_multi_cluster,
     setup_log_rotate_for_agents,
 )
+from tests.constants import OPERATOR_NAME
 from tests.shardedcluster.conftest import enable_multi_cluster_deployment
 
 
