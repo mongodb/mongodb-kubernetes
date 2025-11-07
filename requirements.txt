@@ -22,7 +22,7 @@ GitPython==3.1.45
 setuptools>=71.0.3 # not directly required, pinned by Snyk to avoid a vulnerability
 opentelemetry-api
 opentelemetry-sdk
-pytest-opentelemetry
+pytest-opentelemetry==1.1.0
 jedi
 rope
 black==25.9.0
