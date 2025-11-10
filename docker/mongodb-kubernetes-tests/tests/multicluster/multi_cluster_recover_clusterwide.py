@@ -22,13 +22,12 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
-    MULTI_CLUSTER_OPERATOR_NAME,
-    OPERATOR_NAME,
     _install_multi_cluster_operator,
     run_kube_config_creation_tool,
     run_multi_cluster_recovery_tool,
 )
 
+from ..constants import MULTI_CLUSTER_OPERATOR_NAME, OPERATOR_NAME
 from . import prepare_multi_cluster_namespaces
 from .conftest import cluster_spec_list, create_service_entries_objects
 from .multi_cluster_clusterwide import create_namespace

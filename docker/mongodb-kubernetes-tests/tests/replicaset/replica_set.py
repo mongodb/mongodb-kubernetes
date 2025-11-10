@@ -17,13 +17,11 @@ from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase
 from pytest import fixture
 from tests.conftest import (
-    DATABASE_SA_NAME,
-    LEGACY_OPERATOR_NAME,
-    OPERATOR_NAME,
     assert_log_rotation_backup_monitoring,
     assert_log_rotation_process,
     setup_log_rotate_for_agents,
 )
+from tests.constants import DATABASE_SA_NAME, LEGACY_OPERATOR_NAME, OPERATOR_NAME
 
 DEFAULT_BACKUP_VERSION = "11.12.0.7388-1"
 DEFAULT_MONITORING_AGENT_VERSION = "11.12.0.7388-1"
@@ -59,9 +57,9 @@ def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) ->
                             "resources": {
                                 "limits": {
                                     "cpu": "1",
-                                    "memory": "1Gi",
+                                    "memory": "2Gi",
                                 },
-                                "requests": {"cpu": "0.2", "memory": "300M"},
+                                "requests": {"cpu": "0.5", "memory": "1Gi"},
                             },
                         }
                     ]
@@ -78,9 +76,9 @@ def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) ->
                             "resources": {
                                 "limits": {
                                     "cpu": "1",
-                                    "memory": "1Gi",
+                                    "memory": "2Gi",
                                 },
-                                "requests": {"cpu": "0.2", "memory": "300M"},
+                                "requests": {"cpu": "0.5", "memory": "1Gi"},
                             },
                         }
                     ]
@@ -188,9 +186,9 @@ class TestReplicaSetCreation(KubernetesTester):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
             assert c0.resources.limits["cpu"] == "1"
-            assert c0.resources.limits["memory"] == "1Gi"
-            assert c0.resources.requests["cpu"] == "200m"
-            assert c0.resources.requests["memory"] == "300M"
+            assert c0.resources.limits["memory"] == "2Gi"
+            assert c0.resources.requests["cpu"] == "500m"
+            assert c0.resources.requests["memory"] == "1Gi"
 
     def test_pods_container_envvars(self):
         for pod_name in self._get_pods("my-replica-set-{}", 3):
