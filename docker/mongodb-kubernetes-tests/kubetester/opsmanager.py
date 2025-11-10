@@ -1023,6 +1023,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             msg_regexp=None,
             timeout=None,
             ignore_errors=False,
+            persist_for=1
         ):
             intermediate_events = (
                 # This can be an intermediate error, right before we check for this secret we create it.
@@ -1046,6 +1047,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 ),
                 timeout,
                 should_raise=True,
+                persist_for=persist_for
             )
             end_time = time.time()
             span = trace.get_current_span()
@@ -1110,8 +1112,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         def assert_abandons_phase(self, phase: Phase, timeout=400):
             super().assert_abandons_phase(phase, timeout)
 
-        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=1000, ignore_errors=False):
-            super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors)
+        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=1000, ignore_errors=False, persist_for=1):
+            super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors, persist_for=persist_for)
 
         def get_phase(self) -> Optional[Phase]:
             try:
@@ -1156,8 +1158,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         def assert_abandons_phase(self, phase: Phase, timeout=400):
             super().assert_abandons_phase(phase, timeout)
 
-        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=1200, ignore_errors=False):
-            super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors)
+        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=1200, ignore_errors=False, persist_for=1):
+            super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors, persist_for=persist_for)
 
         def get_phase(self) -> Optional[Phase]:
             try:
