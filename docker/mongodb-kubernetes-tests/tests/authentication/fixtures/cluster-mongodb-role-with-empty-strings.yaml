@@ -29,6 +29,10 @@ spec:
         collection: ""
       actions:
         - "find"
+    - resource:
+        cluster: true
+      actions:
+        - "bypassWriteBlockingMode"
   authenticationRestrictions:
     - clientSource:
         - "127.0.0.0/8"
