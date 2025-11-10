@@ -11,6 +11,7 @@ from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
+from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 from tests.common.constants import (
     MONGODB_PORT,

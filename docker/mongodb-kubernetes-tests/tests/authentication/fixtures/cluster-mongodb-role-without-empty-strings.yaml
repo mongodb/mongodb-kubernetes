@@ -23,7 +23,7 @@ spec:
         - "update"
         - "insert"
         - "remove"
-    - resource: { }
+    - resource: {}
       actions:
         - "find"
     - resource:

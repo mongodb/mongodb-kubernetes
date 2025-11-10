@@ -6,5 +6,4 @@ class BuildScenario(StrEnum):
     STAGING = "staging"  # CI build from a merge to the master
     DEVELOPMENT = "development"  # Local build on a developer machine
 
-
 SUPPORTED_SCENARIOS = supported_scenarios = list(BuildScenario)

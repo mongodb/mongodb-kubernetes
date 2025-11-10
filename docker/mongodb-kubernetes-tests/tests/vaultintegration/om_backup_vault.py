@@ -31,7 +31,7 @@ from ..constants import (
     OM_SA_NAME,
     OPERATOR_NAME,
 )
-from . import run_command_in_vault, store_secret_in_vault
+from . import assert_secret_in_vault, run_command_in_vault, store_secret_in_vault
 
 OM_NAME = "om-basic"
 S3_RS_NAME = "my-mongodb-s3"

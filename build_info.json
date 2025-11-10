@@ -185,9 +185,7 @@
         ]
       },
       "release": {
-        "repositories": [
-          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
-        ],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
         "platforms": [
           "linux/amd64"
         ]

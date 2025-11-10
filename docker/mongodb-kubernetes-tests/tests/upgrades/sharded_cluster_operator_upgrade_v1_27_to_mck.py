@@ -1,7 +1,8 @@
-from typing import Dict
+from typing import Dict, Optional
 
 import pytest
 from kubeobject import CustomObject
+from kubernetes import client
 from kubetester import create_or_update_configmap, read_configmap
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import ensure_nested_objects

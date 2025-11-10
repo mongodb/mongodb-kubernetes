@@ -73,8 +73,6 @@ def get_expected_role(role_name: str) -> dict:
             }
         ],
     }
-
-
 # fmt: on
 
 

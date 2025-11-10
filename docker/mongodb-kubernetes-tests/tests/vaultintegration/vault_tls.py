@@ -1,6 +1,7 @@
 from typing import Optional
 
 from kubernetes import client
+from kubernetes.client import V1ConfigMap
 from kubetester import create_secret, delete_secret, get_statefulset, read_secret
 from kubetester.certs import Certificate
 from kubetester.kubetester import KubernetesTester
@@ -13,7 +14,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 
 from ..constants import APPDB_SA_NAME, DATABASE_SA_NAME, OM_SA_NAME, OPERATOR_NAME
-from . import run_command_in_vault, store_secret_in_vault
+from . import assert_secret_in_vault, run_command_in_vault, store_secret_in_vault
 
 MDB_RESOURCE = "my-replica-set"
 OM_NAME = "om-basic"
