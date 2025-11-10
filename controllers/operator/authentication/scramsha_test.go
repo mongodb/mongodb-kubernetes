@@ -39,7 +39,7 @@ func TestAgentsAuthentication(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			ctx := context.Background()
 			kubeClient, _ := mock.NewDefaultFakeClient()
-			mdbNamespacedName := &types.NamespacedName{Namespace: "test", Name: "test"}
+			mdbNamespacedName := types.NamespacedName{Namespace: "test", Name: "test"}
 
 			conn := om.NewMockedOmConnection(om.NewDeployment())
 
@@ -50,7 +50,7 @@ func TestAgentsAuthentication(t *testing.T) {
 				CAFilePath:       util.CAFilePathInContainer,
 			}
 
-			err := s.EnableAgentAuthentication(kubeClient, ctx, mdbNamespacedName, conn, opts, zap.S())
+			err := s.EnableAgentAuthentication(ctx, kubeClient, mdbNamespacedName, conn, opts, zap.S())
 			require.NoError(t, err)
 
 			err = s.EnableDeploymentAuthentication(conn, opts, zap.S())

@@ -50,7 +50,7 @@ func TestLdapDeploymentMechanism(t *testing.T) {
 func TestLdapEnableAgentAuthentication(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
-	mdbNamespacedName := &types.NamespacedName{Namespace: "test", Name: "test"}
+	mdbNamespacedName := types.NamespacedName{Namespace: "test", Name: "test"}
 
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	opts := Options{
@@ -62,7 +62,7 @@ func TestLdapEnableAgentAuthentication(t *testing.T) {
 		AutoPwd:          "LDAPPassword.",
 	}
 
-	err := ldapPlainMechanism.EnableAgentAuthentication(kubeClient, ctx, mdbNamespacedName, conn, opts, zap.S())
+	err := ldapPlainMechanism.EnableAgentAuthentication(ctx, kubeClient, mdbNamespacedName, conn, opts, zap.S())
 	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()

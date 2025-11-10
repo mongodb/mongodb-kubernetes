@@ -17,7 +17,7 @@ spec:
     authentication:
       agents:
         # This may look weird, but without it we'll get this from OpsManager:
-        # Cannot configure SCRAM-SHA-1 without using MONGODB-CR in te Agent Mode","reason":"Cannot configure SCRAM-SHA-1 without using MONGODB-CR in te Agent Mode
+        # Cannot configure SCRAM-SHA-1 without using MONGODB-CR in the Agent Mode","reason":"Cannot configure SCRAM-SHA-1 without using MONGODB-CR in te Agent Mode
         mode: MONGODB-CR
       enabled: true
       modes: ["SCRAM-SHA-1", "MONGODB-CR"]

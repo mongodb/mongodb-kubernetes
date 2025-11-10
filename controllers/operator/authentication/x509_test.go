@@ -20,7 +20,7 @@ var mongoDBX509Mechanism = getMechanismByName(MongoDBX509)
 func TestX509EnableAgentAuthentication(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
-	mdbNamespacedName := &types.NamespacedName{Namespace: "test", Name: "test"}
+	mdbNamespacedName := types.NamespacedName{Namespace: "test", Name: "test"}
 
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
@@ -32,7 +32,7 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 		},
 		AuthoritativeSet: true,
 	}
-	if err := mongoDBX509Mechanism.EnableAgentAuthentication(kubeClient, ctx, mdbNamespacedName, conn, options, zap.S()); err != nil {
+	if err := mongoDBX509Mechanism.EnableAgentAuthentication(ctx, kubeClient, mdbNamespacedName, conn, options, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 

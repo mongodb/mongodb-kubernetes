@@ -6,8 +6,8 @@ from kubetester import (
     create_or_update_configmap,
     create_secret,
     find_fixture,
-    random_k8s_name,
     read_configmap,
+    try_load,
 )
 from kubetester.certs import create_mongodb_tls_certs, create_x509_user_cert
 from kubetester.kubetester import KubernetesTester
@@ -17,23 +17,6 @@ from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.phase import Phase
 
 MDB_RESOURCE_NAME = "replica-set-ldap-switch-project"
-MDB_FIXTURE_NAME = MDB_RESOURCE_NAME
-
-CONFIG_MAP_KEYS = {
-    "BASE_URL": "baseUrl",
-    "PROJECT_NAME": "projectName",
-    "ORG_ID": "orgId",
-}
-
-
-@pytest.fixture(scope="module")
-def project_name_prefix(namespace: str) -> str:
-    """
-    Generates a random Kubernetes project name prefix based on the namespace.
-
-    Ensures test isolation in a multi-namespace test environment.
-    """
-    return random_k8s_name(f"{namespace}-project-")
 
 
 @pytest.fixture(scope="module")
@@ -50,7 +33,12 @@ def replica_set(
     server_certs: str,
     namespace: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(find_fixture(f"switch-project/{MDB_FIXTURE_NAME}.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(
+        find_fixture("ldap/ldap-replica-set.yaml"), name=MDB_RESOURCE_NAME, namespace=namespace
+    )
+
+    if try_load(resource):
+        return resource
 
     secret_name = "bind-query-password"
     create_secret(namespace, secret_name, {"password": openldap.admin_password})
@@ -86,7 +74,7 @@ def replica_set(
         },
     }
 
-    return resource
+    return resource.update()
 
 
 @pytest.fixture(scope="module")
@@ -114,7 +102,6 @@ def user_ldap(replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDA
 class TestReplicaSetLDAPProjectSwitch(KubernetesTester):
 
     def test_create_replica_set(self, replica_set: MongoDB, ldap_mongodb_users: List[LDAPUser]):
-        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_create_ldap_user(self, replica_set: MongoDB, user_ldap: MongoDBUser):
@@ -136,25 +123,19 @@ class TestReplicaSetLDAPProjectSwitch(KubernetesTester):
             attempts=10,
         )
 
-    def test_switch_replica_set_project(
-        self, replica_set: MongoDB, namespace: str, project_name_prefix: str, user_ldap: MongoDBUser
-    ):
-        """
-        Modify the replica set to switch its Ops Manager reference to a new project and verify lifecycle.
-        """
+    def test_switch_replica_set_project(self, replica_set: MongoDB, namespace: str, user_ldap: MongoDBUser):
         original_configmap = read_configmap(namespace=namespace, name="my-project")
-        new_project_name = f"{project_name_prefix}-second"
+        new_project_name = namespace + "-" + "second"
         new_project_configmap = create_or_update_configmap(
             namespace=namespace,
             name=new_project_name,
             data={
-                CONFIG_MAP_KEYS["BASE_URL"]: original_configmap[CONFIG_MAP_KEYS["BASE_URL"]],
-                CONFIG_MAP_KEYS["PROJECT_NAME"]: new_project_name,
-                CONFIG_MAP_KEYS["ORG_ID"]: original_configmap[CONFIG_MAP_KEYS["ORG_ID"]],
+                "baseUrl": original_configmap["baseUrl"],
+                "projectName": new_project_name,
+                "orgId": original_configmap["orgId"],
             },
         )
 
-        replica_set.load()
         replica_set["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
         replica_set.update()
 

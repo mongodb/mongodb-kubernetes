@@ -19,7 +19,7 @@ func (x *connectionX509) GetName() MechanismName {
 	return MongoDBX509
 }
 
-func (x *connectionX509) EnableAgentAuthentication(client kubernetesClient.Client, ctx context.Context, mdbNamespacedName *types.NamespacedName, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func (x *connectionX509) EnableAgentAuthentication(ctx context.Context, client kubernetesClient.Client, mdbNamespacedName types.NamespacedName, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	log.Info("Configuring x509 authentication")
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if err := ac.EnsureKeyFileContents(); err != nil {

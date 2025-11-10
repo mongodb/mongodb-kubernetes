@@ -82,7 +82,7 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 func TestOIDC_EnableAgentAuthentication(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
-	mdbNamespacedName := &types.NamespacedName{Namespace: "test", Name: "test"}
+	mdbNamespacedName := types.NamespacedName{Namespace: "test", Name: "test"}
 
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	opts := Options{
@@ -95,7 +95,7 @@ func TestOIDC_EnableAgentAuthentication(t *testing.T) {
 	configured := mongoDBOIDCMechanism.IsAgentAuthenticationConfigured(ac, opts)
 	assert.False(t, configured)
 
-	err = mongoDBOIDCMechanism.EnableAgentAuthentication(kubeClient, ctx, mdbNamespacedName, conn, opts, zap.S())
+	err = mongoDBOIDCMechanism.EnableAgentAuthentication(ctx, kubeClient, mdbNamespacedName, conn, opts, zap.S())
 	require.Error(t, err)
 
 	err = mongoDBOIDCMechanism.DisableAgentAuthentication(conn, zap.S())
