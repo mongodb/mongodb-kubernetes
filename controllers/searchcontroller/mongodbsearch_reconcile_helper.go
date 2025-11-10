@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/blang/semver"
 	"github.com/ghodss/yaml"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -22,7 +21,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
@@ -502,66 +500,4 @@ func extractImageTag(image string) string {
 	}
 
 	return ""
-}
-
-func SearchCoordinatorRole() mdbv1.MongoDBRole {
-	// direct translation of https://github.com/10gen/mongo/blob/6f8d95a513eea8f91ea9f5d895dd8a288dfcf725/src/mongo/db/auth/builtin_roles.yml#L652
-	return mdbv1.MongoDBRole{
-		Role: "searchCoordinator",
-		Db:   "admin",
-		Roles: []mdbv1.InheritedRole{
-			{
-				Role: "clusterMonitor",
-				Db:   "admin",
-			},
-			{
-				Role: "directShardOperations",
-				Db:   "admin",
-			},
-			{
-				Role: "readAnyDatabase",
-				Db:   "admin",
-			},
-		},
-		Privileges: []mdbv1.Privilege{
-			{
-				Resource: mdbv1.Resource{
-					Db: "__mdb_internal_search",
-				},
-				Actions: []string{
-					"changeStream", "collStats", "dbHash", "dbStats", "find",
-					"killCursors", "listCollections", "listIndexes", "listSearchIndexes",
-					// performRawDataOperations is available only on mongod master
-					// "performRawDataOperations",
-					"planCacheRead", "cleanupStructuredEncryptionData",
-					"compactStructuredEncryptionData", "convertToCapped", "createCollection",
-					"createIndex", "createSearchIndexes", "dropCollection", "dropIndex",
-					"dropSearchIndex", "insert", "remove", "renameCollectionSameDB",
-					"update", "updateSearchIndex",
-				},
-			},
-			// TODO: this causes the error "(BadValue) resource: {cluster: true} conflicts with resource type 'db'"
-			// {
-			// 	Resource: mdbv1.Resource{
-			// 		Cluster: ptr.To(true),
-			// 	},
-			// 	Actions: []string{"bypassDefaultMaxTimeMS"},
-			// },
-		},
-		AuthenticationRestrictions: nil,
-	}
-}
-
-// Because the first Search Public Preview support MongoDB Server 8.0.10 we need to polyfill the searchCoordinator role
-// TODO: Remove once we drop support for <8.2 in Search
-func NeedsSearchCoordinatorRolePolyfill(mongodbVersion string) bool {
-	version, err := semver.ParseTolerant(mongodbVersion)
-	if err != nil {
-		// if we can't determine the version, assume no need to polyfill
-		return false
-	}
-
-	// 8.0.10+ and 8.1.x need the polyfill, anything older is not supported and execution will never reach here,
-	// and anything newer already has the role built-in
-	return version.Major == 8 && version.Minor < 2
 }
