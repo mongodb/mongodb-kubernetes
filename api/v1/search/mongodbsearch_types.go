@@ -40,10 +40,6 @@ type Prometheus struct {
 }
 
 func (p *Prometheus) GetPort() int32 {
-	if p.Port == 0 {
-		return MongotDefaultPrometheusPort
-	}
-
 	//nolint:gosec
 	return int32(p.Port)
 }
