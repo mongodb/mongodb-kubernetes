@@ -7,6 +7,7 @@ import requests
 from kubernetes import client
 from kubernetes.client import V1CustomResourceDefinition, V1Deployment, V1Pod
 from kubernetes.client.rest import ApiException
+from kubetester import wait_for_webhook
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import (
     helm_install,
@@ -15,10 +16,8 @@ from kubetester.helm import (
     helm_uninstall,
     helm_upgrade,
 )
-from tests.constants import LOCAL_HELM_CHART_DIR
-
-from kubetester import wait_for_webhook
 from tests import test_logger
+from tests.constants import LOCAL_HELM_CHART_DIR
 
 OPERATOR_CRDS = (
     "mongodb.mongodb.com",

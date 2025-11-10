@@ -12,8 +12,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
-from . import run_command_in_vault, store_secret_in_vault
 from ..constants import APPDB_SA_NAME, DATABASE_SA_NAME, OM_SA_NAME, OPERATOR_NAME
+from . import run_command_in_vault, store_secret_in_vault
 
 MDB_RESOURCE = "my-replica-set"
 OM_NAME = "om-basic"

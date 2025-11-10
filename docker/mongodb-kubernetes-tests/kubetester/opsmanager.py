@@ -10,6 +10,11 @@ import kubernetes.client
 import requests
 from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
+from kubetester import (
+    create_configmap,
+    create_or_update_secret,
+    read_secret,
+)
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import (
     KubernetesTester,
@@ -24,6 +29,7 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from opentelemetry import trace
 from requests.auth import HTTPDigestAuth
+from tests import test_logger
 from tests.common.multicluster.multicluster_utils import (
     multi_cluster_pod_names,
     multi_cluster_service_names,
@@ -36,13 +42,6 @@ from tests.conftest import (
     read_deployment_state,
 )
 from tests.constants import LEGACY_CENTRAL_CLUSTER_NAME
-
-from kubetester import (
-    create_configmap,
-    create_or_update_secret,
-    read_secret,
-)
-from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
 TRACER = trace.get_tracer("evergreen-agent")

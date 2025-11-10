@@ -17,9 +17,9 @@ from tests.conftest import (
     run_kube_config_creation_tool,
 )
 
+from ..constants import MULTI_CLUSTER_OPERATOR_NAME
 from . import prepare_multi_cluster_namespaces
 from .conftest import cluster_spec_list, create_namespace
-from ..constants import MULTI_CLUSTER_OPERATOR_NAME
 
 
 @fixture(scope="module")

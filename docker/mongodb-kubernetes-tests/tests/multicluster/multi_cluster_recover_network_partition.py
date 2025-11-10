@@ -15,8 +15,8 @@ from tests.conftest import (
     run_multi_cluster_recovery_tool,
 )
 
-from .conftest import cluster_spec_list, create_service_entries_objects
 from ..constants import MULTI_CLUSTER_OPERATOR_NAME
+from .conftest import cluster_spec_list, create_service_entries_objects
 
 FAILED_MEMBER_CLUSTER_NAME = "kind-e2e-cluster-3"
 RESOURCE_NAME = "multi-replica-set"
