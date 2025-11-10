@@ -965,10 +965,10 @@ type AuthenticationRestriction struct {
 
 type Resource struct {
 	// +optional
-	Db string `json:"db"`
+	Db *string `json:"db,omitempty"`
 	// +optional
-	Collection string `json:"collection"`
-	Cluster    *bool  `json:"cluster,omitempty"`
+	Collection *string `json:"collection,omitempty"`
+	Cluster    *bool   `json:"cluster,omitempty"`
 }
 
 type Privilege struct {

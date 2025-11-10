@@ -30,10 +30,10 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import (
-    MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
     get_central_cluster_client,
     get_member_cluster_api_client,
 )
+from tests.constants import MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP
 from tests.multicluster.conftest import cluster_spec_list
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment,

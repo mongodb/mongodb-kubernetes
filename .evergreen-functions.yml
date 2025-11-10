@@ -524,6 +524,8 @@ functions:
   download_multi_cluster_binary:
     - command: subprocess.exec
       params:
+        include_expansions_in_env:
+          - workdir
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/kubectl_mongodb/download_kubectl_plugin.sh
         env:
@@ -791,6 +793,8 @@ functions:
           - code_snippets_reset
           - task_name
           - MDB_BASH_DEBUG
+        add_to_path:
+          - ${workdir}/bin
         script: |
           ./scripts/code_snippets/tests/${task_name}
 

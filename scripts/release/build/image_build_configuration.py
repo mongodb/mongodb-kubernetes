@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
-from scripts.release.build.image_build_process import ImageBuilder
 from scripts.release.build.build_scenario import BuildScenario
+from scripts.release.build.image_build_process import ImageBuilder
 
 SUPPORTED_PLATFORMS = ["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64", "linux/s390x",
                        "linux/ppc64le"]

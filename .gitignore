@@ -94,3 +94,5 @@ logs
 
 # locally packaged chart
 mongodb-kubernetes-*.tgz
+
+scripts/code_snippets/tests/outputs/*
