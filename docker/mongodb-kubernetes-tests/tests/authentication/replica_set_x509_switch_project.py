@@ -1,6 +1,5 @@
 import pytest
 from kubetester import (
-    create_or_update_configmap,
     read_configmap,
     try_load,
 )
@@ -12,8 +11,10 @@ from kubetester.certs import (
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
-from kubetester.mongotester import ReplicaSetTester
-from kubetester.phase import Phase
+
+from .replica_set_switch_project_helper import (
+    ReplicaSetCreationAndProjectSwitchTestHelper,
+)
 
 # Constants
 MDB_RESOURCE_NAME = "replica-set-x509-switch-project"
@@ -47,55 +48,36 @@ def agent_certs(issuer: str, namespace: str) -> str:
     return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE_NAME)
 
 
+@pytest.fixture(scope="module")
+def test_helper(replica_set: MongoDB, namespace: str) -> ReplicaSetCreationAndProjectSwitchTestHelper:
+    return ReplicaSetCreationAndProjectSwitchTestHelper(
+        replica_set=replica_set, namespace=namespace, authentication_mechanism="MONGODB-X509"
+    )
+
+
 @pytest.mark.e2e_replica_set_x509_switch_project
 class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
     """
     E2E test suite for replica set creation, user connectivity with X509 authentication and switching Ops Manager project reference.
     """
 
-    def test_create_replica_set(self, replica_set: MongoDB):
-        """
-        Test replica set creation ensuring resources are applied correctly and set reaches Running phase.
-        """
-        replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    def test_create_replica_set(self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper):
+        test_helper.test_create_replica_set()
 
-    def test_ops_manager_state_correctly_updated_in_initial_replica_set(self, replica_set: MongoDB):
-        """
-        Ensure Ops Manager state is correctly updated in the original replica set.
-        """
-        tester = replica_set.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled("MONGODB-X509")
-        tester.assert_authoritative_set(True)
-        tester.assert_authentication_enabled()
-        tester.assert_expected_users(0)
+    def test_ops_manager_state_correctly_updated_in_initial_replica_set(
+        self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper
+    ):
+        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
-    def test_switch_replica_set_project(self, replica_set: MongoDB, namespace: str):
-        """
-        Modify the replica set to switch its Ops Manager reference to a new project and verify lifecycle.
-        """
+    def test_switch_replica_set_project(
+        self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper, namespace: str
+    ):
         original_configmap = read_configmap(namespace=namespace, name="my-project")
-        new_project_name = namespace + "-" + "second"
-        new_project_configmap = create_or_update_configmap(
-            namespace=namespace,
-            name=new_project_name,
-            data={
-                "baseUrl": original_configmap["baseUrl"],
-                "projectName": new_project_name,
-                "orgId": original_configmap["orgId"],
-            },
+        test_helper.test_switch_replica_set_project(
+            original_configmap, new_project_configmap_name=namespace + "-" + "second"
         )
 
-        replica_set["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
-        replica_set.update()
-
-        replica_set.assert_reaches_phase(Phase.Running, timeout=600)
-
-    def test_ops_manager_state_correctly_updated_in_moved_replica_set(self, replica_set: MongoDB):
-        """
-        Ensure Ops Manager state is correctly updated in the moved replica set after the project switch.
-        """
-        tester = replica_set.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled("MONGODB-X509")
-        tester.assert_authoritative_set(True)
-        tester.assert_authentication_enabled()
-        tester.assert_expected_users(0)
+    def test_ops_manager_state_correctly_updated_in_moved_replica_set(
+        self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper
+    ):
+        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)

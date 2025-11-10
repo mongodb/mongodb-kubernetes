@@ -3,18 +3,21 @@ from typing import List
 
 import pytest
 from kubetester import (
-    create_or_update_configmap,
     create_secret,
     find_fixture,
     read_configmap,
     try_load,
 )
-from kubetester.certs import create_mongodb_tls_certs, create_x509_user_cert
+from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.phase import Phase
+
+from .replica_set_switch_project_helper import (
+    ReplicaSetCreationAndProjectSwitchTestHelper,
+)
 
 MDB_RESOURCE_NAME = "replica-set-ldap-switch-project"
 
@@ -98,18 +101,29 @@ def user_ldap(replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDA
     return user.create()
 
 
+@pytest.fixture(scope="module")
+def test_helper(replica_set: MongoDB, namespace: str) -> ReplicaSetCreationAndProjectSwitchTestHelper:
+    return ReplicaSetCreationAndProjectSwitchTestHelper(
+        replica_set=replica_set,
+        namespace=namespace,
+        authentication_mechanism=LDAP_AUTHENTICATION_MECHANISM,
+        expected_num_deployment_auth_mechanisms=3,
+    )
+
+
 @pytest.mark.e2e_replica_set_ldap_switch_project
 class TestReplicaSetLDAPProjectSwitch(KubernetesTester):
 
-    def test_create_replica_set(self, replica_set: MongoDB, ldap_mongodb_users: List[LDAPUser]):
-        replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    def test_create_replica_set(self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper):
+        test_helper.test_create_replica_set()
 
-    def test_create_ldap_user(self, replica_set: MongoDB, user_ldap: MongoDBUser):
+    def test_create_ldap_user(self, user_ldap: MongoDBUser):
         user_ldap.assert_reaches_phase(Phase.Updated)
 
-        tester = replica_set.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled(LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=True)
-        tester.assert_expected_users(1)
+    def test_ops_manager_state_correctly_updated_in_initial_replica_set(
+        self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper
+    ):
+        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=1)
 
     def test_new_mdb_users_are_created_and_can_authenticate(
         self, replica_set: MongoDB, user_ldap: MongoDBUser, ca_path: str
@@ -123,29 +137,19 @@ class TestReplicaSetLDAPProjectSwitch(KubernetesTester):
             attempts=10,
         )
 
-    def test_switch_replica_set_project(self, replica_set: MongoDB, namespace: str, user_ldap: MongoDBUser):
+    def test_switch_replica_set_project(
+        self, namespace: str, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper
+    ):
         original_configmap = read_configmap(namespace=namespace, name="my-project")
-        new_project_name = namespace + "-" + "second"
-        new_project_configmap = create_or_update_configmap(
-            namespace=namespace,
-            name=new_project_name,
-            data={
-                "baseUrl": original_configmap["baseUrl"],
-                "projectName": new_project_name,
-                "orgId": original_configmap["orgId"],
-            },
+        test_helper.test_switch_replica_set_project(
+            original_configmap, new_project_configmap_name=namespace + "-" + "second"
         )
 
-        replica_set["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
-        replica_set.update()
-
-        replica_set.assert_reaches_phase(Phase.Running, timeout=600)
-
     def test_ops_manager_state_correctly_updated_in_moved_cluster(
-        self, replica_set: MongoDB, user_ldap: MongoDBUser, ca_path: str
+        self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper
     ):
-        tester = replica_set.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled(LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=True)
+        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
+
         # tester.assert_expected_users(1)
 
         # tester = replica_set.tester()
