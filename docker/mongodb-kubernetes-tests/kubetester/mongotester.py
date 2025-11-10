@@ -9,7 +9,6 @@ import time
 from typing import Callable, Dict, List, Optional
 
 import pymongo
-from kubetester import kubetester
 from kubetester.kubetester import KubernetesTester
 from kubetester.phase import Phase
 from opentelemetry import trace
@@ -17,6 +16,8 @@ from pycognito import Cognito
 from pymongo.auth_oidc import OIDCCallback, OIDCCallbackContext, OIDCCallbackResult
 from pymongo.errors import OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pytest import fail
+
+from kubetester import kubetester
 
 TEST_DB = "test-db"
 TEST_COLLECTION = "test-collection"
@@ -645,7 +646,7 @@ class BackgroundHealthChecker(threading.Thread):
                 self.health_function(**self.health_function_params)
                 consecutive_failure = 0
             except Exception as e:
-                print(f"Error in {self.__class__.__name__}: {e})")
+                logging.error(f"Error in {self.__class__.__name__}: {e})")
                 self.last_exception = e
                 consecutive_failure = consecutive_failure + 1
                 self.max_consecutive_failure = max(self.max_consecutive_failure, consecutive_failure)
