@@ -14,7 +14,7 @@
     "minimumSupportedVersion": "4.6"
   },
   "search": {
-    "version": "0.53.1"
+    "version": "0.55.0"
   },
   "supportedImages": {
     "ops-manager": {
@@ -95,7 +95,7 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.41.0.9830-1",
+        "cloud_manager": "13.42.0.9892-1",
         "cloud_manager_tools": "100.13.0",
         "ops_manager": {
           "6.0.27": {

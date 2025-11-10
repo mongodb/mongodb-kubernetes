@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
 
-# script to update code snippets file from MCK in docs repository
+# Script to create PR in docs repository with updates of code snippets and outputs.
+# Prerequisites:
+#  * OUTPUTS_VERSION_ID - evergreen version id from a snippets run, which archives outputs from tests to s3:
+#    * evergreen patch -p mongodb-kubernetes -v public_kind_code_snippets -v public_gke_code_snippets -t all -f -y -u --browse
+#    * or generally any test run (i.e. public run executed as part of a tag)
+#  * 10gen/docs-mongodb-internal repository cloned to DOCS_DIR
+# It copies (replaces whole directories):
+#  * snippets scripts (from the current branch)
+#  * snippets outputs archived from s3
 # Usage:
 #   cd <mongodb-kubernetes directory>
 #   ./scripts/dev/update_docs_snippets.sh
 #
 # To customize directories run
-#   MCK_DIR=<path to MCK repository> DOCS_DIR=<path to docs repository> ./update_docs_snippets.sh
-# Example:
-#   MCK_DIR=~/mdb/mongodb-kubernetes DOCS_DIR=~/mdb/docs-k8s-operator ./update_docs_snippets.sh
+#   MCK_DIR=<path to MCK repository> DOCS_DIR=<path to docs repository> scripts/dev/update_docs_snippets.sh
+#
+# Examples:
+#   MCK_DIR=~/mdb/mongodb-kubernetes DOCS_DIR=~/mdb/docs-k8s-operator scripts/dev/update_docs_snippets.sh
+#   MCK_DIR=$(pwd) MCK_BRANCH=archive-snippets-outputs DOCS_DIR=~/mdb/docs-mongodb-internal \
+#    version_id=69038706b0fce50007f25a9d scripts/dev/update_docs_snippets.sh
 
 set -eou pipefail
 
+OUTPUTS_VERSION_ID=${OUTPUTS_VERSION_ID:-${version_id:?}}
 MCK_DIR=${MCK_DIR:-"mongodb-kubernetes"}
-MCK_BRANCH=${MCK_BRANCH:-"release-x.x.x"}
-DOCS_DIR=${DOCS_DIR:-"docs-mck"}
-DOCS_BRANCH=${DOCS_BRANCH:-"master"}
+DOCS_DIR=${DOCS_DIR:-"docs-mongodb-internal"}
+DOCS_BRANCH=${DOCS_BRANCH:-"main"}
+DOCS_VERSION=${DOCS_VERSION:-"upcoming"}
+DOCS_INCLUDE_CODE_EXAMPLES_DIR="${DOCS_DIR}/content/kubernetes/${DOCS_VERSION}/source/includes/code-examples"
 
 function prepare_repositories() {
-  pushd "${MCK_DIR}"
-  git fetch
-  git checkout "${MCK_BRANCH}"
-
-  if [[ -n "$(git status --porcelain)" ]]; then
-    echo "${MCK_DIR} has modified files, stashing..."
-    git stash
-  fi
-
-  git reset --hard "origin/${MCK_BRANCH}"
-
-  popd
-
   pushd "${DOCS_DIR}"
   git fetch
   if [[ -n "$(git status --porcelain)" ]]; then
@@ -41,21 +41,29 @@ function prepare_repositories() {
   git checkout "${DOCS_BRANCH}"
   git reset --hard "origin/${DOCS_BRANCH}"
 
-  git checkout -b "MCK-snippets-update-$(date "+%Y%m%d%H%M%S")"
+  git branch "MCK-snippets-update-${OUTPUTS_VERSION_ID}" || true
+  git checkout "MCK-snippets-update-${OUTPUTS_VERSION_ID}"
+
   popd
 }
 
-function copy_files() {
-  local src_dir="$1"
-  local dst_dir="$2"
+function download_snippets_outputs() {
+  dir=$1
+  evg_version_id=$2
+  echo "Downloading snippets outputs from s3 to ${dir}"
+  aws s3 sync 's3://operator-e2e-artifacts/snippets_outputs/' "${dir}/" --exclude '*' --include "${evg_version_id}*"
+  mkdir -p "${dir}/${evg_version_id}"
+  cd "${dir}/${evg_version_id}"
+  for f in *.tgz; do
+    tar -xvf "${f}"
+  done
 
-  rm -rf "${dst_dir}"
-  mkdir -p "${dst_dir}"
-
-  cp -r "${src_dir}/code_snippets" "${dst_dir}" 2>/dev/null || true
-  cp -r "${src_dir}/output" "${dst_dir}" 2>/dev/null || true
-  cp "${src_dir}/env_variables.sh" "${dst_dir}" 2>/dev/null || true
-  cp -r "${src_dir}/yamls" "${dst_dir}" 2>/dev/null || true
+  outputs_dir="scripts/code_snippets/tests/outputs"
+  if [[ ! -d "${outputs_dir}" ]]; then
+    echo "No snippets were downloaded"
+    ls -al
+    return 1
+  fi
 }
 
 function prepare_docs_pr() {
@@ -65,7 +73,7 @@ function prepare_docs_pr() {
     return 1
   fi
 
-  git add "source/"
+  git add "${DOCS_INCLUDE_CODE_EXAMPLES_DIR}"
   git commit -m "Update sample files from MCK"
   git push
   popd
@@ -74,25 +82,24 @@ function prepare_docs_pr() {
 pushd ../
 prepare_repositories
 
-REF_ARCH_SRC_DIR="${MCK_DIR}/public/architectures"
-REF_ARCH_DST_DIR="${DOCS_DIR}/source/includes/code-examples/reference-architectures"
+tmp_dir=$(mktemp -d)
+download_snippets_outputs "${tmp_dir}" "${OUTPUTS_VERSION_ID}"
+outputs_dir="${tmp_dir}/${OUTPUTS_VERSION_ID}/scripts/code_snippets/tests/outputs"
 
-copy_files "${REF_ARCH_SRC_DIR}/ops-manager-multi-cluster" "${REF_ARCH_DST_DIR}/ops-manager-multi-cluster"
-copy_files "${REF_ARCH_SRC_DIR}/ops-manager-mc-no-mesh" "${REF_ARCH_DST_DIR}/ops-manager-mc-no-mesh"
-copy_files "${REF_ARCH_SRC_DIR}/mongodb-sharded-multi-cluster" "${REF_ARCH_DST_DIR}/mongodb-sharded-multi-cluster"
-copy_files "${REF_ARCH_SRC_DIR}/mongodb-sharded-mc-no-mesh" "${REF_ARCH_DST_DIR}/mongodb-sharded-mc-no-mesh"
-copy_files "${REF_ARCH_SRC_DIR}/mongodb-replicaset-multi-cluster" "${REF_ARCH_DST_DIR}/mongodb-replicaset-multi-cluster"
-copy_files "${REF_ARCH_SRC_DIR}/mongodb-replicaset-mc-no-mesh" "${REF_ARCH_DST_DIR}/mongodb-replicaset-mc-no-mesh"
-copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/verify-connectivity" "${REF_ARCH_DST_DIR}/setup-multi-cluster/verify-connectivity"
-copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/setup-gke" "${REF_ARCH_DST_DIR}/setup-multi-cluster/setup-gke"
-copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/setup-istio" "${REF_ARCH_DST_DIR}/setup-multi-cluster/setup-istio"
-copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/setup-operator" "${REF_ARCH_DST_DIR}/setup-multi-cluster/setup-operator"
-copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/setup-cert-manager" "${REF_ARCH_DST_DIR}/setup-multi-cluster/setup-cert-manager"
-copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/setup-externaldns" "${REF_ARCH_DST_DIR}/setup-multi-cluster/setup-externaldns"
+for test_dir in "${outputs_dir}"/test_*; do
+  echo "Replacing outputs for test: ${test_dir}"
+  rm -rf "${DOCS_INCLUDE_CODE_EXAMPLES_DIR}/outputs/$(basename "${test_dir}")"
+  cp -r "${test_dir}" "${DOCS_INCLUDE_CODE_EXAMPLES_DIR}/outputs/$(basename "${test_dir}")"
+done
 
-DOCS_SNIPPETS_SRC_DIR="${MCK_DIR}/docs"
-DOCS_SNIPPEES_DST_DIR="${DOCS_DIR}/source/includes/code-examples"
-copy_files "${DOCS_SNIPPETS_SRC_DIR}/community-search/quick-start" "${DOCS_SNIPPEES_DST_DIR}/community-search/quick-start"
+echo "${outputs_dir}"
+tree "${outputs_dir}"
+
+rm -rf "${DOCS_INCLUDE_CODE_EXAMPLES_DIR}/reference-architectures"
+cp -r "${MCK_DIR}/public/architectures" "${DOCS_INCLUDE_CODE_EXAMPLES_DIR}/reference-architectures"
+
+rm -rf "${DOCS_INCLUDE_CODE_EXAMPLES_DIR}/search"
+cp -r "${MCK_DIR}/docs/search" "${DOCS_INCLUDE_CODE_EXAMPLES_DIR}/search"
 
 prepare_docs_pr
 popd

@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -856,6 +857,130 @@ func TestHandlePVCResize(t *testing.T) {
 
 	// *** "PVC Phase: PVCResize, Finished Resizing ***
 	testPVCFinishedResizing(t, ctx, memberClient, p, reconciledResource, statefulSet, logger)
+}
+
+// ===== Test for state and vault annotations handling in replicaset controller =====
+
+// TestReplicaSetAnnotations_WrittenOnSuccess verifies that lastAchievedSpec annotation is written after successful
+// reconciliation.
+func TestReplicaSetAnnotations_WrittenOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	err := client.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	require.Contains(t, rs.Annotations, util.LastAchievedSpec,
+		"lastAchievedSpec annotation should be written on successful reconciliation")
+
+	var lastSpec mdbv1.MongoDbSpec
+	err = json.Unmarshal([]byte(rs.Annotations[util.LastAchievedSpec]), &lastSpec)
+	require.NoError(t, err)
+	assert.Equal(t, 3, lastSpec.Members)
+	assert.Equal(t, "4.0.0", lastSpec.Version)
+}
+
+// TestReplicaSetAnnotations_NotWrittenOnFailure verifies that lastAchievedSpec annotation
+// is NOT written when reconciliation fails.
+func TestReplicaSetAnnotations_NotWrittenOnFailure(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	// Setup without credentials secret to cause failure
+	kubeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(rs).
+		WithObjects(mock.GetProjectConfigMap(mock.TestProjectConfigMapName, "testProject", "testOrg")).
+		Build()
+
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, nil)
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err, "Reconcile should not return error (error captured in status)")
+
+	err = kubeClient.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, status.PhaseRunning, rs.Status.Phase)
+
+	assert.NotContains(t, rs.Annotations, util.LastAchievedSpec,
+		"lastAchievedSpec should NOT be written when reconciliation fails")
+}
+
+// TestReplicaSetAnnotations_PreservedOnSubsequentFailure verifies that annotations from a previous successful
+// reconciliation are preserved when a later reconciliation fails.
+func TestReplicaSetAnnotations_PreservedOnSubsequentFailure(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+
+	err = kubeClient.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+	require.Contains(t, rs.Annotations, util.LastAchievedSpec)
+
+	originalLastAchievedSpec := rs.Annotations[util.LastAchievedSpec]
+
+	// Delete credentials to cause failure
+	credentialsSecret := mock.GetCredentialsSecret("testUser", "testApiKey")
+	err = kubeClient.Delete(ctx, credentialsSecret)
+	require.NoError(t, err)
+
+	rs.Spec.Members = 5
+	err = kubeClient.Update(ctx, rs)
+	require.NoError(t, err)
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+
+	err = kubeClient.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	assert.Contains(t, rs.Annotations, util.LastAchievedSpec)
+	assert.NotEqual(t, status.PhaseRunning, rs.Status.Phase)
+	assert.Equal(t, originalLastAchievedSpec, rs.Annotations[util.LastAchievedSpec],
+		"lastAchievedSpec should remain unchanged when reconciliation fails")
+
+	var lastSpec mdbv1.MongoDbSpec
+	err = json.Unmarshal([]byte(rs.Annotations[util.LastAchievedSpec]), &lastSpec)
+	require.NoError(t, err)
+	assert.Equal(t, 3, lastSpec.Members,
+		"Should still reflect previous successful state (3 members, not 5)")
+}
+
+// TestVaultAnnotations_NotWrittenWhenDisabled verifies that vault annotations are NOT
+// written when vault backend is disabled.
+func TestVaultAnnotations_NotWrittenWhenDisabled(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	t.Setenv("SECRET_BACKEND", "K8S_SECRET_BACKEND")
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	err := client.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	require.Contains(t, rs.Annotations, util.LastAchievedSpec,
+		"lastAchievedSpec should be written even when vault is disabled")
+
+	// Vault annotations would be simple secret names like "my-secret": "5"
+	for key := range rs.Annotations {
+		if key == util.LastAchievedSpec {
+			continue
+		}
+		assert.NotRegexp(t, "^[a-z0-9-]+$", key,
+			"Should not have simple secret name annotations when vault disabled - found: %s", key)
+	}
 }
 
 func testPVCFinishedResizing(t *testing.T, ctx context.Context, memberClient kubernetesClient.Client, p *corev1.PersistentVolumeClaim, reconciledResource *mdbv1.MongoDB, statefulSet *appsv1.StatefulSet, logger *zap.SugaredLogger) {

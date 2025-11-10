@@ -89,8 +89,6 @@ logs-debug/
 docs/**/log/*
 docs/**/test.sh.run.log
 
-# goreleaser generated files
-dist
 logs
 *.run.log
 

@@ -20,8 +20,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
-from ..conftest import APPDB_SA_NAME, OM_SA_NAME, OPERATOR_NAME
-from . import assert_secret_in_vault, run_command_in_vault, store_secret_in_vault
+from . import run_command_in_vault, store_secret_in_vault
+from ..constants import APPDB_SA_NAME, OM_SA_NAME, OPERATOR_NAME
 
 OM_NAME = "om-basic"
 

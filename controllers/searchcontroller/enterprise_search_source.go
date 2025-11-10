@@ -55,8 +55,8 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 	version, err := semver.ParseTolerant(util.StripEnt(r.Spec.GetMongoDBVersion()))
 	if err != nil {
 		return xerrors.Errorf("error parsing MongoDB version '%s': %w", r.Spec.GetMongoDBVersion(), err)
-	} else if version.LT(semver.MustParse("8.0.10")) {
-		return xerrors.New("MongoDB version must be 8.0.10 or higher")
+	} else if version.LT(semver.MustParse("8.2.0")) {
+		return xerrors.New("MongoDB version must be 8.2.0 or higher")
 	}
 
 	if r.Spec.GetTopology() != mdbv1.ClusterTopologySingleCluster {
@@ -79,10 +79,6 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 
 	if !foundScram && len(authModes) > 0 {
 		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled")
-	}
-
-	if r.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
-		return xerrors.New("MongoDBSearch does not support X.509 internal cluster authentication")
 	}
 
 	return nil

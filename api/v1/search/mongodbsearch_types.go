@@ -17,10 +17,13 @@ import (
 )
 
 const (
-	MongotDefaultPort               = 27027
+	MongotDefaultWireprotoPort      = 27027
+	MongotDefaultGrpcPort           = 27028
 	MongotDefaultMetricsPort        = 9946
 	MongotDefautHealthCheckPort     = 8080
 	MongotDefaultSyncSourceUsername = "search-sync-source"
+
+	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 )
 
 func init() {
@@ -211,8 +214,12 @@ func (s *MongoDBSearch) GetMongoDBResourceRef() *userv1.MongoDBResourceRef {
 	return &mdbResourceRef
 }
 
-func (s *MongoDBSearch) GetMongotPort() int32 {
-	return MongotDefaultPort
+func (s *MongoDBSearch) GetMongotWireprotoPort() int32 {
+	return MongotDefaultWireprotoPort
+}
+
+func (s *MongoDBSearch) GetMongotGrpcPort() int32 {
+	return MongotDefaultGrpcPort
 }
 
 func (s *MongoDBSearch) GetMongotMetricsPort() int32 {
@@ -244,4 +251,19 @@ func (s *MongoDBSearch) GetLogLevel() mdb.LogLevel {
 	}
 
 	return s.Spec.LogLevel
+}
+
+// mongot configuration defaults to the gRPC server. on rare occasions we might advise users to enable the legacy
+// wireproto server. Once the deprecated wireproto server is removed, this function, annotation, and all code guarded
+// by this check should be removed.
+func (s *MongoDBSearch) IsWireprotoEnabled() bool {
+	val, ok := s.Annotations[ForceWireprotoAnnotation]
+	return ok && val == "true"
+}
+
+func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
+	if s.IsWireprotoEnabled() {
+		return s.GetMongotWireprotoPort()
+	}
+	return s.GetMongotGrpcPort()
 }

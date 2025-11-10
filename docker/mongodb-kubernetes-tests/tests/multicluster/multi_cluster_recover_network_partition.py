@@ -11,12 +11,12 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
-    MULTI_CLUSTER_OPERATOR_NAME,
     get_member_cluster_api_client,
     run_multi_cluster_recovery_tool,
 )
 
 from .conftest import cluster_spec_list, create_service_entries_objects
+from ..constants import MULTI_CLUSTER_OPERATOR_NAME
 
 FAILED_MEMBER_CLUSTER_NAME = "kind-e2e-cluster-3"
 RESOURCE_NAME = "multi-replica-set"

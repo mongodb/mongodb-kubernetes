@@ -11,7 +11,6 @@ from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
-from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 from tests.common.constants import (
     MONGODB_PORT,
@@ -22,7 +21,8 @@ from tests.common.constants import (
 from tests.common.ops_manager.multi_cluster import (
     ops_manager_multi_cluster_with_tls_s3_backups,
 )
-from tests.conftest import AWS_REGION, assert_data_got_restored
+from tests.conftest import assert_data_got_restored
+from tests.constants import AWS_REGION
 from tests.multicluster.conftest import cluster_spec_list
 
 
