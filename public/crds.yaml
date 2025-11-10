@@ -4133,6 +4133,7 @@ spec:
                   set, the metrics endpoint will be disabled.
                 properties:
                   port:
+                    default: 9946
                     description: Port where metrics endpoint will be exposed on. Defaults
                       to 9946.
                     maximum: 65535
