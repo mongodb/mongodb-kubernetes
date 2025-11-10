@@ -71,7 +71,6 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
         "source": {
             "external": {
                 "hostAndPorts": seeds,
-                "keyfileSecretRef": {"name": f"{mdbc.name}-keyfile", "key": "keyfile"},
             },
             "passwordSecretRef": {"name": f"{MDBC_RESOURCE_NAME}-{MONGOT_USER_NAME}-password", "key": "password"},
             "username": MONGOT_USER_NAME,

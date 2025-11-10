@@ -10,9 +10,6 @@ spec:
         - ${MDB_EXTERNAL_HOST_0}
         - ${MDB_EXTERNAL_HOST_1}
         - ${MDB_EXTERNAL_HOST_2}
-      keyfileSecretRef:
-        name: ${MDB_EXTERNAL_KEYFILE_SECRET_NAME}
-        key: keyfile
     username: search-sync-source
     passwordSecretRef:
       name: ${MDB_RESOURCE_NAME}-search-sync-source-password
