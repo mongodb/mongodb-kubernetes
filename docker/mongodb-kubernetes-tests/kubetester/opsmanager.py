@@ -1017,14 +1017,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return self["spec"].get("topology", "") == "MultiCluster"
 
     class StatusCommon:
-        def assert_reaches_phase(
-            self,
-            phase: Phase,
-            msg_regexp=None,
-            timeout=None,
-            ignore_errors=False,
-            persist_for=1
-        ):
+        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False, persist_for=1):
             intermediate_events = (
                 # This can be an intermediate error, right before we check for this secret we create it.
                 # The cluster might just be slow
@@ -1047,7 +1040,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 ),
                 timeout,
                 should_raise=True,
-                persist_for=persist_for
+                persist_for=persist_for,
             )
             end_time = time.time()
             span = trace.get_current_span()
