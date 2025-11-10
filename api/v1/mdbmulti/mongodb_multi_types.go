@@ -227,8 +227,6 @@ type MongoDBMultiSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	mdbv1.DbCommonSpec `json:",inline"`
 
-	ClusterSpecList mdbv1.ClusterSpecList `json:"clusterSpecList,omitempty"`
-
 	// Mapping stores the deterministic index for a given cluster-name.
 	Mapping map[string]int `json:"-"`
 }
