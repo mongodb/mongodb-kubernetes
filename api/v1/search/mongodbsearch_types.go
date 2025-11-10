@@ -35,6 +35,7 @@ type Prometheus struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=65535
+	// +kubebuilder:default=9946
 	Port int `json:"port,omitempty"`
 }
 
