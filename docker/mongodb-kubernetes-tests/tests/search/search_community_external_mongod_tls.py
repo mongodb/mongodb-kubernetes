@@ -137,7 +137,6 @@ def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
     mdbs["spec"]["source"] = {
         "external": {
             "hostAndPorts": seeds,
-            "keyfileSecretRef": {"name": f"{mdbc.name}-keyfile"},
             "tls": {
                 "ca": {"name": f"{mdbc.name}-ca"},
             },
