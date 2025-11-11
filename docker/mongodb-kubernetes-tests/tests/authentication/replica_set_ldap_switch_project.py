@@ -1,11 +1,9 @@
-import tempfile
 from typing import List
 
 import pytest
 from kubetester import (
     create_secret,
     find_fixture,
-    read_configmap,
     try_load,
 )
 from kubetester.certs import create_mongodb_tls_certs
@@ -15,7 +13,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.phase import Phase
 
-from .replica_set_switch_project_helper import (
+from .helper_replica_set_switch_project import (
     ReplicaSetCreationAndProjectSwitchTestHelper,
 )
 
@@ -137,25 +135,11 @@ class TestReplicaSetLDAPProjectSwitch(KubernetesTester):
             attempts=10,
         )
 
-    def test_switch_replica_set_project(
-        self, namespace: str, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper
-    ):
-        original_configmap = read_configmap(namespace=namespace, name="my-project")
-        test_helper.test_switch_replica_set_project(
-            original_configmap, new_project_configmap_name=namespace + "-" + "second"
-        )
+    def test_switch_replica_set_project(self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper):
+        test_helper.test_switch_replica_set_project()
 
-    def test_ops_manager_state_correctly_updated_in_moved_cluster(
+    def test_ops_manager_state_with_users_correctly_updated_after_switch(
         self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper
     ):
         test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
-
-        # tester.assert_expected_users(1)
-
-        # tester = replica_set.tester()
-        # tester.assert_ldap_authentication(
-        #     username=user_ldap["spec"]["username"],
-        #     password=user_ldap.password,
-        #     tls_ca_file=ca_path,
-        #     attempts=10,
-        # )
+        # There should be one user (the previously created user should still exist in the automation configuration). We need to investigate further to understand why the user is not being picked up.

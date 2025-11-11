@@ -1,6 +1,5 @@
 import pytest
 from kubetester import (
-    read_configmap,
     try_load,
 )
 from kubetester.certs import (
@@ -12,21 +11,16 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 
-from .replica_set_switch_project_helper import (
+from .helper_replica_set_switch_project import (
     ReplicaSetCreationAndProjectSwitchTestHelper,
 )
 
-# Constants
 MDB_RESOURCE_NAME = "replica-set-x509-switch-project"
 
 
 @pytest.fixture(scope="module")
 def replica_set(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    """
-    Fixture to initialize the MongoDB resource for the replica set.
 
-    Dynamically updates the resource configuration based on the test context.
-    """
     resource = MongoDB.from_yaml(
         load_fixture("replica-set-x509-to-scram-256.yaml"), name=MDB_RESOURCE_NAME, namespace=namespace
     )
@@ -69,15 +63,10 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
     ):
         test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
-    def test_switch_replica_set_project(
-        self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper, namespace: str
-    ):
-        original_configmap = read_configmap(namespace=namespace, name="my-project")
-        test_helper.test_switch_replica_set_project(
-            original_configmap, new_project_configmap_name=namespace + "-" + "second"
-        )
+    def test_switch_replica_set_project(self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper):
+        test_helper.test_switch_replica_set_project()
 
-    def test_ops_manager_state_correctly_updated_in_moved_replica_set(
+    def test_ops_manager_state_with_users_correctly_updated_after_switch(
         self, test_helper: ReplicaSetCreationAndProjectSwitchTestHelper
     ):
         test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
