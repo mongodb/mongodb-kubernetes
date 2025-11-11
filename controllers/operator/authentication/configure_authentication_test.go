@@ -34,7 +34,7 @@ func TestConfigureScramSha256(t *testing.T) {
 		AgentMechanism:   "SCRAM",
 	}
 
-	if err := Configure(kubeClient, ctx, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -66,7 +66,7 @@ func TestConfigureX509(t *testing.T) {
 		},
 	}
 
-	if err := Configure(kubeClient, ctx, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -94,7 +94,7 @@ func TestConfigureScramSha1(t *testing.T) {
 		AgentMechanism:   "SCRAM-SHA-1",
 	}
 
-	if err := Configure(kubeClient, ctx, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -123,7 +123,7 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 		},
 	}
 
-	if err := Configure(kubeClient, ctx, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 

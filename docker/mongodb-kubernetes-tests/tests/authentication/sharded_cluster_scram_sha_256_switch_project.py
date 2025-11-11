@@ -60,38 +60,38 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     ):
         test_helper.test_ops_manager_state_with_expected_authentication(0)
 
-    # def test_create_secret(self):
-    #     create_or_update_secret(
-    #         KubernetesTester.get_namespace(),
-    #         self.PASSWORD_SECRET_NAME,
-    #         {
-    #             "password": self.USER_PASSWORD,
-    #         },
-    #     )
+    def test_create_secret(self):
+        create_or_update_secret(
+            KubernetesTester.get_namespace(),
+            self.PASSWORD_SECRET_NAME,
+            {
+                "password": self.USER_PASSWORD,
+            },
+        )
 
-    # def test_create_user(self, namespace: str):
-    #     mdb = MongoDBUser.from_yaml(
-    #         load_fixture("scram-sha-user.yaml"),
-    #         namespace=namespace,
-    #     )
-    #     mdb["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
+    def test_create_user(self, namespace: str):
+        mdb = MongoDBUser.from_yaml(
+            load_fixture("scram-sha-user.yaml"),
+            namespace=namespace,
+        )
+        mdb["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
 
-    #     mdb.update()
-    #     mdb.assert_reaches_phase(Phase.Updated, timeout=150)
+        mdb.update()
+        mdb.assert_reaches_phase(Phase.Updated, timeout=150)
 
-    # def test_ops_manager_state_with_users_correctly_updated(
-    #     self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
-    # ):
-    #     user_name = "mms-user-1"
-    #     expected_roles = {
-    #         ("admin", "clusterAdmin"),
-    #         ("admin", "userAdminAnyDatabase"),
-    #         ("admin", "readWrite"),
-    #         ("admin", "userAdminAnyDatabase"),
-    #     }
-    #     test_helper.test_ops_manager_state_with_users(
-    #         user_name=user_name, expected_roles=expected_roles, expected_users=1
-    #     )
+    def test_ops_manager_state_with_users_correctly_updated(
+        self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
+    ):
+        user_name = "mms-user-1"
+        expected_roles = {
+            ("admin", "clusterAdmin"),
+            ("admin", "userAdminAnyDatabase"),
+            ("admin", "readWrite"),
+            ("admin", "userAdminAnyDatabase"),
+        }
+        test_helper.test_ops_manager_state_with_users(
+            user_name=user_name, expected_roles=expected_roles, expected_users=1
+        )
 
     def test_switch_sharded_cluster_project(self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper):
         test_helper.test_switch_sharded_cluster_project()
@@ -104,19 +104,18 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     def test_ops_manager_state_correctly_updated_after_switch(
         self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
     ):
-        test_helper.test_ops_manager_state_with_expected_authentication(0)
+        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=1)
 
-    # def test_ops_manager_state_with_users_correctly_updated_after_switch(
-    #     self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
-    # ):
-    #     user_name = "mms-user-1"
-    #     expected_roles = {
-    #         ("admin", "clusterAdmin"),
-    #         ("admin", "userAdminAnyDatabase"),
-    #         ("admin", "readWrite"),
-    #         ("admin", "userAdminAnyDatabase"),
-    #     }
-    #     test_helper.test_ops_manager_state_with_users(
-    #         user_name=user_name, expected_roles=expected_roles, expected_users=1
-    #     )
-    # There should be one user (the previously created user should still exist in the automation configuration). We need to investigate further to understand why the user is not being picked up.
+    def test_ops_manager_state_with_users_correctly_updated_after_switch(
+        self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
+    ):
+        user_name = "mms-user-1"
+        expected_roles = {
+            ("admin", "clusterAdmin"),
+            ("admin", "userAdminAnyDatabase"),
+            ("admin", "readWrite"),
+            ("admin", "userAdminAnyDatabase"),
+        }
+        test_helper.test_ops_manager_state_with_users(
+            user_name=user_name, expected_roles=expected_roles, expected_users=1
+        )

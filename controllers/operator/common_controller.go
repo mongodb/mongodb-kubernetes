@@ -514,7 +514,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 			authOpts.UserOptions = userOpts
 		}
 
-		if err := authentication.Configure(r.client, ctx, types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()}, conn, authOpts, isRecovering, log); err != nil {
+		if err := authentication.Configure(ctx, r.client, types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()}, conn, authOpts, isRecovering, log); err != nil {
 			return workflow.Failed(err), false
 		}
 	} else if wantToEnableAuthentication {
