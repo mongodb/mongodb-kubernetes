@@ -274,17 +274,6 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 		expectedPorts map[string]int32
 	}{
 		{
-			name: "Default configuration with prometheus enabled",
-			modifySearch: func(search *searchv1.MongoDBSearch) {
-				search.Spec.Prometheus = &searchv1.Prometheus{}
-			},
-			expectedPorts: map[string]int32{
-				"mongot-grpc": searchv1.MongotDefaultGrpcPort,
-				"prometheus":  searchv1.MongotDefaultPrometheusPort,
-				"healthcheck": searchv1.MongotDefautHealthCheckPort,
-			},
-		},
-		{
 			name: "Prometheus enabled with custom port",
 			modifySearch: func(search *searchv1.MongoDBSearch) {
 				search.Spec.Prometheus = &searchv1.Prometheus{

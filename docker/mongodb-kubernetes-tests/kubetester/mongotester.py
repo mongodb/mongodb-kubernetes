@@ -9,6 +9,7 @@ import time
 from typing import Callable, Dict, List, Optional
 
 import pymongo
+from kubetester import kubetester
 from kubetester.kubetester import KubernetesTester
 from kubetester.phase import Phase
 from opentelemetry import trace
@@ -16,8 +17,6 @@ from pycognito import Cognito
 from pymongo.auth_oidc import OIDCCallback, OIDCCallbackContext, OIDCCallbackResult
 from pymongo.errors import OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pytest import fail
-
-from kubetester import kubetester
 
 TEST_DB = "test-db"
 TEST_COLLECTION = "test-collection"
