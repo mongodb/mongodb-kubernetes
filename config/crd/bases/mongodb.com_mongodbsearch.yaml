@@ -21,6 +21,10 @@ spec:
       jsonPath: .status.phase
       name: Phase
       type: string
+    - description: MongoDB Search version reconciled by the operator.
+      jsonPath: .status.version
+      name: Version
+      type: string
     - description: The time since the MongoDB resource was created.
       jsonPath: .metadata.creationTimestamp
       name: Age
