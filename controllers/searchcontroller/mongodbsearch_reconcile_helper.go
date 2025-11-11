@@ -76,7 +76,7 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
 		return workflow.Failed(err)
 	}
-	return workflow.OK()
+	return workflowStatus
 }
 
 func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
@@ -314,7 +314,7 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		SetLabels(labels).
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetClusterIP("None").
-		SetPublishNotReadyAddresses(true).
+		SetPublishNotReadyAddresses(false).
 		SetOwnerReferences(search.GetOwnerReferences())
 
 	if search.IsWireprotoEnabled() {
@@ -333,12 +333,14 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		TargetPort: intstr.FromInt32(search.GetMongotGrpcPort()),
 	})
 
-	serviceBuilder.AddPort(&corev1.ServicePort{
-		Name:       "metrics",
-		Protocol:   corev1.ProtocolTCP,
-		Port:       search.GetMongotMetricsPort(),
-		TargetPort: intstr.FromInt32(search.GetMongotMetricsPort()),
-	})
+	if prometheus := search.GetPrometheus(); prometheus != nil {
+		serviceBuilder.AddPort(&corev1.ServicePort{
+			Name:       "prometheus",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       prometheus.GetPort(),
+			TargetPort: intstr.FromInt32(prometheus.GetPort()),
+		})
+	}
 
 	serviceBuilder.AddPort(&corev1.ServicePort{
 		Name:       "healthcheck",
@@ -387,10 +389,14 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 				},
 			}
 		}
-		config.Metrics = mongot.ConfigMetrics{
-			Enabled: true,
-			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotMetricsPort()),
+
+		if prometheus := search.GetPrometheus(); prometheus != nil {
+			config.Metrics = mongot.ConfigMetrics{
+				Enabled: true,
+				Address: fmt.Sprintf("0.0.0.0:%d", prometheus.GetPort()),
+			}
 		}
+
 		config.HealthCheck = mongot.ConfigHealthCheck{
 			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
 		}
