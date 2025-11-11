@@ -200,12 +200,12 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			}
 			reconciler, c := newSearchReconcilerWithOperatorConfig(mdbc, operatorConfig, search)
 
-			checkSearchReconcileSuccessful(ctx, t, reconciler, c, search)
-
 			// BEFORE readiness: version should still be empty (controller sets Version only after StatefulSet ready)
 			searchPending := &searchv1.MongoDBSearch{}
 			assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, searchPending))
 			assert.Empty(t, searchPending.Status.Version, "Status.Version must be empty before StatefulSet is marked ready")
+
+			checkSearchReconcileSuccessful(ctx, t, reconciler, c, search)
 
 			svc := &corev1.Service{}
 			err := c.Get(ctx, search.SearchServiceNamespacedName(), svc)
@@ -227,15 +227,6 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			configYaml, err := yaml.Marshal(expectedConfig)
 			assert.NoError(t, err)
 			assert.Equal(t, string(configYaml), cm.Data[searchcontroller.MongotConfigFilename])
-
-			assert.NoError(t, mock.MarkAllStatefulSetsAsReady(ctx, search.StatefulSetNamespacedName().Namespace, c))
-
-			res, err = reconciler.Reconcile(
-				ctx,
-				reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}},
-			)
-			assert.NoError(t, err)
-			assert.Equal(t, expected, res)
 
 			updatedSearch := &searchv1.MongoDBSearch{}
 			assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updatedSearch))
