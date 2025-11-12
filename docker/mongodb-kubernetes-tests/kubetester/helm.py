@@ -5,13 +5,18 @@ import subprocess
 import uuid
 from typing import Dict, List, Optional, Tuple
 
-from kubetester.consts import *
+from kubetester.consts import (
+    OCI_HELM_REGION_ENV_VAR_NAME,
+    OCI_HELM_REGISTRY_ENV_VAR_NAME,
+    OCI_HELM_REPOSITORY_ENV_VAR_NAME,
+    OCI_HELM_VERSION,
+)
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
 
-# LOCAL_CRDs_DIR is the dir where local helm chart's CRDs are copied in tests image
-LOCAL_CRDs_DIR = "helm_chart/crds"
+# LOCAL_CRDS_DIR is the dir where local helm chart's CRDs are copied in tests image
+LOCAL_CRDS_DIR = "helm_chart/crds"
 OCI_HELM_REGISTRY_ECR = "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 
 
@@ -215,7 +220,7 @@ def helm_upgrade(
     chart_dir = helm_chart_path
 
     if apply_crds_first:
-        apply_crds_from_chart(LOCAL_CRDs_DIR)
+        apply_crds_from_chart(LOCAL_CRDS_DIR)
 
     command_args = _create_helm_args(helm_args, helm_options)
     args = [
