@@ -52,7 +52,7 @@ def multi_cluster_s3_replica_set(
     custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi-cluster.yaml"), "multi-replica-set", namespace
+        yaml_fixture("mongodbmulticluster-multi-cluster.yaml"), "multi-replica-set", namespace
     ).configure(ops_manager, "s3metadata", api_client=central_cluster_client)
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(appdb_member_cluster_names, [1, 2])
@@ -183,7 +183,7 @@ class TestBackupForMongodb:
         custom_mdb_version: str,
     ) -> MongoDBMulti:
         resource = MongoDBMulti.from_yaml(
-            yaml_fixture("mongodb-multi.yaml"),
+            yaml_fixture("mongodbmulticluster-multi.yaml"),
             "multi-replica-set-one",
             namespace,
             # the project configmap should be created in the central cluster.

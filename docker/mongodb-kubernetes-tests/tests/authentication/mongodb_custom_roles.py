@@ -116,7 +116,7 @@ def sharded_cluster(namespace: str, mongodb_role: ClusterMongoDBRole, second_pro
 
 @fixture(scope="module")
 def mc_replica_set(namespace: str, mongodb_role: ClusterMongoDBRole, third_project: str) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(find_fixture("mongodb-multi.yaml"), namespace=namespace)
+    resource = MongoDBMulti.from_yaml(find_fixture("mongodbmulticluster-multi.yaml"), namespace=namespace)
 
     if try_load(resource):
         return resource

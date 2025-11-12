@@ -922,7 +922,12 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_replica_set
+  - name: e2e_mongodbmulticluster_multi_cluster_replica_set
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+  
+  - name: e2e_mongodb_multi_cluster_replica_set
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -942,7 +947,7 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_new_replica_set_scale_up
+  - name: e2e_mongodb_multi_cluster_replica_set_scale_up
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

@@ -53,7 +53,7 @@ def replica_set(
 ) -> MongoDB:
     if is_multi_cluster():
         resource = MongoDBMulti.from_yaml(
-            yaml_fixture("mongodb-multi-cluster.yaml"),
+            yaml_fixture("mongodbmulticluster-multi-cluster.yaml"),
             "multi-replica-set",
             namespace,
         )
