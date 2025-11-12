@@ -29,6 +29,7 @@ rules:
       - create
       - update
       - delete
+      - deletecollection
   - apiGroups:
       - ''
     resources:
@@ -40,6 +41,7 @@ rules:
       - create
       - update
       - delete
+      - deletecollection
       - watch
   - apiGroups:
       - apps
@@ -51,6 +53,7 @@ rules:
       - list
       - watch
       - delete
+      - deletecollection
       - update
   - apiGroups:
       - ''
