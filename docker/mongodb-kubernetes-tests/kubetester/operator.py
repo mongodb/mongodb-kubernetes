@@ -18,7 +18,6 @@ from kubetester.helm import (
     helm_upgrade,
 )
 from tests import test_logger
-from tests.constants import LOCAL_HELM_CHART_DIR
 
 OPERATOR_CRDS = (
     "mongodb.mongodb.com",

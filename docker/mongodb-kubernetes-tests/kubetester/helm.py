@@ -5,13 +5,13 @@ import subprocess
 import uuid
 from typing import Dict, List, Optional, Tuple
 
-from kubetester.consts import (
+from tests import test_logger
+from tests.constants import (
+    DEFAULT_HELM_CHART_PATH_ENV_VAR_NAME,
     OCI_HELM_REGION_ENV_VAR_NAME,
     OCI_HELM_REGISTRY_ENV_VAR_NAME,
-    OCI_HELM_REPOSITORY_ENV_VAR_NAME,
-    OCI_HELM_VERSION,
+    OCI_HELM_VERSION_ENV_VAR_NAME,
 )
-from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -241,19 +241,6 @@ def helm_upgrade(
     process_run_and_check(command, check=True, capture_output=True, shell=True)
 
 
-# oci_chart_info returns the respective registry/repo and region information
-# based on the build scenario (dev/staging) tests are being run in. These are
-# read from build_info.json and then set to the tests image as env vars.
-def oci_chart_info():
-    registry = os.environ.get(OCI_HELM_REGISTRY_ENV_VAR_NAME)
-    repository = os.environ.get(OCI_HELM_REPOSITORY_ENV_VAR_NAME)
-    region = os.environ.get(OCI_HELM_REGION_ENV_VAR_NAME)
-
-    logger.info(f"oci chart details in test image is registry {registry}, repo {repository}, region {region}")
-
-    return registry, f"{repository}/mongodb-kubernetes", region
-
-
 def apply_crds_from_chart(crds_dir: str):
     crd_files = glob.glob(os.path.join(crds_dir, "*.yaml"))
 
@@ -308,28 +295,22 @@ def _create_helm_args(helm_args: Dict[str, str], helm_options: Optional[List[str
 # based on the caller. In most of the cases we will install chart from OCI registry but for the tests where we would like
 # to install MEKO's specific version or MCK's specific version, we would expect `helm_chart_path` to set already.
 def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> tuple[str, str]:
-    # these are imported here to resolve import cycle issue
-    from tests.conftest import LOCAL_HELM_CHART_DIR, local_operator
-
-    if local_operator():
-        return LOCAL_HELM_CHART_DIR, ""
-
-    # helm_chart_path not being passed would mean we would like to install helm chart from OCI registry.
+    # if helm_chart_path is not passed, use the default value from DEFAULT_HELM_CHART_PATH
     if not helm_chart_path:
+        helm_chart_path = os.getenv(DEFAULT_HELM_CHART_PATH_ENV_VAR_NAME)
+
+    if helm_chart_path.startswith("oci://"):
         # If operator_version is not passed, we want to install the current version.
         if not operator_version:
-            operator_version = os.environ.get(OCI_HELM_VERSION)
+            operator_version = os.environ.get(OCI_HELM_VERSION_ENV_VAR_NAME)
 
-        registry, repository, region = oci_chart_info()
+        registry = os.environ.get(OCI_HELM_REGISTRY_ENV_VAR_NAME)
         # If ECR we need to login first to the OCI container registry
         if registry == OCI_HELM_REGISTRY_ECR:
+            region = os.environ.get(OCI_HELM_REGION_ENV_VAR_NAME)
             try:
                 helm_registry_login_to_ecr(registry, region)
             except Exception as e:
                 raise Exception(f"Failed to login to ECR helm registry {registry}. Error: {e}")
-
-        # figure out the registry URI, based on dev/staging scenario
-        chart_uri = f"oci://{registry}/{repository}"
-        helm_chart_path = chart_uri
 
     return helm_chart_path, operator_version

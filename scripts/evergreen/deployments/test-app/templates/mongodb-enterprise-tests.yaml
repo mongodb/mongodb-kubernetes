@@ -174,22 +174,16 @@ spec:
     - name: OM_DEBUG_HTTP
       value: "{{ .Values.omDebugHttp }}"
     {{ end }}
-    {{ if .Values.helm.oci.version }}
     - name: OCI_HELM_VERSION
       value: "{{ .Values.helm.oci.version }}"
-    {{ end }}
-    {{ if .Values.helm.oci.registry }}
     - name: OCI_HELM_REGISTRY
       value: "{{ .Values.helm.oci.registry }}"
-    {{ end }}
-    {{ if .Values.helm.oci.repository }}
     - name: OCI_HELM_REPOSITORY
       value: "{{ .Values.helm.oci.repository }}"
-    {{ end }}
-    {{ if .Values.helm.oci.region }}
     - name: OCI_HELM_REGION
       value: "{{ .Values.helm.oci.region }}"
-    {{ end }}
+    - name: DEFAULT_HELM_CHART_PATH
+      value: "oci://{{ .Values.helm.oci.registry }}/{{ .Values.helm.oci.repository }}/mongodb-kubernetes"
     - name: ops_manager_version
       value: "{{ .Values.opsManagerVersion }}"
     - name: cognito_user_pool_id
