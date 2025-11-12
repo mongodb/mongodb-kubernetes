@@ -1,5 +1,3 @@
-#!/usr/bin/env bash
-
 # 1. Self-signed bootstrap issuer
 kubectl apply --context "${K8S_CTX}" -f - <<EOF
 apiVersion: cert-manager.io/v1

@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
 # Issue server and search certificates
 server_certificate="${MDB_RESOURCE_NAME}-server-tls"
 search_certificate="${MDB_RESOURCE_NAME}-search-tls"

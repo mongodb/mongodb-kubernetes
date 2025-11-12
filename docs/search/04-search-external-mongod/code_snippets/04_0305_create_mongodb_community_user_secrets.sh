@@ -1,5 +1,3 @@
-#!/usr/bin/env bash
-
 # Create admin user secret
 kubectl create secret generic mdb-admin-user-password \
   --from-literal=password="${MDB_ADMIN_USER_PASSWORD}" \
