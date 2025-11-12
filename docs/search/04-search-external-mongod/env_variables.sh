@@ -2,15 +2,13 @@ export K8S_CTX="<your kubernetes context here>"
 
 export MDB_NS="mongodb"
 
-export MDB_RESOURCE_NAME="mdbc-rs"
 export MDB_VERSION="8.2.0"
 
 export MDB_ADMIN_USER_PASSWORD="admin-user-password-CHANGE-ME"
 export MDB_USER_PASSWORD="mdb-user-password-CHANGE-ME"
 export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
 
-export MDB_MEMBERS="3"
-export MDB_TLS_CA_SECRET_NAME="${MDB_RESOURCE_NAME}-ca"
+export MDB_TLS_CA_SECRET_NAME="ca"
 export MDB_SEARCH_TLS_SECRET_NAME="mdbs-search-tls"
 
 export MDB_SEARCH_SERVICE_NAME="mdbs-search"
@@ -29,5 +27,3 @@ export OPERATOR_HELM_CHART="mongodb/mongodb-kubernetes"
 export OPERATOR_ADDITIONAL_HELM_VALUES=""
 
 export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_HOST_0}/?replicaSet=${MDB_EXTERNAL_REPLICA_SET_NAME}&tls=true&tlsCAFile=/tls/ca.crt"
-
-export CERT_MANAGER_NAMESPACE="cert-manager"

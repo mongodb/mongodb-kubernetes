@@ -6,14 +6,14 @@ metadata:
 spec:
   version: ${MDB_VERSION}
   type: ReplicaSet
-  members: ${MDB_MEMBERS}
+  members: 3
   security:
     tls:
       enabled: true
       certificateKeySecretRef:
         name: ${MDB_TLS_SERVER_CERT_SECRET_NAME}
-      caCertificateSecretRef:
-        name: ${MDB_TLS_CA_SECRET_NAME}
+      caConfigMapRef:
+        name: ${MDB_TLS_CA_CONFIGMAP}
     authentication:
       ignoreUnknownUsers: true
       modes:
