@@ -20,6 +20,8 @@ trap dump_logs EXIT
 
 test_dir="./docs/search/04-search-external-mongod"
 source "${test_dir}/env_variables.sh"
+source "${test_dir}/env_variables_tls.sh"
+
 echo "Sourcing env variables for ${CODE_SNIPPETS_FLAVOR} flavor"
 # shellcheck disable=SC1090
 test -f "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh" && source "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh"

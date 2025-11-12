@@ -11,13 +11,7 @@ export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
 
 export MDB_MEMBERS="3"
 export MDB_TLS_CA_SECRET_NAME="${MDB_RESOURCE_NAME}-ca"
-export MDB_TLS_CA_CONFIGMAP="${MDB_RESOURCE_NAME}-ca-configmap"
-export MDB_TLS_SERVER_CERT_SECRET_NAME="${MDB_RESOURCE_NAME}-tls"
 export MDB_SEARCH_TLS_SECRET_NAME="mdbs-search-tls"
-
-export MDB_TLS_SELF_SIGNED_ISSUER="${MDB_RESOURCE_NAME}-selfsigned-cluster-issuer"
-export MDB_TLS_CA_CERT_NAME="${MDB_RESOURCE_NAME}-selfsigned-ca"
-export MDB_TLS_CA_ISSUER="${MDB_RESOURCE_NAME}-cluster-issuer"
 
 export MDB_SEARCH_SERVICE_NAME="mdbs-search"
 export MDB_SEARCH_HOSTNAME="mdbs-search.example.com"
