@@ -101,3 +101,6 @@ export PRERELEASE_PULLSECRET_DOCKERCONFIGJSON="<dockerconfigjson secret>"
 
 # uncomment to enable license update with pre-commit script
 # export MDB_UPDATE_LICENSES=true
+
+# uncomment to enable agent debug mode (which adds a delve sidecar to the pods)
+#export MDB_AGENT_DEBUG=true

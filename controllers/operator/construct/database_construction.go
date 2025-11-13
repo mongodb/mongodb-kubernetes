@@ -122,6 +122,9 @@ type DatabaseStatefulSetOptions struct {
 	// The certificate secrets and other dependencies named using the resource name will use the `Name` field.
 	StatefulSetNameOverride       string // this needs to be overriden of the
 	HostNameOverrideConfigmapName string
+
+	AgentDebug      bool
+	AgentDebugImage string
 }
 
 func (d DatabaseStatefulSetOptions) IsMongos() bool {
@@ -480,7 +483,6 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	}
 
 	shareProcessNs := statefulset.NOOP()
-	secondContainerModification := podtemplatespec.NOOP()
 
 	var databaseImage string
 	var staticMods []podtemplatespec.Modification
@@ -500,17 +502,39 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		databaseImage = opts.DatabaseNonStaticImage
 	}
 
+	agentDebugMod := podtemplatespec.NOOP()
+	if opts.AgentDebug {
+		if opts.AgentDebugImage == "" {
+			log.Warnf("%s is true but delve image is not configured. Plese configure %s", util.EnvVarDebug, util.EnvVarDebugImage)
+		} else {
+			shareProcessNs = func(sts *appsv1.StatefulSet) {
+				sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+			}
+
+			agentDebugMod = podtemplatespec.WithInitContainer("delve-sidecar", func(c *corev1.Container) {
+				container.WithImage(opts.AgentDebugImage)(c)
+				container.WithRestartPolicy(corev1.ContainerRestartPolicyAlways)(c)
+				container.WithPorts([]corev1.ContainerPort{
+					{
+						Name:          "delve",
+						ContainerPort: 2345,
+					},
+				})(c)
+			})
+		}
+	}
+
 	podTemplateModifications := []podtemplatespec.Modification{
 		podTemplateAnnotationFunc,
 		podtemplatespec.WithAffinity(podAffinity, PodAntiAffinityLabelKey, 100),
 		podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 		podtemplatespec.WithPodLabels(podLabels),
 		podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(databaseImage, *opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort)),
-		secondContainerModification,
 		volumesFunc,
 		configurePodSpecSecurityContext,
 		configureImagePullSecrets,
 		podTemplateSpecFunc,
+		agentDebugMod,
 	}
 	podTemplateModifications = append(podTemplateModifications, staticMods...)
 
