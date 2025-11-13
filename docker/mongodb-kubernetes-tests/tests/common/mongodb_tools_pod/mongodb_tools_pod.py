@@ -23,6 +23,8 @@ class ToolsPod:
         self.api_client = api_client
 
     def run_command(self, cmd: list[str]):
+
+        logger.debug(f"Running command in pod {self.namespace}/{self.pod_name}: {" ".join(cmd)}")
         api_client = client.CoreV1Api(api_client=self.api_client)
         resp = stream(
             api_client.connect_get_namespaced_pod_exec,

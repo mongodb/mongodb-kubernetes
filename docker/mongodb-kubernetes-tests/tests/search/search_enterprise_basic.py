@@ -161,7 +161,7 @@ def sample_movies_helper(mdb: MongoDB, issuer_ca_filepath: str) -> SampleMoviesS
     from tests.common.mongodb_tools_pod.mongodb_tools_pod import get_tools_pod
 
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=True, ca_path=issuer_ca_filepath),
+        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=False),
         tools_pod=get_tools_pod(mdb.namespace),
     )
 
