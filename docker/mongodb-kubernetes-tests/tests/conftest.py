@@ -20,7 +20,6 @@ from kubetester import (
     update_configmap,
 )
 from kubetester.awss3client import AwsS3Client
-from kubetester.consts import *
 from kubetester.helm import (
     helm_chart_path_and_version,
     helm_install_from_chart,
