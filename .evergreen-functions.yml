@@ -123,6 +123,8 @@ functions:
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
       binary: scripts/evergreen/setup_kubectl.sh
 
   setup_shellcheck:
