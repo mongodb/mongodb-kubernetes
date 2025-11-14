@@ -6,7 +6,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.operator import Operator
 
 
-@pytest.mark.e2e_multi_cluster_validation
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_validation
 class TestWebhookValidation(KubernetesTester):
     def test_deploy_operator(self, multi_cluster_operator: Operator):
         multi_cluster_operator.assert_is_running()

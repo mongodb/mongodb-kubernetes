@@ -4,15 +4,15 @@ import kubernetes
 import pymongo
 import pytest
 from kubetester import try_load
-from kubetester.kubetester import assert_statefulset_architecture
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import get_default_architecture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongotester import MongoDBBackgroundTester
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from tests.multicluster.conftest import cluster_spec_list
+
+from ..shared import multi_cluster_replica_set_migration as testhelper
 
 MDBM_RESOURCE = "multi-replica-set-migration"
 
@@ -46,46 +46,28 @@ def mdb_health_checker(mongodb_multi: MongoDBMulti) -> MongoDBBackgroundTester:
     )
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_migration
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_migration
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    testhelper.test_deploy_operator(multi_cluster_operator)
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_migration
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_migration
 def test_create_mongodb_multi_running(mongodb_multi: MongoDBMulti):
-    mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    testhelper.test_create_mongodb_multi_running(mongodb_multi)
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_migration
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_migration
 def test_start_background_checker(mdb_health_checker: MongoDBBackgroundTester):
-    mdb_health_checker.start()
+    testhelper.test_start_background_checker(mdb_health_checker)
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_migration
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_migration
 def test_migrate_architecture(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
-    """
-    If the E2E is running with default architecture as non-static,
-    then the test will migrate to static and vice versa.
-    """
-    original_default_architecture = get_default_architecture()
-    target_architecture = "non-static" if original_default_architecture == "static" else "static"
-
-    mongodb_multi.trigger_architecture_migration()
-
-    mongodb_multi.load()
-    assert mongodb_multi["metadata"]["annotations"]["mongodb.com/v1.architecture"] == target_architecture
-
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=1800)
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
-
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
-    for statefulset in statefulsets.values():
-        assert_statefulset_architecture(statefulset, target_architecture)
+    testhelper.test_migrate_architecture(mongodb_multi, member_cluster_clients)
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_migration
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_migration
 def test_mdb_healthy_throughout_change_version(
     mdb_health_checker: MongoDBBackgroundTester,
 ):
-    mdb_health_checker.assert_healthiness()
+    testhelper.test_mdb_healthy_throughout_change_version(mdb_health_checker)

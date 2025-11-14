@@ -797,7 +797,8 @@ task_groups:
     <<: *setup_group_multi_cluster
     <<: *setup_and_teardown_task
     tasks:
-      - e2e_om_reconcile_race_with_telemetry
+      - e2e_mongodbmulticluster_om_reconcile_race_with_telemetry
+      - e2e_mongodb_om_reconcile_race_with_telemetry
     <<: *teardown_group
 
   # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
@@ -825,37 +826,63 @@ task_groups:
     tasks:
       - e2e_mongodb_multi_cluster_replica_set
       - e2e_mongodbmulticluster_multi_cluster_replica_set
-      - e2e_multi_cluster_replica_set_migration
-      - e2e_multi_cluster_replica_set_member_options
-      - e2e_multi_cluster_recover
-      - e2e_multi_cluster_recover_clusterwide
-      - e2e_multi_cluster_specific_namespaces
-      - e2e_multi_cluster_scram
-      - e2e_multi_cluster_tls_with_x509
-      - e2e_multi_cluster_tls_no_mesh
+      - e2e_mongodb_multi_cluster_replica_set_migration
+      - e2e_mongodbmulticluster_multi_cluster_replica_set_migration
+      - e2e_mongodb_multi_cluster_replica_set_member_options
+      - e2e_mongodbmulticluster_multi_cluster_replica_set_member_options
+      - e2e_mongodbmulticluster_multi_cluster_recover
+      - e2e_mongodb_multi_cluster_recover
+      - e2e_mongodbmulticluster_multi_cluster_recover_clusterwide
+      - e2e_mongodb_multi_cluster_recover_clusterwide
+      - e2e_mongodbmulticluster_multi_cluster_specific_namespaces
+      - e2e_mongodb_multi_cluster_specific_namespaces
+      - e2e_mongodbmulticluster_multi_cluster_scram
+      - e2e_mongodb_multi_cluster_scram
+      - e2e_mongodbmulticluster_multi_cluster_tls_with_x509
+      - e2e_mongodb_multi_cluster_tls_with_x509
+      - e2e_mongodbmulticluster_multi_cluster_tls_no_mesh
+      - e2e_mongodb_multi_cluster_tls_no_mesh
       - e2e_multi_cluster_enable_tls
+      # e2e_mongodbmulticluster_multi_cluster_with_ldap
+      # e2e_mongodb_multi_cluster_with_ldap
       # e2e_multi_cluster_with_ldap
       # e2e_multi_cluster_with_ldap_custom_roles
-      - e2e_multi_cluster_mtls_test
-      - e2e_multi_cluster_replica_set_deletion
-      - e2e_multi_cluster_replica_set_scale_up
+      - e2e_mongodbmulticluster_multi_cluster_mtls_test
+      - e2e_mongodb_multi_cluster_mtls_test
+      - e2e_mongodbmulticluster_multi_cluster_replica_set_deletion
+      - e2e_mongodb_multi_cluster_replica_set_deletion
+      - e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
       - e2e_mongodb_multi_cluster_replica_set_scale_up
-      - e2e_multi_cluster_scale_up_cluster
-      - e2e_multi_cluster_scale_up_cluster_new_cluster
-      - e2e_multi_cluster_replica_set_scale_down
-      - e2e_multi_cluster_scale_down_cluster
+      - e2e_mongodbmulticluster_multi_cluster_scale_up_cluster
+      - e2e_mongodb_multi_cluster_scale_up_cluster
+      - e2e_mongodbmulticluster_multi_cluster_scale_up_cluster_new_cluster
+      - e2e_mongodb_multi_cluster_scale_up_cluster_new_cluster
+      - e2e_mongodbmulticluster_multi_cluster_replica_set_scale_down
+      - e2e_mongodb_multi_cluster_replica_set_scale_down
+      - e2e_mongodbmulticluster_multi_cluster_scale_down_cluster
+      - e2e_mongodb_multi_cluster_scale_down_cluster
       - e2e_multi_sts_override
-      - e2e_multi_cluster_tls_with_scram
-      - e2e_multi_cluster_upgrade_downgrade
-      - e2e_multi_cluster_backup_restore
+      - e2e_mongodbmulticluster_multi_cluster_tls_with_scram
+      - e2e_mongodb_multi_cluster_tls_with_scram
+      - e2e_mongodbmulticluster_multi_cluster_upgrade_downgrade
+      - e2e_mongodb_multi_cluster_upgrade_downgrade
+      - e2e_mongodbmulticluster_multi_cluster_backup_restore
+      - e2e_mongodb_multi_cluster_backup_restore
       - e2e_multi_cluster_backup_restore_no_mesh
-      - e2e_multi_cluster_disaster_recovery
-      - e2e_multi_cluster_multi_disaster_recovery
-      - e2e_multi_cluster_recover_network_partition
-      - e2e_multi_cluster_validation
-      - e2e_multi_cluster_agent_flags
-      - e2e_multi_cluster_replica_set_ignore_unknown_users
-      - e2e_multi_cluster_pvc_resize
+      - e2e_mongodbmulticluster_multi_cluster_disaster_recovery
+      - e2e_mongodb_multi_cluster_disaster_recovery
+      - e2e_mongodbmulticluster_multi_cluster_multi_disaster_recovery
+      - e2e_mongodb_multi_cluster_multi_disaster_recovery
+      - e2e_mongodbmulticluster_multi_cluster_recover_network_partition
+      - e2e_mongodb_multi_cluster_recover_network_partition
+      - e2e_mongodbmulticluster_multi_cluster_validation
+      - e2e_mongodb_multi_cluster_validation
+      - e2e_mongodbmulticluster_multi_cluster_agent_flags
+      - e2e_mongodb_multi_cluster_agent_flags
+      - e2e_mongodbmulticluster_multi_cluster_replica_set_ignore_unknown_users
+      - e2e_mongodb_multi_cluster_replica_set_ignore_unknown_users
+      - e2e_mongodbmulticluster_multi_cluster_pvc_resize
+      - e2e_mongodb_multi_cluster_pvc_resize
       - e2e_multi_cluster_sharded_geo_sharding
       - e2e_multi_cluster_sharded_scaling
       - e2e_multi_cluster_sharded_scaling_all_shard_overrides
@@ -889,8 +916,10 @@ task_groups:
       - e2e_mongodb_custom_roles
       - e2e_sharded_cluster_oidc_m2m_group
       - e2e_sharded_cluster_oidc_m2m_user
-      - e2e_multi_cluster_oidc_m2m_group
-      - e2e_multi_cluster_oidc_m2m_user
+      - e2e_mongodbmulticluster_multi_cluster_oidc_m2m_group
+      - e2e_mongodb_multi_cluster_oidc_m2m_group
+      - e2e_mongodbmulticluster_multi_cluster_oidc_m2m_user
+      - e2e_mongodb_multi_cluster_oidc_m2m_user
 
     <<: *teardown_group
 
@@ -899,8 +928,10 @@ task_groups:
     <<: *setup_group
     <<: *setup_and_teardown_task_cloudqa
     tasks:
-      - e2e_multi_cluster_2_clusters_replica_set
-      - e2e_multi_cluster_2_clusters_clusterwide
+      - e2e_mongodbmulticluster_multi_cluster_2_clusters_replica_set
+      - e2e_mongodb_multi_cluster_2_clusters_replica_set
+      - e2e_mongodbmulticluster_multi_cluster_2_clusters_clusterwide
+      - e2e_mongodb_multi_cluster_2_clusters_clusterwide
     <<: *teardown_group
 
   - name: e2e_multi_cluster_om_appdb_task_group

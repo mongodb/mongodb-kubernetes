@@ -1,24 +1,20 @@
 from typing import List
 
 import kubernetes
-from kubetester import read_secret
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
+
+from ..shared import multi_cluster_enable_tls as testhelper
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
 BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
-BUNDLE_PEM_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert-pem"
-USER_NAME = "my-user-1"
-PASSWORD_SECRET_NAME = "mms-user-1-password"
-USER_PASSWORD = "my-password"
 
 
 @fixture(scope="module")
@@ -57,17 +53,17 @@ def mongodb_multi(
     return resource.create()
 
 
-@mark.e2e_multi_cluster_enable_tls
+@mark.e2e_mongodbmulticluster_multi_cluster_enable_tls
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    testhelper.test_deploy_operator(multi_cluster_operator)
 
 
-@mark.e2e_multi_cluster_enable_tls
+@mark.e2e_mongodbmulticluster_multi_cluster_enable_tls
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti, namespace: str):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
+    testhelper.test_create_mongodb_multi(mongodb_multi, namespace)
 
 
-@mark.e2e_multi_cluster_enable_tls
+@mark.e2e_mongodbmulticluster_multi_cluster_enable_tls
 def test_enabled_tls_mongodb_multi(
     mongodb_multi: MongoDBMulti,
     namespace: str,
@@ -75,20 +71,6 @@ def test_enabled_tls_mongodb_multi(
     multi_cluster_issuer_ca_configmap: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    mongodb_multi.load()
-    mongodb_multi["spec"]["security"] = {
-        "certsSecretPrefix": CERT_SECRET_PREFIX,
-        "tls": {
-            "ca": multi_cluster_issuer_ca_configmap,
-        },
-    }
-    mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1300)
-
-    # assert the presence of the generated pem certificates in each member cluster
-    for client in member_cluster_clients:
-        read_secret(
-            namespace=namespace,
-            name=BUNDLE_PEM_SECRET_NAME,
-            api_client=client.api_client,
-        )
+    testhelper.test_enabled_tls_mongodb_multi(
+        mongodb_multi, namespace, server_certs, multi_cluster_issuer_ca_configmap, member_cluster_clients
+    )

@@ -932,17 +932,27 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_replica_set_migration
+  - name: e2e_mongodb_multi_cluster_replica_set_migration
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+    
+  - name: e2e_mongodbmulticluster_multi_cluster_replica_set_migration
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_replica_set_member_options
+  - name: e2e_mongodb_multi_cluster_replica_set_member_options
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+  
+  - name: e2e_mongodbmulticluster_multi_cluster_replica_set_member_options
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_replica_set_scale_up
+  - name: e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -952,37 +962,72 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_scale_up_cluster
+  - name: e2e_mongodbmulticluster_multi_cluster_scale_up_cluster
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_scale_up_cluster_new_cluster
+  - name: e2e_mongodb_multi_cluster_scale_up_cluster
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_scale_down_cluster
+  - name: e2e_mongodbmulticluster_multi_cluster_scale_up_cluster_new_cluster
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_replica_set_scale_down
+  - name: e2e_mongodb_multi_cluster_scale_up_cluster_new_cluster
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_replica_set_deletion
+  - name: e2e_mongodbmulticluster_multi_cluster_scale_down_cluster
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_mtls_test
+  - name: e2e_mongodb_multi_cluster_scale_down_cluster
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_scram
+  - name: e2e_mongodbmulticluster_multi_cluster_replica_set_scale_down
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_replica_set_scale_down
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodbmulticluster_multi_cluster_replica_set_deletion
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+  
+  - name: e2e_mongodb_multi_cluster_replica_set_deletion
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodbmulticluster_multi_cluster_mtls_test
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_mtls_test
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodbmulticluster_multi_cluster_scram
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_scram
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -992,7 +1037,12 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_tls_with_scram
+  - name: e2e_mongodbmulticluster_multi_cluster_tls_with_scram
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_tls_with_scram
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1002,7 +1052,12 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_upgrade_downgrade
+  - name: e2e_mongodbmulticluster_multi_cluster_upgrade_downgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_upgrade_downgrade
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1013,12 +1068,22 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_tls_no_mesh
+  - name: e2e_mongodbmulticluster_multi_cluster_tls_no_mesh
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_backup_restore
+  - name: e2e_mongodb_multi_cluster_tls_no_mesh
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodbmulticluster_multi_cluster_backup_restore
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_backup_restore
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1053,12 +1118,22 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_tls_with_x509
+  - name: e2e_mongodbmulticluster_multi_cluster_tls_with_x509
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_with_ldap
+  - name: e2e_mongodb_multi_cluster_tls_with_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodbmulticluster_multi_cluster_with_ldap
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_with_ldap
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1068,7 +1143,12 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_specific_namespaces
+  - name: e2e_mongodbmulticluster_multi_cluster_specific_namespaces
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_specific_namespaces
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1079,55 +1159,105 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_disaster_recovery
+  - name: e2e_mongodbmulticluster_multi_cluster_disaster_recovery
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+  
+  - name: e2e_mongodb_multi_cluster_disaster_recovery
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_multi_disaster_recovery
+  - name: e2e_mongodbmulticluster_multi_cluster_multi_disaster_recovery
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_multi_disaster_recovery
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_2_clusters_replica_set
+  - name: e2e_mongodbmulticluster_multi_cluster_2_clusters_replica_set
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+      
+  - name: e2e_mongodb_multi_cluster_2_clusters_replica_set
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_2_clusters_clusterwide
+  - name: e2e_mongodbmulticluster_multi_cluster_2_clusters_clusterwide
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_recover
+  - name: e2e_mongodb_multi_cluster_2_clusters_clusterwide
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_recover_network_partition
+  - name: e2e_mongodbmulticluster_multi_cluster_recover
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_recover_clusterwide
+  - name: e2e_mongodb_multi_cluster_recover
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_agent_flags
+  - name: e2e_mongodbmulticluster_multi_cluster_recover_network_partition
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_replica_set_ignore_unknown_users
+  - name: e2e_mongodb_multi_cluster_recover_network_partition
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_validation
+  - name: e2e_mongodbmulticluster_multi_cluster_recover_clusterwide
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_recover_clusterwide
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodbmulticluster_multi_cluster_agent_flags
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_agent_flags
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodbmulticluster_multi_cluster_replica_set_ignore_unknown_users
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+  
+  - name: e2e_mongodb_multi_cluster_replica_set_ignore_unknown_users
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodbmulticluster_multi_cluster_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
 
   - name: e2e_om_update_before_reconciliation
     tags: [ "patch-run" ]
@@ -1189,13 +1319,23 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_pvc_resize
+  - name: e2e_mongodbmulticluster_multi_cluster_pvc_resize
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_pvc_resize
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
   # this test is run, with an operator with race enabled
-  - name: e2e_om_reconcile_race_with_telemetry
+  - name: e2e_mongodbmulticluster_om_reconcile_race_with_telemetry
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_om_reconcile_race_with_telemetry
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1278,12 +1418,22 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_oidc_m2m_group
+  - name: e2e_mongodbmulticluster_multi_cluster_oidc_m2m_group
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_oidc_m2m_user
+  - name: e2e_mongodb_multi_cluster_oidc_m2m_group
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodbmulticluster_multi_cluster_oidc_m2m_user
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_oidc_m2m_user
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

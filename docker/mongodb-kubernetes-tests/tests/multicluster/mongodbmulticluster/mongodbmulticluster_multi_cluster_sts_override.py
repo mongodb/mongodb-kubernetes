@@ -7,7 +7,10 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.phase import Phase
+
+from ..shared import multi_cluster_sts_override as testhelper
+
+MDB_RESOURCE = "multi-replica-set-sts-override"
 
 
 @pytest.fixture(scope="module")
@@ -19,7 +22,7 @@ def mongodb_multi(
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodbmulticluster-multi-sts-override.yaml"),
-        "multi-replica-set-sts-override",
+        MDB_RESOURCE,
         namespace,
     )
     resource.set_version(custom_mdb_version)
@@ -28,45 +31,29 @@ def mongodb_multi(
     return resource.update()
 
 
-@pytest.mark.e2e_multi_sts_override
+@pytest.mark.e2e_mongodbmulticluster_multi_sts_override
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    testhelper.test_deploy_operator(multi_cluster_operator)
 
 
-@pytest.mark.e2e_multi_sts_override
+@pytest.mark.e2e_mongodbmulticluster_multi_sts_override
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
+    testhelper.test_create_mongodb_multi(mongodb_multi)
 
 
-@pytest.mark.e2e_multi_sts_override
+@pytest.mark.e2e_mongodbmulticluster_multi_sts_override
 def test_statefulset_overrides(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
-
-    # assert sts.podspec override in cluster1
-    cluster_one_client = member_cluster_clients[0]
-    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
-    assert_container_in_sts("sidecar1", cluster_one_sts)
-    assert "multi-replica-set" in cluster_one_sts.spec.template.metadata.labels["app"]
-
-    # assert sts.podspec override in cluster2
-    cluster_two_client = member_cluster_clients[1]
-    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert_container_in_sts("sidecar2", cluster_two_sts)
+    testhelper.test_statefulset_overrides(mongodb_multi, member_cluster_clients)
 
 
-@pytest.mark.e2e_multi_sts_override
+@pytest.mark.e2e_mongodbmulticluster_multi_sts_override
 def test_access_modes_pvc(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
     namespace: str,
 ):
-    pvc = client.CoreV1Api(api_client=member_cluster_clients[0].api_client).read_namespaced_persistent_volume_claim(
-        f"data-{mongodb_multi.name}-{0}-{0}", namespace
-    )
-
-    assert "ReadWriteOnce" in pvc.spec.access_modes
+    testhelper.test_access_modes_pvc(mongodb_multi, member_cluster_clients, namespace)
 
 
 def assert_container_in_sts(container_name: str, sts: client.V1StatefulSet):
-    container_names = [c.name for c in sts.spec.template.spec.containers]
-    assert container_name in container_names
+    testhelper.assert_container_in_sts(container_name, sts)

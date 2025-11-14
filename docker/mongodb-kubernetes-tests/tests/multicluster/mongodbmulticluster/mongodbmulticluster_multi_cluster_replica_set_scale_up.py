@@ -14,6 +14,8 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from tests.multicluster.conftest import cluster_spec_list
 
+from ..shared import multi_cluster_replica_set_scale_up as testhelper
+
 RESOURCE_NAME = "multi-replica-set"
 BUNDLE_SECRET_NAME = f"prefix-{RESOURCE_NAME}-cert"
 
@@ -66,109 +68,48 @@ def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -
     return mongodb_multi_unmarshalled.create()
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_scale_up
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    testhelper.test_deploy_operator(multi_cluster_operator)
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_scale_up
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
+    testhelper.test_deploy_operator(mongodb_multi)
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_scale_up
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
 def test_statefulsets_have_been_created_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    # Even though we already verified, in previous test, that the MongoDBMultiCluster resource's phase is running (that would mean all STSs are ready);
-    # checking the expected number of replicas for STS makes the test flaky because of an issue mentioned in detail in this ticket https://jira.mongodb.org/browse/CLOUDP-329231.
-    # That's why we are waiting for STS to have expected number of replicas. This change can be reverted when we make the proper fix as
-    # mentioned in the above ticket.
-    def fn():
-        cluster_one_client = member_cluster_clients[0]
-        cluster_one_statefulsets = mongodb_multi.read_statefulsets([cluster_one_client])
-        return cluster_one_statefulsets[cluster_one_client.cluster_name].status.ready_replicas == 1
-
-    kubetester.wait_until(fn, timeout=60, message="Verifying sts has correct number of replicas in cluster one")
-
-    def fn():
-        cluster_two_client = member_cluster_clients[1]
-        cluster_two_statefulsets = mongodb_multi.read_statefulsets([cluster_two_client])
-        return cluster_two_statefulsets[cluster_two_client.cluster_name].status.ready_replicas == 1
-
-    kubetester.wait_until(fn, timeout=60, message="Verifying sts has correct number of replicas in cluster two")
-
-    def fn():
-        cluster_three_client = member_cluster_clients[2]
-        cluster_three_statefulsets = mongodb_multi.read_statefulsets([cluster_three_client])
-        return cluster_three_statefulsets[cluster_three_client.cluster_name].status.ready_replicas == 1
-
-    kubetester.wait_until(fn, timeout=60, message="Verifying sts has correct number of replicas in cluster three")
+    testhelper.test_statefulsets_have_been_created_correctly(mongodb_multi, member_cluster_clients)
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_scale_up
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
 def test_ops_manager_has_been_updated_correctly_before_scaling():
-    ac = AutomationConfigTester()
-    ac.assert_processes_size(3)
+    testhelper.test_ops_manager_has_been_updated_correctly_before_scaling()
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_scale_up
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.load()
-    mongodb_multi["spec"]["clusterSpecList"][0]["members"] = 2
-    mongodb_multi["spec"]["clusterSpecList"][1]["members"] = 1
-    mongodb_multi["spec"]["clusterSpecList"][2]["members"] = 2
-    mongodb_multi.update()
-
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
+    testhelper.test_scale_mongodb_multi(mongodb_multi)
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_scale_up
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
 def test_statefulsets_have_been_scaled_up_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    # Even though we already verified, in previous test, that the MongoDBMultiCluster resource's phase is running (that would mean all STSs are ready);
-    # checking the expected number of replicas for STS makes the test flaky because of an issue mentioned in detail in this ticket https://jira.mongodb.org/browse/CLOUDP-329231.
-    # That's why we are waiting for STS to have expected number of replicas. This change can be reverted when we make the proper fix as
-    # mentioned in the above ticket.
-    def fn():
-        cluster_one_client = member_cluster_clients[0]
-        cluster_one_statefulsets = mongodb_multi.read_statefulsets([cluster_one_client])
-        return cluster_one_statefulsets[cluster_one_client.cluster_name].status.ready_replicas == 2
-
-    kubetester.wait_until(
-        fn, timeout=60, message="Verifying sts has correct number of replicas after scale up in cluster one"
-    )
-
-    def fn():
-        cluster_two_client = member_cluster_clients[1]
-        cluster_two_statefulsets = mongodb_multi.read_statefulsets([cluster_two_client])
-        return cluster_two_statefulsets[cluster_two_client.cluster_name].status.ready_replicas == 1
-
-    kubetester.wait_until(
-        fn, timeout=60, message="Verifying sts has correct number of replicas after scale up in cluster two"
-    )
-
-    def fn():
-        cluster_three_client = member_cluster_clients[2]
-        cluster_three_statefulsets = mongodb_multi.read_statefulsets([cluster_three_client])
-        return cluster_three_statefulsets[cluster_three_client.cluster_name].status.ready_replicas == 2
-
-    kubetester.wait_until(
-        fn, timeout=60, message="Verifying sts has correct number of replicas after scale up in cluster three"
-    )
+    testhelper.test_statefulsets_have_been_scaled_up_correctly(mongodb_multi, member_cluster_clients)
 
 
-@pytest.mark.e2e_multi_cluster_replica_set_scale_up
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
 def test_ops_manager_has_been_updated_correctly_after_scaling():
-    ac = AutomationConfigTester()
-    ac.assert_processes_size(5)
+    testhelper.test_ops_manager_has_been_updated_correctly_after_scaling()
 
 
 @skip_if_local
-@pytest.mark.e2e_multi_cluster_replica_set_scale_up
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti, ca_path: str):
-    tester = mongodb_multi.tester()
-    tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
+    testhelper.test_replica_set_is_reachable(mongodb_multi, ca_path)

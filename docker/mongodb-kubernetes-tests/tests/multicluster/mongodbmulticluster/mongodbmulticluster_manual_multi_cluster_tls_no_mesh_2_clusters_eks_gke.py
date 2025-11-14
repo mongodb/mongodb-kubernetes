@@ -19,14 +19,14 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.phase import Phase
 from pytest import fixture
 from tests.multicluster.conftest import cluster_spec_list
+
+from ..shared import manual_multi_cluster_tls_no_mesh_2_clusters_eks_gke as testhelper
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-rs"
 BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
-BUNDLE_PEM_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert-pem"
 
 
 @fixture(scope="module")
@@ -130,7 +130,7 @@ def server_certs(
 
 
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    testhelper.test_deploy_operator(multi_cluster_operator)
 
 
 def test_create_mongodb_multi(
@@ -141,4 +141,11 @@ def test_create_mongodb_multi(
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
 ):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=2400)
+    testhelper.test_create_mongodb_multi(
+        mongodb_multi,
+        namespace,
+        server_certs,
+        multi_cluster_issuer_ca_configmap,
+        member_cluster_clients,
+        member_cluster_names,
+    )

@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  labels:
+    controller: mongodb-enterprise-operator
+spec:
+  type: NodePort
+  selector:
+    controller: mongodb-enterprise-operator
+  ports:
+    - port: 27017
+      targetPort: 27017
+      nodePort: 30007

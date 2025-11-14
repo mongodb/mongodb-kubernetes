@@ -56,7 +56,7 @@ def test_statefulsets_have_been_created_correctly(
     mongodb_multi: MongoDB,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    # Even though we already verified, in previous test, that the MongoDBMultiCluster resource's phase is running (that would mean all STSs are ready);
+    # Even though we already verified, in previous test, that the MongoDBCluster resource's phase is running (that would mean all STSs are ready);
     # checking the expected number of replicas for STS makes the test flaky because of an issue mentioned in detail in this ticket https://jira.mongodb.org/browse/CLOUDP-329231.
     # That's why we are waiting for STS to have expected number of replicas. This change can be reverted when we make the proper fix as
     # mentioned in the above ticket.
@@ -99,7 +99,7 @@ def test_statefulsets_have_been_created_correctly(
 #     mongodb_multi: MongoDB,
 #     member_cluster_clients: List[MultiClusterClient],
 # ):
-#     # Even though we already verified, in previous test, that the MongoDBMultiCluster resource's phase is running (that would mean all STSs are ready);
+#     # Even though we already verified, in previous test, that the MongoDBCluster resource's phase is running (that would mean all STSs are ready);
 #     # checking the expected number of replicas for STS makes the test flaky because of an issue mentioned in detail in this ticket https://jira.mongodb.org/browse/CLOUDP-329231.
 #     # That's why we are waiting for STS to have expected number of replicas. This change can be reverted when we make the proper fix as
 #     # mentioned in the above ticket.

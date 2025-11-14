@@ -4,9 +4,6 @@ import kubernetes
 import pytest
 from kubetester import (
     create_or_update_configmap,
-    create_or_update_secret,
-    read_configmap,
-    read_secret,
 )
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import ensure_ent_version
@@ -14,13 +11,12 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.phase import Phase
-from tests.multicluster import prepare_multi_cluster_namespaces
-from tests.multicluster.conftest import cluster_spec_list, create_namespace
+from tests.multicluster.conftest import cluster_spec_list
+
+from ..shared import multi_2_cluster_clusterwide_replicaset as testhelper
 
 CERT_SECRET_PREFIX = "clustercert"
-MDB_RESOURCE = "multi-cluster-replica-set"
-BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
+MDB_RESOURCE = "multi-replica-set"
 
 
 @pytest.fixture(scope="module")
@@ -40,7 +36,7 @@ def mongodb_multi_a_unmarshalled(
     member_cluster_names: List[str],
     custom_mdb_version: str,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodbmulticluster-multi.yaml"), "multi-replica-set", mdba_ns)
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodbmulticluster-multi.yaml"), MDB_RESOURCE, mdba_ns)
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
     resource.set_version(ensure_ent_version(custom_mdb_version))
@@ -160,16 +156,12 @@ def mongodb_multi_b(
     return resource
 
 
-@pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_2_clusters_clusterwide
 def test_create_kube_config_file(cluster_clients: Dict, member_cluster_names: List[str]):
-    clients = cluster_clients
-
-    assert len(clients) == 2
-    assert member_cluster_names[0] in clients
-    assert member_cluster_names[1] in clients
+    testhelper.test_create_kube_config_file(cluster_clients, member_cluster_names)
 
 
-@pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_2_clusters_clusterwide
 def test_create_namespaces(
     namespace: str,
     mdba_ns: str,
@@ -179,34 +171,23 @@ def test_create_namespaces(
     evergreen_task_id: str,
     multi_cluster_operator_installation_config: Dict[str, str],
 ):
-    image_pull_secret_name = multi_cluster_operator_installation_config["registry.imagePullSecrets"]
-    image_pull_secret_data = read_secret(namespace, image_pull_secret_name, api_client=central_cluster_client)
-
-    create_namespace(
-        central_cluster_client,
-        member_cluster_clients,
-        evergreen_task_id,
+    testhelper.test_create_kube_config_file(
+        namespace,
         mdba_ns,
-        image_pull_secret_name,
-        image_pull_secret_data,
-    )
-
-    create_namespace(
+        mdbb_ns,
         central_cluster_client,
         member_cluster_clients,
         evergreen_task_id,
-        mdbb_ns,
-        image_pull_secret_name,
-        image_pull_secret_data,
+        multi_cluster_operator_installation_config,
     )
 
 
-@pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_2_clusters_clusterwide
 def test_deploy_operator(multi_cluster_operator_clustermode: Operator):
-    multi_cluster_operator_clustermode.assert_is_running()
+    testhelper.test_deploy_operator(multi_cluster_operator_clustermode)
 
 
-@pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_2_clusters_clusterwide
 def test_prepare_namespace(
     multi_cluster_operator_installation_config: Dict[str, str],
     member_cluster_clients: List[MultiClusterClient],
@@ -214,24 +195,12 @@ def test_prepare_namespace(
     mdba_ns: str,
     mdbb_ns: str,
 ):
-    prepare_multi_cluster_namespaces(
-        mdba_ns,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
-        skip_central_cluster=False,
-    )
-
-    prepare_multi_cluster_namespaces(
-        mdbb_ns,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
-        skip_central_cluster=False,
+    testhelper.test_deploy_operator(
+        multi_cluster_operator_installation_config, member_cluster_clients, central_cluster_name, mdba_ns, mdbb_ns
     )
 
 
-@pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_2_clusters_clusterwide
 def test_copy_configmap_and_secret_across_ns(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
@@ -239,35 +208,21 @@ def test_copy_configmap_and_secret_across_ns(
     mdba_ns: str,
     mdbb_ns: str,
 ):
-    data = read_configmap(namespace, "my-project", api_client=central_cluster_client)
-    data["projectName"] = mdba_ns
-    create_or_update_configmap(mdba_ns, "my-project", data, api_client=central_cluster_client)
-
-    data["projectName"] = mdbb_ns
-    create_or_update_configmap(mdbb_ns, "my-project", data, api_client=central_cluster_client)
-
-    data = read_secret(namespace, "my-credentials", api_client=central_cluster_client)
-    create_or_update_secret(mdba_ns, "my-credentials", data, api_client=central_cluster_client)
-    create_or_update_secret(mdbb_ns, "my-credentials", data, api_client=central_cluster_client)
-
-
-@pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
-def test_create_mongodb_multi_nsa(mongodb_multi_a: MongoDBMulti):
-    mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=800)
-
-
-@pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
-def test_enable_mongodb_multi_nsa_auth(mongodb_multi_a: MongoDBMulti):
-    mongodb_multi_a.reload()
-    mongodb_multi_a["spec"]["authentication"] = (
-        {
-            "agents": {"mode": "SCRAM"},
-            "enabled": True,
-            "modes": ["SCRAM"],
-        },
+    testhelper.test_copy_configmap_and_secret_across_ns(
+        namespace, central_cluster_client, multi_cluster_operator_installation_config, mdba_ns, mdbb_ns
     )
 
 
-@pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_2_clusters_clusterwide
+def test_create_mongodb_multi_nsa(mongodb_multi_a: MongoDBMulti):
+    testhelper.test_create_mongodb_multi_nsa(mongodb_multi_a)
+
+
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_2_clusters_clusterwide
+def test_enable_mongodb_multi_nsa_auth(mongodb_multi_a: MongoDBMulti):
+    testhelper.test_enable_mongodb_multi_nsa_auth(mongodb_multi_a)
+
+
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_2_clusters_clusterwide
 def test_create_mongodb_multi_nsb(mongodb_multi_b: MongoDBMulti):
-    mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=800)
+    testhelper.test_create_mongodb_multi_nsb(mongodb_multi_b)

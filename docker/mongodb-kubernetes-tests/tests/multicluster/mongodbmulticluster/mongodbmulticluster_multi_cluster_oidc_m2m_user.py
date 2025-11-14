@@ -2,15 +2,14 @@ import kubernetes
 import kubetester.oidc as oidc
 import pytest
 from kubetester import try_load
-from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, ensure_ent_version
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
-from kubetester.mongotester import ReplicaSetTester
 from kubetester.operator import Operator
 from pytest import fixture
+
+from ..shared import multi_cluster_oidc_m2m_user as testhelper
 
 MDB_RESOURCE = "oidc-multi-replica-set"
 
@@ -22,7 +21,9 @@ def mongodb_multi(
     member_cluster_names,
     custom_mdb_version: str,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("oidc/mongodbmulticluster-multi-m2m-user.yaml"), MDB_RESOURCE, namespace)
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("oidc/mongodbmulticluster-multi-m2m-user.yaml"), MDB_RESOURCE, namespace
+    )
     if try_load(resource):
         return resource
 
@@ -49,24 +50,19 @@ def oidc_user(namespace) -> MongoDBUser:
     return resource.update()
 
 
-@pytest.mark.e2e_multi_cluster_oidc_m2m_user
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_oidc_m2m_user
 class TestOIDCMultiCluster(KubernetesTester):
     def test_deploy_operator(self, multi_cluster_operator: Operator):
-        multi_cluster_operator.assert_is_running()
+        testhelper.test_deploy_operator(multi_cluster_operator)
 
     def test_create_oidc_replica_set(self, mongodb_multi: MongoDBMulti):
-        mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
+        testhelper.test_create_oidc_replica_set(mongodb_multi)
 
     def test_create_user(self, oidc_user: MongoDBUser):
-        oidc_user.assert_reaches_phase(Phase.Updated, timeout=800)
+        testhelper.test_create_user(oidc_user)
 
     def test_assert_connectivity(self, mongodb_multi: MongoDBMulti):
-        tester = mongodb_multi.tester()
-        tester.assert_oidc_authentication()
+        testhelper.test_assert_connectivity(mongodb_multi)
 
     def test_ops_manager_state_updated_correctly(self, mongodb_multi: MongoDBMulti):
-        tester = mongodb_multi.get_automation_config_tester()
-        tester.assert_authentication_mechanism_enabled("MONGODB-OIDC", active_auth_mechanism=False)
-        tester.assert_authentication_enabled(2)
-        tester.assert_expected_users(1)
-        tester.assert_authoritative_set(True)
+        testhelper.test_ops_manager_state_updated_correctly(mongodb_multi)

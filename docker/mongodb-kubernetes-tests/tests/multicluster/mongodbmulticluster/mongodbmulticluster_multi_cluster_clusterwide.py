@@ -1,24 +1,23 @@
 import os
-import time
 from typing import Dict, List
 
 import kubernetes
 from kubernetes import client
-from kubetester import create_or_update_configmap, create_or_update_secret, read_secret
-from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
     MULTI_CLUSTER_OPERATOR_NAME,
     _install_multi_cluster_operator,
     run_kube_config_creation_tool,
 )
-from tests.multicluster import prepare_multi_cluster_namespaces
-from tests.multicluster.conftest import cluster_spec_list, create_namespace
+from tests.multicluster.conftest import cluster_spec_list
+
+from ..shared import multi_cluster_clusterwide as testhelper
+
+MDB_RESOURCE = "multi-replica-set"
 
 
 @fixture(scope="module")
@@ -43,7 +42,7 @@ def mongodb_multi_a(
     member_cluster_names: List[str],
     custom_mdb_version: str,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodbmulticluster-multi.yaml"), "multi-replica-set", mdba_ns)
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodbmulticluster-multi.yaml"), MDB_RESOURCE, mdba_ns)
     resource.set_version(custom_mdb_version)
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
@@ -60,7 +59,7 @@ def mongodb_multi_b(
     member_cluster_names: List[str],
     custom_mdb_version: str,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodbmulticluster-multi.yaml"), "multi-replica-set", mdbb_ns)
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodbmulticluster-multi.yaml"), MDB_RESOURCE, mdbb_ns)
     resource.set_version(custom_mdb_version)
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -74,7 +73,7 @@ def unmanaged_mongodb_multi(
     unmanaged_mdb_ns: str,
     member_cluster_names: List[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodbmulticluster-multi.yaml"), "multi-replica-set", unmanaged_mdb_ns)
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodbmulticluster-multi.yaml"), MDB_RESOURCE, unmanaged_mdb_ns)
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -113,7 +112,7 @@ def install_operator(
     )
 
 
-@mark.e2e_multi_cluster_specific_namespaces
+@mark.e2e_mongodbmulticluster_multi_cluster_specific_namespaces
 def test_create_namespaces(
     namespace: str,
     mdba_ns: str,
@@ -124,38 +123,19 @@ def test_create_namespaces(
     evergreen_task_id: str,
     multi_cluster_operator_installation_config: Dict[str, str],
 ):
-    image_pull_secret_name = multi_cluster_operator_installation_config["registry.imagePullSecrets"]
-    image_pull_secret_data = read_secret(namespace, image_pull_secret_name)
-
-    create_namespace(
-        central_cluster_client,
-        member_cluster_clients,
-        evergreen_task_id,
+    testhelper.test_create_namespaces(
+        namespace,
         mdba_ns,
-        image_pull_secret_name,
-        image_pull_secret_data,
-    )
-
-    create_namespace(
-        central_cluster_client,
-        member_cluster_clients,
-        evergreen_task_id,
         mdbb_ns,
-        image_pull_secret_name,
-        image_pull_secret_data,
-    )
-
-    create_namespace(
+        unmanaged_mdb_ns,
         central_cluster_client,
         member_cluster_clients,
         evergreen_task_id,
-        unmanaged_mdb_ns,
-        image_pull_secret_name,
-        image_pull_secret_data,
+        multi_cluster_operator_installation_config,
     )
 
 
-@mark.e2e_multi_cluster_specific_namespaces
+@mark.e2e_mongodbmulticluster_multi_cluster_specific_namespaces
 def test_prepare_namespace(
     multi_cluster_operator_installation_config: Dict[str, str],
     member_cluster_clients: List[MultiClusterClient],
@@ -163,32 +143,22 @@ def test_prepare_namespace(
     mdba_ns: str,
     mdbb_ns: str,
 ):
-    prepare_multi_cluster_namespaces(
-        mdba_ns,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
-    )
-
-    prepare_multi_cluster_namespaces(
-        mdbb_ns,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
+    testhelper.test_prepare_namespace(
+        multi_cluster_operator_installation_config, member_cluster_clients, central_cluster_name, mdba_ns, mdbb_ns
     )
 
 
 @mark.e2e_multi_cluster_clusterwide
 def test_deploy_operator(multi_cluster_operator_clustermode: Operator):
-    multi_cluster_operator_clustermode.assert_is_running()
+    testhelper.test_deploy_operator(multi_cluster_operator_clustermode)
 
 
-@mark.e2e_multi_cluster_specific_namespaces
+@mark.e2e_mongodbmulticluster_multi_cluster_specific_namespaces
 def test_deploy_operator(install_operator: Operator):
-    install_operator.assert_is_running()
+    testhelper.test_deploy_operator(install_operator)
 
 
-@mark.e2e_multi_cluster_specific_namespaces
+@mark.e2e_mongodbmulticluster_multi_cluster_specific_namespaces
 def test_copy_configmap_and_secret_across_ns(
     namespace: str,
     central_cluster_client: client.ApiClient,
@@ -196,35 +166,21 @@ def test_copy_configmap_and_secret_across_ns(
     mdba_ns: str,
     mdbb_ns: str,
 ):
-    data = KubernetesTester.read_configmap(namespace, "my-project", api_client=central_cluster_client)
-    data["projectName"] = mdba_ns
-    create_or_update_configmap(mdba_ns, "my-project", data, api_client=central_cluster_client)
-
-    data["projectName"] = mdbb_ns
-    create_or_update_configmap(mdbb_ns, "my-project", data, api_client=central_cluster_client)
-
-    data = read_secret(namespace, "my-credentials", api_client=central_cluster_client)
-    create_or_update_secret(mdba_ns, "my-credentials", data, api_client=central_cluster_client)
-    create_or_update_secret(mdbb_ns, "my-credentials", data, api_client=central_cluster_client)
+    testhelper.test_copy_configmap_and_secret_across_ns(
+        namespace, central_cluster_client, multi_cluster_operator_installation_config, mdba_ns, mdbb_ns
+    )
 
 
-@mark.e2e_multi_cluster_specific_namespaces
+@mark.e2e_mongodbmulticluster_multi_cluster_specific_namespaces
 def test_create_mongodb_multi_nsa(mongodb_multi_a: MongoDBMulti):
-    mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=800)
+    testhelper.test_create_mongodb_multi_nsa(mongodb_multi_a)
 
 
-@mark.e2e_multi_cluster_specific_namespaces
+@mark.e2e_mongodbmulticluster_multi_cluster_specific_namespaces
 def test_create_mongodb_multi_nsb(mongodb_multi_b: MongoDBMulti):
-    mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=800)
+    testhelper.test_create_mongodb_multi_nsb(mongodb_multi_b)
 
 
-@mark.e2e_multi_cluster_specific_namespaces
+@mark.e2e_mongodbmulticluster_multi_cluster_specific_namespaces
 def test_create_mongodb_multi_unmanaged(unmanaged_mongodb_multi: MongoDBMulti):
-    """
-    For an unmanaged resource, the status should not be updated!
-    """
-    for i in range(10):
-        time.sleep(5)
-
-        unmanaged_mongodb_multi.reload()
-        assert "status" not in unmanaged_mongodb_multi
+    testhelper.test_create_mongodb_multi_unmanaged(unmanaged_mongodb_multi)

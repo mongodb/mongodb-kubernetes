@@ -3,25 +3,20 @@ from typing import Dict, List
 import kubernetes
 import pytest
 from kubernetes import client
-from kubernetes.client.rest import ApiException
-from kubetester import delete_statefulset, get_statefulset, wait_until
-from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.phase import Phase
 from tests.conftest import (
-    assert_log_rotation_process,
-    member_cluster_clients,
     setup_log_rotate_for_agents,
 )
 from tests.multicluster.conftest import cluster_spec_list
 
-from ..common import multi_cluster_replica_set as testhelper
+from ..shared import multi_cluster_replica_set as testhelper
 
 MONGODB_PORT = 30000
+MDB_RESOURCE = "multi-replica-set"
 
 
 @pytest.fixture(scope="module")
@@ -33,7 +28,7 @@ def mongodb_multi(
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("mongodb-multi-central-sts-override.yaml"),
-        "multi-replica-set",
+        MDB_RESOURCE,
         namespace,
     )
     resource.set_version(custom_mdb_version)

@@ -1,30 +1,25 @@
 from typing import List
 
 import kubernetes
-import yaml
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
-from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb_multi import MongoDBMulti
-from kubetester.mongotester import with_tls
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.phase import Phase
 from pytest import fixture, mark
+
+from ..shared import multi_cluster_split_horizon as testhelper
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
 BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
-USER_NAME = "my-user-1"
-PASSWORD_SECRET_NAME = "mms-user-1-password"
-USER_PASSWORD = "my-password"
 
 # This test will set up an environment which will configure a resource with split horizon enabled.
 # Steps to run this test.
 
 # 1. Change the nodenames under "additional_domains"
-# 2. Run this test with: `make e2e test=e2e_multi_cluster_split_horizon light=true local=true`.
+# 2. Run this test with: `make e2e test=e2e_mongodbmulticluster_multi_cluster_split_horizon light=true local=true`.
 # 3. Wait for the test to pass (this means the environment is set up.)
 # 4. Exec into any database pod and note the contents of the files referenced by the fields
 #  * net.tls.certificateKeyFile
@@ -55,7 +50,9 @@ USER_PASSWORD = "my-password"
 
 @fixture(scope="module")
 def mongodb_multi_unmarshalled(namespace: str) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodbmulticluster-multi-split-horizon.yaml"), MDB_RESOURCE, namespace)
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodbmulticluster-multi-split-horizon.yaml"), MDB_RESOURCE, namespace
+    )
     return resource
 
 
@@ -102,48 +99,25 @@ def mongodb_multi(
     return resource.create()
 
 
-@mark.e2e_multi_cluster_split_horizon
+@mark.e2e_mongodbmulticluster_multi_cluster_split_horizon
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    testhelper.test_deploy_operator(multi_cluster_operator)
 
 
-@mark.e2e_multi_cluster_split_horizon
+@mark.e2e_mongodbmulticluster_multi_cluster_split_horizon
 def test_deploy_mongodb_multi_with_tls(
     mongodb_multi: MongoDBMulti,
     namespace: str,
 ):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
+    testhelper.test_deploy_mongodb_multi_with_tls(mongodb_multi, namespace)
 
 
-@mark.e2e_multi_cluster_split_horizon
+@mark.e2e_mongodbmulticluster_multi_cluster_split_horizon
 def test_create_node_ports(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
-    for mcc in member_cluster_clients:
-        with open(
-            yaml_fixture(f"split-horizon-node-ports/split-horizon-node-port.yaml"),
-            "r",
-        ) as f:
-            service_body = yaml.safe_load(f.read())
-
-            # configure labels and selectors
-            service_body["metadata"]["labels"][
-                "mongodbmulticluster"
-            ] = f"{mongodb_multi.namespace}-{mongodb_multi.name}"
-            service_body["metadata"]["labels"][
-                "statefulset.kubernetes.io/pod-name"
-            ] = f"{mongodb_multi.name}-{mcc.cluster_index}-0"
-            service_body["spec"]["selector"][
-                "statefulset.kubernetes.io/pod-name"
-            ] = f"{mongodb_multi.name}-{mcc.cluster_index}-0"
-
-            KubernetesTester.create_service(
-                mongodb_multi.namespace,
-                body=service_body,
-                api_client=mcc.api_client,
-            )
+    testhelper.test_create_node_ports(mongodb_multi, member_cluster_clients)
 
 
 @skip_if_local
-@mark.e2e_multi_cluster_split_horizon
+@mark.e2e_mongodbmulticluster_multi_cluster_split_horizon
 def test_tls_connectivity(mongodb_multi: MongoDBMulti, ca_path: str):
-    tester = mongodb_multi.tester()
-    tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
+    testhelper.test_tls_connectivity(mongodb_multi, ca_path)

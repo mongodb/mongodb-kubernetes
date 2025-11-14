@@ -2,16 +2,15 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb_multi import MongoDBMulti
-from kubetester.mongotester import with_tls
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.phase import Phase
 from tests.multicluster.conftest import cluster_spec_list
+
+from ..shared import multi_cluster_scale_down_cluster as testhelper
 
 RESOURCE_NAME = "multi-replica-set"
 BUNDLE_SECRET_NAME = f"prefix-{RESOURCE_NAME}-cert"
@@ -60,85 +59,48 @@ def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -
     return mongodb_multi_unmarshalled.create()
 
 
-@pytest.mark.e2e_multi_cluster_scale_down_cluster
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_scale_down_cluster
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    testhelper.test_deploy_operator(multi_cluster_operator)
 
 
-@pytest.mark.e2e_multi_cluster_scale_down_cluster
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_scale_down_cluster
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
+    testhelper.test_create_mongodb_multi(mongodb_multi)
 
 
-@pytest.mark.e2e_multi_cluster_scale_down_cluster
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_scale_down_cluster
 def test_statefulsets_have_been_created_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
-
-    assert len(statefulsets) == 3
-
-    cluster_one_client = member_cluster_clients[0]
-    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
-    assert cluster_one_sts.status.ready_replicas == 2
-
-    cluster_two_client = member_cluster_clients[1]
-    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert cluster_two_sts.status.ready_replicas == 1
-
-    cluster_three_client = member_cluster_clients[2]
-    cluster_three_sts = statefulsets[cluster_three_client.cluster_name]
-    assert cluster_three_sts.status.ready_replicas == 2
+    testhelper.test_create_mongodb_multi(mongodb_multi, member_cluster_clients)
 
 
-@pytest.mark.e2e_multi_cluster_scale_down_cluster
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_scale_down_cluster
 def test_ops_manager_has_been_updated_correctly_before_scaling():
-    ac = AutomationConfigTester()
-    ac.assert_processes_size(5)
+    testhelper.test_ops_manager_has_been_updated_correctly_before_scaling()
 
 
-@pytest.mark.e2e_multi_cluster_scale_down_cluster
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_scale_down_cluster
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.load()
-    # remove first and last cluster
-    mongodb_multi["spec"]["clusterSpecList"] = [mongodb_multi["spec"]["clusterSpecList"][1]]
-    mongodb_multi.update()
-
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)
+    testhelper.test_scale_mongodb_multi(mongodb_multi)
 
 
-@pytest.mark.e2e_multi_cluster_scale_down_cluster
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_scale_down_cluster
 def test_statefulsets_have_been_scaled_down_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    statefulsets = mongodb_multi.read_statefulsets([member_cluster_clients[1]])
-
-    with pytest.raises(kubernetes.client.exceptions.ApiException) as e:
-        mongodb_multi.read_statefulsets([member_cluster_clients[0]])
-        assert e.value.reason == "Not Found"
-
-    # there should only be one statefulset in the second cluster
-    cluster_two_client = member_cluster_clients[1]
-    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert cluster_two_sts.status.ready_replicas == 1
-
-    # there should be no statefulsets in the last cluster
-    with pytest.raises(kubernetes.client.exceptions.ApiException) as e:
-        mongodb_multi.read_statefulsets([member_cluster_clients[2]])
-        assert e.value.reason == "Not Found"
+    testhelper.test_statefulsets_have_been_scaled_down_correctly(mongodb_multi, member_cluster_clients)
 
 
-@pytest.mark.e2e_multi_cluster_scale_down_cluster
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_scale_down_cluster
 def test_ops_manager_has_been_updated_correctly_after_scaling():
-    ac = AutomationConfigTester()
-    ac.assert_processes_size(1)
+    testhelper.test_ops_manager_has_been_updated_correctly_after_scaling()
 
 
 @skip_if_local
-@pytest.mark.e2e_multi_cluster_scale_down_cluster
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_scale_down_cluster
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti, ca_path: str):
-    # there should only be one member in cluster 2 so there is just a single service.
-    tester = mongodb_multi.tester(service_names=[f"{mongodb_multi.name}-1-0-svc"])
-    tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
+    testhelper.test_replica_set_is_reachable(mongodb_multi, ca_path)

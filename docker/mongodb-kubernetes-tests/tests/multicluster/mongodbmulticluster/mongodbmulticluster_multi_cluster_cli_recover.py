@@ -7,13 +7,9 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.phase import Phase
-from tests.conftest import (
-    MULTI_CLUSTER_OPERATOR_NAME,
-    run_kube_config_creation_tool,
-    run_multi_cluster_recovery_tool,
-)
 from tests.multicluster.conftest import cluster_spec_list
+
+from ..shared import multi_cluster_cli_recover as testhelper
 
 RESOURCE_NAME = "multi-replica-set"
 BUNDLE_SECRET_NAME = f"prefix-{RESOURCE_NAME}-cert"
@@ -64,74 +60,43 @@ def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -
     return mongodb_multi_unmarshalled
 
 
-@pytest.mark.e2e_multi_cluster_recover
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_recover
 def test_deploy_operator(
     install_multi_cluster_operator_set_members_fn: Callable[[List[str]], Operator],
     member_cluster_names: List[str],
     namespace: str,
 ):
-    run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace, member_cluster_names)
-    # deploy the operator without the final cluster
-    operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
-    operator.assert_is_running()
+    testhelper.test_deploy_operator(install_multi_cluster_operator_set_members_fn, member_cluster_names, namespace)
 
 
-@pytest.mark.e2e_multi_cluster_recover
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_recover
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
+    testhelper.test_create_mongodb_multi(mongodb_multi)
 
 
-@pytest.mark.e2e_multi_cluster_recover
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_recover
 def test_recover_operator_add_cluster(
     member_cluster_names: List[str],
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(member_cluster_names, namespace, namespace)
-    assert return_code == 0
-    operator = Operator(
-        name=MULTI_CLUSTER_OPERATOR_NAME,
-        namespace=namespace,
-        api_client=central_cluster_client,
-    )
-    operator._wait_for_operator_ready()
-    operator.assert_is_running()
+    testhelper.test_recover_operator_add_cluster(member_cluster_names, namespace, central_cluster_client)
 
 
-@pytest.mark.e2e_multi_cluster_recover
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_recover
 def test_mongodb_multi_recovers_adding_cluster(mongodb_multi: MongoDBMulti, member_cluster_names: List[str]):
-    mongodb_multi.load()
-
-    mongodb_multi["spec"]["clusterSpecList"].append({"clusterName": member_cluster_names[-1], "members": 2})
-    mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
+    testhelper.test_mongodb_multi_recovers_adding_cluster(mongodb_multi, member_cluster_names)
 
 
-@pytest.mark.e2e_multi_cluster_recover
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_recover
 def test_recover_operator_remove_cluster(
     member_cluster_names: List[str],
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(member_cluster_names[1:], namespace, namespace)
-    assert return_code == 0
-    operator = Operator(
-        name=MULTI_CLUSTER_OPERATOR_NAME,
-        namespace=namespace,
-        api_client=central_cluster_client,
-    )
-    operator._wait_for_operator_ready()
-    operator.assert_is_running()
+    testhelper.test_recover_operator_remove_cluster(member_cluster_names, namespace, central_cluster_client)
 
 
-@pytest.mark.e2e_multi_cluster_recover
+@pytest.mark.e2e_mongodbmulticluster_multi_cluster_recover
 def test_mongodb_multi_recovers_removing_cluster(mongodb_multi: MongoDBMulti, member_cluster_names: List[str]):
-    mongodb_multi.load()
-
-    last_transition_time = mongodb_multi.get_status_last_transition_time()
-
-    mongodb_multi["spec"]["clusterSpecList"].pop(0)
-    mongodb_multi.update()
-    mongodb_multi.assert_state_transition_happens(last_transition_time)
-
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1500)
+    testhelper.test_mongodb_multi_recovers_removing_cluster(mongodb_multi, member_cluster_names)

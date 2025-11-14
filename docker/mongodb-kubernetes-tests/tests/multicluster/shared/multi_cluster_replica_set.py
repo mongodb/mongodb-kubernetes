@@ -6,8 +6,6 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import delete_statefulset, get_statefulset, wait_until
 from kubetester.kubetester import KubernetesTester
-from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
@@ -15,10 +13,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from tests.conftest import (
     assert_log_rotation_process,
-    member_cluster_clients,
-    setup_log_rotate_for_agents,
 )
-from tests.multicluster.conftest import cluster_spec_list
 
 MONGODB_PORT = 30000
 

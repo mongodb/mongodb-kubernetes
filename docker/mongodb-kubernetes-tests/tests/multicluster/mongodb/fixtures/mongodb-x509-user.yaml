@@ -1,0 +1,17 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: test-x509-user
+spec:
+  username: 'CN=x509-testing-user'
+  db: '$external'
+  mongodbResourceRef:
+    name: "multi-replica-set"
+  roles:
+    - db: "admin"
+      name: "clusterAdmin"
+    - db: "admin"
+      name: "userAdminAnyDatabase"
+    - db: "admin"
+      name: "readWrite"

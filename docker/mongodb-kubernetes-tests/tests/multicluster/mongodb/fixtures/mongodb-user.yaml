@@ -1,0 +1,20 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: mms-user-1
+spec:
+  passwordSecretKeyRef:
+    name: mms-user-1-password
+    key: password
+  username: "mms-user-1"
+  db: "admin"
+  mongodbResourceRef:
+    name: "multi-replica-set"
+    namespace: <namespace>
+  roles:
+    - db: "admin"
+      name: "clusterAdmin"
+    - db: "admin"
+      name: "userAdminAnyDatabase"
+    - db: "admin"
+      name: "readWrite"

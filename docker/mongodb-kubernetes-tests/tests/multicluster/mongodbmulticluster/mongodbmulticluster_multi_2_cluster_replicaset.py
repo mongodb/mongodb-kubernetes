@@ -7,11 +7,11 @@ from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb_multi import MongoDBMulti
-from kubetester.mongotester import with_tls
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.phase import Phase
 from tests.multicluster.conftest import cluster_spec_list
+
+from ..shared import multi_2_cluster_replicaset as testhelper
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
@@ -65,42 +65,30 @@ def mongodb_multi(
     return resource.create()
 
 
-@pytest.mark.e2e_multi_cluster_2_clusters_replica_set
+@pytest.mark.e2e_mogodbmulticluster_multi_cluster_2_clusters_replica_set
 def test_create_kube_config_file(cluster_clients: Dict, member_cluster_names: List[str]):
-    clients = cluster_clients
-
-    assert len(clients) == 2
-    assert member_cluster_names[0] in clients
-    assert member_cluster_names[1] in clients
+    testhelper.test_create_kube_config_file(cluster_clients, member_cluster_names)
 
 
-@pytest.mark.e2e_multi_cluster_2_clusters_replica_set
+@pytest.mark.e2e_mogodbmulticluster_multi_cluster_2_clusters_replica_set
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    testhelper.test_deploy_operator(multi_cluster_operator)
 
 
-@pytest.mark.e2e_multi_cluster_2_clusters_replica_set
+@pytest.mark.e2e_mogodbmulticluster_multi_cluster_2_clusters_replica_set
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
+    testhelper.test_create_mongodb_multi(mongodb_multi)
 
 
-@pytest.mark.e2e_multi_cluster_2_clusters_replica_set
+@pytest.mark.e2e_mogodbmulticluster_multi_cluster_2_clusters_replica_set
 def test_statefulset_is_created_across_multiple_clusters(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
-    cluster_one_client = member_cluster_clients[0]
-    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
-    assert cluster_one_sts.status.ready_replicas == 2
-
-    cluster_two_client = member_cluster_clients[1]
-    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert cluster_two_sts.status.ready_replicas == 1
+    testhelper.test_statefulset_is_created_across_multiple_clusters(mongodb_multi, member_cluster_clients)
 
 
 @skip_if_local
-@pytest.mark.e2e_multi_cluster_2_clusters_replica_set
+@pytest.mark.e2e_mogodbmulticluster_multi_cluster_2_clusters_replica_set
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti, ca_path: str):
-    tester = mongodb_multi.tester()
-    tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
+    testhelper.test_replica_set_is_reachable(mongodb_multi, ca_path)
