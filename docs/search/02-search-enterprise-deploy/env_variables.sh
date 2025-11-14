@@ -7,6 +7,7 @@ export MDB_NS="mongodb"
 # name of the MongoDB Custom Resource.
 export MDB_RESOURCE_NAME="mdb-rs"
 
+export MDB_MEMBERS=3
 # OM/CM's project name to be used to manage mongodb replica set
 export OPS_MANAGER_PROJECT_NAME="<arbitrary project name>"
 

@@ -102,5 +102,9 @@ export PRERELEASE_PULLSECRET_DOCKERCONFIGJSON="<dockerconfigjson secret>"
 # uncomment to enable license update with pre-commit script
 # export MDB_UPDATE_LICENSES=true
 
+# Uncomment to specify a custom path to the helm chart if not specified explicitly in e2e test.
+# It can point to OCI registry, GitHub pages based url or custom directory.
+# export DEFAULT_HELM_CHART_PATH=""
+
 # uncomment to enable agent debug mode (which adds a delve sidecar to the pods)
 #export MDB_AGENT_DEBUG=true

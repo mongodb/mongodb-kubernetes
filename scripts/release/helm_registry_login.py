@@ -88,7 +88,7 @@ def helm_registry_login_to_quay(registry):
     if not password:
         raise Exception(f"Env var {QUAY_PASSWORD_ENV_VAR} must be set with the quay password.")
 
-    # using quote will help us avoid command injectin issues, was reported by semggrep in PR
+    # using quote will help us avoid command injecting issues, was reported by semgrep in PR
     command = ["helm", "registry", "login", "--username", quote(username), "--password-stdin", quote(registry)]
 
     try:

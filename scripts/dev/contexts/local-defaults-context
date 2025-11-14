@@ -42,3 +42,6 @@ export MDB_AGENT_DEBUG_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/d
 # MCO settings
 ## whether we want to run cleanup after the run
 export PERFORM_CLEANUP=false
+
+# Specifies default local path to the helm charts if not specified explicitly in e2e test.
+export DEFAULT_HELM_CHART_PATH="${PROJECT_DIR}/helm_chart"
