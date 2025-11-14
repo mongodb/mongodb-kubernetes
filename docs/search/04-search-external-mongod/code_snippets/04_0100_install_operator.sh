@@ -2,5 +2,6 @@ helm upgrade --install --debug --kube-context "${K8S_CTX}" \
   --create-namespace \
   --namespace="${MDB_NS}" \
   mongodb-kubernetes \
-  ${OPERATOR_ADDITIONAL_HELM_VALUES:+--set ${OPERATOR_ADDITIONAL_HELM_VALUES}} \
-  "${OPERATOR_HELM_CHART}"
+  --set "${OPERATOR_ADDITIONAL_HELM_VALUES:-"dummy=value"}" \
+  "${OPERATOR_HELM_CHART}" \
+  ${OPERATOR_HELM_CHART_VERSION:+--version ${OPERATOR_HELM_CHART_VERSION}}

@@ -1,3 +1,0 @@
-export K8S_CTX="${CLUSTER_NAME}"
-
-export OPERATOR_HELM_CHART=${PROJECT_DIR}/helm_chart

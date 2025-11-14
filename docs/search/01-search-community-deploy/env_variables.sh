@@ -30,6 +30,8 @@ export MDB_USER_PASSWORD="mdb-user-password-CHANGE-ME"
 export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
 
 export OPERATOR_HELM_CHART="mongodb/mongodb-kubernetes"
+# specify operator version or leave empty to install the latest available
+export OPERATOR_HELM_CHART_VERSION=""
 # comma-separated key=value pairs for additional parameters passed to the helm-chart installing the operator
 export OPERATOR_ADDITIONAL_HELM_VALUES=""
 
