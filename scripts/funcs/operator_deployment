@@ -110,3 +110,23 @@ prepare_operator_config_map() {
   # shellcheck disable=SC2086,SC2048
   kubectl --context "${context}" create configmap operator-installation-config -n "${NAMESPACE}" ${config_map_values[*]} || true
 }
+
+get_helm_chart_build_info() {
+  local build_scenario=${1}
+  local operator_version=${2}
+  if ! chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py --build-scenario "${build_scenario}" 2>&1); then
+      echo "${chart_info}"
+      exit 1
+  fi
+
+  HELM_OCI_REGISTRY=$(echo "${chart_info}" | jq -r '.registry' )
+  export HELM_OCI_REGISTRY
+  helm_oci_repository_part=$(echo "${chart_info}" | jq -r '.repository' )
+  HELM_OCI_REPOSITORY="oci://${HELM_OCI_REGISTRY}/${helm_oci_repository_part}/mongodb-kubernetes"
+  export HELM_OCI_REPOSITORY
+  HELM_OCI_REGISTRY_REGION=$(echo "${chart_info}" | jq -r '.region' )
+  export HELM_OCI_REGISTRY_REGION
+  helm_oci_version_prefix=$(echo "${chart_info}" | jq -r '.version_prefix // empty' )
+  HELM_OCI_VERSION="${helm_oci_version_prefix:-}${operator_version}"
+  export HELM_OCI_VERSION
+}

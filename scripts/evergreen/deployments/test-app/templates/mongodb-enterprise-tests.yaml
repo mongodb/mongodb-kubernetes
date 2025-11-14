@@ -183,7 +183,7 @@ spec:
     - name: OCI_HELM_REGION
       value: "{{ .Values.helm.oci.region }}"
     - name: DEFAULT_HELM_CHART_PATH
-      value: "oci://{{ .Values.helm.oci.registry }}/{{ .Values.helm.oci.repository }}/mongodb-kubernetes"
+      value: "{{ .Values.helm.oci.repository }}"
     - name: ops_manager_version
       value: "{{ .Values.opsManagerVersion }}"
     - name: cognito_user_pool_id

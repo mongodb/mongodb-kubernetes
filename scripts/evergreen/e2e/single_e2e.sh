@@ -48,15 +48,7 @@ deploy_test_app() {
     BUILD_ID="${BUILD_ID:-default_build_id}"
     BUILD_VARIANT="${BUILD_VARIANT:-default_build_variant}"
 
-    if ! chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py --build-scenario "${BUILD_SCENARIO}" 2>&1); then
-        echo "${chart_info}"
-        exit 1
-    fi
-    helm_oci_registry=$(echo "${chart_info}" | jq -r '.registry' )
-    helm_oci_repository=$(echo "${chart_info}" | jq -r '.repository' )
-    helm_oci_registry_region=$(echo "${chart_info}" | jq -r '.region' )
-    helm_oci_version_prefix=$(echo "${chart_info}" | jq -r '.version_prefix // empty' )
-    helm_oci_version="${helm_oci_version_prefix:-}${OPERATOR_VERSION}"
+    get_helm_chart_build_info "${BUILD_SCENARIO}" "${OPERATOR_VERSION}"
 
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
@@ -86,10 +78,10 @@ deploy_test_app() {
         "--set" "cognito_user_password=${cognito_user_password}"
         "--set" "cognito_workload_url=${cognito_workload_url}"
         "--set" "cognito_workload_user_id=${cognito_workload_user_id}"
-        "--set" "helm.oci.version=${helm_oci_version}"
-        "--set" "helm.oci.registry=${helm_oci_registry}"
-        "--set" "helm.oci.repository=${helm_oci_repository}"
-        "--set" "helm.oci.region=${helm_oci_registry_region}"
+        "--set" "helm.oci.version=${HELM_OCI_VERSION}"
+        "--set" "helm.oci.registry=${HELM_OCI_REGISTRY}"
+        "--set" "helm.oci.repository=${HELM_OCI_REPOSITORY}"
+        "--set" "helm.oci.region=${HELM_OCI_REGISTRY_REGION}"
     )
 
     # shellcheck disable=SC2154

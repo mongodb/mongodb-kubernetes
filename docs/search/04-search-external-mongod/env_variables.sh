@@ -23,7 +23,10 @@ export MDB_EXTERNAL_HOST_2="mdbc-rs-2.mdbc-rs-svc.${MDB_NS}.svc.cluster.local:27
 # REPLACE with your actual external MongoDB replica set name
 export MDB_EXTERNAL_REPLICA_SET_NAME="mdbc-rs"
 
-export OPERATOR_HELM_CHART="mongodb/mongodb-kubernetes"
+export OPERATOR_HELM_CHART="oci://quay.io/mongodb/helm-charts/mongodb-kubernetes"
+# specify operator version or leave empty to install the latest available
+export OPERATOR_HELM_CHART_VERSION=""
+# comma-separated key=value pairs for additional parameters passed to the helm-chart installing the operator
 export OPERATOR_ADDITIONAL_HELM_VALUES=""
 
 export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_HOST_0}/?replicaSet=${MDB_EXTERNAL_REPLICA_SET_NAME}&tls=true&tlsCAFile=/tls/ca.crt"
