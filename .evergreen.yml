@@ -37,6 +37,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
 
   - &base_no_om_image_dependency
     depends_on:
@@ -54,6 +56,8 @@ variables:
         variant: init_test_run
       - name: build_init_appdb_images_ubi
         variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
 
   - &community_dependency
     depends_on:
@@ -66,6 +70,8 @@ variables:
       - name: build_version_upgrade_hook_image
         variant: init_test_run
       - name: build_mco_test_image
+        variant: init_test_run
+      - name: publish_helm_chart
         variant: init_test_run
 
   - &setup_group
@@ -138,6 +144,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
 
   - &base_om7_dependency_with_race
     depends_on:
@@ -154,6 +162,8 @@ variables:
       - name: build_init_appdb_images_ubi
         variant: init_test_run
       - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: publish_helm_chart
         variant: init_test_run
 
   # Any change to base_om8_dependency should be reflected to its copy in .evergreen-snippets.yml
@@ -172,6 +182,8 @@ variables:
       - name: build_init_appdb_images_ubi
         variant: init_test_run
       - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: publish_helm_chart
         variant: init_test_run
 
 parameters:
@@ -1305,6 +1317,8 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
 
     tasks:
       - name: e2e_custom_domain_task_group
@@ -1442,6 +1456,8 @@ buildvariants:
         variant: init_test_run
       - name: build_test_image_ibm_power
         variant: init_test_run_ibm_power
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1461,6 +1477,8 @@ buildvariants:
         variant: init_test_run
       - name: build_test_image_ibm_power
         variant: init_test_run_ibm_power
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1483,6 +1501,8 @@ buildvariants:
         variant: init_test_run
       - name: build_test_image_ibm_z
         variant: init_test_run_ibm_z
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1503,6 +1523,8 @@ buildvariants:
         variant: init_test_run
       - name: build_test_image_ibm_z
         variant: init_test_run_ibm_z
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1521,6 +1543,8 @@ buildvariants:
         variant: init_test_run
       - name: build_test_image_arm
         variant: init_test_run_arm
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_arm_task_group
 
@@ -1537,6 +1561,8 @@ buildvariants:
         variant: init_test_run
       - name: build_test_image_arm
         variant: init_test_run_arm
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_arm_task_group
 
