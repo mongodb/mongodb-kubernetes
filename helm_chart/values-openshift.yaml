@@ -27,7 +27,7 @@ operator:
   # Environment variables prefixed with RELATED_IMAGE_ are used by operator-sdk to generate relatedImages section
   # with sha256 digests pinning for the certified operator bundle with disconnected environment feature enabled.
   # https://docs.openshift.com/container-platform/4.14/operators/operator_sdk/osdk-generating-csvs.html#olm-enabling-operator-for-restricted-network_osdk-generating-csvs
-  version: 1.5.0
+  version: 1.6.0
 relatedImages:
   opsManager:
   - 6.0.26
