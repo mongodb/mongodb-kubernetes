@@ -453,12 +453,14 @@
   "helm-charts": {
     "mongodb-kubernetes": {
       "patch": {
+        "version-prefix": "0.0.0+",
         "registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com",
         "region": "us-east-1",
         "repository": "dev/mongodb/helm-charts"
       },
       "staging": {
         "sign": true,
+        "version-prefix": "0.0.0+",
         "registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com",
         "region": "us-east-1",
         "repository": "staging/mongodb/helm-charts"

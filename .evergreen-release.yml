@@ -214,6 +214,8 @@ buildvariants:
     depends_on:
       - name: release_kubectl_mongodb_plugin
         variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
     tasks:
       - name: build_test_image
 
@@ -228,6 +230,8 @@ buildvariants:
     depends_on:
       - name: release_kubectl_mongodb_plugin
         variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
     tasks:
       - name: build_test_image_ibm_power
 
@@ -245,6 +249,8 @@ buildvariants:
     depends_on:
       - name: release_kubectl_mongodb_plugin
         variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
     tasks:
       - name: build_test_image_ibm_z
 
@@ -258,6 +264,8 @@ buildvariants:
     depends_on:
       - name: release_kubectl_mongodb_plugin
         variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
     tasks:
       - name: build_test_image_arm
 
