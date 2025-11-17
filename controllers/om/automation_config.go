@@ -14,14 +14,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
-)
-
-// The constants for the authentication secret
-const (
-	autoPwdSecretKey = "automation-agent-password"
 )
 
 // AutomationConfig maintains the raw map in the Deployment field
@@ -455,17 +451,12 @@ func (ac *AutomationConfig) EnsurePassword(ctx context.Context, k8sClient secret
 
 	data, err := secret.ReadStringData(ctx, k8sClient, secretNamespacedName)
 	if err == nil {
-		if val, ok := data[autoPwdSecretKey]; ok && len(val) > 0 {
+		if val, ok := data[constants.AutomationAgentAuthSecretKey]; ok && len(val) > 0 {
 			password = val
 		}
 	} else if secret.SecretNotExist(err) {
 		if ac.Auth.AutoPwd != "" && ac.Auth.AutoPwd != util.InvalidAutomationAgentPassword {
 			password = ac.Auth.AutoPwd
-		}
-
-		err := EnsureEmptySecret(ctx, k8sClient, secretNamespacedName)
-		if err != nil {
-			return "", err
 		}
 	}
 
@@ -477,31 +468,21 @@ func (ac *AutomationConfig) EnsurePassword(ctx context.Context, k8sClient secret
 		password = generatedPassword
 	}
 
-	ac.Auth.AutoPwd = password
-	err = secret.UpdateField(ctx, k8sClient, secretNamespacedName, autoPwdSecretKey, password)
-	if err != nil {
-		return "", fmt.Errorf("failed to update password field in shared secret %s/%s: %w", secretNamespacedName.Namespace, secretNamespacedName.Name, err)
-	}
-
-	return password, nil
-}
-
-func EnsureEmptySecret(ctx context.Context, k8sClient secret.GetUpdateCreator, secretNamespacedName types.NamespacedName) error {
 	dataFields := map[string]string{
-		autoPwdSecretKey: "",
+		constants.AutomationAgentAuthSecretKey: password,
 	}
 
-	emptySecret := secret.Builder().
+	passwordSecret := secret.Builder().
 		SetName(secretNamespacedName.Name).
 		SetNamespace(secretNamespacedName.Namespace).
 		SetStringMapToData(dataFields).
 		Build()
 
-	if err := secret.CreateOrUpdateIfNeeded(ctx, k8sClient, emptySecret); err != nil {
-		return fmt.Errorf("failed to create or update empty secret %s/%s: %w", secretNamespacedName.Namespace, secretNamespacedName.Name, err)
+	if err := secret.CreateOrUpdateIfNeeded(ctx, k8sClient, passwordSecret); err != nil {
+		return "", fmt.Errorf("failed to update password field in shared secret %s/%s: %w", secretNamespacedName.Namespace, secretNamespacedName.Name, err)
 	}
-
-	return nil
+	ac.Auth.AutoPwd = password
+	return password, nil
 }
 
 func (ac *AutomationConfig) CanEnableX509ProjectAuthentication() (bool, string) {

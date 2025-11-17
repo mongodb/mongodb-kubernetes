@@ -1666,8 +1666,9 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		AutoUser:           util.AutomationAgentUserName,
 		AutoPEMKeyFilePath: agentCertPath,
 		CAFilePath:         util.CAFilePathInContainer,
+		MongoDBResource:    types.NamespacedName{Namespace: opsManager.Namespace, Name: opsManager.Name},
 	}
-	err = authentication.Configure(ctx, r.client, types.NamespacedName{Namespace: opsManager.Namespace, Name: opsManager.Name}, conn, opts, false, log)
+	err = authentication.Configure(ctx, r.client, conn, opts, false, log)
 	if err != nil {
 		log.Errorf("Could not set Automation Authentication options in Ops/Cloud Manager for the Application Database. "+
 			"Application Database is always configured with authentication enabled, but this will not be "+

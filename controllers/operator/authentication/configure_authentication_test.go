@@ -22,7 +22,7 @@ func init() {
 func TestConfigureScramSha256(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
-	mdbNamespacedName := types.NamespacedName{Namespace: "test", Name: "test"}
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
 
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
@@ -32,9 +32,10 @@ func TestConfigureScramSha256(t *testing.T) {
 		ProcessNames:     []string{"process-1", "process-2", "process-3"},
 		Mechanisms:       []string{"SCRAM"},
 		AgentMechanism:   "SCRAM",
+		MongoDBResource:  mongoDBResource,
 	}
 
-	if err := Configure(ctx, kubeClient, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -50,7 +51,7 @@ func TestConfigureScramSha256(t *testing.T) {
 func TestConfigureX509(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
-	mdbNamespacedName := types.NamespacedName{Namespace: "test", Name: "test"}
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
 
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
@@ -64,9 +65,10 @@ func TestConfigureX509(t *testing.T) {
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
+		MongoDBResource: mongoDBResource,
 	}
 
-	if err := Configure(ctx, kubeClient, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,7 +84,7 @@ func TestConfigureX509(t *testing.T) {
 func TestConfigureScramSha1(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
-	mdbNamespacedName := types.NamespacedName{Namespace: "test", Name: "test"}
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
 
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
@@ -92,9 +94,10 @@ func TestConfigureScramSha1(t *testing.T) {
 		ProcessNames:     []string{"process-1", "process-2", "process-3"},
 		Mechanisms:       []string{"SCRAM-SHA-1"},
 		AgentMechanism:   "SCRAM-SHA-1",
+		MongoDBResource:  mongoDBResource,
 	}
 
-	if err := Configure(ctx, kubeClient, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -108,7 +111,7 @@ func TestConfigureScramSha1(t *testing.T) {
 func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
-	mdbNamespacedName := types.NamespacedName{Namespace: "test", Name: "test"}
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
 
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
@@ -121,9 +124,10 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
+		MongoDBResource: mongoDBResource,
 	}
 
-	if err := Configure(ctx, kubeClient, mdbNamespacedName, conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,7 +149,7 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 func TestDisableAuthentication(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
-	mdbNamespacedName := types.NamespacedName{Namespace: "test", Name: "test"}
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
 
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
@@ -156,7 +160,7 @@ func TestDisableAuthentication(t *testing.T) {
 		return nil
 	}, zap.S())
 
-	if err := Disable(ctx, kubeClient, mdbNamespacedName, conn, Options{}, true, zap.S()); err != nil {
+	if err := Disable(ctx, kubeClient, conn, Options{MongoDBResource: mongoDBResource}, true, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -237,9 +241,10 @@ func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism,
 func assertAgentAuthenticationDisabled(t *testing.T, authMechanism Mechanism, conn om.Connection, opts Options) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
-	mdbNamespacedName := types.NamespacedName{Namespace: "test", Name: "test"}
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+	opts.MongoDBResource = mongoDBResource
 
-	err := authMechanism.EnableAgentAuthentication(ctx, kubeClient, mdbNamespacedName, conn, opts, zap.S())
+	err := authMechanism.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S())
 	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()

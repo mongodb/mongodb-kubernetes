@@ -50,7 +50,7 @@ func TestLdapDeploymentMechanism(t *testing.T) {
 func TestLdapEnableAgentAuthentication(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
-	mdbNamespacedName := types.NamespacedName{Namespace: "test", Name: "test"}
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
 
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	opts := Options{
@@ -60,9 +60,10 @@ func TestLdapEnableAgentAuthentication(t *testing.T) {
 		},
 		AuthoritativeSet: true,
 		AutoPwd:          "LDAPPassword.",
+		MongoDBResource:  mongoDBResource,
 	}
 
-	err := ldapPlainMechanism.EnableAgentAuthentication(ctx, kubeClient, mdbNamespacedName, conn, opts, zap.S())
+	err := ldapPlainMechanism.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S())
 	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()

@@ -5,7 +5,6 @@ import (
 	"regexp"
 
 	"go.uber.org/zap"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -19,7 +18,7 @@ func (x *connectionX509) GetName() MechanismName {
 	return MongoDBX509
 }
 
-func (x *connectionX509) EnableAgentAuthentication(ctx context.Context, client kubernetesClient.Client, mdbNamespacedName types.NamespacedName, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func (x *connectionX509) EnableAgentAuthentication(ctx context.Context, client kubernetesClient.Client, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	log.Info("Configuring x509 authentication")
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if err := ac.EnsureKeyFileContents(); err != nil {

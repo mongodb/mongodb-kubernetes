@@ -8,7 +8,6 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
-	"k8s.io/apimachinery/pkg/types"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -23,7 +22,7 @@ func (o *oidcAuthMechanism) GetName() MechanismName {
 	return MongoDBOIDC
 }
 
-func (o *oidcAuthMechanism) EnableAgentAuthentication(_ context.Context, _ kubernetesClient.Client, _ types.NamespacedName, _ om.Connection, _ Options, _ *zap.SugaredLogger) error {
+func (o *oidcAuthMechanism) EnableAgentAuthentication(_ context.Context, _ kubernetesClient.Client, _ om.Connection, _ Options, _ *zap.SugaredLogger) error {
 	return xerrors.Errorf("OIDC agent authentication is not supported")
 }
 
