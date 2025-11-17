@@ -234,7 +234,7 @@ def mc_replica_set(
     return resource
 
 
-@mark.e2e_mongodb_custom_roles
+@mark.e2e_mongodbmulticluster_custom_roles
 def test_create_resources(
     mongodb_role_with_empty_strings: ClusterMongoDBRole,
     mongodb_role_without_empty_strings: ClusterMongoDBRole,
@@ -254,7 +254,7 @@ def test_create_resources(
     mc_replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@mark.e2e_mongodb_custom_roles
+@mark.e2e_mongodbmulticluster_custom_roles
 def test_automation_config_has_roles(
     replica_set: MongoDB,
     sharded_cluster: MongoDB,
@@ -306,7 +306,7 @@ def assert_expected_roles(
     )
 
 
-@mark.e2e_mongodb_custom_roles
+@mark.e2e_mongodbmulticluster_custom_roles
 def test_change_inherited_role(
     replica_set: MongoDB,
     sharded_cluster: MongoDB,
@@ -328,7 +328,7 @@ def test_change_inherited_role(
     wait_until(lambda: is_role_changed(mc_replica_set.get_automation_config_tester()))
 
 
-@mark.e2e_mongodb_custom_roles
+@mark.e2e_mongodbmulticluster_custom_roles
 def test_deleting_role_does_not_remove_access(
     replica_set: MongoDB,
     sharded_cluster: MongoDB,
@@ -355,7 +355,7 @@ def test_deleting_role_does_not_remove_access(
     mc_replica_set.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=2)
 
 
-@mark.e2e_mongodb_custom_roles
+@mark.e2e_mongodbmulticluster_custom_roles
 def test_removing_role_from_resources(replica_set: MongoDB, sharded_cluster: MongoDB, mc_replica_set: MongoDBMulti):
     sharded_cluster["spec"]["security"]["roleRefs"] = None
     sharded_cluster.update()
@@ -367,12 +367,12 @@ def test_removing_role_from_resources(replica_set: MongoDB, sharded_cluster: Mon
     wait_until(lambda: len(mc_replica_set.get_automation_config_tester().automation_config["roles"]) == 0, timeout=120)
 
 
-@mark.e2e_mongodb_custom_roles
+@mark.e2e_mongodbmulticluster_custom_roles
 def test_install_operator_with_clustermongodbroles_disabled(multi_cluster_operator_no_cluster_mongodb_roles):
     multi_cluster_operator_no_cluster_mongodb_roles.assert_is_running()
 
 
-@mark.e2e_mongodb_custom_roles
+@mark.e2e_mongodbmulticluster_custom_roles
 def test_replicaset_is_failed(replica_set: MongoDB):
     replica_set.assert_reaches_phase(
         Phase.Failed,
@@ -380,7 +380,7 @@ def test_replicaset_is_failed(replica_set: MongoDB):
     )
 
 
-@mark.e2e_mongodb_custom_roles
+@mark.e2e_mongodbmulticluster_custom_roles
 def test_replicaset_is_reconciled_without_rolerefs(replica_set: MongoDB):
     replica_set["spec"]["security"]["roleRefs"] = None
     replica_set.update()
