@@ -171,7 +171,7 @@ def test_create_namespaces(
     evergreen_task_id: str,
     multi_cluster_operator_installation_config: Dict[str, str],
 ):
-    testhelper.test_create_kube_config_file(
+    testhelper.test_create_namespaces(
         namespace,
         mdba_ns,
         mdbb_ns,
@@ -195,7 +195,7 @@ def test_prepare_namespace(
     mdba_ns: str,
     mdbb_ns: str,
 ):
-    testhelper.test_deploy_operator(
+    testhelper.test_prepare_namespace(
         multi_cluster_operator_installation_config, member_cluster_clients, central_cluster_name, mdba_ns, mdbb_ns
     )
 
