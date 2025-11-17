@@ -73,7 +73,7 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     def test_ops_manager_state_correctly_updated_in_initial_sharded_cluster(
         self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
     ):
-        test_helper.test_ops_manager_state_with_expected_authentication(0)
+        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
     def test_switch_sharded_cluster_project(self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper):
         test_helper.test_switch_sharded_cluster_project()
@@ -81,4 +81,4 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     def test_ops_manager_state_correctly_updated_after_switch(
         self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
     ):
-        test_helper.test_ops_manager_state_with_expected_authentication(0)
+        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)

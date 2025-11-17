@@ -136,5 +136,5 @@ class TestShardedClusterLDAPProjectSwitch(KubernetesTester):
     def test_ops_manager_state_correctly_updated_after_switch(
         self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
     ):
-        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
+        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=1)
         # There should be one user (the previously created user should still exist in the automation configuration). We need to investigate further to understand why the user is not being picked up.
