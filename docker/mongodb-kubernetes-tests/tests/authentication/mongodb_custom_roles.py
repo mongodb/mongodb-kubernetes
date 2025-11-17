@@ -211,7 +211,7 @@ def mc_replica_set(
     mongodb_role_without_empty_strings: ClusterMongoDBRole,
     third_project: str,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(find_fixture("mongodb-multi.yaml"), namespace=namespace)
+    resource = MongoDBMulti.from_yaml(find_fixture("mongodbmulticluster-multi.yaml"), namespace=namespace)
 
     if try_load(resource):
         return resource

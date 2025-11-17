@@ -184,7 +184,7 @@ class TestBackupForMongodb:
         custom_mdb_version: str,
     ) -> MongoDBMulti:
         resource = MongoDBMulti.from_yaml(
-            yaml_fixture("mongodb-multi.yaml"),
+            yaml_fixture("mongodbmulticluster-multi.yaml"),
             "multi-replica-set-one",
             namespace,
             # the project configmap should be created in the central cluster.

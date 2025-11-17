@@ -27,7 +27,7 @@ def mongodb_multi(
     custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodbmutlicluster-multi-central-sts-override.yaml"),
+        yaml_fixture("mongodbmulticluster-multi-central-sts-override.yaml"),
         MDB_RESOURCE,
         namespace,
     )

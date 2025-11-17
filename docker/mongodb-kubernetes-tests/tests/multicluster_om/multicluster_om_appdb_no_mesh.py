@@ -424,7 +424,7 @@ def mongodb_multi(
     ops_manager: MongoDBOpsManager,
     multi_cluster_issuer_ca_configmap: str,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
+    resource = MongoDBMulti.from_yaml(_fixture("mongodbmulticluster-multi.yaml"), MDB_RESOURCE, namespace)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)

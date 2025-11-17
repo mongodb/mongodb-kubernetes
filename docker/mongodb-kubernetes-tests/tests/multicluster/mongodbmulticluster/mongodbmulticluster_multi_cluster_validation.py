@@ -13,7 +13,7 @@ MDBM_RESOURCE = "mongodbmulticluster-multi-cluster.yaml"
 @pytest.mark.e2e_mongodbmulticluster_multi_cluster_validation
 class TestWebhookValidation(KubernetesTester):
     def test_deploy_operator(self, multi_cluster_operator: Operator):
-        testhelper.TestWebhookValidation.test_deploy_operator(multi_cluster_operator, MDBM_RESOURCE)
+        testhelper.TestWebhookValidation.test_deploy_operator(multi_cluster_operator)
 
     def test_unique_cluster_names(self, central_cluster_client: kubernetes.client.ApiClient):
         testhelper.TestWebhookValidation.test_unique_cluster_names(central_cluster_client, MDBM_RESOURCE)
