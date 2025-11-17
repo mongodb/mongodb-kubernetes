@@ -189,7 +189,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_meko_mck_upgrade
+  - name: e2e_mongodbmulticluster_meko_mck_upgrade
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

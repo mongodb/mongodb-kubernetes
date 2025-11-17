@@ -54,7 +54,7 @@ def replica_set(
 ) -> MongoDB:
     if is_multi_cluster():
         resource = MongoDBMulti.from_yaml(
-            yaml_fixture("mongodb-multi-cluster.yaml"),
+            yaml_fixture("mongodbmulticluster-multi-cluster.yaml"),
             "multi-replica-set",
             namespace,
         )
@@ -100,26 +100,26 @@ def replica_set(
 
 
 # Installs the latest officially released version of MEKO, from Quay
-@mark.e2e_meko_mck_upgrade
+@mark.e2e_mongodbmulticluster_meko_mck_upgrade
 def test_install_latest_official_operator(official_meko_operator: Operator, namespace: str):
     official_meko_operator.assert_is_running()
     # Dumping deployments in logs ensures we are using the correct operator version
     log_deployments_info(namespace)
 
 
-@mark.e2e_meko_mck_upgrade
+@mark.e2e_mongodbmulticluster_meko_mck_upgrade
 def test_install_replicaset(replica_set: MongoDB):
     replica_set.assert_reaches_phase(phase=Phase.Running, timeout=1000 if is_multi_cluster() else 600)
 
 
-@mark.e2e_meko_mck_upgrade
+@mark.e2e_mongodbmulticluster_meko_mck_upgrade
 def test_downscale_latest_official_operator(namespace: str):
     deployment_name = LEGACY_MULTI_CLUSTER_OPERATOR_NAME if is_multi_cluster() else LEGACY_OPERATOR_NAME
     downscale_operator_deployment(deployment_name, namespace)
 
 
 # Upgrade to MCK
-@mark.e2e_meko_mck_upgrade
+@mark.e2e_mongodbmulticluster_meko_mck_upgrade
 def test_upgrade_operator(
     namespace: str,
     operator_installation_config,
@@ -151,19 +151,19 @@ def test_upgrade_operator(
     log_deployments_info(namespace)
 
 
-@mark.e2e_meko_mck_upgrade
+@mark.e2e_mongodbmulticluster_meko_mck_upgrade
 def test_replicaset_reconciled(replica_set: MongoDB):
     replica_set.assert_abandons_phase(phase=Phase.Running, timeout=300)
     replica_set.assert_reaches_phase(phase=Phase.Running, timeout=800)
 
 
-@mark.e2e_meko_mck_upgrade
+@mark.e2e_mongodbmulticluster_meko_mck_upgrade
 def test_uninstall_latest_official_operator(namespace: str):
     helm_uninstall(LEGACY_MULTI_CLUSTER_OPERATOR_NAME if is_multi_cluster() else LEGACY_OPERATOR_NAME)
     log_deployments_info(namespace)
 
 
-@mark.e2e_meko_mck_upgrade
+@mark.e2e_mongodbmulticluster_meko_mck_upgrade
 def test_operator_still_running(namespace: str, central_cluster_client: client.ApiClient, member_cluster_names):
     operator_name = MULTI_CLUSTER_OPERATOR_NAME if is_multi_cluster() else OPERATOR_NAME
     operator_instance = Operator(
