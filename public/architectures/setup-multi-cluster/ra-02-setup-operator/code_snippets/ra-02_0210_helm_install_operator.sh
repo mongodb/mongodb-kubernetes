@@ -3,6 +3,7 @@ helm upgrade --install \
   --kube-context "${K8S_CLUSTER_0_CONTEXT_NAME}" \
   mongodb-kubernetes-operator-multi-cluster \
   "${OPERATOR_HELM_CHART}" \
+  ${OPERATOR_HELM_CHART_VERSION:+--version ${OPERATOR_HELM_CHART_VERSION}} \
   --namespace="${OPERATOR_NAMESPACE}" \
   --set namespace="${OPERATOR_NAMESPACE}" \
   --set operator.namespace="${OPERATOR_NAMESPACE}" \
