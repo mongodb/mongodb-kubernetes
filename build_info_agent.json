@@ -1,7 +1,7 @@
 {
   "platforms": {
     "linux/amd64": {
-      "agent_suffixes": ["linux_x86_64.tar.gz"],
+      "agent_suffixes": ["amazon2023_x86_64.tar.gz"],
       "tools_suffixes": ["rhel93-x86_64-{TOOLS_VERSION}.tgz", "rhel90-x86_64-{TOOLS_VERSION}.tgz"]
     },
     "linux/arm64": {

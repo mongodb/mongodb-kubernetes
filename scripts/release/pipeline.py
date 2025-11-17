@@ -160,6 +160,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         all_agents=args.all_agents,
         currently_used_agents=args.current_agents,
         architecture_suffix=architecture_suffix,
+        agent_base_url=args.agent_base_url
     )
 
 
@@ -287,6 +288,13 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         "--architecture-suffix",
         action=argparse.BooleanOptionalAction,
         help="Append architecture suffix to image tags for single platform builds. Can be true or false. This will override the value from build_info.json",
+    )
+    parser.add_argument(
+        "--agent-base-url",
+        metavar="",
+        action="store",
+        type=str,
+        help="Override the base url from the agent's tgz is downloaded",
     )
 
     args = parser.parse_args()

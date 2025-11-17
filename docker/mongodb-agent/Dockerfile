@@ -46,6 +46,7 @@ RUN case ${TARGETPLATFORM} in \
      "linux/ppc64le") export MONGODB_AGENT_VERSION=${mongodb_agent_version_ppc64le}  ;; \
   esac \
     && mkdir -p /agent \
+    && echo "Downloading agent archive: ${mongodb_agent_url}/${MONGODB_AGENT_VERSION}" \
     && curl -o /agent/mongodb_agent.tgz "${mongodb_agent_url}/${MONGODB_AGENT_VERSION}"
 
 RUN tar xfz /agent/mongodb_agent.tgz \

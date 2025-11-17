@@ -186,7 +186,7 @@ else
   while [ ${ELAPSED_TIME} -lt ${MAX_WAIT} ]; do
     script_log "waiting for mongod_pid being available"
     # shellcheck disable=SC2009
-    MONGOD_PID=$(ps aux | grep "mongodb_marker" | grep -v grep | awk '{print $2}') || true
+    MONGOD_PID=$(ps aux | grep "mongodb_marker" | grep -v grep | grep coreutils | awk '{print $2}') || true
 
     if [ -n "${MONGOD_PID}" ] && [ "${MONGOD_PID}" -ne 0 ]; then
     break
@@ -215,7 +215,9 @@ else
     exit 1
   fi
 
-  agentOpts+=("-binariesFixedPath=${mdb_downloads_dir}/mongod/bin")
+  agentOpts+=("-binariesFixedPath=${mdb_downloads_dir}/mongod/bin" )
+  agentOpts+=("-commandFilePath=/data/run_mongod" )
+  agentOpts+=("-noDaemonize=true" )
 fi
 
 debug="${MDB_AGENT_DEBUG-}"

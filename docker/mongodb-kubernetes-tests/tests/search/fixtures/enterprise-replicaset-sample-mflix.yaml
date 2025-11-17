@@ -19,15 +19,3 @@ spec:
       - SCRAM
   agent:
     logLevel: DEBUG
-  podSpec:
-    podTemplate:
-      spec:
-        containers:
-        - name: mongodb-enterprise-database
-          resources:
-            limits:
-              cpu: "2"
-              memory: 2Gi
-            requests:
-              cpu: "1"
-              memory: 1Gi

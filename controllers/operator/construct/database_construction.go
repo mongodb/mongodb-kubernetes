@@ -710,7 +710,74 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 		container.WithImage(opts.MongodbImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
-		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
+		container.WithCommand([]string{"bash", "-c", `
+# MongoDB marker process - helps agent container find our PID
+tail -F -n0 /dev/null mongodb_marker &
+MARKER_PID=$!
+
+# Variable to track if mongod is running
+MONGOD_PID=""
+
+# Signal handler for SIGTERM
+cleanup() {
+    echo "Received SIGTERM, cleaning up..."
+
+	rm -f /data/run_mongod || true
+
+    # If mongod is running, send SIGTERM to it
+    if [[ -n "${MONGOD_PID}" ]] && kill -0 "${MONGOD_PID}" 2>/dev/null; then
+        echo "Stopping mongod process (PID: ${MONGOD_PID})..."
+        kill -SIGTERM "${MONGOD_PID}"
+        wait "${MONGOD_PID}" 2>/dev/null || true
+    fi
+
+    # Kill the marker process
+    if kill -0 "${MARKER_PID}" 2>/dev/null; then
+        kill "${MARKER_PID}" 2>/dev/null || true
+    fi
+
+    exit 0
+}
+
+# Trap SIGTERM
+trap cleanup SIGTERM
+
+# Check if we should run mongod
+while true; do
+	ls -al /data/run_mongod || true
+	ls -al /data/run_mongod || true
+
+	if [[ -f /data/run_mongod && -f /data/automation-mongod.conf ]]; then
+		echo "Found /data/run_mongod marker file, starting mongod..."
+
+		# Remove the marker file
+		rm -f /data/run_mongod || true
+
+		# Start mongod in the background
+		cat /data/automation-mongod.conf
+		mongod -f /data/automation-mongod.conf &
+		MONGOD_PID=$!
+
+		echo "Started mongod with PID: ${MONGOD_PID}"
+
+		# Wait for mongod to exit (blocking)
+		wait "${MONGOD_PID}" || true
+
+		echo "mongod process exited, terminating container..."
+
+		# Clean up marker process
+		if kill -0 "${MARKER_PID}" 2>/dev/null; then
+			kill "${MARKER_PID}" 2>/dev/null || true
+		fi
+
+		exit 0
+	else
+		echo "No /data/run_mongod file found, waiting..."
+		sleep 2 &
+		wait $! 2>/dev/null || true
+	fi
+done
+`}),
 		configureContainerSecurityContext,
 	)}
 

@@ -18,7 +18,7 @@ from lib.base_logger import logger
 from scripts.release.agent.detect_ops_manager_changes import (
     detect_ops_manager_changes,
     get_all_agents_for_rebuild,
-    get_currently_used_agents,
+    get_currently_used_agents, get_tools_version_for_agent,
 )
 from scripts.release.agent.validation import (
     generate_agent_build_args,
@@ -334,7 +334,14 @@ def build_agent(build_configuration: ImageBuildConfiguration):
     Build the agent only for the latest operator for patches and operator releases.
 
     """
-    if build_configuration.all_agents:
+
+    logger.info(f"building agent version: {build_configuration.version}")
+
+    if len(build_configuration.version) > 0:
+        tools_version = get_tools_version_for_agent(build_configuration.version)
+        agent_versions_to_build = [(build_configuration.version, tools_version)]
+        logger.info(f"building only specified agent version: {agent_versions_to_build}")
+    elif build_configuration.all_agents:
         agent_versions_to_build = get_all_agents_for_rebuild()
         logger.info("building all agents")
     elif build_configuration.currently_used_agents:
@@ -404,9 +411,8 @@ def build_agent_pipeline(
         platforms=available_platforms, agent_version=agent_version, tools_version=tools_version
     )
 
-    agent_base_url = (
-        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
-    )
+    print(f"========= agent_base_url = {build_configuration.agent_base_url}")
+    agent_base_url = build_configuration.agent_base_url or "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
     args = {

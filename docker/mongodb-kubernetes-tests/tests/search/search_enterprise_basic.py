@@ -8,6 +8,7 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
@@ -155,27 +156,28 @@ def test_wait_for_database_resource_ready(mdb: MongoDB):
         ), "mongot parameters not found in mongod config"
 
 
-@mark.e2e_search_enterprise_basic
-def test_search_restore_sample_database(mdb: MongoDB):
-    sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD))
+@fixture(scope="function")
+def sample_movies_helper(mdb: MongoDB, issuer_ca_filepath: str) -> SampleMoviesSearchHelper:
+    from tests.common.mongodb_tools_pod.mongodb_tools_pod import get_tools_pod
+
+    return movies_search_helper.SampleMoviesSearchHelper(
+        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=False),
+        tools_pod=get_tools_pod(mdb.namespace),
     )
+
+
+@mark.e2e_search_enterprise_basic
+def test_search_restore_sample_database(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.restore_sample_database()
 
 
 @mark.e2e_search_enterprise_basic
-def test_search_create_search_index(mdb: MongoDB):
-    sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD))
-    )
+def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.create_search_index()
 
 
 @mark.e2e_search_enterprise_basic
-def test_search_assert_search_query(mdb: MongoDB):
-    sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD))
-    )
+def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.assert_search_query(retry_timeout=60)
 
 

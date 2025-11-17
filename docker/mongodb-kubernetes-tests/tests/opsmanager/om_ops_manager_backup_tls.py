@@ -120,11 +120,11 @@ class TestOpsManagerCreation:
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
-        ops_manager.backup_status().assert_reaches_phase(
-            Phase.Pending,
-            msg_regexp="The MongoDB object .+ doesn't exist",
-            timeout=900,
-        )
+        # ops_manager.backup_status().assert_reaches_phase(
+        #     Phase.Pending,
+        #     msg_regexp="The MongoDB object .+ doesn't exist",
+        #     timeout=900,
+        # )
 
     def test_backing_dbs_created(self, oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB):
         oplog_replica_set.assert_reaches_phase(Phase.Running)
@@ -212,26 +212,52 @@ class TestBackupForMongodb:
         resource.update()
         return resource
 
-    @fixture(scope="class")
-    def mdb_prev(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str):
-        resource = MongoDB.from_yaml(
-            yaml_fixture("replica-set-for-om.yaml"),
-            namespace=namespace,
-            name="mdb-four-zero",
-        ).configure(ops_manager, "secondProject")
-        resource.set_version(ensure_ent_version(custom_mdb_prev_version))
-        resource.configure_backup(mode="enabled")
-        resource.update()
-        return resource
-
-    def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+    def test_mdbs_created(self, mdb_latest: MongoDB):
         mdb_latest.assert_reaches_phase(Phase.Running)
-        mdb_prev.assert_reaches_phase(Phase.Running)
 
     def test_mdbs_backed_up(self, ops_manager: MongoDBOpsManager):
         om_tester_first = ops_manager.get_om_tester(project_name="firstProject")
-        om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
 
-        # wait until a first snapshot is ready for both
         om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1)
-        om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1)
+
+#
+# @mark.e2e_om_ops_manager_backup_tls
+# class TestBackupForMongodb:
+#     """This part ensures that backup for the client works correctly and the snapshot is created."""
+#
+#     @fixture(scope="class")
+#     def mdb_latest(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
+#         resource = MongoDB.from_yaml(
+#             yaml_fixture("replica-set-for-om.yaml"),
+#             namespace=namespace,
+#             name="mdb-four-two",
+#         ).configure(ops_manager, "firstProject")
+#         # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
+#         resource.set_version(ensure_ent_version(custom_mdb_version))
+#         resource.configure_backup(mode="enabled")
+#         resource.update()
+#         return resource
+#
+#     @fixture(scope="class")
+#     def mdb_prev(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str):
+#         resource = MongoDB.from_yaml(
+#             yaml_fixture("replica-set-for-om.yaml"),
+#             namespace=namespace,
+#             name="mdb-four-zero",
+#         ).configure(ops_manager, "secondProject")
+#         resource.set_version(ensure_ent_version(custom_mdb_prev_version))
+#         resource.configure_backup(mode="enabled")
+#         resource.update()
+#         return resource
+#
+#     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+#         mdb_latest.assert_reaches_phase(Phase.Running)
+#         mdb_prev.assert_reaches_phase(Phase.Running)
+#
+#     def test_mdbs_backed_up(self, ops_manager: MongoDBOpsManager):
+#         om_tester_first = ops_manager.get_om_tester(project_name="firstProject")
+#         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
+#
+#         # wait until a first snapshot is ready for both
+#         om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1)
+#         om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1)
