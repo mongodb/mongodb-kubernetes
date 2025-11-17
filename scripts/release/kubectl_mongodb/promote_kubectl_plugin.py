@@ -77,7 +77,7 @@ def get_commit_from_tag(tag: str) -> str:
         result = subprocess.run(
             # using --short because that's how staging version is figured out for staging build scenario
             # https://github.com/mongodb/mongodb-kubernetes/blob/1.5.0/scripts/dev/contexts/evg-private-context#L137
-            ["git", "rev-parse", "--short", f"{tag}^{{commit}}"],  # git rev-parse v1.1.1^{commit}
+            ["git", "rev-parse", "--short=8", f"{tag}^{{commit}}"],  # git rev-parse --short=8 v1.1.1^{commit}
             capture_output=True,
             text=True,
             check=True,
