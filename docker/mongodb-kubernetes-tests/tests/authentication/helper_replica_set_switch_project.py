@@ -38,7 +38,7 @@ class ReplicaSetCreationAndProjectSwitchTestHelper:
             tester.assert_authoritative_set(True)
 
     def test_switch_replica_set_project(self):
-        original_tester = self.sharded_cluster.get_automation_config_tester()
+        original_tester = self.replica_set.get_automation_config_tester()
         original_automation_agent_password = original_tester.get_automation_agent_password
         original_configmap = read_configmap(namespace=self.namespace, name="my-project")
         new_project_name = f"{self.namespace}-second"
@@ -54,7 +54,7 @@ class ReplicaSetCreationAndProjectSwitchTestHelper:
         self.replica_set["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
         self.replica_set.update()
         self.replica_set.assert_reaches_phase(Phase.Running, timeout=600)
-        switched_tester = self.sharded_cluster.get_automation_config_tester()
+        switched_tester = self.replica_set.get_automation_config_tester()
         switched_automation_agent_password = switched_tester.get_automation_agent_password
         
         assert original_automation_agent_password == switched_automation_agent_password, (  
