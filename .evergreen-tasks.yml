@@ -1013,7 +1013,7 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_appdb_s3_based_backup_restore
+  - name: e2e_mongodbmulticluster_multi_cluster_appdb_s3_based_backup_restore
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1174,7 +1174,12 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_om_appdb_no_mesh
+  - name: e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_mongodb_multi_cluster_om_appdb_no_mesh
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

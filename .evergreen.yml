@@ -944,11 +944,11 @@ task_groups:
       - e2e_multi_cluster_om_validation
       - e2e_multi_cluster_appdb
       - e2e_multi_cluster_appdb_cleanup
-      - e2e_multi_cluster_appdb_s3_based_backup_restore
+      - e2e_mongodbmulticluster_multi_cluster_appdb_s3_based_backup_restore
       - e2e_multi_cluster_appdb_disaster_recovery
       - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
       - e2e_multi_cluster_om_networking_clusterwide
-      - e2e_multi_cluster_om_appdb_no_mesh
+      - e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
       # Reused OM tests with AppDB Multi-Cluster topology
       - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_om_appdb_flags_and_config
@@ -999,11 +999,11 @@ task_groups:
       - e2e_multi_cluster_om_validation
       - e2e_multi_cluster_appdb
       - e2e_multi_cluster_appdb_cleanup
-      - e2e_multi_cluster_appdb_s3_based_backup_restore
+      - e2e_mongodbmulticluster_multi_cluster_appdb_s3_based_backup_restore
       - e2e_multi_cluster_appdb_disaster_recovery
       - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
       - e2e_multi_cluster_om_networking_clusterwide
-      - e2e_multi_cluster_om_appdb_no_mesh
+      - e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
       # Reused OM tests with AppDB Multi-Cluster topology
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_upgrade

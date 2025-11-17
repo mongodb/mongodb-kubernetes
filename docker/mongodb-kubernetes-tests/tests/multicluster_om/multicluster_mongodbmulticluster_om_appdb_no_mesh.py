@@ -127,7 +127,7 @@ def s3_bucket_oplog(namespace: str, aws_s3_client: AwsS3Client) -> str:
     return next(create_s3_bucket_oplog(namespace, aws_s3_client, api_client=get_central_cluster_client()))
 
 
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_configure_dns(disable_istio):
     host_mappings = [
         (
@@ -198,12 +198,12 @@ def test_configure_dns(disable_istio):
         )
 
 
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_disable_istio(disable_istio):
     logger.info("Istio disabled")
 
 
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_configure_nginx(namespace: str):
     cluster_client = get_central_cluster_client()
 
@@ -535,12 +535,12 @@ def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, cli
     create_or_update_configmap(om.namespace, name, data, client)
 
 
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_deploy_operator(multi_cluster_operator_with_monitored_appdb: Operator):
     multi_cluster_operator_with_monitored_appdb.assert_is_running()
 
 
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_deploy_ops_manager(ops_manager: MongoDBOpsManager):
     ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
@@ -549,26 +549,26 @@ def test_deploy_ops_manager(ops_manager: MongoDBOpsManager):
     ops_manager.assert_appdb_monitoring_group_was_created()
 
 
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_create_mongodb_multi(server_certs: str, mongodb_multi: MongoDBMulti):
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=2400, ignore_errors=True)
 
 
 @skip_if_local
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 @pytest.mark.flaky(reruns=100, reruns_delay=6)
 def test_add_test_data(mongodb_multi_collection):
     mongodb_multi_collection.insert_one(TEST_DATA)
 
 
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_mdb_backed_up(ops_manager: MongoDBOpsManager):
     ops_manager.get_om_tester(project_name="mongodb").wait_until_backup_snapshots_are_ready(expected_count=1)
 
 
 @skip_if_local
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_change_mdb_data(mongodb_multi_collection):
     now_millis = time_to_millis(datetime.datetime.now(tz=datetime.UTC))
     print("\nCurrent time (millis): {}".format(now_millis))
@@ -576,7 +576,7 @@ def test_change_mdb_data(mongodb_multi_collection):
     mongodb_multi_collection.insert_one({"foo": "bar"})
 
 
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_pit_restore(ops_manager: MongoDBOpsManager):
     now_millis = time_to_millis(datetime.datetime.now(tz=datetime.UTC))
     print("\nCurrent time (millis): {}".format(now_millis))
@@ -588,7 +588,7 @@ def test_pit_restore(ops_manager: MongoDBOpsManager):
     ops_manager.get_om_tester(project_name="mongodb").create_restore_job_pit(pit_millis)
 
 
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_mdb_ready(mongodb_multi: MongoDBMulti):
     # Note: that we are not waiting for the restore jobs to get finished as PIT restore jobs get FINISHED status
     # right away.
@@ -598,7 +598,7 @@ def test_mdb_ready(mongodb_multi: MongoDBMulti):
 
 
 @skip_if_local
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_data_got_restored(mongodb_multi_collection):
     assert_data_got_restored(TEST_DATA, mongodb_multi_collection, timeout=600)
 
@@ -609,7 +609,7 @@ def time_to_millis(date_time) -> int:
     return pit_millis
 
 
-@mark.e2e_multi_cluster_om_appdb_no_mesh
+@mark.e2e_mongodbmulticluster_multi_cluster_om_appdb_no_mesh
 def test_telemetry_configmap(namespace: str):
     config = KubernetesTester.read_configmap(namespace, TELEMETRY_CONFIGMAP_NAME)
 

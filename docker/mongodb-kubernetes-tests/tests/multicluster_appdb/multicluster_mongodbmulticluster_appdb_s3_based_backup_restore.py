@@ -94,7 +94,7 @@ def ops_manager(
 
 
 @mark.usefixtures("multi_cluster_operator")
-@mark.e2e_multi_cluster_appdb_s3_based_backup_restore
+@mark.e2e_mongodbmulticluster_multi_cluster_appdb_s3_based_backup_restore
 class TestOpsManagerCreation:
     """
     name: Ops Manager successful creation with backup and oplog stores enabled
@@ -150,7 +150,7 @@ class TestOpsManagerCreation:
         om_tester.assert_oplog_s3_stores([{"id": S3_OPLOG_NAME, "s3RegionOverride": AWS_REGION}])
 
 
-@mark.e2e_multi_cluster_appdb_s3_based_backup_restore
+@mark.e2e_mongodbmulticluster_multi_cluster_appdb_s3_based_backup_restore
 class TestBackupForMongodb:
     @fixture(scope="module")
     def project_one(
