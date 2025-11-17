@@ -124,7 +124,7 @@ def test_create_mongodb_user(
 @skip_if_local
 @mark.e2e_mongodbmulticluster_multi_cluster_tls_with_scram
 def test_tls_connectivity(mongodb_multi: MongoDBMulti, ca_path: str):
-    testhelper.test_create_mongodb_user(mongodb_multi, ca_path)
+    testhelper.test_tls_connectivity(mongodb_multi, ca_path)
 
 
 @skip_if_local

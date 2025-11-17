@@ -106,7 +106,7 @@ def test_re_deploy_operator(
 def test_add_new_cluster_to_mongodb_multi_resource(
     mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
 ):
-    testhelper.test_re_deploy_operator(mongodb_multi, member_cluster_clients)
+    testhelper.test_add_new_cluster_to_mongodb_multi_resource(mongodb_multi, member_cluster_clients)
 
 
 @pytest.mark.e2e_mongodbmulticluster_multi_cluster_scale_up_cluster_new_cluster

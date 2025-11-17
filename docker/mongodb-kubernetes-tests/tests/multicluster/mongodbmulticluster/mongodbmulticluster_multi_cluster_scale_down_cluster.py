@@ -74,7 +74,7 @@ def test_statefulsets_have_been_created_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    testhelper.test_create_mongodb_multi(mongodb_multi, member_cluster_clients)
+    testhelper.test_statefulsets_have_been_created_correctly(mongodb_multi, member_cluster_clients)
 
 
 @pytest.mark.e2e_mongodbmulticluster_multi_cluster_scale_down_cluster

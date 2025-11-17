@@ -75,7 +75,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    testhelper.test_deploy_operator(mongodb_multi)
+    testhelper.test_create_mongodb_multi(mongodb_multi)
 
 
 @pytest.mark.e2e_mongodbmulticluster_multi_cluster_replica_set_scale_up
