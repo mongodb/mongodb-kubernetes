@@ -13,10 +13,11 @@ from tests.conftest import (
     get_member_cluster_api_client,
     run_multi_cluster_recovery_tool,
 )
+from tests.constants import MULTI_CLUSTER_OPERATOR_NAME
 from tests.multicluster.conftest import (
     create_service_entries_objects,
 )
-from tests.constants import MULTI_CLUSTER_OPERATOR_NAME
+
 FAILED_MEMBER_CLUSTER_NAME = "kind-e2e-cluster-3"
 
 

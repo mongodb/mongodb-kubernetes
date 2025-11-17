@@ -13,10 +13,11 @@ from tests.conftest import (
     _install_multi_cluster_operator,
     run_kube_config_creation_tool,
 )
+from tests.constants import MULTI_CLUSTER_OPERATOR_NAME, OPERATOR_NAME
 from tests.multicluster.conftest import (
     cluster_spec_list,
 )
-from tests.constants import MULTI_CLUSTER_OPERATOR_NAME, OPERATOR_NAME
+
 from ..shared import multi_cluster_recover_clusterwide as testhelper
 
 MDB_RESOURCE = "multi-replica-set"

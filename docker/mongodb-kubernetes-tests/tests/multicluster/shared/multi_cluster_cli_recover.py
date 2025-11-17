@@ -11,6 +11,7 @@ from tests.conftest import (
 )
 from tests.constants import MULTI_CLUSTER_OPERATOR_NAME
 
+
 def test_deploy_operator(
     install_multi_cluster_operator_set_members_fn: Callable[[List[str]], Operator],
     member_cluster_names: List[str],

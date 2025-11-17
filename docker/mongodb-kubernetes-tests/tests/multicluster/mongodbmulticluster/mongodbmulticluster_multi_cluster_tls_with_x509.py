@@ -120,9 +120,7 @@ def mongodb_multi(
 
 @fixture(scope="module")
 def mongodb_x509_user(central_cluster_client: kubernetes.client.ApiClient, namespace: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodb-x509-user.yaml"), "multi-replica-set-x509-user", namespace
-    )
+    resource = MongoDBUser.from_yaml(yaml_fixture("mongodb-x509-user.yaml"), "multi-replica-set-x509-user", namespace)
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 

@@ -201,7 +201,7 @@ class TestBackupForMongodb:
         ops_manager["spec"]["configuration"]["mms.centralUrl"] = new_address
         ops_manager.update()
 
-    def test_mongodb_multi_one_running_state( mongodb_multi_one: MongoDBMulti | MongoDB):
+    def test_mongodb_multi_one_running_state(mongodb_multi_one: MongoDBMulti | MongoDB):
         # we might fail connection in the beginning since we set a custom dns in coredns
         mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=1500)
 
@@ -242,7 +242,7 @@ class TestBackupForMongodb:
         mongodb_multi_one.assert_reaches_phase(Phase.Pending)
         mongodb_multi_one.assert_reaches_phase(Phase.Running)
 
-    def test_data_got_restored( mongodb_multi_one_collection):
+    def test_data_got_restored(mongodb_multi_one_collection):
         assert_data_got_restored(TEST_DATA, mongodb_multi_one_collection, timeout=900)
 
 
