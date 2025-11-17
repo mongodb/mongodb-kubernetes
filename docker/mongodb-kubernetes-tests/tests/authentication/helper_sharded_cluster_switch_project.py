@@ -39,7 +39,7 @@ class ShardedClusterCreationAndProjectSwitchTestHelper:
 
     def test_switch_sharded_cluster_project(self):
         original_tester = self.sharded_cluster.get_automation_config_tester()
-        original_automation_agent_password = original_tester.get_automation_agent_password
+        original_automation_agent_password = original_tester.get_automation_agent_password()
         original_configmap = read_configmap(namespace=self.namespace, name="my-project")
         new_project_name = f"{self.namespace}-second"
 
@@ -56,7 +56,7 @@ class ShardedClusterCreationAndProjectSwitchTestHelper:
         self.sharded_cluster.update()
         self.sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
         switched_tester = self.sharded_cluster.get_automation_config_tester()
-        switched_automation_agent_password = switched_tester.get_automation_agent_password
+        switched_automation_agent_password = switched_tester.get_automation_agent_password()
         
         assert original_automation_agent_password == switched_automation_agent_password, (  
         "The automation agent password changed after switching the project."  
