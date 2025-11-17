@@ -452,6 +452,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		AutoUser:           scramAgentUserName,
 		AutoLdapGroupDN:    ar.GetSecurity().Authentication.Agents.AutomationLdapGroupDN,
 		CAFilePath:         caFilepath,
+		MongoDBResource:    types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()},
 	}
 	var databaseSecretPath string
 	if r.VaultClient != nil {
@@ -512,7 +513,6 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 			agentName := ar.GetSecurity().Authentication.Agents.AutomationUserName
 			userOpts.AutomationSubject = agentName
 			authOpts.UserOptions = userOpts
-			authOpts.MongoDBResource = types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()}
 		}
 
 		if err := authentication.Configure(ctx, r.client, conn, authOpts, isRecovering, log); err != nil {
@@ -534,7 +534,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		}
 
 		authOpts.UserOptions = userOpts
-		authOpts.MongoDBResource = types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()}
+
 		if err := authentication.Disable(ctx, r.client, conn, authOpts, false, log); err != nil {
 			return workflow.Failed(err), false
 		}
