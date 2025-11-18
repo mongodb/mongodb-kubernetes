@@ -454,6 +454,16 @@ func (m *MongoDbSpec) GetExternalDomain() *string {
 	return nil
 }
 
+func (m *MongoDbSpec) GetExternalAccessConfigurationForMemberCluster(clusterName string) *ExternalAccessConfiguration {
+	for _, csl := range m.ClusterSpecList {
+		if csl.ClusterName == clusterName && csl.ExternalAccessConfiguration != nil {
+			return csl.ExternalAccessConfiguration
+		}
+	}
+
+	return m.ExternalAccessConfiguration
+}
+
 // GetExternalDomainForMemberCluster returns the external domain for a specific member cluster. Falls back to the global
 // external domain if not found.
 func (m *MongoDbSpec) GetExternalDomainForMemberCluster(clusterName string) *string {
