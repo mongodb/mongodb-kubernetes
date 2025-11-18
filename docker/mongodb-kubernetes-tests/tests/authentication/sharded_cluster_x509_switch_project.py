@@ -12,13 +12,13 @@ from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 
 from .helper_sharded_cluster_switch_project import (
-    ShardedClusterCreationAndProjectSwitchTestHelper,
+    ShardedClusterSwitchProjectHelper,
 )
 
 MDB_RESOURCE_NAME = "sharded-cluster-x509-switch-project"
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
 
     resource = MongoDB.from_yaml(
@@ -34,7 +34,7 @@ def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_
     return resource.update()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def server_certs(issuer: str, namespace: str):
     create_sharded_cluster_certs(
         namespace,
@@ -46,14 +46,14 @@ def server_certs(issuer: str, namespace: str):
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def agent_certs(issuer: str, namespace: str) -> str:
     return create_x509_agent_tls_certs(issuer, namespace, MDB_RESOURCE_NAME)
 
 
-@pytest.fixture(scope="module")
-def test_helper(sharded_cluster: MongoDB, namespace: str) -> ShardedClusterCreationAndProjectSwitchTestHelper:
-    return ShardedClusterCreationAndProjectSwitchTestHelper(
+@pytest.fixture(scope="function")
+def testhelper(sharded_cluster: MongoDB, namespace: str) -> ShardedClusterSwitchProjectHelper:
+    return ShardedClusterSwitchProjectHelper(
         sharded_cluster=sharded_cluster,
         namespace=namespace,
         authentication_mechanism="MONGODB-X509",
@@ -67,18 +67,16 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     E2E test suite for sharded cluster creation, user connectivity with X509 authentication and switching Ops Manager project reference.
     """
 
-    def test_create_sharded_cluster(self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper):
-        test_helper.test_create_sharded_cluster()
+    def test_create_sharded_cluster(self, testhelper: ShardedClusterSwitchProjectHelper):
+        testhelper.test_create_sharded_cluster()
 
     def test_ops_manager_state_correctly_updated_in_initial_sharded_cluster(
-        self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
+        self, testhelper: ShardedClusterSwitchProjectHelper
     ):
-        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
+        testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
-    def test_switch_sharded_cluster_project(self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper):
-        test_helper.test_switch_sharded_cluster_project()
+    def test_switch_sharded_cluster_project(self, testhelper: ShardedClusterSwitchProjectHelper):
+        testhelper.test_switch_sharded_cluster_project()
 
-    def test_ops_manager_state_correctly_updated_after_switch(
-        self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
-    ):
-        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
+    def test_ops_manager_state_correctly_updated_after_switch(self, testhelper: ShardedClusterSwitchProjectHelper):
+        testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)

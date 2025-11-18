@@ -16,8 +16,9 @@ spec:
   security:
     authentication:
       agents:
-        # This may look weird, but without it we'll get this from OpsManager:
-        # Cannot configure SCRAM-SHA-1 without using MONGODB-CR in the Agent Mode","reason":"Cannot configure SCRAM-SHA-1 without using MONGODB-CR in te Agent Mode
+        # SCRAM-SHA-1 is deprecated and requires MONGODB-CR for legacy support when used in Agent Mode.    
+        # Without this configuration, OpsManager will produce the following error:    
+        # "Cannot configure SCRAM-SHA-1 without using MONGODB-CR in the Agent Mode"   
         mode: MONGODB-CR
       enabled: true
       modes: ["SCRAM-SHA-1", "MONGODB-CR"]

@@ -10,13 +10,13 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
 
 from .helper_sharded_cluster_switch_project import (
-    ShardedClusterCreationAndProjectSwitchTestHelper,
+    ShardedClusterSwitchProjectHelper,
 )
 
 MDB_RESOURCE_NAME = "sharded-cluster-scram-sha-256-switch-project"
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def sharded_cluster(namespace: str) -> MongoDB:
 
     resource = MongoDB.from_yaml(
@@ -29,9 +29,9 @@ def sharded_cluster(namespace: str) -> MongoDB:
     return resource.update()
 
 
-@pytest.fixture(scope="module")
-def test_helper(sharded_cluster: MongoDB, namespace: str) -> ShardedClusterCreationAndProjectSwitchTestHelper:
-    return ShardedClusterCreationAndProjectSwitchTestHelper(
+@pytest.fixture(scope="function")
+def testhelper(sharded_cluster: MongoDB, namespace: str) -> ShardedClusterSwitchProjectHelper:
+    return ShardedClusterSwitchProjectHelper(
         sharded_cluster=sharded_cluster,
         namespace=namespace,
         authentication_mechanism="SCRAM-SHA-256",
@@ -49,16 +49,16 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     USER_PASSWORD = "my-password"
     USER_NAME = "mms-user-1"
 
-    def test_create_sharded_cluster(self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper):
-        test_helper.test_create_sharded_cluster()
+    def test_create_sharded_cluster(self, testhelper: ShardedClusterSwitchProjectHelper):
+        testhelper.test_create_sharded_cluster()
 
-    def test_sharded_cluster_connectivity(self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper):
-        test_helper.test_sharded_cluster_connectivity(1)
+    def test_sharded_cluster_connectivity(self, testhelper: ShardedClusterSwitchProjectHelper):
+        testhelper.test_sharded_cluster_connectivity(1)
 
     def test_ops_manager_state_correctly_updated_in_initial_sharded_cluster(
-        self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
+        self, testhelper: ShardedClusterSwitchProjectHelper
     ):
-        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
+        testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
     # Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_create_secret(self):
@@ -81,7 +81,7 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     #     mdb.assert_reaches_phase(Phase.Updated, timeout=150)
 
     # def test_ops_manager_state_with_users_correctly_updated(
-    #     self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
+    #     self, testhelper: ShardedClusterSwitchProjectHelper
     # ):
     #     user_name = "mms-user-1"
     #     expected_roles = {
@@ -90,26 +90,22 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     #         ("admin", "readWrite"),
     #         ("admin", "userAdminAnyDatabase"),
     #     }
-    #     test_helper.test_ops_manager_state_with_users(
+    #     testhelper.test_ops_manager_state_with_users(
     #         user_name=user_name, expected_roles=expected_roles, expected_users=1
     #     )
 
-    def test_switch_sharded_cluster_project(self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper):
-        test_helper.test_switch_sharded_cluster_project()
+    def test_switch_sharded_cluster_project(self, testhelper: ShardedClusterSwitchProjectHelper):
+        testhelper.test_switch_sharded_cluster_project()
 
-    def test_sharded_cluster_connectivity_after_switch(
-        self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
-    ):
-        test_helper.test_sharded_cluster_connectivity(1)
+    def test_sharded_cluster_connectivity_after_switch(self, testhelper: ShardedClusterSwitchProjectHelper):
+        testhelper.test_sharded_cluster_connectivity(1)
 
-    def test_ops_manager_state_correctly_updated_after_switch(
-        self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
-    ):
-        test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
+    def test_ops_manager_state_correctly_updated_after_switch(self, testhelper: ShardedClusterSwitchProjectHelper):
+        testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
     # Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_ops_manager_state_with_users_correctly_updated_after_switch(
-    #     self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
+    #     self, testhelper: ShardedClusterSwitchProjectHelper
     # ):
     #     user_name = "mms-user-1"
     #     expected_roles = {
@@ -118,6 +114,6 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     #         ("admin", "readWrite"),
     #         ("admin", "userAdminAnyDatabase"),
     #     }
-    #     test_helper.test_ops_manager_state_with_users(
+    #     testhelper.test_ops_manager_state_with_users(
     #         user_name=user_name, expected_roles=expected_roles, expected_users=1
     #     )

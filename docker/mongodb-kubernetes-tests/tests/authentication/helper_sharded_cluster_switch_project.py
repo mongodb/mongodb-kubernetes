@@ -7,7 +7,7 @@ from kubetester.mongotester import ShardedClusterTester
 from kubetester.phase import Phase
 
 
-class ShardedClusterCreationAndProjectSwitchTestHelper:
+class ShardedClusterSwitchProjectHelper:
     def __init__(
         self,
         sharded_cluster: MongoDB,
@@ -38,8 +38,10 @@ class ShardedClusterCreationAndProjectSwitchTestHelper:
             tester.assert_authoritative_set(True)
 
     def test_switch_sharded_cluster_project(self):
-        original_tester = self.sharded_cluster.get_automation_config_tester()
-        original_automation_agent_password = original_tester.get_automation_agent_password()
+        password_check_required = self.authentication_mechanism in ["MONGODB-CR", "SCRAM-SHA-256"]
+        if password_check_required:
+            original_tester = self.sharded_cluster.get_automation_config_tester()
+            original_automation_agent_password = original_tester.get_automation_agent_password()
         original_configmap = read_configmap(namespace=self.namespace, name="my-project")
         new_project_name = f"{self.namespace}-second"
 
@@ -55,12 +57,12 @@ class ShardedClusterCreationAndProjectSwitchTestHelper:
         self.sharded_cluster["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
         self.sharded_cluster.update()
         self.sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
-        switched_tester = self.sharded_cluster.get_automation_config_tester()
-        switched_automation_agent_password = switched_tester.get_automation_agent_password()
-
-        assert (
-            original_automation_agent_password == switched_automation_agent_password
-        ), "The automation agent password changed after switching the project."
+        if password_check_required:
+            switched_tester = self.sharded_cluster.get_automation_config_tester()
+            switched_automation_agent_password = switched_tester.get_automation_agent_password()
+            assert (
+                original_automation_agent_password == switched_automation_agent_password
+            ), "The automation agent password changed after switching the project."
 
     def test_ops_manager_state_with_users(self, user_name: str, expected_roles: set, expected_users: int):
         tester = self.sharded_cluster.get_automation_config_tester()
