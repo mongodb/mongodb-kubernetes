@@ -50,7 +50,8 @@ def replica_set(
         "caConfigMapRef": {"name": issuer_ca_configmap, "key": "ca-pem"},
     }
 
-    return resource.update()
+    resource.update()
+    return resource
 
 
 @fixture(scope="module")
@@ -105,8 +106,9 @@ def test_turn_tls_on_CLOUDP_189433(replica_set: MongoDB):
 
     wait_until(wait_for_ac_pushed, timeout=200)
 
-    replica_set["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
-    replica_set.update()
+    resource = replica_set.load()
+    resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
+    resource.update()
 
 
 @mark.e2e_replica_set_ldap_tls
@@ -138,6 +140,7 @@ def test_new_ldap_users_can_authenticate(replica_set: MongoDB, ldap_user_mongodb
 def test_remove_ldap_settings(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
+    replica_set.load()
     replica_set["spec"]["security"]["authentication"]["ldap"] = None
     replica_set["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
     replica_set.update()
