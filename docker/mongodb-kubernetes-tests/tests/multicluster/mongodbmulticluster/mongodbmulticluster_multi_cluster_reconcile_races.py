@@ -106,4 +106,4 @@ def test_pod_logs_race_after_restart(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_mongodbmulticluster_om_reconcile_race_with_telemetry
 def test_telemetry_configmap(namespace: str):
-    testhelper.test_pod_logs_race_after_restart(namespace)
+    testhelper.test_telemetry_configmap(namespace)

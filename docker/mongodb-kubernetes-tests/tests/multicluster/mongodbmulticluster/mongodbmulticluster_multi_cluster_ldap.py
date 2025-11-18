@@ -240,7 +240,7 @@ def test_disable_agent_auth(mongodb_multi: MongoDBMulti):
 @skip_if_static_containers
 @mark.e2e_mongodbmulticluster_multi_cluster_with_ldap
 def test_mongodb_multi_connectivity_with_no_auth(mongodb_multi: MongoDBMulti):
-    testhelper.test_distest_mongodb_multi_connectivity_with_no_authable_agent_auth(mongodb_multi)
+    testhelper.test_mongodb_multi_connectivity_with_no_auth(mongodb_multi)
 
 
 @skip_if_static_containers
