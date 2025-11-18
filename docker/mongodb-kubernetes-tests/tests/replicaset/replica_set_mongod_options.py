@@ -2,7 +2,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import OPERATOR_NAME
+from tests.constants import OPERATOR_NAME
 
 
 @fixture(scope="module")

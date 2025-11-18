@@ -246,7 +246,7 @@ func validatePrivilege(privilege Privilege, mdbVersion string) v1.ValidationResu
 		if !*privilege.Resource.Cluster {
 			return v1.ValidationError("The only valid value for privilege.cluster, if set, is true")
 		}
-		if privilege.Resource.Collection != "" || privilege.Resource.Db != "" {
+		if privilege.Resource.Collection != nil || privilege.Resource.Db != nil {
 			return v1.ValidationError("Cluster: true is not compatible with setting db/collection")
 		}
 		if res := validateClusterPrivilegeActions(privilege.Actions, mdbVersion); res.Level == v1.ErrorLevel {

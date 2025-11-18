@@ -1,6 +1,11 @@
-import pymongo
 import yaml
-from kubetester import create_or_update_secret, run_periodically, try_load
+from kubetester import (
+    create_or_update_secret,
+    get_service,
+    kubetester,
+    run_periodically,
+    try_load,
+)
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -32,9 +37,6 @@ MDB_RESOURCE_NAME = "mdb-ent-tls"
 # MongoDBSearch TLS configuration
 MDBS_TLS_SECRET_NAME = "mdbs-tls-secret"
 
-MDB_VERSION_WITHOUT_BUILT_IN_ROLE = "8.0.10-ent"
-MDB_VERSION_WITH_BUILT_IN_ROLE = "8.2.0-ent"
-
 
 @fixture(scope="function")
 def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
@@ -43,12 +45,11 @@ def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
         name=MDB_RESOURCE_NAME,
         namespace=namespace,
     )
-    resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
-    resource.set_version(MDB_VERSION_WITHOUT_BUILT_IN_ROLE)
 
     if try_load(resource):
         return resource
 
+    resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
     resource.configure_custom_tls(issuer_ca_configmap, "certs")
 
     return resource
@@ -163,21 +164,19 @@ def test_create_users(
         namespace, name=admin_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": ADMIN_USER_PASSWORD}
     )
     admin_user.update()
+    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
         namespace, name=user["spec"]["passwordSecretKeyRef"]["name"], data={"password": USER_PASSWORD}
     )
     user.update()
-
-    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
     user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
         namespace, name=mongot_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": MONGOT_USER_PASSWORD}
     )
     mongot_user.update()
-    # we deliberately don't wait for this user to be ready, because to be reconciled successfully it needs the searchCoordinator role
-    # which the ReplicaSet reconciler will only define in the automation config after the MongoDBSearch resource is created.
+    mongot_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
 
 @mark.e2e_search_enterprise_tls
@@ -186,11 +185,19 @@ def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
 
+# After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters to each process.
+# Due to how MongoDB reconciler works (blocking on waiting for agents and not changing the status to pending)
+# the phase won't be updated to Pending and we need to wait by checking agents' status directly in OM.
+@mark.e2e_search_enterprise_tls
+def test_wait_for_agents_ready(mdb: MongoDB):
+    mdb.get_om_tester().wait_agents_ready()
+    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+
+
 @mark.e2e_search_enterprise_tls
 def test_wait_for_mongod_parameters(mdb: MongoDB):
     # After search CR is deployed, MongoDB controller will pick it up
-    # and start adding searchCoordinator role and search-related
-    # parameters to the automation config.
+    # and start adding search-related parameters to the automation config.
     def check_mongod_parameters():
         parameters_are_set = True
         pod_parameters = []
@@ -208,21 +215,44 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
         return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
 
-    run_periodically(check_mongod_parameters, timeout=200)
-
-
-# After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters to each process.
-# Due to how MongoDB reconciler works (blocking on waiting for agents and not changing the status to pending)
-# the phase won't be updated to Pending and we need to wait by checking agents' status directly in OM.
-@mark.e2e_search_enterprise_tls
-def test_wait_for_agents_ready(mdb: MongoDB):
-    mdb.get_om_tester().wait_agents_ready()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    run_periodically(check_mongod_parameters, timeout=600)
 
 
 @mark.e2e_search_enterprise_tls
-def test_validate_tls_connections(mdb: MongoDB, mdbs: MongoDBSearch, namespace: str):
-    validate_tls_connections(mdb, mdbs, namespace)
+def test_search_deploy_tools_pod(namespace: str):
+    deploy_mongodb_tools_pod(namespace)
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_verify_prometheus_disabled_initially(mdbs: MongoDBSearch):
+    assert_search_service_prometheus_port(mdbs, should_exist=False)
+    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=False)
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_enable_prometheus_on_default_port(mdbs: MongoDBSearch):
+    mdbs["spec"]["prometheus"] = {}
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_verify_prometheus_enabled(mdbs: MongoDBSearch):
+    assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=9946)
+    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=True, port=9946)
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_change_prometheus_to_custom_port(mdbs: MongoDBSearch):
+    mdbs["spec"]["prometheus"] = {"port": 10000}
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_verify_prometheus_enabled_on_custom_port(mdbs: MongoDBSearch):
+    assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=10000)
+    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=True, port=10000)
 
 
 @mark.e2e_search_enterprise_tls
@@ -238,48 +268,6 @@ def test_search_create_search_index(mdb: MongoDB):
 @mark.e2e_search_enterprise_tls
 def test_search_assert_search_query(mdb: MongoDB):
     get_user_sample_movies_helper(mdb).assert_search_query(retry_timeout=60)
-
-
-@mark.e2e_search_enterprise_tls
-# This test class verifies if mongodb <8.2 can be upgraded to mongodb >=8.2
-# For mongod <8.2 the operator is automatically creating searchCoordinator customRole.
-# We test here that the role exists before upgrade, because
-# after mongodb is upgraded, the role should be removed from AC
-# From 8.2 searchCoordinator role is a built-in role.
-class TestUpgradeMongod:
-    def test_mongod_version(self, mdb: MongoDB):
-        # This test is redundant when looking at the context of the full test file,
-        # as we deploy MDB_VERSION_WITHOUT_BUILT_IN_ROLE initially
-        # But it makes sense if we take into consideration TestUpgradeMongod test class alone.
-        # This checks the most important prerequisite for this test class to work.
-        # We check the version in case the test class is reused in another place
-        # or executed again when running locally.
-        mdb.tester(ca_path=get_issuer_ca_filepath(), use_ssl=True).assert_version(MDB_VERSION_WITHOUT_BUILT_IN_ROLE)
-
-    def test_check_polyfilled_role_in_ac(self, mdb: MongoDB):
-        custom_roles = mdb.get_automation_config_tester().automation_config.get("roles", [])
-        assert len(custom_roles) > 0
-        assert "searchCoordinator" in [role["role"] for role in custom_roles]
-
-    def test_upgrade_to_mongo_8_2(self, mdb: MongoDB):
-        mdb.set_version(MDB_VERSION_WITH_BUILT_IN_ROLE)
-        mdb.update()
-        mdb.assert_reaches_phase(Phase.Running, timeout=600)
-
-    def test_check_polyfilled_role_not_in_ac(self, mdb: MongoDB):
-        custom_roles = mdb.get_automation_config_tester().automation_config.get("roles", [])
-        assert len(custom_roles) >= 0
-        assert "searchCoordinator" not in [role["role"] for role in custom_roles]
-
-    def test_mongod_version_after_upgrade(self, mdb: MongoDB):
-        mdb_tester = mdb.tester(ca_path=get_issuer_ca_filepath(), use_ssl=True)
-        mdb_tester.assert_scram_sha_authentication(
-            ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "SCRAM-SHA-256", 1, ssl=True, tlsCAFile=get_issuer_ca_filepath()
-        )
-        mdb_tester.assert_version(MDB_VERSION_WITH_BUILT_IN_ROLE)
-
-    def test_search_assert_search_query_after_upgrade(self, mdb: MongoDB):
-        get_user_sample_movies_helper(mdb).assert_search_query(retry_timeout=60)
 
 
 def get_connection_string(mdb: MongoDB, user_name: str, user_password: str) -> str:
@@ -304,25 +292,78 @@ def get_user_sample_movies_helper(mdb):
     )
 
 
-def validate_tls_connections(mdb: MongoDB, mdbs: MongoDBSearch, namespace: str):
-    with pymongo.MongoClient(
-        f"mongodb://{mdb.name}-0.{mdb.name}-svc.{namespace}.svc.cluster.local:27017/?replicaSet={mdb.name}",
-        tls=True,
-        tlsCAFile=get_issuer_ca_filepath(),
-        tlsAllowInvalidHostnames=False,
-        serverSelectionTimeoutMS=30000,
-        connectTimeoutMS=20000,
-    ) as mongodb_client:
-        mongodb_info = mongodb_client.admin.command("hello")
-        assert mongodb_info.get("ok") == 1, "MongoDB connection failed"
+def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: bool, expected_port: int = 9946):
+    service_name = f"{mdbs.name}-search-svc"
+    service = get_service(mdbs.namespace, service_name)
+    assert service is not None
 
-    with pymongo.MongoClient(
-        f"mongodb://{mdbs.name}-search-svc.{namespace}.svc.cluster.local:27027",
-        tls=True,
-        tlsCAFile=get_issuer_ca_filepath(),
-        tlsAllowInvalidHostnames=False,
-        serverSelectionTimeoutMS=10000,
-        connectTimeoutMS=10000,
-    ) as search_client:
-        search_info = search_client.admin.command("hello")
-        assert search_info.get("ok") == 1, "MongoDBSearch connection failed"
+    ports = {p.name: p.port for p in service.spec.ports}
+
+    if should_exist:
+        assert "prometheus" in ports
+        assert ports["prometheus"] == expected_port
+    else:
+        assert "prometheus" not in ports
+
+
+def deploy_mongodb_tools_pod(namespace: str):
+    """
+    Deploys a bastion pod to perform connectivty checks using pod exec. It's similar to how we
+    run connectivity checks in snippets.
+    """
+    from kubetester import get_pod_when_ready
+
+    pod_body = {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": "mongodb-tools-pod",
+            "labels": {"app": "mongodb-tools"},
+        },
+        "spec": {
+            "containers": [
+                {
+                    "name": "mongodb-tools",
+                    "image": "mongodb/mongodb-community-server:8.0-ubi8",
+                    "command": ["/bin/bash", "-c"],
+                    "args": ["sleep infinity"],
+                }
+            ],
+            "restartPolicy": "Never",
+        },
+    }
+
+    try:
+        KubernetesTester.create_pod(namespace, pod_body)
+        logger.info(f"Created mongodb-tools-pod in namespace {namespace}")
+    except Exception as e:
+        logger.info(f"Pod may already exist: {e}")
+
+    get_pod_when_ready(namespace, "app=mongodb-tools", default_retry=60)
+    logger.info("mongodb-tools-pod is ready")
+
+
+def assert_search_pod_prometheus_endpoint(mdbs: MongoDBSearch, should_be_accessible: bool, port: int = 9946):
+    service_fqdn = f"{mdbs.name}-search-svc.{mdbs.namespace}.svc.cluster.local"
+    url = f"http://{service_fqdn}:{port}/metrics"
+
+    if should_be_accessible:
+        # We don't necessarily need the connectivity test to run via a bastion pod as we could connect to it directly when running test in pod.
+        # But it's not requiring forwarding when running locally.
+        result = KubernetesTester.run_command_in_pod_container(
+            "mongodb-tools-pod", mdbs.namespace, ["curl", "-f", "-s", url], container="mongodb-tools"
+        )
+        assert "# HELP" in result or "# TYPE" in result
+
+        logger.info(f"Prometheus endpoint is accessible at {url} and returning metrics")
+    else:
+        try:
+            result = KubernetesTester.run_command_in_pod_container(
+                "mongodb-tools-pod",
+                mdbs.namespace,
+                ["curl", "-f", "-s", "--max-time", "5", url],
+                container="mongodb-tools",
+            )
+            assert False, f"Prometheus endpoint should not be accessible but got: {result}"
+        except Exception as e:
+            logger.info(f"Expected failure: Prometheus endpoint is not accessible at {url}: {e}")

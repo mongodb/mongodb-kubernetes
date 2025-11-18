@@ -1,15 +1,17 @@
 import argparse
 import os
+import shutil
 
 from botocore.exceptions import ClientError
 
 from lib.base_logger import logger
-from scripts.release.argparse_utils import get_platforms_from_arg, get_scenario_from_arg
+from scripts.release.argparse_utils import get_scenario_from_arg
 from scripts.release.build.build_info import (
     KUBECTL_PLUGIN_BINARY,
     load_build_info,
 )
 from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS, BuildScenario
+from scripts.release.build.image_build_configuration import SUPPORTED_PLATFORMS
 from scripts.release.kubectl_mongodb.build_kubectl_plugin import (
     kubectl_plugin_name,
     parse_platform,
@@ -17,12 +19,16 @@ from scripts.release.kubectl_mongodb.build_kubectl_plugin import (
 )
 from scripts.release.kubectl_mongodb.utils import create_s3_client
 
+KUBECTL_MONGODB_PLUGIN_BIN_PATH = "bin/kubectl-mongodb"
+
 
 def local_tests_plugin_path(arch_name: str) -> str:
     return f"docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_{arch_name}"
 
 
-def download_kubectl_plugin_from_s3(s3_bucket: str, s3_plugin_path: str, local_path: str):
+def download_kubectl_plugin_from_s3(
+    s3_bucket: str, s3_plugin_path: str, local_path: str, copy_to_bin_path: bool = False
+) -> None:
     """
     Downloads the plugin for provided platform and puts it in the path expected by the tests image
     """
@@ -36,6 +42,17 @@ def download_kubectl_plugin_from_s3(s3_bucket: str, s3_plugin_path: str, local_p
         os.chmod(local_path, 0o755)
 
         logger.info(f"Successfully downloaded artifact to {local_path}")
+
+        if copy_to_bin_path:
+            kubectl_mongodb_workdir_path = os.path.join(os.getenv("workdir", ""), KUBECTL_MONGODB_PLUGIN_BIN_PATH)
+            # copy content, stat-info (mode too), timestamps..
+            shutil.copy2(local_path, kubectl_mongodb_workdir_path)
+            # preserve owner and group
+            st = os.stat(local_path)
+            os.chown(kubectl_mongodb_workdir_path, st.st_uid, st.st_gid)
+
+            logger.info(f"Copied kubectl-mongodb plugin to {kubectl_mongodb_workdir_path} for tests usage")
+
     except ClientError as e:
         if e.response["Error"]["Code"] == "404":
             raise Exception(f"Artifact not found at s3://{s3_bucket}/{s3_plugin_path}: {e}")
@@ -74,28 +91,25 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         "--platform",
         metavar="",
         action="store",
+        required=True,
         type=str,
-        help="Override the platforms instead of resolving from build scenario. Multi-arch builds are comma-separated. Example: linux/amd64,linux/arm64",
+        choices=SUPPORTED_PLATFORMS,
+        help=f"Specify kubectl-mongodb plugin platform to download. Options: {", ".join(SUPPORTED_PLATFORMS)}.",
     )
     args = parser.parse_args()
 
     build_scenario = get_scenario_from_arg(args.build_scenario)
     build_info = load_build_info(build_scenario).binaries[KUBECTL_PLUGIN_BINARY]
 
-    platforms = get_platforms_from_arg(args.platform) or build_info.platforms
+    platform = args.platform
     version = args.version
 
-    for platform in platforms:
-        os_name, arch_name = parse_platform(platform)
-        if os_name != "linux":
-            logger.debug(f"Skipping non-linux platform {platform}, not used in e2e tests in Evergreen CI")
-            continue
+    os_name, arch_name = parse_platform(platform)
+    filename = kubectl_plugin_name(os_name, arch_name)
+    s3_plugin_path = s3_path(filename, version)
+    local_path = local_tests_plugin_path(arch_name)
 
-        filename = kubectl_plugin_name(os_name, arch_name)
-        s3_plugin_path = s3_path(filename, version)
-        local_path = local_tests_plugin_path(arch_name)
-
-        download_kubectl_plugin_from_s3(build_info.s3_store, s3_plugin_path, local_path)
+    download_kubectl_plugin_from_s3(build_info.s3_store, s3_plugin_path, local_path, copy_to_bin_path=True)
 
 
 if __name__ == "__main__":

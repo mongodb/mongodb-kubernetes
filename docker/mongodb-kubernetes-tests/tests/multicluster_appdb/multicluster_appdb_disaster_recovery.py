@@ -16,9 +16,9 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import (
-    MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
     get_member_cluster_api_client,
 )
+from tests.constants import MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP
 from tests.multicluster.conftest import cluster_spec_list
 
 FAILED_MEMBER_CLUSTER_NAME = "kind-e2e-cluster-3"

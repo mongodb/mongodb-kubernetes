@@ -20,7 +20,11 @@ from kubetester import (
     update_configmap,
 )
 from kubetester.awss3client import AwsS3Client
-from kubetester.helm import helm_install_from_chart, helm_repo_add
+from kubetester.helm import (
+    helm_chart_path_and_version,
+    helm_install_from_chart,
+    helm_repo_add,
+)
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import running_locally
@@ -31,48 +35,27 @@ from opentelemetry.trace import NonRecordingSpan
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture
 from tests import test_logger
+from tests.constants import (
+    CLUSTER_HOST_MAPPING,
+    KUBECONFIG_FILEPATH,
+    LEGACY_CENTRAL_CLUSTER_NAME,
+    LEGACY_DEPLOYMENT_STATE_VERSION,
+    LEGACY_OPERATOR_CHART,
+    LEGACY_OPERATOR_IMAGE_NAME,
+    LEGACY_OPERATOR_NAME,
+    MCK_HELM_CHART,
+    MONITOR_APPDB_E2E_DEFAULT,
+    MULTI_CLUSTER_CONFIG_DIR,
+    MULTI_CLUSTER_OPERATOR_NAME,
+    OFFICIAL_OPERATOR_IMAGE_NAME,
+    OPERATOR_NAME,
+)
 from tests.multicluster import prepare_multi_cluster_namespaces
 
 try:
     kubernetes.config.load_kube_config()
 except Exception:
     kubernetes.config.load_incluster_config()
-
-AWS_REGION = "us-east-1"
-
-KUBECONFIG_FILEPATH = "/etc/config/kubeconfig"
-MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
-# AppDB monitoring is disabled by default for e2e tests.
-# If monitoring is needed use monitored_appdb_operator_installation_config / operator_with_monitored_appdb
-MONITOR_APPDB_E2E_DEFAULT = "true"
-CLUSTER_HOST_MAPPING = {
-    "us-central1-c_central": "https://35.232.85.244",
-    "us-east1-b_member-1a": "https://35.243.222.230",
-    "us-east1-c_member-2a": "https://34.75.94.207",
-    "us-west1-a_member-3a": "https://35.230.121.15",
-}
-
-LEGACY_CENTRAL_CLUSTER_NAME: str = "__default"
-LEGACY_DEPLOYMENT_STATE_VERSION: str = "1.27.0"
-
-# Helm charts
-LEGACY_OPERATOR_CHART = "mongodb/enterprise-operator"
-MCK_HELM_CHART = "mongodb/mongodb-kubernetes"
-LOCAL_HELM_CHART_DIR = "helm_chart"
-
-OFFICIAL_OPERATOR_IMAGE_NAME = "mongodb-kubernetes"
-LEGACY_OPERATOR_IMAGE_NAME = "mongodb-enterprise-operator-ubi"
-
-# Names for operator and RBAC
-OPERATOR_NAME = "mongodb-kubernetes-operator"
-MULTI_CLUSTER_OPERATOR_NAME = OPERATOR_NAME + "-multi-cluster"
-LEGACY_OPERATOR_NAME = "mongodb-enterprise-operator"
-LEGACY_MULTI_CLUSTER_OPERATOR_NAME = LEGACY_OPERATOR_NAME + "-multi-cluster"
-APPDB_SA_NAME = "mongodb-kubernetes-appdb"
-DATABASE_SA_NAME = "mongodb-kubernetes-database-pods"
-OM_SA_NAME = "mongodb-kubernetes-ops-manager"
-TELEMETRY_CONFIGMAP_NAME = LEGACY_OPERATOR_NAME + "-telemetry"
-MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP = OPERATOR_NAME + "-member-list"
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -827,7 +810,7 @@ def _install_multi_cluster_operator(
     helm_opts: dict[str, str],
     central_cluster_name: str,
     operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
-    helm_chart_path: Optional[str] = LOCAL_HELM_CHART_DIR,
+    helm_chart_path: Optional[str] = None,
     custom_operator_version: Optional[str] = None,
     apply_crds_first: bool = False,
 ) -> Operator:
@@ -835,6 +818,8 @@ def _install_multi_cluster_operator(
 
     # The Operator will be installed from the following repo, so adding it first
     helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+
+    helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path, custom_operator_version)
 
     prepare_multi_cluster_namespaces(
         namespace,
@@ -851,6 +836,7 @@ def _install_multi_cluster_operator(
         helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
         helm_chart_path=helm_chart_path,
+        operator_version=custom_operator_version,
     ).upgrade(multi_cluster=True, custom_operator_version=custom_operator_version, apply_crds_first=apply_crds_first)
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.

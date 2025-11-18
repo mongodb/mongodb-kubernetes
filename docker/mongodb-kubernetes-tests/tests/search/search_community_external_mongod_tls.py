@@ -40,7 +40,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
     if try_load(resource):
         return resource
 
-    mongot_host = f"{MDBS_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27027"
+    mongot_host = f"{MDBS_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27028"
     if "additionalMongodConfig" not in resource["spec"]:
         resource["spec"]["additionalMongodConfig"] = {}
     if "setParameter" not in resource["spec"]["additionalMongodConfig"]:
@@ -52,6 +52,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
             "searchIndexManagementHostAndPort": mongot_host,
             "skipAuthenticationToSearchIndexManagementServer": False,
             "searchTLSMode": "requireTLS",
+            "useGrpcForSearch": True,
         }
     )
 
@@ -136,7 +137,6 @@ def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
     mdbs["spec"]["source"] = {
         "external": {
             "hostAndPorts": seeds,
-            "keyfileSecretRef": {"name": f"{mdbc.name}-keyfile"},
             "tls": {
                 "ca": {"name": f"{mdbc.name}-ca"},
             },

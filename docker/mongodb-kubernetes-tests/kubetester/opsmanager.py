@@ -35,13 +35,13 @@ from tests.common.multicluster.multicluster_utils import (
     multi_cluster_service_names,
 )
 from tests.conftest import (
-    LEGACY_CENTRAL_CLUSTER_NAME,
     get_central_cluster_client,
     get_member_cluster_api_client,
     get_member_cluster_client_map,
     is_member_cluster,
     read_deployment_state,
 )
+from tests.constants import LEGACY_CENTRAL_CLUSTER_NAME
 
 logger = test_logger.get_test_logger(__name__)
 TRACER = trace.get_tracer("evergreen-agent")

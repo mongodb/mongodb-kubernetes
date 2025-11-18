@@ -13,7 +13,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
 from tests import test_logger
-from tests.conftest import LEGACY_OPERATOR_NAME, OPERATOR_NAME
+from tests.constants import LEGACY_OPERATOR_NAME, OPERATOR_NAME
 from tests.olm.olm_test_commons import (
     get_catalog_image,
     get_catalog_source_resource,

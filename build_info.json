@@ -185,8 +185,7 @@
         ]
       },
       "release": {
-        "skip-if-exists": true,
-        "repositories": ["quay.io/mongodb/mongodb-kubernetes-tests"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
         "platforms": [
           "linux/amd64"
         ]
@@ -209,6 +208,77 @@
         ],
         "platforms": [
           "linux/arm64"
+        ],
+        "architecture_suffix": true
+      },
+      "release": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/arm64"
+        ],
+        "architecture_suffix": true
+      }
+    },
+    "meko-tests-ibm-z": {
+      "dockerfile-path": "docker/mongodb-kubernetes-tests/Dockerfile",
+      "builder": "podman",
+      "patch": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/s390x"
+        ],
+        "architecture_suffix": true
+      },
+      "staging": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/s390x"
+        ],
+        "architecture_suffix": true
+      },
+      "release": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/s390x"
+        ],
+        "architecture_suffix": true
+      }
+    },
+    "meko-tests-ibm-power": {
+      "dockerfile-path": "docker/mongodb-kubernetes-tests/Dockerfile",
+      "builder": "podman",
+      "patch": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/ppc64le"
+        ],
+        "architecture_suffix": true
+      },
+      "staging": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/ppc64le"
+        ],
+        "architecture_suffix": true
+      },
+      "release": {
+        "repositories": [
+          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
+        ],
+        "platforms": [
+          "linux/ppc64le"
         ],
         "architecture_suffix": true
       }
@@ -383,12 +453,14 @@
   "helm-charts": {
     "mongodb-kubernetes": {
       "patch": {
+        "version-prefix": "0.0.0+",
         "registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com",
         "region": "us-east-1",
         "repository": "dev/mongodb/helm-charts"
       },
       "staging": {
         "sign": true,
+        "version-prefix": "0.0.0+",
         "registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com",
         "region": "us-east-1",
         "repository": "staging/mongodb/helm-charts"

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/blang/semver"
 	"github.com/ghodss/yaml"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -22,7 +21,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
@@ -78,7 +76,7 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
 		return workflow.Failed(err)
 	}
-	return workflow.OK()
+	return workflowStatus
 }
 
 func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
@@ -89,7 +87,9 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if err := r.ValidateSearchImageVersion(); err != nil {
+	version := r.getMongotVersion()
+
+	if err := r.ValidateSearchImageVersion(version); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -97,11 +97,15 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	keyfileStsModification, err := r.ensureSourceKeyfile(ctx, log)
-	if apierrors.IsNotFound(err) {
-		return workflow.Pending("Waiting for keyfile secret to be created")
-	} else if err != nil {
-		return workflow.Failed(err)
+	keyfileStsModification := statefulset.NOOP()
+	if r.mdbSearch.IsWireprotoEnabled() {
+		var err error
+		keyfileStsModification, err = r.ensureSourceKeyfile(ctx, log)
+		if apierrors.IsNotFound(err) {
+			return workflow.Pending("Waiting for keyfile secret to be created")
+		} else if err != nil {
+			return workflow.Failed(err)
+		}
 	}
 
 	if err := r.ensureSearchService(ctx, r.mdbSearch); err != nil {
@@ -113,11 +117,9 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	egressTlsMongotModification, egressTlsStsModification, err := r.ensureEgressTlsConfig(ctx)
-	if err != nil {
-		return workflow.Failed(err)
-	}
+	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
 
+	// the egress TLS modification needs to always be applied after the ingress one, because it toggles mTLS based on the mode set by the ingress modification
 	configHash, err := r.ensureMongotConfig(ctx, log, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification)
 	if err != nil {
 		return workflow.Failed(err)
@@ -137,9 +139,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return statefulSetStatus
 	}
 
-	return workflow.OK()
+	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
 }
 
+// This is called only if the wireproto server is enabled, to set up they keyfile necessary for authentication.
 func (r *MongoDBSearchReconcileHelper) ensureSourceKeyfile(ctx context.Context, log *zap.SugaredLogger) (statefulset.Modification, error) {
 	keyfileSecretName := kube.ObjectKey(r.mdbSearch.GetNamespace(), r.db.KeyfileSecretName())
 	keyfileSecret := &corev1.Secret{}
@@ -154,6 +157,7 @@ func (r *MongoDBSearchReconcileHelper) ensureSourceKeyfile(ctx context.Context, 
 				"keyfileHash": hashBytes(keyfileSecret.Data[MongotKeyfileFilename]),
 			},
 		)),
+		CreateKeyfileModificationFunc(r.db.KeyfileSecretName()),
 	), nil
 }
 
@@ -229,10 +233,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 
 func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
 	if r.mdbSearch.Spec.Security.TLS == nil {
-		mongotModification := func(config *mongot.Config) {
-			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeDisabled
-		}
-		return mongotModification, statefulset.NOOP(), nil
+		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
 
 	// TODO: validate that the certificate in the user-provided Secret in .spec.security.tls.certificateKeySecret is issued by the CA in the operator's CA Secret
@@ -244,8 +245,12 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 
 	mongotModification := func(config *mongot.Config) {
 		certPath := tls.OperatorSecretMountPath + certFileName
-		config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
-		config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
+		config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeTLS
+		config.Server.Grpc.TLS.CertificateKeyFile = ptr.To(certPath)
+		if config.Server.Wireproto != nil {
+			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
+			config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
+		}
 	}
 
 	tlsSecret := r.mdbSearch.TLSOperatorSecretNamespacedName()
@@ -261,46 +266,34 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	return mongotModification, statefulsetModification, nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
+func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification) {
 	tlsSourceConfig := r.db.TLSConfig()
 	if tlsSourceConfig == nil {
-		return mongot.NOOP(), statefulset.NOOP(), nil
+		return mongot.NOOP(), statefulset.NOOP()
 	}
 
 	mongotModification := func(config *mongot.Config) {
 		config.SyncSource.ReplicaSet.TLS = ptr.To(true)
+		config.SyncSource.CertificateAuthorityFile = ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName)
+
+		// if the gRPC server is configured to accept TLS connections then toggle mTLS as well
+		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
+			config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeMTLS
+			config.Server.Grpc.TLS.CertificateAuthorityFile = config.SyncSource.CertificateAuthorityFile
+		}
 	}
 
-	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	caVolume := tlsSourceConfig.CAVolume
-	trustStoreVolume := statefulset.CreateVolumeFromEmptyDir("cacerts")
 	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
 		podtemplatespec.WithVolume(caVolume),
-		podtemplatespec.WithVolume(trustStoreVolume),
-		podtemplatespec.WithInitContainer("init-cacerts", container.Apply(
-			container.WithImage(r.buildImageString()),
-			containerSecurityContext,
-			container.WithVolumeMounts([]corev1.VolumeMount{
-				statefulset.CreateVolumeMount(caVolume.Name, tls.CAMountPath, statefulset.WithReadOnly(true)),
-				statefulset.CreateVolumeMount(trustStoreVolume.Name, "/java/trust-store", statefulset.WithReadOnly(false)),
-			}),
-			container.WithCommand([]string{"sh"}),
-			container.WithArgs([]string{
-				"-c",
-				fmt.Sprintf(`
-cp /mongot-community/bin/jdk/lib/security/cacerts /java/trust-store/cacerts
-/mongot-community/bin/jdk/bin/keytool -keystore /java/trust-store/cacerts -storepass changeit -noprompt -trustcacerts -importcert -alias mongodcert -file %s/%s
-							`, tls.CAMountPath, tlsSourceConfig.CAFileName),
-			}),
-		)),
 		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
 			container.WithVolumeMounts([]corev1.VolumeMount{
-				statefulset.CreateVolumeMount(trustStoreVolume.Name, "/mongot-community/bin/jdk/lib/security/cacerts", statefulset.WithReadOnly(true), statefulset.WithSubPath("cacerts")),
+				statefulset.CreateVolumeMount(caVolume.Name, tls.CAMountPath, statefulset.WithReadOnly(true)),
 			}),
 		)),
 	))
 
-	return mongotModification, statefulsetModification, nil
+	return mongotModification, statefulsetModification
 }
 
 func hashBytes(bytes []byte) string {
@@ -321,22 +314,33 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		SetLabels(labels).
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetClusterIP("None").
-		SetPublishNotReadyAddresses(true).
+		SetPublishNotReadyAddresses(false).
 		SetOwnerReferences(search.GetOwnerReferences())
 
-	serviceBuilder.AddPort(&corev1.ServicePort{
-		Name:       "mongot",
-		Protocol:   corev1.ProtocolTCP,
-		Port:       search.GetMongotPort(),
-		TargetPort: intstr.FromInt32(search.GetMongotPort()),
-	})
+	if search.IsWireprotoEnabled() {
+		serviceBuilder.AddPort(&corev1.ServicePort{
+			Name:       "mongot-wireproto",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       search.GetMongotWireprotoPort(),
+			TargetPort: intstr.FromInt32(search.GetMongotWireprotoPort()),
+		})
+	}
 
 	serviceBuilder.AddPort(&corev1.ServicePort{
-		Name:       "metrics",
+		Name:       "mongot-grpc",
 		Protocol:   corev1.ProtocolTCP,
-		Port:       search.GetMongotMetricsPort(),
-		TargetPort: intstr.FromInt32(search.GetMongotMetricsPort()),
+		Port:       search.GetMongotGrpcPort(),
+		TargetPort: intstr.FromInt32(search.GetMongotGrpcPort()),
 	})
+
+	if prometheus := search.GetPrometheus(); prometheus != nil {
+		serviceBuilder.AddPort(&corev1.ServicePort{
+			Name:       "prometheus",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       prometheus.GetPort(),
+			TargetPort: intstr.FromInt32(prometheus.GetPort()),
+		})
+	}
 
 	serviceBuilder.AddPort(&corev1.ServicePort{
 		Name:       "healthcheck",
@@ -366,18 +370,33 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 			DataPath: MongotDataPath,
 		}
 		config.Server = mongot.ConfigServer{
-			Wireproto: &mongot.ConfigWireproto{
-				Address: "0.0.0.0:27027",
+			Grpc: &mongot.ConfigGrpc{
+				Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotGrpcPort()),
+				TLS: &mongot.ConfigGrpcTLS{
+					Mode: mongot.ConfigTLSModeDisabled,
+				},
+			},
+		}
+		if search.IsWireprotoEnabled() {
+			config.Server.Wireproto = &mongot.ConfigWireproto{
+				Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotWireprotoPort()),
 				Authentication: &mongot.ConfigAuthentication{
 					Mode:    "keyfile",
 					KeyFile: TempKeyfilePath,
 				},
-			},
+				TLS: &mongot.ConfigWireprotoTLS{
+					Mode: mongot.ConfigTLSModeDisabled,
+				},
+			}
 		}
-		config.Metrics = mongot.ConfigMetrics{
-			Enabled: true,
-			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotMetricsPort()),
+
+		if prometheus := search.GetPrometheus(); prometheus != nil {
+			config.Metrics = mongot.ConfigMetrics{
+				Enabled: true,
+				Address: fmt.Sprintf("0.0.0.0:%d", prometheus.GetPort()),
+			}
 		}
+
 		config.HealthCheck = mongot.ConfigHealthCheck{
 			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
 		}
@@ -393,19 +412,22 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 	if search.Spec.Security.TLS != nil {
 		searchTLSMode = automationconfig.TLSModeRequired
 	}
+
 	return map[string]any{
 		"setParameter": map[string]any{
 			"mongotHost":                                      mongotHostAndPort(search, clusterDomain),
 			"searchIndexManagementHostAndPort":                mongotHostAndPort(search, clusterDomain),
 			"skipAuthenticationToSearchIndexManagementServer": false,
 			"searchTLSMode":                                   string(searchTLSMode),
+			"useGrpcForSearch":                                !search.IsWireprotoEnabled(),
 		},
 	}
 }
 
 func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
 	svcName := search.SearchServiceNamespacedName()
-	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, search.GetMongotPort())
+	port := search.GetEffectiveMongotPort()
+	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
@@ -435,9 +457,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
-	version := r.getMongotImage()
-
+func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.Contains(version, unsupportedSearchVersion) {
 		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
 	}
@@ -445,14 +465,15 @@ func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
+func (r *MongoDBSearchReconcileHelper) getMongotVersion() string {
 	version := strings.TrimSpace(r.mdbSearch.Spec.Version)
 	if version != "" {
 		return version
 	}
 
-	if r.operatorSearchConfig.SearchVersion != "" {
-		return r.operatorSearchConfig.SearchVersion
+	version = strings.TrimSpace(r.operatorSearchConfig.SearchVersion)
+	if version != "" {
+		return version
 	}
 
 	if r.mdbSearch.Spec.StatefulSetConfiguration == nil {
@@ -461,71 +482,28 @@ func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
 
 	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
 		if container.Name == MongotContainerName {
-			return container.Image
+			return extractImageTag(container.Image)
 		}
 	}
 
 	return ""
 }
 
-func SearchCoordinatorRole() mdbv1.MongoDBRole {
-	// direct translation of https://github.com/10gen/mongo/blob/6f8d95a513eea8f91ea9f5d895dd8a288dfcf725/src/mongo/db/auth/builtin_roles.yml#L652
-	return mdbv1.MongoDBRole{
-		Role: "searchCoordinator",
-		Db:   "admin",
-		Roles: []mdbv1.InheritedRole{
-			{
-				Role: "clusterMonitor",
-				Db:   "admin",
-			},
-			{
-				Role: "directShardOperations",
-				Db:   "admin",
-			},
-			{
-				Role: "readAnyDatabase",
-				Db:   "admin",
-			},
-		},
-		Privileges: []mdbv1.Privilege{
-			{
-				Resource: mdbv1.Resource{
-					Db: "__mdb_internal_search",
-				},
-				Actions: []string{
-					"changeStream", "collStats", "dbHash", "dbStats", "find",
-					"killCursors", "listCollections", "listIndexes", "listSearchIndexes",
-					// performRawDataOperations is available only on mongod master
-					// "performRawDataOperations",
-					"planCacheRead", "cleanupStructuredEncryptionData",
-					"compactStructuredEncryptionData", "convertToCapped", "createCollection",
-					"createIndex", "createSearchIndexes", "dropCollection", "dropIndex",
-					"dropSearchIndex", "insert", "remove", "renameCollectionSameDB",
-					"update", "updateSearchIndex",
-				},
-			},
-			// TODO: this causes the error "(BadValue) resource: {cluster: true} conflicts with resource type 'db'"
-			// {
-			// 	Resource: mdbv1.Resource{
-			// 		Cluster: ptr.To(true),
-			// 	},
-			// 	Actions: []string{"bypassDefaultMaxTimeMS"},
-			// },
-		},
-		AuthenticationRestrictions: nil,
-	}
-}
-
-// Because the first Search Public Preview support MongoDB Server 8.0.10 we need to polyfill the searchCoordinator role
-// TODO: Remove once we drop support for <8.2 in Search
-func NeedsSearchCoordinatorRolePolyfill(mongodbVersion string) bool {
-	version, err := semver.ParseTolerant(mongodbVersion)
-	if err != nil {
-		// if we can't determine the version, assume no need to polyfill
-		return false
+func extractImageTag(image string) string {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return ""
 	}
 
-	// 8.0.10+ and 8.1.x need the polyfill, anything older is not supported and execution will never reach here,
-	// and anything newer already has the role built-in
-	return version.Major == 8 && version.Minor < 2
+	if at := strings.Index(image, "@"); at != -1 {
+		image = image[:at]
+	}
+
+	lastSlash := strings.LastIndex(image, "/")
+	lastColon := strings.LastIndex(image, ":")
+	if lastColon > lastSlash {
+		return image[lastColon+1:]
+	}
+
+	return ""
 }

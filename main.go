@@ -30,6 +30,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	golog "log"
 	localruntime "runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -528,8 +529,8 @@ func getOperatorEnv() util.OperatorEnvironment {
 	operatorEnv := util.OperatorEnvironment(operatorFromEnv)
 	if !validateOperatorEnv(operatorEnv) {
 		operatorEnvOnce.Do(func() {
-			log.Infof("Configured environment %s, not recognized. Must be one of %v", operatorEnv, operatorEnvironments)
-			log.Infof("Using default environment, %s, instead", util.OperatorEnvironmentDev)
+			golog.Printf("Configured environment %s, not recognized. Must be one of %v", operatorEnv, operatorEnvironments)
+			golog.Printf("Using default environment, %s, instead", util.OperatorEnvironmentDev)
 		})
 		operatorEnv = util.OperatorEnvironmentDev
 	}
