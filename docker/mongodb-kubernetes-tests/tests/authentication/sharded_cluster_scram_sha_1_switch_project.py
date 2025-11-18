@@ -60,6 +60,7 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     ):
         test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
+    # Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_create_secret(self):
     #     create_or_update_secret(
     #         KubernetesTester.get_namespace(),
@@ -106,6 +107,7 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     ):
         test_helper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
+    # Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_ops_manager_state_with_users_correctly_updated_after_switch(
     #     self, test_helper: ShardedClusterCreationAndProjectSwitchTestHelper
     # ):
