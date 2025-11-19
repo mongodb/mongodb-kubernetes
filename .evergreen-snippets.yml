@@ -143,6 +143,9 @@ buildvariants:
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2404-small
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
     tasks:
       - name: gke_code_snippets_task_group
 
@@ -162,6 +165,9 @@ buildvariants:
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2404-small
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
     <<: *base_om8_dependency
     tasks:
       - name: gke_code_snippets_task_group
