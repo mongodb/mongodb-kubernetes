@@ -54,7 +54,7 @@ RUN tar xfz /agent/mongodb_agent.tgz \
     && rm /agent/mongodb_agent.tgz \
     && rm -r mongodb-mms-automation-agent-*
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal
+FROM registry.access.redhat.com/ubi9/ubi-micro
 
 # Replace libcurl-minimal and curl-minimal with the full versions
 # https://bugzilla.redhat.com/show_bug.cgi?id=1994521

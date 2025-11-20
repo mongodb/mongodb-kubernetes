@@ -2,7 +2,7 @@ FROM scratch AS base
 
 COPY ./docker/mongodb-kubernetes-database/LICENSE /data/licenses/mongodb-kubernetes-database
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal
+FROM registry.access.redhat.com/ubi8/ubi-micro
 
 ENV MMS_HOME=/mongodb-automation
 ENV MMS_LOG_DIR=/var/log/mongodb-mms-automation

@@ -12,6 +12,6 @@ ARG TARGETARCH
 ARG TARGETOS
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o /data/scripts/version-upgrade-hook ./mongodb-community-operator/cmd/versionhook/main.go
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal
+FROM registry.access.redhat.com/ubi9/ubi-micro
 
 COPY --from=builder /data/scripts/version-upgrade-hook /version-upgrade-hook

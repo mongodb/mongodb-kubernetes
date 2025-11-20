@@ -53,7 +53,7 @@ COPY ./docker/mongodb-kubernetes-init-database/content/agent-launcher.sh /data/s
 
 COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/licenses/
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal
+FROM registry.access.redhat.com/ubi8/ubi-micro
 
 # Copy the extracted tools from the downloader stage (tools are already extracted there)
 COPY --from=tools_downloader /tools/ /tools/
