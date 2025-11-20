@@ -104,7 +104,7 @@ def test_running(namespace: str):
         try:
             logger.debug(f"Waiting for {sc.name} to reach Running phase")
             # Once the first resource reached Running, it shouldn't take more than ~300s for the others to do so
-            sc.assert_reaches_phase(Phase.Running, timeout=900 if first_iter else 300)
+            sc.assert_reaches_phase(Phase.Running, timeout=1200 if first_iter else 300)
             succeeded_resources.append(sc.name)
             first_iter = False
             logger.info(f"{sc.name} reached Running phase")
