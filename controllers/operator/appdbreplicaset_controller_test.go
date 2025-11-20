@@ -1164,7 +1164,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		// if the automation is not there, we will always want to reconcile. Otherwise, we may not reconcile
 		// based on whether or not there are disabled processes.
 		if createAutomationConfig {
-			ac, err := reconciler.buildAppDbAutomationConfig(ctx, opsManager, automation, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, zap.S())
+			ac, err := reconciler.buildAppDbAutomationConfig(ctx, opsManager, nil, automation, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, zap.S())
 			assert.NoError(t, err)
 
 			_, err = reconciler.publishAutomationConfig(ctx, opsManager, ac, opsManager.Spec.AppDB.AutomationConfigSecretName(), memberCluster.SecretClient)
@@ -1332,11 +1332,11 @@ func buildAutomationConfigForAppDb(ctx context.Context, builder *omv1.OpsManager
 	// Ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this.
 	// We are ignoring this err on purpose since the secret might already exist.
 	_ = createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "my-password")
-	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactoryFunc, zap.S())
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactoryFunc, log)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
-	return reconciler.buildAppDbAutomationConfig(ctx, opsManager, acType, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, zap.S())
+	return reconciler.buildAppDbAutomationConfig(ctx, opsManager, nil, acType, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, log)
 }
 
 func checkDeploymentEqualToPublished(t *testing.T, expected automationconfig.AutomationConfig, s *corev1.Secret) {

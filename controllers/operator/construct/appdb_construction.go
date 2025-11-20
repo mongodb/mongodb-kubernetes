@@ -385,15 +385,15 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	externalDomain := appDb.GetExternalDomainForMemberCluster(scaler.MemberClusterName())
 
-	if ShouldEnableMonitoring(podVars) {
-		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, architectures.IsRunningStaticArchitecture(opsManager.Annotations), log)
-	} else {
-		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
-		// We will apply them when enabling monitoring
-		if podSpec != nil {
-			podSpec.Spec.Containers = removeContainerByName(podSpec.Spec.Containers, monitoringAgentContainerName)
-		}
-	}
+	//if ShouldEnableMonitoring(podVars) {
+	//	monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, architectures.IsRunningStaticArchitecture(opsManager.Annotations), log)
+	//} else {
+	//	// Otherwise, let's remove for now every podTemplateSpec related to monitoring
+	//	// We will apply them when enabling monitoring
+	//	if podSpec != nil {
+	//		podSpec.Spec.Containers = removeContainerByName(podSpec.Spec.Containers, monitoringAgentContainerName)
+	//	}
+	//}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
 	automationAgentCommand := construct.AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations), true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
