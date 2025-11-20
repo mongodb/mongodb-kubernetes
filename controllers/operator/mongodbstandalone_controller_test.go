@@ -71,7 +71,7 @@ func TestOnAddStandalone(t *testing.T) {
 	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Service{}), 1)
 	assert.Len(t, mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{}), 1)
 	assert.Equal(t, *mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{})[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
-	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Secret{}), 2)
+	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Secret{}), 3)
 
 	omConn.(*om.MockedOmConnection).CheckDeployment(t, createDeploymentFromStandalone(st), "auth", "tls")
 	omConn.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
