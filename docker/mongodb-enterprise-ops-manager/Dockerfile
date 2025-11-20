@@ -1,11 +1,13 @@
 # Build compilable stuff
 
-FROM public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
+FROM --platform=${BUILDPLATFORM} public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
 COPY . /go/src/github.com/mongodb/mongodb-kubernetes
 WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes
 
-RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/mmsconfiguration ./docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/edit_mms_configuration.go
-RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/backup-daemon-readiness-probe ./docker/mongodb-kubernetes-init-ops-manager/backupdaemon_readinessprobe/backupdaemon_readiness.go
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -buildvcs=false -o /data/scripts/mmsconfiguration ./docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/edit_mms_configuration.go
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -buildvcs=false -o /data/scripts/backup-daemon-readiness-probe ./docker/mongodb-kubernetes-init-ops-manager/backupdaemon_readinessprobe/backupdaemon_readiness.go
 
 # Move binaries and scripts
 FROM scratch AS base
@@ -23,6 +25,7 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal
 
 ARG version
 ARG om_download_url
+ARG use_local_tarball=false
 
 LABEL name="MongoDB Enterprise Ops Manager" \
   maintainer="support@mongodb.com" \
@@ -70,10 +73,16 @@ RUN microdnf install --disableplugin=subscription-manager -y \
 COPY --from=base /data/licenses /licenses/
 COPY --from=base /data/scripts /opt/scripts
 
-RUN curl --fail -L -o ops_manager.tar.gz ${om_download_url} \
-  && tar -xzf ops_manager.tar.gz \
-  && rm ops_manager.tar.gz \
-  && mv mongodb-mms* "${MMS_HOME}"
+# Copy local tarball if use_local_tarball is true, otherwise download from URL
+COPY docker/mongodb-enterprise-ops-manager/package.tar.gz* /tmp/
+RUN if [ "${use_local_tarball}" = "true" ]; then \
+      mv /tmp/package.tar.gz /tmp/ops_manager.tar.gz; \
+    else \
+      curl --fail -L -o /tmp/ops_manager.tar.gz ${om_download_url}; \
+    fi \
+  && tar -xzf /tmp/ops_manager.tar.gz -C / \
+  && rm /tmp/ops_manager.tar.gz \
+  && mv /mongodb-mms* "${MMS_HOME}"
 
 # permissions
 RUN chmod -R 0777 "${MMS_LOG_DIR}" \
