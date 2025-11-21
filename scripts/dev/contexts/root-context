@@ -120,7 +120,7 @@ export e2e_cloud_qa_baseurl_static_2="${OM_HOST}"
 export OLM_VERSION=v0.31.0
 
 # Python version we use locally and in CI
-export PYTHON_VERSION=3.13.7
+export PYTHON_VERSION=3.13.9
 
 ## MCO
 export MDB_COMMUNITY_IMAGE=mongodb-community-server
