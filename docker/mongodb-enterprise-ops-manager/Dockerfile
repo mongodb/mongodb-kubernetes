@@ -19,7 +19,7 @@ COPY ./docker/mongodb-kubernetes-init-ops-manager/scripts/docker-entry-point.sh 
 COPY ./docker/mongodb-kubernetes-init-ops-manager/scripts/backup-daemon-liveness-probe.sh /data/scripts
 COPY ./docker/mongodb-kubernetes-init-ops-manager/LICENSE /data/licenses/mongodb-enterprise-ops-manager
 
-FROM registry.access.redhat.com/ubi9/ubi-micro
+FROM quay.io/mircea_cosbuc/ubi-micro-opsmanager-base
 
 ARG version
 ARG om_download_url
@@ -42,30 +42,6 @@ EXPOSE 8080
 
 # OpsManager docker image needs to have the MongoDB dependencies because the
 # backup daemon is running its database locally
-
-# Replace libcurl-minimal and curl-minimal with the full versions
-# https://bugzilla.redhat.com/show_bug.cgi?id=1994521
-RUN microdnf install -y libssh libpsl libbrotli \
-    && microdnf download curl libcurl \
-    && rpm -Uvh --nodeps --replacefiles "*curl*$( uname -i ).rpm" \
-    && microdnf remove -y libcurl-minimal curl-minimal
-
-RUN microdnf install --disableplugin=subscription-manager -y \
-  cyrus-sasl \
-  cyrus-sasl-gssapi \
-  cyrus-sasl-plain \
-  krb5-libs \
-  libpcap \
-  lm_sensors-libs \
-  net-snmp \
-  net-snmp-agent-libs \
-  openldap \
-  openssl \
-  tar \
-  rpm-libs \
-  net-tools \
-  procps-ng \
-  ncurses
 
 COPY --from=base /data/licenses /licenses/
 COPY --from=base /data/scripts /opt/scripts

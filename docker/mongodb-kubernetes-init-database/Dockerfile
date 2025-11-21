@@ -53,7 +53,7 @@ COPY ./docker/mongodb-kubernetes-init-database/content/agent-launcher.sh /data/s
 
 COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/licenses/
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal
+FROM quay.io/mircea_cosbuc/ubi-micro-init-database-base
 
 # Copy the extracted tools from the downloader stage (tools are already extracted there)
 COPY --from=tools_downloader /tools/ /tools/
@@ -62,10 +62,6 @@ COPY --from=base /data/readinessprobe /probes/readinessprobe
 COPY --from=base /data/probe.sh /probes/probe.sh
 COPY --from=base /data/scripts/ /scripts/
 COPY --from=base /data/licenses /licenses/
-
-RUN microdnf -y update --nodocs \
-    && microdnf -y install --nodocs tar gzip \
-    && microdnf clean all
 
 ARG version
 LABEL name="MongoDB Kubernetes Init Database" \

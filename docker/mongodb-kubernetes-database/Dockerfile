@@ -2,38 +2,10 @@ FROM scratch AS base
 
 COPY ./docker/mongodb-kubernetes-database/LICENSE /data/licenses/mongodb-kubernetes-database
 
-FROM registry.access.redhat.com/ubi8/ubi-micro
+FROM quay.io/mircea_cosbuc/ubi-micro-database-base
 
 ENV MMS_HOME=/mongodb-automation
 ENV MMS_LOG_DIR=/var/log/mongodb-mms-automation
-
-RUN microdnf update -y && rm -rf /var/cache/yum
-
-# these are the packages needed for the agent
-RUN microdnf install -y --disableplugin=subscription-manager --setopt=install_weak_deps=0 nss_wrapper
-RUN microdnf install -y --disableplugin=subscription-manager \
-        hostname \
-        procps
-
-# these are the packages needed for MongoDB
-# (https://docs.mongodb.com/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/ "RHEL/CentOS 8" tab)
-RUN microdnf install -y --disableplugin=subscription-manager \
-        cyrus-sasl \
-        cyrus-sasl-gssapi \
-        cyrus-sasl-plain \
-        krb5-libs \
-        libcurl \
-        lm_sensors-libs \
-        net-snmp \
-        net-snmp-agent-libs \
-        openldap \
-        openssl \
-        jq \
-        tar \
-        xz-libs \
-        findutils
-
-RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
 
 # Set the required perms
 RUN mkdir -p "${MMS_LOG_DIR}" \
