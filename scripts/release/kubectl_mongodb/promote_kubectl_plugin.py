@@ -285,18 +285,27 @@ def upload_assets_to_github_release(asset_paths: list[str], release_version: str
         sys.exit(1)
 
     try:
-        release = repo.get_release(release_version)
+        gh_release = None
+        # list all the releases (including draft ones), and get the one corresponding to the passed release_version
+        for r in repo.get_releases():
+            if r.tag_name == release_version:
+                gh_release = r
+                break
+
+        if gh_release is None:
+            logger.error(
+                f"Could not find release (published or draft) with tag '{release_version}'. Please ensure the release exists."
+            )
+            sys.exit(2)
     except GithubException as e:
-        logger.debug(
-            f"ERROR: Could not find release with tag '{release_version}'. Please ensure release exists already. Error: {e}"
-        )
+        logger.debug(f"Failed to retrieve releases from the repository {GITHUB_REPO}. Error: {e}")
         sys.exit(2)
 
     for asset_path in asset_paths:
         asset_name = os.path.basename(asset_path)
         logger.info(f"Uploading artifact '{asset_name}' to github release as asset")
         try:
-            release.upload_asset(path=asset_path, name=asset_name, content_type="application/gzip")
+            gh_release.upload_asset(path=asset_path, name=asset_name, content_type="application/gzip")
         except GithubException as e:
             logger.debug(f"ERROR: Failed to upload asset {asset_name}. Error: {e}")
             sys.exit(2)
