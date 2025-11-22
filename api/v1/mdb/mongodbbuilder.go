@@ -23,6 +23,19 @@ func NewDefaultReplicaSetBuilder() *MongoDBBuilder {
 	return defaultMongoDB(ReplicaSet)
 }
 
+func NewDefaultMultiReplicaSetBuilder() *MongoDBBuilder {
+	b := defaultMongoDB(ReplicaSet).
+		SetMultiClusterTopology()
+
+	// Set test OpsManager config and credentials (matching multi-cluster test fixtures)
+	b.mdb.Spec.OpsManagerConfig = &PrivateCloudConfig{
+		ConfigMapRef: ConfigMapRef{Name: "my-project"},
+	}
+	b.mdb.Spec.Credentials = "my-credentials"
+
+	return b
+}
+
 func NewDefaultShardedClusterBuilder() *MongoDBBuilder {
 	return defaultMongoDB(ShardedCluster).
 		SetShardCountSpec(3).
@@ -261,6 +274,29 @@ func (b *MongoDBBuilder) SetMultiClusterTopology() *MongoDBBuilder {
 
 func (b *MongoDBBuilder) AddDummyOpsManagerConfig() *MongoDBBuilder {
 	b.mdb.Spec.OpsManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "dummy"}}
+	return b
+}
+
+func (b *MongoDBBuilder) SetDefaultClusterSpecList() *MongoDBBuilder {
+	b.mdb.Spec.ClusterSpecList = ClusterSpecList{
+		{
+			ClusterName: "test-cluster-0",
+			Members:     1,
+		},
+		{
+			ClusterName: "test-cluster-1",
+			Members:     1,
+		},
+		{
+			ClusterName: "test-cluster-2",
+			Members:     1,
+		},
+	}
+	return b
+}
+
+func (b *MongoDBBuilder) SetClusterSpecList(clusterSpecList ClusterSpecList) *MongoDBBuilder {
+	b.mdb.Spec.ClusterSpecList = clusterSpecList
 	return b
 }
 

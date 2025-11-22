@@ -443,6 +443,8 @@ type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+
+	ClusterSpecList ClusterSpecList `json:"clusterSpecList,omitempty"`
 }
 
 func (m *MongoDbSpec) GetExternalDomain() *string {
@@ -450,6 +452,17 @@ func (m *MongoDbSpec) GetExternalDomain() *string {
 		return m.ExternalAccessConfiguration.ExternalDomain
 	}
 	return nil
+}
+
+// GetExternalDomainForMemberCluster returns the external domain for a specific member cluster. Falls back to the global
+// external domain if not found.
+func (m *MongoDbSpec) GetExternalDomainForMemberCluster(clusterName string) *string {
+	if cfg := m.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(clusterName); cfg != nil {
+		if externalDomain := cfg.ExternalDomain; externalDomain != nil {
+			return externalDomain
+		}
+	}
+	return m.GetExternalDomain()
 }
 
 func (m *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {

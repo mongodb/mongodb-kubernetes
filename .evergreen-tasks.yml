@@ -942,6 +942,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_multi_cluster_new_replica_set_scale_up
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_multi_cluster_scale_up_cluster
     tags: [ "patch-run" ]
     commands:

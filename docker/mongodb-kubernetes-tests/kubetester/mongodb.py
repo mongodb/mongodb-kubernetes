@@ -29,6 +29,7 @@ from .mongotester import (
     ShardedClusterTester,
     StandaloneTester,
 )
+from .multicluster_client import MultiClusterClient
 from .opsmanager import MongoDBOpsManager
 from .phase import Phase
 
@@ -198,6 +199,14 @@ class MongoDB(CustomObject, MongoDBCommon):
                 external_domain=self.get_external_domain(),
                 cluster_domain=self.get_cluster_domain(),
             )
+
+    def read_statefulsets(self, clients: List[MultiClusterClient]) -> Dict[str, client.V1StatefulSet]:
+        statefulsets = {}
+        for mcc in clients:
+            statefulsets[mcc.cluster_name] = mcc.read_namespaced_stateful_set(
+                f"{self.name}-{mcc.cluster_index}", self.namespace
+            )
+        return statefulsets
 
     def assert_connectivity(self, ca_path: Optional[str] = None, cluster_domain: str = "cluster.local"):
         return self.tester(ca_path=ca_path).assert_connectivity()
