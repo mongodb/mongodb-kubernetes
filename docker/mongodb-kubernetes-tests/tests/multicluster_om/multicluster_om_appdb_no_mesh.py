@@ -256,20 +256,20 @@ def ops_manager(
                 "members": 1,
             },
         },
-        {
-            "clusterName": MEMBER_CLUSTER_2,
-            "members": 1,
-            "backup": {
-                "members": 1,
-            },
-        },
-        {
-            "clusterName": MEMBER_CLUSTER_3,
-            "members": 1,
-            "backup": {
-                "members": 2,
-            },
-        },
+        # {
+        #     "clusterName": MEMBER_CLUSTER_2,
+        #     "members": 1,
+        #     "backup": {
+        #         "members": 1,
+        #     },
+        # },
+        # {
+        #     "clusterName": MEMBER_CLUSTER_3,
+        #     "members": 1,
+        #     "backup": {
+        #         "members": 2,
+        #     },
+        # },
     ]
 
     resource["spec"]["security"] = {

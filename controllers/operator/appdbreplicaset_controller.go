@@ -1693,7 +1693,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		return existingPodVars, xerrors.Errorf("error registering hosts with project: %w", err)
 	}
 
-	agentApiKey, err := r.ensureAppDbAgentApiKey(ctx, opsManager, conn, conn.GroupID(), log)
+	_, err = r.ensureAppDbAgentApiKey(ctx, opsManager, conn, conn.GroupID(), log)
 	if err != nil {
 		return existingPodVars, xerrors.Errorf("error ensuring AppDB agent api key: %w", err)
 	}
@@ -1706,9 +1706,9 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		return existingPodVars, xerrors.Errorf("error creating ConfigMap: %w", err)
 	}
 
-	if err := r.addPreferredHostnames(ctx, conn, opsManager, agentApiKey, hostnames); err != nil {
-		return existingPodVars, xerrors.Errorf("error adding preferred hostnames: %w", err)
-	}
+	//if err := r.addPreferredHostnames(ctx, conn, opsManager, agentApiKey, hostnames); err != nil {
+	//	return existingPodVars, xerrors.Errorf("error adding preferred hostnames: %w", err)
+	//}
 
 	return env.PodEnvVars{User: conn.PublicKey(), ProjectID: conn.GroupID(), SSLProjectConfig: env.SSLProjectConfig{
 		SSLMMSCAConfigMap: opsManager.Spec.GetOpsManagerCA(),
