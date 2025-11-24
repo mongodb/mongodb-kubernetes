@@ -44,7 +44,7 @@ COPY --from=builder /data/om_version_mapping.json /data/om_version_mapping.json
 
 ADD docker/mongodb-kubernetes-operator/licenses /data/licenses/
 
-FROM registry.access.redhat.com/ubi9/ubi-micro
+FROM podman pull quay.io/mircea_cosbuc/ubi-micro-operator-base
 
 COPY --from=base /data/mongodb-kubernetes-operator /usr/local/bin/mongodb-kubernetes-operator
 COPY --from=base /data/om_version_mapping.json /usr/local/om_version_mapping.json
