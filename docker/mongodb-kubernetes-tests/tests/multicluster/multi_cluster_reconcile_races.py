@@ -6,7 +6,7 @@ from typing import Optional
 import kubernetes.client
 import pytest
 from kubetester import create_or_update_secret, find_fixture, try_load
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
@@ -70,13 +70,18 @@ def get_replica_set(ops_manager, namespace: str, idx: int) -> MongoDB:
     return resource
 
 
-def get_mdbmc(ops_manager, namespace: str, idx: int) -> MongoDBMulti:
+def get_mdbmc(
+    ops_manager, namespace: str, idx: int
+) -> MongoDBMulti:
     name = f"mdb-{idx}-mc"
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi-cluster.yaml"),
         namespace=namespace,
         name=name,
     ).configure(ops_manager, name, api_client=get_central_cluster_client())
+    resource.set_version(ensure_ent_version(get_custom_mdb_version()))
+    resource.api = kubernetes.client.CustomObjectsApi(get_central_cluster_client())
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 1])
 
     try_load(resource)
     return resource
@@ -89,6 +94,8 @@ def get_sharded(ops_manager, namespace: str, idx: int) -> MongoDB:
         namespace=namespace,
         name=name,
     ).configure(ops_manager, name, api_client=get_central_cluster_client())
+    resource.set_version(get_custom_mdb_version())
+
     try_load(resource)
     return resource
 
@@ -172,14 +179,13 @@ def test_create_mdb(ops_manager: MongoDBOpsManager, namespace: str):
 
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
-def test_create_mdbmc(ops_manager: MongoDBOpsManager, namespace: str):
+def test_create_mdbmc(
+    ops_manager: MongoDBOpsManager, namespace: str
+):
     for resource in get_all_mdbmc(ops_manager, namespace):
-        resource.set_version(get_custom_mdb_version())
-        resource["spec"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 1])
         resource.update()
-
-    for r in get_all_rs(ops_manager, namespace):
-        r.assert_reaches_phase(Phase.Running)
+    for r in get_all_mdbmc(ops_manager, namespace):
+        r.assert_reaches_phase(Phase.Running, timeout=1600)
 
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
@@ -188,7 +194,7 @@ def test_create_sharded(ops_manager: MongoDBOpsManager, namespace: str):
         resource.set_version(get_custom_mdb_version())
         resource.update()
 
-    for r in get_all_rs(ops_manager, namespace):
+    for r in get_all_sharded(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)
 
 
@@ -198,7 +204,7 @@ def test_create_standalone(ops_manager: MongoDBOpsManager, namespace: str):
         resource.set_version(get_custom_mdb_version())
         resource.update()
 
-    for r in get_all_rs(ops_manager, namespace):
+    for r in get_all_standalone(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)
 
 
@@ -216,6 +222,8 @@ def test_create_users(ops_manager: MongoDBOpsManager, namespace: str):
             resource.update()
 
     for r in get_all_rs(ops_manager, namespace):
+        for resource in get_all_users(ops_manager, namespace, mdb):
+            resource.assert_reaches_phase(Phase.Updated, timeout=400)
         r.assert_reaches_phase(Phase.Running)
 
 
@@ -232,12 +240,22 @@ def test_pod_logs_race(multi_cluster_operator: Operator):
 
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
-def test_restart_operator_pod(ops_manager: MongoDBOpsManager, namespace: str, multi_cluster_operator: Operator):
+def test_restart_operator_pod(
+    ops_manager: MongoDBOpsManager,
+    namespace: str,
+    multi_cluster_operator: Operator
+):
     # this enforces a requeue of all existing resources, increasing the chances of races to happen
     multi_cluster_operator.restart_operator_deployment()
     multi_cluster_operator.assert_is_running()
     time.sleep(5)
     for r in get_all_rs(ops_manager, namespace):
+        r.assert_reaches_phase(Phase.Running)
+    for r in get_all_mdbmc(ops_manager, namespace):
+        r.assert_reaches_phase(Phase.Running)
+    for r in get_all_sharded(ops_manager, namespace):
+        r.assert_reaches_phase(Phase.Running)
+    for r in get_all_standalone(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)
 
 
