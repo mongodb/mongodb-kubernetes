@@ -70,9 +70,7 @@ def get_replica_set(ops_manager, namespace: str, idx: int) -> MongoDB:
     return resource
 
 
-def get_mdbmc(
-    ops_manager, namespace: str, idx: int
-) -> MongoDBMulti:
+def get_mdbmc(ops_manager, namespace: str, idx: int) -> MongoDBMulti:
     name = f"mdb-{idx}-mc"
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi-cluster.yaml"),
@@ -179,9 +177,7 @@ def test_create_mdb(ops_manager: MongoDBOpsManager, namespace: str):
 
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
-def test_create_mdbmc(
-    ops_manager: MongoDBOpsManager, namespace: str
-):
+def test_create_mdbmc(ops_manager: MongoDBOpsManager, namespace: str):
     for resource in get_all_mdbmc(ops_manager, namespace):
         resource.update()
     for r in get_all_mdbmc(ops_manager, namespace):
@@ -240,11 +236,7 @@ def test_pod_logs_race(multi_cluster_operator: Operator):
 
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
-def test_restart_operator_pod(
-    ops_manager: MongoDBOpsManager,
-    namespace: str,
-    multi_cluster_operator: Operator
-):
+def test_restart_operator_pod(ops_manager: MongoDBOpsManager, namespace: str, multi_cluster_operator: Operator):
     # this enforces a requeue of all existing resources, increasing the chances of races to happen
     multi_cluster_operator.restart_operator_deployment()
     multi_cluster_operator.assert_is_running()
