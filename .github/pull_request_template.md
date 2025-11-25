@@ -12,6 +12,4 @@
 - [ ] Have you checked whether your jira ticket required DOCSP changes?
 - [ ] Have you added changelog file?
     - use `skip-changelog` label if not needed
-    - refer
-      to [Changelog files and Release Notes](https://github.com/mongodb/mongodb-kubernetes/blob/master/CONTRIBUTING.md#changelog-files-and-release-notes)
-      section in CONTRIBUTING.md for more details
+    - refer to [Changelog files and Release Notes](https://github.com/mongodb/mongodb-kubernetes/blob/master/CONTRIBUTING.md#changelog-files-and-release-notes) section in CONTRIBUTING.md for more details

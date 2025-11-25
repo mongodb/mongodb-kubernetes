@@ -12,10 +12,29 @@ updates:
           - "*"
     ignore:
       - dependency-name: k8s.io/api
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
       - dependency-name: k8s.io/apimachinery
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
       - dependency-name: k8s.io/client-go
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
       - dependency-name: k8s.io/code-generator
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
       - dependency-name: sigs.k8s.io/controller-runtime
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+    labels:
+      - dependencies
+      - go
+      - skip-changelog
 
   - package-ecosystem: pip
     directory: "/"
@@ -29,3 +48,14 @@ updates:
           - "*"
     ignore:
        - dependency-name: kubernetes
+         update-types:
+          - version-update:semver-major
+       # needed to avoid breaking dependency requirements for wrapt with opentelemetry-instrumentation
+       # https://github.com/open-telemetry/opentelemetry-python-contrib/blob/123f55615d74f84a75605a6c3c31675fab9b2902/opentelemetry-instrumentation/pyproject.toml#L30
+       - dependency-name: wrapt
+         update-types:
+          - version-update:semver-major
+    labels:
+      - dependencies
+      - python
+      - skip-changelog

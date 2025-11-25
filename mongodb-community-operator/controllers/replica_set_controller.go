@@ -29,7 +29,7 @@ import (
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/predicates"
@@ -52,8 +52,6 @@ import (
 )
 
 const (
-	clusterDomain = "CLUSTER_DOMAIN"
-
 	lastSuccessfulConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
 	lastAppliedMongoDBVersion   = "mongodb.com/v1.lastAppliedMongoDBVersion"
 )
@@ -88,6 +86,9 @@ func NewReconciler(mgr manager.Manager, mongodbRepoUrl, mongodbImage, mongodbIma
 
 func findMdbcForSearch(ctx context.Context, rawObj k8sClient.Object) []reconcile.Request {
 	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
+	if mdbSearch.GetMongoDBResourceRef() == nil {
+		return nil
+	}
 	return []reconcile.Request{
 		{NamespacedName: types.NamespacedName{Namespace: mdbSearch.GetMongoDBResourceRef().Namespace, Name: mdbSearch.GetMongoDBResourceRef().Name}},
 	}
@@ -232,7 +233,7 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 	}
 
 	res, err := status.Update(ctx, r.client.Status(), &mdb, statusOptions().
-		withMongoURI(mdb.MongoURI(os.Getenv(clusterDomain))). // nolint:forbidigo
+		withMongoURI(mdb.MongoURI()). // nolint:forbidigo
 		withMongoDBMembers(mdb.AutomationConfigMembersThisReconciliation()).
 		withStatefulSetReplicas(mdb.StatefulSetReplicasThisReconciliation()).
 		withStatefulSetArbiters(mdb.StatefulSetArbitersThisReconciliation()).
@@ -245,7 +246,7 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 		return res, err
 	}
 
-	if err := r.updateConnectionStringSecrets(ctx, mdb, os.Getenv(clusterDomain)); err != nil { // nolint:forbidigo
+	if err := r.updateConnectionStringSecrets(ctx, mdb); err != nil { // nolint:forbidigo
 		r.log.Errorf("Could not update connection string secrets: %s", err)
 	}
 
@@ -528,8 +529,8 @@ func (r ReplicaSetReconciler) ensureAutomationConfig(mdb mdbv1.MongoDBCommunity,
 }
 
 func buildAutomationConfig(mdb mdbv1.MongoDBCommunity, isEnterprise bool, auth automationconfig.Auth, currentAc automationconfig.AutomationConfig, modifications ...automationconfig.Modification) (automationconfig.AutomationConfig, error) {
-	domain := getDomain(mdb.ServiceName(), mdb.Namespace, os.Getenv(clusterDomain))        // nolint:forbidigo
-	arbiterDomain := getDomain(mdb.ServiceName(), mdb.Namespace, os.Getenv(clusterDomain)) // nolint:forbidigo
+	domain := getDomain(mdb.ServiceName(), mdb.Namespace, mdb.Spec.GetClusterDomain())        // nolint:forbidigo
+	arbiterDomain := getDomain(mdb.ServiceName(), mdb.Namespace, mdb.Spec.GetClusterDomain()) // nolint:forbidigo
 
 	zap.S().Debugw("AutomationConfigMembersThisReconciliation", "mdb.AutomationConfigMembersThisReconciliation()", mdb.AutomationConfigMembersThisReconciliation())
 
@@ -703,7 +704,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	var search *searchv1.MongoDBSearch
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.client.List(ctx, searchList, &k8sClient.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(search_controller.MongoDBSearchIndexFieldName, mdb.Namespace+"/"+mdb.Name),
+		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, mdb.Namespace+"/"+mdb.Name),
 	}); err != nil {
 		r.log.Debug(err)
 	}
@@ -711,8 +712,8 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	// and that this resource passes search validations. If either fails, proceed without a search target
 	// for the mongod automation config.
 	if len(searchList.Items) == 1 {
-		searchSource := search_controller.NewSearchSourceDBResourceFromMongoDBCommunity(&mdb)
-		if search_controller.ValidateSearchSource(searchSource) == nil {
+		searchSource := searchcontroller.NewCommunityResourceSearchSource(&mdb)
+		if searchSource.Validate() == nil {
 			search = &searchList.Items[0]
 		}
 	}
@@ -726,7 +727,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 		customRolesModification,
 		prometheusModification,
 		processPortManager.GetPortsModification(),
-		getMongodConfigSearchModification(search),
+		getMongodConfigSearchModification(search, mdb.Spec.GetClusterDomain()),
 	)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, fmt.Errorf("could not create an automation config: %s", err)
@@ -771,14 +772,13 @@ func getMongodConfigModification(mdb mdbv1.MongoDBCommunity) automationconfig.Mo
 
 // getMongodConfigModification will merge the additional configuration in the CRD
 // into the configuration set up by the operator.
-func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automationconfig.Modification {
-	if search == nil {
-		return func(config *automationconfig.AutomationConfig) {
-			// do nothing
-		}
+func getMongodConfigSearchModification(search *searchv1.MongoDBSearch, clusterDomain string) automationconfig.Modification {
+	// Condition for skipping add parameter if it is external mongod
+	if search == nil || search.IsExternalMongoDBSource() {
+		return automationconfig.NOOP()
 	}
 
-	searchConfigParameters := search_controller.GetMongodConfigParameters(search)
+	searchConfigParameters := searchcontroller.GetMongodConfigParameters(search, clusterDomain)
 	return func(ac *automationconfig.AutomationConfig) {
 		for i := range ac.Processes {
 			err := mergo.Merge(&ac.Processes[i].Args26, objx.New(searchConfigParameters), mergo.WithOverride)
@@ -792,7 +792,7 @@ func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automatio
 // buildStatefulSetModificationFunction takes a MongoDB resource and converts it into
 // the corresponding stateful set
 func buildStatefulSetModificationFunction(mdb mdbv1.MongoDBCommunity, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage string) statefulset.Modification {
-	commonModification := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage, true)
+	commonModification := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage, true, "")
 	return statefulset.Apply(
 		commonModification,
 		statefulset.WithOwnerReference(mdb.GetOwnerReferences()),

@@ -54,6 +54,13 @@ func CertificateHash(hash string) func(options *construct.DatabaseStatefulSetOpt
 	}
 }
 
+// AgentCertHash will assign the given AgentCertHash during StatefulSet construction.
+func AgentCertHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentCertHash = hash
+	}
+}
+
 // InternalClusterHash will assign the given InternalClusterHash during StatefulSet construction.
 func InternalClusterHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
@@ -100,10 +107,10 @@ func WithDefaultConfigSrvStorageSize() func(options *construct.DatabaseStatefulS
 	}
 }
 
-// WithInitDatabaseNonStaticImage sets the InitDatabaseNonStaticImage field.
+// WithInitDatabaseNonStaticImage sets the InitDatabaseImage field.
 func WithInitDatabaseNonStaticImage(image string) func(*construct.DatabaseStatefulSetOptions) {
 	return func(opts *construct.DatabaseStatefulSetOptions) {
-		opts.InitDatabaseNonStaticImage = image
+		opts.InitDatabaseImage = image
 	}
 }
 
@@ -125,5 +132,17 @@ func WithMongodbImage(image string) func(*construct.DatabaseStatefulSetOptions) 
 func WithAgentImage(image string) func(*construct.DatabaseStatefulSetOptions) {
 	return func(opts *construct.DatabaseStatefulSetOptions) {
 		opts.AgentImage = image
+	}
+}
+
+func WithAgentDebug(debug bool) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentDebug = debug
+	}
+}
+
+func WithAgentDebugImage(debugImage string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentDebugImage = debugImage
 	}
 }

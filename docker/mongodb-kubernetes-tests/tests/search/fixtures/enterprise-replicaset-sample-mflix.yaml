@@ -1,0 +1,33 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: mdb-rs
+spec:
+  members: 3
+  version: 8.2.0-ent
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  security:
+    authentication:
+      enabled: true
+      ignoreUnknownUsers: true
+      modes:
+      - SCRAM
+  agent:
+    logLevel: DEBUG
+  podSpec:
+    podTemplate:
+      spec:
+        containers:
+        - name: mongodb-enterprise-database
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2Gi
+            requests:
+              cpu: "1"
+              memory: 1Gi

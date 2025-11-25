@@ -3,10 +3,10 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -54,7 +54,6 @@ func init() {
 
 // getReleaseJsonPath searches for a specified target directory by traversing the directory tree backwards from the current working directory
 func getReleaseJsonPath() (string, error) {
-	repositoryRootDirName := "mongodb-kubernetes"
 	releaseFileName := "release.json"
 
 	currentDir, err := os.Getwd()
@@ -62,7 +61,7 @@ func getReleaseJsonPath() (string, error) {
 		return "", err
 	}
 	for currentDir != "/" {
-		if strings.HasSuffix(currentDir, repositoryRootDirName) {
+		if _, err := os.Stat(filepath.Join(currentDir, releaseFileName)); !errors.Is(err, os.ErrNotExist) {
 			return filepath.Join(currentDir, releaseFileName), nil
 		}
 		currentDir = filepath.Dir(currentDir)
@@ -377,7 +376,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	require.NoError(t, err)
 
 	// attempt configuring monitoring when there is no api key secret
-	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
 	assert.NoError(t, err)
 
 	assert.Empty(t, podVars.ProjectID)
@@ -408,7 +407,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.NoError(t, err)
 
 	// once the secret exists, monitoring should be fully configured
-	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
 	assert.NoError(t, err)
 
 	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
@@ -442,7 +441,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 				Containers: []corev1.Container{
 					{
 						Name:  "mongodb-agent",
-						Image: "quay.io/mongodb/mongodb-agent-ubi:10",
+						Image: "quay.io/mongodb/mongodb-agent:10",
 					},
 					{
 						Name:  "mongod",
@@ -450,7 +449,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 					},
 					{
 						Name:  "mongodb-agent-monitoring",
-						Image: "quay.io/mongodb/mongodb-agent-ubi:20",
+						Image: "quay.io/mongodb/mongodb-agent:20",
 					},
 				},
 			},
@@ -466,7 +465,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 		foundImages := 0
 		for _, c := range appDbSts.Spec.Template.Spec.Containers {
 			if c.Name == "mongodb-agent" {
-				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:10", c.Image)
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent:10", c.Image)
 				foundImages += 1
 			}
 			if c.Name == "mongod" {
@@ -474,7 +473,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 				foundImages += 1
 			}
 			if c.Name == "mongodb-agent-monitoring" {
-				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:20", c.Image)
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent:20", c.Image)
 				foundImages += 1
 			}
 		}
@@ -492,7 +491,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 		foundImages := 0
 		for _, c := range appDbSts.Spec.Template.Spec.Containers {
 			if c.Name == "mongodb-agent" {
-				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:10", c.Image)
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent:10", c.Image)
 				foundImages += 1
 			}
 			if c.Name == "mongod" {
@@ -500,7 +499,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 				foundImages += 1
 			}
 			if c.Name == "mongodb-agent-monitoring" {
-				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:20", c.Image)
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent:20", c.Image)
 				foundImages += 1
 			}
 		}
@@ -522,7 +521,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 	require.NoError(t, err)
 
 	// attempt configuring monitoring when there is no api key secret
-	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
 	assert.NoError(t, err)
 
 	assert.Empty(t, podVars.ProjectID)
@@ -553,7 +552,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 	assert.NoError(t, err)
 
 	// once the secret exists, monitoring should be fully configured
-	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
 	assert.NoError(t, err)
 
 	assert.Equal(t, om.TestGroupID, podVars.ProjectID)

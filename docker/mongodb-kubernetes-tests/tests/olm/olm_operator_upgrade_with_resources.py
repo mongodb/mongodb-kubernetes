@@ -12,7 +12,7 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
-from tests.conftest import OPERATOR_NAME
+from tests.constants import OPERATOR_NAME
 from tests.olm.olm_test_commons import (
     get_catalog_image,
     get_catalog_source_resource,
@@ -87,7 +87,6 @@ def current_operator_version():
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
 def test_install_stable_operator_version(
     namespace: str,
-    version_id: str,
     current_operator_version: str,
     catalog_source: CustomObject,
     subscription: CustomObject,
@@ -338,7 +337,6 @@ def test_resources_in_running_state_before_upgrade(
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
 def test_operator_upgrade_to_fast(
     namespace: str,
-    version_id: str,
     catalog_source: CustomObject,
     subscription: CustomObject,
 ):
@@ -356,8 +354,8 @@ def test_operator_upgrade_to_fast(
         except kubernetes.client.ApiException as e:
             if e.status == 409:
                 return False
-        else:
-            raise e
+            else:
+                raise e
 
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 

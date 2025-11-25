@@ -3,6 +3,7 @@ import time
 
 import kubernetes.client
 import pymongo
+import pytest
 from kubetester import create_or_update_configmap, try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -21,7 +22,8 @@ from tests.common.constants import (
 from tests.common.ops_manager.multi_cluster import (
     ops_manager_multi_cluster_with_tls_s3_backups,
 )
-from tests.conftest import AWS_REGION, assert_data_got_restored
+from tests.conftest import assert_data_got_restored
+from tests.constants import AWS_REGION
 from tests.multicluster.conftest import cluster_spec_list
 
 
@@ -203,16 +205,9 @@ class TestBackupForMongodb:
         # we might fail connection in the beginning since we set a custom dns in coredns
         mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=600)
 
+    @pytest.mark.flaky(reruns=100, reruns_delay=6)
     def test_add_test_data(self, mongodb_multi_one_collection):
-        max_attempts = 100
-        while max_attempts > 0:
-            try:
-                mongodb_multi_one_collection.insert_one(TEST_DATA)
-                return
-            except Exception as e:
-                print(e)
-                max_attempts -= 1
-                time.sleep(6)
+        mongodb_multi_one_collection.insert_one(TEST_DATA)
 
     def test_mdb_backed_up(self, project_one: OMTester):
         project_one.wait_until_backup_snapshots_are_ready(expected_count=1)

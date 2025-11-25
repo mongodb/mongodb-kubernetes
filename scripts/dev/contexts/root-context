@@ -6,10 +6,12 @@ script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 source "${script_dir}/private-context"
 
-export PROJECT_DIR="${PWD}"
+PROJECT_DIR="$(realpath "${script_dir}/../../..")"
+export PROJECT_DIR
 export IMAGE_TYPE=ubi
 export UBI_IMAGE_WITHOUT_SUFFIX=true
 export WATCH_NAMESPACE=${WATCH_NAMESPACE:-${NAMESPACE}}
+export OPERATOR_NAME="mongodb-kubernetes-operator"
 
 #
 # changing variables below should not be necessary
@@ -35,9 +37,8 @@ fi
 
 export OPERATOR_ENV=${OPERATOR_ENV:-"dev"}
 
-AGENT_VERSION="$(jq -r '.agentVersion' release.json)"
+AGENT_VERSION="$(jq -r '.agentVersion' "${PROJECT_DIR}/release.json")"
 export AGENT_VERSION
-export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
 
 # Ops Manager
 export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
@@ -45,19 +46,48 @@ export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
 # Moved from the old set_env_context.sh
 export LOCAL_RUN=true
 
-# version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
-# for local run
-version_id=${version_id:-"latest"}
 if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
-  version_id="${OVERRIDE_VERSION_ID}"
+  OPERATOR_VERSION="${OVERRIDE_VERSION_ID}"
+  READINESS_PROBE_VERSION="${OVERRIDE_VERSION_ID}"
+  VERSION_UPGRADE_HOOK_VERSION="${OVERRIDE_VERSION_ID}"
 fi
-export version_id
-export VERSION_ID="${version_id}"
 
-export INIT_APPDB_VERSION="${VERSION_ID}"
-export INIT_DATABASE_VERSION="${VERSION_ID}"
-export INIT_OPS_MANAGER_VERSION="${VERSION_ID}"
-export DATABASE_VERSION="${VERSION_ID}"
+export OPERATOR_VERSION="${OPERATOR_VERSION:-"latest"}"
+export INIT_APPDB_VERSION="${INIT_APPDB_VERSION:-${OPERATOR_VERSION}}"
+export INIT_DATABASE_VERSION="${INIT_DATABASE_VERSION:-${OPERATOR_VERSION}}"
+export INIT_OPS_MANAGER_VERSION="${INIT_OPS_MANAGER_VERSION:-${OPERATOR_VERSION}}"
+export DATABASE_VERSION="${DATABASE_VERSION:-${OPERATOR_VERSION}}"
+export READINESS_PROBE_VERSION="${READINESS_PROBE_VERSION:-"latest"}"
+export VERSION_UPGRADE_HOOK_VERSION="${VERSION_UPGRADE_HOOK_VERSION:-"latest"}"
+
+### Registries and images
+export QUAY_REGISTRY="quay.io/mongodb"
+export REGISTRY=${REGISTRY}
+export OPERATOR_REGISTRY=${OPERATOR_REGISTRY:-${REGISTRY}}
+export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-${REGISTRY}}
+
+# Specific registries for different images, can be overridden if needed
+export INIT_APPDB_REGISTRY=${INIT_APPDB_REGISTRY:-${INIT_IMAGES_REGISTRY}}
+export INIT_APPDB_IMAGE_REPOSITORY="${INIT_APPDB_REGISTRY}/mongodb-kubernetes-init-appdb"
+export INIT_OPS_MANAGER_REGISTRY=${INIT_OPS_MANAGER_REGISTRY:-${INIT_IMAGES_REGISTRY}}
+export INIT_OPS_MANAGER_IMAGE_REPOSITORY="${INIT_OPS_MANAGER_REGISTRY}/mongodb-kubernetes-init-ops-manager"
+export INIT_DATABASE_REGISTRY=${INIT_DATABASE_REGISTRY:-${INIT_IMAGES_REGISTRY}}
+export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_DATABASE_REGISTRY}/mongodb-kubernetes-init-database"
+export DATABASE_REGISTRY=${DATABASE_REGISTRY:-${INIT_IMAGES_REGISTRY}}
+export MONGODB_ENTERPRISE_DATABASE_IMAGE="${DATABASE_REGISTRY}/mongodb-kubernetes-database"
+export OPS_MANAGER_REGISTRY=${OPS_MANAGER_REGISTRY:-${REGISTRY}}
+export OPS_MANAGER_IMAGE_REPOSITORY="${OPS_MANAGER_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
+export MDB_AGENT_REGISTRY=${MDB_AGENT_REGISTRY:-${REGISTRY}}
+export MDB_AGENT_IMAGE_REPOSITORY="${MDB_AGENT_REGISTRY}/mongodb-agent"
+export MONGODB_REPO_URL="${MONGODB_REPO_URL:-${QUAY_REGISTRY}}"
+export MEKO_TESTS_REGISTRY=${MEKO_TESTS_REGISTRY:-${REGISTRY}}
+export MEKO_TESTS_IMAGE_REPOSITORY="${MEKO_TESTS_REGISTRY}/mongodb-kubernetes-tests"
+export READINESS_PROBE_REGISTRY=${READINESS_PROBE_REGISTRY:-${REGISTRY}}
+export VERSION_UPGRADE_HOOK_REGISTRY=${VERSION_UPGRADE_HOOK_REGISTRY:-${REGISTRY}}
+
+export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
+export READINESS_PROBE_IMAGE="${READINESS_PROBE_REGISTRY}/mongodb-kubernetes-readinessprobe:${READINESS_PROBE_VERSION}"
+export VERSION_UPGRADE_HOOK_IMAGE="${VERSION_UPGRADE_HOOK_REGISTRY}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${VERSION_UPGRADE_HOOK_VERSION}"
 
 export KUBE_ENVIRONMENT_NAME=kind
 
@@ -72,8 +102,6 @@ export KUBECONFIG
 if [[ "$(uname)" == "Linux" ]]; then
   export GOROOT=/opt/golang/go1.24
 fi
-
-export MONGODB_REPO_URL="quay.io/mongodb"
 
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
 
@@ -92,30 +120,20 @@ export e2e_cloud_qa_baseurl_static_2="${OM_HOST}"
 export OLM_VERSION=v0.31.0
 
 # Python version we use locally and in CI
-export PYTHON_VERSION=3.13
-
+export PYTHON_VERSION=3.13.7
 
 ## MCO
-
 export MDB_COMMUNITY_IMAGE=mongodb-community-server
 export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
 export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
 export MDB_COMMUNITY_IMAGE_TYPE=ubi8
-
-export READINESS_PROBE_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-readinessprobe:${version_id}"
-export VERSION_UPGRADE_HOOK_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"
 
 # Community Search
-export MDB_COMMUNITY_IMAGE=mongodb-community-server
-export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
-export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
-export MDB_COMMUNITY_IMAGE_TYPE=ubi8
+MDB_SEARCH_VERSION="$(jq -r '.search.version' "${PROJECT_DIR}/release.json")"
+export MDB_SEARCH_VERSION
 
-MDB_SEARCH_COMMUNITY_VERSION="$(jq -r '.search.community.version' release.json)"
-export MDB_SEARCH_COMMUNITY_VERSION
-
-export MDB_SEARCH_COMMUNITY_NAME="mongodb-search-community"
-export MDB_SEARCH_COMMUNITY_REPO_URL="quay.io/mongodb"
+export MDB_SEARCH_NAME="mongodb-search"
+export MDB_SEARCH_REPO_URL="quay.io/mongodb"
 
 
 if [[ ${MDB_BASH_DEBUG:-0} == 1 ]]; then
@@ -129,3 +147,10 @@ fi
 # but we can unify once we are done with unified operator
 # installation for both multicluster and single cluster setups.
 export OPERATOR_NAME="mongodb-kubernetes-operator"
+
+# Variables used for release process
+export RELEASE_INITIAL_COMMIT_SHA="9ed5f98fc70c5b3442f633d2393265fb8a2aba0c"
+export RELEASE_INITIAL_VERSION="1.3.0"
+
+export CLUSTER_TYPE=kind
+export OPERATOR_CLUSTER_SCOPED=false

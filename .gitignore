@@ -42,7 +42,6 @@ public/architectures/**/certs/*
 public/architectures/**/secrets/*
 
 docker/mongodb-kubernetes-appdb/content/readinessprobe
-mongodb-kubernetes
 docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator.tar
 docker/mongodb-kubernetes-tests/helm_chart/
 docker/mongodb-kubernetes-tests/public/
@@ -66,6 +65,7 @@ multi_cluster/examples/service_account_using_go/service_account_using_go
 _.yaml
 
 # Things we built or download for the e2e tests & local dev
+/mongodb-kubernetes
 multi-cluster-kube-config-creator
 multi-cluster-kube-config-creator_linux
 istio-*
@@ -89,5 +89,10 @@ logs-debug/
 docs/**/log/*
 docs/**/test.sh.run.log
 
-# goreleaser generated files
-dist
+logs
+*.run.log
+
+# locally packaged chart
+mongodb-kubernetes-*.tgz
+
+scripts/code_snippets/tests/outputs/*

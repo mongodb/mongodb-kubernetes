@@ -144,11 +144,11 @@ else
     script_log "Mongodb Agent is configured to run in \"headless\" mode using local config file"
 fi
 
-
-
-if [[ -n "${HTTP_PROXY-}" ]]; then
-    agentOpts+=("-httpProxy=${HTTP_PROXY}")
-fi
+# We never set the -httpProxy flag.
+# Without the flag, the agent relies solely on standard environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY).
+# This avoids conflicts between environment settings and agent CLI parameters.
+# For reference, see the agent implementation:
+# https://github.com/10gen/mms-automation/blob/19f44a18cc089ec3734e2b496fdde82b124cd945/go_planner/src/com.tengen/cm/backup/commonbackup/connections.go#L158
 
 if [[ -n "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE-}" ]]; then
     agentOpts+=("-httpsCAFile=${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
@@ -206,10 +206,10 @@ else
     ln -sf "${MONGOD_ROOT}/bin/mongod" ${mdb_downloads_dir}/mongod/bin/mongod
     ln -sf "${MONGOD_ROOT}/bin/mongos" ${mdb_downloads_dir}/mongod/bin/mongos
 
-    ln -sf "/tools/mongodump" ${mdb_downloads_dir}/mongod/bin/mongodump
-    ln -sf "/tools/mongorestore" ${mdb_downloads_dir}/mongod/bin/mongorestore
-    ln -sf "/tools/mongoexport" ${mdb_downloads_dir}/mongod/bin/mongoexport
-    ln -sf "/tools/mongoimport" ${mdb_downloads_dir}/mongod/bin/mongoimport
+    for tool in mongoimport mongodump mongorestore mongoexport; do
+      [ -e "/tools/${tool}" ] || { echo "/tools/${tool} not found"; exit 1; }
+      ln -sf "/tools/${tool}" ${mdb_downloads_dir}/mongod/bin/${tool}
+    done
   else
     echo "Mongod PID not found within the specified time."
     exit 1
@@ -218,25 +218,8 @@ else
   agentOpts+=("-binariesFixedPath=${mdb_downloads_dir}/mongod/bin")
 fi
 
-debug="${MDB_AGENT_DEBUG-}"
-if [ "${debug}" = "true" ]; then
-  cd ${mdb_downloads_dir} || true
-  mkdir -p /var/lib/mongodb-mms-automation/gopath
-  mkdir -p /var/lib/mongodb-mms-automation/go
-  curl -LO https://go.dev/dl/go1.20.1.linux-amd64.tar.gz
-  tar -xzf go1.20.1.linux-amd64.tar.gz
-  export GOPATH=${mdb_downloads_dir}/gopath
-  export GOCACHE=${mdb_downloads_dir}/.cache
-  export PATH=${PATH}:${mdb_downloads_dir}/go/bin
-  export PATH=${PATH}:${mdb_downloads_dir}/gopath/bin
-  go install github.com/go-delve/delve/cmd/dlv@latest
-  export PATH=${PATH}:${mdb_downloads_dir}/gopath/bin
-  cd ${mdb_downloads_dir} || true
-  dlv --headless=true --listen=:5006 --accept-multiclient=true --continue --api-version=2 exec "${AGENT_BINARY_PATH}" -- "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" > >(json_log "automation-agent-stdout") &
-else
 # Note, that we do logging in subshell - this allows us to save the correct PID to variable (not the logging one)
-  "${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" >> >(json_log "automation-agent-stdout") &
-fi
+"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" >> >(json_log "automation-agent-stdout") &
 
 export agentPid=$!
 script_log "Launched automation agent, pid=${agentPid}"

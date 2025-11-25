@@ -1,0 +1,142 @@
+suite: test operator security context settings for values.yaml
+templates:
+  - operator.yaml
+tests:
+  - it: default values are properly set
+    asserts:
+      - exists:
+          path: spec.template.spec.securityContext
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          # noinspection YAMLIncompatibleTypes
+          value: 2000
+      - notExists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].securityContext
+  - it: drop podSecurityContext and securityContext completely
+    set:
+      operator.podSecurityContext:
+      operator.securityContext:
+    asserts:
+      - notExists:
+          path: spec.template.spec.securityContext
+      - notExists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].securityContext
+  - it: drop podSecurityContext and securityContext completely when managedSecurityContext is true
+    set:
+      managedSecurityContext: true
+    asserts:
+      - notExists:
+          path: spec.template.spec.securityContext
+      - notExists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].securityContext
+  - it: custom values are properly set
+    set:
+      operator.podSecurityContext.runAsNonRoot: false
+      operator.podSecurityContext.seccompProfile.type: RuntimeDefault
+      operator.securityContext.allowPrivilegeEscalation: false
+      operator.securityContext.capabilities.drop: [ALL]
+    asserts:
+      - exists:
+          path: spec.template.spec.securityContext
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: false
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          # noinspection YAMLIncompatibleTypes
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          # noinspection YAMLIncompatibleTypes
+          value: 2000
+      - exists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].securityContext
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].securityContext.capabilities.drop
+          value: [ALL]
+  - it: default values are properly set when managedSecurityContext is true for openShift
+    values:
+      - ../values-openshift.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.securityContext
+      - notExists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].securityContext
+      - exists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].env[?(@.name=="MANAGED_SECURITY_CONTEXT")]
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].env[?(@.name=="MANAGED_SECURITY_CONTEXT")].value
+          # noinspection YAMLIncompatibleTypes
+          value: "true"
+  - it: default values are properly set for multi-cluster deployment
+    values:
+      - ../values-multi-cluster.yaml
+    asserts:
+      - exists:
+          path: spec.template.spec.securityContext
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          # noinspection YAMLIncompatibleTypes
+          value: 2000
+      - notExists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator-multi-cluster")].securityContext
+  - it: drop podSecurityContext and securityContext completely for multi-cluster deployment
+    values:
+      - ../values-multi-cluster.yaml
+    set:
+      operator.podSecurityContext:
+      operator.securityContext:
+    asserts:
+      - notExists:
+          path: spec.template.spec.securityContext
+      - notExists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator-multi-cluster")].securityContext
+  - it: drop podSecurityContext and securityContext completely when managedSecurityContext is true for multi-cluster deployment
+    values:
+      - ../values-multi-cluster.yaml
+    set:
+      managedSecurityContext: true
+    asserts:
+      - notExists:
+          path: spec.template.spec.securityContext
+      - notExists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator-multi-cluster")].securityContext
+  - it: custom values are properly set for multi-cluster deployment
+    values:
+      - ../values-multi-cluster.yaml
+    set:
+      operator.podSecurityContext.runAsNonRoot: false
+      operator.podSecurityContext.seccompProfile.type: RuntimeDefault
+      operator.securityContext.allowPrivilegeEscalation: false
+      operator.securityContext.capabilities.drop: [ ALL ]
+    asserts:
+      - exists:
+          path: spec.template.spec.securityContext
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: false
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          # noinspection YAMLIncompatibleTypes
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          # noinspection YAMLIncompatibleTypes
+          value: 2000
+      - exists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator-multi-cluster")].securityContext
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator-multi-cluster")].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator-multi-cluster")].securityContext.capabilities.drop
+          value: [ ALL ]

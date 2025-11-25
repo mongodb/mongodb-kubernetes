@@ -16,7 +16,7 @@ from typing import Dict, Tuple
 
 import requests
 from evergreen.release.agent_matrix import (
-    get_supported_version_for_image_matrix_handling,
+    get_supported_version_for_image,
 )
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
@@ -88,7 +88,7 @@ def args_for_image(image: str) -> Dict[str, str]:
             name_suffix="-ubi",
         ),
         image_config(
-            image="mongodb-agent", rh_cert_project_id="633fcfd482f7934b1ad3be47", name_prefix="", name_suffix="-ubi"
+            image="mongodb-agent", rh_cert_project_id="68e37c471f673a855dfe1a99", name_prefix="", name_suffix=""
         ),
     ]
     images = {k: v for k, v in image_configs}
@@ -236,14 +236,7 @@ def main() -> int:
         )
     else:
         # these are the images we own, we preflight all of them as long as we officially support them in release.json
-        versions = get_supported_version_for_image_matrix_handling(args.image)
-
-    # only preflight the current agent version and the subset of agent images suffixed with the current operator version
-    if args.image == "mongodb-agent":
-        release = get_release()
-        operator_version = release["mongodbOperator"]
-        versions = list(filter(lambda version: version.endswith(f"_{operator_version}"), versions))
-        versions.append(release["agentVersion"])
+        versions = get_supported_version_for_image(args.image)
 
     # Attempt to run a pre-flight check on a single version of the image
     if image_version is not None:

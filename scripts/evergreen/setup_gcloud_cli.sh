@@ -3,8 +3,8 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
-curl -s --retry 3 -LO "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz"
-tar xvf google-cloud-cli-linux-x86_64.tar.gz -C "${workdir}"
+curl --retry 5 --retry-delay 3 --retry-all-errors --fail --show-error --max-time 180 --silent -LO "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz"
+tar xf google-cloud-cli-linux-x86_64.tar.gz -C "${workdir}"
 "${workdir}"/google-cloud-sdk/install.sh --quiet
 source "${workdir}/google-cloud-sdk/path.bash.inc"
 

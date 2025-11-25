@@ -28,7 +28,7 @@ import boto3
 from lib.base_logger import logger
 from scripts.evergreen.release.agent_matrix import (
     LATEST_OPERATOR_VERSION,
-    get_supported_version_for_image_matrix_handling,
+    get_supported_version_for_image,
 )
 
 NUMBER_OF_THREADS = 15
@@ -96,9 +96,9 @@ def get_supported_images(release: Dict) -> dict[str, SupportedImage]:
     supported_images = filter_out_unsupported_images(supported_images)
     supported_images = convert_to_image_names(supported_images)
     supported_images["mongodb-agent-ubi"] = SupportedImage(
-        get_supported_version_for_image_matrix_handling("mongodb-agent", LATEST_OPERATOR_VERSION),
-        "mongodb-agent-ubi",
-        "quay.io/mongodb/mongodb-agent-ubi",
+        get_supported_version_for_image("mongodb-agent"),
+        "mongodb-agent",
+        "quay.io/mongodb/mongodb-agent",
         release["supportedImages"]["mongodb-agent"]["ssdlc_name"],
         list(),
         # Once MCK supports both architectures, this should be re-enabled.

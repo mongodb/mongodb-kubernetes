@@ -1,0 +1,419 @@
+include:
+  - filename: .evergreen-functions.yml
+
+tasks:
+  - name: release_operator
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: operator
+
+  # Releases init images to Quay
+  - name: release_init_appdb
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: init-appdb
+
+  - name: release_init_database
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: init-database
+
+  - name: release_init_ops_manager
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: init-ops-manager
+
+  - name: release_database
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: database
+
+  - name: release_readiness_probe
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: readiness-probe
+
+  - name: release_version_upgrade_hook
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: upgrade-hook
+
+  - name: prepare_and_upload_openshift_bundles
+    tags: [ "openshift_bundles" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_aws
+      - func: configure_docker_auth
+      - func: setup_prepare_openshift_bundles
+      - func: prepare_openshift_bundles
+      - func: update_evergreen_expansions
+      - func: upload_openshift_bundle
+        vars:
+          # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
+          bundle_file_name: "mck-operator-certified-${mongodbOperator}.tgz"
+
+  - name: run_conditionally_prepare_and_upload_openshift_bundles
+    tags: [ "openshift_bundles" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: run_task_conditionally
+        vars:
+          condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
+          variant: prepare_openshift_bundles
+          task: prepare_and_upload_openshift_bundles
+
+  - name: release_kubectl_mongodb_plugin
+    tags: [ "binary_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: install_macos_notarization_service
+      - func: release_kubectl_mongodb_plugin
+
+  - name: create_chart_release_pr
+    tags: [ "helm_chart_release_pr" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: create_chart_release_pr
+
+  - name: release_chart_to_oci_registry
+    tags: [ "release_chart_to_oci_registry" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_kubectl
+      - func: setup_aws
+      - func: helm_registry_login
+      - func: publish_helm_chart
+
+### Release build variants
+buildvariants:
+
+  - name: release_images
+    display_name: release_images
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    max_hosts: -1
+    tasks:
+      - name: release_operator
+      - name: release_init_appdb
+      - name: release_init_database
+      - name: release_init_ops_manager
+      - name: release_database
+      - name: release_readiness_probe
+      - name: release_version_upgrade_hook
+
+  - name: preflight_release_images
+    display_name: preflight_release_images
+    tags: [ "release" ]
+    run_on:
+      - rhel90-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+    expansions:
+      preflight_submit: true
+    tasks:
+      - name: preflight_images_task_group
+
+  - name: prepare_openshift_bundles
+    display_name: prepare_openshift_bundles
+    tags: [ "release" ]
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: preflight_release_images
+    tasks:
+      - name: run_conditionally_prepare_and_upload_openshift_bundles
+
+  - name: prerelease_kind_code_snippets
+    display_name: prerelease_kind_code_snippets
+    tags: [ "release", "prerelease_code_snippets" ]
+    run_on:
+      - ubuntu2404-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+        patch_optional: true
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  - name: prerelease_gke_code_snippets
+    display_name: prerelease_gke_code_snippets
+    tags: [ "release", "prerelease_code_snippets" ]
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: ["patch", "github_tag"]
+    depends_on:
+      - variant: release_images
+        name: '*'
+        patch_optional: true
+    tasks:
+      - name: gke_code_snippets_task_group
+
+  - name: init_test_run_release
+    display_name: init_test_run
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: release_kubectl_mongodb_plugin
+        variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
+    tasks:
+      - name: build_test_image
+
+  - name: init_smoke_tests_ibm_power_release
+    display_name: init_smoke_tests_ibm_power
+    max_hosts: -1
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - release-rhel9-power-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+      - release-rhel9-power-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: release_kubectl_mongodb_plugin
+        variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
+    tasks:
+      - name: build_test_image_ibm_power
+
+  - name: init_smoke_tests_ibm_z_release
+    display_name: init_smoke_tests_ibm_z
+    max_hosts: -1
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
+    disable: true
+    run_on:
+      - release-rhel9-zseries-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+      - release-rhel9-zseries-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: release_kubectl_mongodb_plugin
+        variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
+    tasks:
+      - name: build_test_image_ibm_z
+
+  - name: init_smoke_tests_arm_release
+    display_name: init_smoke_tests_arm
+    max_hosts: -1
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: release_kubectl_mongodb_plugin
+        variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
+    tasks:
+      - name: build_test_image_arm
+
+  - name: e2e_smoke_release
+    display_name: e2e_smoke
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - ubuntu2404-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_test_run_release
+    tasks:
+      - name: e2e_smoke_task_group
+
+  - name: e2e_static_smoke_release
+    display_name: e2e_static_smoke
+    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    run_on:
+      - ubuntu2404-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_test_run_release
+    tasks:
+      - name: e2e_smoke_task_group
+
+  - name: e2e_smoke_ibm_power_release
+    display_name: e2e_smoke_ibm_power
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-power-small
+      - rhel9-power-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_ibm_power_release
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_static_smoke_ibm_power_release
+    display_name: e2e_static_smoke_ibm_power
+    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    run_on:
+      - rhel9-power-small
+      - rhel9-power-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_ibm_power_release
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_smoke_ibm_z_release
+    display_name: e2e_smoke_ibm_z
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
+    disable: true
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_ibm_z_release
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_static_smoke_ibm_z_release
+    display_name: e2e_static_smoke_ibm_z
+    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
+    disable: true
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_ibm_z_release
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_smoke_arm_release
+    display_name: e2e_smoke_arm
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - ubuntu2404-arm64-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_arm_release
+    tasks:
+      - name: e2e_smoke_arm_task_group
+
+  - name: e2e_static_smoke_arm_release
+    display_name: e2e_static_smoke_arm
+    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    run_on:
+      - ubuntu2404-arm64-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: init_smoke_tests_arm_release
+    tasks:
+      - name: e2e_smoke_arm_task_group
+
+  - name: release_kubectl_mongodb_plugin
+    display_name: release_kubectl_mongodb_plugin
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: release_kubectl_mongodb_plugin
+
+  - name: create_chart_release_pr
+    display_name: create_chart_release_pr
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: create_chart_release_pr
+
+  - name: release_chart_to_oci_registry
+    display_name: release_chart_to_oci_registry
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: release_chart_to_oci_registry

@@ -128,26 +128,6 @@ EOF
   sleep 1
 
   local service_account_name="operator-tests-multi-cluster-service-account"
-
-  local secret_name
-  secret_name="$(kubectl --context "${CENTRAL_CLUSTER}" get secret -n "${NAMESPACE}" | { grep "${service_account_name}" || test $? = 1; } | awk '{ print $1 }')"
-  if [[ "${secret_name}" == "" ]]; then
-    secret_name="${service_account_name}-token-secret"
-    create_service_account_token_secret "${CENTRAL_CLUSTER}" "${service_account_name}" "${secret_name}"
-  fi
-
-  local central_cluster_token
-  central_cluster_token="$(kubectl --context "${CENTRAL_CLUSTER}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${NAMESPACE}" | base64 -d)"
-  echo "Creating Multi Cluster configuration secret"
-
-  configuration_params=(
-    "--from-literal=central_cluster=${CENTRAL_CLUSTER}"
-  )
-
-  configuration_params+=(
-    "--from-literal=${CENTRAL_CLUSTER}=${central_cluster_token}"
-  )
-
   local secret_name
   secret_name="$(kubectl --context "${CENTRAL_CLUSTER}" get secret -n "${NAMESPACE}" | { grep "${service_account_name}" || test $? = 1; } | awk '{ print $1 }')"
   if [[ "${secret_name}" == "" ]]; then
@@ -175,7 +155,18 @@ EOF
       create_service_account_token_secret "${member_cluster}" "${service_account_name}" "${secret_name}"
     fi
 
-    member_cluster_token="$(kubectl --context "${member_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${NAMESPACE}" | base64 -d)"
+    # Retry up to 10 times if .data.token is not yet populated
+    for _ in {1..10}; do
+      member_cluster_token="$(kubectl --context "${member_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token }' -n "${NAMESPACE}" | base64 -d)"
+      if [[ -n "${member_cluster_token}" ]]; then
+        break
+      fi
+      sleep 1
+    done
+    if [[ -z "${member_cluster_token}" ]]; then
+      echo "Error: .data.token not populated for secret ${secret_name} in cluster ${member_cluster}"
+      exit 1
+    fi
     # for 2 cluster tests central cluster is the first member, so we cannot add this as it will result in duplicate key and error in create secret
     if [[ "${member_cluster}" != "${CENTRAL_CLUSTER}" ]]; then
       configuration_params+=(
@@ -210,13 +201,13 @@ prepare_multi_cluster_e2e_run() {
     fi
 
     (
-      cd public/tools/multicluster/
+      cd cmd/kubectl-mongodb
       GOOS=darwin GOARCH="${goarch}" go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go
     )
     PATH=${PATH}:docker/mongodb-kubernetes-tests
   else
     (
-      cd public/tools/multicluster/
+      cd cmd/kubectl-mongodb
       # shellcheck disable=SC2030
       export PATH=${GOROOT}:${PATH}
       GOOS=linux GOARCH=amd64 go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go

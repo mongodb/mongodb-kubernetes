@@ -538,7 +538,15 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return result.OK()
 	}
 
-	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, log)
+	var appdbSecretPath string
+	if r.VaultClient != nil {
+		appdbSecretPath = r.VaultClient.AppDBSecretPath()
+	}
+
+	agentCertSecretName := opsManager.Spec.AppDB.GetSecurity().AgentClientCertificateSecretName(opsManager.Spec.AppDB.GetName())
+	_, agentCertPath := r.agentCertHashAndPath(ctx, log, opsManager.Namespace, agentCertSecretName, appdbSecretPath)
+
+	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, agentCertPath, log)
 	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
 	// in Ops Manager. This is not a blocker to continue with the rest of the reconciliation.
 	if err != nil {
@@ -594,7 +602,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 		appdbOpts.LegacyMonitoringAgentImage = images.ContainerImage(r.imageUrls, mcoConstruct.AgentImageEnv, legacyMonitoringAgentVersion)
 
-		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent-ubi:107.0.0.8502-1
+		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent:107.0.0.8502-1
 		// In non-static containers we don't ask OM for the correct version, therefore we just rely on the provided
 		// environment variable.
 		appdbOpts.AgentImage = r.imageUrls[mcoConstruct.AgentImageEnv]
@@ -613,10 +621,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return r.updateStatus(ctx, opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
-	var appdbSecretPath string
-	if r.VaultClient != nil {
-		appdbSecretPath = r.VaultClient.AppDBSecretPath()
-	}
 	tlsSecretName := opsManager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(opsManager.Spec.AppDB.Name())
 	certHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, opsManager.Namespace, tlsSecretName, appdbSecretPath, log)
 
@@ -1621,7 +1625,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(ctx context.Context, o
 
 // tryConfigureMonitoringInOpsManager attempts to configure monitoring in Ops Manager. This might not be possible if Ops Manager
 // has not been created yet, if that is the case, an empty PodVars will be returned.
-func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (env.PodEnvVars, error) {
+func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, agentCertPath string, log *zap.SugaredLogger) (env.PodEnvVars, error) {
 	var operatorVaultSecretPath string
 	if r.VaultClient != nil {
 		operatorVaultSecretPath = r.VaultClient.OperatorSecretPath()
@@ -1660,6 +1664,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		Mechanisms:         []string{util.SCRAM},
 		ClientCertificates: util.OptionalClientCertficates,
 		AutoUser:           util.AutomationAgentUserName,
+		AutoPEMKeyFilePath: agentCertPath,
 		CAFilePath:         util.CAFilePathInContainer,
 	}
 	err = authentication.Configure(conn, opts, false, log)

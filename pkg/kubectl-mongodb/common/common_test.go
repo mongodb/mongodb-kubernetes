@@ -324,7 +324,7 @@ func TestKubeConfigSecret_IsNotCreated_InMemberClusters(t *testing.T) {
 		memberClient := clientMap[memberCluster]
 		kubeConfigSecret, err := memberClient.CoreV1().Secrets(flags.CentralClusterNamespace).Get(ctx, KubeConfigSecretName, metav1.GetOptions{})
 		assert.True(t, errors.IsNotFound(err))
-		assert.Nil(t, kubeConfigSecret)
+		assert.Equal(t, &corev1.Secret{}, kubeConfigSecret)
 	}
 }
 
@@ -486,7 +486,7 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		sb = marshalToYaml(t, sb, "Central Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRoleBinding", crb.Items)
 		sb = marshalToYaml(t, sb, "Central Cluster, cluster-scoped resources", "v1", "ServiceAccount", sa.Items)
 
-		err = os.WriteFile("../../../../samples/multi-cluster-cli-gitops/resources/rbac/cluster_scoped_central_cluster.yaml", []byte(sb.String()), os.ModePerm)
+		err = os.WriteFile("../../../public/samples/multi-cluster-cli-gitops/resources/rbac/cluster_scoped_central_cluster.yaml", []byte(sb.String()), os.ModePerm)
 		assert.NoError(t, err)
 	}
 
@@ -505,7 +505,7 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		sb = marshalToYaml(t, sb, "Member Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRoleBinding", crb.Items)
 		sb = marshalToYaml(t, sb, "Member Cluster, cluster-scoped resources", "v1", "ServiceAccount", sa.Items)
 
-		err = os.WriteFile("../../../../samples/multi-cluster-cli-gitops/resources/rbac/cluster_scoped_member_cluster.yaml", []byte(sb.String()), os.ModePerm)
+		err = os.WriteFile("../../../public/samples/multi-cluster-cli-gitops/resources/rbac/cluster_scoped_member_cluster.yaml", []byte(sb.String()), os.ModePerm)
 		assert.NoError(t, err)
 	}
 
@@ -526,7 +526,7 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "RoleBinding", rb.Items)
 		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "v1", "ServiceAccount", sa.Items)
 
-		err = os.WriteFile("../../../../samples/multi-cluster-cli-gitops/resources/rbac/namespace_scoped_central_cluster.yaml", []byte(sb.String()), os.ModePerm)
+		err = os.WriteFile("../../../public/samples/multi-cluster-cli-gitops/resources/rbac/namespace_scoped_central_cluster.yaml", []byte(sb.String()), os.ModePerm)
 		assert.NoError(t, err)
 	}
 
@@ -547,7 +547,7 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		sb = marshalToYaml(t, sb, "Member Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "RoleBinding", rb.Items)
 		sb = marshalToYaml(t, sb, "Member Cluster, namespace-scoped resources", "v1", "ServiceAccount", sa.Items)
 
-		err = os.WriteFile("../../../../samples/multi-cluster-cli-gitops/resources/rbac/namespace_scoped_member_cluster.yaml", []byte(sb.String()), os.ModePerm)
+		err = os.WriteFile("../../../public/samples/multi-cluster-cli-gitops/resources/rbac/namespace_scoped_member_cluster.yaml", []byte(sb.String()), os.ModePerm)
 		assert.NoError(t, err)
 	}
 }
@@ -756,7 +756,7 @@ func assertClusterRoleMembers(t *testing.T, ctx context.Context, clientMap map[s
 			assert.Equal(t, expectedClusterRole, *role)
 		} else {
 			assert.Error(t, err)
-			assert.Nil(t, role)
+			assert.Equal(t, &rbacv1.ClusterRole{}, role)
 		}
 	}
 }
@@ -785,7 +785,7 @@ func assertMemberRolesAreCorrect(t *testing.T, ctx context.Context, clientMap ma
 			assert.Equal(t, expectedRole, *role)
 		} else {
 			assert.Error(t, err)
-			assert.Nil(t, role)
+			assert.Equal(t, &rbacv1.Role{}, role)
 		}
 	}
 }
@@ -810,7 +810,7 @@ func assertCentralRolesAreCorrect(t *testing.T, ctx context.Context, clientMap m
 	cr, err := client.RbacV1().ClusterRoles().Get(ctx, clusterRole.Name, metav1.GetOptions{})
 
 	assert.True(t, errors.IsNotFound(err))
-	assert.Nil(t, cr)
+	assert.Equal(t, &rbacv1.ClusterRole{}, cr)
 
 	expectedRole := buildCentralEntityRole(flags.CentralClusterNamespace)
 	role, err := client.RbacV1().Roles(flags.CentralClusterNamespace).Get(ctx, expectedRole.Name, metav1.GetOptions{})
@@ -821,7 +821,7 @@ func assertCentralRolesAreCorrect(t *testing.T, ctx context.Context, clientMap m
 		assert.Equal(t, expectedRole, *role)
 	} else {
 		assert.Error(t, err)
-		assert.Nil(t, role)
+		assert.Equal(t, &rbacv1.Role{}, role)
 	}
 }
 

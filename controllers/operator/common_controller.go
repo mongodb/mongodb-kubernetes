@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"path/filepath"
 	"reflect"
 
 	"github.com/blang/semver"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -30,6 +32,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -47,7 +50,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
@@ -131,12 +133,24 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 	if reflect.DeepEqual(dRoles, roles) {
 		return workflow.OK()
 	}
-	// HELP-20798: the agent deals correctly with a null value for
-	// privileges only when creating a role, not when updating
-	// we work around it by explicitly passing empty array
-	for i, role := range roles {
-		if role.Privileges == nil {
-			roles[i].Privileges = []mdbv1.Privilege{}
+
+	// clone roles list to avoid mutating the spec in normalizePrivilegeResource
+	newRoles := make([]mdbv1.MongoDBRole, len(roles))
+	for i := range roles {
+		newRoles[i] = *roles[i].DeepCopy()
+	}
+	roles = newRoles
+
+	for roleIdx := range roles {
+		// HELP-20798: the agent deals correctly with a null value for
+		// privileges only when creating a role, not when updating
+		// we work around it by explicitly passing empty array
+		if roles[roleIdx].Privileges == nil {
+			roles[roleIdx].Privileges = []mdbv1.Privilege{}
+		}
+
+		for privilegeIdx := range roles[roleIdx].Privileges {
+			roles[roleIdx].Privileges[privilegeIdx].Resource = normalizePrivilegeResource(roles[roleIdx].Privileges[privilegeIdx].Resource)
 		}
 	}
 
@@ -152,6 +166,27 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 		return workflow.Failed(err)
 	}
 	return workflow.OK()
+}
+
+// normalizePrivilegeResource ensures that mutually exclusive fields are not passed at the same time and ensures backwards compatibility by
+// preserving empty strings for db and collection.
+// This function was introduced after we've changed db and collection fields to *string allowing to omit the field from serialization (CLOUDP-349078).
+func normalizePrivilegeResource(resource mdbv1.Resource) mdbv1.Resource {
+	if resource.Cluster != nil && *resource.Cluster {
+		// for cluster-wide privilege mongod is not accepting even empty strings in db and collection
+		resource.Db = nil
+		resource.Collection = nil
+	} else {
+		// for backwards compatibility we must convert "not specified" fields as empty strings
+		if resource.Db == nil {
+			resource.Db = ptr.To("")
+		}
+		if resource.Collection == nil {
+			resource.Collection = ptr.To("")
+		}
+	}
+
+	return resource
 }
 
 // getRoleRefs retrieves the roles from the referenced resources. It will return an error if any of the referenced resources are not found.
@@ -232,7 +267,7 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 		} else {
 			secretNames = []string{security.MemberCertificateSecretName(resourceNameForSecret)}
 			if security.ShouldUseX509("") {
-				secretNames = append(secretNames, security.AgentClientCertificateSecretName(resourceNameForSecret).Name)
+				secretNames = append(secretNames, security.AgentClientCertificateSecretName(resourceNameForSecret))
 			}
 		}
 		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, security.TLSConfig.CA, secretNames)
@@ -408,7 +443,7 @@ func getSubjectFromCertificate(cert string) (string, error) {
 // enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
 // Note: updateOmAuthentication needs to be called before reconciling other auth related settings.
-func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertSecretName string, caFilepath string, clusterFilePath string, isRecovering bool, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
+func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertPath, caFilepath, clusterFilePath string, isRecovering bool, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
 	// don't touch authentication settings if resource has not been configured with them
 	if ar.GetSecurity() == nil || ar.GetSecurity().Authentication == nil {
 		return workflow.OK(), false
@@ -481,34 +516,23 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 
 	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))
 
-	agentSecretSelector := ar.GetSecurity().AgentClientCertificateSecretName(ar.GetName())
-	if agentCertSecretName != "" {
-		agentSecretSelector.Name = agentCertSecretName
+	agentCertSecretName := ar.GetSecurity().AgentClientCertificateSecretName(ar.GetName())
+	agentCertSecretSelector := corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+		Key:                  corev1.TLSCertKey,
 	}
+
 	wantToEnableAuthentication := ar.GetSecurity().Authentication.Enabled
 	if wantToEnableAuthentication && canConfigureAuthentication(ac, ar.GetSecurity().Authentication.GetModes(), log) {
 		log.Info("Configuring authentication for MongoDB resource")
 
 		if ar.GetSecurity().ShouldUseX509(ac.Auth.AutoAuthMechanism) || ar.GetSecurity().ShouldUseClientCertificates() {
-			agentSecret := &corev1.Secret{}
-			if err := r.client.Get(ctx, kube.ObjectKey(ar.GetNamespace(), agentSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
-				return workflow.Failed(err), false
-			}
-			// If the agent secret is of type TLS, we can find the certificate under the standard key,
-			// otherwise the concatenated PEM secret would contain the certificate and keys under the selector's
-			// Key identifying the agent.
-			// In single cluster workloads this path is working with the concatenated PEM secret,
-			//
-			// Important: In multi cluster it is working with the TLS secret in the central cluster, hence below selector update.
-			if agentSecret.Type == corev1.SecretTypeTLS {
-				agentSecretSelector.Key = corev1.TLSCertKey
-			}
-
-			authOpts, err = r.configureAgentSubjects(ctx, ar.GetNamespace(), agentSecretSelector, authOpts, log)
+			authOpts, err = r.configureAgentSubjects(ctx, ar.GetNamespace(), agentCertSecretSelector, authOpts, log)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("error configuring agent subjects: %w", err)), false
 			}
 			authOpts.AgentsShouldUseClientAuthentication = ar.GetSecurity().ShouldUseClientCertificates()
+			authOpts.AutoPEMKeyFilePath = agentCertPath
 		}
 		if ar.GetSecurity().ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
 			secretRef := ar.GetSecurity().Authentication.Agents.AutomationPasswordSecretRef
@@ -534,18 +558,9 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		log.Debug("Attempting to enable authentication, but Ops Manager state will not allow this")
 		return workflow.OK(), true
 	} else {
-		agentSecret := &corev1.Secret{}
-		if err := r.client.Get(ctx, kube.ObjectKey(ar.GetNamespace(), agentSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
-			return workflow.Failed(err), false
-		}
-
-		if agentSecret.Type == corev1.SecretTypeTLS {
-			agentSecretSelector.Name = fmt.Sprintf("%s%s", agentSecretSelector.Name, certs.OperatorGeneratedCertSuffix)
-		}
-
 		// Should not fail if the Secret object with agent certs is not found.
 		// It will only exist on x509 client auth enabled deployments.
-		userOpts, err := r.readAgentSubjectsFromSecret(ctx, ar.GetNamespace(), agentSecretSelector, log)
+		userOpts, err := r.readAgentSubjectsFromSecret(ctx, ar.GetNamespace(), agentCertSecretSelector, log)
 		err = client.IgnoreNotFound(err)
 		if err != nil {
 			return workflow.Failed(err), true
@@ -600,17 +615,12 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(ctx context.Cont
 }
 
 func (r *ReconcileCommonController) clearProjectAuthenticationSettings(ctx context.Context, conn om.Connection, mdb *mdbv1.MongoDB, processNames []string, log *zap.SugaredLogger) error {
-	secretKeySelector := mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name)
-	agentSecret := &corev1.Secret{}
-	if err := r.client.Get(ctx, kube.ObjectKey(mdb.Namespace, secretKeySelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
-		return nil
+	agentCertSecretName := mdb.Spec.GetSecurity().AgentClientCertificateSecretName(mdb.Name)
+	agentCertSecretSelector := corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+		Key:                  corev1.TLSCertKey,
 	}
-
-	if agentSecret.Type == corev1.SecretTypeTLS {
-		secretKeySelector.Name = fmt.Sprintf("%s%s", secretKeySelector.Name, certs.OperatorGeneratedCertSuffix)
-	}
-
-	userOpts, err := r.readAgentSubjectsFromSecret(ctx, mdb.Namespace, secretKeySelector, log)
+	userOpts, err := r.readAgentSubjectsFromSecret(ctx, mdb.Namespace, agentCertSecretSelector, log)
 	err = client.IgnoreNotFound(err)
 	if err != nil {
 		return err
@@ -636,8 +646,8 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 		if !security.IsTLSEnabled() {
 			return workflow.Failed(xerrors.Errorf("Authentication mode for project is x509 but this MDB resource is not TLS enabled"))
 		}
-		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName()).Name
-		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName))
+		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName())
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), log)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -684,9 +694,7 @@ func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersio
 		return "", err
 	} else {
 		log.Debugf("Using agent version %s", agentVersion)
-		currentOperatorVersion := versionutil.StaticContainersOperatorVersion()
-		log.Debugf("Using Operator version: %s", currentOperatorVersion)
-		return agentVersion + "_" + currentOperatorVersion, nil
+		return agentVersion, nil
 	}
 }
 
@@ -728,6 +736,18 @@ func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, 
 	r.resourceWatcher.RemoveDependentWatchedResources(objectKey)
 
 	return errs
+}
+
+// agentCertHashAndPath returns a hash of an agent certificate along with file path
+// to the said certificate. File path also contains the hash.
+func (r *ReconcileCommonController) agentCertHashAndPath(ctx context.Context, log *zap.SugaredLogger, namespace, agentCertSecretName string, appdbSecretPath string) (string, string) {
+	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, namespace, agentCertSecretName, appdbSecretPath, log)
+	agentCertPath := ""
+	if agentCertHash != "" {
+		agentCertPath = filepath.Join(util.AgentCertMountPath, agentCertHash)
+	}
+
+	return agentCertHash, agentCertPath
 }
 
 // isPrometheusSupported checks if Prometheus integration can be enabled.

@@ -1,4 +1,4 @@
-IMAGE_VERSION=0.14
+IMAGE_VERSION=0.18
 
 .PHONY: all
 all: build push install
@@ -18,7 +18,7 @@ install: build push
 	kubectl create namespace cluster-cleaner || true
 	helm template . \
 		--set cleanerVersion=$(IMAGE_VERSION) \
-		--set namespace=cluster-cleaner\
+		--set namespace=cluster-cleaner \
 		--set cleanerNamespace=cluster-cleaner > cluster-cleaner.yaml
 	kubectl apply -f cluster-cleaner.yaml
 	rm cluster-cleaner.yaml

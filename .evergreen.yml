@@ -1,3 +1,5 @@
+# For .evergreen.yml configuration and usage reference, see EVERGREEN.md file
+
 # 2h timeout for all the tasks
 exec_timeout_secs: 7200
 
@@ -5,13 +7,15 @@ include:
   - filename: .evergreen-functions.yml
   - filename: .evergreen-tasks.yml
   - filename: .evergreen-mco.yml
+  - filename: .evergreen-snippets.yml
+  - filename: .evergreen-release.yml
 
 variables:
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_70_latest 7.0.15 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_70_latest 7.0.19 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.11 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.16 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -33,7 +37,7 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
+      - name: publish_helm_chart
         variant: init_test_run
 
   - &base_no_om_image_dependency
@@ -52,7 +56,7 @@ variables:
         variant: init_test_run
       - name: build_init_appdb_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
+      - name: publish_helm_chart
         variant: init_test_run
 
   - &community_dependency
@@ -61,13 +65,13 @@ variables:
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
       - name: build_readiness_probe_image
         variant: init_test_run
-      - name: build_upgrade_hook_image
+      - name: build_version_upgrade_hook_image
         variant: init_test_run
       - name: build_mco_test_image
+        variant: init_test_run
+      - name: publish_helm_chart
         variant: init_test_run
 
   - &setup_group
@@ -75,51 +79,37 @@ variables:
     setup_group:
       - func: clone
       - func: download_kube_tools
+      - func: switch_context
       - func: setup_building_host
+
+  - &setup_group_ibm
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: switch_context
+      - func: setup_building_host_minikube
 
   - &setup_group_multi_cluster
     setup_group_can_fail_task: true
     setup_group:
       - func: clone
       - func: download_kube_tools
+      - func: switch_context
       - func: setup_building_host
-      - func: build_multi_cluster_binary
-
-  - &setup_and_teardown_group_gke_code_snippets
-    setup_task_can_fail_task: true
-    setup_group:
-      - func: clone
-      - func: setup_gcloud_cli
-      - func: setup_mongosh
-      - func: download_kube_tools
-      - func: build_multi_cluster_binary
-    teardown_group:
-      - func: upload_code_snippets_logs
-
-  - &setup_and_teardown_group_kind_code_snippets
-    setup_task_can_fail_task: true
-    setup_group:
-      - func: clone
-      - func: cleanup_exec_environment
-      - func: download_kube_tools
-      - func: configure_docker_auth
-      - func: setup_kubernetes_environment
-    teardown_task:
-      - func: upload_e2e_logs
-      - func: upload_code_snippets_logs
 
   - &setup_and_teardown_task_cloudqa
     setup_task_can_fail_task: true
     setup_task:
       - func: cleanup_exec_environment
       - func: configure_docker_auth
+      - func: switch_context
       - func: setup_kubernetes_environment
       - func: setup_cloud_qa
     teardown_task_can_fail_task: true
     teardown_task:
+      - func: teardown_cloud_qa
       - func: upload_e2e_logs
       - func: teardown_kubernetes_environment
-      - func: teardown_cloud_qa
 
   - &setup_and_teardown_task
     setup_task_can_fail_task: true
@@ -127,6 +117,7 @@ variables:
       - func: cleanup_exec_environment
       - func: configure_docker_auth
       - func: setup_kubernetes_environment
+      - func: switch_context
     teardown_task_can_fail_task: true
     teardown_task:
       - func: upload_e2e_logs
@@ -153,9 +144,29 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
+      - name: publish_helm_chart
         variant: init_test_run
 
+  - &base_om7_dependency_with_race
+    depends_on:
+      - name: build_om_images
+        variant: build_om70_images
+      - name: build_operator_race_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
+
+  # Any change to base_om8_dependency should be reflected to its copy in .evergreen-snippets.yml
   - &base_om8_dependency
     depends_on:
       - name: build_om_images
@@ -172,17 +183,13 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
+      - name: publish_helm_chart
         variant: init_test_run
 
 parameters:
   - key: evergreen_retry
     value: "true"
     description: set this to false to suppress retries on failure
-
-  - key: pin_tag_at
-    value: 10:00
-    description: Pin tags at this time of the day. Midnight by default for periodic and 10 for releases.
 
   - key: OVERRIDE_VERSION_ID
     value: ""
@@ -196,16 +203,12 @@ parameters:
     value: "false"
     description: set this to true if you would like to delete the resources created in the code snippet tests, but keep the clusters
 
-  - key: code_snippets_commit_output
-    value: "false"
-    description: set this to true if you would like the pipeline to automatically push a branch with updated snippets outputs
-
+  - key: MDB_BASH_DEBUG
+    value: "0"
+    description: set this to 1 if you want shell scripts to enable set -x
 
 # Triggered manually or by PCT.
 patch_aliases:
-  - alias: "periodic_builds"
-    variant_tags: [ "periodic_build" ]
-    task: ".*"
   - alias: "periodic_teardowns"
     variant_tags: [ "periodic_teardown" ]
     task: ".*"
@@ -215,27 +218,31 @@ patch_aliases:
   - alias: "release_all_agents_manually"
     variant_tags: [ "release_all_agents_manually" ]
     task: ".*"
-  - alias: "release"
-    variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
+  - alias: "release_current_agents_manually"
+    variant_tags: [ "release_current_agents_manually" ]
+    task: ".*"
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
     task_tags: [ "patch-run" ]
+  - alias: "smoke_test"
+    variant_tags: [ "e2e_smoke_test_suite" ]
+    task_tags: [ "patch-run" ]
   - alias: "patch-run-cloudqa"
-    variant_tags: [ "cloudqa" ]
+    variant_tags: [ "cloudqa_non_static" ]
+    task: ".*"
+  - alias: "release"
+    variant_tags: [ "release" ]
+    task: ".*"
+  - alias: "staging"
+    variant_tags: [ "staging" ]
+    task: ".*"
+  - alias: "pr_patch"
+    variant_tags: [ "pr_patch" ]
     task: ".*"
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
-  - variant_tags: [ "unit_tests" ]
-    task_tags: [ "unit_tests" ]
-  - variant_tags: [ "e2e_test_suite" ]
-    task_tags: [ "patch-run" ]
-  - variant_tags: [ "e2e_mco_test_suite" ]
-    task: ".*"
-  - variant_tags: [ "auto_bump" ]
-    task_tags: [ "patch-run" ]
-  - variant_tags: [ "release_agents_on_ecr" ]
+  - variant_tags: [ "pr_patch" ]
     task: ".*"
 
 # Allows to see evergreen checks in GitHub commits
@@ -247,8 +254,8 @@ github_checks_aliases:
 # Triggered on git tag
 git_tag_aliases:
   - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
-    variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
+    variant_tags: [ "release" ]
+    task: ".*"
 
 tasks:
   - name: unit_tests_golang
@@ -260,6 +267,11 @@ tasks:
     tags: [ "unit_tests" ]
     commands:
       - func: "test_python_unit"
+
+  - name: unit_tests_helm
+    tags: [ "unit_tests" ]
+    commands:
+      - func: "test_helm_unit"
 
   - name: sbom_tests
     tags: [ "unit_tests" ]
@@ -275,72 +287,6 @@ tasks:
     commands:
       - func: lint_repo
 
-  - name: release_operator
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_login
-      - func: setup_docker_sbom
-      - func: pipeline
-        vars:
-          image_name: operator
-          include_tags: release
-
-  # Releases init images to Quay
-  - name: release_init_appdb
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_login
-      - func: setup_docker_sbom
-      - func: pipeline
-        vars:
-          image_name: init-appdb
-          include_tags: release
-
-  - name: release_init_database
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_login
-      - func: setup_docker_sbom
-      - func: pipeline
-        vars:
-          image_name: init-database
-          include_tags: release
-
-  - name: release_init_ops_manager
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_login
-      - func: setup_docker_sbom
-      - func: pipeline
-        vars:
-          image_name: init-ops-manager
-          include_tags: release
-
-  - name: release_agent_operator_release
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_login
-      - func: setup_docker_sbom
-      - func: pipeline
-        vars:
-          image_name: agent
-          include_tags: release
-
   # pct only triggers this variant once a new agent image is out
   - name: release_agent
     # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
@@ -352,11 +298,24 @@ tasks:
       - func: setup_docker_sbom
       - func: pipeline
         vars:
-          image_name: agent-pct
-          include_tags: release
+          image_name: agent
+          build_scenario: release
+
+  - name: migrate_all_agents
+    # this enables us to run this variant manually to build all the agents for the new agent registry
+    allowed_requesters: [ "patch" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: agent
+          build_scenario: release
+          flags: "--parallel --all-agents -r quay.io/mongodb/mongodb-agent --skip-if-exists=false"
 
   - name: run_precommit_and_push
-    tags: ["patch-run"]
+    tags: [ "patch-run" ]
     commands:
       - func: clone
       - func: python_venv
@@ -365,6 +324,7 @@ tasks:
       - command: github.generate_token
         params:
           expansion_name: GH_TOKEN
+      - func: setup_chart_testing_cli
       - command: subprocess.exec
         type: setup
         params:
@@ -373,57 +333,87 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: scripts/evergreen/precommit_bump.sh
 
-  # Pct only triggers this variant once a new agent image is out
-  # these releases the agent with the operator suffix (not patch id) on ecr to allow for digest pinning to pass.
-  # For this to work, we rely on skip_tags which is used to determine whether
-  # we want to release on quay or not, in this case - ecr instead.
-  # We rely on the init_database from ecr for the agent x operator images.
-  # This runs on agent releases that are not concurrent with operator releases.
-  - name: release_agents_on_ecr_conditional
-    commands:
-      - func: clone
-      - func: run_task_conditionally
-        vars:
-          condition_script: scripts/evergreen/should_release_agents_on_ecr.sh
-          variant: init_release_agents_on_ecr
-          task: release_agents_on_ecr
-
-  - name: release_agents_on_ecr
-    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
-    allowed_requesters: [ "patch", "github_pr" ]
-    priority: 70
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: pipeline
-        vars:
-          image_name: agent-pct
-          skip_tags: release
-
-  - name: release_all_agents_on_ecr
-    # this enables us to run this manually (patch) and release all agent versions to ECR
-    # it's needed during operator new version release process - e2e tests (especially olm tests)
-    # will look for agent with new operator version suffix, but during PR checks we only build
-    # agent versions for most recent major OM versions and the tests will fail. Before running the PR
-    # we have to manually release all agents to ECR by triggering this patch
+  - name: rebuild_all_agents
+    # this enables us to run this manually (patch) and rebuild all agent versions to verify
+    # Dockerfile, script changes etc.
     allowed_requesters: [ "patch" ]
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_login
       - func: pipeline
         vars:
-          image_name: agent-pct
-          skip_tags: release
-          all_agents: true
+          image_name: agent
+          flags: "--parallel --all-agents --skip-if-exists=false"
+
+  - name: rebuild_currently_used_agents
+    # this enables us to run this manually (patch) and rebuild current agent versions to verify
+    # Dockerfile, script changes etc.
+    allowed_requesters: [ "patch" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: agent
+          flags: "--parallel --current-agents --skip-if-exists=false"
+
+  - name: build_kubectl_mongodb_plugin
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: build_multi_cluster_binary
 
   - name: build_test_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: build_multi_cluster_binary
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/amd64
       - func: pipeline
         vars:
-          image_name: test
+          image_name: meko-tests
+
+  - name: build_test_image_arm
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/arm64
+      - func: pipeline
+        vars:
+          image_name: meko-tests-arm64
+
+  - name: build_test_image_ibm_z
+    commands:
+      - func: clone
+      - func: setup_building_host_minikube
+        vars:
+          skip_minikube_setup: true
+          skip_install_python_requirements: false
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/s390x
+      - func: pipeline
+        vars:
+          image_name: meko-tests-ibm-z
+
+  - name: build_test_image_ibm_power
+    commands:
+      - func: clone
+      - func: setup_building_host_minikube
+        vars:
+          skip_minikube_setup: true
+          skip_install_python_requirements: false
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/ppc64le
+      - func: pipeline
+        vars:
+          image_name: meko-tests-ibm-power
 
   - name: build_mco_test_image
     commands:
@@ -431,7 +421,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: mco-test
+          image_name: mco-tests
 
   - name: build_operator_ubi
     commands:
@@ -439,9 +429,15 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          skip_tags: ubuntu,release
-          distro: ubi
           image_name: operator
+
+  - name: build_operator_race_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: operator-race
 
   - name: build_init_om_images_ubi
     commands:
@@ -450,7 +446,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-ops-manager
-          skip_tags: ubuntu,release
 
   - name: build_init_appdb_images_ubi
     commands:
@@ -459,19 +454,16 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-appdb
-          skip_tags: ubuntu,release
 
   - name: build_agent_images_ubi
-    depends_on:
-      - name: build_init_database_image_ubi
-        variant: init_test_run
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_login
       - func: pipeline
         vars:
           image_name: agent
-          skip_tags: ubuntu,release
+          flags: "--parallel --all-agents"
 
   - name: build_init_database_image_ubi
     commands:
@@ -480,7 +472,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-database
-          skip_tags: ubuntu,release
 
   - name: build_database_image_ubi
     commands:
@@ -489,7 +480,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: database
-          skip_tags: ubuntu,release
 
   - name: build_readiness_probe_image
     commands:
@@ -498,16 +488,24 @@ tasks:
       - func: pipeline
         vars:
           image_name: readiness-probe
-          skip_tags: ubuntu,release
 
-  - name: build_upgrade_hook_image
+  - name: build_version_upgrade_hook_image
     commands:
       - func: clone
       - func: setup_building_host
       - func: pipeline
         vars:
           image_name: upgrade-hook
-          skip_tags: ubuntu,release
+
+  - name: publish_helm_chart
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_kubectl
+      - func: setup_aws
+      - func: prepare_aws
+      - func: helm_registry_login
+      - func: publish_helm_chart
 
   - name: prepare_aws
     priority: 59
@@ -525,6 +523,7 @@ tasks:
   - name: generate_perf_tasks_one_thread
     commands:
       - func: clone
+      - func: switch_context
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf_one_thread
@@ -533,6 +532,7 @@ tasks:
   - name: generate_perf_tasks_10_thread
     commands:
       - func: clone
+      - func: switch_context
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf
@@ -541,42 +541,32 @@ tasks:
   - name: generate_perf_tasks_30_thread
     commands:
       - func: clone
+      - func: switch_context
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf_thirty
           size: small
 
-  - name: release_database
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_login
-      - func: setup_docker_sbom
-      - func: pipeline
-        vars:
-          image_name: database
-
   - name: build_om_images
     commands:
       - func: clone
+      - func: switch_context
       - func: setup_building_host
       - func: pipeline
         vars:
           image_name: ops-manager
-          skip_tags: release
 
   - name: publish_ops_manager
     commands:
       - func: clone
+      - func: switch_context
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
       - func: pipeline
         vars:
           image_name: ops-manager
-          include_tags: release
+          build_scenario: release
 
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
@@ -585,30 +575,6 @@ tasks:
       - func: download_kube_tools
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles_for_e2e
-
-  - name: prepare_and_upload_openshift_bundles
-    tags: [ "openshift_bundles" ]
-    commands:
-      - func: clone
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: setup_prepare_openshift_bundles
-      - func: prepare_openshift_bundles
-      - func: update_evergreen_expansions
-      - func: upload_openshift_bundle
-        vars:
-          # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
-          bundle_file_name: "mck-operator-certified-${mongodbOperator}.tgz"
-
-  - name: run_conditionally_prepare_and_upload_openshift_bundles
-    tags: [ "openshift_bundles" ]
-    commands:
-      - func: clone
-      - func: run_task_conditionally
-        vars:
-          condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
-          variant: prepare_openshift_bundles
-          task: prepare_and_upload_openshift_bundles
 
   - name: backup_csv_images_dry_run
     commands:
@@ -663,20 +629,8 @@ task_groups:
       - lint_repo
       - unit_tests_golang
       - unit_tests_python
+      - unit_tests_helm
       - sbom_tests
-
-  - name: gke_code_snippets_task_group
-    <<: *setup_and_teardown_group_gke_code_snippets
-    max_hosts: -1
-    tasks:
-      - task_gke_multi_cluster_snippets
-      - task_gke_multi_cluster_no_mesh_snippets
-
-  - name: kind_code_snippets_task_group
-    <<: *setup_and_teardown_group_kind_code_snippets
-    max_hosts: -1
-    tasks:
-      - task_kind_community_search_snippets
 
   # Task group for deploying mongodbcommunity resources and testing the (former) MCO
   - name: e2e_mdb_community_task_group
@@ -686,8 +640,11 @@ task_groups:
     tasks:
       - e2e_community_replicaset_scale
       - e2e_search_community_basic
+      - e2e_search_community_tls
+      - e2e_search_external_basic
+      - e2e_search_external_tls
 
-  # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
+  # This is the task group that contains all the tests run in the e2e_mdb_kind_ubi_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
     max_hosts: -1
     <<: *setup_group
@@ -753,7 +710,7 @@ task_groups:
       - e2e_tls_rs_external_access
       - e2e_replica_set_tls_require
       - e2e_replica_set_tls_certs_secret_prefix
-      - e2e_disable_tls_scale_up
+      - e2e_disable_tls_and_scale
       - e2e_replica_set_tls_require_and_disable
       # e2e_x509_task_group
       - e2e_configure_tls_and_x509_simultaneously_st
@@ -810,6 +767,10 @@ task_groups:
       - e2e_replica_set_oidc_workforce
       - e2e_sharded_cluster_oidc_m2m_group
       - e2e_sharded_cluster_oidc_m2m_user
+      # MongoDBSearch test group
+      - e2e_search_enterprise_basic
+      - e2e_search_enterprise_tls
+      - e2e_search_enterprise_x509_cluster_auth
     <<: *teardown_group
 
   # this task group contains just a one task, which is smoke testing whether the operator
@@ -1188,6 +1149,22 @@ task_groups:
       - e2e_om_ops_manager_backup
     <<: *teardown_group
 
+  - name: e2e_smoke_arm_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_replica_set
+    <<: *teardown_group
+
+  - name: e2e_smoke_ibm_task_group
+    max_hosts: -1
+    <<: *setup_group_ibm
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_replica_set
+    <<: *teardown_group
+
   - name: e2e_ops_manager_kind_5_0_only_task_group
     max_hosts: -1
     <<: *setup_group
@@ -1199,6 +1176,17 @@ task_groups:
       - e2e_om_ops_manager_backup
     <<: *teardown_group
 
+  # TODO (CLOUDP-346008): Remove this task group once the issue with queryable backup task is resolved in OM8
+  - name: e2e_ops_manager_kind_5_0_only_task_group_without_queryable_backup
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_remotemode
+      - e2e_om_ops_manager_backup_restore
+      - e2e_om_ops_manager_backup
+    <<: *teardown_group
+
   # Tests features only supported on OM60
   - name: e2e_ops_manager_kind_6_0_only_task_group
     max_hosts: -1
@@ -1206,6 +1194,16 @@ task_groups:
     <<: *setup_and_teardown_task
     tasks:
       - e2e_om_ops_manager_prometheus
+    <<: *teardown_group
+
+  # Tests features only supported on OM80
+  - name: e2e_ops_manager_kind_8_0_only_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_search_enterprise_tls
+      - e2e_search_enterprise_x509_cluster_auth
     <<: *teardown_group
 
   # Tests features only supported on OM70 and OM80, its only upgrade test as we test upgrading from 6 to 7 or 7 to 8
@@ -1250,9 +1248,9 @@ buildvariants:
 
   - name: unit_tests
     display_name: "unit_tests"
-    tags: [ "unit_tests" ]
+    tags: [ "pr_patch", "staging", "unit_tests" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2204-small #TODO: Uses older ubuntu2204, because for some reason on ubuntu2404 the helm binary is not found
     tasks:
       - name: "unit_task_group"
 
@@ -1262,15 +1260,15 @@ buildvariants:
   # e2e_<type>_<cluster>_<distro>[_<om_version>]
   # where <type> is any of mdb|om<version>|operator
   # where <cluster> is any of kind|openshift
-  # where <distro> is any of ubuntu|ubi
+  # where <distro> is only ubi
   # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
 
   # MongoDBCommunity build variant
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
-    tags: [ "e2e_test_suite"]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *community_dependency
     tasks:
       - name: e2e_mdb_community_task_group
@@ -1278,36 +1276,36 @@ buildvariants:
   ## MongoDB build variants
   - name: e2e_mdb_kind_ubi_cloudqa
     display_name: e2e_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-medium
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
 
   - name: e2e_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_custom_domain_task_group
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     display_name: e2e_static_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-medium
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
 
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1319,14 +1317,16 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
+      - name: publish_helm_chart
         variant: init_test_run
+
     tasks:
       - name: e2e_custom_domain_task_group
 
+  # We do not want to run openshift variants on every PR.
   - name: e2e_mdb_openshift_ubi_cloudqa
     display_name: e2e_mdb_openshift_ubi_cloudqa
-    tags: [ "e2e_openshift_test_suite", "cloudqa" ]
+    tags: [ "staging", "e2e_openshift_test_suite", "cloudqa", "cloudqa_non_static" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1337,16 +1337,14 @@ buildvariants:
       - name: build_test_image
         variant: init_test_run
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     tasks:
       - name: e2e_mdb_openshift_ubi_cloudqa_task_group
 
-  # This name is on purpose reversed from e2e_static_openshift to e2e_openshift_static.
-  # That is because we run a regex
-  # in evergreen for all variants matching e2e_static-*, but we do not want to run openshift variants on every pr.
-  - name: e2e_openshift_static_mdb_ubi_cloudqa
-    display_name: e2e_openshift_static_mdb_ubi_cloudqa
-    tags: [ "e2e_openshift_test_suite", "cloudqa" ]
+  # We do not want to run openshift variants on every PR.
+  - name: e2e_static_openshift_mdb_ubi_cloudqa
+    display_name: e2e_static_openshift_mdb_ubi_cloudqa
+    tags: [ "staging", "e2e_openshift_test_suite", "cloudqa", "static" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1354,10 +1352,9 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     tasks:
       - name: e2e_mdb_openshift_ubi_cloudqa_task_group
 
@@ -1366,9 +1363,9 @@ buildvariants:
   # Isolated Ops Manager Tests for 6.0 version
   - name: e2e_om60_kind_ubi
     display_name: e2e_om60_kind_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2204-medium-high-memory
     <<: *base_om6_dependency
     tasks:
       - name: e2e_ops_manager_kind_only_task_group
@@ -1378,9 +1375,9 @@ buildvariants:
   # Isolated Ops Manager Tests for 6.0 version
   - name: e2e_static_om60_kind_ubi
     display_name: e2e_static_om60_kind_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om6_dependency
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
@@ -1388,9 +1385,9 @@ buildvariants:
 
   - name: e2e_om70_kind_ubi
     display_name: e2e_om70_kind_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "patch" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2204-medium-high-memory
     <<: *base_om7_dependency
     tasks:
       - name: e2e_ops_manager_kind_only_task_group
@@ -1400,9 +1397,9 @@ buildvariants:
 
   - name: e2e_static_om70_kind_ubi
     display_name: e2e_static_om70_kind_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om7_dependency
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
@@ -1411,21 +1408,23 @@ buildvariants:
 
   - name: e2e_om80_kind_ubi
     display_name: e2e_om80_kind_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2204-medium-high-memory
     <<: *base_om8_dependency
     tasks:
       - name: e2e_ops_manager_kind_only_task_group
-      - name: e2e_ops_manager_kind_5_0_only_task_group
+      # TODO (CLOUDP-346008): Replace this task group with e2e_ops_manager_kind_5_0_only_task_group once the issue with queryable backup task is resolved in OM8
+      - name: e2e_ops_manager_kind_5_0_only_task_group_without_queryable_backup
       - name: e2e_ops_manager_kind_6_0_only_task_group
       - name: e2e_ops_manager_upgrade_only_task_group
+      - name: e2e_ops_manager_kind_8_0_only_task_group
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om8_dependency
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
@@ -1434,96 +1433,198 @@ buildvariants:
 
   - name: e2e_operator_race_ubi_with_telemetry
     display_name: e2e_operator_race_ubi_with_telemetry
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu1804-xlarge
-    <<: *base_om7_dependency
+      - ubuntu2404-xlarge
+    <<: *base_om7_dependency_with_race
     tasks:
       - name: e2e_operator_race_with_telemetry_task_group
 
-  - name: e2e_smoke
-    display_name: e2e_smoke
-    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+  - name: e2e_smoke_ibm_power
+    display_name: e2e_smoke_ibm_power
+    tags: [ "staging", "e2e_smoke_test_suite" ]
     run_on:
-      - ubuntu2204-large
-    allowed_requesters: [ "patch", "github_tag" ]
+      - rhel9-power-small
+      - rhel9-power-large
+    allowed_requesters: [ "patch", "commit" ]
     depends_on:
-      - name: build_test_image
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm_power
+        variant: init_test_run_ibm_power
+      - name: publish_helm_chart
         variant: init_test_run
     tasks:
-      - name: e2e_smoke_task_group
+      - name: e2e_smoke_ibm_task_group
 
-  - name: e2e_static_smoke
-    display_name: e2e_static_smoke
-    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+  - name: e2e_static_smoke_ibm_power
+    display_name: e2e_static_smoke_ibm_power
+    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
     run_on:
-      - ubuntu2204-large
-    allowed_requesters: [ "patch", "github_tag" ]
+      - rhel9-power-small
+      - rhel9-power-large
+    allowed_requesters: [ "patch", "commit" ]
     depends_on:
-      - name: build_test_image
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm_power
+        variant: init_test_run_ibm_power
+      - name: publish_helm_chart
         variant: init_test_run
     tasks:
-      - name: e2e_smoke_task_group
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_smoke_ibm_z
+    display_name: e2e_smoke_ibm_z
+    tags: [ "staging", "e2e_smoke_test_suite" ]
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    allowed_requesters: [ "patch", "commit" ]
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
+    disable: true
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm_z
+        variant: init_test_run_ibm_z
+      - name: publish_helm_chart
+        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_static_smoke_ibm_z
+    display_name: e2e_static_smoke_ibm_z
+    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
+    disable: true
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    allowed_requesters: [ "patch", "commit" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm_z
+        variant: init_test_run_ibm_z
+      - name: publish_helm_chart
+        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_smoke_arm
+    display_name: e2e_smoke_arm
+    tags: [ "staging", "e2e_smoke_test_suite" ]
+    run_on:
+      - ubuntu2404-arm64-large
+    allowed_requesters: [ "patch", "commit" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image_arm
+        variant: init_test_run_arm
+      - name: publish_helm_chart
+        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_arm_task_group
+
+  - name: e2e_static_smoke_arm
+    display_name: e2e_static_smoke_arm
+    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    run_on:
+      - ubuntu2404-arm64-large
+    allowed_requesters: [ "patch", "commit" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image_arm
+        variant: init_test_run_arm
+      - name: publish_helm_chart
+        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_arm_task_group
 
   - name: e2e_multi_cluster_kind
     display_name: e2e_multi_cluster_kind
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om6_dependency
     tasks:
       - name: e2e_multi_cluster_kind_task_group
 
   - name: e2e_static_multi_cluster_kind
     display_name: e2e_static_multi_cluster_kind
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om6_dependency
     tasks:
       - name: e2e_multi_cluster_kind_task_group
 
   - name: e2e_multi_cluster_2_clusters
     display_name: e2e_multi_cluster_2_clusters
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om6_dependency
     tasks:
       - name: e2e_multi_cluster_2_clusters_task_group
 
   - name: e2e_static_multi_cluster_2_clusters
     display_name: e2e_static_multi_cluster_2_clusters
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om6_dependency
     tasks:
       - name: e2e_multi_cluster_2_clusters_task_group
 
   - name: e2e_multi_cluster_om_appdb
     display_name: e2e_multi_cluster_om_appdb
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om6_dependency
     tasks:
       - name: e2e_multi_cluster_om_appdb_task_group
 
   - name: e2e_static_multi_cluster_om_appdb
     display_name: e2e_static_multi_cluster_om_appdb
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om6_dependency
     tasks:
       - name: e2e_static_multi_cluster_om_appdb_task_group
 
   - name: e2e_multi_cluster_om_operator_not_in_mesh
     display_name: e2e_multi_cluster_om_operator_not_in_mesh
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
@@ -1532,36 +1633,36 @@ buildvariants:
 
   - name: e2e_operator_kind_ubi_cloudqa
     display_name: e2e_operator_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_operator_task_group
 
   - name: e2e_static_operator_kind_ubi_cloudqa
     display_name: e2e_static_operator_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_static_operator_task_group
 
   - name: e2e_operator_no_webhook_roles_cloudqa
     display_name: e2e_operator_no_webhook_roles_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
 
   - name: e2e_kind_olm_ubi
     display_name: e2e_kind_olm_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     depends_on:
       - name: build_om_images
         variant: build_om60_images
@@ -1584,9 +1685,9 @@ buildvariants:
 
   - name: e2e_static_kind_olm_ubi
     display_name: e2e_static_kind_olm_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     depends_on:
       - name: build_om_images
         variant: build_om60_images
@@ -1602,24 +1703,22 @@ buildvariants:
         variant: init_tests_with_olm
       - name: build_init_database_image_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
     tasks:
       - name: e2e_kind_olm_group
 
     # This variants runs the tests from MCO with the MEKO operator binary
   - name: e2e_mco_tests
     display_name: "e2e_mco_tests"
-    tags: [ "e2e_mco_test_suite"]
+    tags: [ "pr_patch", "staging", "e2e_mco_test_suite" ]
     <<: *community_dependency
     run_on:
-      - ubuntu2004-large
+      - ubuntu2404-large
 
   ## Manual (patch) E2E tests not run for every PR and commit
 
   - name: e2e_operator_perf
     display_name: e2e_operator_perf
-    tags: [ "e2e_perf_test_suite" ]
+    tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu1804-xlarge
@@ -1629,7 +1728,7 @@ buildvariants:
 
   - name: e2e_operator_perf_one_thread
     display_name: e2e_operator_perf_one_thread
-    tags: [ "e2e_perf_test_suite" ]
+    tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu1804-xlarge
@@ -1639,7 +1738,7 @@ buildvariants:
 
   - name: e2e_operator_perf_thirty
     display_name: e2e_operator_perf_thirty
-    tags: [ "e2e_perf_test_suite" ]
+    tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu1804-xlarge
@@ -1652,11 +1751,15 @@ buildvariants:
   - name: init_test_run
     display_name: init_test_run
     max_hosts: -1
+    tags: [ "pr_patch", "staging" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     tasks:
       - name: build_operator_ubi
+      - name: build_operator_race_ubi
       - name: build_test_image
+        depends_on:
+          - name: build_kubectl_mongodb_plugin
       - name: build_mco_test_image
       - name: build_init_appdb_images_ubi
       - name: build_init_om_images_ubi
@@ -1664,28 +1767,59 @@ buildvariants:
       - name: build_database_image_ubi
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
-      - name: build_upgrade_hook_image
+      - name: build_version_upgrade_hook_image
+      - name: build_kubectl_mongodb_plugin
       - name: prepare_aws
+      - name: publish_helm_chart
 
-  - name: init_release_agents_on_ecr
-    display_name: init_release_agents_on_ecr
-    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
-    allowed_requesters: [ "patch", "github_pr" ]
-    tags: [ "release_agents_on_ecr" ]
-    # We want that to run first and finish asap. Digest pinning depends on this to succeed.
-    priority: 70
+  - name: init_test_run_ibm_power
+    display_name: init_test_run_ibm_power
+    max_hosts: -1
+    tags: [ "staging" ]
     run_on:
-      - ubuntu2204-large
+      - rhel9-power-small
+      - rhel9-power-large
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
     tasks:
-      - name: release_agents_on_ecr_conditional
+      - name: build_test_image_ibm_power
+
+  - name: init_test_run_ibm_z
+    display_name: init_test_run_ibm_z
+    max_hosts: -1
+    tags: [ "staging" ]
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
+    disable: true
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
+    tasks:
+      - name: build_test_image_ibm_z
+
+  - name: init_test_run_arm
+    display_name: init_test_run_arm
+    max_hosts: -1
+    tags: [ "staging" ]
+    run_on:
+      - ubuntu2204-arm64-small
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
+    tasks:
+      - name: build_test_image_arm
 
   - name: run_pre_commit
     priority: 70
     display_name: run_pre_commit
     allowed_requesters: [ "patch", "github_pr" ]
-    tags: [ "auto_bump" ]
+    tags: [ "pr_patch", "auto_bump" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     tasks:
       - name: run_precommit_and_push
 
@@ -1706,10 +1840,9 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+    tags: [ "pr_patch", "staging" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     tasks:
       - name: prepare_and_upload_openshift_bundles_for_e2e
 
@@ -1719,125 +1852,47 @@ buildvariants:
 
   - name: preflight_release_images_check_only
     display_name: preflight_release_images_check_only
+    tags: [ "staging" ]
     run_on:
       - rhel90-large
+    expansions:
+      preflight_submit: false
     tasks:
       - name: preflight_images_task_group
 
   - name: build_om60_images
     display_name: build_om60_images
+    tags: [ "pr_patch", "staging" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     tasks:
       - name: build_om_images
-
-  - name: preflight_om60_images
-    display_name: preflight_om60_images
-    run_on:
-      - rhel90-large
-    tasks:
-      - name: preflight_om_image
 
   - name: build_om70_images
     display_name: build_om70_images
+    tags: [ "pr_patch", "staging" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     tasks:
       - name: build_om_images
-
-  - name: preflight_om70_images
-    display_name: preflight_om70_images
-    run_on:
-      - rhel90-large
-    tasks:
-      - name: preflight_om_image
 
   - name: build_om80_images
     display_name: build_om80_images
+    tags: [ "pr_patch", "staging" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     tasks:
       - name: build_om_images
 
-  - name: preflight_om80_images
-    display_name: preflight_om80_images
-    run_on:
-      - rhel90-large
-    tasks:
-      - name: preflight_om_image
-
-  ### Release build variants
-
-  ## Adds versions as supported in the supported versions Database.
-  - name: release_images
-    display_name: release_images
-    tags: [ "release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    max_hosts: -1
-    run_on:
-      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
-    depends_on:
-      - name: build_operator_ubi
-        variant: init_test_run
-      - name: build_init_om_images_ubi
-        variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
-      - name: build_init_database_image_ubi
-        variant: init_test_run
-      - name: build_database_image_ubi
-        variant: init_test_run
-    tasks:
-      - name: release_operator
-      - name: release_init_appdb
-      - name: release_init_database
-      - name: release_init_ops_manager
-      - name: release_database
-      # Once we release the operator, we will also release the init databases, we require them to be out first
-      # such that we can reference them and retrieve those binaries.
-      # Since we immediately run daily rebuild after creating the image, we can ensure that the init_database is out
-      # such that the agent image build can use it.
-      - name: release_agent_operator_release
-        depends_on:
-          - name: release_init_database
-
-  - name: preflight_release_images
-    display_name: preflight_release_images
-    tags: [ "release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    depends_on:
-      - name: "*"
-        variant: release_images
-    run_on:
-      - rhel90-large
-    expansions:
-      preflight_submit: true
-    tasks:
-      - name: preflight_images_task_group
-
-  - name: prepare_openshift_bundles
-    display_name: prepare_openshift_bundles
-    tags: [ "release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    depends_on:
-      - name: "*"
-        variant: release_images
-      - name: "*"
-        variant: preflight_release_images
-    run_on:
-      - ubuntu2204-large
-    tasks:
-      - name: run_conditionally_prepare_and_upload_openshift_bundles
-
     # It will be called by pct while bumping the agent cloud manager image
   - name: release_agent
-    display_name: (Static Containers) Release Agent matrix
-    tags: [ "release_agent" ]
+    display_name: release_agent
+    tags: [ "manual_patch", "release_agent" ]
     run_on:
-      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
-      - variant: init_release_agents_on_ecr
-        name: '*'
+      - variant: init_test_run
+        name: build_agent_images_ubi # this ensures the agent gets released to ECR as well
       - variant: e2e_multi_cluster_kind
         name: '*'
       - variant: e2e_static_multi_cluster_2_clusters
@@ -1849,82 +1904,34 @@ buildvariants:
     tasks:
       - name: release_agent
 
-    # Only called manually, It's used for testing the task release_agents_on_ecr in case the release.json
-    # has not changed, and you still want to push the images to ecr.
-  - name: manual_ecr_release_agent
+    # Only called manually, It's used for testing the task release_agents in case the release.json
+    # has not changed, and you still want to push the images to registry.
+  - name: manual_release_all_agents
     display_name: Manual Agent Release for all versions
-    tags: [ "release_all_agents_manually" ]
+    tags: [ "manual_patch", "release_all_agents_manually" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     tasks:
-      - name: release_all_agents_on_ecr
+      - name: rebuild_all_agents
 
-    # These variants are used to test the code snippets and each one can be used in patches
-    # Prerelease is especially used when the repo is tagged
-    # More details in the TD: https://docs.google.com/document/d/1fuTxfRtP8QPtn7sKYxQM_AGcD6xycTZH8svngGxyKhc/edit?tab=t.0#bookmark=id.e8uva0393mbe
-  - name: public_gke_code_snippets
-    display_name: public_gke_code_snippets
-    allowed_requesters: ["patch"]
+    # Only called manually, It's used for testing the task release_agents in case the release.json
+    # has not changed, and you still want to push the images to registry.
+  - name: manual_release_agent_currently_used
+    display_name: manual_release_agent_currently_used
+    tags: [ "manual_patch", "release_current_agents_manually" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-large
     tasks:
-      - name: gke_code_snippets_task_group
-
-  - name: prerelease_gke_code_snippets
-    display_name: prerelease_gke_code_snippets
-    tags: [ "release" ]
-    allowed_requesters: ["patch", "github_tag"]
-    depends_on:
-      - variant: release_images
-        name: '*'
-        patch_optional: true
-    run_on:
-      - ubuntu2204-small
-    tasks:
-      - name: gke_code_snippets_task_group
-
-  - name: private_gke_code_snippets
-    display_name: private_gke_code_snippets
-    allowed_requesters: ["patch"]
-    run_on:
-      - ubuntu2204-small
-    <<: *base_om8_dependency
-    tasks:
-      - name: gke_code_snippets_task_group
-
-  - name: private_kind_code_snippets
-    display_name: private_kind_code_snippets
-    tags: [ "e2e_test_suite" ]
-    allowed_requesters: ["patch", "github_pr"]
-    run_on:
-      - ubuntu2204-large
-    <<: *base_om8_dependency
-    tasks:
-      - name: kind_code_snippets_task_group
-
-  - name: prerelease_kind_code_snippets
-    display_name: prerelease_kind_code_snippets
-    allowed_requesters: ["patch"]
-    run_on:
-      - ubuntu2204-large
-    tasks:
-      - name: kind_code_snippets_task_group
-
-  - name: public_kind_code_snippets
-    display_name: public_kind_code_snippets
-    allowed_requesters: ["patch"]
-    run_on:
-      - ubuntu2204-large
-    tasks:
-      - name: kind_code_snippets_task_group
+      - name: rebuild_currently_used_agents
 
   ### Build variants for manual patch only
 
   - name: backup_csv_images
     display_name: "Backup CSV Images"
+    tags: [ "manual_patch" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     tasks:
       - name: backup_csv_images_dry_run
       - name: backup_csv_images_limit_3
@@ -1932,9 +1939,10 @@ buildvariants:
 
   - name: publish_om60_images
     display_name: publish_om60_images
+    tags: [ "manual_patch" ]
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
-      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - variant: e2e_om60_kind_ubi
         name: '*'
@@ -1946,9 +1954,10 @@ buildvariants:
 
   - name: publish_om70_images
     display_name: publish_om70_images
+    tags: [ "manual_patch" ]
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
-      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - variant: e2e_om70_kind_ubi
         name: '*'
@@ -1960,9 +1969,10 @@ buildvariants:
 
   - name: publish_om80_images
     display_name: publish_om80_images
+    tags: [ "manual_patch" ]
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
-      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - variant: e2e_om80_kind_ubi
         name: '*'
@@ -1971,3 +1981,12 @@ buildvariants:
     tasks:
       - name: publish_ops_manager
       - name: release_agent
+
+  - name: migrate_all_agents
+    display_name: migrate_all_agents
+    tags: [ "manual_patch" ]
+    allowed_requesters: [ "patch" ]
+    run_on:
+      - ubuntu2404-large
+    tasks:
+      - name: migrate_all_agents

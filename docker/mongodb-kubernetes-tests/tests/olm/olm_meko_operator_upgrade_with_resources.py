@@ -13,7 +13,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
 from tests import test_logger
-from tests.conftest import LEGACY_OPERATOR_NAME, OPERATOR_NAME
+from tests.constants import LEGACY_OPERATOR_NAME, OPERATOR_NAME
 from tests.olm.olm_test_commons import (
     get_catalog_image,
     get_catalog_source_resource,
@@ -123,7 +123,6 @@ def latest_released_meko_version():
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_meko_install_stable_operator_version(
     namespace: str,
-    version_id: str,
     latest_released_meko_version: str,
     catalog_source: CustomObject,
     meko_subscription: CustomObject,
@@ -464,7 +463,6 @@ def test_connectivity_after_meko_uninstall(
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_install_mck_operator(
     namespace: str,
-    version_id: str,
     catalog_source: CustomObject,
 ):
     current_operator_version = get_current_operator_version()

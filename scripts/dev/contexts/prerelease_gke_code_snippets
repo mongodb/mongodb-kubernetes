@@ -8,10 +8,11 @@ script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 
 source "${script_dir}/root-context"
+source "${script_dir}/funcs/gke"
+K8S_CLUSTER_SUFFIX="$(create_k8s_cluster_suffix)"
+export K8S_CLUSTER_SUFFIX
 
 export MDB_GKE_PROJECT="scratch-kubernetes-team"
-export K8S_CLUSTER_SUFFIX="-${version_id}-${RANDOM}"
-export CODE_SNIPPETS_COMMIT_OUTPUT=true
 
 # we reset evg host to use a default ~/.kube/config for GKE instead of the one from evg host
 export EVG_HOST_NAME=""

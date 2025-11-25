@@ -2,22 +2,28 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	mockClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -1154,10 +1160,15 @@ func findEventWithDeploymentUID(events []Event, deploymentUID string) *Event {
 type MockClient struct {
 	client.Client
 	MockList func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error
+	MockGet  func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
 }
 
 func (m *MockClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	return m.MockList(ctx, list, opts...)
+}
+
+func (m *MockClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	return m.MockGet(ctx, key, obj, opts...)
 }
 
 func TestAddCommunityEvents(t *testing.T) {
@@ -1258,55 +1269,67 @@ func TestAddCommunityEvents(t *testing.T) {
 
 func TestAddSearchEvents(t *testing.T) {
 	operatorUUID := "test-operator-uuid"
-
 	now := time.Now()
 
+	mdbStatic := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "mdb-static", Annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}}}
+	mdbNonStatic := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "mdb-nonstatic", Annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.NonStatic)}}}
+	community := &mcov1.MongoDBCommunity{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "community-db"}}
+
 	testCases := []struct {
-		name      string
-		resources searchv1.MongoDBSearchList
-		events    []DeploymentUsageSnapshotProperties
+		name        string
+		searchItems []searchv1.MongoDBSearch
+		events      []DeploymentUsageSnapshotProperties
+		sources     map[reflect.Type][]client.Object
 	}{
 		{
-			name: "With resources",
-			resources: searchv1.MongoDBSearchList{
-				Items: []searchv1.MongoDBSearch{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							UID:  types.UID("search-1"),
-							Name: "test-search-1",
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							UID:  types.UID("search-2"),
-							Name: "test-search-2",
-						},
-					},
-				},
+			name: "External source",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-external"), Name: "search-external", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{}}}},
+			},
+			events: []DeploymentUsageSnapshotProperties{{
+				DeploymentUID:            "search-external",
+				OperatorID:               operatorUUID,
+				Architecture:             "external",
+				IsMultiCluster:           false,
+				Type:                     "Search",
+				IsRunningEnterpriseImage: false,
+			}},
+		},
+		{
+			name: "Enterprise static and non-static",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-static"), Name: "search-static", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-static"}}}},
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-nonstatic"), Name: "search-nonstatic", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-nonstatic"}}}},
 			},
 			events: []DeploymentUsageSnapshotProperties{
-				{
-					DeploymentUID:            "search-1",
-					OperatorID:               operatorUUID,
-					Architecture:             string(architectures.Static),
-					IsMultiCluster:           false,
-					Type:                     "Search",
-					IsRunningEnterpriseImage: false,
-				},
-				{
-					DeploymentUID:            "search-2",
-					OperatorID:               operatorUUID,
-					Architecture:             string(architectures.Static),
-					IsMultiCluster:           false,
-					Type:                     "Search",
-					IsRunningEnterpriseImage: false,
-				},
+				{DeploymentUID: "search-static", OperatorID: operatorUUID, Architecture: string(architectures.Static), IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: true},
+				{DeploymentUID: "search-nonstatic", OperatorID: operatorUUID, Architecture: string(architectures.NonStatic), IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: true},
+			},
+			sources: map[reflect.Type][]client.Object{
+				reflect.TypeOf(&mdbv1.MongoDB{}): {mdbStatic, mdbNonStatic},
 			},
 		},
 		{
-			name:      "With no resources",
-			resources: searchv1.MongoDBSearchList{},
-			events:    []DeploymentUsageSnapshotProperties{},
+			name: "Community source",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-community"), Name: "search-community", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "community-db"}}}},
+			},
+			events: []DeploymentUsageSnapshotProperties{{DeploymentUID: "search-community", OperatorID: operatorUUID, Architecture: "static", IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: false}},
+			sources: map[reflect.Type][]client.Object{
+				reflect.TypeOf(&mcov1.MongoDBCommunity{}): {community},
+			},
+		},
+		{
+			name: "Missing underlying resource (skipped)",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-missing"), Name: "search-missing", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "does-not-exist"}}}},
+			},
+			events: []DeploymentUsageSnapshotProperties{},
+		},
+		{
+			name:        "No search resources",
+			searchItems: []searchv1.MongoDBSearch{},
+			events:      []DeploymentUsageSnapshotProperties{},
 		},
 	}
 
@@ -1315,9 +1338,22 @@ func TestAddSearchEvents(t *testing.T) {
 			mc := &MockClient{
 				MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 					if l, ok := list.(*searchv1.MongoDBSearchList); ok {
-						*l = tc.resources
+						*l = searchv1.MongoDBSearchList{Items: tc.searchItems}
 					}
 					return nil
+				},
+				MockGet: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					objects := tc.sources[reflect.TypeOf(obj)]
+					for _, o := range objects {
+						if o.GetName() == key.Name && o.GetNamespace() == key.Namespace {
+							// copy the arranged object into the obj pointer like controller-runtime's pkg/client/fake does
+							bytes, _ := json.Marshal(o)
+							json.Unmarshal(bytes, obj)
+							return nil
+						}
+					}
+
+					return errors.New("not found")
 				},
 			}
 
@@ -1330,4 +1366,94 @@ func TestAddSearchEvents(t *testing.T) {
 			assert.ElementsMatch(t, expectedEvents, events, "Should return the expected events")
 		})
 	}
+}
+
+func TestCollectOperatorSnapshot(t *testing.T) {
+	tests := map[string]struct {
+		memberClusterMap map[string]ConfigClient
+		expectedProps    OperatorUsageSnapshotProperties
+	}{
+		"single cluster": {
+			memberClusterMap: map[string]ConfigClient{},
+			expectedProps: OperatorUsageSnapshotProperties{
+				OperatorID:           testOperatorUUID,
+				OperatorType:         MEKO,
+				OperatorArchitecture: runtime.GOARCH,
+				OperatorOS:           runtime.GOOS,
+			},
+		},
+		"multi cluster": {
+			memberClusterMap: map[string]ConfigClient{
+				"cluster1": &mockConfigClient{clusterUUID: "cluster-uuid-1"},
+				"cluster2": &mockConfigClient{clusterUUID: "cluster-uuid-2"},
+			},
+			expectedProps: OperatorUsageSnapshotProperties{
+				OperatorID:           testOperatorUUID,
+				OperatorType:         MEKO,
+				OperatorArchitecture: runtime.GOARCH,
+				OperatorOS:           runtime.GOOS,
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			kubeSystemNamespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "kube-system",
+					UID:  types.UID("operator-cluster-uuid"),
+				},
+			}
+
+			k8sClient := mock.NewEmptyFakeClientBuilder().WithObjects(kubeSystemNamespace).Build()
+			mgr := mockClient.NewManagerWithClient(k8sClient)
+
+			ctx := context.Background()
+
+			events := collectOperatorSnapshot(ctx, test.memberClusterMap, mgr, testOperatorUUID, "", "")
+
+			require.Len(t, events, 1, "expected exactly one operator event")
+			event := events[0]
+
+			assert.Equal(t, Operators, event.Source)
+			require.NotNil(t, event.Timestamp, "event timestamp is nil")
+
+			assert.Equal(t, runtime.GOARCH, event.Properties["operatorArchitecture"])
+			assert.Equal(t, runtime.GOOS, event.Properties["operatorOS"])
+			assert.Equal(t, testOperatorUUID, event.Properties["operatorID"])
+			assert.Equal(t, string(MEKO), event.Properties["operatorType"])
+
+			assert.Contains(t, event.Properties, "kubernetesClusterID")
+			assert.Contains(t, event.Properties, "kubernetesClusterIDs")
+			assert.Contains(t, event.Properties, "operatorVersion")
+		})
+	}
+}
+
+// mockConfigClient is a simple mock implementation of ConfigClient for testing
+type mockConfigClient struct {
+	clusterUUID string
+}
+
+func (m *mockConfigClient) GetConfig() *rest.Config {
+	return &rest.Config{}
+}
+
+func (m *mockConfigClient) GetAPIReader() client.Reader {
+	uuid := m.clusterUUID
+	if uuid == "" {
+		uuid = "default-cluster-uuid"
+	}
+
+	kubeSystemNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kube-system",
+			UID:  types.UID(uuid),
+		},
+	}
+
+	k8sClient := mock.NewEmptyFakeClientBuilder().WithObjects(kubeSystemNamespace).Build()
+	return k8sClient
 }

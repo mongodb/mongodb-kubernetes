@@ -89,6 +89,11 @@ class MongoDB(CustomObject, MongoDBCommon):
             "Failed to enable Authentication",
             # Sometimes agents need longer to register with OM.
             "some agents failed to register or the Operator",
+            # Kubernetes API server may timeout during high load, but the request may still complete.
+            # This is particularly common when deploying many resources simultaneously.
+            "but may still be processing the request",
+            "Client.Timeout exceeded while awaiting headers",
+            "context deadline exceeded",
         )
 
         start_time = time.time()
@@ -216,26 +221,6 @@ class MongoDB(CustomObject, MongoDBCommon):
             self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "static"})
             self.update()
 
-    def trigger_sts_restart(self, component=""):
-        """
-        Adds or changes a label from the pod template to trigger a rolling restart of that StatefulSet.
-        Leave component to empty if a ReplicaSet deployment is used.
-        Set component to either "shard", "config", "mongos" to trigger a restart of the respective StatefulSet.
-        """
-        pod_spec = "podSpec"
-        if component == "shard":
-            pod_spec = "shardPodSpec"
-        elif component == "config":
-            pod_spec = "configSrvPodSpec"
-        elif component == "mongos":
-            pod_spec = "mongosPodSpec"
-
-        self.load()
-        self["spec"][pod_spec] = {
-            "podTemplate": {"metadata": {"annotations": {"kubectl.kubernetes.io/restartedAt": str(time.time())}}}
-        }
-        self.update()
-
     def assert_connectivity_from_connection_string(self, cnx_string: str, tls: bool, ca_path: Optional[str] = None):
         """
         Tries to connect to a database using a connection string only.
@@ -250,7 +235,18 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def configure(
         self,
-        om: MongoDBOpsManager,
+        om: Optional[MongoDBOpsManager],
+        project_name: str,
+        api_client: Optional[client.ApiClient] = None,
+    ) -> MongoDB:
+        if om is not None:
+            return self.configure_ops_manager(om, project_name, api_client=api_client)
+        else:
+            return self.configure_cloud_qa(project_name, api_client=api_client)
+
+    def configure_ops_manager(
+        self,
+        om: Optional[MongoDBOpsManager],
         project_name: str,
         api_client: Optional[client.ApiClient] = None,
     ) -> MongoDB:
@@ -267,6 +263,29 @@ class MongoDB(CustomObject, MongoDBCommon):
         self["spec"]["credentials"] = om.api_key_secret(self.namespace, api_client=api_client)
         return self
 
+    def configure_cloud_qa(
+        self,
+        project_name,
+        api_client: Optional[client.ApiClient] = None,
+    ) -> MongoDB:
+        if "opsManager" in self["spec"]:
+            del self["spec"]["opsManager"]
+
+        src_project_config_map_name = "my-project"
+        if "cloudManager" in self["spec"]:
+            src_project_config_map_name = self["spec"]["cloudManager"]["configMapRef"]["name"]
+
+        src_cm = read_configmap(self.namespace, src_project_config_map_name, api_client=api_client)
+
+        new_project_config_map_name = f"{self.name}-project-config"
+        ensure_nested_objects(self, ["spec", "cloudManager", "configMapRef"])
+        self["spec"]["cloudManager"]["configMapRef"]["name"] = new_project_config_map_name
+
+        src_cm.update({"projectName": f"{self.namespace}-{project_name}"})
+        create_or_update_configmap(self.namespace, new_project_config_map_name, src_cm, api_client=api_client)
+
+        return self
+
     def configure_backup(self, mode: str = "enabled") -> MongoDB:
         ensure_nested_objects(self, ["spec", "backup"])
         self["spec"]["backup"]["mode"] = mode
@@ -278,10 +297,8 @@ class MongoDB(CustomObject, MongoDBCommon):
         tls_cert_secret_name: str,
     ):
         ensure_nested_objects(self, ["spec", "security", "tls"])
-        self["spec"]["security"] = {
-            "certsSecretPrefix": tls_cert_secret_name,
-            "tls": {"enabled": True, "ca": issuer_ca_configmap_name},
-        }
+        self["spec"]["security"]["certsSecretPrefix"] = tls_cert_secret_name
+        self["spec"]["security"]["tls"].update({"enabled": True, "ca": issuer_ca_configmap_name})
 
     def build_list_of_hosts(self):
         """Returns the list of full_fqdn:27017 for every member of the mongodb resource"""
@@ -471,6 +488,9 @@ class MongoDB(CustomObject, MongoDBCommon):
     def config_map_name(self) -> str:
         if "opsManager" in self["spec"]:
             return self["spec"]["opsManager"]["configMapRef"]["name"]
+        elif "cloudManager" in self["spec"]:
+            return self["spec"]["cloudManager"]["configMapRef"]["name"]
+
         return self["spec"]["project"]
 
     def shard_replicaset_names(self) -> List[str]:

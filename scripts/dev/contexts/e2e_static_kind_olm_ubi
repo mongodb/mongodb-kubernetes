@@ -8,6 +8,8 @@ script_dir=$(dirname "${script_name}")
 source "${script_dir}/root-context"
 source "${script_dir}/variables/om70"
 
+# Using a version of OM that is also available for MEKO (including the related agent images)
+export CUSTOM_OM_VERSION=7.0.12
 export KUBE_ENVIRONMENT_NAME=kind
 export CUSTOM_MDB_PREV_VERSION=4.4.20
 export MDB_DEFAULT_ARCHITECTURE=static

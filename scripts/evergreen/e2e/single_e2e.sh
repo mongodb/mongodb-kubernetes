@@ -22,10 +22,25 @@ deploy_test_app() {
     local context=${1}
     local helm_template_file
     helm_template_file=$(mktemp)
-    tag="${VERSION_ID:-latest}"
-    if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
-      tag="${OVERRIDE_VERSION_ID}"
-    fi
+    meko_tests_version="${OPERATOR_VERSION}"
+
+    local arch
+    arch=$(uname -m)
+
+    case "${arch}" in
+        aarch64|arm64)
+            meko_tests_version="${meko_tests_version}-arm64"
+            ;;
+        ppc64le)
+            meko_tests_version="${meko_tests_version}-ppc64le"
+            ;;
+        s390x)
+            meko_tests_version="${meko_tests_version}-s390x"
+            ;;
+        *)
+            echo "amd64 host, using default meko_tests_version"
+            ;;
+    esac
 
     IS_PATCH="${IS_PATCH:-default_patch}"
     TASK_NAME="${TASK_NAME:-default_task}"
@@ -33,13 +48,24 @@ deploy_test_app() {
     BUILD_ID="${BUILD_ID:-default_build_id}"
     BUILD_VARIANT="${BUILD_VARIANT:-default_build_variant}"
 
+    if ! chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py --build-scenario "${BUILD_SCENARIO}" 2>&1); then
+        echo "${chart_info}"
+        exit 1
+    fi
+    helm_oci_registry=$(echo "${chart_info}" | jq -r '.registry' )
+    helm_oci_repository=$(echo "${chart_info}" | jq -r '.repository' )
+    helm_oci_registry_region=$(echo "${chart_info}" | jq -r '.region' )
+    helm_oci_version_prefix=$(echo "${chart_info}" | jq -r '.version_prefix // empty' )
+    helm_oci_version="${helm_oci_version_prefix:-}${OPERATOR_VERSION}"
+
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
         "--set" "taskId=${task_id:-'not-specified'}"
-        "--set" "repo=${BASE_REPO_URL:=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev}"
         "--set" "namespace=${NAMESPACE}"
         "--set" "taskName=${task_name}"
-        "--set" "tag=${tag}"
+        "--set" "mekoTestsRegistry=${MEKO_TESTS_REGISTRY}"
+        "--set" "mekoTestsVersion=${meko_tests_version}"
+        "--set" "versionId=${VERSION_ID}"
         "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID}"
         "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY}"
         "--set" "skipExecution=${SKIP_EXECUTION:-'false'}"
@@ -49,7 +75,7 @@ deploy_test_app() {
         "--set" "orgId=${OM_ORGID:-}"
         "--set" "imagePullSecrets=image-registries-secret"
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
-        "--set" "registry=${REGISTRY:-${BASE_REPO_URL}/${IMAGE_TYPE}}"
+        "--set" "registry=${REGISTRY}"
         "--set" "mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-'non-static'}"
         "--set" "mdbImageType=${MDB_IMAGE_TYPE:-'ubi8'}"
         "--set" "clusterDomain=${CLUSTER_DOMAIN:-'cluster.local'}"
@@ -60,6 +86,10 @@ deploy_test_app() {
         "--set" "cognito_user_password=${cognito_user_password}"
         "--set" "cognito_workload_url=${cognito_workload_url}"
         "--set" "cognito_workload_user_id=${cognito_workload_user_id}"
+        "--set" "helm.oci.version=${helm_oci_version}"
+        "--set" "helm.oci.registry=${helm_oci_registry}"
+        "--set" "helm.oci.repository=${helm_oci_repository}"
+        "--set" "helm.oci.region=${helm_oci_registry_region}"
     )
 
     # shellcheck disable=SC2154
@@ -193,7 +223,7 @@ run_tests() {
 
     wait_until_pod_is_running_or_failed_or_succeeded "${test_pod_context}"
 
-    title "Running e2e test ${task_name} (tag: ${TEST_IMAGE_TAG})"
+    title "Running e2e test ${task_name}"
 
     # we don't output logs to file when running tests locally
     if [[ "${MODE-}" == "dev" ]]; then
@@ -213,8 +243,8 @@ run_tests() {
     echo
 
     # We need to make sure to access this file after the test has finished
-    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml
-    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" cp "${TEST_APP_PODNAME}":/tmp/diagnostics logs
+    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml
+    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/diagnostics logs
 
     status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
     [[ "${status}" == "Completed" ]]

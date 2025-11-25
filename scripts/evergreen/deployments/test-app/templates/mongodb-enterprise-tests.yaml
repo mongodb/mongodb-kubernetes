@@ -53,9 +53,9 @@ spec:
         secretName: test-pod-multi-cluster-config
   {{ end }}
   containers:
-  - image: busybox
+  - image: public.ecr.aws/docker/library/busybox:1.37.0
     name: keepalive
-    command: [ "/bin/sh", "-c", "sleep inf" ]
+    command: ["/bin/sh", "-c", "while true; do sleep 7200; done"]
     volumeMounts:
       - name: results
         mountPath: /tmp/results
@@ -115,7 +115,7 @@ spec:
     - name: POD_NAME
       value: 'mongodb-enterprise-operator-testing-pod'
     - name: VERSION_ID
-      value: {{ .Values.tag }}
+      value: {{ .Values.versionId }}
     - name: REGISTRY
       value: {{ .Values.registry }}
     {{- if .Values.multiCluster.memberClusters }}
@@ -174,6 +174,16 @@ spec:
     - name: OM_DEBUG_HTTP
       value: "{{ .Values.omDebugHttp }}"
     {{ end }}
+    - name: OCI_HELM_VERSION
+      value: "{{ .Values.helm.oci.version }}"
+    - name: OCI_HELM_REGISTRY
+      value: "{{ .Values.helm.oci.registry }}"
+    - name: OCI_HELM_REPOSITORY
+      value: "{{ .Values.helm.oci.repository }}"
+    - name: OCI_HELM_REGION
+      value: "{{ .Values.helm.oci.region }}"
+    - name: DEFAULT_HELM_CHART_PATH
+      value: "oci://{{ .Values.helm.oci.registry }}/{{ .Values.helm.oci.repository }}/mongodb-kubernetes"
     - name: ops_manager_version
       value: "{{ .Values.opsManagerVersion }}"
     - name: cognito_user_pool_id
@@ -190,7 +200,7 @@ spec:
       value: {{ .Values.cognito_workload_url }}
     - name: cognito_workload_user_id
       value: {{ .Values.cognito_workload_user_id }}
-    image: {{ .Values.repo }}/mongodb-kubernetes-tests:{{ .Values.tag }}
+    image: "{{ .Values.mekoTestsRegistry }}/mongodb-kubernetes-tests:{{ .Values.mekoTestsVersion }}"
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
     {{ if .Values.otel_endpoint }}

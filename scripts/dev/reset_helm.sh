@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source scripts/dev/set_env_context.sh
+
 # Set Helm release name
 HELM_RELEASE="mongodb-kubernetes-operator"
 

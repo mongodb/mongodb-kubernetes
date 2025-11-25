@@ -88,7 +88,7 @@ func TestReplicaSetOperatorUpgradeMCOToMCK(t *testing.T) {
 		t.Run("MongoDB Reaches Running Phase", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
 		t.Run("AutomationConfig's version has been increased", mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, 4)) // 4, because the mck upgrade already forces one version bump
 		t.Run("Test Status Was Updated", mongodbtests.Status(ctx, &mdb, mdbv1.MongoDBCommunityStatus{
-			MongoURI:                           mdb.MongoURI(""),
+			MongoURI:                           mdb.MongoURI(),
 			Phase:                              mdbv1.Running,
 			Version:                            mdb.GetMongoDBVersion(),
 			CurrentMongoDBMembers:              5,
@@ -131,7 +131,7 @@ func TestReplicaSetOperatorUpgrade(t *testing.T) {
 	mongodbtests.SkipTestIfLocal(t, "Ensure MongoDB TLS Configuration", func(t *testing.T) {
 		t.Run("Has TLS Mode", tester.HasTlsMode("requireSSL", 60, WithTls(ctx, mdb)))
 		t.Run("Basic Connectivity Succeeds", tester.ConnectivitySucceeds(WithTls(ctx, mdb)))
-		t.Run("SRV Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI("")), WithTls(ctx, mdb)))
+		t.Run("SRV Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI()), WithTls(ctx, mdb)))
 		t.Run("Basic Connectivity With Generated Connection String Secret Succeeds",
 			tester.ConnectivitySucceeds(WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, scramUser)), WithTls(ctx, mdb)))
 		t.Run("SRV Connectivity With Generated Connection String Secret Succeeds",
@@ -163,7 +163,7 @@ func TestReplicaSetOperatorUpgradeFrom0_7_2(t *testing.T) {
 	testConfig.OperatorVersion = "0.7.2"
 	testConfig.VersionUpgradeHookImage = "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.3"
 	testConfig.ReadinessProbeImage = "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.6"
-	testConfig.AgentImage = "quay.io/mongodb/mongodb-agent-ubi:11.0.5.6963-1"
+	testConfig.AgentImage = "quay.io/mongodb/mongodb-agent:11.0.5.6963-1"
 
 	testCtx := setup.SetupWithTestConfig(ctx, t, testConfig, true, false, resourceName)
 	defer testCtx.Teardown()
@@ -189,7 +189,7 @@ func TestReplicaSetOperatorUpgradeFrom0_7_2(t *testing.T) {
 		t.Run("Keyfile authentication is configured", tester.HasKeyfileAuth(3))
 		t.Run("Has TLS Mode", tester.HasTlsMode("requireSSL", 60, WithTls(ctx, mdb)))
 		t.Run("Test Basic Connectivity", tester.ConnectivitySucceeds())
-		t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI("")), WithoutTls(), WithReplicaSet(mdb.Name)))
+		t.Run("Test SRV Connectivity", tester.ConnectivitySucceeds(WithURI(mdb.MongoSRVURI()), WithoutTls(), WithReplicaSet(mdb.Name)))
 		t.Run("Test Basic Connectivity with generated connection string secret",
 			tester.ConnectivitySucceeds(WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, scramUser))))
 		t.Run("Test SRV Connectivity with generated connection string secret",

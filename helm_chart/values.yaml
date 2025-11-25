@@ -22,7 +22,7 @@ operator:
   deployment_name: mongodb-kubernetes-operator
 
   # Version of mongodb-kubernetes-operator
-  version: 1.2.0
+  version: 1.6.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -46,6 +46,12 @@ operator:
     limits:
       cpu: 1100m
       memory: 1Gi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 2000
+
+  securityContext: {}
 
   # Control how many reconciles can be performed in parallel.
   # It sets MaxConcurrentReconciles https://pkg.go.dev/github.com/kubernetes-sigs/controller-runtime/pkg/controller#Options).
@@ -123,11 +129,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.2.0
+  version: 1.6.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.2.0
+  version: 1.6.0
 
 ## Ops Manager
 opsManager:
@@ -135,24 +141,24 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.2.0
+  version: 1.6.0
 
 ## Application Database
 initAppDb:
   name: mongodb-kubernetes-init-appdb
-  version: 1.2.0
+  version: 1.6.0
 
 agent:
-  name: mongodb-agent-ubi
-  version: 108.0.2.8729-1
+  name: mongodb-agent
+  version: 108.0.12.8846-1
 
 # This is only used by the MongoDBCommunity resource reconciler - START
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
-  version: 1.0.9
+  version: 1.0.10
 readinessProbe:
   name: mongodb-kubernetes-readinessprobe
-  version: 1.0.22
+  version: 1.0.23
 # This is only used by the MongoDBCommunity resource reconciler - END
 
 # This is used by AppDB and by static containers to determine the image that the operator uses for databases.
@@ -173,10 +179,9 @@ registry:
   initOpsManager: quay.io/mongodb
   opsManager: quay.io/mongodb
   initAppDb: quay.io/mongodb
-  appDb: quay.io/mongodb
   agent: quay.io/mongodb
 
-# This is only used by the MongoDBCommunity resource reconciler - START
+  # This is only used by the MongoDBCommunity resource reconciler - START
   versionUpgradeHook: quay.io/mongodb
   readinessProbe: quay.io/mongodb
 # This is only used by the MongoDBCommunity resource reconciler - END
@@ -196,11 +201,10 @@ community:
     name: mongodb-community-server
     imageType: ubi8
   agent:
-    name: mongodb-agent-ubi
+    name: mongodb-agent
     version: 108.0.2.8729-1
   registry:
     agent: quay.io/mongodb
-  name: mongodb-database
   resource:
     name: mongodb-replica-set
     version: 4.4.0
@@ -215,14 +219,13 @@ community:
       certificateKeySecretRef: tls-certificate
       caCertificateSecretRef: tls-ca-key-pair
       certManager:
-        certDuration: 8760h   # 365 days
-        renewCertBefore: 720h   # 30 days
+        certDuration: 8760h  # 365 days
+        renewCertBefore: 720h  # 30 days
 
 # MongoDBSearch settings
 search:
-  community:
-    # Full Search container image url used for the MongoDB Community Search container will be constructed as {search.community.repo}/{search.community.name}:{search.community.version}
-    repo: quay.io/mongodb
-    name: mongodb-search-community
-    # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
-    version: 1.47.0
+  # Full Search container image url used for the MongoDB Search container will be constructed as {search.repo}/{search.name}:{search.version}
+  repo: quay.io/mongodb
+  name: mongodb-search
+  # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
+  version: 0.55.0

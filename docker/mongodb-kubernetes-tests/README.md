@@ -106,6 +106,17 @@ indicate which test classes need to be run. But for now they help us
 to call a particular E2E task we are interested in.
 
 
+## Building test image
+
+```bash
+make prepare-local-e2e
+cd docker/mongodb-kubernetes-tests
+docker buildx build --progress plain --platform linux/amd64,linux/arm64,linux/s390x,linux/ppc64le . -f Dockerfile -t "${BASE_REPO_URL}mongodb-kubernetes-tests:evergreen" \
+ --build-arg PYTHON_VERSION="3.13.7"
+
+docker push "${BASE_REPO_URL}mongodb-kubernetes-tests:evergreen"
+```
+
 # Writing New Tests #
 
 ### Create a new Python test file ###

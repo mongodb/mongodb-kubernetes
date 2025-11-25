@@ -13,7 +13,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
-from ..conftest import APPDB_SA_NAME, DATABASE_SA_NAME, OM_SA_NAME, OPERATOR_NAME
+from ..constants import APPDB_SA_NAME, DATABASE_SA_NAME, OM_SA_NAME, OPERATOR_NAME
 from . import assert_secret_in_vault, run_command_in_vault, store_secret_in_vault
 
 MDB_RESOURCE = "my-replica-set"
@@ -313,7 +313,7 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
         if is_default_architecture_static():
-            assert len(pod.spec.containers) == 3
+            assert len(pod.spec.containers) == 4
         else:
             assert len(pod.spec.containers) == 2
 

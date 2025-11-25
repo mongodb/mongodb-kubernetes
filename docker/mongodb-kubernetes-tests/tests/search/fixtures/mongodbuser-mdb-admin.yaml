@@ -1,0 +1,17 @@
+# admin user with root role
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: mdb-admin
+spec:
+  username: mdb-admin
+  db: admin
+  mongodbResourceRef:
+    name: mdb-rs
+  passwordSecretKeyRef:
+    name: mdb-admin-user-password
+    key: password
+  roles:
+  - name: root
+    db: admin
+    

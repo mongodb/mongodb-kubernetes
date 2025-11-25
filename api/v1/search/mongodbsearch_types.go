@@ -1,6 +1,8 @@
 package search
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -8,36 +10,105 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 )
 
 const (
-	MongotDefaultPort        = 27027
-	MongotDefaultMetricsPort = 9946
+	MongotDefaultWireprotoPort      int32 = 27027
+	MongotDefaultGrpcPort           int32 = 27028
+	MongotDefaultPrometheusPort     int32 = 9946
+	MongotDefautHealthCheckPort     int32 = 8080
+	MongotDefaultSyncSourceUsername       = "search-sync-source"
+
+	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 )
 
 func init() {
 	v1.SchemeBuilder.Register(&MongoDBSearch{}, &MongoDBSearchList{})
 }
 
+type Prometheus struct {
+	// Port where metrics endpoint will be exposed on. Defaults to 9946.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=65535
+	// +kubebuilder:default=9946
+	Port int `json:"port,omitempty"`
+}
+
+func (p *Prometheus) GetPort() int32 {
+	//nolint:gosec
+	return int32(p.Port)
+}
+
 type MongoDBSearchSpec struct {
+	// Optional version of MongoDB Search component (mongot). If not set, then the operator will set the most appropriate version of MongoDB Search.
 	// +optional
 	Version string `json:"version"`
+	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
+	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
+	// which aren't exposed as fields in the MongoDBSearch.spec.
 	// +optional
 	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
 	// +optional
 	Persistence *common.Persistence `json:"persistence,omitempty"`
+	// Configure resource requests and limits for the MongoDB Search pods.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// Configure security settings of the MongoDB Search server that MongoDB database is connecting to when performing search queries.
+	// +optional
+	Security Security `json:"security"`
+	// Configure verbosity of mongot logs. Defaults to INFO if not set.
+	// +kubebuilder:validation:Enum=TRACE;DEBUG;INFO;WARN;ERROR
+	// +optional
+	LogLevel mdb.LogLevel `json:"logLevel,omitempty"`
+	// Configure prometheus metrics endpoint in mongot. If not set, the metrics endpoint will be disabled.
+	// +optional
+	Prometheus *Prometheus `json:"prometheus,omitempty"`
 }
 
 type MongoDBSource struct {
 	// +optional
 	MongoDBResourceRef *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
+	// +optional
+	ExternalMongoDBSource *ExternalMongoDBSource `json:"external,omitempty"`
+	// +optional
+	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
+	// +optional
+	Username *string `json:"username,omitempty"`
+}
+
+type ExternalMongoDBSource struct {
+	HostAndPorts []string `json:"hostAndPorts,omitempty"`
+	// mongod keyfile used to connect to the external MongoDB deployment
+	KeyFileSecretKeyRef *userv1.SecretKeyRef `json:"keyfileSecretRef,omitempty"`
+	// TLS configuration for the external MongoDB deployment
+	// +optional
+	TLS *ExternalMongodTLS `json:"tls,omitempty"`
+}
+
+type ExternalMongodTLS struct {
+	// CA is a reference to a Secret containing the CA certificate that issued mongod's TLS certificate.
+	// The CA certificate is expected to be PEM encoded and available at the "ca.crt" key.
+	CA *corev1.LocalObjectReference `json:"ca"`
+}
+
+type Security struct {
+	// +optional
+	TLS *TLS `json:"tls,omitempty"`
+}
+
+type TLS struct {
+	// CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
+	// The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
+	// This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
+	CertificateKeySecret corev1.LocalObjectReference `json:"certificateKeySecretRef"`
 }
 
 type MongoDBSearchStatus struct {
@@ -51,6 +122,7 @@ type MongoDBSearchStatus struct {
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
+// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="MongoDB Search version reconciled by the operator."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB resource was created."
 // +kubebuilder:resource:path=mongodbsearch,scope=Namespaced,shortName=mdbs
 type MongoDBSearch struct {
@@ -91,6 +163,9 @@ func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		s.Status.Warnings = append(s.Status.Warnings, option.(status.WarningsOption).Warnings...)
 	}
+	if option, exists := status.GetOption(statusOptions, MongoDBSearchVersionOption{}); exists {
+		s.Status.Version = option.(MongoDBSearchVersionOption).Version
+	}
 }
 
 func (s *MongoDBSearch) NamespacedName() types.NamespacedName {
@@ -103,6 +178,31 @@ func (s *MongoDBSearch) SearchServiceNamespacedName() types.NamespacedName {
 
 func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-config", Namespace: s.Namespace}
+}
+
+func (s *MongoDBSearch) SourceUserPasswordSecretRef() *userv1.SecretKeyRef {
+	var syncUserPasswordSecretKey *userv1.SecretKeyRef
+	if s.Spec.Source != nil && s.Spec.Source.PasswordSecretRef != nil {
+		syncUserPasswordSecretKey = s.Spec.Source.PasswordSecretRef
+	} else {
+		syncUserPasswordSecretKey = &userv1.SecretKeyRef{
+			Name: fmt.Sprintf("%s-%s-password", s.Name, s.SourceUsername()),
+		}
+	}
+
+	if syncUserPasswordSecretKey.Key == "" {
+		syncUserPasswordSecretKey.Key = "password"
+	}
+
+	return syncUserPasswordSecretKey
+}
+
+func (s *MongoDBSearch) SourceUsername() string {
+	if s.Spec.Source != nil && s.Spec.Source.Username != nil {
+		return *s.Spec.Source.Username
+	}
+
+	return MongotDefaultSyncSourceUsername
 }
 
 func (s *MongoDBSearch) StatefulSetNamespacedName() types.NamespacedName {
@@ -118,19 +218,69 @@ func (s *MongoDBSearch) GetOwnerReferences() []metav1.OwnerReference {
 	return []metav1.OwnerReference{ownerReference}
 }
 
-func (s *MongoDBSearch) GetMongoDBResourceRef() userv1.MongoDBResourceRef {
+func (s *MongoDBSearch) GetMongoDBResourceRef() *userv1.MongoDBResourceRef {
+	if s.IsExternalMongoDBSource() {
+		return nil
+	}
+
 	mdbResourceRef := userv1.MongoDBResourceRef{Namespace: s.Namespace, Name: s.Name}
 	if s.Spec.Source != nil && s.Spec.Source.MongoDBResourceRef != nil && s.Spec.Source.MongoDBResourceRef.Name != "" {
 		mdbResourceRef.Name = s.Spec.Source.MongoDBResourceRef.Name
 	}
 
-	return mdbResourceRef
+	return &mdbResourceRef
 }
 
-func (s *MongoDBSearch) GetMongotPort() int32 {
-	return MongotDefaultPort
+func (s *MongoDBSearch) GetMongotWireprotoPort() int32 {
+	return MongotDefaultWireprotoPort
 }
 
-func (s *MongoDBSearch) GetMongotMetricsPort() int32 {
-	return MongotDefaultMetricsPort
+func (s *MongoDBSearch) GetMongotGrpcPort() int32 {
+	return MongotDefaultGrpcPort
+}
+
+// TLSSecretNamespacedName will get the namespaced name of the Secret containing the server certificate and key
+func (s *MongoDBSearch) TLSSecretNamespacedName() types.NamespacedName {
+	return types.NamespacedName{Name: s.Spec.Security.TLS.CertificateKeySecret.Name, Namespace: s.Namespace}
+}
+
+// TLSOperatorSecretNamespacedName will get the namespaced name of the Secret created by the operator
+// containing the combined certificate and key.
+func (s *MongoDBSearch) TLSOperatorSecretNamespacedName() types.NamespacedName {
+	return types.NamespacedName{Name: s.Name + "-search-certificate-key", Namespace: s.Namespace}
+}
+
+func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
+	return MongotDefautHealthCheckPort
+}
+
+func (s *MongoDBSearch) IsExternalMongoDBSource() bool {
+	return s.Spec.Source != nil && s.Spec.Source.ExternalMongoDBSource != nil
+}
+
+func (s *MongoDBSearch) GetLogLevel() mdb.LogLevel {
+	if s.Spec.LogLevel == "" {
+		return "INFO"
+	}
+
+	return s.Spec.LogLevel
+}
+
+// mongot configuration defaults to the gRPC server. on rare occasions we might advise users to enable the legacy
+// wireproto server. Once the deprecated wireproto server is removed, this function, annotation, and all code guarded
+// by this check should be removed.
+func (s *MongoDBSearch) IsWireprotoEnabled() bool {
+	val, ok := s.Annotations[ForceWireprotoAnnotation]
+	return ok && val == "true"
+}
+
+func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
+	if s.IsWireprotoEnabled() {
+		return s.GetMongotWireprotoPort()
+	}
+	return s.GetMongotGrpcPort()
+}
+
+func (s *MongoDBSearch) GetPrometheus() *Prometheus {
+	return s.Spec.Prometheus
 }

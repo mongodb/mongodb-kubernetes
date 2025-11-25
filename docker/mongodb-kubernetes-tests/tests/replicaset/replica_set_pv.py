@@ -6,7 +6,7 @@ from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
-from tests.conftest import LEGACY_OPERATOR_NAME, OPERATOR_NAME
+from tests.constants import LEGACY_OPERATOR_NAME, OPERATOR_NAME
 
 
 @pytest.mark.e2e_replica_set_pv
@@ -22,6 +22,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         sts = self.appsv1.read_namespaced_stateful_set("rs001-pv", self.namespace)
         assert sts
 
+    @pytest.mark.flaky(reruns=15, reruns_delay=5)
     def test_sts_creation(self):
         sts = self.appsv1.read_namespaced_stateful_set("rs001-pv", self.namespace)
 

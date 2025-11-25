@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   name: clustermongodbroles.mongodb.com
 spec:
   group: mongodb.com
@@ -111,7 +111,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   name: mongodb.mongodb.com
 spec:
   group: mongodb.com
@@ -1531,9 +1531,7 @@ spec:
                                   This field is effectively required, but due to backwards compatibility is
                                   allowed to be empty. Instances of this type with an empty value here are
                                   almost certainly wrong.
-                                  TODO: Add other useful fields. apiVersion, kind, uid?
                                   More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                                 type: string
                               optional:
                                 description: Specify whether the Secret or its key
@@ -1590,9 +1588,7 @@ spec:
                                   This field is effectively required, but due to backwards compatibility is
                                   allowed to be empty. Instances of this type with an empty value here are
                                   almost certainly wrong.
-                                  TODO: Add other useful fields. apiVersion, kind, uid?
                                   More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                                 type: string
                               optional:
                                 description: Specify whether the ConfigMap or its
@@ -2866,7 +2862,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   name: mongodbmulticluster.mongodb.com
 spec:
   group: mongodb.com
@@ -3546,9 +3542,7 @@ spec:
                                   This field is effectively required, but due to backwards compatibility is
                                   allowed to be empty. Instances of this type with an empty value here are
                                   almost certainly wrong.
-                                  TODO: Add other useful fields. apiVersion, kind, uid?
                                   More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                                 type: string
                               optional:
                                 description: Specify whether the Secret or its key
@@ -3605,9 +3599,7 @@ spec:
                                   This field is effectively required, but due to backwards compatibility is
                                   allowed to be empty. Instances of this type with an empty value here are
                                   almost certainly wrong.
-                                  TODO: Add other useful fields. apiVersion, kind, uid?
                                   More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                                 type: string
                               optional:
                                 description: Specify whether the ConfigMap or its
@@ -4033,7 +4025,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   name: mongodbsearch.mongodb.com
 spec:
   group: mongodb.com
@@ -4050,6 +4042,10 @@ spec:
     - description: Current state of the MongoDB deployment.
       jsonPath: .status.phase
       name: Phase
+      type: string
+    - description: MongoDB Search version reconciled by the operator.
+      jsonPath: .status.version
+      name: Version
       type: string
     - description: The time since the MongoDB resource was created.
       jsonPath: .metadata.creationTimestamp
@@ -4078,7 +4074,19 @@ spec:
             type: object
           spec:
             properties:
+              logLevel:
+                description: Configure verbosity of mongot logs. Defaults to INFO
+                  if not set.
+                enum:
+                - TRACE
+                - DEBUG
+                - INFO
+                - WARN
+                - ERROR
+                type: string
               persistence:
+                description: Configure MongoDB Search's persistent volume. If not
+                  defined, the operator will request 10GB of storage.
                 properties:
                   multiple:
                     properties:
@@ -4124,18 +4132,29 @@ spec:
                         type: string
                     type: object
                 type: object
+              prometheus:
+                description: Configure prometheus metrics endpoint in mongot. If not
+                  set, the metrics endpoint will be disabled.
+                properties:
+                  port:
+                    default: 9946
+                    description: Port where metrics endpoint will be exposed on. Defaults
+                      to 9946.
+                    maximum: 65535
+                    minimum: 0
+                    type: integer
+                type: object
               resourceRequirements:
-                description: ResourceRequirements describes the compute resource requirements.
+                description: Configure resource requests and limits for the MongoDB
+                  Search pods.
                 properties:
                   claims:
                     description: |-
                       Claims lists the names of resources, defined in spec.resourceClaims,
                       that are used by this container.
 
-
                       This is an alpha field and requires enabling the
                       DynamicResourceAllocation feature gate.
-
 
                       This field is immutable. It can only be set for containers.
                     items:
@@ -4146,6 +4165,12 @@ spec:
                             Name must match the name of one entry in pod.spec.resourceClaims of
                             the Pod where this field is used. It makes that resource available
                             inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
                           type: string
                       required:
                       - name
@@ -4179,8 +4204,77 @@ spec:
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
                 type: object
-              source:
+              security:
+                description: Configure security settings of the MongoDB Search server
+                  that MongoDB database is connecting to when performing search queries.
                 properties:
+                  tls:
+                    properties:
+                      certificateKeySecretRef:
+                        description: |-
+                          CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
+                          The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
+                          This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    required:
+                    - certificateKeySecretRef
+                    type: object
+                type: object
+              source:
+                description: MongoDB database connection details from which MongoDB
+                  Search will synchronize data to build indexes.
+                properties:
+                  external:
+                    properties:
+                      hostAndPorts:
+                        items:
+                          type: string
+                        type: array
+                      keyfileSecretRef:
+                        description: mongod keyfile used to connect to the external
+                          MongoDB deployment
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      tls:
+                        description: TLS configuration for the external MongoDB deployment
+                        properties:
+                          ca:
+                            description: |-
+                              CA is a reference to a Secret containing the CA certificate that issued mongod's TLS certificate.
+                              The CA certificate is expected to be PEM encoded and available at the "ca.crt" key.
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - ca
+                        type: object
+                    type: object
                   mongodbResourceRef:
                     properties:
                       name:
@@ -4190,11 +4284,26 @@ spec:
                     required:
                     - name
                     type: object
+                  passwordSecretRef:
+                    description: |-
+                      SecretKeyRef is a reference to a value in a given secret in the same
+                      namespace. Based on:
+                      https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#secretkeyselector-v1-core
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  username:
+                    type: string
                 type: object
               statefulSet:
                 description: |-
-                  StatefulSetConfiguration holds the optional custom StatefulSet
-                  that should be merged into the operator created one.
+                  StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
+                  which aren't exposed as fields in the MongoDBSearch.spec.
                 properties:
                   metadata:
                     description: StatefulSetMetadataWrapper is a wrapper around Labels
@@ -4216,6 +4325,9 @@ spec:
                 - spec
                 type: object
               version:
+                description: Optional version of MongoDB Search component (mongot).
+                  If not set, then the operator will set the most appropriate version
+                  of MongoDB Search.
                 type: string
             type: object
           status:
@@ -4289,7 +4401,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   name: mongodbusers.mongodb.com
 spec:
   group: mongodb.com
@@ -4468,7 +4580,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   name: opsmanagers.mongodb.com
 spec:
   group: mongodb.com
@@ -5209,9 +5321,7 @@ spec:
                                       This field is effectively required, but due to backwards compatibility is
                                       allowed to be empty. Instances of this type with an empty value here are
                                       almost certainly wrong.
-                                      TODO: Add other useful fields. apiVersion, kind, uid?
                                       More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                      TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                                     type: string
                                   optional:
                                     description: Specify whether the Secret or its
@@ -5269,9 +5379,7 @@ spec:
                                       This field is effectively required, but due to backwards compatibility is
                                       allowed to be empty. Instances of this type with an empty value here are
                                       almost certainly wrong.
-                                      TODO: Add other useful fields. apiVersion, kind, uid?
                                       More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                      TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                                     type: string
                                   optional:
                                     description: Specify whether the ConfigMap or
@@ -5718,9 +5826,7 @@ spec:
                                   This field is effectively required, but due to backwards compatibility is
                                   allowed to be empty. Instances of this type with an empty value here are
                                   almost certainly wrong.
-                                  TODO: Add other useful fields. apiVersion, kind, uid?
                                   More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                                 type: string
                               optional:
                                 description: Specify whether the Secret or its key
@@ -5812,9 +5918,7 @@ spec:
                                   This field is effectively required, but due to backwards compatibility is
                                   allowed to be empty. Instances of this type with an empty value here are
                                   almost certainly wrong.
-                                  TODO: Add other useful fields. apiVersion, kind, uid?
                                   More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                                 type: string
                               optional:
                                 description: Specify whether the Secret or its key
@@ -5968,6 +6072,8 @@ spec:
                           required:
                           - spec
                           type: object
+                      required:
+                      - members
                       type: object
                     clusterDomain:
                       description: Cluster domain to override the default *.svc.cluster.local
@@ -6071,6 +6177,7 @@ spec:
                       - spec
                       type: object
                   required:
+                  - clusterName
                   - members
                   type: object
                 type: array
@@ -6516,7 +6623,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.18.0
     service.binding: path={.metadata.name}-{.spec.users[0].db}-{.spec.users[0].name},objectType=Secret
     service.binding/connectionString: path={.metadata.name}-{.spec.users[0].db}-{.spec.users[0].name},objectType=Secret,sourceKey=connectionString.standardSrv
     service.binding/password: path={.metadata.name}-{.spec.users[0].db}-{.spec.users[0].name},objectType=Secret,sourceKey=password
@@ -6753,6 +6860,9 @@ spec:
                         x-kubernetes-preserve-unknown-fields: true
                     type: object
                 type: object
+              clusterDomain:
+                format: hostname
+                type: string
               featureCompatibilityVersion:
                 description: |-
                   FeatureCompatibilityVersion configures the feature compatibility version that will
@@ -6857,9 +6967,7 @@ spec:
                               This field is effectively required, but due to backwards compatibility is
                               allowed to be empty. Instances of this type with an empty value here are
                               almost certainly wrong.
-                              TODO: Add other useful fields. apiVersion, kind, uid?
                               More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                              TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
@@ -6992,9 +7100,7 @@ spec:
                               This field is effectively required, but due to backwards compatibility is
                               allowed to be empty. Instances of this type with an empty value here are
                               almost certainly wrong.
-                              TODO: Add other useful fields. apiVersion, kind, uid?
                               More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                              TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
@@ -7011,9 +7117,7 @@ spec:
                               This field is effectively required, but due to backwards compatibility is
                               allowed to be empty. Instances of this type with an empty value here are
                               almost certainly wrong.
-                              TODO: Add other useful fields. apiVersion, kind, uid?
                               More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                              TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
@@ -7032,9 +7136,7 @@ spec:
                               This field is effectively required, but due to backwards compatibility is
                               allowed to be empty. Instances of this type with an empty value here are
                               almost certainly wrong.
-                              TODO: Add other useful fields. apiVersion, kind, uid?
                               More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                              TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic

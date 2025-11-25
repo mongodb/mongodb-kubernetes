@@ -1,20 +1,24 @@
 #!/usr/bin/env sh
 
+touch error.log
+tail -F error.log &
+
 delete_resources_safely() {
     resource_type="$1"
     namespace="$2"
 
     echo "Attempting normal deletion of $resource_type in $namespace..."
-    kubectl delete "${resource_type}" --all -n "${namespace}" --wait=true --timeout=10s || true
+    kubectl delete "${resource_type}" --all -n "${namespace}" --wait=true --timeout=10s 2>error.log|| true
 
     # Check if any resources are still stuck
-    resources=$(kubectl get "$resource_type" -n "${namespace}" --no-headers -o custom-columns=":metadata.name")
+    # Let's not fail here and continue deletion
+    resources=$(kubectl get "$resource_type" -n "${namespace}" --no-headers -o custom-columns=":metadata.name" 2>error.log || true)
 
     for resource in ${resources}; do
         echo "${resource_type}/${resource} is still present, force deleting..."
 
-        kubectl patch "${resource_type}" "${resource}" -n "${namespace}" -p '{"metadata":{"finalizers":null}}' --type=merge || true
-        kubectl delete "${resource_type}" "${resource}" -n "${namespace}" --force --grace-period=0 || true
+        kubectl patch "${resource_type}" "${resource}" -n "${namespace}" -p '{"metadata":{"finalizers":null}}' --type=merge 2>error.log || true
+        kubectl delete "${resource_type}" "${resource}" -n "${namespace}" --force --grace-period=0 2>error.log || true
     done
 }
 
@@ -28,11 +32,12 @@ if [ -z ${LABELS+x} ]; then
     exit 1
 fi
 
+
 echo "Deleting namespaces for evg tasks that are older than ${DELETE_OLDER_THAN_AMOUNT} ${DELETE_OLDER_THAN_UNIT} with label ${LABELS}"
 echo "Which are:"
 kubectl get namespace -l "${LABELS}" -o name
-for namespace in $(kubectl get namespace -l "${LABELS}" -o name); do
-    creation_time=$(kubectl get "${namespace}" -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null || echo "")
+for namespace in $(kubectl get namespace -l "${LABELS}" -o name 2>error.log); do
+    creation_time=$(kubectl get "${namespace}" -o jsonpath='{.metadata.creationTimestamp}' 2>error.log || echo "")
 
     if [ -z "$creation_time" ]; then
         echo "Namespace ${namespace} does not exist or has no creation timestamp, skipping."
@@ -48,14 +53,17 @@ for namespace in $(kubectl get namespace -l "${LABELS}" -o name); do
 
     echo "Deleting ${namespace_name}"
 
-    csrs_in_namespace=$(kubectl get csr -o name | grep "${namespace_name}" || true)
+    csrs_in_namespace=$(kubectl get csr -o name 2>error.log | grep "${namespace_name}" 2>/dev/null || true)
     if [ -n "${csrs_in_namespace}" ]; then
-        kubectl delete "${csrs_in_namespace}"
+        kubectl delete "${csrs_in_namespace}" 2>error.log
     fi
 
     delete_resources_safely "mdb" "${namespace_name}"
     delete_resources_safely "mdbu" "${namespace_name}"
+    delete_resources_safely "mdbc" "${namespace_name}"
+    delete_resources_safely "mdbmc" "${namespace_name}"
     delete_resources_safely "om" "${namespace_name}"
+    delete_resources_safely "clustermongodbroles" "${namespace_name}"
 
     echo "Attempting to delete namespace: ${namespace_name}"
 

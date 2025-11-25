@@ -71,6 +71,7 @@ const (
 
 	// EnvVarDebug is used to decide whether we want to start the agent in debug mode
 	EnvVarDebug            = "MDB_AGENT_DEBUG"
+	EnvVarDebugImage       = "MDB_AGENT_DEBUG_IMAGE"
 	EnvVarAgentVersion     = "MDB_AGENT_VERSION"
 	EnvVarMultiClusterMode = "MULTI_CLUSTER_MODE"
 
@@ -89,6 +90,7 @@ const (
 	BackupDaemonContainerName      = "mongodb-backup-daemon"
 	DatabaseContainerName          = "mongodb-enterprise-database"
 	AgentContainerName             = "mongodb-agent"
+	AgentContainerUtilitiesName    = "mongodb-agent-operator-utilities"
 	InitOpsManagerContainerName    = "mongodb-kubernetes-init-ops-manager"
 	PvcNameData                    = "data"
 	PvcMountPathData               = "/data"
@@ -121,9 +123,9 @@ const (
 	MmsPemKeyFileDirInContainer  = "/opt/mongodb/mms/secrets"
 	AppDBMmsCaFileDirInContainer = "/opt/mongodb/mms/ca/"
 
-	AutomationAgentName         = "mms-automation-agent"
-	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
-	AutomationAgentPemFilePath  = PvcMmsHomeMountPath + "/" + AgentSecretName + "/" + AutomationAgentPemSecretKey
+	AutomationAgentName = "mms-automation-agent"
+	// AgentCertMountPath defines where in the Pod the ca cert will be mounted.
+	AgentCertMountPath = PvcMmsHomeMountPath + "/" + AgentSecretName
 
 	// Key used in concatenated pem secrets to denote the hash of the latest certificate
 	LatestHashSecretKey   = "latestHash"
@@ -279,10 +281,6 @@ const (
 
 	TLSCertMountPath = PvcMmsHomeMountPath + "/tls"
 	TLSCaMountPath   = PvcMmsHomeMountPath + "/tls/ca"
-
-	// TODO: remove this from here and move it to the certs package
-	// This currently creates an import cycle
-	InternalCertAnnotationKey = "internalCertHash"
 
 	// Annotation keys used by the operator
 	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"

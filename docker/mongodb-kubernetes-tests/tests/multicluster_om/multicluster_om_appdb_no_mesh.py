@@ -22,7 +22,6 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
-    TELEMETRY_CONFIGMAP_NAME,
     assert_data_got_restored,
     get_central_cluster_client,
     get_member_cluster_clients,
@@ -39,6 +38,7 @@ from ..common.constants import MEMBER_CLUSTER_1, MEMBER_CLUSTER_2, MEMBER_CLUSTE
 from ..common.ops_manager.multi_cluster import (
     ops_manager_multi_cluster_with_tls_s3_backups,
 )
+from ..constants import TELEMETRY_CONFIGMAP_NAME
 from ..multicluster.conftest import cluster_spec_list
 
 # This test is for checking networking when OM is deployed without Service Mesh:
@@ -557,16 +557,9 @@ def test_create_mongodb_multi(server_certs: str, mongodb_multi: MongoDBMulti):
 
 @skip_if_local
 @mark.e2e_multi_cluster_om_appdb_no_mesh
+@pytest.mark.flaky(reruns=100, reruns_delay=6)
 def test_add_test_data(mongodb_multi_collection):
-    max_attempts = 100
-    while max_attempts > 0:
-        try:
-            mongodb_multi_collection.insert_one(TEST_DATA)
-            return
-        except Exception as e:
-            print(e)
-            max_attempts -= 1
-            time.sleep(6)
+    mongodb_multi_collection.insert_one(TEST_DATA)
 
 
 @mark.e2e_multi_cluster_om_appdb_no_mesh

@@ -2,11 +2,21 @@
 
 set -eou pipefail
 
-log_file="$(basename "$0").run.log"
+test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+# we reuse script_dir if already set by the script that is sourcing this file
+script_dir=${script_dir:-$(dirname "${script_name}")}
+
+# script_dir will be set from the file that is sourcing this file
+log_file="${RUN_LOG_FILE:-$(basename "${script_dir}").run.log}"
+
 snippets_src_dir="code_snippets"
 snippets_run_dir=".generated"
 
 DEBUG=${DEBUG:-"false"}
+
+_SNIPPETS_OUTPUT_DIR=${_SNIPPETS_OUTPUT_DIR:-"output"}
 
 function snippets_list() {
   src_dir=$1
@@ -18,7 +28,8 @@ function run_cleanup() {
   script_file=$1
   rm -rf "${snippets_run_dir}" 2>/dev/null || true
   rm -rf "log" 2>/dev/null || true
-  git restore --staged --worktree rm -rf "output" 2>/dev/null || true
+  rm -rf ".generated" 2>/dev/null || true
+  git restore --staged --worktree rm -rf "${_SNIPPETS_OUTPUT_DIR}" 2>/dev/null || true
   rm -rf "${script_file}.run.log" 2>/dev/null || true
 }
 
@@ -27,7 +38,7 @@ function prepare_snippets() {
 
   touch "${log_file}"
   mkdir log 2>/dev/null || true
-  mkdir output 2>/dev/null || true
+  mkdir "${_SNIPPETS_OUTPUT_DIR}" 2>/dev/null || true
 
   rm -rf "${snippets_run_dir}" 2>/dev/null || true
   mkdir "${snippets_run_dir}" 2>/dev/null || true
@@ -36,7 +47,7 @@ function prepare_snippets() {
   while IFS= read -r file_name; do
     file_path="${snippets_run_dir}/${file_name}"
     (
-      echo "# This file is generated automatically from ${file_path}"
+      echo "# This file is generated automatically from ${snippets_src_dir}/${file_name}"
       echo "# DO NOT EDIT"
       echo "function ${file_name%.sh}() {"
       cat "${snippets_src_dir}/${file_name}"
@@ -95,7 +106,7 @@ function run_for_output() {
   ret=$?
   set -e
   if [[ ${ret} == 0 ]]; then
-    tee "output/${cmd}.out" < "${stdout_file}"
+    tee "${_SNIPPETS_OUTPUT_DIR}/${cmd}.out" < "${stdout_file}"
   else
     echo "Error running: ${cmd}"
   fi

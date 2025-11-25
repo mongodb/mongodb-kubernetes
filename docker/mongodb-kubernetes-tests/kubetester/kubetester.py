@@ -69,6 +69,13 @@ def is_default_architecture_static() -> bool:
     return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static") == "static"
 
 
+def assert_container_count_with_static(current_container_count: int, expected_counter_without_static: int):
+    if is_default_architecture_static():
+        assert current_container_count == expected_counter_without_static + 1
+    else:
+        assert current_container_count == expected_counter_without_static
+
+
 def get_default_architecture() -> str:
     return "static" if is_default_architecture_static() else "non-static"
 
@@ -957,16 +964,6 @@ class KubernetesTester(object):
             group_id = KubernetesTester.get_om_group_id(group_name=group_name)
 
         url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(), group_id)
-        response = KubernetesTester.om_request("get", url)
-
-        return response.json()
-
-    @staticmethod
-    def get_automation_status(group_id=None, group_name=None):
-        if group_id is None:
-            group_id = KubernetesTester.get_om_group_id(group_name=group_name)
-
-        url = build_automation_status_endpoint(KubernetesTester.get_om_base_url(), group_id)
         response = KubernetesTester.om_request("get", url)
 
         return response.json()

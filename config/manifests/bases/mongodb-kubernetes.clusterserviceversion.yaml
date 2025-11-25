@@ -1,12 +1,18 @@
 apiVersion: operators.coreos.com/v1alpha1
 kind: ClusterServiceVersion
 metadata:
+  labels:
+    operatorframework.io/arch.amd64: supported
+    operatorframework.io/arch.ppc64le: supported
+    operatorframework.io/arch.s390x: supported
+    operatorframework.io/arch.arm64: supported
+    operatorframework.io/os.linux: supported
   annotations:
     alm-examples: '[]'
     capabilities: Deep Insights
     categories: Database
     certified: "true"
-    containerImage: quay.io/mongodb/mongodb-kubernetes:1.2.0
+    containerImage: quay.io/mongodb/mongodb-kubernetes:1.6.0
     createdAt: ""
     description: The MongoDB Controllers for Kubernetes enable easy deploys of 
       MongoDB into Kubernetes clusters, using our management, monitoring and 
@@ -456,5 +462,5 @@ spec:
   maturity: stable
   provider:
     name: MongoDB, Inc
+  replaces: mongodb-kubernetes.v1.5.0
   version: 0.0.0
-  replaces: mongodb-kubernetes.v1.1.0

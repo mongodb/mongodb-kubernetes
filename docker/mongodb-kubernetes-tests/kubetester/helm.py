@@ -1,5 +1,4 @@
 import glob
-import logging
 import os
 import re
 import subprocess
@@ -7,8 +6,18 @@ import uuid
 from typing import Dict, List, Optional, Tuple
 
 from tests import test_logger
+from tests.constants import (
+    DEFAULT_HELM_CHART_PATH_ENV_VAR_NAME,
+    OCI_HELM_REGION_ENV_VAR_NAME,
+    OCI_HELM_REGISTRY_ENV_VAR_NAME,
+    OCI_HELM_VERSION_ENV_VAR_NAME,
+)
 
 logger = test_logger.get_test_logger(__name__)
+
+# LOCAL_CRDS_DIR is the dir where local helm chart's CRDs are copied in tests image
+LOCAL_CRDS_DIR = "helm_chart/crds"
+OCI_HELM_REGISTRY_ECR = "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 
 
 def helm_template(
@@ -25,7 +34,7 @@ def helm_template(
         command_args.append("--show-only")
         command_args.append(templates)
 
-    args = ("helm", "template", *(command_args), _helm_chart_dir(helm_chart_path))
+    args = ("helm", "template", *command_args, helm_chart_path)
     logger.info(" ".join(args))
 
     yaml_file_name = "{}.yaml".format(str(uuid.uuid4()))
@@ -51,7 +60,7 @@ def helm_install(
         f"--namespace={namespace}",
         *command_args,
         name,
-        _helm_chart_dir(helm_chart_path),
+        helm_chart_path,
     ]
     if custom_operator_version:
         args.append(f"--version={custom_operator_version}")
@@ -120,6 +129,9 @@ def helm_repo_add(repo_name: str, url: str):
 
 
 def process_run_and_check(args, **kwargs):
+    if "check" not in kwargs:
+        kwargs["check"] = True
+
     try:
         logger.debug(f"subprocess.run: {args}")
         completed_process = subprocess.run(args, **kwargs)
@@ -142,6 +154,55 @@ def process_run_and_check(args, **kwargs):
         raise
 
 
+def helm_registry_login_to_ecr(helm_registry: str, region: str):
+    logger.info(f"Attempting to log into ECR registry: {helm_registry}, using helm registry login.")
+
+    aws_command = ["aws", "ecr", "get-login-password", "--region", region]
+
+    # as we can see the password is being provided by stdin, that would mean we will have to
+    # pipe the aws_command (it figures out the password) into helm_command.
+    helm_command = ["helm", "registry", "login", "--username", "AWS", "--password-stdin", helm_registry]
+
+    try:
+        logger.info("Starting AWS ECR credential retrieval.")
+        aws_proc = subprocess.Popen(
+            aws_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True  # Treat input/output as text strings
+        )
+
+        logger.info("Starting Helm registry login.")
+        helm_proc = subprocess.Popen(
+            helm_command, stdin=aws_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+
+        # Close the stdout stream of aws_proc in the parent process
+        # to prevent resource leakage (only needed if you plan to do more processing)
+        aws_proc.stdout.close()
+
+        # Wait for the Helm command (helm_proc) to finish and capture its output
+        helm_stdout, helm_stderr = helm_proc.communicate()
+
+        # Wait for the AWS process to finish as well
+        aws_proc.wait()
+
+        if aws_proc.returncode != 0:
+            _, aws_stderr = aws_proc.communicate()
+            raise Exception(f"aws command to get password failed. Error: {aws_stderr}")
+
+        if helm_proc.returncode == 0:
+            logger.info("Login to helm registry was successful.")
+            logger.info(helm_stdout.strip())
+        else:
+            raise Exception(
+                f"Login to helm registry failed, Exit code: {helm_proc.returncode}, Error: {helm_stderr.strip()}"
+            )
+
+    except FileNotFoundError as e:
+        # This catches errors if 'aws' or 'helm' are not in the PATH
+        raise Exception(f"Command not found. Please ensure '{e.filename}' is installed and in your system's PATH.")
+    except Exception as e:
+        raise Exception(f"An unexpected error occurred: {e}.")
+
+
 def helm_upgrade(
     name: str,
     namespace: str,
@@ -156,10 +217,10 @@ def helm_upgrade(
         logger.warning("Helm chart path is empty, defaulting to 'helm_chart'")
         helm_chart_path = "helm_chart"
 
-    chart_dir = helm_chart_path if helm_override_path else _helm_chart_dir(helm_chart_path)
+    chart_dir = helm_chart_path
 
     if apply_crds_first:
-        apply_crds_from_chart(chart_dir)
+        apply_crds_from_chart(LOCAL_CRDS_DIR)
 
     command_args = _create_helm_args(helm_args, helm_options)
     args = [
@@ -180,11 +241,11 @@ def helm_upgrade(
     process_run_and_check(command, check=True, capture_output=True, shell=True)
 
 
-def apply_crds_from_chart(chart_dir: str):
-    crd_files = glob.glob(os.path.join(chart_dir, "crds", "*.yaml"))
+def apply_crds_from_chart(crds_dir: str):
+    crd_files = glob.glob(os.path.join(crds_dir, "*.yaml"))
 
     if not crd_files:
-        raise Exception(f"No CRD files found in chart directory: {chart_dir}")
+        raise Exception(f"No CRD files found in chart directory: {crds_dir}")
 
     logger.info(f"Found {len(crd_files)} CRD files to apply:")
 
@@ -229,5 +290,27 @@ def _create_helm_args(helm_args: Dict[str, str], helm_options: Optional[List[str
     return command_args
 
 
-def _helm_chart_dir(default: Optional[str] = "helm_chart") -> str:
-    return os.environ.get("HELM_CHART_DIR", default)
+# helm_chart_path_and_version returns the chart path and version that we would like to install to run the E2E tests.
+# for local tests it returns early with local helm chart dir and for other scenarios it figures out the chart and version
+# based on the caller. In most of the cases we will install chart from OCI registry but for the tests where we would like
+# to install MEKO's specific version or MCK's specific version, we would expect `helm_chart_path` to set already.
+def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> tuple[str, str]:
+    # if helm_chart_path is not passed, use the default value from DEFAULT_HELM_CHART_PATH
+    if not helm_chart_path:
+        helm_chart_path = os.getenv(DEFAULT_HELM_CHART_PATH_ENV_VAR_NAME)
+
+    if helm_chart_path.startswith("oci://"):
+        # If operator_version is not passed, we want to install the current version.
+        if not operator_version:
+            operator_version = os.environ.get(OCI_HELM_VERSION_ENV_VAR_NAME)
+
+        registry = os.environ.get(OCI_HELM_REGISTRY_ENV_VAR_NAME)
+        # If ECR we need to login first to the OCI container registry
+        if registry == OCI_HELM_REGISTRY_ECR:
+            region = os.environ.get(OCI_HELM_REGION_ENV_VAR_NAME)
+            try:
+                helm_registry_login_to_ecr(registry, region)
+            except Exception as e:
+                raise Exception(f"Failed to login to ECR helm registry {registry}. Error: {e}")
+
+    return helm_chart_path, operator_version

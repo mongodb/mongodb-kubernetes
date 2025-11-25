@@ -27,7 +27,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
-from ..conftest import DATABASE_SA_NAME, OPERATOR_NAME
+from ..constants import DATABASE_SA_NAME, OPERATOR_NAME
 from . import run_command_in_vault, store_secret_in_vault
 
 MDB_RESOURCE = "my-replica-set"
@@ -357,7 +357,7 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
         if is_default_architecture_static():
-            assert len(pod.spec.containers) == 3
+            assert len(pod.spec.containers) == 4
         else:
             assert len(pod.spec.containers) == 2
 
@@ -390,7 +390,6 @@ def test_rotate_server_certs(replica_set: MongoDB, vault_namespace: str, vault_n
 def test_rotate_server_certs_with_sts_restarting(
     replica_set: MongoDB, vault_namespace: str, vault_name: str, namespace: str, issuer: str
 ):
-    replica_set.trigger_sts_restart()
     create_x509_mongodb_tls_certs(
         issuer,
         namespace,
@@ -406,6 +405,7 @@ def test_rotate_server_certs_with_sts_restarting(
 @mark.e2e_vault_setup
 def test_rotate_agent_certs(replica_set: MongoDB, vault_namespace: str, vault_name: str, namespace: str):
     replica_set.load()
+    old_ac_version = KubernetesTester.get_automation_config()["version"]
     old_version = replica_set["metadata"]["annotations"]["agent-certs"]
     cmd = [
         "vault",
@@ -422,6 +422,15 @@ def test_rotate_agent_certs(replica_set: MongoDB, vault_namespace: str, vault_na
         return old_version != replica_set["metadata"]["annotations"]["agent-certs"]
 
     kubetester.wait_until(wait_for_agent_certs, timeout=600, sleep_time=10)
+
+    def check_version_increased() -> bool:
+        current_version = KubernetesTester.get_automation_config()["version"]
+        version_increased = current_version > old_ac_version
+
+        return version_increased
+
+    kubetester.wait_until(check_version_increased, timeout=600)
+    kubetester.kubetester.wait_processes_ready()
 
 
 @mark.e2e_vault_setup

@@ -84,34 +84,6 @@ spec:
                 - name: LABELS
                   value: "evg=task"
 
-# Clean old builder pods
----
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: cluster-cleaner-delete-builder-pods
-  namespace: {{ .Values.cleanerNamespace }}
-spec:
-  # Runs every hour
-  schedule: "0 * * * *"
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          serviceAccountName: cluster-cleaner
-          restartPolicy: Never
-
-          containers:
-            - name: cluster-cleaner
-              image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:{{ .Values.cleanerVersion }}
-              imagePullPolicy: Always
-              command: ["./delete-old-builder-pods.sh"]
-              env:
-                - name: DELETE_OLDER_THAN_UNIT
-                  value: "minutes"
-                - name: DELETE_OLDER_THAN_AMOUNT
-                  value: "20"
-
 # Clean old certificates
 ---
 apiVersion: batch/v1
