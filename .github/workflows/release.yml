@@ -1,4 +1,4 @@
-name: Release new MCK version
+name: Release MCK version
 
 on:
   workflow_dispatch:
