@@ -97,22 +97,6 @@ func checkReplicaSetReconcileSuccessful(
 	assert.NoError(t, err)
 }
 
-// getReplicaSetMultiClusterMap simulates multiple K8s clusters using fake clients
-func getReplicaSetMultiClusterMap(omConnectionFactory *om.CachedOMConnectionFactory) map[string]client.Client {
-	clientMap := make(map[string]client.Client)
-
-	for _, clusterName := range multiClusters {
-		fakeClientBuilder := mock.NewEmptyFakeClientBuilder()
-		fakeClientBuilder.WithInterceptorFuncs(interceptor.Funcs{
-			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
-		})
-
-		clientMap[clusterName] = kubernetesClient.NewClient(fakeClientBuilder.Build())
-	}
-
-	return clientMap
-}
-
 // TestReplicaSetMultiClusterScaling tests that multi-cluster ReplicaSets scale one member at a time
 // across all clusters, similar to single-cluster behavior.
 //
