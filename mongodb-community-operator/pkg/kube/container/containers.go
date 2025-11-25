@@ -64,6 +64,12 @@ func WithWorkDir(workDir string) Modification {
 	}
 }
 
+func WithRestartPolicy(restartPolicy corev1.ContainerRestartPolicy) Modification {
+	return func(container *corev1.Container) {
+		container.RestartPolicy = &restartPolicy
+	}
+}
+
 // WithReadinessProbe modifies the container's Readiness Probe
 func WithReadinessProbe(probeFunc func(*corev1.Probe)) Modification {
 	return func(container *corev1.Container) {
