@@ -46,6 +46,7 @@ func TestCreateMultiClusterReplicaSet(t *testing.T) {
 	}
 
 	rs := mdbv1.NewDefaultMultiReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
 		SetClusterSpecList(clusterSpecList).
 		Build()
 
@@ -120,6 +121,7 @@ func TestReplicaSetMultiClusterScaling(t *testing.T) {
 		}
 
 		rs := mdbv1.NewDefaultMultiReplicaSetBuilder().
+			SetNamespace(mock.TestNamespace).
 			SetName("multi-rs").
 			SetClusterSpecList(clusterSpecList).
 			Build()
@@ -160,6 +162,7 @@ func TestReplicaSetMultiClusterOneByOneScaling(t *testing.T) {
 	}
 
 	rs := mdbv1.NewDefaultMultiReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
 		SetName("scaling-rs").
 		SetClusterSpecList(clusterSpecList).
 		Build()
@@ -396,7 +399,7 @@ func TestReadState_ClusterMapping_ReadsFromAnnotation(t *testing.T) {
 	rs := &mdbv1.MongoDB{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-rs",
-			Namespace: "default",
+			Namespace: mock.TestNamespace,
 			Annotations: map[string]string{
 				util.ClusterMappingAnnotation: string(clusterMappingJSON),
 			},
@@ -422,8 +425,8 @@ func TestReadState_ClusterMapping_ReadsFromAnnotation(t *testing.T) {
 func TestReadState_ClusterMapping_FallbackToStatusMembers(t *testing.T) {
 	rs := &mdbv1.MongoDB{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        "test-rs",
-			Namespace:   "default",
+			Name:      "test-rs",
+			Namespace: mock.TestNamespace,
 			Annotations: map[string]string{
 				// No ClusterMapping annotation
 			},
@@ -450,8 +453,8 @@ func TestReadState_ClusterMapping_FallbackToStatusMembers(t *testing.T) {
 func TestReadState_ClusterMapping_SkipsMigrationForMultiCluster(t *testing.T) {
 	rs := &mdbv1.MongoDB{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        "test-rs",
-			Namespace:   "default",
+			Name:      "test-rs",
+			Namespace: mock.TestNamespace,
 			Annotations: map[string]string{
 				// No state annotations
 			},
@@ -485,8 +488,8 @@ func TestReadState_ClusterMapping_SkipsMigrationForMultiCluster(t *testing.T) {
 func TestReadState_LastAppliedMemberSpec_FallbackToStatusMembers(t *testing.T) {
 	rs := &mdbv1.MongoDB{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        "test-rs",
-			Namespace:   "default",
+			Name:      "test-rs",
+			Namespace: mock.TestNamespace,
 			Annotations: map[string]string{
 				// No LastAppliedMemberSpec annotation
 			},
@@ -562,6 +565,7 @@ func TestStateLifecycle_MultiClusterStatePreservation(t *testing.T) {
 	}
 
 	rs := mdbv1.NewDefaultMultiReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
 		SetName("multi-rs").
 		SetClusterSpecList(clusterSpecList).
 		Build()
