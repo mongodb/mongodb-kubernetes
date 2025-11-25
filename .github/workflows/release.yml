@@ -14,7 +14,7 @@ on:
 
 jobs:
   crate_draft_release_notes:
-    name: Create draft Release Notes
+    name: Create draft release with Release Notes
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -42,7 +42,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   approve_release:
-    name: Approve Release
+    name: Create Git Tag + start Evergreen jobs
     environment: production
     runs-on: ubuntu-latest
     needs: crate_draft_release_notes
@@ -73,7 +73,7 @@ jobs:
           fetch-depth: '0'
       - name: Publish Release Notes
         run: |
-          gh release edit $VERSION --draft=false --verify-tag
+          gh release edit $VERSION --draft=false --verify-tag --latest
         env:
           VERSION: ${{ github.event.inputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
