@@ -59,6 +59,7 @@ class TestOpsManagerCreation:
     """
 
     def test_create_om(
+        self,
         ops_manager: MongoDBOpsManager,
     ):
         ops_manager["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
@@ -73,6 +74,7 @@ class TestOpsManagerCreation:
         )
 
     def test_daemon_statefulset(
+            self,
         ops_manager: MongoDBOpsManager,
     ):
         def stateful_set_becomes_ready():
@@ -88,6 +90,7 @@ class TestOpsManagerCreation:
         )
 
     def test_backup_daemon_services_created(
+            self,
         namespace,
         central_cluster_client: kubernetes.client.ApiClient,
     ):
