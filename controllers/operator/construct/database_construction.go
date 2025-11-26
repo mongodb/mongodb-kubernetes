@@ -202,7 +202,10 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			StsType:                 ReplicaSet,
 		}
 
-		if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
+		// Mount hostname override ConfigMap for:
+		// 1. Multi-cluster mode (agents need service FQDNs instead of pod names)
+		// 2. External domain mode (agents need external hostnames)
+		if mdb.Spec.IsMultiCluster() || mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
 			opts.HostNameOverrideConfigmapName = mdb.GetHostNameOverrideConfigmapName()
 		}
 
