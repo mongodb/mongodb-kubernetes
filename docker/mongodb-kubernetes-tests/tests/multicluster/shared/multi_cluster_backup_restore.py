@@ -74,7 +74,7 @@ class TestOpsManagerCreation:
         )
 
     def test_daemon_statefulset(
-            self,
+        self,
         ops_manager: MongoDBOpsManager,
     ):
         def stateful_set_becomes_ready():
@@ -90,7 +90,7 @@ class TestOpsManagerCreation:
         )
 
     def test_backup_daemon_services_created(
-            self,
+        self,
         namespace,
         central_cluster_client: kubernetes.client.ApiClient,
     ):
