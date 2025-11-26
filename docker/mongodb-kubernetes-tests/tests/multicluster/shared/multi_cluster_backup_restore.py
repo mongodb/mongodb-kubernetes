@@ -104,6 +104,7 @@ class TestBackupDatabasesAdded:
     running state"""
 
     def test_backup_mdbs_created(
+        self,
         oplog_replica_set: MongoDB,
         blockstore_replica_set: MongoDB,
     ):
@@ -111,10 +112,10 @@ class TestBackupDatabasesAdded:
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
-    def test_oplog_user_created(oplog_user: MongoDBUser):
+    def test_oplog_user_created(self, oplog_user: MongoDBUser):
         oplog_user.assert_reaches_phase(Phase.Updated)
 
-    def test_om_failed_oplog_no_user_ref(ops_manager: MongoDBOpsManager):
+    def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
         """Waits until Backup is in failed state as blockstore doesn't have reference to the user"""
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
@@ -122,7 +123,7 @@ class TestBackupDatabasesAdded:
             "must be specified using 'mongodbUserRef'",
         )
 
-    def test_fix_om(ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
+    def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
         ops_manager.load()
         ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
         ops_manager.update()
@@ -138,6 +139,7 @@ class TestBackupDatabasesAdded:
 
 class TestBackupForMongodb:
     def test_setup_om_connection(
+        self,
         ops_manager: MongoDBOpsManager,
         central_cluster_client: kubernetes.client.ApiClient,
         member_cluster_clients: List[MultiClusterClient],
@@ -174,23 +176,23 @@ class TestBackupForMongodb:
         ops_manager["spec"]["configuration"]["mms.centralUrl"] = new_address
         ops_manager.update()
 
-    def test_mongodb_multi_one_running_state(mongodb_multi_one: MongoDBMulti | MongoDB):
+    def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti | MongoDB):
         # we might fail connection in the beginning since we set a custom dns in coredns
         mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=1200)
 
-    def test_add_test_data(mongodb_multi_one_collection):
+    def test_add_test_data(self, mongodb_multi_one_collection):
         mongodb_multi_one_collection.insert_one(TEST_DATA)
 
-    def test_mdb_backed_up(project_one: OMTester):
+    def test_mdb_backed_up(self, project_one: OMTester):
         project_one.wait_until_backup_snapshots_are_ready(expected_count=1)
 
-    def test_change_mdb_data(mongodb_multi_one_collection):
+    def test_change_mdb_data(self, mongodb_multi_one_collection):
         now_millis = time_to_millis(datetime.datetime.now())
         print("\nCurrent time (millis): {}".format(now_millis))
         time.sleep(30)
         mongodb_multi_one_collection.insert_one({"foo": "bar"})
 
-    def test_pit_restore(project_one: OMTester):
+    def test_pit_restore(self, project_one: OMTester):
         now_millis = time_to_millis(datetime.datetime.now())
         print("\nCurrent time (millis): {}".format(now_millis))
 
@@ -203,7 +205,7 @@ class TestBackupForMongodb:
 
         project_one.create_restore_job_pit(pit_millis)
 
-    def test_data_got_restored(mongodb_multi_one_collection, mdb_client):
+    def test_data_got_restored(self, mongodb_multi_one_collection, mdb_client):
         assert_data_got_restored(TEST_DATA, mongodb_multi_one_collection, timeout=1200)
 
 

@@ -282,20 +282,20 @@ class TestOpsManagerCreation:
         self,
         ops_manager: MongoDBOpsManager,
     ):
-        testhelper.TestOpsManagerCreation.test_create_om(ops_manager)
+        testhelper.TestOpsManagerCreation.test_create_om(self, ops_manager)
 
     def test_daemon_statefulset(
         self,
         ops_manager: MongoDBOpsManager,
     ):
-        testhelper.TestOpsManagerCreation.test_daemon_statefulset(ops_manager)
+        testhelper.TestOpsManagerCreation.test_daemon_statefulset(self, ops_manager)
 
     def test_backup_daemon_services_created(
         self,
         namespace,
         central_cluster_client: kubernetes.client.ApiClient,
     ):
-        testhelper.TestOpsManagerCreation.test_backup_daemon_services_created(namespace, central_cluster_client)
+        testhelper.TestOpsManagerCreation.test_backup_daemon_services_created(self, namespace, central_cluster_client)
 
 
 @mark.e2e_mongodbmulticluster_multi_cluster_backup_restore_no_mesh
@@ -305,16 +305,16 @@ class TestBackupDatabasesAdded:
         oplog_replica_set: MongoDB,
         blockstore_replica_set: MongoDB,
     ):
-        testhelper.TestBackupDatabasesAdded.test_backup_mdbs_created(oplog_replica_set, blockstore_replica_set)
+        testhelper.TestBackupDatabasesAdded.test_backup_mdbs_created(self, oplog_replica_set, blockstore_replica_set)
 
     def test_oplog_user_created(self, oplog_user: MongoDBUser):
-        testhelper.TestBackupDatabasesAdded.test_oplog_user_created(oplog_user)
+        testhelper.TestBackupDatabasesAdded.test_oplog_user_created(self, oplog_user)
 
     def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
-        testhelper.TestBackupDatabasesAdded.test_om_failed_oplog_no_user_ref(ops_manager)
+        testhelper.TestBackupDatabasesAdded.test_om_failed_oplog_no_user_ref(self, ops_manager)
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
-        testhelper.TestBackupDatabasesAdded.test_fix_om(ops_manager, oplog_user)
+        testhelper.TestBackupDatabasesAdded.test_fix_om(self, ops_manager, oplog_user)
 
 
 class TestBackupForMongodb:
@@ -493,34 +493,34 @@ class TestBackupForMongodb:
         member_cluster_clients: List[MultiClusterClient],
     ):
         testhelper.TestBackupForMongodb.test_setup_om_connection(
-            replica_set_external_hosts, ops_manager, central_cluster_client, member_cluster_clients
+            self, replica_set_external_hosts, ops_manager, central_cluster_client, member_cluster_clients
         )
 
     @mark.e2e_mongodbmulticluster_multi_cluster_backup_restore_no_mesh
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
-        testhelper.TestBackupForMongodb.test_mongodb_multi_one_running_state(mongodb_multi_one)
+        testhelper.TestBackupForMongodb.test_mongodb_multi_one_running_state(self, mongodb_multi_one)
 
     @skip_if_local
     @mark.e2e_mongodbmulticluster_multi_cluster_backup_restore_no_mesh
     def test_add_test_data(self, mongodb_multi_one_collection):
-        testhelper.TestBackupForMongodb.test_add_test_data(mongodb_multi_one_collection)
+        testhelper.TestBackupForMongodb.test_add_test_data(self, mongodb_multi_one_collection)
 
     @mark.e2e_mongodbmulticluster_multi_cluster_backup_restore_no_mesh
     def test_mdb_backed_up(self, project_one: OMTester):
-        testhelper.TestBackupForMongodb.test_mdb_backed_up(project_one)
+        testhelper.TestBackupForMongodb.test_mdb_backed_up(self, project_one)
 
     @mark.e2e_mongodbmulticluster_multi_cluster_backup_restore_no_mesh
     def test_change_mdb_data(self, mongodb_multi_one_collection):
-        testhelper.TestBackupForMongodb.test_change_mdb_data(mongodb_multi_one_collection)
+        testhelper.TestBackupForMongodb.test_change_mdb_data(self, mongodb_multi_one_collection)
 
     @mark.e2e_mongodbmulticluster_multi_cluster_backup_restore_no_mesh
     def test_pit_restore(self, project_one: OMTester):
-        testhelper.TestBackupForMongodb.test_pit_restore(project_one)
+        testhelper.TestBackupForMongodb.test_pit_restore(self, project_one)
 
     @mark.e2e_mongodbmulticluster_multi_cluster_backup_restore_no_mesh
     def test_mdb_ready(self, mongodb_multi_one: MongoDBMulti):
-        testhelper.TestBackupForMongodb.test_mdb_ready(mongodb_multi_one)
+        testhelper.TestBackupForMongodb.test_mdb_ready(self, mongodb_multi_one)
 
     @mark.e2e_mongodbmulticluster_multi_cluster_backup_restore_no_mesh
     def test_data_got_restored(self, mongodb_multi_one_collection):
-        testhelper.TestBackupForMongodb.test_data_got_restored(mongodb_multi_one_collection)
+        testhelper.TestBackupForMongodb.test_data_got_restored(self, mongodb_multi_one_collection)

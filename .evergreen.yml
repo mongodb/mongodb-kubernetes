@@ -830,7 +830,7 @@ task_groups:
     <<: *setup_group_multi_cluster
     <<: *setup_and_teardown_task
     tasks:
-      - e2e_mongodbmulticluster_om_reconcile_race_with_telemetry
+      - e2e_om_reconcile_race_with_telemetry
     <<: *teardown_group
 
   # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with

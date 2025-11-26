@@ -153,8 +153,10 @@ class TestNonSequentialMemberIdsInReplicaSet(KubernetesTester):
         self, mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
     ):
         testhelper.TestNonSequentialMemberIdsInReplicaSet.test_scale_up_first_cluster(
-            mongodb_multi, member_cluster_clients
+            self, mongodb_multi, member_cluster_clients
         )
 
     def test_change_project(self, mongodb_multi: MongoDBMulti, new_project_configmap: str):
-        testhelper.TestNonSequentialMemberIdsInReplicaSet.test_change_project(mongodb_multi, new_project_configmap)
+        testhelper.TestNonSequentialMemberIdsInReplicaSet.test_change_project(
+            self, mongodb_multi, new_project_configmap
+        )

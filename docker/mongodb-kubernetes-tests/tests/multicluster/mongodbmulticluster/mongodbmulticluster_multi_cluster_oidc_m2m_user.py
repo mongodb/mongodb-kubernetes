@@ -53,16 +53,16 @@ def oidc_user(namespace) -> MongoDBUser:
 @pytest.mark.e2e_mongodbmulticluster_multi_cluster_oidc_m2m_user
 class TestOIDCMultiCluster(KubernetesTester):
     def test_deploy_operator(self, multi_cluster_operator: Operator):
-        testhelper.test_deploy_operator(multi_cluster_operator)
+        testhelper.TestOIDCMultiCluster.test_deploy_operator(self, multi_cluster_operator)
 
     def test_create_oidc_replica_set(self, mongodb_multi: MongoDBMulti):
-        testhelper.test_create_oidc_replica_set(mongodb_multi)
+        testhelper.TestOIDCMultiCluster.test_create_oidc_replica_set(self, mongodb_multi)
 
     def test_create_user(self, oidc_user: MongoDBUser):
-        testhelper.test_create_user(oidc_user)
+        testhelper.TestOIDCMultiCluster.test_create_user(self, oidc_user)
 
     def test_assert_connectivity(self, mongodb_multi: MongoDBMulti):
-        testhelper.test_assert_connectivity(mongodb_multi)
+        testhelper.TestOIDCMultiCluster.test_assert_connectivity(self, mongodb_multi)
 
     def test_ops_manager_state_updated_correctly(self, mongodb_multi: MongoDBMulti):
-        testhelper.test_ops_manager_state_updated_correctly(mongodb_multi)
+        testhelper.TestOIDCMultiCluster.test_ops_manager_state_updated_correctly(self, mongodb_multi)

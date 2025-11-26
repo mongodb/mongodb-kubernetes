@@ -65,7 +65,7 @@ def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti | MongoDB, ca_path
 class TestNonSequentialMemberIdsInReplicaSet(KubernetesTester):
 
     def test_scale_up_first_cluster(
-        mongodb_multi: MongoDBMulti | MongoDB, member_cluster_clients: List[MultiClusterClient]
+        self, mongodb_multi: MongoDBMulti | MongoDB, member_cluster_clients: List[MultiClusterClient]
     ):
         # Scale up the first cluster to 3 members. This will lead to non-sequential member ids in the replicaset.
         # multi-replica-set-0-0 : 0
@@ -81,7 +81,7 @@ class TestNonSequentialMemberIdsInReplicaSet(KubernetesTester):
         mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients)
         mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_change_project(mongodb_multi: MongoDBMulti | MongoDB, new_project_configmap: str):
+    def test_change_project(self, mongodb_multi: MongoDBMulti | MongoDB, new_project_configmap: str):
         oldRsMembers = mongodb_multi.get_automation_config_tester().get_replica_set_members(mongodb_multi.name)
 
         mongodb_multi["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
