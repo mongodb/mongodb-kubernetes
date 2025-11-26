@@ -749,7 +749,7 @@ task_groups:
       - e2e_sharded_cluster_scram_sha_256_switch_project
       - e2e_replica_set_scram_sha_1_switch_project
       - e2e_sharded_cluster_scram_sha_1_switch_project
-      # Disabled these tests as they don't use the password secret, and project migrations aren't fully supported yet.  
+      # TODO CLOUDP-349093 - Disabled these tests as they don't use the password secret, and project migrations aren't fully supported yet.  
       # e2e_sharded_cluster_x509_switch_project
       # e2e_replica_set_x509_switch_project
       # e2e_replica_set_ldap_switch_project

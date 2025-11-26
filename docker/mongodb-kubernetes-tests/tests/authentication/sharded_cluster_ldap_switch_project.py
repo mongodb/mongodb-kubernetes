@@ -122,7 +122,7 @@ class TestShardedClusterLDAPProjectSwitch(KubernetesTester):
     def test_sharded_cluster_CLOUDP_229222(self, sharded_cluster: MongoDB, ldap_mongodb_users: List[LDAPUser]):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
-    # Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
+    # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_new_mdb_users_are_created(self, ldap_user_mongodb: MongoDBUser):
     #     ldap_user_mongodb.assert_reaches_phase(Phase.Updated)
 
@@ -134,7 +134,7 @@ class TestShardedClusterLDAPProjectSwitch(KubernetesTester):
     def test_switch_sharded_cluster_project(self, testhelper: ShardedClusterSwitchProjectHelper):
         testhelper.test_switch_sharded_cluster_project()
 
-    # Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
+    # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_ops_manager_state_correctly_updated_after_switch(self, testhelper: ShardedClusterSwitchProjectHelper):
     #     testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
     #     # There should be one user (the previously created user should still exist in the automation configuration). We need to investigate further to understand why the user is not being picked up.

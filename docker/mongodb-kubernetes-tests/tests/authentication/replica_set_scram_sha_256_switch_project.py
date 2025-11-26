@@ -51,7 +51,7 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
     def test_ops_manager_state_correctly_updated(self, testhelper: ReplicaSetSwitchProjectHelper):
         testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
-    # Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
+    # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_create_secret(self):
     #     create_or_update_secret(
     #         KubernetesTester.get_namespace(),
@@ -93,7 +93,7 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
     def test_ops_manager_state_correctly_updated_after_switch(self, testhelper: ReplicaSetSwitchProjectHelper):
         testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
-    # Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
+    # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_ops_manager_state_with_users_correctly_updated_after_switch(
     #     self, testhelper: ReplicaSetSwitchProjectHelper
     # ):
