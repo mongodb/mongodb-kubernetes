@@ -678,6 +678,34 @@ func (r *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx cont
 	return nil
 }
 
+// TODO: are "failed" clusters equivalent to not healthy ones ? In legacy controller: failedClusterNames, err := mrs.GetFailedClusterNames()
+// reconcileMultiClusterHostnameOverrideConfigMaps creates hostname override ConfigMaps in each member cluster.
+// We need it for multi-cluster because agents need to register with their service FQDN
+// (e.g., "my-rs-0-0-svc.ns.svc.cluster.local") rather than their pod hostname ("my-rs-0-0").
+func (r *ReplicaSetReconcilerHelper) reconcileMultiClusterHostnameOverrideConfigMaps(ctx context.Context, log *zap.SugaredLogger) error {
+	rs := r.resource
+
+	for _, memberCluster := range multicluster.GetHealthyMemberClusters(r.MemberClusters) {
+		scaler := r.GetReplicaSetScaler(memberCluster)
+		members := scaler.DesiredReplicas()
+
+		if members == 0 {
+			log.Debugf("Skipping hostname override configmap for cluster %s (0 members)", memberCluster.Name)
+			continue
+		}
+
+		cm := getMultiClusterHostnameOverrideConfigMap(rs, memberCluster.Index, memberCluster.Name, members)
+
+		err := configmap.CreateOrUpdate(ctx, memberCluster.Client, cm)
+		if err != nil && !errors.IsAlreadyExists(err) {
+			return xerrors.Errorf("failed to create hostname override configmap %s in cluster %s: %w", cm.Name, memberCluster.Name, err)
+		}
+		log.Debugf("Successfully ensured hostname override configmap %s in cluster %s with entries: %v", cm.Name, memberCluster.Name, cm.Data)
+	}
+
+	return nil
+}
+
 // replicateAgentKeySecret ensures the agent API key secret exists in all healthy member clusters.
 // This is required for multi-cluster deployments where agents in member clusters need to authenticate with Ops Manager.
 func (r *ReplicaSetReconcilerHelper) replicateAgentKeySecret(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
