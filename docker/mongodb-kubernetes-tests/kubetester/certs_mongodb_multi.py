@@ -11,6 +11,8 @@ from kubetester.certs import (
     multi_cluster_service_fqdns,
 )
 from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.mongodb_multi import MongoDB
+
 from kubetester.multicluster_client import MultiClusterClient
 
 
@@ -18,7 +20,7 @@ def create_multi_cluster_agent_certs(
     multi_cluster_issuer: str,
     secret_name: str,
     central_cluster_client: kubernetes.client.ApiClient,
-    mongodb_multi: MongoDBMulti,
+    mongodb_multi: MongoDBMulti | MongoDB,
     secret_backend: Optional[str] = None,
 ) -> str:
     agents = ["mms-automation-agent"]
@@ -49,7 +51,7 @@ def create_multi_cluster_x509_agent_certs(
     multi_cluster_issuer: str,
     secret_name: str,
     central_cluster_client: kubernetes.client.ApiClient,
-    mongodb_multi: MongoDBMulti,
+    mongodb_multi: MongoDBMulti | MongoDB,
     secret_backend: Optional[str] = None,
 ) -> str:
     spec = get_agent_x509_subject(mongodb_multi.namespace)
@@ -73,7 +75,7 @@ def create_multi_cluster_mongodb_tls_certs(
     bundle_secret_name: str,
     member_cluster_clients: List[MultiClusterClient],
     central_cluster_client: kubernetes.client.ApiClient,
-    mongodb_multi: Optional[MongoDBMulti] = None,
+    mongodb_multi: Optional[MongoDBMulti | MongoDB] = None,
     namespace: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
     service_fqdns: Optional[List[str]] = None,
@@ -100,7 +102,7 @@ def create_multi_cluster_mongodb_x509_tls_certs(
     bundle_secret_name: str,
     member_cluster_clients: List[MultiClusterClient],
     central_cluster_client: kubernetes.client.ApiClient,
-    mongodb_multi: MongoDBMulti,
+    mongodb_multi: MongoDBMulti | MongoDB,
     additional_domains: Optional[List[str]] = None,
     service_fqdns: Optional[List[str]] = None,
     clusterwide: bool = False,
