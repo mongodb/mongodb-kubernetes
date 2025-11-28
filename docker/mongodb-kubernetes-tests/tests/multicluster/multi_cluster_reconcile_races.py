@@ -73,7 +73,7 @@ def get_replica_set(ops_manager, namespace: str, idx: int) -> MongoDB:
 def get_mdbmc(ops_manager, namespace: str, idx: int) -> MongoDBMulti:
     name = f"mdb-{idx}-mc"
     resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi-cluster.yaml"),
+        yaml_fixture("mongodbmulticluster-multi-cluster.yaml"),
         namespace=namespace,
         name=name,
     ).configure(ops_manager, name, api_client=get_central_cluster_client())
