@@ -486,6 +486,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		AutoUser:           scramAgentUserName,
 		AutoLdapGroupDN:    ar.GetSecurity().Authentication.Agents.AutomationLdapGroupDN,
 		CAFilePath:         caFilepath,
+		MongoDBResource:    types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()},
 	}
 	var databaseSecretPath string
 	if r.VaultClient != nil {
@@ -548,7 +549,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 			authOpts.UserOptions = userOpts
 		}
 
-		if err := authentication.Configure(conn, authOpts, isRecovering, log); err != nil {
+		if err := authentication.Configure(ctx, r.client, conn, authOpts, isRecovering, log); err != nil {
 			return workflow.Failed(err), false
 		}
 	} else if wantToEnableAuthentication {
@@ -567,7 +568,8 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		}
 
 		authOpts.UserOptions = userOpts
-		if err := authentication.Disable(conn, authOpts, false, log); err != nil {
+
+		if err := authentication.Disable(ctx, r.client, conn, authOpts, false, log); err != nil {
 			return workflow.Failed(err), false
 		}
 	}
@@ -627,11 +629,12 @@ func (r *ReconcileCommonController) clearProjectAuthenticationSettings(ctx conte
 	}
 	log.Infof("Disabling authentication for project: %s", conn.GroupName())
 	disableOpts := authentication.Options{
-		ProcessNames: processNames,
-		UserOptions:  userOpts,
+		ProcessNames:    processNames,
+		UserOptions:     userOpts,
+		MongoDBResource: types.NamespacedName{Namespace: mdb.Namespace, Name: mdb.Name},
 	}
 
-	return authentication.Disable(conn, disableOpts, true, log)
+	return authentication.Disable(ctx, r.client, conn, disableOpts, true, log)
 }
 
 // ensureX509SecretAndCheckTLSType checks if the secrets containing the certificates are present and whether the certificate are of kubernetes.io/tls type.
