@@ -220,7 +220,7 @@ class MongoDB(CustomObject, MongoDBCommon):
                 return spec
 
         raise ValueError(f"Cluster with name {cluster_name} not found!")
-    
+
     def set_architecture_annotation(self):
         if "annotations" not in self["metadata"]:
             self["metadata"]["annotations"] = {}

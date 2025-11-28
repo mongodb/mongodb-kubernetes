@@ -10,9 +10,8 @@ from kubetester.certs import (
     get_mongodb_x509_subject,
     multi_cluster_service_fqdns,
 )
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
-from kubetester.mongodb_multi import MongoDB
-
 from kubetester.multicluster_client import MultiClusterClient
 
 
