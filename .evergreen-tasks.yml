@@ -194,11 +194,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_mongodb_meko_mck_upgrade
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_olm_operator_upgrade
     tags: [ "patch-run" ]
     commands:
