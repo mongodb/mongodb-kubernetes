@@ -15,12 +15,11 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from tests.conftest import (
-    MULTI_CLUSTER_OPERATOR_NAME,
-    TELEMETRY_CONFIGMAP_NAME,
     get_central_cluster_client,
     get_custom_mdb_version,
     get_member_cluster_names,
 )
+from tests.constants import MULTI_CLUSTER_OPERATOR_NAME, TELEMETRY_CONFIGMAP_NAME
 from tests.multicluster.conftest import cluster_spec_list
 
 
@@ -74,7 +73,7 @@ def get_replica_set(ops_manager, namespace: str, idx: int) -> MongoDB:
 def get_mdbmc(ops_manager, namespace: str, idx: int) -> MongoDBMulti:
     name = f"mdb-{idx}-mc"
     resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi-cluster.yaml"),
+        yaml_fixture("mongodbmulticluster-multi-cluster.yaml"),
         namespace=namespace,
         name=name,
     ).configure(ops_manager, name, api_client=get_central_cluster_client())

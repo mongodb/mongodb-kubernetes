@@ -1,0 +1,69 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: multi-replica-set
+spec:
+  version: 4.4.0-ent
+  type: ReplicaSet
+  topology: MultiCluster
+  duplicateServiceObjects: false
+  credentials: my-credentials
+  opsManager:
+    configMapRef:
+      name: my-project
+  clusterSpecList:
+    - clusterName: kind-e2e-cluster-1
+      members: 2
+      statefulSet:
+        spec:
+          selector:
+            matchLabels:
+              app: "multi-replica-set"
+          template:
+            metadata:
+              labels:
+                app: "multi-replica-set"
+            spec:
+              containers:
+              - name: sidecar1
+                image: busybox
+                command: ["sleep"]
+                args: [ "7200" ]
+          volumeClaimTemplates:
+          - metadata:
+              name: data
+            spec:
+              accessModes: [ "ReadWriteOnce" ]
+    - clusterName: kind-e2e-cluster-2
+      members: 1
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: sidecar2
+                image: busybox
+                command: ["sleep"]
+                args: [ "7200" ]
+          volumeClaimTemplates:
+          - metadata:
+              name: data
+            spec:
+              accessModes: [ "ReadWriteOnce" ]
+    - clusterName: kind-e2e-cluster-3
+      members: 1
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: sidecar3
+                image: busybox
+                command: ["sleep"]
+                args: [ "7200" ]
+          volumeClaimTemplates:
+          - metadata:
+              name: data
+            spec:
+              accessModes: [ "ReadWriteOnce" ]

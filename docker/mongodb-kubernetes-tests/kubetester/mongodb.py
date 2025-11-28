@@ -211,6 +211,16 @@ class MongoDB(CustomObject, MongoDBCommon):
     def assert_connectivity(self, ca_path: Optional[str] = None, cluster_domain: str = "cluster.local"):
         return self.tester(ca_path=ca_path).assert_connectivity()
 
+    def get_item_spec(self, cluster_name: str) -> Dict:
+        for spec in sorted(
+            self["spec"]["clusterSpecList"],
+            key=lambda x: x["clusterName"],
+        ):
+            if spec["clusterName"] == cluster_name:
+                return spec
+
+        raise ValueError(f"Cluster with name {cluster_name} not found!")
+
     def set_architecture_annotation(self):
         if "annotations" not in self["metadata"]:
             self["metadata"]["annotations"] = {}
