@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -1643,7 +1644,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 			construct.GetPodEnvOptions(),
 		)
 		shardSts := construct.DatabaseStatefulSet(*sh, shardOptions, zap.S())
-		shards[i], _ = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses("fake-mongoDBImage", false, shardSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
+		shards[i], _ = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses("fake-mongoDBImage", false, shardSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment(), NewShardedClusterDeploymentState())
 	}
 
 	desiredMongosConfig := createMongosSpec(sh)
@@ -1664,7 +1665,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 		construct.GetPodEnvOptions(),
 	)
 	configSvrSts := construct.DatabaseStatefulSet(*sh, configServerOptions, zap.S())
-	configRs, _ := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses("fake-mongoDBImage", false, configSvrSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
+	configRs, _ := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses("fake-mongoDBImage", false, configSvrSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment(), NewShardedClusterDeploymentState())
 
 	d := om.NewDeployment()
 	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
@@ -1913,4 +1914,120 @@ func generateAllHostsSingleCluster(sc *mdbv1.MongoDB, mongosCount int, configSrv
 		allPodNames = append(allPodNames, podNames...)
 	}
 	return allHosts, allPodNames
+}
+
+// TestProcessIdPersistence tests the process ID persistence functionality
+// for sharded cluster deployments, ensuring process IDs are correctly
+// saved to and retrieved from the ShardedClusterDeploymentState.
+func TestProcessIdPersistence(t *testing.T) {
+	t.Run("TestShardedClusterDeploymentState_ProcessIds", func(t *testing.T) {
+		// Test 1: Create new deployment state
+		deploymentState := NewShardedClusterDeploymentState()
+		assert.NotNil(t, deploymentState)
+		assert.NotNil(t, deploymentState.ProcessIds)
+		assert.Equal(t, 0, len(deploymentState.ProcessIds))
+
+		// Test 2: Save process IDs for config server and shards (simulating GetReplicaSetMemberIds result)
+		allProcessIds := om.ReplicaSetToProcessIds{
+			"test-configsrv": {
+				"test-configsrv-0": 0,
+				"test-configsrv-1": 1,
+				"test-configsrv-2": 2,
+			},
+			"test-shard-0": {
+				"test-shard-0-0": 3,
+				"test-shard-0-1": 4,
+				"test-shard-0-2": 5,
+			},
+			"test-shard-1": {
+				"test-shard-1-0": 6,
+				"test-shard-1-1": 7,
+			},
+		}
+		saveReplicaSetProcessIdsToDeploymentState(allProcessIds, deploymentState)
+
+		assert.Equal(t, 3, len(deploymentState.ProcessIds))
+		assert.Equal(t, allProcessIds["test-configsrv"], deploymentState.ProcessIds["test-configsrv"])
+		assert.Equal(t, allProcessIds["test-shard-0"], deploymentState.ProcessIds["test-shard-0"])
+		assert.Equal(t, allProcessIds["test-shard-1"], deploymentState.ProcessIds["test-shard-1"])
+
+		// Test 4: Retrieve process IDs (simulating migration scenario)
+		retrievedConfigIds := getReplicaSetProcessIdsFromDeploymentState("test-configsrv", deploymentState)
+		assert.Equal(t, allProcessIds["test-configsrv"], retrievedConfigIds)
+
+		retrievedShard0Ids := getReplicaSetProcessIdsFromDeploymentState("test-shard-0", deploymentState)
+		assert.Equal(t, allProcessIds["test-shard-0"], retrievedShard0Ids)
+
+		retrievedShard1Ids := getReplicaSetProcessIdsFromDeploymentState("test-shard-1", deploymentState)
+		assert.Equal(t, allProcessIds["test-shard-1"], retrievedShard1Ids)
+
+		// Test 5: Retrieve non-existent replica set (should return empty map)
+		emptyIds := getReplicaSetProcessIdsFromDeploymentState("non-existent", deploymentState)
+		assert.NotNil(t, emptyIds)
+		assert.Equal(t, 0, len(emptyIds))
+	})
+
+	t.Run("TestProcessIdPersistence_EdgeCases", func(t *testing.T) {
+		deploymentState := &ShardedClusterDeploymentState{}
+
+		// Should return empty map for nil ReplicaSetToProcessIds
+		emptyIds := getReplicaSetProcessIdsFromDeploymentState("test-rs", deploymentState)
+		assert.NotNil(t, emptyIds)
+		assert.Equal(t, 0, len(emptyIds))
+
+		// Should initialize ReplicaSetToProcessIds when saving
+		allProcessIds := om.ReplicaSetToProcessIds{
+			"test-rs": {"test-process": 1},
+		}
+		saveReplicaSetProcessIdsToDeploymentState(allProcessIds, deploymentState)
+		assert.NotNil(t, deploymentState.ProcessIds)
+		assert.Equal(t, allProcessIds["test-rs"], deploymentState.ProcessIds["test-rs"])
+
+		// Test edge case: empty process IDs (should not save)
+		emptyProcessIds := om.ReplicaSetToProcessIds{}
+		saveReplicaSetProcessIdsToDeploymentState(emptyProcessIds, deploymentState)
+		// Should still have the original data
+		assert.Equal(t, allProcessIds["test-rs"], deploymentState.ProcessIds["test-rs"])
+	})
+
+	t.Run("TestProcessIdPersistence_JSONSerialization", func(t *testing.T) {
+		// Test JSON serialization/deserialization (StateStore compatibility)
+		originalState := NewShardedClusterDeploymentState()
+
+		// Add test data
+		allProcessIds := om.ReplicaSetToProcessIds{
+			"test-config": {
+				"config-0": 0,
+				"config-1": 1,
+				"config-2": 2,
+			},
+			"test-shard-0": {
+				"shard-0-0": 3,
+				"shard-0-1": 4,
+			},
+		}
+
+		saveReplicaSetProcessIdsToDeploymentState(allProcessIds, originalState)
+
+		// Serialize to JSON
+		jsonData, err := json.Marshal(originalState)
+		require.NoError(t, err)
+		assert.Contains(t, string(jsonData), "processIds")
+		assert.Contains(t, string(jsonData), "test-config")
+		assert.Contains(t, string(jsonData), "test-shard-0")
+
+		// Deserialize from JSON
+		var restoredState ShardedClusterDeploymentState
+		err = json.Unmarshal(jsonData, &restoredState)
+		require.NoError(t, err)
+
+		// Verify restored state
+		assert.Equal(t, originalState.ProcessIds, restoredState.ProcessIds)
+
+		restoredConfigIds := getReplicaSetProcessIdsFromDeploymentState("test-config", &restoredState)
+		assert.Equal(t, allProcessIds["test-config"], restoredConfigIds)
+
+		restoredShardIds := getReplicaSetProcessIdsFromDeploymentState("test-shard-0", &restoredState)
+		assert.Equal(t, allProcessIds["test-shard-0"], restoredShardIds)
+	})
 }
