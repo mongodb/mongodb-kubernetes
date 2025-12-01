@@ -138,11 +138,14 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 	}
 }
 
-// isAuthenticationTransitionMove returns true if the given move is related to authentication transitions
+// isAuthenticationTransitionMove returns true if the given move is related to authentication transitions.
+// These move names come from the automation agent's plan and represent auth mode transitions.
 func isAuthenticationTransitionMove(move string) bool {
 	authMoves := map[string]struct{}{
-		"UpdateAuth":     {},
-		"WaitAuthUpdate": {},
+		"UpgradeAuthModeFromAuthOffToAuthTransition":   {},
+		"UpgradeAuthModeFromAuthTransitionToAuthOn":    {},
+		"DowngradeAuthModeFromAuthOnToAuthTransition":  {},
+		"DowngradeAuthModeFromAuthTransitionToAuthOff": {},
 	}
 
 	_, ok := authMoves[move]

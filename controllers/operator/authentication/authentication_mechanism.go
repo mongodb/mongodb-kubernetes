@@ -9,6 +9,7 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 // Mechanism is an interface that needs to be implemented for any Ops Manager authentication mechanism
@@ -109,9 +110,11 @@ func convertToMechanismOrPanic(mechanismModeInCR string, ac *om.AutomationConfig
 		// if we have already configured authentication, and it has been set to MONGODB-CR/SCRAM-SHA-1
 		// we can not transition. This needs to be done in the UI
 
-		// if no authentication has been configured, the default value for "AutoAuthMechanism" is "MONGODB-CR"
-		// even if authentication is disabled, so we need to ensure that auth has been enabled.
-		if ac.Auth.AutoAuthMechanism == string(MongoDBCR) && ac.Auth.IsEnabled() {
+		// The server's default value for "AutoAuthMechanism" is "MONGODB-CR" even when auth is disabled.
+		// We should only return MONGODB-CR if it's actually configured in AutoAuthMechanisms,
+		// not just based on the server's default value. This prevents issues when transitioning
+		// from disabled auth to SCRAM where the server may still show "MONGODB-CR" as the default.
+		if ac.Auth.IsEnabled() && stringutil.Contains(ac.Auth.AutoAuthMechanisms, string(MongoDBCR)) {
 			return getMechanismByName(MongoDBCR)
 		}
 		return getMechanismByName(ScramSha256)

@@ -160,13 +160,26 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 	assert.Contains(t, mechanismList, scramSha256Mechanism)
 	assert.Contains(t, mechanismList, mongoDBX509Mechanism)
 
-	// enable MONGODB-CR
+	// enable MONGODB-CR - must set both AutoAuthMechanism (server-side field) and
+	// AutoAuthMechanisms (configured mechanisms) for the conversion to return MONGODB-CR
 	ac.Auth.AutoAuthMechanism = "MONGODB-CR"
+	ac.Auth.AutoAuthMechanisms = []string{"MONGODB-CR"}
 	ac.Auth.Enable()
 
 	mechanismList = convertToMechanismList([]string{"SCRAM", "X509"}, ac)
 
 	assert.Contains(t, mechanismList, mongoDBCRMechanism)
+	assert.Contains(t, mechanismList, mongoDBX509Mechanism)
+
+	// When auth is enabled but AutoAuthMechanisms doesn't contain MONGODB-CR,
+	// the conversion should return SCRAM-SHA-256 (not MONGODB-CR based on default AutoAuthMechanism)
+	ac.Auth.AutoAuthMechanism = "MONGODB-CR" // Server default
+	ac.Auth.AutoAuthMechanisms = []string{}  // Not configured
+	ac.Auth.Enable()
+
+	mechanismList = convertToMechanismList([]string{"SCRAM", "X509"}, ac)
+
+	assert.Contains(t, mechanismList, scramSha256Mechanism) // Should return SCRAM-SHA-256, not MONGODB-CR
 	assert.Contains(t, mechanismList, mongoDBX509Mechanism)
 }
 

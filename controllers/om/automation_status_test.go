@@ -131,14 +131,14 @@ func TestCheckAutomationStatusIsGoal_AuthenticationTransitions(t *testing.T) {
 		expectedMessage   string
 	}{
 		{
-			name: "should wait for UpdateAuth move to complete",
+			name: "should wait for UpgradeAuthModeFromAuthOffToAuthTransition move to complete",
 			automationStatus: &AutomationStatus{
 				GoalVersion: 5,
 				Processes: []ProcessStatus{
 					{
 						Name:                    "rs0_0",
 						LastGoalVersionAchieved: 5,
-						Plan:                    []string{"UpdateAuth"},
+						Plan:                    []string{"UpgradeAuthModeFromAuthOffToAuthTransition"},
 					},
 				},
 			},
@@ -175,7 +175,7 @@ func TestCheckAutomationStatusIsGoal_AuthenticationTransitions(t *testing.T) {
 					{
 						Name:                    "rs0_1",
 						LastGoalVersionAchieved: 7,
-						Plan:                    []string{"WaitAuthUpdate"}, // Auth-related move in progress
+						Plan:                    []string{"UpgradeAuthModeFromAuthTransitionToAuthOn"}, // Auth-related move in progress
 					},
 				},
 			},
@@ -223,8 +223,10 @@ func TestCheckAutomationStatusIsGoal_AuthenticationTransitions(t *testing.T) {
 
 func TestIsAuthenticationTransitionMove(t *testing.T) {
 	authMoves := []string{
-		"UpdateAuth",
-		"WaitAuthUpdate",
+		"UpgradeAuthModeFromAuthOffToAuthTransition",
+		"UpgradeAuthModeFromAuthTransitionToAuthOn",
+		"DowngradeAuthModeFromAuthOnToAuthTransition",
+		"DowngradeAuthModeFromAuthTransitionToAuthOff",
 	}
 
 	nonAuthMoves := []string{
@@ -232,6 +234,8 @@ func TestIsAuthenticationTransitionMove(t *testing.T) {
 		"CreateIndex",
 		"DropCollection",
 		"BackupDatabase",
+		"UpdateAuth",     // These are NOT real auth transition move names
+		"WaitAuthUpdate", // These are step names, not move names
 	}
 
 	for _, move := range authMoves {
