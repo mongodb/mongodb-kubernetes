@@ -12,8 +12,8 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.phase import Phase
 
-from .helper_sharded_cluster_switch_project import (
-    ShardedClusterSwitchProjectHelper,
+from .helper_switch_project import (
+    SwitchProjectHelper,
 )
 
 MDB_RESOURCE_NAME = "sharded-cluster-ldap-switch-project"
@@ -71,9 +71,9 @@ def ldap_user_mongodb(sharded_cluster: MongoDB, namespace: str, ldap_mongodb_use
 
 
 @pytest.fixture(scope="function")
-def testhelper(sharded_cluster: MongoDB, namespace: str) -> ShardedClusterSwitchProjectHelper:
-    return ShardedClusterSwitchProjectHelper(
-        sharded_cluster=sharded_cluster,
+def testhelper(sharded_cluster: MongoDB, namespace: str) -> SwitchProjectHelper:
+    return SwitchProjectHelper(
+        resource=sharded_cluster,
         namespace=namespace,
         authentication_mechanism=LDAP_AUTHENTICATION_MECHANISM,
         expected_num_deployment_auth_mechanisms=2,
@@ -84,8 +84,8 @@ def testhelper(sharded_cluster: MongoDB, namespace: str) -> ShardedClusterSwitch
 @pytest.mark.e2e_sharded_cluster_ldap_switch_project
 class TestShardedClusterLDAPProjectSwitch(KubernetesTester):
 
-    def test_create_sharded_cluster(self, sharded_cluster):
-        sharded_cluster.assert_reaches_phase(Phase.Pending, timeout=600)
+    def test_create_sharded_cluster(self, testhelper: SwitchProjectHelper):
+        testhelper.test_create_resource()
 
     def test_sharded_cluster_turn_tls_on_CLOUDP_229222(self, sharded_cluster: MongoDB):
 
@@ -126,15 +126,13 @@ class TestShardedClusterLDAPProjectSwitch(KubernetesTester):
     # def test_new_mdb_users_are_created(self, ldap_user_mongodb: MongoDBUser):
     #     ldap_user_mongodb.assert_reaches_phase(Phase.Updated)
 
-    def test_ops_manager_state_correctly_updated_in_initial_cluster(
-        self, testhelper: ShardedClusterSwitchProjectHelper
-    ):
+    def test_ops_manager_state_correctly_updated_in_initial_cluster(self, testhelper: SwitchProjectHelper):
         testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
-    def test_switch_sharded_cluster_project(self, testhelper: ShardedClusterSwitchProjectHelper):
-        testhelper.test_switch_sharded_cluster_project()
+    def test_switch_project(self, testhelper: SwitchProjectHelper):
+        testhelper.test_switch_project()
 
     # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
-    # def test_ops_manager_state_correctly_updated_after_switch(self, testhelper: ShardedClusterSwitchProjectHelper):
+    # def test_ops_manager_state_correctly_updated_after_switch(self, testhelper: SwitchProjectHelper):
     #     testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
     #     # There should be one user (the previously created user should still exist in the automation configuration). We need to investigate further to understand why the user is not being picked up.

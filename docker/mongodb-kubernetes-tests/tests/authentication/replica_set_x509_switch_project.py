@@ -11,8 +11,8 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 
-from .helper_replica_set_switch_project import (
-    ReplicaSetSwitchProjectHelper,
+from .helper_switch_project import (
+    SwitchProjectHelper,
 )
 
 MDB_RESOURCE_NAME = "replica-set-x509-switch-project"
@@ -43,10 +43,8 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 
 @pytest.fixture(scope="function")
-def testhelper(replica_set: MongoDB, namespace: str) -> ReplicaSetSwitchProjectHelper:
-    return ReplicaSetSwitchProjectHelper(
-        replica_set=replica_set, namespace=namespace, authentication_mechanism="MONGODB-X509"
-    )
+def testhelper(replica_set: MongoDB, namespace: str) -> SwitchProjectHelper:
+    return SwitchProjectHelper(resource=replica_set, namespace=namespace, authentication_mechanism="MONGODB-X509")
 
 
 @pytest.mark.e2e_replica_set_x509_switch_project
@@ -55,18 +53,14 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
     E2E test suite for replica set creation, user connectivity with X509 authentication and switching Ops Manager project reference.
     """
 
-    def test_create_replica_set(self, testhelper: ReplicaSetSwitchProjectHelper):
-        testhelper.test_create_replica_set()
+    def test_create_resource(self, testhelper: SwitchProjectHelper):
+        testhelper.test_create_resource()
 
-    def test_ops_manager_state_correctly_updated_in_initial_replica_set(
-        self, testhelper: ReplicaSetSwitchProjectHelper
-    ):
+    def test_ops_manager_state_correctly_updated_in_initial_replica_set(self, testhelper: SwitchProjectHelper):
         testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
-    def test_switch_replica_set_project(self, testhelper: ReplicaSetSwitchProjectHelper):
-        testhelper.test_switch_replica_set_project()
+    def test_switch_project(self, testhelper: SwitchProjectHelper):
+        testhelper.test_switch_project()
 
-    def test_ops_manager_state_with_users_correctly_updated_after_switch(
-        self, testhelper: ReplicaSetSwitchProjectHelper
-    ):
+    def test_ops_manager_state_with_users_correctly_updated_after_switch(self, testhelper: SwitchProjectHelper):
         testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)

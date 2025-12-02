@@ -11,8 +11,8 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 
-from .helper_sharded_cluster_switch_project import (
-    ShardedClusterSwitchProjectHelper,
+from .helper_switch_project import (
+    SwitchProjectHelper,
 )
 
 MDB_RESOURCE_NAME = "sharded-cluster-x509-switch-project"
@@ -52,9 +52,9 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 
 @pytest.fixture(scope="function")
-def testhelper(sharded_cluster: MongoDB, namespace: str) -> ShardedClusterSwitchProjectHelper:
-    return ShardedClusterSwitchProjectHelper(
-        sharded_cluster=sharded_cluster,
+def testhelper(sharded_cluster: MongoDB, namespace: str) -> SwitchProjectHelper:
+    return SwitchProjectHelper(
+        resource=sharded_cluster,
         namespace=namespace,
         authentication_mechanism="MONGODB-X509",
         expected_num_deployment_auth_mechanisms=1,
@@ -67,16 +67,14 @@ class TestShardedClusterCreationAndProjectSwitch(KubernetesTester):
     E2E test suite for sharded cluster creation, user connectivity with X509 authentication and switching Ops Manager project reference.
     """
 
-    def test_create_sharded_cluster(self, testhelper: ShardedClusterSwitchProjectHelper):
-        testhelper.test_create_sharded_cluster()
+    def test_create_sharded_cluster(self, testhelper: SwitchProjectHelper):
+        testhelper.test_create_resource()
 
-    def test_ops_manager_state_correctly_updated_in_initial_sharded_cluster(
-        self, testhelper: ShardedClusterSwitchProjectHelper
-    ):
+    def test_ops_manager_state_correctly_updated_in_initial_sharded_cluster(self, testhelper: SwitchProjectHelper):
         testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
-    def test_switch_sharded_cluster_project(self, testhelper: ShardedClusterSwitchProjectHelper):
-        testhelper.test_switch_sharded_cluster_project()
+    def test_switch_project(self, testhelper: SwitchProjectHelper):
+        testhelper.test_switch_project()
 
-    def test_ops_manager_state_correctly_updated_after_switch(self, testhelper: ShardedClusterSwitchProjectHelper):
+    def test_ops_manager_state_correctly_updated_after_switch(self, testhelper: SwitchProjectHelper):
         testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)

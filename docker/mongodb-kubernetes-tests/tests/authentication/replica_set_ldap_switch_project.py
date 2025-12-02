@@ -13,8 +13,8 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.phase import Phase
 
-from .helper_replica_set_switch_project import (
-    ReplicaSetSwitchProjectHelper,
+from .helper_switch_project import (
+    SwitchProjectHelper,
 )
 
 MDB_RESOURCE_NAME = "replica-set-ldap-switch-project"
@@ -100,9 +100,9 @@ def user_ldap(replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDA
 
 
 @pytest.fixture(scope="function")
-def testhelper(replica_set: MongoDB, namespace: str) -> ReplicaSetSwitchProjectHelper:
-    return ReplicaSetSwitchProjectHelper(
-        replica_set=replica_set,
+def testhelper(replica_set: MongoDB, namespace: str) -> SwitchProjectHelper:
+    return SwitchProjectHelper(
+        resource=replica_set,
         namespace=namespace,
         authentication_mechanism=LDAP_AUTHENTICATION_MECHANISM,
         expected_num_deployment_auth_mechanisms=3,
@@ -112,16 +112,14 @@ def testhelper(replica_set: MongoDB, namespace: str) -> ReplicaSetSwitchProjectH
 @pytest.mark.e2e_replica_set_ldap_switch_project
 class TestReplicaSetLDAPProjectSwitch(KubernetesTester):
 
-    def test_create_replica_set(self, testhelper: ReplicaSetSwitchProjectHelper):
-        testhelper.test_create_replica_set()
+    def test_create_resource(self, testhelper: SwitchProjectHelper):
+        testhelper.test_create_resource()
 
     # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_create_ldap_user(self, user_ldap: MongoDBUser):
     #     user_ldap.assert_reaches_phase(Phase.Updated)
 
-    def test_ops_manager_state_correctly_updated_in_initial_replica_set(
-        self, testhelper: ReplicaSetSwitchProjectHelper
-    ):
+    def test_ops_manager_state_correctly_updated_in_initial_replica_set(self, testhelper: SwitchProjectHelper):
         testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
     # def test_new_mdb_users_are_created_and_can_authenticate(
@@ -136,12 +134,12 @@ class TestReplicaSetLDAPProjectSwitch(KubernetesTester):
     #         attempts=10,
     #     )
 
-    def test_switch_replica_set_project(self, testhelper: ReplicaSetSwitchProjectHelper):
-        testhelper.test_switch_replica_set_project()
+    def test_switch_project(self, testhelper: SwitchProjectHelper):
+        testhelper.test_switch_project()
 
     # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_ops_manager_state_with_users_correctly_updated_after_switch(
-    #     self, testhelper: ReplicaSetSwitchProjectHelper
+    #     self, testhelper: SwitchProjectHelper
     # ):
     #     testhelper.test_ops_manager_state_with_expected_authentication(expected_users=1)
     # There should be one user (the previously created user should still exist in the automation configuration). We need to investigate further to understand why the user is not being picked up.

@@ -9,8 +9,8 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
 
-from .helper_replica_set_switch_project import (
-    ReplicaSetSwitchProjectHelper,
+from .helper_switch_project import (
+    SwitchProjectHelper,
 )
 
 MDB_RESOURCE_NAME = "replica-set-scram-sha-256-switch-project"
@@ -30,10 +30,8 @@ def replica_set(namespace: str) -> MongoDB:
 
 
 @pytest.fixture(scope="function")
-def testhelper(replica_set: MongoDB, namespace: str) -> ReplicaSetSwitchProjectHelper:
-    return ReplicaSetSwitchProjectHelper(
-        replica_set=replica_set, namespace=namespace, authentication_mechanism="SCRAM-SHA-256"
-    )
+def testhelper(replica_set: MongoDB, namespace: str) -> SwitchProjectHelper:
+    return SwitchProjectHelper(resource=replica_set, namespace=namespace, authentication_mechanism="SCRAM-SHA-256")
 
 
 @pytest.mark.e2e_replica_set_scram_sha_256_switch_project
@@ -42,13 +40,13 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
     E2E test suite for replica set creation, user connectivity with SCRAM-SHA-256 authentication and switching Ops Manager project reference.
     """
 
-    def test_create_replica_set(self, testhelper: ReplicaSetSwitchProjectHelper):
-        testhelper.test_create_replica_set()
+    def test_create_resource(self, testhelper: SwitchProjectHelper):
+        testhelper.test_create_resource()
 
-    def test_replica_set_connectivity(self, testhelper: ReplicaSetSwitchProjectHelper):
+    def test_replica_set_connectivity(self, testhelper: SwitchProjectHelper):
         testhelper.test_replica_set_connectivity(3)
 
-    def test_ops_manager_state_correctly_updated(self, testhelper: ReplicaSetSwitchProjectHelper):
+    def test_ops_manager_state_correctly_updated(self, testhelper: SwitchProjectHelper):
         testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
     # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
@@ -71,7 +69,7 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
     #     mdb.assert_reaches_phase(Phase.Updated, timeout=150)
 
     # def test_ops_manager_state_with_users_correctly_updated(
-    #     self, testhelper: ReplicaSetSwitchProjectHelper
+    #     self, testhelper: SwitchProjectHelper
     # ):
     #     user_name = "mms-user-1"
     #     expected_roles = {
@@ -84,18 +82,18 @@ class TestReplicaSetCreationAndProjectSwitch(KubernetesTester):
     #         user_name=user_name, expected_roles=expected_roles, expected_users=1
     #     )
 
-    def test_switch_replica_set_project(self, testhelper: ReplicaSetSwitchProjectHelper):
-        testhelper.test_switch_replica_set_project()
+    def test_switch_project(self, testhelper: SwitchProjectHelper):
+        testhelper.test_switch_project()
 
-    def test_replica_set_connectivity_after_switch(self, testhelper: ReplicaSetSwitchProjectHelper):
+    def test_replica_set_connectivity_after_switch(self, testhelper: SwitchProjectHelper):
         testhelper.test_replica_set_connectivity(3)
 
-    def test_ops_manager_state_correctly_updated_after_switch(self, testhelper: ReplicaSetSwitchProjectHelper):
+    def test_ops_manager_state_correctly_updated_after_switch(self, testhelper: SwitchProjectHelper):
         testhelper.test_ops_manager_state_with_expected_authentication(expected_users=0)
 
     # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_ops_manager_state_with_users_correctly_updated_after_switch(
-    #     self, testhelper: ReplicaSetSwitchProjectHelper
+    #     self, testhelper: SwitchProjectHelper
     # ):
     #     user_name = "mms-user-1"
     #     expected_roles = {
