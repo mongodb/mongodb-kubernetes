@@ -171,6 +171,13 @@ func (m *MongoDB) GetOwnerLabels() map[string]string {
 	}
 }
 
+// GetKind returns the Kind of the MongoDB resource. This is needed because
+// when objects are retrieved from the Kubernetes API, the TypeMeta
+// (which contains Kind and APIVersion) is not populated.
+func (m *MongoDB) GetKind() string {
+	return "MongoDB"
+}
+
 // GetSecretsMountedIntoDBPod returns a list of all the optional secret names that are used by this resource.
 func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 	secrets := []string{}

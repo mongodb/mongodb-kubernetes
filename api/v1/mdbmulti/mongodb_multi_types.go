@@ -180,6 +180,13 @@ func (m *MongoDBMultiCluster) GetOwnerLabels() map[string]string {
 	}
 }
 
+// GetKind returns the Kind of the MongoDBMultiCluster resource. This is needed because
+// when objects are retrieved from the Kubernetes API, the TypeMeta
+// (which contains Kind and APIVersion) is not populated.
+func (m *MongoDBMultiCluster) GetKind() string {
+	return "MongoDBMultiCluster"
+}
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBMultiClusterList struct {
 	metav1.TypeMeta `json:",inline"`
