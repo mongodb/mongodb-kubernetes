@@ -26,9 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	corev1 "k8s.io/api/core/v1"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
@@ -66,6 +63,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault/vaultwatcher"
+	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 var OmUpdateChannel chan event.GenericEvent
@@ -197,7 +196,7 @@ func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 func (r *OpsManagerReconcilerHelper) initializeStateStore(ctx context.Context, reconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, clusterNamesFromClusterSpecList []string) error {
 	r.deploymentState = NewOMDeploymentState()
 
-	r.stateStore = NewStateStore[OMDeploymentState](opsManager, reconciler.client)
+	r.stateStore = NewStateStore[OMDeploymentState](opsManager, kube.BaseOwnerReference(opsManager), reconciler.client)
 	if err := r.stateStore.read(ctx); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// If the deployment state config map is missing, then it might be either:
@@ -253,6 +252,7 @@ func (r *OpsManagerReconcilerHelper) writeLegacyStateConfigMap(ctx context.Conte
 	mappingConfigMap := configmap.Builder().
 		SetName(spec.ClusterMappingConfigMapName()).
 		SetLabels(spec.GetOwnerLabels()).
+		SetOwnerReferences(kube.BaseOwnerReference(r.opsManager)).
 		SetNamespace(spec.Namespace).
 		SetData(mappingConfigMapData).
 		Build()
@@ -2136,7 +2136,9 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 				log.Warnf("Failed to delete dependant OpsManager resources in cluster %s: %s", memberCluster.Name, err)
 			}
 		}
+	}
 
+	if opsManager.Spec.AppDB.IsMultiCluster() {
 		for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
 			if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
 				log.Warnf("Failed to delete dependant AppDB resources in cluster %s: %s", memberCluster.Name, err.Error())
@@ -2144,11 +2146,13 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 		}
 	}
 
+	r.resourceWatcher.RemoveDependentWatchedResources(opsManager.ObjectKey())
+
 	log.Info("Cleaned up Ops Manager related resources.")
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initAppdbVersion, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log)
+	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initAppdbVersion, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log, kube.BaseOwnerReference(opsManager))
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource

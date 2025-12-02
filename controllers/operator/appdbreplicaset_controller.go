@@ -20,6 +20,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
@@ -121,15 +122,18 @@ type ReconcileAppDbReplicaSet struct {
 
 	imageUrls        images.ImageUrls
 	initAppdbVersion string
+
+	ownerReferences []metav1.OwnerReference
 }
 
-func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initAppdbVersion string, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initAppdbVersion string, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, ownerReferences []metav1.OwnerReference) (*ReconcileAppDbReplicaSet, error) {
 	reconciler := &ReconcileAppDbReplicaSet{
 		ReconcileCommonController: commonController,
 		omConnectionFactory:       omConnectionFactory,
 		centralClient:             commonController.client,
 		imageUrls:                 imageUrls,
 		initAppdbVersion:          initAppdbVersion,
+		ownerReferences: ownerReferences,
 	}
 
 	if err := reconciler.initializeStateStore(ctx, appDBSpec, omAnnotations, log); err != nil {
@@ -148,7 +152,7 @@ func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrl
 func (r *ReconcileAppDbReplicaSet) initializeStateStore(ctx context.Context, appDBSpec omv1.AppDBSpec, omAnnotations map[string]string, log *zap.SugaredLogger) error {
 	r.deploymentState = NewAppDBDeploymentState()
 
-	r.stateStore = NewStateStore[AppDBDeploymentState](&appDBSpec, r.centralClient)
+	r.stateStore = NewStateStore[AppDBDeploymentState](&appDBSpec, r.ownerReferences, r.centralClient)
 	if state, err := r.stateStore.ReadState(ctx); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// If the deployment state config map is missing, then it might be either:
@@ -286,6 +290,7 @@ func (r *ReconcileAppDbReplicaSet) writeLegacyStateConfigMaps(ctx context.Contex
 	mappingConfigMap := configmap.Builder().
 		SetName(spec.ClusterMappingConfigMapName()).
 		SetLabels(spec.GetOwnerLabels()).
+		SetOwnerReferences(r.ownerReferences).
 		SetNamespace(spec.Namespace).
 		SetData(mappingConfigMapData).
 		Build()
@@ -302,6 +307,7 @@ func (r *ReconcileAppDbReplicaSet) writeLegacyStateConfigMaps(ctx context.Contex
 	specConfigMap := configmap.Builder().
 		SetName(spec.LastAppliedMemberSpecConfigMapName()).
 		SetLabels(spec.GetOwnerLabels()).
+		SetOwnerReferences(r.ownerReferences).
 		SetNamespace(spec.Namespace).
 		SetData(specConfigMapData).
 		Build()
@@ -1731,6 +1737,7 @@ func (r *ReconcileAppDbReplicaSet) ensureProjectIDConfigMapForCluster(ctx contex
 	cm := configmap.Builder().
 		SetName(opsManager.Spec.AppDB.ProjectIDConfigMapName()).
 		SetLabels(opsManager.GetOwnerLabels()).
+		SetOwnerReferences(r.ownerReferences).
 		SetNamespace(opsManager.Namespace).
 		SetDataField(util.AppDbProjectIdKey, projectID).
 		Build()
@@ -1791,6 +1798,7 @@ func (r *ReconcileAppDbReplicaSet) publishACVersionAsConfigMap(ctx context.Conte
 
 	acVersionConfigMap := configmap.Builder().
 		SetLabels(labels).
+		SetOwnerReferences(r.ownerReferences).
 		SetNamespace(opsManager.Namespace).
 		SetName(cmName).
 		SetDataField(appDBACConfigMapVersionField, fmt.Sprintf("%d", version)).

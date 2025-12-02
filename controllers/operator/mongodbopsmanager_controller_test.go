@@ -219,6 +219,104 @@ func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
 	assert.Zero(t, len(reconciler.resourceWatcher.GetWatchedResources()))
 }
 
+// TestOpsManagerReconciler_OnDeleteClusterResourceCleanup verifies the DeleteAllOf behavior:
+// - In single-cluster mode: DeleteAllOf should NOT be called (OwnerReferences handle cleanup)
+// - In multi-cluster mode: DeleteAllOf SHOULD be called (can't use OwnerReferences cross-cluster)
+// See https://github.com/mongodb/mongodb-kubernetes/issues/589
+func TestOpsManagerReconciler_OnDeleteClusterResourceCleanup(t *testing.T) {
+	multiClusterSpecItems := []omv1.ClusterSpecOMItem{
+		{ClusterName: "cluster-a", Members: 1},
+		{ClusterName: "cluster-b", Members: 1},
+	}
+
+	testCases := []struct {
+		name             string
+		isMultiCluster   bool
+		clusterSpecItems []omv1.ClusterSpecOMItem
+		expectDeleteCall bool
+	}{
+		{
+			name:             "SingleCluster_SkipsDeleteAllOf",
+			isMultiCluster:   false,
+			clusterSpecItems: nil,
+			expectDeleteCall: false,
+		},
+		{
+			name:             "MultiCluster_CallsDeleteAllOf",
+			isMultiCluster:   true,
+			clusterSpecItems: multiClusterSpecItems,
+			expectDeleteCall: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			deleteAllOfCallCount := 0
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+			// Build OpsManager based on topology
+			omBuilder := DefaultOpsManagerBuilder()
+			if tc.isMultiCluster {
+				omBuilder.SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+					SetOpsManagerClusterSpecList(tc.clusterSpecItems)
+			}
+			testOm := omBuilder.Build()
+			assert.Equal(t, tc.isMultiCluster, testOm.Spec.IsMultiCluster(), "topology mismatch")
+
+			// Create fake client with interceptor that tracks DeleteAllOf calls
+			deleteAllOfInterceptor := func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.DeleteAllOfOption) error {
+				deleteAllOfCallCount++
+				return nil
+			}
+
+			fakeClientBuilder := mock.NewEmptyFakeClientBuilder()
+			fakeClientBuilder.WithObjects(testOm.DeepCopy())
+			fakeClientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+				Get:         mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+				DeleteAllOf: deleteAllOfInterceptor,
+			})
+			kubeClient := kubernetesClient.NewClient(fakeClientBuilder.Build())
+
+			// Create admin secret
+			adminSecretData := map[string]string{"Username": "jane.doe@g.com", "Password": "pwd", "FirstName": "Jane", "LastName": "Doe"}
+			s := secret.Builder().
+				SetName(testOm.Spec.AdminSecret).
+				SetNamespace(testOm.Namespace).
+				SetStringMapToData(adminSecretData).
+				Build()
+			require.NoError(t, kubeClient.CreateSecret(ctx, s))
+
+			// Create member clusters map for multi-cluster mode
+			var memberClustersMap map[string]client.Client
+			if tc.isMultiCluster {
+				memberClustersMap = make(map[string]client.Client)
+				for _, clusterSpec := range tc.clusterSpecItems {
+					memberFakeClientBuilder := mock.NewEmptyFakeClientBuilder()
+					memberFakeClientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+						Get:         mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+						DeleteAllOf: deleteAllOfInterceptor,
+					})
+					memberClustersMap[clusterSpec.ClusterName] = memberFakeClientBuilder.Build()
+				}
+			}
+
+			reconciler := NewOpsManagerReconciler(ctx, kubeClient, memberClustersMap, images.ImageUrls{}, "", "", omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+				return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
+			})
+
+			reconciler.OnDelete(ctx, testOm, zap.S())
+
+			// Verify DeleteAllOf behavior based on topology
+			if tc.expectDeleteCall {
+				assert.Greater(t, deleteAllOfCallCount, 0, "DeleteAllOf should be called in multi-cluster mode")
+			} else {
+				assert.Equal(t, 0, deleteAllOfCallCount, "DeleteAllOf should not be called in single-cluster mode; cleanup relies on OwnerReferences")
+			}
+		})
+	}
+}
+
 func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().Build()

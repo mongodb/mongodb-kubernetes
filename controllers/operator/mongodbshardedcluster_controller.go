@@ -762,7 +762,7 @@ func blockScalingBothWays(desiredReplicasScalers []interfaces.MultiClusterReplic
 func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context, reconciler *ReconcileCommonController, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	r.deploymentState = NewShardedClusterDeploymentState()
 
-	r.stateStore = NewStateStore[ShardedClusterDeploymentState](sc, reconciler.client)
+	r.stateStore = NewStateStore[ShardedClusterDeploymentState](sc, kube.BaseOwnerReference(sc), reconciler.client)
 	if state, err := r.stateStore.ReadState(ctx); err != nil {
 		if errors.IsNotFound(err) {
 			// If the deployment state config map is missing, then it might be either:
@@ -1558,6 +1558,8 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 			}
 		}
 	}
+
+	r.commonController.resourceWatcher.RemoveDependentWatchedResources(sc.ObjectKey())
 
 	return errs
 }
