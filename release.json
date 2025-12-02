@@ -17,6 +17,26 @@
     "version": "0.55.0"
   },
   "supportedImages": {
+    "latestOpsManagerAgentMapping": [
+      {
+        "6": {
+          "opsManagerVersion": "6.0.27",
+          "agentVersion": "12.0.35.7911-1"
+        }
+      },
+      {
+        "7": {
+          "opsManagerVersion": "7.0.19",
+          "agentVersion": "107.0.19.8805-1"
+        }
+      },
+      {
+        "8": {
+          "opsManagerVersion": "8.0.16",
+          "agentVersion": "108.0.16.8895-1"
+        }
+      }
+    ],
     "ops-manager": {
       "ssdlc_name": "MongoDB Controllers for Kubernetes Enterprise Ops Manager",
       "versions": [
