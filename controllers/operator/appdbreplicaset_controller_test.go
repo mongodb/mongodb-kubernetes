@@ -3,10 +3,10 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -54,7 +54,6 @@ func init() {
 
 // getReleaseJsonPath searches for a specified target directory by traversing the directory tree backwards from the current working directory
 func getReleaseJsonPath() (string, error) {
-	repositoryRootDirName := "mongodb-kubernetes"
 	releaseFileName := "release.json"
 
 	currentDir, err := os.Getwd()
@@ -62,7 +61,7 @@ func getReleaseJsonPath() (string, error) {
 		return "", err
 	}
 	for currentDir != "/" {
-		if strings.HasSuffix(currentDir, repositoryRootDirName) {
+		if _, err := os.Stat(filepath.Join(currentDir, releaseFileName)); !errors.Is(err, os.ErrNotExist) {
 			return filepath.Join(currentDir, releaseFileName), nil
 		}
 		currentDir = filepath.Dir(currentDir)

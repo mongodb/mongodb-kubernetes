@@ -16,9 +16,9 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import (
-    MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
     get_member_cluster_api_client,
 )
+from tests.constants import MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP
 from tests.multicluster.conftest import cluster_spec_list
 
 FAILED_MEMBER_CLUSTER_NAME = "kind-e2e-cluster-3"
@@ -152,11 +152,12 @@ def test_delete_om_and_appdb_statefulset_in_failed_cluster(
         # delete OM to simulate losing Ops Manager application
         # this is only for testing unavailability of the OM application, it's not testing losing OM cluster
         # we don't delete here any additional resources (secrets, configmaps) that are required for a proper OM recovery testing
+        # it will be immediately recreated by the operator, so we cannot check if it was deleted
         delete_statefulset(
             ops_manager.namespace,
             ops_manager.name,
             propagation_policy="Background",
-            api_client=central_cluster_client,
+            api_client=get_member_cluster_api_client(OM_MEMBER_CLUSTER_NAME),
         )
     except kubernetes.client.ApiException as e:
         if e.status != 404:
@@ -184,14 +185,6 @@ def test_delete_om_and_appdb_statefulset_in_failed_cluster(
             else:
                 raise e
 
-    run_periodically(
-        lambda: statefulset_is_deleted(
-            ops_manager.namespace,
-            ops_manager.name,
-            api_client=get_member_cluster_api_client(OM_MEMBER_CLUSTER_NAME),
-        ),
-        timeout=120,
-    )
     run_periodically(
         lambda: statefulset_is_deleted(
             ops_manager.namespace,

@@ -134,3 +134,15 @@ func WithAgentImage(image string) func(*construct.DatabaseStatefulSetOptions) {
 		opts.AgentImage = image
 	}
 }
+
+func WithAgentDebug(debug bool) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentDebug = debug
+	}
+}
+
+func WithAgentDebugImage(debugImage string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentDebugImage = debugImage
+	}
+}

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import time
 from typing import Dict, List, Optional
 
@@ -11,6 +10,7 @@ from kubernetes.client.rest import ApiException
 from kubetester import wait_for_webhook
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import (
+    helm_chart_path_and_version,
     helm_install,
     helm_repo_add,
     helm_template,
@@ -24,6 +24,7 @@ OPERATOR_CRDS = (
     "mongodbusers.mongodb.com",
     "opsmanagers.mongodb.com",
 )
+
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -43,13 +44,15 @@ class Operator(object):
         namespace: str,
         helm_args: Optional[Dict] = None,
         helm_options: Optional[List[str]] = None,
-        helm_chart_path: Optional[str] = "helm_chart",
+        helm_chart_path: Optional[str] = None,
         name: Optional[str] = "mongodb-kubernetes-operator",
         api_client: Optional[client.api_client.ApiClient] = None,
+        operator_version: Optional[str] = None,
     ):
-
         # The Operator will be installed from the following repo, so adding it first
         helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+
+        helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path, operator_version)
 
         if helm_args is None:
             helm_args = {}
@@ -69,6 +72,7 @@ class Operator(object):
         self.helm_chart_path = helm_chart_path
         self.name = name
         self.api_client = api_client
+        self.operator_version = operator_version
 
     def install_from_template(self):
         """Uses helm to generate yaml specification and then uses python K8s client to apply them to the cluster
@@ -82,6 +86,9 @@ class Operator(object):
 
     def install(self, custom_operator_version: Optional[str] = None) -> Operator:
         """Installs the Operator to Kubernetes cluster using 'helm install', waits until it's running"""
+        if not custom_operator_version:
+            custom_operator_version = self.operator_version
+
         helm_install(
             self.name,
             self.namespace,
@@ -99,6 +106,9 @@ class Operator(object):
         self, multi_cluster: bool = False, custom_operator_version: Optional[str] = None, apply_crds_first: bool = False
     ) -> Operator:
         """Upgrades the Operator in Kubernetes cluster using 'helm upgrade', waits until it's running"""
+        if not custom_operator_version:
+            custom_operator_version = self.operator_version
+
         helm_upgrade(
             self.name,
             self.namespace,

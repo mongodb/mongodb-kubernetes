@@ -8,7 +8,8 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.common.constants import S3_BLOCKSTORE_NAME, S3_OPLOG_NAME
-from tests.conftest import AWS_REGION, is_multi_cluster
+from tests.conftest import is_multi_cluster
+from tests.constants import AWS_REGION
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 

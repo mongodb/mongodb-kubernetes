@@ -77,19 +77,19 @@ func ReadIntOrPanic(key string) int {
 	return i
 }
 
-func ReadOrDefault(key string, dflt string) string {
+func ReadOrDefault(key string, defaultValue string) string {
 	value, exists := os.LookupEnv(key)
 	if !exists || value == "" {
-		return dflt
+		return defaultValue
 	}
 	return value
 }
 
-func ReadIntOrDefault(key string, dflt int) int {
-	value := ReadOrDefault(key, strconv.Itoa(dflt))
+func ReadIntOrDefault(key string, defaultValue int) int {
+	value := ReadOrDefault(key, strconv.Itoa(defaultValue))
 	i, e := cast.ToIntE(value)
 	if e != nil {
-		return dflt
+		return defaultValue
 	}
 	return i
 }

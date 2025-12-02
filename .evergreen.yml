@@ -13,9 +13,9 @@ include:
 variables:
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_70_latest 7.0.18 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_70_latest 7.0.19 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.15 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.16 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -37,6 +37,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
 
   - &base_no_om_image_dependency
     depends_on:
@@ -54,6 +56,8 @@ variables:
         variant: init_test_run
       - name: build_init_appdb_images_ubi
         variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
 
   - &community_dependency
     depends_on:
@@ -66,6 +70,8 @@ variables:
       - name: build_version_upgrade_hook_image
         variant: init_test_run
       - name: build_mco_test_image
+        variant: init_test_run
+      - name: publish_helm_chart
         variant: init_test_run
 
   - &setup_group
@@ -82,8 +88,6 @@ variables:
       - func: clone
       - func: switch_context
       - func: setup_building_host_minikube
-      - func: install_goreleaser
-      - func: build_multi_cluster_binary
 
   - &setup_group_multi_cluster
     setup_group_can_fail_task: true
@@ -92,8 +96,6 @@ variables:
       - func: download_kube_tools
       - func: switch_context
       - func: setup_building_host
-      - func: install_goreleaser
-      - func: build_multi_cluster_binary
 
   - &setup_and_teardown_task_cloudqa
     setup_task_can_fail_task: true
@@ -142,6 +144,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
 
   - &base_om7_dependency_with_race
     depends_on:
@@ -158,6 +162,8 @@ variables:
       - name: build_init_appdb_images_ubi
         variant: init_test_run
       - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: publish_helm_chart
         variant: init_test_run
 
   # Any change to base_om8_dependency should be reflected to its copy in .evergreen-snippets.yml
@@ -177,6 +183,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
 
 parameters:
   - key: evergreen_retry
@@ -195,9 +203,9 @@ parameters:
     value: "false"
     description: set this to true if you would like to delete the resources created in the code snippet tests, but keep the clusters
 
-  - key: code_snippets_commit_output
-    value: "false"
-    description: set this to true if you would like the pipeline to automatically push a branch with updated snippets outputs
+  - key: MDB_BASH_DEBUG
+    value: "0"
+    description: set this to 1 if you want shell scripts to enable set -x
 
 # Triggered manually or by PCT.
 patch_aliases:
@@ -215,6 +223,9 @@ patch_aliases:
     task: ".*"
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
+    task_tags: [ "patch-run" ]
+  - alias: "smoke_test"
+    variant_tags: [ "e2e_smoke_test_suite" ]
     task_tags: [ "patch-run" ]
   - alias: "patch-run-cloudqa"
     variant_tags: [ "cloudqa_non_static" ]
@@ -285,9 +296,10 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline_agent
+      - func: pipeline
         vars:
-          BUILD_SCENARIO: release
+          image_name: agent
+          build_scenario: release
 
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new agent registry
@@ -296,10 +308,11 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_agent
+      - func: pipeline
         vars:
-          BUILD_SCENARIO: release
-          FLAGS: "--all-agents -r quay.io/mongodb/mongodb-agent --skip-if-exists=false"
+          image_name: agent
+          build_scenario: release
+          flags: "--parallel --all-agents -r quay.io/mongodb/mongodb-agent --skip-if-exists=false"
 
   - name: run_precommit_and_push
     tags: [ "patch-run" ]
@@ -328,9 +341,10 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_agent
+      - func: pipeline
         vars:
-          FLAGS: "--all-agents --skip-if-exists=false"
+          image_name: agent
+          flags: "--parallel --all-agents --skip-if-exists=false"
 
   - name: rebuild_currently_used_agents
     # this enables us to run this manually (patch) and rebuild current agent versions to verify
@@ -340,46 +354,66 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_agent
+      - func: pipeline
         vars:
-          FLAGS: "--current-agents --skip-if-exists=false"
+          image_name: agent
+          flags: "--parallel --current-agents --skip-if-exists=false"
+
+  - name: build_kubectl_mongodb_plugin
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: build_multi_cluster_binary
 
   - name: build_test_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: install_goreleaser
-      - func: build_multi_cluster_binary
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/amd64
       - func: pipeline
         vars:
-          IMAGE_NAME: meko-tests
+          image_name: meko-tests
 
   - name: build_test_image_arm
     commands:
       - func: clone
       - func: setup_building_host
-      - func: install_goreleaser
-      - func: build_multi_cluster_binary
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/arm64
       - func: pipeline
         vars:
-          IMAGE_NAME: meko-tests-arm64
+          image_name: meko-tests-arm64
 
-
-  - name: build_test_image_ibm
+  - name: build_test_image_ibm_z
     commands:
       - func: clone
-      - command: subprocess.exec
-        type: setup
-        params:
-          env:
-            SKIP_MINIKUBE_SETUP: "true"
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          add_to_path:
-            - ${workdir}/bin
-          command: scripts/evergreen/setup_minikube_host.sh
-      - func: install_goreleaser
-      - func: build_multi_cluster_binary
-      - func: build_test_image_ibm
+      - func: setup_building_host_minikube
+        vars:
+          skip_minikube_setup: true
+          skip_install_python_requirements: false
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/s390x
+      - func: pipeline
+        vars:
+          image_name: meko-tests-ibm-z
+
+  - name: build_test_image_ibm_power
+    commands:
+      - func: clone
+      - func: setup_building_host_minikube
+        vars:
+          skip_minikube_setup: true
+          skip_install_python_requirements: false
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/ppc64le
+      - func: pipeline
+        vars:
+          image_name: meko-tests-ibm-power
 
   - name: build_mco_test_image
     commands:
@@ -387,7 +421,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: mco-tests
+          image_name: mco-tests
 
   - name: build_operator_ubi
     commands:
@@ -395,7 +429,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: operator
+          image_name: operator
 
   - name: build_operator_race_ubi
     commands:
@@ -403,7 +437,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: operator-race
+          image_name: operator-race
 
   - name: build_init_om_images_ubi
     commands:
@@ -411,7 +445,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: init-ops-manager
+          image_name: init-ops-manager
 
   - name: build_init_appdb_images_ubi
     commands:
@@ -419,16 +453,17 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: init-appdb
+          image_name: init-appdb
 
   - name: build_agent_images_ubi
     commands:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_agent
+      - func: pipeline
         vars:
-          FLAGS: "--all-agents"
+          image_name: agent
+          flags: "--parallel --all-agents"
 
   - name: build_init_database_image_ubi
     commands:
@@ -436,7 +471,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: init-database
+          image_name: init-database
 
   - name: build_database_image_ubi
     commands:
@@ -444,19 +479,23 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          IMAGE_NAME: database
+          image_name: database
 
   - name: build_readiness_probe_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline_readiness_probe
+      - func: pipeline
+        vars:
+          image_name: readiness-probe
 
   - name: build_version_upgrade_hook_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline_version_upgrade_hook
+      - func: pipeline
+        vars:
+          image_name: upgrade-hook
 
   - name: publish_helm_chart
     commands:
@@ -513,7 +552,9 @@ tasks:
       - func: clone
       - func: switch_context
       - func: setup_building_host
-      - func: pipeline_ops_manager
+      - func: pipeline
+        vars:
+          image_name: ops-manager
 
   - name: publish_ops_manager
     commands:
@@ -522,9 +563,10 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline_ops_manager
+      - func: pipeline
         vars:
-          BUILD_SCENARIO: release
+          image_name: ops-manager
+          build_scenario: release
 
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
@@ -668,7 +710,7 @@ task_groups:
       - e2e_tls_rs_external_access
       - e2e_replica_set_tls_require
       - e2e_replica_set_tls_certs_secret_prefix
-      - e2e_disable_tls_scale_up
+      - e2e_disable_tls_and_scale
       - e2e_replica_set_tls_require_and_disable
       # e2e_x509_task_group
       - e2e_configure_tls_and_x509_simultaneously_st
@@ -728,6 +770,7 @@ task_groups:
       # MongoDBSearch test group
       - e2e_search_enterprise_basic
       - e2e_search_enterprise_tls
+      - e2e_search_enterprise_x509_cluster_auth
     <<: *teardown_group
 
   # this task group contains just a one task, which is smoke testing whether the operator
@@ -1160,6 +1203,7 @@ task_groups:
     <<: *setup_and_teardown_task
     tasks:
       - e2e_search_enterprise_tls
+      - e2e_search_enterprise_x509_cluster_auth
     <<: *teardown_group
 
   # Tests features only supported on OM70 and OM80, its only upgrade test as we test upgrading from 6 to 7 or 7 to 8
@@ -1272,6 +1316,8 @@ buildvariants:
       - name: build_init_om_images_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: publish_helm_chart
         variant: init_test_run
 
     tasks:
@@ -1389,7 +1435,7 @@ buildvariants:
     display_name: e2e_operator_race_ubi_with_telemetry
     tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu1804-xlarge
+      - ubuntu2404-xlarge
     <<: *base_om7_dependency_with_race
     tasks:
       - name: e2e_operator_race_with_telemetry_task_group
@@ -1401,9 +1447,6 @@ buildvariants:
       - rhel9-power-small
       - rhel9-power-large
     allowed_requesters: [ "patch", "commit" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1411,8 +1454,10 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_power
         variant: init_test_run_ibm_power
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1423,9 +1468,6 @@ buildvariants:
       - rhel9-power-small
       - rhel9-power-large
     allowed_requesters: [ "patch", "commit" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1433,8 +1475,10 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_power
         variant: init_test_run_ibm_power
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1445,8 +1489,8 @@ buildvariants:
       - rhel9-zseries-small
       - rhel9-zseries-large
     allowed_requesters: [ "patch", "commit" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
     disable: true
     depends_on:
       - name: build_operator_ubi
@@ -1455,16 +1499,18 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_z
         variant: init_test_run_ibm_z
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
 
   - name: e2e_static_smoke_ibm_z
     display_name: e2e_static_smoke_ibm_z
     tags: [ "staging", "e2e_smoke_test_suite", "static" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
     disable: true
     run_on:
       - rhel9-zseries-small
@@ -1475,8 +1521,10 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_z
         variant: init_test_run_ibm_z
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1495,9 +1543,8 @@ buildvariants:
         variant: init_test_run
       - name: build_test_image_arm
         variant: init_test_run_arm
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: true
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_arm_task_group
 
@@ -1514,9 +1561,8 @@ buildvariants:
         variant: init_test_run
       - name: build_test_image_arm
         variant: init_test_run_arm
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: true
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_arm_task_group
 
@@ -1666,7 +1712,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_mco_test_suite" ]
     <<: *community_dependency
     run_on:
-      - ubuntu2004-large
+      - ubuntu2404-large
 
   ## Manual (patch) E2E tests not run for every PR and commit
 
@@ -1712,6 +1758,8 @@ buildvariants:
       - name: build_operator_ubi
       - name: build_operator_race_ubi
       - name: build_test_image
+        depends_on:
+          - name: build_kubectl_mongodb_plugin
       - name: build_mco_test_image
       - name: build_init_appdb_images_ubi
       - name: build_init_om_images_ubi
@@ -1720,6 +1768,7 @@ buildvariants:
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
+      - name: build_kubectl_mongodb_plugin
       - name: prepare_aws
       - name: publish_helm_chart
 
@@ -1727,27 +1776,30 @@ buildvariants:
     display_name: init_test_run_ibm_power
     max_hosts: -1
     tags: [ "staging" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
-    disable: true
     run_on:
       - rhel9-power-small
       - rhel9-power-large
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
     tasks:
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_power
 
   - name: init_test_run_ibm_z
     display_name: init_test_run_ibm_z
     max_hosts: -1
     tags: [ "staging" ]
-    # TODO: Re-enable when staging is added to pipeline
-    # https://jira.mongodb.org/browse/CLOUDP-349096
+    # TODO: Re-enable when ibm_z series is stable
+    # https://jira.mongodb.org/browse/DEVPROD-23283
     disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
     tasks:
-      - name: build_test_image_ibm
+      - name: build_test_image_ibm_z
 
   - name: init_test_run_arm
     display_name: init_test_run_arm
@@ -1755,6 +1807,9 @@ buildvariants:
     tags: [ "staging" ]
     run_on:
       - ubuntu2204-arm64-small
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
     tasks:
       - name: build_test_image_arm
 

@@ -20,7 +20,8 @@ if [ -f "${ENV_FILE}" ]; then
   source "${ENV_FILE}"
 fi
 
-export PROJECT_DIR="${script_dir:-}/../../../"
+PROJECT_DIR=$(realpath "${script_dir:-}/../../../")
+export PROJECT_DIR
 
 export NAMESPACE_FILE="${workdir}/.namespace"
 if [ -f "${NAMESPACE_FILE}" ]; then
@@ -39,11 +40,15 @@ export EVG_HOST_NAME=""
 export GOROOT="/opt/golang/go1.24"
 
 if [[ ! ${PATH} =~ .*${workdir:-.}/bin.* ]]; then
-  export PATH=${PATH}:${workdir:-.}/bin
+  export PATH=${workdir:-.}/bin:${PATH}
+fi
+if [[ ! ${PATH} =~ .*${PROJECT_DIR}/bin.* ]]; then
+  export PATH=${PROJECT_DIR}/bin:${PATH}
 fi
 if [[ ! ${PATH} =~ .*${GOROOT}/bin.* ]]; then
   export PATH=${GOROOT}/bin:${PATH}
 fi
+echo "Setting PATH=${PATH}"
 
 export LOCAL_OPERATOR="false"
 
@@ -81,10 +86,6 @@ export GIT_TAG="${triggered_by_git_tag:-}"
 export RUNNING_IN_EVG="true"
 
 export DELETE_KIND_NETWORK="true"
-
-# code_snippets_commit_output can be set in evergreen patch by --param code_snippets_commit_output=true
-# it's also set explicitly in public_*_snippets variants
-export CODE_SNIPPETS_COMMIT_OUTPUT=${code_snippets_commit_output:-"false"}
 
 # shellcheck disable=SC2154
 export PRERELEASE_PULLSECRET_DOCKERCONFIGJSON="${community_private_preview_pullsecret_dockerconfigjson}"

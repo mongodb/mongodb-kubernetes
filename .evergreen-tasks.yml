@@ -66,25 +66,25 @@ tasks:
     tags: [ "code_snippets" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
   - name: task_gke_multi_cluster_no_mesh_snippets
     tags: [ "code_snippets" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
   - name: task_kind_search_community_snippets
     tags: [ "code_snippets", "patch-run" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
   - name: task_kind_search_enterprise_snippets
     tags: [ "code_snippets", "patch-run" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
 ## Below are only e2e runs for .evergreen.yml ##
 
@@ -502,7 +502,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_disable_tls_scale_up
+  - name: e2e_disable_tls_and_scale
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1116,7 +1116,6 @@ tasks:
 
   - name: e2e_multi_cluster_validation
     tags: [ "patch-run" ]
-    exec_timeout_secs: 1000
     commands:
       - func: e2e_test
 
@@ -1305,6 +1304,11 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_enterprise_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_enterprise_x509_cluster_auth
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

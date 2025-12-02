@@ -3,10 +3,12 @@ package operator
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -21,12 +23,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func newMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
@@ -35,7 +37,7 @@ func newMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
 		Spec: mdbcv1.MongoDBCommunitySpec{
 			Type:    mdbcv1.ReplicaSet,
 			Members: 1,
-			Version: "8.0.10",
+			Version: "8.2.0",
 		},
 	}
 }
@@ -100,6 +102,19 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 	if search.Spec.LogLevel != "" {
 		logLevel = string(search.Spec.LogLevel)
 	}
+
+	var wireprotoServer *mongot.ConfigWireproto
+	if search.IsWireprotoEnabled() {
+		wireprotoServer = &mongot.ConfigWireproto{
+			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotWireprotoPort()),
+			Authentication: &mongot.ConfigAuthentication{
+				Mode:    "keyfile",
+				KeyFile: searchcontroller.TempKeyfilePath,
+			},
+			TLS: &mongot.ConfigWireprotoTLS{Mode: mongot.ConfigTLSModeDisabled},
+		}
+	}
+
 	return mongot.Config{
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
@@ -115,18 +130,11 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			DataPath: searchcontroller.MongotDataPath,
 		},
 		Server: mongot.ConfigServer{
-			Wireproto: &mongot.ConfigWireproto{
-				Address: "0.0.0.0:27027",
-				Authentication: &mongot.ConfigAuthentication{
-					Mode:    "keyfile",
-					KeyFile: searchcontroller.TempKeyfilePath,
-				},
-				TLS: mongot.ConfigTLS{Mode: mongot.ConfigTLSModeDisabled},
+			Grpc: &mongot.ConfigGrpc{
+				Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotGrpcPort()),
+				TLS:     &mongot.ConfigGrpcTLS{Mode: mongot.ConfigTLSModeDisabled},
 			},
-		},
-		Metrics: mongot.ConfigMetrics{
-			Enabled: true,
-			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotMetricsPort()),
+			Wireproto: wireprotoServer,
 		},
 		HealthCheck: mongot.ConfigHealthCheck{
 			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
@@ -167,36 +175,68 @@ func TestMongoDBSearchReconcile_MissingSource(t *testing.T) {
 }
 
 func TestMongoDBSearchReconcile_Success(t *testing.T) {
-	ctx := context.Background()
-	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-	search.Spec.LogLevel = "WARN"
+	tests := []struct {
+		name          string
+		withWireproto bool
+	}{
+		{name: "grpc only (default)", withWireproto: false},
+		{name: "grpc + wireproto via annotation", withWireproto: true},
+	}
 
-	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-	reconciler, c := newSearchReconciler(mdbc, search)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+			search.Spec.LogLevel = "WARN"
+			search.Annotations = map[string]string{
+				searchv1.ForceWireprotoAnnotation: strconv.FormatBool(tc.withWireproto),
+			}
 
-	res, err := reconciler.Reconcile(
-		ctx,
-		reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}},
-	)
-	expected, _ := workflow.OK().ReconcileResult()
-	assert.NoError(t, err)
-	assert.Equal(t, expected, res)
+			mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+			operatorConfig := searchcontroller.OperatorSearchConfig{
+				SearchRepo:    "testrepo",
+				SearchName:    "mongot",
+				SearchVersion: "1.48.0",
+			}
+			reconciler, c := newSearchReconcilerWithOperatorConfig(mdbc, operatorConfig, search)
 
-	svc := &corev1.Service{}
-	err = c.Get(ctx, search.SearchServiceNamespacedName(), svc)
-	assert.NoError(t, err)
+			// BEFORE readiness: version should still be empty (controller sets Version only after StatefulSet ready)
+			searchPending := &searchv1.MongoDBSearch{}
+			assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, searchPending))
+			assert.Empty(t, searchPending.Status.Version, "Status.Version must be empty before StatefulSet is marked ready")
 
-	cm := &corev1.ConfigMap{}
-	err = c.Get(ctx, search.MongotConfigConfigMapNamespacedName(), cm)
-	assert.NoError(t, err)
-	expectedConfig := buildExpectedMongotConfig(search, mdbc)
-	configYaml, err := yaml.Marshal(expectedConfig)
-	assert.NoError(t, err)
-	assert.Equal(t, string(configYaml), cm.Data[searchcontroller.MongotConfigFilename])
+			checkSearchReconcileSuccessful(ctx, t, reconciler, c, search)
 
-	sts := &appsv1.StatefulSet{}
-	err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
-	assert.NoError(t, err)
+			svc := &corev1.Service{}
+			err := c.Get(ctx, search.SearchServiceNamespacedName(), svc)
+			assert.NoError(t, err)
+			servicePortNames := []string{}
+			for _, port := range svc.Spec.Ports {
+				servicePortNames = append(servicePortNames, port.Name)
+			}
+			expectedPortNames := []string{"mongot-grpc", "healthcheck"}
+			if tc.withWireproto {
+				expectedPortNames = append(expectedPortNames, "mongot-wireproto")
+			}
+			assert.ElementsMatch(t, expectedPortNames, servicePortNames)
+
+			cm := &corev1.ConfigMap{}
+			err = c.Get(ctx, search.MongotConfigConfigMapNamespacedName(), cm)
+			assert.NoError(t, err)
+			expectedConfig := buildExpectedMongotConfig(search, mdbc)
+			configYaml, err := yaml.Marshal(expectedConfig)
+			assert.NoError(t, err)
+			assert.Equal(t, string(configYaml), cm.Data[searchcontroller.MongotConfigFilename])
+
+			updatedSearch := &searchv1.MongoDBSearch{}
+			assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updatedSearch))
+			assert.Equal(t, operatorConfig.SearchVersion, updatedSearch.Status.Version)
+
+			sts := &appsv1.StatefulSet{}
+			err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
+			assert.NoError(t, err)
+		})
+	}
 }
 
 func checkSearchReconcileFailed(
@@ -212,12 +252,40 @@ func checkSearchReconcileFailed(
 		reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}},
 	)
 	assert.NoError(t, err)
-	assert.True(t, res.RequeueAfter > 0)
+	assert.Less(t, res.RequeueAfter, util.TWENTY_FOUR_HOURS)
 
 	updated := &searchv1.MongoDBSearch{}
 	assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updated))
 	assert.Equal(t, status.PhaseFailed, updated.Status.Phase)
 	assert.Contains(t, updated.Status.Message, expectedMsg)
+}
+
+// checkSearchReconcileSuccessful performs reconcile to check if it gets to a Running state.
+// In case it's a first reconcile and still Pending it's retried with mocked sts simulated as ready.
+func checkSearchReconcileSuccessful(
+	ctx context.Context,
+	t *testing.T,
+	reconciler *MongoDBSearchReconciler,
+	c client.Client,
+	search *searchv1.MongoDBSearch,
+) {
+	namespacedName := types.NamespacedName{Name: search.Name, Namespace: search.Namespace}
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+	require.NoError(t, err)
+	mdbs := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, namespacedName, mdbs))
+	if mdbs.Status.Phase == status.PhasePending {
+		// mark mocked search statefulset as ready to not return Pending this time
+		require.NoError(t, mock.MarkAllStatefulSetsAsReady(ctx, search.Namespace, c))
+
+		res, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+		require.NoError(t, err)
+		mdbs = &searchv1.MongoDBSearch{}
+		require.NoError(t, c.Get(ctx, namespacedName, mdbs))
+	}
+
+	require.Equal(t, util.TWENTY_FOUR_HOURS, res.RequeueAfter)
+	require.Equal(t, status.PhaseRunning, mdbs.Status.Phase)
 }
 
 func TestMongoDBSearchReconcile_InvalidVersion(t *testing.T) {

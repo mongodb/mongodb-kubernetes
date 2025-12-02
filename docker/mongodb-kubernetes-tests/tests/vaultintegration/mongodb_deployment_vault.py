@@ -27,7 +27,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
-from ..conftest import DATABASE_SA_NAME, OPERATOR_NAME
+from ..constants import DATABASE_SA_NAME, OPERATOR_NAME
 from . import run_command_in_vault, store_secret_in_vault
 
 MDB_RESOURCE = "my-replica-set"

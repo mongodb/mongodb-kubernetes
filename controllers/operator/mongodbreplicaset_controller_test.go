@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -68,7 +69,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	connection := omConnectionFactory.GetConnection()
 	connection.(*om.MockedOmConnection).CheckDeployment(t, deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs), "auth", "ssl")
-	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 2)
+	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
 }
 
 func TestReplicaSetRace(t *testing.T) {
@@ -92,7 +93,7 @@ func TestReplicaSetRace(t *testing.T) {
 			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
 		}).Build()
 
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs, rs2, rs3)
 }
@@ -385,39 +386,6 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
 }
 
-// TestUpdateDeploymentTLSConfiguration a combination of tests checking that:
-//
-// TLS Disabled -> TLS Disabled: should not lock members
-// TLS Disabled -> TLS Enabled: should not lock members
-// TLS Enabled -> TLS Enabled: should not lock members
-// TLS Enabled -> TLS Disabled: *should lock members*
-func TestUpdateDeploymentTLSConfiguration(t *testing.T) {
-	rsWithTLS := mdbv1.NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
-	rsNoTLS := mdbv1.NewReplicaSetBuilder().Build()
-	deploymentWithTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsWithTLS)
-	deploymentNoTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsNoTLS)
-
-	// TLS Disabled -> TLS Disabled
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsNoTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Disabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsWithTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Enabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsWithTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.False(t, shouldLockMembers)
-
-	// TLS Enabled -> TLS Disabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsNoTLS, zap.S(), util.CAFilePathInContainer, "")
-	assert.NoError(t, err)
-	assert.True(t, shouldLockMembers)
-}
-
 // TestCreateDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset
 func TestCreateDeleteReplicaSet(t *testing.T) {
 	ctx := context.Background()
@@ -426,7 +394,7 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 	omConn := omConnectionFactory.GetConnection()
@@ -565,7 +533,7 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -589,7 +557,7 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -891,6 +859,130 @@ func TestHandlePVCResize(t *testing.T) {
 	testPVCFinishedResizing(t, ctx, memberClient, p, reconciledResource, statefulSet, logger)
 }
 
+// ===== Test for state and vault annotations handling in replicaset controller =====
+
+// TestReplicaSetAnnotations_WrittenOnSuccess verifies that lastAchievedSpec annotation is written after successful
+// reconciliation.
+func TestReplicaSetAnnotations_WrittenOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	err := client.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	require.Contains(t, rs.Annotations, util.LastAchievedSpec,
+		"lastAchievedSpec annotation should be written on successful reconciliation")
+
+	var lastSpec mdbv1.MongoDbSpec
+	err = json.Unmarshal([]byte(rs.Annotations[util.LastAchievedSpec]), &lastSpec)
+	require.NoError(t, err)
+	assert.Equal(t, 3, lastSpec.Members)
+	assert.Equal(t, "4.0.0", lastSpec.Version)
+}
+
+// TestReplicaSetAnnotations_NotWrittenOnFailure verifies that lastAchievedSpec annotation
+// is NOT written when reconciliation fails.
+func TestReplicaSetAnnotations_NotWrittenOnFailure(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	// Setup without credentials secret to cause failure
+	kubeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(rs).
+		WithObjects(mock.GetProjectConfigMap(mock.TestProjectConfigMapName, "testProject", "testOrg")).
+		Build()
+
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", nil)
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err, "Reconcile should not return error (error captured in status)")
+
+	err = kubeClient.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, status.PhaseRunning, rs.Status.Phase)
+
+	assert.NotContains(t, rs.Annotations, util.LastAchievedSpec,
+		"lastAchievedSpec should NOT be written when reconciliation fails")
+}
+
+// TestReplicaSetAnnotations_PreservedOnSubsequentFailure verifies that annotations from a previous successful
+// reconciliation are preserved when a later reconciliation fails.
+func TestReplicaSetAnnotations_PreservedOnSubsequentFailure(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc)
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+
+	err = kubeClient.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+	require.Contains(t, rs.Annotations, util.LastAchievedSpec)
+
+	originalLastAchievedSpec := rs.Annotations[util.LastAchievedSpec]
+
+	// Delete credentials to cause failure
+	credentialsSecret := mock.GetCredentialsSecret("testUser", "testApiKey")
+	err = kubeClient.Delete(ctx, credentialsSecret)
+	require.NoError(t, err)
+
+	rs.Spec.Members = 5
+	err = kubeClient.Update(ctx, rs)
+	require.NoError(t, err)
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+
+	err = kubeClient.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	assert.Contains(t, rs.Annotations, util.LastAchievedSpec)
+	assert.NotEqual(t, status.PhaseRunning, rs.Status.Phase)
+	assert.Equal(t, originalLastAchievedSpec, rs.Annotations[util.LastAchievedSpec],
+		"lastAchievedSpec should remain unchanged when reconciliation fails")
+
+	var lastSpec mdbv1.MongoDbSpec
+	err = json.Unmarshal([]byte(rs.Annotations[util.LastAchievedSpec]), &lastSpec)
+	require.NoError(t, err)
+	assert.Equal(t, 3, lastSpec.Members,
+		"Should still reflect previous successful state (3 members, not 5)")
+}
+
+// TestVaultAnnotations_NotWrittenWhenDisabled verifies that vault annotations are NOT
+// written when vault backend is disabled.
+func TestVaultAnnotations_NotWrittenWhenDisabled(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	t.Setenv("SECRET_BACKEND", "K8S_SECRET_BACKEND")
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	err := client.Get(ctx, rs.ObjectKey(), rs)
+	require.NoError(t, err)
+
+	require.Contains(t, rs.Annotations, util.LastAchievedSpec,
+		"lastAchievedSpec should be written even when vault is disabled")
+
+	// Vault annotations would be simple secret names like "my-secret": "5"
+	for key := range rs.Annotations {
+		if key == util.LastAchievedSpec {
+			continue
+		}
+		assert.NotRegexp(t, "^[a-z0-9-]+$", key,
+			"Should not have simple secret name annotations when vault disabled - found: %s", key)
+	}
+}
+
 func testPVCFinishedResizing(t *testing.T, ctx context.Context, memberClient kubernetesClient.Client, p *corev1.PersistentVolumeClaim, reconciledResource *mdbv1.MongoDB, statefulSet *appsv1.StatefulSet, logger *zap.SugaredLogger) {
 	// Simulate that the PVC has finished resizing
 	setPVCWithUpdatedResource(ctx, t, memberClient, p)
@@ -999,7 +1091,7 @@ func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T,
 
 func defaultReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	return newReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	return newReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // newDefaultPodSpec creates pod spec with default values,sets only the topology key and persistence sizes,
