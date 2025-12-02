@@ -133,7 +133,7 @@ func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrl
 		centralClient:             commonController.client,
 		imageUrls:                 imageUrls,
 		initAppdbVersion:          initAppdbVersion,
-		ownerReferences: ownerReferences,
+		ownerReferences:           ownerReferences,
 	}
 
 	if err := reconciler.initializeStateStore(ctx, appDBSpec, omAnnotations, log); err != nil {
