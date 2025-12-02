@@ -1547,11 +1547,15 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 		errs = multierror.Append(errs, err)
 	}
 
-	for _, item := range getHealthyMemberClusters(r.allMemberClusters) {
-		clusterClient := item.Client
-		clusterName := item.Name
-		if err := r.commonController.deleteClusterResources(ctx, clusterClient, clusterName, sc, log); err != nil {
-			errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+	// Delete resources explicitly only in multi-cluster mode where we can't set owner references cross cluster.
+	// In single-cluster deployments, OwnerReferences handle cleanup automatically via Kubernetes garbage collection.
+	if sc.Spec.IsMultiCluster() {
+		for _, item := range getHealthyMemberClusters(r.allMemberClusters) {
+			clusterClient := item.Client
+			clusterName := item.Name
+			if err := r.commonController.deleteClusterResources(ctx, clusterClient, clusterName, sc, log); err != nil {
+				errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+			}
 		}
 	}
 

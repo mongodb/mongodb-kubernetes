@@ -2128,19 +2128,19 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 		return
 	}
 
-	// delete the OpsManager resources from each of the member cluster. We need to delete the
-	// resource explicitly in case of multi-cluster because we can't set owner reference cross cluster
-	for _, memberCluster := range helper.getHealthyMemberClusters() {
-		if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
-			log.Warnf("Failed to delete dependant OpsManager resources in cluster %s: %s", memberCluster.Name, err)
+	// Delete resources explicitly only in multi-cluster mode where we can't set owner references cross cluster.
+	// In single-cluster deployments, OwnerReferences handle cleanup automatically via Kubernetes garbage collection.
+	if opsManager.Spec.IsMultiCluster() {
+		for _, memberCluster := range helper.getHealthyMemberClusters() {
+			if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
+				log.Warnf("Failed to delete dependant OpsManager resources in cluster %s: %s", memberCluster.Name, err)
+			}
 		}
-	}
 
-	// delete the AppDB resources from each of the member cluster. We need to delete the
-	// resource explicitly in case of multi-cluster because we can't set owner reference cross cluster
-	for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
-		if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
-			log.Warnf("Failed to delete dependant AppDB resources in cluster %s: %s", memberCluster.Name, err.Error())
+		for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
+			if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
+				log.Warnf("Failed to delete dependant AppDB resources in cluster %s: %s", memberCluster.Name, err.Error())
+			}
 		}
 	}
 
