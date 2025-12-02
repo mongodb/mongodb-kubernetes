@@ -69,6 +69,10 @@ OPERATOR_NAME=\"${OPERATOR_NAME}\"
     echo "MDB_AGENT_DEBUG=${MDB_AGENT_DEBUG}"
   fi
 
+    if [[ "${MDB_AGENT_DEBUG_IMAGE:-""}" != "" ]]; then
+      echo "MDB_AGENT_DEBUG_IMAGE=${MDB_AGENT_DEBUG_IMAGE}"
+    fi
+
   if [[ "${KUBE_CONFIG_PATH:-""}" != "" ]]; then
     echo "KUBE_CONFIG_PATH=${KUBE_CONFIG_PATH}"
   fi

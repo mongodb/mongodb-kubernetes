@@ -403,11 +403,6 @@ bundle: manifests kustomize
 bundle-build:
 	docker build $(EXPIRES) --platform linux/amd64 -f ./bundle/$(VERSION)/bundle.Dockerfile -t $(BUNDLE_IMG) .
 
-.PHONY: dockerfiles
-dockerfiles:
-	python scripts/update_supported_dockerfiles.py
-	tar -czvf ./public/dockerfiles-$(VERSION).tgz ./public/dockerfiles
-
 prepare-local-e2e: reset-mco # prepares the local environment to run a local operator
 	scripts/dev/prepare_local_e2e_run.sh
 
