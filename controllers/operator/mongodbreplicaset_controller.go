@@ -668,12 +668,46 @@ func getHostnameOverrideConfigMapForReplicaset(mdb *mdbv1.MongoDB) corev1.Config
 	return cm
 }
 
+// getMultiClusterHostnameOverrideConfigMap creates a ConfigMap that tells agents what hostname to register with.
+// For multi-cluster, agents must register with the service FQDN (e.g., "my-rs-0-0-svc.ns.svc.cluster.local")
+// not their pod hostname (e.g., "my-rs-0-0"), so Ops Manager can reach them via the service DNS.
+func getMultiClusterHostnameOverrideConfigMap(mdb *mdbv1.MongoDB, clusterIndex int, clusterName string, members int) corev1.ConfigMap {
+	data := make(map[string]string)
+
+	externalDomain := mdb.Spec.GetExternalDomainForMemberCluster(clusterName)
+	for podNum := 0; podNum < members; podNum++ {
+		// Key: pod name (what agent knows itself as)
+		// Value: service FQDN (what agent should register with)
+		key := dns.GetMultiPodName(mdb.Name, clusterIndex, podNum)
+		data[key] = dns.GetMultiClusterPodServiceFQDN(mdb.Name, mdb.Namespace, clusterIndex, externalDomain, podNum, mdb.Spec.GetClusterDomain())
+	}
+
+	cm := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-hostname-override", mdb.Name),
+			Namespace: mdb.Namespace,
+			Labels:    mdb.GetOwnerLabels(),
+		},
+		Data: data,
+	}
+	return cm
+}
+
 func (r *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger, getUpdateCreator configmap.GetUpdateCreator) error {
-	if r.resource.Spec.DbCommonSpec.GetExternalDomain() == nil {
+	rs := r.resource
+
+	// For multi-cluster deployments, create hostname override ConfigMap in each member cluster
+	// This tells agents to register with service FQDNs instead of pod hostnames
+	if rs.Spec.IsMultiCluster() {
+		return r.reconcileMultiClusterHostnameOverrideConfigMaps(ctx, log)
+	}
+
+	// For single-cluster, only create ConfigMap when external domain is set
+	if rs.Spec.DbCommonSpec.GetExternalDomain() == nil {
 		return nil
 	}
 
-	cm := getHostnameOverrideConfigMapForReplicaset(r.resource)
+	cm := getHostnameOverrideConfigMapForReplicaset(rs)
 	err := configmap.CreateOrUpdate(ctx, getUpdateCreator, cm)
 	if err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create configmap: %s, err: %w", cm.Name, err)
@@ -749,6 +783,8 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 		return workflow.Failed(xerrors.Errorf("failed to reconcile hostname override ConfigMap: %w", err))
 	}
 
+	// TODO: do we need // Copy over OM CustomCA if specified in project config ?
+
 	// Ensure roles are properly configured
 	if status := reconciler.ensureRoles(ctx, rs.Spec.DbCommonSpec, reconciler.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(rs), log); !status.IsOK() {
 		return status
@@ -757,6 +793,12 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	// Replicate agent API key to all healthy member clusters upfront
 	if err := r.replicateAgentKeySecret(ctx, conn, log); err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to replicate agent key secret: %w", err))
+	}
+
+	// Create services BEFORE StatefulSets (following sharded cluster pattern)
+	// This ensures DNS resolution works when pods start
+	if err := r.reconcileServices(ctx, log); err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to reconcile services: %w", err))
 	}
 
 	return r.reconcileStatefulSets(ctx, conn, projectConfig, deploymentOptions)
@@ -979,6 +1021,202 @@ func (r *ReplicaSetReconcilerHelper) shouldContinueScaling() bool {
 		}
 	}
 	return false
+}
+
+// ============================================================================
+// Multi-Cluster Service Creation Helpers
+// ============================================================================
+
+/*
+TODO: E2E testing services
+
+Without External Domain
+- No dedicated test - Unlike multi_cluster_sharded_external_access_no_ext_domain.py for sharded clusters, there's no equivalent test for MongoDBMultiCluster
+replica sets without external domain
+- Basic tests like multi_cluster_replica_set.py and multi_2_cluster_replicaset.py don't configure external access and don't explicitly verify service creation
+*/
+
+// reconcileServices ensures that all required services exist for multi-cluster replica sets.
+// If externalAccess is defined (at spec or clusterSpecItem level) then we always create an external service.
+// If externalDomain is defined then we DO NOT create pod services (service created for each pod selecting only 1 pod).
+// When there are external domains used, we don't use internal pod-service FQDNs as hostnames at all,
+// so there is no point in creating pod services.
+// But when external domains are not used, then mongod process hostnames use pod service FQDN, and
+// at the same time user might want to expose externally using external services.
+func (r *ReplicaSetReconcilerHelper) reconcileServices(ctx context.Context, log *zap.SugaredLogger) error {
+	rs := r.resource
+
+	// Skip service creation for single-cluster (legacy) deployments
+	// Single-cluster services are handled when the stateful set is created
+	if !rs.Spec.IsMultiCluster() {
+		return nil
+	}
+
+	healthyMemberClusters := multicluster.GetHealthyMemberClusters(r.MemberClusters)
+
+	// Create headless services in each cluster
+	for _, memberCluster := range healthyMemberClusters {
+		if err := r.createHeadlessService(ctx, log, memberCluster); err != nil {
+			return err
+		}
+	}
+
+	// Create per-pod and external services
+	// By default, duplicate services to all clusters for cross-cluster connectivity
+	shouldCreateDuplicates := rs.Spec.DuplicateServiceObjects == nil || *rs.Spec.DuplicateServiceObjects
+
+	for _, targetCluster := range healthyMemberClusters {
+		for _, sourceCluster := range healthyMemberClusters {
+			// If not duplicating, only create services in their own cluster
+			if !shouldCreateDuplicates && sourceCluster.Name != targetCluster.Name {
+				continue
+			}
+
+			if err := r.ensurePodServices(ctx, log, targetCluster, sourceCluster); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// createHeadlessService creates the headless service for the StatefulSet in a member cluster.
+func (r *ReplicaSetReconcilerHelper) createHeadlessService(ctx context.Context, log *zap.SugaredLogger, memberCluster multicluster.MemberCluster) error {
+	rs := r.resource
+
+	headlessServiceName := dns.GetMultiHeadlessServiceName(rs.Name, memberCluster.Index)
+	namespacedName := kube.ObjectKey(rs.Namespace, headlessServiceName)
+	port := rs.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
+
+	headlessService := create.BuildService(
+		namespacedName,
+		rs,
+		ptr.To(headlessServiceName),
+		nil,
+		port,
+		omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP},
+	)
+
+	if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
+		return xerrors.Errorf("failed to create headless service %s in cluster %s: %w", headlessServiceName, memberCluster.Name, err)
+	}
+
+	log.Debugf("Successfully ensured headless service %s in cluster %s", headlessServiceName, memberCluster.Name)
+	return nil
+}
+
+// ensurePodServices creates per-pod services and external services for a source cluster in a target cluster.
+func (r *ReplicaSetReconcilerHelper) ensurePodServices(ctx context.Context, log *zap.SugaredLogger, targetCluster, sourceCluster multicluster.MemberCluster) error {
+	rs := r.resource
+	scaler := r.GetReplicaSetScaler(sourceCluster)
+	memberCount := scaler.DesiredReplicas()
+
+	if memberCount == 0 {
+		log.Debugf("Skipping service creation for cluster %s (0 members)", sourceCluster.Name)
+		return nil
+	}
+
+	for podNum := 0; podNum < memberCount; podNum++ {
+		// Create external service if ExternalAccessConfiguration is set
+		externalAccessConfig := rs.Spec.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(sourceCluster.Name)
+		if externalAccessConfig != nil {
+			svc := r.getExternalService(sourceCluster, podNum)
+
+			// Process placeholder annotations
+			externalDomain := rs.Spec.GetExternalDomainForMemberCluster(sourceCluster.Name)
+			placeholderReplacer := create.GetMultiClusterMongoDBPlaceholderReplacer(
+				rs.Name, rs.Name, rs.Namespace, sourceCluster.Name, sourceCluster.Index,
+				externalDomain, rs.Spec.GetClusterDomain(), podNum,
+			)
+			if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(svc.Annotations); err != nil {
+				return xerrors.Errorf("failed to process annotations in external service %s in cluster %s: %w", svc.Name, targetCluster.Name, err)
+			} else if replacedFlag {
+				log.Debugf("Replaced placeholders in annotations for external service %s", svc.Name)
+				svc.Annotations = processedAnnotations
+			}
+
+			if err := mekoService.CreateOrUpdateService(ctx, targetCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to create external service %s in cluster %s: %w", svc.Name, targetCluster.Name, err)
+			}
+		}
+
+		// Create internal per-pod service (unless using external domain, which replaces internal DNS)
+		externalDomain := rs.Spec.GetExternalDomainForMemberCluster(sourceCluster.Name)
+		if externalDomain == nil {
+			svc := r.getPodService(sourceCluster, podNum)
+			if err := mekoService.CreateOrUpdateService(ctx, targetCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to create pod service %s in cluster %s: %w", svc.Name, targetCluster.Name, err)
+			}
+		}
+	}
+
+	log.Debugf("Successfully ensured pod services for cluster %s in target cluster %s", sourceCluster.Name, targetCluster.Name)
+	return nil
+}
+
+// getPodService creates an internal ClusterIP service for a specific pod.
+// The service name follows the pattern: <rsName>-<clusterIndex>-<podIndex>-svc
+// This matches the DNS format expected by GetMultiServiceFQDN.
+func (r *ReplicaSetReconcilerHelper) getPodService(memberCluster multicluster.MemberCluster, podNum int) corev1.Service {
+	rs := r.resource
+	port := rs.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
+
+	svcLabels := map[string]string{
+		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(rs.Name, memberCluster.Index, podNum),
+	}
+	svcLabels = merge.StringToStringMap(svcLabels, rs.GetOwnerLabels())
+
+	labelSelectors := map[string]string{
+		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(rs.Name, memberCluster.Index, podNum),
+		util.OperatorLabelName:         util.OperatorLabelValue,
+	}
+
+	svc := service.Builder().
+		SetName(dns.GetMultiServiceName(rs.Name, memberCluster.Index, podNum)).
+		SetNamespace(rs.Namespace).
+		SetSelector(labelSelectors).
+		SetLabels(svcLabels).
+		SetPublishNotReadyAddresses(true).
+		AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"}).
+		AddPort(&corev1.ServicePort{Port: create.GetNonEphemeralBackupPort(port), Name: "backup", TargetPort: intstr.IntOrString{IntVal: create.GetNonEphemeralBackupPort(port)}}).
+		Build()
+
+	return svc
+}
+
+// getExternalService creates a LoadBalancer service for external access to a specific pod.
+// The service name follows the pattern: <rsName>-<clusterIndex>-<podIndex>-svc-external
+func (r *ReplicaSetReconcilerHelper) getExternalService(memberCluster multicluster.MemberCluster, podNum int) corev1.Service {
+	rs := r.resource
+
+	// Start with the internal service as base
+	svc := r.getPodService(memberCluster, podNum)
+	svc.Name = dns.GetMultiExternalServiceName(rs.Name, memberCluster.Index, podNum)
+	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
+
+	// Apply external access configuration overrides (takes precedence)
+	externalAccessConfig := rs.Spec.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
+	if externalAccessConfig != nil {
+		// First apply global ExternalAccessConfiguration
+		if rs.Spec.ExternalAccessConfiguration != nil {
+			globalOverrideSpecWrapper := rs.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper
+			if globalOverrideSpecWrapper != nil {
+				svc.Spec = merge.ServiceSpec(svc.Spec, globalOverrideSpecWrapper.Spec)
+			}
+			svc.Annotations = merge.StringToStringMap(svc.Annotations, rs.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
+		}
+
+		// Then apply cluster-level overrides (takes precedence)
+		clusterLevelOverrideSpec := externalAccessConfig.ExternalService.SpecWrapper
+		additionalAnnotations := externalAccessConfig.ExternalService.Annotations
+		if clusterLevelOverrideSpec != nil {
+			svc.Spec = merge.ServiceSpec(svc.Spec, clusterLevelOverrideSpec.Spec)
+		}
+		svc.Annotations = merge.StringToStringMap(svc.Annotations, additionalAnnotations)
+	}
+
+	return svc
 }
 
 // ============================================================================
