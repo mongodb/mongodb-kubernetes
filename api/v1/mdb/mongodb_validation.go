@@ -2,9 +2,11 @@ package mdb
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/blang/semver"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -436,9 +438,15 @@ func ValidateFCV(fcv *string) v1.ValidationResult {
 		if f == util.AlwaysMatchVersionFCV {
 			return v1.ValidationSuccess()
 		}
+
 		splitted := strings.Split(f, ".")
 		if len(splitted) != 2 {
-			return v1.ValidationError("invalid feature compatibility version: %s, possible values are: '%s' or 'major.minor'", f, util.AlwaysMatchVersionFCV)
+			return v1.ValidationError("invalid feature compatibility version %q, possible values are: '%s' or 'major.minor'", f, util.AlwaysMatchVersionFCV)
+		}
+
+		_, err := semver.Make(fmt.Sprintf("%s.0", f))
+		if err != nil {
+			return v1.ValidationError("invalid feature compatibility version %q: %s", f, err)
 		}
 	}
 	return v1.ValidationResult{}
