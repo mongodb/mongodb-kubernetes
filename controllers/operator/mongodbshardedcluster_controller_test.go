@@ -81,7 +81,7 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	require.NoError(t, err)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
-	assert.Len(t, mock.GetMapForObject(c, &corev1.Secret{}), 2)
+	assert.Len(t, mock.GetMapForObject(c, &corev1.Secret{}), 3)
 	assert.Len(t, mock.GetMapForObject(c, &corev1.Service{}), 3)
 	assert.Len(t, mock.GetMapForObject(c, &appsv1.StatefulSet{}), 4)
 	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ConfigRsName()), t), int32(sc.Spec.ConfigServerCount))
