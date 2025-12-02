@@ -76,7 +76,7 @@ def test_statefulsets_have_been_created_correctly(
     kubetester.wait_until(fn, timeout=60, message="Verifying sts has correct number of replicas in cluster three")
 
 
-#TODO: uncomment when scaling is fixed
+# TODO: uncomment when scaling is fixed
 @pytest.mark.e2e_multi_cluster_new_replica_set_scale_up
 def test_scale_mongodb_multi(mongodb_multi: MongoDB):
     mongodb_multi.load()
