@@ -426,8 +426,8 @@ func TestReadState_ClusterMapping_ReadsFromAnnotation(t *testing.T) {
 func TestReadState_ClusterMapping_FallbackToStatusMembers(t *testing.T) {
 	rs := &mdbv1.MongoDB{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-rs",
-			Namespace: mock.TestNamespace,
+			Name:        "test-rs",
+			Namespace:   mock.TestNamespace,
 			Annotations: map[string]string{
 				// No ClusterMapping annotation
 			},
@@ -454,8 +454,8 @@ func TestReadState_ClusterMapping_FallbackToStatusMembers(t *testing.T) {
 func TestReadState_ClusterMapping_SkipsMigrationForMultiCluster(t *testing.T) {
 	rs := &mdbv1.MongoDB{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-rs",
-			Namespace: mock.TestNamespace,
+			Name:        "test-rs",
+			Namespace:   mock.TestNamespace,
 			Annotations: map[string]string{
 				// No state annotations
 			},
@@ -489,8 +489,8 @@ func TestReadState_ClusterMapping_SkipsMigrationForMultiCluster(t *testing.T) {
 func TestReadState_LastAppliedMemberSpec_FallbackToStatusMembers(t *testing.T) {
 	rs := &mdbv1.MongoDB{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-rs",
-			Namespace: mock.TestNamespace,
+			Name:        "test-rs",
+			Namespace:   mock.TestNamespace,
 			Annotations: map[string]string{
 				// No LastAppliedMemberSpec annotation
 			},
