@@ -54,16 +54,12 @@ def update_latest_om_agent_mapping(data, new_om_version):
     Args:
         data (dict): The complete configuration dictionary.
         new_om_version (str): The new Ops Manager version (e.g., "8.0.11").
-
-    Returns:
-        bool: True if the mapping was updated or added, False otherwise.
     """
 
     try:
-        om_agent_mapping = data["supportedImages"]["latestOpsManagerAgentMapping"]
+        om_agent_mapping = data["latestOpsManagerAgentMapping"]
     except KeyError:
-        logger.debug("Error: 'latestOpsManagerAgentMapping' field not found in the release.json data.")
-        return False
+        logger.error("Error: 'latestOpsManagerAgentMapping' field not found in the release.json data.")
 
     new_agent_version = data["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][new_om_version][
         "agent_version"
@@ -72,8 +68,7 @@ def update_latest_om_agent_mapping(data, new_om_version):
     try:
         new_om_major_version = new_om_version.split(".")[0]
     except IndexError:
-        logger.debug(f"Error: Invalid version format for new_om_version: {new_om_version}")
-        return False
+        logger.error(f"Error: Invalid version format for new_om_version: {new_om_version}")
 
     new_om_agent_mapping = {"opsManagerVersion": new_om_version, "agentVersion": new_agent_version}
 
@@ -92,8 +87,6 @@ def update_latest_om_agent_mapping(data, new_om_version):
     if not major_version_found:
         om_agent_mapping.append(new_entry)
         logger.info(f"Added new entry for major version '{new_om_major_version}' with version {new_om_version}.")
-
-    return True
 
 
 def update_operator_related_versions(release: dict, version: str):
