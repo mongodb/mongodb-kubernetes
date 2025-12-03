@@ -88,7 +88,7 @@ def convert_to_release_info_json(build_info: BuildInfo, version: str) -> dict:
     return release_info_output
 
 def add_om_agent_mappings(release_data, output):
-    om_agent_mapping = release_data["supportedImages"]["latestOpsManagerAgentMapping"]
+    om_agent_mapping = release_data["latestOpsManagerAgentMapping"]
     output["latestOpsManagerAgentMapping"] = om_agent_mapping
 
     return output
