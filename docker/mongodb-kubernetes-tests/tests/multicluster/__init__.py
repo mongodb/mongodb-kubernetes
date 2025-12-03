@@ -5,6 +5,7 @@ from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
 from kubetester.multicluster_client import MultiClusterClient
 from tests import test_logger
+from tests.constants import LOCAL_HELM_CHART_DIR
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -15,7 +16,7 @@ def prepare_multi_cluster_namespaces(
     member_cluster_clients: List[MultiClusterClient],
     central_cluster_name: str,
     skip_central_cluster: bool = True,
-    helm_chart_path="helm_chart",
+    helm_chart_path=LOCAL_HELM_CHART_DIR,
 ):
     """create a new namespace and configures all necessary service accounts there"""
 

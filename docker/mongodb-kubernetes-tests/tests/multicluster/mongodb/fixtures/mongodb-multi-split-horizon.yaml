@@ -1,0 +1,29 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: multi-replica-set
+spec:
+  connectivity:
+    replicaSetHorizons:
+       - "test-horizon": "ec2-52-56-69-123.eu-west-2.compute.amazonaws.com:30100"
+       - "test-horizon": "ec2-3-9-165-220.eu-west-2.compute.amazonaws.com:30100"
+       - "test-horizon": "ec2-3-10-22-163.eu-west-2.compute.amazonaws.com:30100"
+
+
+  version: 4.4.0-ent
+  type: ReplicaSet
+  topology: MultiCluster
+  persistent: true
+  duplicateServiceObjects: false
+  credentials: my-credentials
+  opsManager:
+    configMapRef:
+      name: my-project
+  clusterSpecList:
+    - clusterName: kind-e2e-cluster-1
+      members: 1
+    - clusterName: kind-e2e-cluster-2
+      members: 1
+    - clusterName: kind-e2e-cluster-3
+      members: 1

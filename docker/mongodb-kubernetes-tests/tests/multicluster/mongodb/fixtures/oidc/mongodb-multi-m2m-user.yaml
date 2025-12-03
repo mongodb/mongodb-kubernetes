@@ -1,0 +1,38 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: oidc-multi-replica-set
+spec:
+  version: 7.0.5-ent
+  type: ReplicaSet
+  topology: MultiCluster
+  duplicateServiceObjects: false
+  credentials: my-credentials
+  opsManager:
+    configMapRef:
+      name: my-project
+  clusterSpecList:
+    - clusterName: kind-e2e-cluster-1
+      members: 1
+    - clusterName: kind-e2e-cluster-2
+      members: 1
+    - clusterName: kind-e2e-cluster-3
+      members: 2
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      modes:
+        - SCRAM
+        - OIDC
+      oidcProviderConfigs:
+        - audience: "<filled-in-test>"
+          clientId: "<filled-in-test>"
+          issuerURI: "<filled-in-test>"
+          requestedScopes: [ ]
+          userClaim: "sub"
+          authorizationMethod: "WorkloadIdentityFederation"
+          authorizationType: "UserID"
+          configurationName: "OIDC-test-user"
