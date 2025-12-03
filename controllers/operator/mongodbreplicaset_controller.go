@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
@@ -41,6 +43,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	mconstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
@@ -778,6 +781,13 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	reconciler := r.reconciler
 	log := r.log
 
+	if r.resource.Spec.IsMultiCluster() {
+		err := r.reconcileServices(ctx)
+		if err != nil {
+			return workflow.Failed(err)
+		}
+	}
+
 	// Reconcile hostname override ConfigMap
 	if err := r.reconcileHostnameOverrideConfigMap(ctx, log, r.reconciler.client); err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to reconcile hostname override ConfigMap: %w", err))
@@ -802,6 +812,160 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	}
 
 	return r.reconcileStatefulSets(ctx, conn, projectConfig, deploymentOptions)
+}
+
+// reconcileServices makes sure that we have a service object corresponding to each statefulset pod
+// in the member clusters
+func (r *ReplicaSetReconcilerHelper) reconcileServices(ctx context.Context) error {
+	for _, memberCluster := range r.MemberClusters {
+		if memberCluster.Replicas == 0 {
+			r.log.Warnf("skipping services creation: no members assigned to cluster %s", memberCluster.Name)
+			continue
+		}
+
+		// ensure SRV service
+		srvService := mdbSRVService(r.resource)
+		if err := ensureSRVService(ctx, memberCluster.Client, srvService, memberCluster.Name); err != nil {
+			return err
+		}
+		r.log.Infof("Successfully created SRV service %s in cluster %s", srvService.Name, memberCluster.Name)
+
+		// ensure Headless service
+		headlessServiceName := dns.GetMultiStatefulSetName(r.resource.Name, memberCluster.Index)
+		nameSpacedName := kube.ObjectKey(r.resource.Namespace, headlessServiceName)
+		headlessService := create.BuildService(nameSpacedName, r.resource, ptr.To(headlessServiceName), nil, r.resource.Spec.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+		if err := ensureHeadlessService(ctx, memberCluster.Client, headlessService, memberCluster.Name); err != nil {
+			return err
+		}
+		r.log.Infof("Successfully created headless service %s in cluster: %s", headlessServiceName, memberCluster.Name)
+	}
+
+	// by default, we would create the duplicate services
+	shouldCreateDuplicates := r.resource.Spec.DuplicateServiceObjects == nil || *r.resource.Spec.DuplicateServiceObjects
+	for _, memberCluster := range r.MemberClusters {
+		for _, clusterSpecItem := range r.getClusterSpecList() {
+			if !shouldCreateDuplicates && clusterSpecItem.ClusterName != memberCluster.Name {
+				// skip creating of other cluster's services (duplicates) in the current cluster
+				continue
+			}
+
+			if err := mdbEnsureServices(ctx, r.resource, &memberCluster, clusterSpecItem, r.log); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// mdbEnsureServices creates pod services and/or external services.
+// If externalAccess is defined (at spec or clusterSpecItem level) then we always create an external service.
+// If externalDomain is defined then we DO NOT create pod services (service created for each pod selecting only 1 pod).
+// When there are external domains used, we don't use internal pod-service FQDNs as hostnames at all,
+// so there is no point in creating pod services.
+// But when external domains are not used, then mongod process hostnames use pod service FQDN, and
+// at the same time user might want to expose externally using external services.
+func mdbEnsureServices(ctx context.Context, mdb *mdb.MongoDB, memberCluster *multicluster.MemberCluster, clusterSpecItem mdb.ClusterSpecItem, log *zap.SugaredLogger) error {
+	for podNum := 0; podNum < clusterSpecItem.Members; podNum++ {
+		var svc corev1.Service
+		if mdb.Spec.GetExternalAccessConfigurationForMemberCluster(clusterSpecItem.ClusterName) != nil {
+			svc = mdbExternalService(mdb, clusterSpecItem.ClusterName, memberCluster.Index, podNum)
+			externalDomain := mdb.Spec.GetExternalDomainForMemberCluster(clusterSpecItem.ClusterName)
+			placeholderReplacer := create.GetMultiClusterMongoDBPlaceholderReplacer(mdb.Name, mdb.Name, mdb.Namespace, clusterSpecItem.ClusterName, memberCluster.Index, externalDomain, mdb.Spec.ClusterDomain, podNum)
+			if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(svc.Annotations); err != nil {
+				return xerrors.Errorf("failed to process annotations in external service %s in cluster %s: %w", svc.Name, memberCluster.Name, err)
+			} else if replacedFlag {
+				log.Debugf("Replaced placeholders in annotations in external service %s in cluster: %s. Annotations before: %+v, annotations after: %+v", svc.Name, memberCluster.Name, svc.Annotations, processedAnnotations)
+				svc.Annotations = processedAnnotations
+			}
+
+			err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
+			if err != nil && !apiErrors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+			}
+		}
+
+		// we create regular pod-services only if we don't use external domains
+		if mdb.Spec.GetExternalDomainForMemberCluster(clusterSpecItem.ClusterName) == nil {
+			svc = mdbService(mdb, clusterSpecItem.ClusterName, memberCluster.Index, podNum)
+			err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
+			if err != nil && !apiErrors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func mdbSRVService(mdb *mdbv1.MongoDB) corev1.Service {
+	additionalConfig := mdb.Spec.GetAdditionalMongodConfig()
+	port := additionalConfig.GetPortOrDefault()
+
+	svc := service.Builder().
+		SetName(fmt.Sprintf("%s-svc", mdb.Name)).
+		SetNamespace(mdb.Namespace).
+		SetSelector(mconstruct.PodLabel(mdb.Name)).
+		SetLabels(mdb.GetOwnerLabels()).
+		SetPublishNotReadyAddresses(true).
+		AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"}).
+		AddPort(&corev1.ServicePort{Port: create.GetNonEphemeralBackupPort(port), Name: "backup", TargetPort: intstr.IntOrString{IntVal: create.GetNonEphemeralBackupPort(port)}}).
+		Build()
+
+	return svc
+}
+
+func mdbExternalService(mdb *mdb.MongoDB, clusterName string, clusterNum, podNum int) corev1.Service {
+	svc := mdbService(mdb, clusterName, clusterNum, podNum)
+	svc.Name = dns.GetMultiExternalServiceName(mdb.GetName(), clusterNum, podNum)
+	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
+
+	externalAccessConfig := mdb.Spec.GetExternalAccessConfigurationForMemberCluster(clusterName)
+	if externalAccessConfig != nil {
+		// first we override with the Service spec from the root and then from a specific cluster.
+		if mdb.Spec.ExternalAccessConfiguration != nil {
+			globalOverrideSpecWrapper := mdb.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper
+			if globalOverrideSpecWrapper != nil {
+				svc.Spec = merge.ServiceSpec(svc.Spec, globalOverrideSpecWrapper.Spec)
+			}
+		}
+		clusterLevelOverrideSpec := externalAccessConfig.ExternalService.SpecWrapper
+		additionalAnnotations := externalAccessConfig.ExternalService.Annotations
+		if clusterLevelOverrideSpec != nil {
+			svc.Spec = merge.ServiceSpec(svc.Spec, clusterLevelOverrideSpec.Spec)
+		}
+		svc.Annotations = merge.StringToStringMap(svc.Annotations, additionalAnnotations)
+	}
+
+	return svc
+}
+
+func mdbService(mdb *mdb.MongoDB, clusterName string, clusterNum, podNum int) corev1.Service {
+	svcLabels := map[string]string{
+		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(mdb.Name, clusterNum, podNum),
+	}
+	svcLabels = merge.StringToStringMap(svcLabels, mdb.GetOwnerLabels())
+
+	labelSelectors := map[string]string{
+		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(mdb.Name, clusterNum, podNum),
+		util.OperatorLabelName:         util.OperatorLabelValue,
+	}
+
+	additionalConfig := mdb.Spec.GetAdditionalMongodConfig()
+	port := additionalConfig.GetPortOrDefault()
+
+	svc := service.Builder().
+		SetName(dns.GetMultiServiceName(mdb.Name, clusterNum, podNum)).
+		SetNamespace(mdb.Namespace).
+		SetSelector(labelSelectors).
+		SetLabels(svcLabels).
+		SetPublishNotReadyAddresses(true).
+		AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"}).
+		// Note: in the agent-launcher.sh We explicitly pass an offset of 1. When port N is exposed
+		// the agent would use port N+1 for the spinning up of the ephemeral mongod process, which is used for backup
+		AddPort(&corev1.ServicePort{Port: create.GetNonEphemeralBackupPort(port), Name: "backup", TargetPort: intstr.IntOrString{IntVal: create.GetNonEphemeralBackupPort(port)}}).
+		Build()
+
+	return svc
 }
 
 func (r *ReplicaSetReconcilerHelper) reconcileStatefulSets(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
@@ -947,6 +1111,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		StatefulSetNameOverride(r.GetReplicaSetStsName(memberCluster)),
 		ServiceName(r.GetReplicaSetServiceName(memberCluster)),
 		Replicas(scale.ReplicasThisReconciliation(r.GetReplicaSetScaler(memberCluster))),
+		// TODO: Add owner labels and ensure proper clean up. Note that there are differences in labels between existing MongoDB and MongoDBMulticluster.
 	)
 
 	return rsConfig, nil
@@ -988,7 +1153,7 @@ func (r *ReplicaSetReconcilerHelper) GetReplicaSetServiceName(memberCluster mult
 	if memberCluster.Legacy {
 		return r.resource.ServiceName()
 	}
-	return dns.GetMultiHeadlessServiceName(r.resource.Name, memberCluster.Index)
+	return fmt.Sprintf("%s-svc", r.GetReplicaSetStsName(memberCluster))
 }
 
 // GetReplicaSetScaler returns a scaler for calculating replicas in a member cluster.
