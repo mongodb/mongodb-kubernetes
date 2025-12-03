@@ -3,53 +3,45 @@ import json
 import os
 
 from scripts.release.build.build_info import (
+    AGENT_IMAGE,
     DATABASE_IMAGE,
     INIT_APPDB_IMAGE,
     INIT_DATABASE_IMAGE,
     INIT_OPS_MANAGER_IMAGE,
     OPERATOR_IMAGE,
+    OPS_MANAGER_IMAGE,
     READINESS_PROBE_IMAGE,
     UPGRADE_HOOK_IMAGE,
-    OPS_MANAGER_IMAGE,
-    AGENT_IMAGE,
     BuildInfo,
     load_build_info,
 )
-from scripts.release.kubectl_mongodb.promote_kubectl_plugin import upload_assets_to_github_release
 from scripts.release.build.build_scenario import BuildScenario
-from scripts.release.constants import (
-    DEFAULT_CHANGELOG_PATH,
-    DEFAULT_RELEASE_INITIAL_VERSION,
-    DEFAULT_REPOSITORY_PATH,
+from scripts.release.kubectl_mongodb.utils import (
+    upload_assets_to_github_release,
 )
 
 SEARCH_IMAGE = "search"
 SEARCH_IMAGE_REPOSITORY = "quay.io/mongodb/mongodb-search"
 
 RELEASE_INFO_IMAGES_ORDERED = [
-    OPERATOR_IMAGE, # mongodb-kubernetes
-    INIT_DATABASE_IMAGE, # mongodb-kubernetes-init-database
-    INIT_APPDB_IMAGE, # mongodb-kubernetes-init-appdb
-    INIT_OPS_MANAGER_IMAGE, # mongodb-kubernetes-init-ops-manager
-    DATABASE_IMAGE, # mongodb-kubernetes-database
-    READINESS_PROBE_IMAGE, # mongodb-kubernetes-readinessprobe
-    UPGRADE_HOOK_IMAGE, # mongodb-kubernetes-operator-version-upgrade-post-start-hook
+    OPERATOR_IMAGE,  # mongodb-kubernetes
+    INIT_DATABASE_IMAGE,  # mongodb-kubernetes-init-database
+    INIT_APPDB_IMAGE,  # mongodb-kubernetes-init-appdb
+    INIT_OPS_MANAGER_IMAGE,  # mongodb-kubernetes-init-ops-manager
+    DATABASE_IMAGE,  # mongodb-kubernetes-database
+    READINESS_PROBE_IMAGE,  # mongodb-kubernetes-readinessprobe
 ]
 
-EXTERNAL_INFO_IMAGES = [
-    OPS_MANAGER_IMAGE,
-    AGENT_IMAGE
-]
 
-def create_release_info_json(version: str) -> str:
+def create_release_info_json(operator_version: str) -> str:
     build_info = load_build_info(scenario=BuildScenario.RELEASE)
 
-    release_info_json = convert_to_release_info_json(build_info, version)
+    release_info_json = convert_to_release_info_json(build_info, operator_version)
 
     return json.dumps(release_info_json, indent=2)
 
 
-def convert_to_release_info_json(build_info: BuildInfo, version: str) -> dict:
+def convert_to_release_info_json(build_info: BuildInfo, operator_version: str) -> dict:
     release_json_data = os.path.join(os.getcwd(), "release.json")
     with open(release_json_data, "r") as fd:
         release_data = json.load(fd)
@@ -58,34 +50,58 @@ def convert_to_release_info_json(build_info: BuildInfo, version: str) -> dict:
         "images": {},
     }
     # Filter (and order) images to include only those relevant for release info
-    images = {name: build_info.images[name] for name in RELEASE_INFO_IMAGES_ORDERED + EXTERNAL_INFO_IMAGES}
+    images = {name: build_info.images[name] for name in RELEASE_INFO_IMAGES_ORDERED}
 
     for name, image in images.items():
-        output["images"][name] = {
-            "repository": image.repository,
-            "platforms": image.platforms,
-        }
-        
-        if name == OPS_MANAGER_IMAGE:
-            release_info_output["images"][name]["version"] = latest_om_version(release_data)
-            continue
+        add_image_info(release_info_output, name, image.repositories, image.platforms, operator_version)
 
-        if name == AGENT_IMAGE:
-            release_info_output["images"][name]["version"] = latest_agent_version(release_data)
-            continue
+    # add OPS manager image info
+    om_build_info = build_info.images[OPS_MANAGER_IMAGE]
+    add_image_info(
+        release_info_output,
+        OPS_MANAGER_IMAGE,
+        om_build_info.repositories,
+        om_build_info.platforms,
+        latest_om_version(release_data),
+    )
 
-        release_info_output["images"][name]["version"] = version
+    # add agent image info
+    agent_build_info = build_info.images[AGENT_IMAGE]
+    add_image_info(
+        release_info_output,
+        AGENT_IMAGE,
+        agent_build_info.repositories,
+        agent_build_info.platforms,
+        latest_agent_version(release_data),
+    )
 
-    # add search image detail
-    release_info_output["images"][SEARCH_IMAGE] = {
-                "repositories": SEARCH_IMAGE_REPOSITORY,
-                "platforms": ["linux/arm64", "linux/amd64"],
-                "version": latest_search_version(release_data)
-            }
+    # add upgrade hook image info
+    upgradehook_build_info = build_info.images[UPGRADE_HOOK_IMAGE]
+    add_image_info(
+        release_info_output,
+        UPGRADE_HOOK_IMAGE,
+        upgradehook_build_info.repositories,
+        upgradehook_build_info.platforms,
+        latest_upgrade_hook_version(release_data),
+    )
+
+    # add search image info
+    add_image_info(
+        release_info_output,
+        SEARCH_IMAGE,
+        SEARCH_IMAGE_REPOSITORY,
+        ["linux/arm64", "linux/amd64"],
+        latest_search_version(release_data),
+    )
 
     release_info_output = add_om_agent_mappings(release_data, release_info_output)
 
     return release_info_output
+
+
+def add_image_info(release_info_output, name, repositories, platforms, version):
+    release_info_output["images"][name] = {"repositories": repositories, "platforms": platforms, "version": version}
+
 
 def add_om_agent_mappings(release_data, output):
     om_agent_mapping = release_data["latestOpsManagerAgentMapping"]
@@ -93,16 +109,26 @@ def add_om_agent_mappings(release_data, output):
 
     return output
 
+
+def latest_upgrade_hook_version(relese_data):
+    return relese_data["versionUpgradeHookVersion"]
+
+
 def latest_om_version(release_data):
     return release_data["supportedImages"]["ops-manager"]["versions"][-1]
 
+
 def latest_agent_version(release_data):
     newest_om_version = release_data["supportedImages"]["ops-manager"]["versions"][-1]
-    newest_om_mapping = release_data["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][newest_om_version]
+    newest_om_mapping = release_data["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][
+        newest_om_version
+    ]
     return newest_om_mapping["agent_version"]
+
 
 def latest_search_version(release_data):
     return release_data["search"]["version"]
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
