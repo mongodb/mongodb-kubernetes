@@ -30,9 +30,6 @@ from tests.conftest import (
 from tests.constants import MULTI_CLUSTER_OPERATOR_NAME, TELEMETRY_CONFIGMAP_NAME
 from tests.multicluster.conftest import cluster_spec_list
 
-# Global variable to store the external base URL for OM once set up
-_om_external_base_url: Optional[str] = None
-
 
 @pytest.fixture(scope="module")
 def ops_manager(
@@ -51,6 +48,20 @@ def ops_manager(
 
     try_load(resource)
     return resource
+
+
+@pytest.fixture(scope="module")
+def om_external_base_url(
+    ops_manager: MongoDBOpsManager,
+) -> str:
+    """
+    The base_url makes OM accessible from member clusters via a special interconnected dns address.
+    This address only works for member clusters.
+    """
+    interconnected_field = f"https://om-backup.{ops_manager.namespace}.interconnected"
+    new_address = f"{interconnected_field}:8443"
+
+    return new_address
 
 
 @pytest.fixture(scope="module")
@@ -83,9 +94,7 @@ def get_replica_set(ops_manager, namespace: str, idx: int) -> MongoDB:
     return resource
 
 
-def get_mdbmc(ops_manager, namespace: str, idx: int) -> MongoDBMulti:
-    global _om_external_base_url
-
+def get_mdbmc(ops_manager, namespace: str, idx: int, om_external_base_url: str) -> MongoDBMulti:
     name = f"mdb-{idx}-mc"
     central_client = get_central_cluster_client()
     resource = MongoDBMulti.from_yaml(
@@ -98,12 +107,11 @@ def get_mdbmc(ops_manager, namespace: str, idx: int) -> MongoDBMulti:
     resource["spec"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 1])
 
     # Update the configmap to use the external base URL so member clusters can reach OM
-    if _om_external_base_url:
-        config_map_name = f"{name}-config"
-        config_data = KubernetesTester.read_configmap(namespace, config_map_name, api_client=central_client)
-        config_data["baseUrl"] = _om_external_base_url
-        KubernetesTester.delete_configmap(namespace, config_map_name, api_client=central_client)
-        create_or_update_configmap(namespace, config_map_name, config_data, api_client=central_client)
+    config_map_name = f"{name}-config"
+    config_data = KubernetesTester.read_configmap(namespace, config_map_name, api_client=central_client)
+    config_data["baseUrl"] = om_external_base_url
+    KubernetesTester.delete_configmap(namespace, config_map_name, api_client=central_client)
+    create_or_update_configmap(namespace, config_map_name, config_data, api_client=central_client)
 
     try_load(resource)
     return resource
@@ -133,7 +141,7 @@ def get_standalone(ops_manager, namespace: str, idx: int) -> MongoDB:
     return resource
 
 
-def get_user(ops_manager, namespace: str, idx: int, mdb: MongoDB) -> MongoDBUser:
+def get_user(namespace: str, idx: int, mdb: MongoDB) -> MongoDBUser:
     name = f"{mdb.name}-user-{idx}"
     resource = MongoDBUser.from_yaml(
         yaml_fixture("mongodb-user.yaml"),
@@ -160,8 +168,8 @@ def get_all_standalone(ops_manager, namespace) -> list[MongoDB]:
     return [get_standalone(ops_manager, namespace, idx) for idx in range(0, 5)]
 
 
-def get_all_users(ops_manager, namespace, mdb: MongoDB) -> list[MongoDBUser]:
-    return [get_user(ops_manager, namespace, idx, mdb) for idx in range(0, 2)]
+def get_all_users(namespace, mdb: MongoDB) -> list[MongoDBUser]:
+    return [get_user(namespace, idx, mdb) for idx in range(0, 2)]
 
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
@@ -186,12 +194,12 @@ def test_setup_om_external_connectivity(
     ops_manager: MongoDBOpsManager,
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
+    om_external_base_url: str,
 ):
     """
     Set up external connectivity for Ops Manager so that MongoDBMulti pods
     in member clusters can reach OM to download the agent binaries.
     """
-    global _om_external_base_url
 
     ops_manager.load()
     external_svc_name = ops_manager.external_svc_name()
@@ -218,12 +226,9 @@ def test_setup_om_external_connectivity(
         cluster_name="central-cluster",
     )
 
-    # Set the external base URL that MongoDBMulti resources will use
-    _om_external_base_url = f"http://{interconnected_domain}:8080"
-
     # Update OM's centralUrl to use the external address so agents communicate correctly
     ops_manager["spec"]["configuration"] = ops_manager["spec"].get("configuration", {})
-    ops_manager["spec"]["configuration"]["mms.centralUrl"] = _om_external_base_url
+    ops_manager["spec"]["configuration"]["mms.centralUrl"] = om_external_base_url
     ops_manager.update()
 
     # Wait for OM to reconcile with the new configuration
@@ -285,13 +290,13 @@ def test_create_users(ops_manager: MongoDBOpsManager, namespace: str):
         {"password": "password"},
     )
     for mdb in get_all_rs(ops_manager, namespace):
-        for resource in get_all_users(ops_manager, namespace, mdb):
+        for resource in get_all_users(namespace, mdb):
             resource["spec"]["mongodbResourceRef"] = {"name": mdb.name}
             resource["spec"]["passwordSecretKeyRef"] = {"name": "mdb-user-password", "key": "password"}
             resource.update()
 
     for r in get_all_rs(ops_manager, namespace):
-        for resource in get_all_users(ops_manager, namespace, mdb):
+        for resource in get_all_users(namespace, mdb):
             resource.assert_reaches_phase(Phase.Updated, timeout=400)
         r.assert_reaches_phase(Phase.Running)
 

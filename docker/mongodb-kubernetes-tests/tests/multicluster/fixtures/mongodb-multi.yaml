@@ -18,4 +18,3 @@ spec:
       members: 1
     - clusterName: kind-e2e-cluster-3
       members: 2
-  logLevel: DEBUG
