@@ -160,8 +160,8 @@ def get_all_rs(ops_manager, namespace) -> list[MongoDB]:
     return [get_replica_set(ops_manager, namespace, idx) for idx in range(0, 5)]
 
 
-def get_all_mdbmc(ops_manager, namespace) -> list[MongoDB]:
-    return [get_mdbmc(ops_manager, namespace, idx) for idx in range(0, 4)]
+def get_all_mdbmc(ops_manager, namespace, om_external_base_url: str) -> list[MongoDB]:
+    return [get_mdbmc(ops_manager, namespace, idx, om_external_base_url) for idx in range(0, 4)]
 
 
 def get_all_standalone(ops_manager, namespace) -> list[MongoDB]:
@@ -255,10 +255,10 @@ def test_create_mdb(ops_manager: MongoDBOpsManager, namespace: str):
 
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
-def test_create_mdbmc(ops_manager: MongoDBOpsManager, namespace: str):
-    for resource in get_all_mdbmc(ops_manager, namespace):
+def test_create_mdbmc(ops_manager: MongoDBOpsManager, namespace: str, om_external_base_url: str):
+    for resource in get_all_mdbmc(ops_manager, namespace, om_external_base_url):
         resource.update()
-    for r in get_all_mdbmc(ops_manager, namespace):
+    for r in get_all_mdbmc(ops_manager, namespace, om_external_base_url):
         r.assert_reaches_phase(Phase.Running, timeout=1600)
 
 
@@ -314,14 +314,16 @@ def test_pod_logs_race(multi_cluster_operator: Operator):
 
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
-def test_restart_operator_pod(ops_manager: MongoDBOpsManager, namespace: str, multi_cluster_operator: Operator):
+def test_restart_operator_pod(
+    ops_manager: MongoDBOpsManager, namespace: str, multi_cluster_operator: Operator, om_external_base_url: str
+):
     # this enforces a requeue of all existing resources, increasing the chances of races to happen
     multi_cluster_operator.restart_operator_deployment()
     multi_cluster_operator.assert_is_running()
     time.sleep(5)
     for r in get_all_rs(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)
-    for r in get_all_mdbmc(ops_manager, namespace):
+    for r in get_all_mdbmc(ops_manager, namespace, om_external_base_url):
         r.assert_reaches_phase(Phase.Running)
     for r in get_all_sharded(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)
