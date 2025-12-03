@@ -1,16 +1,17 @@
 # It's intended to check for reconcile data races.
 import json
 import time
-from typing import Optional
+from typing import List, Optional
 
 import kubernetes.client
 import pytest
-from kubetester import create_or_update_secret, find_fixture, try_load
+from kubetester import create_or_update_configmap, create_or_update_secret, find_fixture, read_service, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
@@ -18,9 +19,13 @@ from tests.conftest import (
     get_central_cluster_client,
     get_custom_mdb_version,
     get_member_cluster_names,
+    update_coredns_hosts,
 )
 from tests.constants import MULTI_CLUSTER_OPERATOR_NAME, TELEMETRY_CONFIGMAP_NAME
 from tests.multicluster.conftest import cluster_spec_list
+
+# Global variable to store the external base URL for OM once set up
+_om_external_base_url: Optional[str] = None
 
 
 @pytest.fixture(scope="module")
@@ -35,6 +40,8 @@ def ops_manager(
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
+    # Enable external connectivity so member clusters can reach OM
+    resource["spec"]["externalConnectivity"] = {"type": "LoadBalancer"}
 
     try_load(resource)
     return resource
@@ -71,15 +78,26 @@ def get_replica_set(ops_manager, namespace: str, idx: int) -> MongoDB:
 
 
 def get_mdbmc(ops_manager, namespace: str, idx: int) -> MongoDBMulti:
+    global _om_external_base_url
+
     name = f"mdb-{idx}-mc"
+    central_client = get_central_cluster_client()
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi-cluster.yaml"),
         namespace=namespace,
         name=name,
-    ).configure(ops_manager, name, api_client=get_central_cluster_client())
+    ).configure(ops_manager, name, api_client=central_client)
     resource.set_version(ensure_ent_version(get_custom_mdb_version()))
-    resource.api = kubernetes.client.CustomObjectsApi(get_central_cluster_client())
+    resource.api = kubernetes.client.CustomObjectsApi(central_client)
     resource["spec"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 1])
+
+    # Update the configmap to use the external base URL so member clusters can reach OM
+    if _om_external_base_url:
+        config_map_name = f"{name}-config"
+        config_data = KubernetesTester.read_configmap(namespace, config_map_name, api_client=central_client)
+        config_data["baseUrl"] = _om_external_base_url
+        KubernetesTester.delete_configmap(namespace, config_map_name, api_client=central_client)
+        create_or_update_configmap(namespace, config_map_name, config_data, api_client=central_client)
 
     try_load(resource)
     return resource
@@ -155,6 +173,55 @@ def test_create_om(ops_manager: MongoDBOpsManager, ops_manager2: MongoDBOpsManag
 def test_om_ready(ops_manager: MongoDBOpsManager):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1800)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1800)
+
+
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
+def test_setup_om_external_connectivity(
+    ops_manager: MongoDBOpsManager,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """
+    Set up external connectivity for Ops Manager so that MongoDBMulti pods
+    in member clusters can reach OM to download the agent binaries.
+    """
+    global _om_external_base_url
+
+    ops_manager.load()
+    external_svc_name = ops_manager.external_svc_name()
+    svc = read_service(ops_manager.namespace, external_svc_name, api_client=central_cluster_client)
+
+    # Get the external IP from the LoadBalancer service
+    ip = svc.status.load_balancer.ingress[0].ip
+
+    # Create the interconnected domain for this OM instance
+    interconnected_domain = f"om.{ops_manager.namespace}.interconnected"
+
+    # Update CoreDNS in each member cluster to resolve the interconnected domain to the OM external IP
+    for c in member_cluster_clients:
+        update_coredns_hosts(
+            host_mappings=[(ip, interconnected_domain)],
+            api_client=c.api_client,
+            cluster_name=c.cluster_name,
+        )
+
+    # Also update CoreDNS in the central cluster for consistency
+    update_coredns_hosts(
+        host_mappings=[(ip, interconnected_domain)],
+        api_client=central_cluster_client,
+        cluster_name="central-cluster",
+    )
+
+    # Set the external base URL that MongoDBMulti resources will use
+    _om_external_base_url = f"http://{interconnected_domain}:8080"
+
+    # Update OM's centralUrl to use the external address so agents communicate correctly
+    ops_manager["spec"]["configuration"] = ops_manager["spec"].get("configuration", {})
+    ops_manager["spec"]["configuration"]["mms.centralUrl"] = _om_external_base_url
+    ops_manager.update()
+
+    # Wait for OM to reconcile with the new configuration
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
