@@ -29,7 +29,6 @@ RELEASE_INFO_IMAGES_ORDERED = [
     INIT_APPDB_IMAGE,  # mongodb-kubernetes-init-appdb
     INIT_OPS_MANAGER_IMAGE,  # mongodb-kubernetes-init-ops-manager
     DATABASE_IMAGE,  # mongodb-kubernetes-database
-    READINESS_PROBE_IMAGE,  # mongodb-kubernetes-readinessprobe
 ]
 
 
@@ -85,6 +84,16 @@ def convert_to_release_info_json(build_info: BuildInfo, operator_version: str) -
         latest_upgrade_hook_version(release_data),
     )
 
+    # add readiness image info
+    readiness_build_info = build_info.images[READINESS_PROBE_IMAGE]
+    add_image_info(
+        release_info_output,
+        READINESS_PROBE_IMAGE,
+        readiness_build_info.repositories,
+        readiness_build_info.platforms,
+        latest_readiness_version(release_data),
+    )
+
     # add search image info
     add_image_info(
         release_info_output,
@@ -108,6 +117,10 @@ def add_om_agent_mappings(release_data, output):
     output["latestOpsManagerAgentMapping"] = om_agent_mapping
 
     return output
+
+
+def latest_readiness_version(release_data):
+    return release_data["readinessProbeVersion"]
 
 
 def latest_upgrade_hook_version(relese_data):
