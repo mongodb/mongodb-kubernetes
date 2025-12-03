@@ -786,9 +786,11 @@ functions:
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - OPERATOR_VERSION
         env:
           GH_TOKEN: ${GH_TOKEN}
-        binary: scripts/dev/run_python.sh scripts/release/release_info.py --version 1.0.1
+        binary: scripts/dev/run_python.sh scripts/release/release_info.py --version ${OPERATOR_VERSION|*triggered_by_git_tag}
 
   release_kubectl_mongodb_plugin:
     - command: github.generate_token
