@@ -286,6 +286,9 @@ const (
 	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 
+	DisableReconciliation      = "mongodb.com/v1.disableReconciliation"
+	DisableReconciliationValue = "true"
+
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 
