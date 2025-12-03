@@ -51,17 +51,20 @@ def ops_manager(
 
 
 @pytest.fixture(scope="module")
-def om_external_base_url(
+def om_external_base_domain(
     ops_manager: MongoDBOpsManager,
 ) -> str:
+    interconnected_domain = f"om.{ops_manager.namespace}.interconnected"
+    return interconnected_domain
+
+
+@pytest.fixture(scope="module")
+def om_external_base_url(ops_manager: MongoDBOpsManager, om_external_base_domain: str) -> str:
     """
     The base_url makes OM accessible from member clusters via a special interconnected dns address.
     This address only works for member clusters.
     """
-    interconnected_field = f"https://om-backup.{ops_manager.namespace}.interconnected"
-    new_address = f"{interconnected_field}:8443"
-
-    return new_address
+    return f"http://{om_external_base_domain}:8080"
 
 
 @pytest.fixture(scope="module")
@@ -195,6 +198,7 @@ def test_setup_om_external_connectivity(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     om_external_base_url: str,
+    om_external_base_domain: str,
 ):
     """
     Set up external connectivity for Ops Manager so that MongoDBMulti pods
@@ -208,20 +212,17 @@ def test_setup_om_external_connectivity(
     # Get the external IP from the LoadBalancer service
     ip = svc.status.load_balancer.ingress[0].ip
 
-    # Create the interconnected domain for this OM instance
-    interconnected_domain = f"om.{ops_manager.namespace}.interconnected"
-
     # Update CoreDNS in each member cluster to resolve the interconnected domain to the OM external IP
     for c in member_cluster_clients:
         update_coredns_hosts(
-            host_mappings=[(ip, interconnected_domain)],
+            host_mappings=[(ip, om_external_base_domain)],
             api_client=c.api_client,
             cluster_name=c.cluster_name,
         )
 
     # Also update CoreDNS in the central cluster for consistency
     update_coredns_hosts(
-        host_mappings=[(ip, interconnected_domain)],
+        host_mappings=[(ip, om_external_base_domain)],
         api_client=central_cluster_client,
         cluster_name="central-cluster",
     )
