@@ -617,6 +617,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         env:
           USE_RACE: "true"
+          USE_COVERAGE: "true"
         script: scripts/evergreen/unit-tests-golang.sh
 
   test_helm_unit:

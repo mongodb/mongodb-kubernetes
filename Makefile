@@ -275,10 +275,10 @@ endif
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 
 golang-tests:
-	scripts/evergreen/unit-tests-golang.sh
+	USE_RACE=false USE_COVERAGE=false scripts/evergreen/unit-tests-golang.sh
 
 golang-tests-race:
-	USE_RACE=true scripts/evergreen/unit-tests-golang.sh
+	USE_RACE=true USE_COVERAGE=true scripts/evergreen/unit-tests-golang.sh
 
 sbom-tests:
 	scripts/evergreen/unit-tests-sbom.sh
