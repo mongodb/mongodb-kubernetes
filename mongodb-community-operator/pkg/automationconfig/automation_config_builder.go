@@ -9,6 +9,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/versions"
+	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 )
 
 type Topology string
@@ -227,7 +228,7 @@ func (b *Builder) setFeatureCompatibilityVersionIfUpgradeIsHappening() error {
 
 		// Create a x.y.0 version from FCV x.y
 		previousFCV := b.previousAC.Processes[0].FeatureCompatibilityVersion
-		previousFCVsemver, err := semver.Make(fmt.Sprintf("%s.0", previousFCV))
+		previousFCVsemver, err := fcv.FeatureCompatibilityVersionToSemverFormat(previousFCV)
 		if err != nil {
 			return fmt.Errorf("can't compute semver version from previous FeatureCompatibilityVersion %s", previousFCV)
 		}
@@ -269,7 +270,7 @@ func (b *Builder) Build() (AutomationConfig, error) {
 	processes := make([]Process, b.members+b.arbiters)
 
 	if b.fcv != "" {
-		_, err := semver.Make(fmt.Sprintf("%s.0", b.fcv))
+		_, err := fcv.FeatureCompatibilityVersionToSemverFormat(b.fcv)
 		if err != nil {
 			return AutomationConfig{}, fmt.Errorf("invalid feature compatibility version: %s", err)
 		}

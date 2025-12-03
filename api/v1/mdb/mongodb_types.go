@@ -688,10 +688,10 @@ func (m *MongoDbSpec) GetClusterDomain() string {
 
 func (m *MongoDbSpec) MinimumMajorVersion() uint64 {
 	if m.FeatureCompatibilityVersion != nil && *m.FeatureCompatibilityVersion != "" {
-		fcv := *m.FeatureCompatibilityVersion
+		fcvString := *m.FeatureCompatibilityVersion
 
 		// ignore errors here as the format of FCV/version is handled by CRD validation
-		semverFcv, _ := semver.Make(fmt.Sprintf("%s.0", fcv))
+		semverFcv, _ := fcv.FeatureCompatibilityVersionToSemverFormat(fcvString)
 		return semverFcv.Major
 	}
 	semverVersion, _ := semver.Make(m.GetMongoDBVersion())
