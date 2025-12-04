@@ -6,7 +6,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"path/filepath"
-	"reflect"
 
 	"github.com/blang/semver"
 	"github.com/hashicorp/go-multierror"
@@ -100,38 +99,69 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 }
 
-// ensureRoles will first check if both roles and roleRefs are populated. If both are, it will return an error, which is inline with the webhook validation rules.
-// Otherwise, if roles is populated, then it will extract the list of roles and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
-// If roleRefs is populated, it will extract the list of roles from the referenced resources and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
-func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, conn om.Connection, mongodbResourceNsName types.NamespacedName, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileCommonController) getRoleAnnotation(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) (map[string]string, []string, error) {
+	previousRoles, err := r.getRoleStrings(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("Error retrieving configured roles: %w", err)
+	}
+
+	annotationToAdd := make(map[string]string)
+	if len(previousRoles) > 0 {
+		rolesBytes, err := json.Marshal(previousRoles)
+		if err != nil {
+			return nil, nil, err
+		}
+		annotationToAdd[util.LastConfiguredRoles] = string(rolesBytes)
+	}
+	return annotationToAdd, previousRoles, nil
+}
+
+func (r *ReconcileCommonController) getRoleStrings(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) ([]string, error) {
+	roles, err := r.getRoles(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
+	if err != nil {
+		return nil, err
+	}
+
+	roleStrings := make([]string, len(roles))
+	for i, r := range roles {
+		roleStrings[i] = fmt.Sprintf("%s@%s", r.Role, r.Db)
+	}
+
+	return roleStrings, nil
+}
+
+func (r *ReconcileCommonController) getRoles(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) ([]mdbv1.MongoDBRole, error) {
 	localRoles := db.GetSecurity().Roles
 	roleRefs := db.GetSecurity().RoleRefs
 
 	if len(localRoles) > 0 && len(roleRefs) > 0 {
-		return workflow.Failed(xerrors.Errorf("At most one one of roles or roleRefs can be non-empty."))
+		return nil, xerrors.Errorf("At most one of roles or roleRefs can be non-empty.")
 	}
 
 	var roles []mdbv1.MongoDBRole
 	if len(roleRefs) > 0 {
 		if !enableClusterMongoDBRoles {
-			return workflow.Failed(xerrors.Errorf("RoleRefs are not supported when ClusterMongoDBRoles are disabled. Please enable ClusterMongoDBRoles in the operator configuration. This can be done by setting the operator.enableClusterMongoDBRoles to true in the helm values file, which will automatically installed the necessary RBAC. Alternatively, it can be enabled by adding -watch-resource=clustermongodbroles flag to the operator deployment, and manually creating the necessary RBAC."))
+			return nil, xerrors.Errorf("RoleRefs are not supported when ClusterMongoDBRoles are disabled. Please enable ClusterMongoDBRoles in the operator configuration. This can be done by setting the operator.enableClusterMongoDBRoles to true in the helm values file, which will automatically installed the necessary RBAC. Alternatively, it can be enabled by adding -watch-resource=clustermongodbroles flag to the operator deployment, and manually creating the necessary RBAC.")
 		}
 		var err error
 		roles, err = r.getRoleRefs(ctx, roleRefs, mongodbResourceNsName, db.Version)
 		if err != nil {
-			return workflow.Failed(err)
+			return nil, err
 		}
 	} else {
 		roles = localRoles
 	}
 
-	d, err := conn.ReadDeployment()
+	return roles, nil
+}
+
+// ensureRoles will first check if both roles and roleRefs are populated. If both are, it will return an error, which is inline with the webhook validation rules.
+// Otherwise, if roles is populated, then it will extract the list of roles and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
+// If roleRefs is populated, it will extract the list of roles from the referenced resources and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
+func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, conn om.Connection, mongodbResourceNsName types.NamespacedName, previousRoles []string, log *zap.SugaredLogger) workflow.Status {
+	roles, err := r.getRoles(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
 	if err != nil {
 		return workflow.Failed(err)
-	}
-	dRoles := d.GetRoles()
-	if reflect.DeepEqual(dRoles, roles) {
-		return workflow.OK()
 	}
 
 	// clone roles list to avoid mutating the spec in normalizePrivilegeResource
@@ -157,7 +187,7 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 	log.Infof("Roles have been changed. Updating deployment in Ops Manager.")
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			d.SetRoles(roles)
+			d.EnsureRoles(roles, previousRoles)
 			return nil
 		},
 		log,

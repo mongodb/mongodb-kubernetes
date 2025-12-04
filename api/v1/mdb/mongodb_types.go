@@ -1194,6 +1194,20 @@ func (m *MongoDB) GetLastSpec() (*MongoDbSpec, error) {
 	return &lastSpec, nil
 }
 
+func (m *MongoDB) GetLastConfiguredRoles() ([]string, error) {
+	lastRolesStr := annotations.GetAnnotation(m, util.LastConfiguredRoles)
+	if lastRolesStr == "" {
+		return nil, nil
+	}
+
+	lastRoles := []string{}
+	if err := json.Unmarshal([]byte(lastRolesStr), &lastRoles); err != nil {
+		return nil, err
+	}
+
+	return lastRoles, nil
+}
+
 func (m *MongoDB) ServiceName() string {
 	if m.Spec.StatefulSetConfiguration != nil {
 		svc := m.Spec.StatefulSetConfiguration.SpecWrapper.Spec.ServiceName
