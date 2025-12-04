@@ -31,8 +31,8 @@ def update_release_json():
     newest_operator_version = data["mongodbOperator"]
     update_operator_related_versions(data, newest_operator_version)
 
-    if not update_latest_om_agent_mapping(data, newest_om_version):
-        logger.info("Failed updating release.json for latest om-agent mapping")
+    # Adds mapping between latest major version of OM and agent to the release.json
+    update_latest_om_agent_mapping(data, newest_om_version)
 
     with open(release, "w") as f:
         json.dump(
