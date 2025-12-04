@@ -109,6 +109,7 @@ func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, 
 type ShardedClusterDeploymentState struct {
 	CommonDeploymentState `json:",inline"`
 	LastAchievedSpec      *mdbv1.MongoDbSpec   `json:"lastAchievedSpec"`
+	LastConfiguredRoles   []string             `json:"lastConfiguredRoles"`
 	Status                *mdbv1.MongoDbStatus `json:"status"`
 }
 
@@ -131,6 +132,7 @@ func NewShardedClusterDeploymentState() *ShardedClusterDeploymentState {
 	return &ShardedClusterDeploymentState{
 		CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{}},
 		LastAchievedSpec:      &mdbv1.MongoDbSpec{},
+		LastConfiguredRoles:   []string{},
 		Status:                &mdbv1.MongoDbStatus{},
 	}
 }
@@ -954,6 +956,17 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 			annotationsToAdd[k] = val
 		}
 	}
+
+	// Set annotation and state for previously configured roles
+	roleAnnotation, roleStrings, err := r.commonController.getRoleAnnotation(ctx, r.sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(r.sc))
+	if err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+	for k, val := range roleAnnotation {
+		annotationsToAdd[k] = val
+	}
+	r.deploymentState.LastConfiguredRoles = roleStrings
+
 	// Set annotations that should be saved at the end of the reconciliation, e.g lastAchievedSpec
 	if err := annotations.SetAnnotations(ctx, sc, annotationsToAdd, r.commonController.client); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
@@ -1059,7 +1072,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		}
 	}
 
-	if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(sc), log); !workflowStatus.IsOK() {
+	if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(sc), r.deploymentState.LastConfiguredRoles, log); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
 
