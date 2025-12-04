@@ -112,7 +112,13 @@ def convert_to_release_info_json(build_info: BuildInfo, operator_version: str) -
         latest_search_version(release_data),
     )
 
-    add_image_info(release_info_output, MONGODB_ENTERPRISE_SERVER_IMAGE, MONGODB_ENTERPRISE_SERVER_REPOSITORY, ["linux/arm64", "linux/amd64"], latest_enterprise_server_version(release_data))
+    add_image_info(
+        release_info_output,
+        MONGODB_ENTERPRISE_SERVER_IMAGE,
+        MONGODB_ENTERPRISE_SERVER_REPOSITORY,
+        ["linux/arm64", "linux/amd64"],
+        latest_enterprise_server_version(release_data),
+    )
 
     release_info_output = add_om_agent_mappings(release_data, release_info_output)
 
@@ -135,8 +141,10 @@ def add_om_agent_mappings(release_data, output):
 
     return output
 
+
 def latest_enterprise_server_version(release_data):
     return release_data["supportedImages"]["mongodb-enterprise-server"]["versions"][-1]
+
 
 def latest_readiness_version(release_data):
     return release_data["readinessProbeVersion"]
