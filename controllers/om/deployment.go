@@ -616,28 +616,6 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
 	return excessProcesses
 }
 
-func (d Deployment) EnsureRoles(roles []mdbv1.MongoDBRole, deletedRoles []string) {
-	roleMap := make(map[string]struct{})
-	for _, r := range roles {
-		roleMap[r.Role+"@"+r.Db] = struct{}{}
-	}
-
-	for _, r := range deletedRoles {
-		roleMap[r] = struct{}{}
-	}
-
-	var mergedRoles []mdbv1.MongoDBRole
-	for _, r := range d.GetRoles() {
-		key := r.Role + "@" + r.Db
-		if _, ok := roleMap[key]; !ok {
-			mergedRoles = append(mergedRoles, r)
-		}
-	}
-
-	mergedRoles = append(mergedRoles, roles...)
-	d.SetRoles(mergedRoles)
-}
-
 func (d Deployment) SetRoles(roles []mdbv1.MongoDBRole) {
 	d["roles"] = roles
 }

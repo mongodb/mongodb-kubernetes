@@ -6,6 +6,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"path/filepath"
+	"reflect"
 
 	"github.com/blang/semver"
 	"github.com/hashicorp/go-multierror"
@@ -106,20 +107,19 @@ func (r *ReconcileCommonController) getRoleAnnotation(ctx context.Context, db md
 	}
 
 	annotationToAdd := make(map[string]string)
-	if len(previousRoles) > 0 {
-		rolesBytes, err := json.Marshal(previousRoles)
-		if err != nil {
-			return nil, nil, err
-		}
-		annotationToAdd[util.LastConfiguredRoles] = string(rolesBytes)
+	rolesBytes, err := json.Marshal(previousRoles)
+	if err != nil {
+		return nil, nil, err
 	}
+	annotationToAdd[util.LastConfiguredRoles] = string(rolesBytes)
+
 	return annotationToAdd, previousRoles, nil
 }
 
 func (r *ReconcileCommonController) getRoleStrings(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) ([]string, error) {
 	roles, err := r.getRoles(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
 	if err != nil {
-		return nil, err
+		return []string{}, err
 	}
 
 	roleStrings := make([]string, len(roles))
@@ -164,10 +164,21 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 		return workflow.Failed(err)
 	}
 
+	d, err := conn.ReadDeployment()
+	if err != nil {
+		return workflow.Failed(err)
+	}
+	dRoles := d.GetRoles()
+	mergedRoles := mergeRoles(dRoles, roles, previousRoles)
+
+	if reflect.DeepEqual(dRoles, mergedRoles) {
+		return workflow.OK()
+	}
+
 	// clone roles list to avoid mutating the spec in normalizePrivilegeResource
-	newRoles := make([]mdbv1.MongoDBRole, len(roles))
-	for i := range roles {
-		newRoles[i] = *roles[i].DeepCopy()
+	newRoles := make([]mdbv1.MongoDBRole, len(mergedRoles))
+	for i := range mergedRoles {
+		newRoles[i] = *mergedRoles[i].DeepCopy()
 	}
 	roles = newRoles
 
@@ -187,7 +198,7 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 	log.Infof("Roles have been changed. Updating deployment in Ops Manager.")
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			d.EnsureRoles(roles, previousRoles)
+			d.SetRoles(roles)
 			return nil
 		},
 		log,
@@ -217,6 +228,33 @@ func normalizePrivilegeResource(resource mdbv1.Resource) mdbv1.Resource {
 	}
 
 	return resource
+}
+
+// mergeRoles merges the deployed roles with the current roles and previously configured roles.
+// It ensures that roles configured outside the operator are not removed.
+// This is achieved by removing currently configured roles from the deployed roles.
+// To ensure that roles removed from the spec are also removed from OM, we also remove the previously configured roles.
+// Finally, we add back the currently configured roles.
+func mergeRoles(deployed []mdbv1.MongoDBRole, current []mdbv1.MongoDBRole, previous []string) []mdbv1.MongoDBRole {
+	roleMap := make(map[string]struct{})
+	for _, r := range current {
+		roleMap[r.Role+"@"+r.Db] = struct{}{}
+	}
+
+	for _, r := range previous {
+		roleMap[r] = struct{}{}
+	}
+
+	mergedRoles := make([]mdbv1.MongoDBRole, 0)
+	for _, r := range deployed {
+		key := r.Role + "@" + r.Db
+		if _, ok := roleMap[key]; !ok {
+			mergedRoles = append(mergedRoles, r)
+		}
+	}
+
+	mergedRoles = append(mergedRoles, current...)
+	return mergedRoles
 }
 
 // getRoleRefs retrieves the roles from the referenced resources. It will return an error if any of the referenced resources are not found.
