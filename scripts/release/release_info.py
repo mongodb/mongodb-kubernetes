@@ -199,4 +199,4 @@ if __name__ == "__main__":
         with open(release_info_filename, "w") as file:
             file.write(release_info)
 
-    # upload_assets_to_github_release([release_info_filename], args.version)
+    upload_assets_to_github_release([release_info_filename], args.version)
