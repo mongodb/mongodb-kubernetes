@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 
+from lib.base_logger import logger
 from scripts.release.build.build_info import (
     AGENT_IMAGE,
     DATABASE_IMAGE,
@@ -16,12 +17,16 @@ from scripts.release.build.build_info import (
     load_build_info,
 )
 from scripts.release.build.build_scenario import BuildScenario
+from scripts.release.build.image_build_process import (
+    DockerImageBuilder,
+)
 from scripts.release.kubectl_mongodb.utils import (
     upload_assets_to_github_release,
 )
 
 SEARCH_IMAGE = "search"
 SEARCH_IMAGE_REPOSITORY = "quay.io/mongodb/mongodb-search"
+AGENT_IMAGE_REPOSITORY = "quay.io/mongodb/mongodb-agent"
 
 RELEASE_INFO_IMAGES_ORDERED = [
     OPERATOR_IMAGE,  # mongodb-kubernetes
@@ -52,14 +57,14 @@ def convert_to_release_info_json(build_info: BuildInfo, operator_version: str) -
     images = {name: build_info.images[name] for name in RELEASE_INFO_IMAGES_ORDERED}
 
     for name, image in images.items():
-        add_image_info(release_info_output, name, image.repositories, image.platforms, operator_version)
+        add_image_info(release_info_output, name, image.repositories[0], image.platforms, operator_version)
 
     # add OPS manager image info
     om_build_info = build_info.images[OPS_MANAGER_IMAGE]
     add_image_info(
         release_info_output,
         OPS_MANAGER_IMAGE,
-        om_build_info.repositories,
+        om_build_info.repositories[0],
         om_build_info.platforms,
         latest_om_version(release_data),
     )
@@ -69,7 +74,7 @@ def convert_to_release_info_json(build_info: BuildInfo, operator_version: str) -
     add_image_info(
         release_info_output,
         AGENT_IMAGE,
-        agent_build_info.repositories,
+        AGENT_IMAGE_REPOSITORY,
         agent_build_info.platforms,
         latest_agent_version(release_data),
     )
@@ -79,7 +84,7 @@ def convert_to_release_info_json(build_info: BuildInfo, operator_version: str) -
     add_image_info(
         release_info_output,
         UPGRADE_HOOK_IMAGE,
-        upgradehook_build_info.repositories,
+        upgradehook_build_info.repositories[0],
         upgradehook_build_info.platforms,
         latest_upgrade_hook_version(release_data),
     )
@@ -89,7 +94,7 @@ def convert_to_release_info_json(build_info: BuildInfo, operator_version: str) -
     add_image_info(
         release_info_output,
         READINESS_PROBE_IMAGE,
-        readiness_build_info.repositories,
+        readiness_build_info.repositories[0],
         readiness_build_info.platforms,
         latest_readiness_version(release_data),
     )
@@ -108,8 +113,14 @@ def convert_to_release_info_json(build_info: BuildInfo, operator_version: str) -
     return release_info_output
 
 
-def add_image_info(release_info_output, name, repositories, platforms, version):
-    release_info_output["images"][name] = {"repositories": repositories, "platforms": platforms, "version": version}
+def add_image_info(release_info_output, name, repository: str, platforms, version):
+    digest = manifest_list_digest_for_image(f"{repository}:{version}")
+    release_info_output["images"][name] = {
+        "repoURL": repository,
+        "platforms": platforms,
+        "tag": version,
+        "digest": digest,
+    }
 
 
 def add_om_agent_mappings(release_data, output):
@@ -141,6 +152,19 @@ def latest_agent_version(release_data):
 
 def latest_search_version(release_data):
     return release_data["search"]["version"]
+
+
+# manifest_list_digest_for_image returns manifest list digest for the passed image. Returns
+# empty string if there was an error figuring that out.
+def manifest_list_digest_for_image(image: str) -> str:
+    builder = DockerImageBuilder()
+    try:
+        digest = builder.get_manfiest_list_digest(image)
+    except Exception as e:
+        logger.error(f"There was an error, figuring out manifest list digest for image {image}. Error: {e}")
+        return ""
+
+    return digest
 
 
 if __name__ == "__main__":
