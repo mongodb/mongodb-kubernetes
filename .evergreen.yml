@@ -304,8 +304,9 @@ tasks:
   # Auto-release agent images on every commit to master (CLOUDP-305848)
   # Replaces the PCT-triggered release flow by checking release.json against Quay
   - name: auto_release_agent
-    # Only run on commits to master, not on patches
+    # Only run on mainline commits (merges to master)
     patchable: false
+    allowed_requesters: [ "patch", "commit" ]
     commands:
       - func: clone
       - func: setup_building_host
@@ -1922,6 +1923,8 @@ buildvariants:
   - name: auto_release_agent
     display_name: auto_release_agent
     tags: [ "commit_build" ]
+    # Only run on mainline commits (merges to master)
+    allowed_requesters: [ "patch", "commit" ]
     run_on:
       - release-ubuntu2404-small # Required for CISA attestation
     depends_on:
