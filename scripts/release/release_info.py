@@ -26,7 +26,11 @@ from scripts.release.kubectl_mongodb.utils import (
 
 SEARCH_IMAGE = "search"
 SEARCH_IMAGE_REPOSITORY = "quay.io/mongodb/mongodb-search"
+
 AGENT_IMAGE_REPOSITORY = "quay.io/mongodb/mongodb-agent"
+
+MONGODB_ENTERPRISE_SERVER_IMAGE = "mongodb-enterprise-server"
+MONGODB_ENTERPRISE_SERVER_REPOSITORY = "quay.io/mongodb/mongodb-enterprise-server"
 
 RELEASE_INFO_IMAGES_ORDERED = [
     OPERATOR_IMAGE,  # mongodb-kubernetes
@@ -108,6 +112,8 @@ def convert_to_release_info_json(build_info: BuildInfo, operator_version: str) -
         latest_search_version(release_data),
     )
 
+    add_image_info(release_info_output, MONGODB_ENTERPRISE_SERVER_IMAGE, MONGODB_ENTERPRISE_SERVER_REPOSITORY, ["linux/arm64", "linux/amd64"], latest_enterprise_server_version(release_data))
+
     release_info_output = add_om_agent_mappings(release_data, release_info_output)
 
     return release_info_output
@@ -129,6 +135,8 @@ def add_om_agent_mappings(release_data, output):
 
     return output
 
+def latest_enterprise_server_version(release_data):
+    return release_data["supportedImages"]["mongodb-enterprise-server"]["versions"][-1]
 
 def latest_readiness_version(release_data):
     return release_data["readinessProbeVersion"]
@@ -183,4 +191,4 @@ if __name__ == "__main__":
         with open(release_info_filename, "w") as file:
             file.write(release_info)
 
-    upload_assets_to_github_release([release_info_filename], args.version)
+    # upload_assets_to_github_release([release_info_filename], args.version)
