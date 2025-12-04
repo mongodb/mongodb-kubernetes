@@ -3863,12 +3863,14 @@ func getMultiClusterFQDN(stsName string, namespace string, clusterIdx int, podId
 
 func generateExpectedDeploymentState(t *testing.T, sc *mdbv1.MongoDB) string {
 	lastSpec, _ := sc.GetLastSpec()
+	lastConfiguredRoles, _ := sc.GetLastConfiguredRoles()
 	expectedState := ShardedClusterDeploymentState{
 		CommonDeploymentState: CommonDeploymentState{
 			ClusterMapping: map[string]int{},
 		},
-		LastAchievedSpec: lastSpec,
-		Status:           &sc.Status,
+		LastAchievedSpec:    lastSpec,
+		LastConfiguredRoles: lastConfiguredRoles,
+		Status:              &sc.Status,
 	}
 	lastSpecBytes, err := json.Marshal(expectedState)
 	require.NoError(t, err)
