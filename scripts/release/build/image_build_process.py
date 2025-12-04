@@ -1,6 +1,6 @@
 import base64
 import subprocess
-from typing import Dict
+from typing import Dict, Optional
 
 import boto3
 import docker
@@ -21,6 +21,14 @@ class ImageBuilder(object):
                     path: str,
                     args: Dict[str, str],
                     platforms: list[str]):  pass
+
+    # check_if_image_exists could easily be used to get the digest of manfiest list but
+    # the python package that we use somehow doesn't return the digest of manifest list
+    # even though the respective docker CLI returns the digest. That's why we had to introduce
+    #  this function.
+    def get_manfiest_list_digest(self, image: str) -> Optional[str]: pass
+
+    def pull_image(self, image: str): pass
 
 
 DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
@@ -109,6 +117,25 @@ class DockerImageBuilder(ImageBuilder):
         else:
             return True
 
+    def pull_image(self, image):
+        docker_cmd = python_on_whales.docker
+        try:
+            docker_cmd.image.pull(image, quiet=True)
+        except Exception as e:
+            logger.error(f"Failed pulling image. {e}")
+            raise e
+
+    def get_manfiest_list_digest(self, image) -> Optional[str]:
+        self.pull_image(image)
+
+        docker_cmd = python_on_whales.docker
+        try:
+            manifest = docker_cmd.image.inspect(image)
+            return manifest.id
+        except Exception as e:
+            logger.error(f"Failed inspecting the image to get manifest list digest. {e}")
+            raise e
+
     def build_image(self, tags: list[str],
                     dockerfile: str,
                     path: str,
@@ -166,6 +193,13 @@ class PodmanImageBuilder(ImageBuilder):
         logger.warning(
             f"PodmanImageBuilder does not support checking if image exists remotely. Skipping check for {image_tag}.")
         return False
+
+    def get_manfiest_list_digest(self, image) -> Optional[str]:
+        logger.warning(f"PodmanImageBuilder does not support getting digest for manifest list, returning empty digest.")
+        return ""
+
+    def pull_image(self, image: str):
+        logger.warning("PodmanImageBuilder does not support pulling image right now.")
 
     def build_image(self, tags: list[str],
                     dockerfile: str,
