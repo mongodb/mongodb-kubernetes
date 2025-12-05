@@ -46,15 +46,13 @@ def s3_path(filename: str, version: str) -> str:
 # the GitHub release as assets.
 def upload_assets_to_github_release(asset_paths: list[str], release_version: str):
     if not GITHUB_TOKEN:
-        logger.info("ERROR: GITHUB_TOKEN environment variable not set.")
-        sys.exit(1)
+        raise Exception("ERROR: GITHUB_TOKEN environment variable not set.")
 
     try:
         g = Github(GITHUB_TOKEN)
         repo = g.get_repo(GITHUB_REPO)
     except GithubException as e:
-        logger.info(f"ERROR: Could not connect to GitHub or find repository '{GITHUB_REPO}', Error {e}.")
-        sys.exit(1)
+        raise Exception(f"ERROR: Could not connect to GitHub or find repository {GITHUB_REPO}") from e
 
     try:
         gh_release = None
@@ -65,13 +63,11 @@ def upload_assets_to_github_release(asset_paths: list[str], release_version: str
                 break
 
         if gh_release is None:
-            logger.error(
+            raise Exception(
                 f"Could not find release (published or draft) with tag '{release_version}'. Please ensure the release exists."
             )
-            sys.exit(2)
     except GithubException as e:
-        logger.debug(f"Failed to retrieve releases from the repository {GITHUB_REPO}. Error: {e}")
-        sys.exit(2)
+        raise Exception(f"Failed to retrieve releases from the repository {GITHUB_REPO}") from e
 
     for asset_path in asset_paths:
         asset_name = os.path.basename(asset_path)
@@ -79,8 +75,6 @@ def upload_assets_to_github_release(asset_paths: list[str], release_version: str
         try:
             gh_release.upload_asset(path=asset_path, name=asset_name, content_type="application/gzip")
         except GithubException as e:
-            logger.debug(f"ERROR: Failed to upload asset {asset_name}. Error: {e}")
-            sys.exit(2)
+            raise Exception(f"ERROR: Failed to upload asset {asset_name}") from e
         except Exception as e:
-            logger.debug(f"An unexpected error occurred during upload of {asset_name}: {e}")
-            sys.exit(2)
+            raise Exception(f"An unexpected error occurred during upload of {asset_name}") from e

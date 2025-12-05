@@ -122,8 +122,7 @@ class DockerImageBuilder(ImageBuilder):
         try:
             docker_cmd.image.pull(image, quiet=True)
         except Exception as e:
-            logger.error(f"Failed pulling image. {e}")
-            raise e
+            raise Exception("Failed pulling image.") from e
 
     def get_manfiest_list_digest(self, image) -> Optional[str]:
         self.pull_image(image)
@@ -133,8 +132,7 @@ class DockerImageBuilder(ImageBuilder):
             manifest = docker_cmd.image.inspect(image)
             return manifest.id
         except Exception as e:
-            logger.error(f"Failed inspecting the image to get manifest list digest. {e}")
-            raise e
+            raise Exception("Failed inspecting the image to get manifest list digest") from e
 
     def build_image(self, tags: list[str],
                     dockerfile: str,
