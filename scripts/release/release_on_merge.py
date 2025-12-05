@@ -45,12 +45,14 @@ def run_command(cmd: List[str], dry_run: bool = False) -> bool:
 
 
 def track_release(release_type: str, version: str, status: str, context: str = ""):
-    _releases.append({
-        "type": release_type,
-        "version": version,
-        "status": status,
-        "context": context,
-    })
+    _releases.append(
+        {
+            "type": release_type,
+            "version": version,
+            "status": status,
+            "context": context,
+        }
+    )
 
 
 def print_summary(dry_run: bool = False):
@@ -104,7 +106,7 @@ def get_latest_om_versions_from_evergreen_yaml() -> Dict[str, str]:
     content = evergreen_path.read_text()
 
     # Match patterns like: - &ops_manager_60_latest 6.0.27 #
-    pattern = r'-\s*&ops_manager_(\d+)_latest\s+(\S+)\s+#'
+    pattern = r"-\s*&ops_manager_(\d+)_latest\s+(\S+)\s+#"
 
     for match in re.finditer(pattern, content):
         major = match.group(1)  # "60", "70", "80"
@@ -118,11 +120,15 @@ def get_latest_om_versions_from_evergreen_yaml() -> Dict[str, str]:
 def release_agent(agent_version: str, tools_version: str, context: str, dry_run: bool = False) -> bool:
     """Release an agent image."""
     cmd = [
-        "python", "scripts/release/pipeline.py",
+        "python",
+        "scripts/release/pipeline.py",
         "agent",
-        "--build-scenario", "release",
-        "--version", agent_version,
-        "--agent-tools-version", tools_version,
+        "--build-scenario",
+        "release",
+        "--version",
+        agent_version,
+        "--agent-tools-version",
+        tools_version,
     ]
     success = run_command(cmd, dry_run)
     status = "pending" if dry_run else ("success" if success else "failed")
@@ -133,10 +139,13 @@ def release_agent(agent_version: str, tools_version: str, context: str, dry_run:
 def release_ops_manager(om_version: str, dry_run: bool = False) -> bool:
     """Release an ops-manager image."""
     cmd = [
-        "python", "scripts/release/pipeline.py",
+        "python",
+        "scripts/release/pipeline.py",
         "ops-manager",
-        "--build-scenario", "release",
-        "--version", om_version,
+        "--build-scenario",
+        "release",
+        "--version",
+        om_version,
     ]
     success = run_command(cmd, dry_run)
     status = "pending" if dry_run else ("success" if success else "failed")
