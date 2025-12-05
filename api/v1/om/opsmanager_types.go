@@ -349,6 +349,13 @@ func (om *MongoDBOpsManager) GetOwnerLabels() map[string]string {
 	}
 }
 
+// GetKind returns the Kind of the MongoDBOpsManager resource. This is needed because
+// when objects are retrieved from the Kubernetes API, the TypeMeta
+// (which contains Kind and APIVersion) is not populated.
+func (om *MongoDBOpsManager) GetKind() string {
+	return "MongoDBOpsManager"
+}
+
 // MongoDBOpsManagerServiceDefinition struct that defines the mechanism by which this Ops Manager resource
 // is exposed, via a Service, to the outside of the Kubernetes Cluster.
 type MongoDBOpsManagerServiceDefinition struct {

@@ -197,7 +197,7 @@ func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 func (r *OpsManagerReconcilerHelper) initializeStateStore(ctx context.Context, reconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, clusterNamesFromClusterSpecList []string) error {
 	r.deploymentState = NewOMDeploymentState()
 
-	r.stateStore = NewStateStore[OMDeploymentState](opsManager, reconciler.client)
+	r.stateStore = NewStateStore[OMDeploymentState](opsManager, kube.BaseOwnerReference(opsManager), reconciler.client)
 	if err := r.stateStore.read(ctx); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// If the deployment state config map is missing, then it might be either:
@@ -253,6 +253,7 @@ func (r *OpsManagerReconcilerHelper) writeLegacyStateConfigMap(ctx context.Conte
 	mappingConfigMap := configmap.Builder().
 		SetName(spec.ClusterMappingConfigMapName()).
 		SetLabels(spec.GetOwnerLabels()).
+		SetOwnerReferences(kube.BaseOwnerReference(r.opsManager)).
 		SetNamespace(spec.Namespace).
 		SetData(mappingConfigMapData).
 		Build()
@@ -2128,27 +2129,31 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 		return
 	}
 
-	// delete the OpsManager resources from each of the member cluster. We need to delete the
-	// resource explicitly in case of multi-cluster because we can't set owner reference cross cluster
-	for _, memberCluster := range helper.getHealthyMemberClusters() {
-		if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
-			log.Warnf("Failed to delete dependant OpsManager resources in cluster %s: %s", memberCluster.Name, err)
+	// Delete resources explicitly only in multi-cluster mode where we can't set owner references cross cluster.
+	// In single-cluster deployments, OwnerReferences handle cleanup automatically via Kubernetes garbage collection.
+	if opsManager.Spec.IsMultiCluster() {
+		for _, memberCluster := range helper.getHealthyMemberClusters() {
+			if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
+				log.Warnf("Failed to delete dependant OpsManager resources in cluster %s: %s", memberCluster.Name, err)
+			}
 		}
 	}
 
-	// delete the AppDB resources from each of the member cluster. We need to delete the
-	// resource explicitly in case of multi-cluster because we can't set owner reference cross cluster
-	for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
-		if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
-			log.Warnf("Failed to delete dependant AppDB resources in cluster %s: %s", memberCluster.Name, err.Error())
+	if opsManager.Spec.AppDB.IsMultiCluster() {
+		for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
+			if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
+				log.Warnf("Failed to delete dependant AppDB resources in cluster %s: %s", memberCluster.Name, err.Error())
+			}
 		}
 	}
+
+	r.resourceWatcher.RemoveDependentWatchedResources(opsManager.ObjectKey())
 
 	log.Info("Cleaned up Ops Manager related resources.")
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initAppdbVersion, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log)
+	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initAppdbVersion, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log, kube.BaseOwnerReference(opsManager))
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource
