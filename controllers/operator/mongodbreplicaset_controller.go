@@ -84,6 +84,7 @@ type ReconcileMongoDbReplicaSet struct {
 type replicaSetDeploymentState struct {
 	LastAchievedSpec         *mdbv1.MongoDbSpec
 	LastReconcileMemberCount int
+	LastConfiguredRoles      []string
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
@@ -127,9 +128,15 @@ func (r *ReplicaSetReconcilerHelper) readState() (*replicaSetDeploymentState, er
 	// reconciliation and prepares for eventually storing this in ConfigMap state instead of ephemeral status.
 	lastReconcileMemberCount := r.resource.Status.Members
 
+	lastConfiguredRoles, err := r.resource.GetLastConfiguredRoles()
+	if err != nil {
+		return nil, err
+	}
+
 	return &replicaSetDeploymentState{
 		LastAchievedSpec:         lastAchievedSpec,
 		LastReconcileMemberCount: lastReconcileMemberCount,
+		LastConfiguredRoles:      lastConfiguredRoles,
 	}, nil
 }
 
@@ -278,7 +285,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
-		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
+		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
 		}
@@ -294,7 +301,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			return r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts)
+			return r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
 		})
 
 	if !status.IsOK() {
@@ -316,6 +323,14 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	for k, val := range r.getVaultAnnotations() {
+		annotationsToAdd[k] = val
+	}
+
+	roleAnnotation, _, err := r.reconciler.getRoleAnnotation(ctx, r.resource.Spec.DbCommonSpec, r.reconciler.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(r.resource))
+	if err != nil {
+		return r.updateStatus(ctx, workflow.Failed(err))
+	}
+	for k, val := range roleAnnotation {
 		annotationsToAdd[k] = val
 	}
 
@@ -478,7 +493,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx cont
 // reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
 // All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
 // should be reconciled in this method.
-func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS, lastConfiguredRoles []string) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -489,7 +504,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	}
 
 	// Ensure roles are properly configured
-	if status := reconciler.ensureRoles(ctx, rs.Spec.DbCommonSpec, reconciler.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(rs), log); !status.IsOK() {
+	if status := reconciler.ensureRoles(ctx, rs.Spec.DbCommonSpec, reconciler.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(rs), lastConfiguredRoles, log); !status.IsOK() {
 		return status
 	}
 

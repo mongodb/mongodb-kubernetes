@@ -126,6 +126,14 @@ func (b *ClusterBuilder) SetSecurity(security mdb.Security) *ClusterBuilder {
 	return b
 }
 
+func (b *ClusterBuilder) SetRoles(roles []mdb.MongoDBRole) *ClusterBuilder {
+	if b.Spec.Security == nil {
+		b.Spec.Security = &mdb.Security{}
+	}
+	b.Spec.Security.Roles = roles
+	return b
+}
+
 func (b *ClusterBuilder) EnableTLS() *ClusterBuilder {
 	if b.Spec.Security == nil || b.Spec.Security.TLSConfig == nil {
 		return b.SetSecurity(mdb.Security{TLSConfig: &mdb.TLSConfig{Enabled: true}})

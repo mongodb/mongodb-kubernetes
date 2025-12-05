@@ -983,6 +983,44 @@ func TestVaultAnnotations_NotWrittenWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestReplicasetRoleAnnotationIsSet(t *testing.T) {
+	ctx := context.Background()
+
+	role := mdbv1.MongoDBRole{
+		Role: "embedded-role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+
+	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{role}).Build()
+	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	roleString, _ := json.Marshal([]string{"embedded-role@admin"})
+
+	// Assert that the member ids are saved in the annotation
+	assert.Equal(t, rs.GetAnnotations()[util.LastConfiguredRoles], string(roleString))
+
+	roles := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 1)
+
+	rs.GetSecurity().Roles = []mdbv1.MongoDBRole{}
+	err := client.Update(ctx, rs)
+	assert.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	// Assert that the roles annotation is updated and role is removed
+	assert.Equal(t, rs.GetAnnotations()[util.LastConfiguredRoles], "[]")
+
+	roles = omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 0)
+}
+
 func testPVCFinishedResizing(t *testing.T, ctx context.Context, memberClient kubernetesClient.Client, p *corev1.PersistentVolumeClaim, reconciledResource *mdbv1.MongoDB, statefulSet *appsv1.StatefulSet, logger *zap.SugaredLogger) {
 	// Simulate that the PVC has finished resizing
 	setPVCWithUpdatedResource(ctx, t, memberClient, p)

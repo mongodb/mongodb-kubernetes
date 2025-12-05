@@ -220,7 +220,12 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, status, log)
 	}
 
-	if status := r.ensureRoles(ctx, s.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(s), log); !status.IsOK() {
+	previousRoles, err := s.GetLastConfiguredRoles()
+	if err != nil {
+		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to get last configured roles: %w", err)), log)
+	}
+
+	if status := r.ensureRoles(ctx, s.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(s), previousRoles, log); !status.IsOK() {
 		return r.updateStatus(ctx, s, status, log)
 	}
 
@@ -317,6 +322,15 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 			annotationsToAdd[k] = val
 		}
 	}
+
+	roleAnnotation, _, err := r.getRoleAnnotation(ctx, s.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(s))
+	if err != nil {
+		return r.updateStatus(ctx, s, workflow.Failed(err), log)
+	}
+	for k, val := range roleAnnotation {
+		annotationsToAdd[k] = val
+	}
+
 	if err := annotations.SetAnnotations(ctx, s, annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}

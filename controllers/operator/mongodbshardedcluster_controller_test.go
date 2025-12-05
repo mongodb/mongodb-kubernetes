@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -1872,6 +1873,44 @@ func TestSingleClusterShardedScalingWithOverrides(t *testing.T) {
 			SingleClusterShardedScalingWithOverridesTestCase(t, tc)
 		})
 	}
+}
+
+func TestSharderClusterRoleAnnotationIsSet(t *testing.T) {
+	ctx := context.Background()
+
+	role := mdbv1.MongoDBRole{
+		Role: "embedded-role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+
+	sc := test.DefaultClusterBuilder().SetRoles([]mdbv1.MongoDBRole{role}).Build()
+	reconciler, _, cl, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil)
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+
+	roleString, _ := json.Marshal([]string{"embedded-role@admin"})
+
+	// Assert that the member ids are saved in the annotation
+	assert.Equal(t, sc.GetAnnotations()[util.LastConfiguredRoles], string(roleString))
+
+	roles := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 1)
+
+	sc.GetSecurity().Roles = []mdbv1.MongoDBRole{}
+	err = cl.Update(ctx, sc)
+	assert.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+
+	// Assert that the roles annotation is updated and role is removed
+	assert.Equal(t, sc.GetAnnotations()[util.LastConfiguredRoles], "[]")
+
+	roles = omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 0)
 }
 
 func generateHostsWithDistributionSingleCluster(stsName string, namespace string, memberCount int, clusterDomain string, externalClusterDomain string) ([]string, []string) {

@@ -290,7 +290,7 @@ func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -318,7 +318,7 @@ func TestRoleRefsAreAdded(t *testing.T) {
 
 	_ = kubeClient.Create(ctx, roleResource)
 
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
@@ -345,7 +345,7 @@ func TestErrorWhenRoleRefIsWrong(t *testing.T) {
 
 	_ = kubeClient.Create(ctx, roleResource)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -371,7 +371,7 @@ func TestErrorWhenRoleDoesNotExist(t *testing.T) {
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -398,7 +398,7 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
@@ -498,7 +498,7 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
@@ -526,6 +526,56 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 		assert.Nil(t, roles[i].Privileges[3].Resource.Db)
 		assert.Nil(t, roles[i].Privileges[3].Resource.Collection)
 	}
+}
+
+func TestExternalRoleIsNotRemoved(t *testing.T) {
+	ctx := context.Background()
+
+	role := mdbv1.MongoDBRole{
+		Role: "embedded-role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+
+	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{role}).Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	// Create deployment with one embedded role
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+
+	roles := mockOm.GetRoles()
+	require.Len(t, roles, 1)
+
+	// Add external role directly to OM (via UI/API)
+	externalRole := mdbv1.MongoDBRole{
+		Role: "external-role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+	mockOm.AddRole(externalRole)
+
+	// Reconcile again - role created from the UI should still be there
+	roleStrings, _ := controller.getRoleStrings(ctx, rs.Spec.DbCommonSpec, true, kube.ObjectKeyFromApiObject(rs))
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), roleStrings, zap.S())
+
+	roles = mockOm.GetRoles()
+	require.Len(t, roles, 2)
+
+	// Delete embedded role, only the external should remain
+	rs = DefaultReplicaSetBuilder().Build()
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), roleStrings, zap.S())
+
+	roles = mockOm.GetRoles()
+	require.Len(t, roles, 1)
+	assert.Equal(t, roles[0].Role, "external-role")
 }
 
 func TestSecretWatcherWithAllResources(t *testing.T) {

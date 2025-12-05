@@ -933,6 +933,16 @@ func (oc *MockedOmConnection) AddPreferredHostname(agentApiKey string, value str
 	return nil
 }
 
+func (oc *MockedOmConnection) AddRole(role mdbv1.MongoDBRole) {
+	roles := oc.deployment.GetRoles()
+	roles = append(roles, role)
+	oc.deployment.SetRoles(roles)
+}
+
+func (oc *MockedOmConnection) GetRoles() []mdbv1.MongoDBRole {
+	return oc.deployment.GetRoles()
+}
+
 // updateAutoAuthMechanism simulates the changes made by Ops Manager and the agents in deciding which
 // mechanism will be specified as the "autoAuthMechanisms"
 func updateAutoAuthMechanism(ac *AutomationConfig) {
