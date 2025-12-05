@@ -198,5 +198,7 @@ if __name__ == "__main__":
     if release_info_filename is not None:
         with open(release_info_filename, "w") as file:
             file.write(release_info)
-
-    upload_assets_to_github_release([release_info_filename], args.version)
+    try:
+        upload_assets_to_github_release([release_info_filename], args.version)
+    except Exception as e:
+        raise e
