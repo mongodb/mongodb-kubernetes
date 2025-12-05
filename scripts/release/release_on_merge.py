@@ -19,7 +19,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,16 +27,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Track commands for dry-run summary
-_dry_run_commands: List[str] = []
+# Track releases for summary
+_releases: List[Dict[str, str]] = []
 
 
 def run_command(cmd: List[str], dry_run: bool = False) -> bool:
-    """Run a command and return success status."""
     cmd_str = " ".join(cmd)
     logger.info(f"Running: {cmd_str}")
     if dry_run:
-        _dry_run_commands.append(cmd_str)
         return True
     try:
         subprocess.run(cmd, check=True)
@@ -46,15 +44,39 @@ def run_command(cmd: List[str], dry_run: bool = False) -> bool:
         return False
 
 
-def print_dry_run_summary():
-    """Print summary of all commands that would be run."""
-    if not _dry_run_commands:
+def track_release(release_type: str, version: str, status: str, context: str = ""):
+    _releases.append({
+        "type": release_type,
+        "version": version,
+        "status": status,
+        "context": context,
+    })
+
+
+def print_summary(dry_run: bool = False):
+    """Print summary of all releases."""
+    if not _releases:
         return
-    print("\n" + "=" * 80)
-    print("DRY RUN SUMMARY - Commands that would be executed:")
-    for i, cmd in enumerate(_dry_run_commands, 1):
-        print(f"{i}. {cmd}")
-    print("=" * 80 + "\n")
+
+    def icon(status: str) -> str:
+        if dry_run:
+            return "○"
+        return "✓" if status == "success" else "✗"
+
+    print("\n" + "=" * 60)
+    print("DRY RUN SUMMARY:" if dry_run else "RELEASE SUMMARY:")
+    print("=" * 60)
+
+    for release_type, label in [("agent", "Agents"), ("ops-manager", "Ops Manager")]:
+        items = [r for r in _releases if r["type"] == release_type]
+        if items:
+            print(f"\n{label}:")
+            for r in items:
+                ctx = f" ({r['context']})" if r.get("context") else ""
+                print(f"  {icon(r['status'])} {r['version']}{ctx}")
+
+    print(f"\nTotal: {len(_releases)} releases")
+    print("=" * 60 + "\n")
 
 
 def load_release_json() -> Dict:
@@ -93,7 +115,8 @@ def get_latest_om_versions_from_evergreen_yaml() -> Dict[str, str]:
     return versions
 
 
-def release_agent(agent_version: str, tools_version: str, dry_run: bool = False) -> bool:
+def release_agent(agent_version: str, tools_version: str, context: str, dry_run: bool = False) -> bool:
+    """Release an agent image."""
     cmd = [
         "python", "scripts/release/pipeline.py",
         "agent",
@@ -101,17 +124,24 @@ def release_agent(agent_version: str, tools_version: str, dry_run: bool = False)
         "--version", agent_version,
         "--agent-tools-version", tools_version,
     ]
-    return run_command(cmd, dry_run)
+    success = run_command(cmd, dry_run)
+    status = "pending" if dry_run else ("success" if success else "failed")
+    track_release("agent", agent_version, status, context)
+    return success
 
 
 def release_ops_manager(om_version: str, dry_run: bool = False) -> bool:
+    """Release an ops-manager image."""
     cmd = [
         "python", "scripts/release/pipeline.py",
         "ops-manager",
         "--build-scenario", "release",
         "--version", om_version,
     ]
-    return run_command(cmd, dry_run)
+    success = run_command(cmd, dry_run)
+    status = "pending" if dry_run else ("success" if success else "failed")
+    track_release("ops-manager", om_version, status)
+    return success
 
 
 def main():
@@ -133,7 +163,7 @@ def main():
 
     if cloud_manager_agent and cloud_manager_tools:
         logger.info(f"=== Releasing cloud_manager agent: {cloud_manager_agent} ===")
-        if not release_agent(cloud_manager_agent, cloud_manager_tools, args.dry_run):
+        if not release_agent(cloud_manager_agent, cloud_manager_tools, "cloud_manager", args.dry_run):
             success = False
     else:
         logger.warning("cloud_manager agent not found in release.json")
@@ -156,13 +186,13 @@ def main():
 
         if agent_version and tools_version:
             logger.info(f"Releasing agent {agent_version} for OM {om_version}")
-            if not release_agent(agent_version, tools_version, args.dry_run):
+            if not release_agent(agent_version, tools_version, f"OM {om_version}", args.dry_run):
                 success = False
         else:
             logger.warning(f"No agent found for OM {om_version} in release.json")
 
-    if args.dry_run:
-        print_dry_run_summary()
+    # Always print summary
+    print_summary(args.dry_run)
 
     return 0 if success else 1
 
