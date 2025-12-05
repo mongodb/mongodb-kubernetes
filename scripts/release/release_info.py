@@ -44,14 +44,15 @@ RELEASE_INFO_IMAGES_ORDERED = [
 def create_release_info_json(operator_version: str) -> str:
     build_info = load_build_info(scenario=BuildScenario.RELEASE)
 
-    release_info_json = convert_to_release_info_json(build_info, operator_version)
+    release_json_path = os.path.join(os.getcwd(), "release.json")
+
+    release_info_json = convert_to_release_info_json(build_info, release_json_path, operator_version)
 
     return json.dumps(release_info_json, indent=2)
 
 
-def convert_to_release_info_json(build_info: BuildInfo, operator_version: str) -> dict:
-    release_json_data = os.path.join(os.getcwd(), "release.json")
-    with open(release_json_data, "r") as fd:
+def convert_to_release_info_json(build_info: BuildInfo, release_json_path: str, operator_version: str) -> dict:
+    with open(release_json_path, "r") as fd:
         release_data = json.load(fd)
 
     release_info_output = {
