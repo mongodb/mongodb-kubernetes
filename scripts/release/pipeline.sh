@@ -9,7 +9,8 @@ args+=(--build-scenario "${BUILD_SCENARIO_OVERRIDE:-${BUILD_SCENARIO}}")
 
 case ${IMAGE_NAME} in
   "agent")
-    IMAGE_VERSION=""
+    # Can also use --all-agents or --current-agents flags instead
+    IMAGE_VERSION="${AGENT_VERSION:-}"
     ;;
 
   "ops-manager")
@@ -31,6 +32,11 @@ esac
 
 if [[ "${IMAGE_VERSION:-}" != "" ]]; then
     args+=(--version "${IMAGE_VERSION}")
+fi
+
+# For agent builds, pass tools version if explicitly provided
+if [[ "${IMAGE_NAME}" == "agent" && "${TOOLS_VERSION:-}" != "" ]]; then
+    args+=(--agent-tools-version "${TOOLS_VERSION}")
 fi
 
 if [[ "${FLAGS:-}" != "" ]]; then
