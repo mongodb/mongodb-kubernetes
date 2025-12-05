@@ -394,6 +394,13 @@ type ScramShaCreds struct {
 	StoredKey      string `json:"storedKey"`
 }
 
+func (s ScramShaCreds) Equals(i ScramShaCreds) bool {
+	return s.IterationCount == i.IterationCount &&
+		s.Salt == i.Salt &&
+		s.ServerKey == i.ServerKey &&
+		s.StoredKey == i.StoredKey
+}
+
 func (u *MongoDBUser) AddRole(role *Role) {
 	u.Roles = append(u.Roles, role)
 }
