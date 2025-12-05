@@ -244,7 +244,7 @@ func TestReplicasetFCV(t *testing.T) {
 			name:                 "Invalid FCV value",
 			fcv:                  ptr.To("test"),
 			expectError:          true,
-			expectedErrorMessage: "invalid feature compatibility version: test, possible values are: 'AlwaysMatchVersion' or 'major.minor'",
+			expectedErrorMessage: "invalid feature compatibility version \"test\", possible values are: 'AlwaysMatchVersion' or 'major.minor'",
 		},
 		{
 			name:        "Valid FCV with specific version",
@@ -255,7 +255,13 @@ func TestReplicasetFCV(t *testing.T) {
 			name:                 "Invalid FCV - not major.minor only",
 			fcv:                  ptr.To("4.0.0"),
 			expectError:          true,
-			expectedErrorMessage: "invalid feature compatibility version: 4.0.0, possible values are: 'AlwaysMatchVersion' or 'major.minor'",
+			expectedErrorMessage: "invalid feature compatibility version \"4.0.0\", possible values are: 'AlwaysMatchVersion' or 'major.minor'",
+		},
+		{
+			name:                 "Invalid FCV - not major leading 0",
+			fcv:                  ptr.To("4.01"),
+			expectError:          true,
+			expectedErrorMessage: "invalid feature compatibility version \"4.01\": Minor number must not contain leading zeroes \"01\"",
 		},
 		{
 			name:        "Valid FCV with AlwaysMatchVersion",

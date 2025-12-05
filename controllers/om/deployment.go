@@ -15,6 +15,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
@@ -493,8 +494,8 @@ func (d Deployment) MinimumMajorVersion() uint64 {
 	minimumMajorVersion := semver.Version{Major: math.MaxUint64}
 	for _, p := range d.getProcesses() {
 		if p.FeatureCompatibilityVersion() != "" {
-			fcv := fmt.Sprintf("%s.0", util.StripEnt(p.FeatureCompatibilityVersion()))
-			semverFcv, _ := semver.Make(fcv)
+			fcvString := util.StripEnt(p.FeatureCompatibilityVersion())
+			semverFcv, _ := fcv.FeatureCompatibilityVersionToSemverFormat(fcvString)
 			if semverFcv.LE(minimumMajorVersion) {
 				minimumMajorVersion = semverFcv
 			}
