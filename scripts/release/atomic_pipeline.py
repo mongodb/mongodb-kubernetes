@@ -16,7 +16,6 @@ from opentelemetry import trace
 
 from lib.base_logger import logger
 from scripts.release.agent.detect_ops_manager_changes import (
-    detect_ops_manager_changes,
     get_all_agents_for_rebuild,
     get_currently_used_agents,
 )
@@ -330,22 +329,23 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
 
 
 def build_agent(build_configuration: ImageBuildConfiguration):
-    """
-    Build the agent only for the latest operator for patches and operator releases.
-
-    """
-    if build_configuration.all_agents:
+    """Build the agent image(s). Validation happens in pipeline.py."""
+    if build_configuration.version and build_configuration.agent_tools_version:
+        agent_versions_to_build = [(build_configuration.version, build_configuration.agent_tools_version)]
+        logger.info(
+            f"building agent {build_configuration.version} with tools {build_configuration.agent_tools_version}"
+        )
+    elif build_configuration.all_agents:
         agent_versions_to_build = get_all_agents_for_rebuild()
         logger.info("building all agents")
     elif build_configuration.currently_used_agents:
         agent_versions_to_build = get_currently_used_agents()
-        logger.info("building current used agents")
+        logger.info("building currently used agents")
     else:
-        agent_versions_to_build = detect_ops_manager_changes()
-        logger.info("building agents for changed OM versions")
+        raise ValueError("No agent selection provided - this should be caught by pipeline.py validation")
 
     if not agent_versions_to_build:
-        logger.info("No changes detected, skipping agent build")
+        logger.warning("No agent versions found to build")
         return
 
     logger.info(f"Building Agent versions: {agent_versions_to_build}")
