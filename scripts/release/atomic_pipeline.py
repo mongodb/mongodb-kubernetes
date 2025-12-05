@@ -329,18 +329,11 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
 
 
 def build_agent(build_configuration: ImageBuildConfiguration):
-    """
-    Build the agent image(s).
-
-    Requires explicit agent selection via one of:
-    1. Explicit version: --version and --tools-version
-    2. All agents: --all-agents flag
-    3. Currently used agents: --current-agents flag
-    """
+    """Build the agent image(s). Validation happens in pipeline.py."""
     if build_configuration.version and build_configuration.agent_tools_version:
         agent_versions_to_build = [(build_configuration.version, build_configuration.agent_tools_version)]
         logger.info(
-            f"building explicit agent version: {build_configuration.version} with tools {build_configuration.agent_tools_version}"
+            f"building agent {build_configuration.version} with tools {build_configuration.agent_tools_version}"
         )
     elif build_configuration.all_agents:
         agent_versions_to_build = get_all_agents_for_rebuild()
@@ -349,12 +342,7 @@ def build_agent(build_configuration: ImageBuildConfiguration):
         agent_versions_to_build = get_currently_used_agents()
         logger.info("building currently used agents")
     else:
-        raise ValueError(
-            "Agent build requires explicit selection. Use one of:\n"
-            "  --version <ver> --agent-tools-version <tools_ver>  (for specific agent)\n"
-            "  --all-agents                                       (for all agents in release.json)\n"
-            "  --current-agents                                   (for currently used agents)"
-        )
+        raise ValueError("No agent selection provided - this should be caught by pipeline.py validation")
 
     if not agent_versions_to_build:
         logger.warning("No agent versions found to build")
