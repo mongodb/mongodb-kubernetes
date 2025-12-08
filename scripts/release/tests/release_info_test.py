@@ -7,37 +7,37 @@ def test_create_release_info_json():
     expected_json = {
         "images": {
             "operator": {
-                "repositories": ["quay.io/mongodb/mongodb-kubernetes"],
+                "repository": "quay.io/mongodb/mongodb-kubernetes",
                 "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 "version": DUMMY_VERSION,
             },
             "init-database": {
-                "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-database"],
+                "repository": "quay.io/mongodb/mongodb-kubernetes-init-database",
                 "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 "version": DUMMY_VERSION,
             },
             "init-appdb": {
-                "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-appdb"],
+                "repository": "quay.io/mongodb/mongodb-kubernetes-init-appdb",
                 "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 "version": DUMMY_VERSION,
             },
             "init-ops-manager": {
-                "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-ops-manager"],
+                "repository": "quay.io/mongodb/mongodb-kubernetes-init-ops-manager",
                 "platforms": ["linux/amd64"],
                 "version": DUMMY_VERSION,
             },
             "database": {
-                "repositories": ["quay.io/mongodb/mongodb-kubernetes-database"],
+                "repository": "quay.io/mongodb/mongodb-kubernetes-database",
                 "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 "version": DUMMY_VERSION,
             },
             "readiness-probe": {
-                "repositories": ["quay.io/mongodb/mongodb-kubernetes-readinessprobe"],
+                "repository": "quay.io/mongodb/mongodb-kubernetes-readinessprobe",
                 "platforms": ["linux/arm64", "linux/amd64"],
                 "version": DUMMY_VERSION,
             },
             "upgrade-hook": {
-                "repositories": ["quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
+                "repository": "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
                 "platforms": ["linux/arm64", "linux/amd64"],
                 "version": DUMMY_VERSION,
             },
