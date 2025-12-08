@@ -20,11 +20,11 @@ github.com/modern-go/concurrent,v0.0.0-20180306012644-bacd9c7ef1dd,https://githu
 github.com/modern-go/reflect2,v1.0.2,https://github.com/modern-go/reflect2/blob/v1.0.2/LICENSE,Apache-2.0
 github.com/munnerz/goautoneg,v0.0.0-20191010083416-a7dc8b61c822,https://github.com/munnerz/goautoneg/blob/a7dc8b61c822/LICENSE,BSD-3-Clause
 github.com/pkg/errors,v0.9.1,https://github.com/pkg/errors/blob/v0.9.1/LICENSE,BSD-2-Clause
-github.com/spf13/cobra,v1.10.1,https://github.com/spf13/cobra/blob/v1.10.1/LICENSE.txt,Apache-2.0
+github.com/spf13/cobra,v1.10.2,https://github.com/spf13/cobra/blob/v1.10.2/LICENSE.txt,Apache-2.0
 github.com/spf13/pflag,v1.0.9,https://github.com/spf13/pflag/blob/v1.0.9/LICENSE,BSD-3-Clause
 github.com/x448/float16,v0.8.4,https://github.com/x448/float16/blob/v0.8.4/LICENSE,MIT
 go.yaml.in/yaml/v2,v2.4.2,https://github.com/yaml/go-yaml/blob/v2.4.2/LICENSE,Apache-2.0
-google.golang.org/protobuf,v1.36.8,https://github.com/protocolbuffers/protobuf-go/blob/v1.36.8/LICENSE,BSD-3-Clause
+google.golang.org/protobuf,v1.36.10,https://github.com/protocolbuffers/protobuf-go/blob/v1.36.10/LICENSE,BSD-3-Clause
 gopkg.in/evanphx/json-patch.v4,v4.12.0,https://github.com/evanphx/json-patch/blob/v4.12.0/LICENSE,BSD-3-Clause
 gopkg.in/inf.v0,v0.9.1,https://github.com/go-inf/inf/blob/v0.9.1/LICENSE,BSD-3-Clause
 gopkg.in/yaml.v2,v2.4.0,https://github.com/go-yaml/yaml/blob/v2.4.0/LICENSE,Apache-2.0
