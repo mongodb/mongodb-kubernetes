@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
@@ -618,4 +619,226 @@ func TestStateLifecycle_MultiClusterStatePreservation(t *testing.T) {
 	// Verify OM has correct number of processes after adding cluster-2 (3 + 2 + 1 = 6)
 	processes = omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
 	assert.Len(t, processes, 6, "OM should have 6 processes after adding cluster-2")
+}
+
+// ============================================================================
+// Services related tests
+// ============================================================================
+
+func TestGetPodService_ReturnsCorrectService(t *testing.T) {
+	rs := mdbv1.NewDefaultMultiReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetName("multi-rs").
+		SetClusterSpecList(mdbv1.ClusterSpecList{
+			{ClusterName: "cluster-0", Members: 2},
+		}).
+		Build()
+
+	memberCluster := multicluster.MemberCluster{
+		Name:   "cluster-0",
+		Index:  0,
+		Active: true,
+	}
+
+	helper := &ReplicaSetReconcilerHelper{
+		resource: rs,
+		log:      zap.S(),
+	}
+
+	svc := helper.getPodService(memberCluster, 0)
+
+	// Verify service name matches DNS pattern: <rsName>-<clusterIndex>-<podIndex>-svc
+	assert.Equal(t, "multi-rs-0-0-svc", svc.Name, "Service name should match GetMultiServiceName pattern")
+	assert.Equal(t, mock.TestNamespace, svc.Namespace)
+
+	// Verify selector targets specific pod
+	expectedPodName := "multi-rs-0-0"
+	assert.Equal(t, expectedPodName, svc.Spec.Selector[appsv1.StatefulSetPodNameLabel],
+		"Selector should target specific pod by StatefulSetPodNameLabel")
+
+	assert.Equal(t, expectedPodName, svc.Labels[appsv1.StatefulSetPodNameLabel])
+
+	assert.Len(t, svc.Spec.Ports, 2, "Should have mongodb and backup ports")
+	assert.Equal(t, "mongodb", svc.Spec.Ports[0].Name)
+	assert.Equal(t, int32(27017), svc.Spec.Ports[0].Port) // Default port
+	assert.Equal(t, "backup", svc.Spec.Ports[1].Name)
+
+	assert.Empty(t, svc.Spec.Type, "Should be ClusterIP (empty means ClusterIP)")
+
+	assert.True(t, svc.Spec.PublishNotReadyAddresses, "Should publish not ready addresses for StatefulSet DNS")
+}
+
+func TestGetPodService_DifferentClusterIndexes(t *testing.T) {
+	rs := mdbv1.NewDefaultMultiReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetName("my-rs").
+		SetClusterSpecList(mdbv1.ClusterSpecList{
+			{ClusterName: "cluster-0", Members: 1},
+			{ClusterName: "cluster-1", Members: 1},
+			{ClusterName: "cluster-2", Members: 1},
+		}).
+		Build()
+
+	helper := &ReplicaSetReconcilerHelper{
+		resource: rs,
+		log:      zap.S(),
+	}
+
+	testCases := []struct {
+		clusterIndex    int
+		podNum          int
+		expectedSvcName string
+		expectedPodName string
+	}{
+		{0, 0, "my-rs-0-0-svc", "my-rs-0-0"},
+		{0, 1, "my-rs-0-1-svc", "my-rs-0-1"},
+		{1, 0, "my-rs-1-0-svc", "my-rs-1-0"},
+		{2, 2, "my-rs-2-2-svc", "my-rs-2-2"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.expectedSvcName, func(t *testing.T) {
+			memberCluster := multicluster.MemberCluster{
+				Name:   fmt.Sprintf("cluster-%d", tc.clusterIndex),
+				Index:  tc.clusterIndex,
+				Active: true,
+			}
+
+			svc := helper.getPodService(memberCluster, tc.podNum)
+
+			assert.Equal(t, tc.expectedSvcName, svc.Name)
+			assert.Equal(t, tc.expectedPodName, svc.Spec.Selector[appsv1.StatefulSetPodNameLabel])
+		})
+	}
+}
+
+func TestGetExternalService_ReturnsLoadBalancer(t *testing.T) {
+	rs := mdbv1.NewDefaultMultiReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetName("multi-rs").
+		SetClusterSpecList(mdbv1.ClusterSpecList{
+			{ClusterName: "cluster-0", Members: 2},
+		}).
+		Build()
+
+	memberCluster := multicluster.MemberCluster{
+		Name:   "cluster-0",
+		Index:  0,
+		Active: true,
+	}
+
+	helper := &ReplicaSetReconcilerHelper{
+		resource: rs,
+		log:      zap.S(),
+	}
+
+	svc := helper.getExternalService(memberCluster, 0)
+
+	// Verify external service name pattern: <rsName>-<clusterIndex>-<podIndex>-svc-external
+	assert.Equal(t, "multi-rs-0-0-svc-external", svc.Name)
+	assert.Equal(t, mock.TestNamespace, svc.Namespace)
+
+	assert.Equal(t, corev1.ServiceTypeLoadBalancer, svc.Spec.Type, "External service should be LoadBalancer")
+
+	// Verify selector still targets specific pod
+	expectedPodName := "multi-rs-0-0"
+	assert.Equal(t, expectedPodName, svc.Spec.Selector[appsv1.StatefulSetPodNameLabel])
+
+	assert.Len(t, svc.Spec.Ports, 2, "Should have mongodb and backup ports")
+}
+
+func TestReconcileServices_CreatesServicesInAllClusters(t *testing.T) {
+	ctx := context.Background()
+
+	clusterSpecList := mdbv1.ClusterSpecList{
+		{ClusterName: "cluster-0", Members: 2},
+		{ClusterName: "cluster-1", Members: 1},
+	}
+
+	rs := mdbv1.NewDefaultMultiReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetName("svc-test-rs").
+		SetClusterSpecList(clusterSpecList).
+		Build()
+
+	reconciler, client, memberClusters, _ := defaultReplicaSetMultiClusterReconciler(ctx, rs)
+
+	// Run full reconciliation
+	checkReplicaSetReconcileSuccessful(ctx, t, reconciler, rs, client, false)
+
+	// Verify headless services exist in each cluster
+	for i, clusterSpec := range rs.Spec.ClusterSpecList {
+		memberClient := memberClusters[clusterSpec.ClusterName]
+
+		// Check headless service: <rsName>-<clusterIndex>-svc
+		headlessSvcName := fmt.Sprintf("%s-%d-svc", rs.Name, i)
+		headlessSvc := corev1.Service{}
+		err := memberClient.Get(ctx, kube.ObjectKey(rs.Namespace, headlessSvcName), &headlessSvc)
+		assert.NoError(t, err, "Headless service %s should exist in cluster %s", headlessSvcName, clusterSpec.ClusterName)
+	}
+
+	// cluster-0 has 2 members, cluster-1 has 1 member
+	expectedPodServices := []struct {
+		clusterName string
+		svcName     string
+	}{
+		{"cluster-0", "svc-test-rs-0-0-svc"},
+		{"cluster-0", "svc-test-rs-0-1-svc"},
+		{"cluster-1", "svc-test-rs-1-0-svc"},
+	}
+
+	for _, expected := range expectedPodServices {
+		memberClient := memberClusters[expected.clusterName]
+		svc := corev1.Service{}
+		err := memberClient.Get(ctx, kube.ObjectKey(rs.Namespace, expected.svcName), &svc)
+		assert.NoError(t, err, "Pod service %s should exist in cluster %s", expected.svcName, expected.clusterName)
+	}
+}
+
+func TestReconcileServices_ServiceDuplication(t *testing.T) {
+	ctx := context.Background()
+
+	clusterSpecList := mdbv1.ClusterSpecList{
+		{ClusterName: "cluster-0", Members: 1},
+		{ClusterName: "cluster-1", Members: 1},
+	}
+
+	rs := mdbv1.NewDefaultMultiReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetName("dup-test-rs").
+		SetClusterSpecList(clusterSpecList).
+		Build()
+
+	reconciler, client, memberClusters, _ := defaultReplicaSetMultiClusterReconciler(ctx, rs)
+
+	// Run full reconciliation
+	checkReplicaSetReconcileSuccessful(ctx, t, reconciler, rs, client, false)
+
+	// With service duplication enabled (default), cluster-0's pod service should exist in cluster-1 too
+	// and cluster-1's pod service should exist in cluster-0
+	cluster0Client := memberClusters["cluster-0"]
+	cluster1Client := memberClusters["cluster-1"]
+
+	svc := corev1.Service{}
+	err := cluster1Client.Get(ctx, kube.ObjectKey(rs.Namespace, "dup-test-rs-0-0-svc"), &svc)
+	assert.NoError(t, err, "cluster-0's pod service should be duplicated to cluster-1")
+
+	err = cluster0Client.Get(ctx, kube.ObjectKey(rs.Namespace, "dup-test-rs-1-0-svc"), &svc)
+	assert.NoError(t, err, "cluster-1's pod service should be duplicated to cluster-0")
+}
+
+func TestReconcileServices_SkippedForSingleCluster(t *testing.T) {
+	ctx := context.Background()
+
+	// Single-cluster ReplicaSet (no ClusterSpecList, no Topology)
+	rs := DefaultReplicaSetBuilder().
+		SetName("single-cluster-rs").
+		SetMembers(3).
+		Build()
+
+	reconciler, client, _, _ := defaultReplicaSetMultiClusterReconciler(ctx, rs)
+
+	// We just verify the reconciliation completes successfully
+	checkReplicaSetReconcileSuccessful(ctx, t, reconciler, rs, client, false)
+	assert.Equal(t, status.PhaseRunning, rs.Status.Phase)
 }
