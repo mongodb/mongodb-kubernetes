@@ -15,7 +15,7 @@ import requests
 from opentelemetry import trace
 
 from lib.base_logger import logger
-from scripts.release.agent.detect_ops_manager_changes import (
+from scripts.release.agent.agents_to_rebuild import (
     get_all_agents_for_rebuild,
     get_currently_used_agents,
 )
