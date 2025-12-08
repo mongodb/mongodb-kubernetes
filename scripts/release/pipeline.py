@@ -125,7 +125,10 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     if args.registry:
         registries = [args.registry]
     else:
-        registries = image_build_info.repositories
+        if image_build_info.secondary_repositories is None:
+            registries = [image_build_info.repository]
+        else:
+            registries = image_build_info.secondary_repositories.append(image_build_info.repository)
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign if args.sign is not None else image_build_info.sign
     skip_if_exists = args.skip_if_exists if args.skip_if_exists is not None else image_build_info.skip_if_exists
