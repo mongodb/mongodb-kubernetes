@@ -56,7 +56,6 @@ variables:
   - &ops_manager_80_latest 8.0.12 # The order/index is important
 """
 
-
     @patch("scripts.release.agent.agents_to_rebuild.load_current_release_json")
     def test_get_all_agents_for_rebuild(self, mock_load):
         """Test getting all agents for rebuild from release.json"""
@@ -82,7 +81,6 @@ variables:
         self.assertIn(("12.0.34.7888-1", "100.10.0"), result)
         self.assertIn(("107.0.11.8645-1", "100.10.0"), result)
         self.assertIn(("13.37.0.9590-1", "100.12.2"), result)
-
 
     @patch("scripts.release.agent.agents_to_rebuild.glob.glob")
     @patch("scripts.release.agent.agents_to_rebuild.load_current_release_json")
