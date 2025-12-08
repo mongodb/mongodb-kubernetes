@@ -47,12 +47,12 @@ func isPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDB
 		// is actually changed
 		newScramSha256Creds, err := computeScramShaCreds(user.Username, password, sha256Salt, ScramSha256)
 		if err != nil {
-			return false, xerrors.Errorf("error generating scramSah256 creds to verify with already present user on automation config %w", err)
+			return false, xerrors.Errorf("error generating scramSha256 creds to verify with already present user on automation config %w", err)
 		}
 
 		newScramSha1Creds, err := computeScramShaCreds(user.Username, password, sha1Salt, MongoDBCR)
 		if err != nil {
-			return false, xerrors.Errorf("error generating scramSah256 creds to verify with already present user on automation config %w", err)
+			return false, xerrors.Errorf("error generating scramSha1 creds to verify with already present user on automation config %w", err)
 		}
 		return !newScramSha256Creds.Equals(*acUser.ScramSha256Creds) || !newScramSha1Creds.Equals(*acUser.ScramSha1Creds), nil
 	}
