@@ -288,7 +288,7 @@ tasks:
       - func: lint_repo
 
   # Runs on every merge - detects release.json changes and releases appropriate images
-  - name: release_on_merge
+  - name: release_om_and_agents
     allowed_requesters: [ "patch" , "commit"]
     commands:
       - func: clone
@@ -301,7 +301,7 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: scripts/dev/run_python.sh
           args:
-            - scripts/release/release_on_merge.py
+            - scripts/release/release_om_and_agents.py
 
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new agent registry
@@ -754,7 +754,7 @@ task_groups:
       - e2e_sharded_cluster_scram_sha_256_switch_project
       - e2e_replica_set_scram_sha_1_switch_project
       - e2e_sharded_cluster_scram_sha_1_switch_project
-      # TODO CLOUDP-349093 - Disabled these tests as they don't use the password secret, and project migrations aren't fully supported yet.  
+      # TODO CLOUDP-349093 - Disabled these tests as they don't use the password secret, and project migrations aren't fully supported yet.
       # e2e_sharded_cluster_x509_switch_project
       # e2e_replica_set_x509_switch_project
       # e2e_replica_set_ldap_switch_project
@@ -1969,11 +1969,11 @@ buildvariants:
       - name: migrate_all_agents
 
   # Runs on every merge to master and releases images auxiliary to the operator release like OM and the Agent
-  - name: release_on_merge
-    display_name: release_on_merge
+  - name: release_om_and_agents
+    display_name: release_om_and_agents
     allowed_requesters: [ "patch" , "commit"]
     run_on:
       - release-ubuntu2404-small
     patchable: false  # Only run on commit builds
     tasks:
-      - name: release_on_merge
+      - name: release_om_and_agents

@@ -11,15 +11,17 @@ Releases:
 skip_if_exists handles already-published images.
 
 Usage:
-    python release_on_merge.py [--dry-run]
+    python release_om_and_agents.py [--dry-run]
 """
 import json
 import logging
-import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, List
+
+import semver
+import yaml
 
 logging.basicConfig(
     level=logging.INFO,
@@ -92,7 +94,7 @@ def get_ops_manager_mapping(release_data: Dict) -> Dict:
 
 def get_latest_om_versions_from_evergreen_yaml() -> Dict[str, str]:
     """
-    Extract OM versions from .evergreen.yml anchors.
+    Extract OM versions from .evergreen.yml anchors
 
     Returns: {"60": "6.0.27", "70": "7.0.19", "80": "8.0.16"}
     """
@@ -103,16 +105,24 @@ def get_latest_om_versions_from_evergreen_yaml() -> Dict[str, str]:
         logger.error(".evergreen.yml not found")
         return versions
 
-    content = evergreen_path.read_text()
+    with open(evergreen_path, "r") as f:
+        data = yaml.safe_load(f)
 
-    # Match patterns like: - &ops_manager_60_latest 6.0.27 #
-    pattern = r"-\s*&ops_manager_(\d+)_latest\s+(\S+)\s+#"
+    # Extract version strings from the variables list
+    # The YAML structure is: variables: [6.0.27, 7.0.19, 8.0.16, ...]
+    variables = data.get("variables", [])
 
-    for match in re.finditer(pattern, content):
-        major = match.group(1)  # "60", "70", "80"
-        version = match.group(2)  # "6.0.27", "7.0.19", "8.0.16"
-        versions[major] = version
-        logger.info(f"Found OM {major}: {version}")
+    for var in variables:
+        # Try to parse as semver
+        try:
+            version_info = semver.VersionInfo.parse(var)
+            # Use major*10 + minor as the key (e.g., 6.0.x -> "60", 7.0.x -> "70")
+            major_key = f"{version_info.major}{version_info.minor}"
+            versions[major_key] = var
+            logger.info(f"Found OM {major_key}: {var}")
+        except ValueError:
+            # Not a valid semver string, skip it
+            continue
 
     return versions
 
@@ -198,7 +208,8 @@ def main():
             if not release_agent(agent_version, tools_version, f"OM {om_version}", args.dry_run):
                 success = False
         else:
-            logger.warning(f"No agent found for OM {om_version} in release.json")
+            logger.critical(f"No agent found for OM {om_version} in release.json")
+            sys.exit(1)
 
     # Always print summary
     print_summary(args.dry_run)
