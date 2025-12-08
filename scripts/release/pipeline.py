@@ -142,7 +142,22 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     # Get agent_tools_version for agent builds (from --agent-tools-version arg)
     agent_tools_version = getattr(args, "agent_tools_version", None)
 
-    if version is None:
+    # Validate version requirements
+    if image == "agent":
+        # Agent builds: version can be "all", "current", or explicit version (requires agent_tools_version)
+        if version is None:
+            raise ValueError(
+                "Agent build requires --version. Use one of:\n"
+                "  --version all                                      (for all agents in release.json)\n"
+                "  --version current                                  (for currently used agents)\n"
+                "  --version <ver> --agent-tools-version <tools_ver>  (for specific agent)"
+            )
+        is_special_version = version in ("all", "current")
+        if not is_special_version and agent_tools_version is None:
+            raise ValueError(
+                f"For agent builds with explicit version '{version}', --agent-tools-version must also be provided."
+            )
+    elif version is None:
         raise ValueError(f"Version cannot be empty for {image}.")
 
     return ImageBuildConfiguration(
