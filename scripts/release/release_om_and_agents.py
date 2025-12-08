@@ -215,13 +215,6 @@ def release_om_and_agent(args, latest_om_versions: set[str], ops_manager_mapping
 
     for om_version in sorted(latest_om_versions):
         logger.info(f"=== Processing OM {om_version} ===")
-
-        # Release ops-manager image
-        logger.info(f"Releasing ops-manager {om_version}")
-        if not release_ops_manager(om_version, args.dry_run):
-            raise RuntimeError(f"Failed to release ops-manager {om_version}")
-
-        # Release agent for this OM version
         agent_info = om_mapping.get(om_version, {})
         agent_version = agent_info.get("agent_version")
         tools_version = agent_info.get("tools_version")
@@ -232,6 +225,12 @@ def release_om_and_agent(args, latest_om_versions: set[str], ops_manager_mapping
                 f"Found: agent_version={agent_version}, tools_version={tools_version}"
             )
 
+        # Release ops-manager image
+        logger.info(f"Releasing ops-manager {om_version}")
+        if not release_ops_manager(om_version, args.dry_run):
+            raise RuntimeError(f"Failed to release ops-manager {om_version}")
+
+        # Release agent for this OM version
         logger.info(f"Releasing agent {agent_version} for OM {om_version}")
         if not release_agent(agent_version, tools_version, f"OM {om_version}", args.dry_run):
             raise RuntimeError(f"Failed to release agent {agent_version} for OM {om_version}")
