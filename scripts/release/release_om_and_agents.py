@@ -19,7 +19,7 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Set
 
 import semver
 import yaml
@@ -93,14 +93,14 @@ def get_ops_manager_mapping(release_data: Dict) -> Dict:
     return release_data.get("supportedImages", {}).get("mongodb-agent", {}).get("opsManagerMapping", {})
 
 
-def get_latest_om_versions_from_evergreen_yaml() -> Dict[str, str]:
+def get_latest_om_versions_from_evergreen_yaml() -> Set[str]:
     """
     Extract OM versions from .evergreen.yml anchors using YAML parsing and semver.
 
-    Returns: {"60": "6.0.27", "70": "7.0.19", "80": "8.0.16"}
+    Returns: {"6.0.27", "7.0.19", "8.0.16"}
     Raises: RuntimeError if file is missing, malformed, or contains no valid versions
     """
-    versions = {}
+    versions = set()
     evergreen_path = Path(".evergreen.yml")
 
     if not evergreen_path.exists():
@@ -122,21 +122,17 @@ def get_latest_om_versions_from_evergreen_yaml() -> Dict[str, str]:
         raise RuntimeError("No 'variables' list found in .evergreen.yml")
 
     for var in variables:
-        # Skip non-string entries (like dicts, lists, etc.)
         if not isinstance(var, str):
             logger.debug(f"Skipping non-string variable: {type(var).__name__}")
             continue
 
-        # Try to parse as semver
         try:
-            version_info = semver.VersionInfo.parse(var)
-            # Use major + minor as the key (e.g., 6.0.x -> "60", 7.0.x -> "70")
-            major_key = f"{version_info.major}{version_info.minor}"
-            versions[major_key] = var
-            logger.info(f"Found OM {major_key}: {var}")
-        except (ValueError, TypeError):
-            # Not a valid semver string, skip it silently (expected for non-version variables)
+            semver.VersionInfo.parse(var)
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Skipping non-semver variable '{var}': {e}")
             continue
+
+        versions.add(var)
 
     if not versions:
         raise RuntimeError(
@@ -190,10 +186,10 @@ def main():
 
     release_data = load_release_json()
     ops_manager_mapping = get_ops_manager_mapping(release_data)
-    latest_om_versions_per_major = get_latest_om_versions_from_evergreen_yaml()
+    latest_om_versions = get_latest_om_versions_from_evergreen_yaml()
 
     release_cm_agent(args, ops_manager_mapping)
-    release_om_and_agent(args, latest_om_versions_per_major, ops_manager_mapping)
+    release_om_and_agent(args, latest_om_versions, ops_manager_mapping)
 
     # Always print summary
     print_summary(args.dry_run)
@@ -213,12 +209,12 @@ def release_cm_agent(args, ops_manager_mapping: dict):
         raise RuntimeError(f"Failed to release cloud_manager agent {cloud_manager_agent}")
 
 
-def release_om_and_agent(args, latest_om_versions_per_major: dict[str, str], ops_manager_mapping: dict):
-    # 2. Release each OM Major version and its agent
+def release_om_and_agent(args, latest_om_versions: set[str], ops_manager_mapping: dict):
+    # 2. Release each OM version and its agent
     om_mapping = ops_manager_mapping.get("ops_manager", {})
 
-    for major, om_version in latest_om_versions_per_major.items():
-        logger.info(f"=== Processing OM {major} ({om_version}) ===")
+    for om_version in sorted(latest_om_versions):
+        logger.info(f"=== Processing OM {om_version} ===")
 
         # Release ops-manager image
         logger.info(f"Releasing ops-manager {om_version}")
