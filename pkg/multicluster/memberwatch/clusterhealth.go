@@ -67,7 +67,7 @@ func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.Sugar
 }
 
 // IsMemberClusterHealthy checks if there are some member clusters that are not in a "healthy" state
-// by curl "ing" the healthz endpoint of the clusters.
+// by curl "ing" the /readyz endpoint of the clusters.
 func (m *MemberHeathCheck) IsClusterHealthy(log *zap.SugaredLogger) bool {
 	statusCode, err := check(m.Client, m.Server, m.Token)
 	if err != nil {
