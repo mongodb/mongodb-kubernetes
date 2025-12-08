@@ -48,7 +48,7 @@ func TestBuildService(t *testing.T) {
 
 	assert.Len(t, svc.OwnerReferences, 1)
 	assert.Equal(t, mdb.Name, svc.OwnerReferences[0].Name)
-	assert.Equal(t, mdb.GetObjectKind().GroupVersionKind().Kind, svc.OwnerReferences[0].Kind)
+	assert.Equal(t, "MongoDB", svc.OwnerReferences[0].Kind)
 	assert.Equal(t, mock.TestNamespace, svc.Namespace)
 	assert.Equal(t, "my-svc", svc.Name)
 	assert.Equal(t, "loadbalancerip", svc.Spec.LoadBalancerIP)
@@ -67,7 +67,7 @@ func TestBuildService(t *testing.T) {
 
 	assert.Len(t, svc.OwnerReferences, 1)
 	assert.Equal(t, mdb.Name, svc.OwnerReferences[0].Name)
-	assert.Equal(t, mdb.GetObjectKind().GroupVersionKind().Kind, svc.OwnerReferences[0].Kind)
+	assert.Equal(t, "MongoDB", svc.OwnerReferences[0].Kind)
 	assert.Equal(t, mock.TestNamespace, svc.Namespace)
 	assert.Equal(t, "my-svc", svc.Name)
 	assert.Equal(t, "loadbalancerip", svc.Spec.LoadBalancerIP)
@@ -201,6 +201,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "mongodb.com/v1",
+								Kind:               "MongoDBOpsManager",
 								Name:               "test-om",
 								Controller:         ptr.To(true),
 								BlockOwnerDeletion: ptr.To(true),
@@ -242,6 +243,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "mongodb.com/v1",
+								Kind:               "MongoDBOpsManager",
 								Name:               "test-om",
 								Controller:         ptr.To(true),
 								BlockOwnerDeletion: ptr.To(true),
@@ -318,6 +320,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "mongodb.com/v1",
+								Kind:               "MongoDBOpsManager",
 								Name:               "test-om",
 								Controller:         ptr.To(true),
 								BlockOwnerDeletion: ptr.To(true),
@@ -359,6 +362,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "mongodb.com/v1",
+								Kind:               "MongoDBOpsManager",
 								Name:               "test-om",
 								Controller:         ptr.To(true),
 								BlockOwnerDeletion: ptr.To(true),
@@ -403,6 +407,7 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "mongodb.com/v1",
+								Kind:               "MongoDBOpsManager",
 								Name:               "test-om",
 								Controller:         ptr.To(true),
 								BlockOwnerDeletion: ptr.To(true),

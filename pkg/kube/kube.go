@@ -26,7 +26,7 @@ func BaseOwnerReference(owner v1.ObjectOwner) []metav1.OwnerReference {
 		*metav1.NewControllerRef(owner, schema.GroupVersionKind{
 			Group:   v1.SchemeGroupVersion.Group,
 			Version: v1.SchemeGroupVersion.Version,
-			Kind:    owner.GetObjectKind().GroupVersionKind().Kind,
+			Kind:    owner.GetKind(),
 		}),
 	}
 }
