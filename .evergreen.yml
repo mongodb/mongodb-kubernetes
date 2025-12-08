@@ -1931,34 +1931,6 @@ buildvariants:
       - name: backup_csv_images_limit_3
       - name: backup_csv_images_all
 
-  - name: publish_om70_images
-    display_name: publish_om70_images
-    tags: [ "manual_patch" ]
-    allowed_requesters: [ "patch"]
-    run_on:
-      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
-    depends_on:
-      - variant: e2e_om70_kind_ubi
-        name: '*'
-      - variant: e2e_static_om70_kind_ubi
-        name: '*'
-    tasks:
-      - name: publish_ops_manager
-
-  - name: publish_om80_images
-    display_name: publish_om80_images
-    tags: [ "manual_patch" ]
-    allowed_requesters: [ "patch" ]
-    run_on:
-      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
-    depends_on:
-      - variant: e2e_om80_kind_ubi
-        name: '*'
-      - variant: e2e_static_om80_kind_ubi
-        name: '*'
-    tasks:
-      - name: publish_ops_manager
-
   - name: migrate_all_agents
     display_name: migrate_all_agents
     tags: [ "manual_patch" ]

@@ -13,6 +13,7 @@ skip_if_exists handles already-published images.
 Usage:
     python release_om_and_agents.py [--dry-run]
 """
+import argparse
 import json
 import logging
 import subprocess
@@ -94,35 +95,54 @@ def get_ops_manager_mapping(release_data: Dict) -> Dict:
 
 def get_latest_om_versions_from_evergreen_yaml() -> Dict[str, str]:
     """
-    Extract OM versions from .evergreen.yml anchors
+    Extract OM versions from .evergreen.yml anchors using YAML parsing and semver.
 
     Returns: {"60": "6.0.27", "70": "7.0.19", "80": "8.0.16"}
+    Raises: RuntimeError if file is missing, malformed, or contains no valid versions
     """
     versions = {}
     evergreen_path = Path(".evergreen.yml")
 
     if not evergreen_path.exists():
-        logger.error(".evergreen.yml not found")
-        return versions
+        raise RuntimeError(f".evergreen.yml not found at {evergreen_path.absolute()}")
 
-    with open(evergreen_path, "r") as f:
-        data = yaml.safe_load(f)
+    try:
+        with open(evergreen_path, "r") as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise RuntimeError(f"Failed to parse .evergreen.yml: {e}") from e
+    except Exception as e:
+        raise RuntimeError(f"Failed to read .evergreen.yml: {e}") from e
 
     # Extract version strings from the variables list
     # The YAML structure is: variables: [6.0.27, 7.0.19, 8.0.16, ...]
     variables = data.get("variables", [])
 
+    if not variables:
+        raise RuntimeError("No 'variables' list found in .evergreen.yml")
+
     for var in variables:
+        # Skip non-string entries (like dicts, lists, etc.)
+        if not isinstance(var, str):
+            logger.debug(f"Skipping non-string variable: {type(var).__name__}")
+            continue
+
         # Try to parse as semver
         try:
             version_info = semver.VersionInfo.parse(var)
-            # Use major*10 + minor as the key (e.g., 6.0.x -> "60", 7.0.x -> "70")
+            # Use major + minor as the key (e.g., 6.0.x -> "60", 7.0.x -> "70")
             major_key = f"{version_info.major}{version_info.minor}"
             versions[major_key] = var
             logger.info(f"Found OM {major_key}: {var}")
-        except ValueError:
-            # Not a valid semver string, skip it
+        except (ValueError, TypeError):
+            # Not a valid semver string, skip it silently (expected for non-version variables)
             continue
+
+    if not versions:
+        raise RuntimeError(
+            "No valid OM versions found in .evergreen.yml variables list. "
+            "Expected semver strings like '6.0.27', '7.0.19', '8.0.16'"
+        )
 
     return versions
 
@@ -164,8 +184,6 @@ def release_ops_manager(om_version: str, dry_run: bool = False) -> bool:
 
 
 def main():
-    import argparse
-
     parser = argparse.ArgumentParser(description="Release all images on merge")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing")
     args = parser.parse_args()
@@ -174,19 +192,28 @@ def main():
     ops_manager_mapping = get_ops_manager_mapping(release_data)
     latest_om_versions_per_major = get_latest_om_versions_from_evergreen_yaml()
 
-    success = True
+    release_cm_agent(args, ops_manager_mapping)
+    release_om_and_agent(args, latest_om_versions_per_major, ops_manager_mapping)
 
+    # Always print summary
+    print_summary(args.dry_run)
+    return 0
+
+
+def release_cm_agent(args, ops_manager_mapping: dict):
     # 1. Release latest cloud_manager agent
     cloud_manager_agent = ops_manager_mapping.get("cloud_manager")
     cloud_manager_tools = ops_manager_mapping.get("cloud_manager_tools")
 
-    if cloud_manager_agent and cloud_manager_tools:
-        logger.info(f"=== Releasing cloud_manager agent: {cloud_manager_agent} ===")
-        if not release_agent(cloud_manager_agent, cloud_manager_tools, "cloud_manager", args.dry_run):
-            success = False
-    else:
-        logger.warning("cloud_manager agent not found in release.json")
+    if not cloud_manager_agent or not cloud_manager_tools:
+        raise RuntimeError("cloud_manager agent or tools not found in release.json opsManagerMapping")
 
+    logger.info(f"=== Releasing cloud_manager agent: {cloud_manager_agent} ===")
+    if not release_agent(cloud_manager_agent, cloud_manager_tools, "cloud_manager", args.dry_run):
+        raise RuntimeError(f"Failed to release cloud_manager agent {cloud_manager_agent}")
+
+
+def release_om_and_agent(args, latest_om_versions_per_major: dict[str, str], ops_manager_mapping: dict):
     # 2. Release each OM Major version and its agent
     om_mapping = ops_manager_mapping.get("ops_manager", {})
 
@@ -196,25 +223,22 @@ def main():
         # Release ops-manager image
         logger.info(f"Releasing ops-manager {om_version}")
         if not release_ops_manager(om_version, args.dry_run):
-            success = False
+            raise RuntimeError(f"Failed to release ops-manager {om_version}")
 
         # Release agent for this OM version
         agent_info = om_mapping.get(om_version, {})
         agent_version = agent_info.get("agent_version")
         tools_version = agent_info.get("tools_version")
 
-        if agent_version and tools_version:
-            logger.info(f"Releasing agent {agent_version} for OM {om_version}")
-            if not release_agent(agent_version, tools_version, f"OM {om_version}", args.dry_run):
-                success = False
-        else:
-            logger.critical(f"No agent found for OM {om_version} in release.json")
-            sys.exit(1)
+        if not agent_version or not tools_version:
+            raise RuntimeError(
+                f"Agent mapping incomplete for OM {om_version} in release.json. "
+                f"Found: agent_version={agent_version}, tools_version={tools_version}"
+            )
 
-    # Always print summary
-    print_summary(args.dry_run)
-
-    return 0 if success else 1
+        logger.info(f"Releasing agent {agent_version} for OM {om_version}")
+        if not release_agent(agent_version, tools_version, f"OM {om_version}", args.dry_run):
+            raise RuntimeError(f"Failed to release agent {agent_version} for OM {om_version}")
 
 
 if __name__ == "__main__":
