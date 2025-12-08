@@ -303,19 +303,6 @@ tasks:
           args:
             - scripts/release/release_on_merge.py
 
-  - name: release_agent
-    # this enables us to run this variant manually (patch)
-    allowed_requesters: [ "patch" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_login
-      - func: setup_docker_sbom
-      - func: pipeline
-        vars:
-          image_name: agent
-          build_scenario: release
-
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new agent registry
     allowed_requesters: [ "patch" ]
@@ -1899,26 +1886,6 @@ buildvariants:
     tasks:
       - name: build_om_images
 
-    # It will be called by pct while bumping the agent cloud manager image
-  - name: release_agent
-    display_name: release_agent
-    tags: [ "manual_patch", "release_agent" ]
-    run_on:
-      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
-    depends_on:
-      - variant: init_test_run
-        name: build_agent_images_ubi # this ensures the agent gets released to ECR as well
-      - variant: e2e_multi_cluster_kind
-        name: '*'
-      - variant: e2e_static_multi_cluster_2_clusters
-        name: '*'
-      - variant: e2e_mdb_kind_ubi_cloudqa
-        name: '*'
-      - variant: e2e_static_mdb_kind_ubi_cloudqa
-        name: '*'
-    tasks:
-      - name: release_agent
-
     # Only called manually, It's used for testing the task release_agents in case the release.json
     # has not changed, and you still want to push the images to registry.
   - name: manual_release_all_agents
@@ -1965,7 +1932,6 @@ buildvariants:
         name: '*'
     tasks:
       - name: publish_ops_manager
-      - name: release_agent
 
   - name: publish_om80_images
     display_name: publish_om80_images
@@ -1980,7 +1946,6 @@ buildvariants:
         name: '*'
     tasks:
       - name: publish_ops_manager
-      - name: release_agent
 
   - name: migrate_all_agents
     display_name: migrate_all_agents

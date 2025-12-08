@@ -177,7 +177,7 @@ def main():
     else:
         logger.warning("cloud_manager agent not found in release.json")
 
-    # 2. Release each OM version and its agent
+    # 2. Release each OM Major version and its agent
     om_mapping = ops_manager_mapping.get("ops_manager", {})
 
     for major, om_version in latest_om_versions_per_major.items():
