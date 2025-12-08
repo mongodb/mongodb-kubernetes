@@ -330,17 +330,17 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
 
 def build_agent(build_configuration: ImageBuildConfiguration):
     """Build the agent image(s). Validation happens in pipeline.py."""
-    if build_configuration.version and build_configuration.agent_tools_version:
-        agent_versions_to_build = [(build_configuration.version, build_configuration.agent_tools_version)]
-        logger.info(
-            f"building agent {build_configuration.version} with tools {build_configuration.agent_tools_version}"
-        )
-    elif build_configuration.all_agents:
+    version = build_configuration.version
+
+    if version == "all":
         agent_versions_to_build = get_all_agents_for_rebuild()
         logger.info("building all agents")
-    elif build_configuration.currently_used_agents:
+    elif version == "current":
         agent_versions_to_build = get_currently_used_agents()
         logger.info("building currently used agents")
+    elif version and build_configuration.agent_tools_version:
+        agent_versions_to_build = [(version, build_configuration.agent_tools_version)]
+        logger.info(f"building agent {version} with tools {build_configuration.agent_tools_version}")
     else:
         raise ValueError("No agent selection provided - this should be caught by pipeline.py validation")
 

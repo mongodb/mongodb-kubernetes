@@ -9,8 +9,9 @@ args+=(--build-scenario "${BUILD_SCENARIO_OVERRIDE:-${BUILD_SCENARIO}}")
 
 case ${IMAGE_NAME} in
   "agent")
-    # Can also use --all-agents or --current-agents flags instead
-    IMAGE_VERSION="${AGENT_VERSION:-}"
+    # For agent: version can be "all", "current", or explicit version (requires TOOLS_VERSION)
+    # AGENT_VERSION_OVERRIDE takes precedence, then AGENT_VERSION from context.
+    IMAGE_VERSION="${AGENT_VERSION_OVERRIDE:-${AGENT_VERSION:-}}"
     ;;
 
   "ops-manager")

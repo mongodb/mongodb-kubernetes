@@ -142,21 +142,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     # Get agent_tools_version for agent builds (from --agent-tools-version arg)
     agent_tools_version = getattr(args, "agent_tools_version", None)
 
-    # Validate version requirements
-    if image == "agent":
-        # Agent builds require explicit selection: version+agent_tools_version OR --all-agents OR --current-agents
-        has_explicit_version = version is not None and agent_tools_version is not None
-        has_agent_flag = args.all_agents or args.current_agents
-        if not has_explicit_version and not has_agent_flag:
-            raise ValueError(
-                "Agent build requires explicit selection. Use one of:\n"
-                "  --version <ver> --agent-tools-version <tools_ver>  (for specific agent)\n"
-                "  --all-agents                                       (for all agents in release.json)\n"
-                "  --current-agents                                   (for currently used agents)"
-            )
-        if version is not None and agent_tools_version is None:
-            raise ValueError("For agent builds with explicit version, --agent-tools-version must also be provided.")
-    elif version is None:
+    if version is None:
         raise ValueError(f"Version cannot be empty for {image}.")
 
     return ImageBuildConfiguration(
@@ -172,8 +158,6 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         skip_if_exists=skip_if_exists,
         parallel=args.parallel,
         parallel_factor=args.parallel_factor,
-        all_agents=args.all_agents,
-        currently_used_agents=args.current_agents,
         architecture_suffix=architecture_suffix,
         agent_tools_version=agent_tools_version,
     )
@@ -290,21 +274,11 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         help="Number of agent builds to run in parallel, defaults to number of cores",
     )
     parser.add_argument(
-        "--all-agents",
-        action="store_true",
-        help="Build all agent images.",
-    )
-    parser.add_argument(
-        "--current-agents",
-        action="store_true",
-        help="Build all currently used agent images.",
-    )
-    parser.add_argument(
         "--agent-tools-version",
         metavar="",
         action="store",
         type=str,
-        help="Tools version to use when building agent image. Required when --version is provided for agent builds.",
+        help="Tools version to use when building agent image. Required when --version is an explicit version (not 'all' or 'current').",
     )
     parser.add_argument(
         "--architecture-suffix",

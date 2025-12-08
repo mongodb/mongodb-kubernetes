@@ -345,8 +345,9 @@ tasks:
       - func: quay_login
       - func: pipeline
         vars:
+          agent_version: all
           image_name: agent
-          flags: "--parallel --all-agents --skip-if-exists=false"
+          flags: "--parallel --skip-if-exists=false"
 
   - name: rebuild_currently_used_agents
     # this enables us to run this manually (patch) and rebuild current agent versions to verify
@@ -358,8 +359,9 @@ tasks:
       - func: quay_login
       - func: pipeline
         vars:
+          agent_version: current
           image_name: agent
-          flags: "--parallel --current-agents --skip-if-exists=false"
+          flags: "--parallel --skip-if-exists=false"
 
   - name: build_kubectl_mongodb_plugin
     commands:
@@ -465,7 +467,8 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
-          flags: "--parallel --all-agents"
+          agent_version: all
+          flags: "--parallel"
 
   - name: build_init_database_image_ubi
     commands:

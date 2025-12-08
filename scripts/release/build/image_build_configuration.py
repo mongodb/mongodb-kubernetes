@@ -23,8 +23,6 @@ class ImageBuildConfiguration:
     # Agent specific
     parallel: bool = False
     parallel_factor: int = 0
-    all_agents: bool = False
-    currently_used_agents: bool = False
     architecture_suffix: bool = False
     agent_tools_version: Optional[str] = None  # Explicit tools version for agent builds
 
