@@ -125,7 +125,13 @@ def convert_to_release_info_json(build_info: BuildInfo, release_json_path: str, 
 
 
 def add_image_info(release_info_output, name, repository: str, platforms, version):
-    digest = manifest_list_digest_for_image(f"{repository}:{version}")
+    builder = DockerImageBuilder()
+    try:
+        image = f"{repository}:{version}"
+        digest = builder.get_manfiest_list_digest(image)
+    except Exception as e:
+        raise Exception(f"There was an error figuring out digest for the image {image}, error: {e}")
+
     release_info_output["images"][name] = {
         "repoURL": repository,
         "platforms": platforms,
@@ -167,19 +173,6 @@ def latest_agent_version(release_data):
 
 def latest_search_version(release_data):
     return release_data["search"]["version"]
-
-
-# manifest_list_digest_for_image returns manifest list digest for the passed image. Returns
-# empty string if there was an error figuring that out.
-def manifest_list_digest_for_image(image: str) -> str:
-    builder = DockerImageBuilder()
-    try:
-        digest = builder.get_manfiest_list_digest(image)
-    except Exception as e:
-        logger.error(f"There was an error, figuring out manifest list digest for image {image}. Error: {e}")
-        return ""
-
-    return digest
 
 
 if __name__ == "__main__":
