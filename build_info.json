@@ -3,7 +3,7 @@
     "operator": {
       "dockerfile-path": "docker/mongodb-kubernetes-operator/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/mcosbuc/mongodb-kubernetes"],
         "platforms": [
           "linux/amd64"
         ]
@@ -35,7 +35,7 @@
     "operator-race": {
       "dockerfile-path": "docker/mongodb-kubernetes-operator/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/mcosbuc/mongodb-kubernetes"],
         "platforms": [
           "linux/amd64"
         ]
@@ -51,7 +51,7 @@
     "init-database": {
       "dockerfile-path": "docker/mongodb-kubernetes-init-database/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/mcosbuc/mongodb-kubernetes-init-database"],
         "platforms": [
           "linux/amd64"
         ]
@@ -83,7 +83,7 @@
     "init-appdb": {
       "dockerfile-path": "docker/mongodb-kubernetes-init-appdb/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/mcosbuc/mongodb-kubernetes-init-appdb"],
         "platforms": [
           "linux/amd64"
         ]
@@ -115,7 +115,7 @@
     "init-ops-manager": {
       "dockerfile-path": "docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/mcosbuc/mongodb-kubernetes-init-ops-manager"],
         "platforms": [
           "linux/amd64"
         ]
@@ -141,7 +141,7 @@
     "database": {
       "dockerfile-path": "docker/mongodb-kubernetes-database/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/mcosbuc/mongodb-kubernetes-database"],
         "platforms": [
           "linux/amd64"
         ]
@@ -173,7 +173,7 @@
     "meko-tests": {
       "dockerfile-path": "docker/mongodb-kubernetes-tests/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/mcosbuc/mongodb-kubernetes-tests"],
         "platforms": [
           "linux/amd64"
         ]
@@ -301,7 +301,7 @@
     "readiness-probe": {
       "dockerfile-path": "docker/mongodb-kubernetes-readinessprobe/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/mcosbuc/mongodb-kubernetes-readinessprobe"],
         "platforms": [
           "linux/amd64"
         ]
@@ -331,7 +331,7 @@
     "upgrade-hook": {
       "dockerfile-path": "docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/mcosbuc/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
         "platforms": [
           "linux/amd64"
         ]
@@ -359,8 +359,8 @@
     "agent": {
       "dockerfile-path": "docker/mongodb-agent/Dockerfile",
       "patch": {
-        "skip-if-exists": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
+        "skip-if-exists": false,
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/mcosbuc/mongodb-agent"],
         "platforms": [
           "linux/amd64"
         ]
@@ -393,7 +393,7 @@
       "dockerfile-path": "docker/mongodb-enterprise-ops-manager/Dockerfile",
       "patch": {
         "skip-if-exists": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/mcosbuc/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
         ]

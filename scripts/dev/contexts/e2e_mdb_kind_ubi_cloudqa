@@ -14,7 +14,7 @@ export OPS_MANAGER_REGISTRY="${REGISTRY}"
 CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
 
-export CUSTOM_MDB_VERSION=6.0.5
-export CUSTOM_MDB_PREV_VERSION=5.0.7
+export CUSTOM_MDB_VERSION=8.0.15
+export CUSTOM_MDB_PREV_VERSION=7.0.26
 
 source "${script_dir}/variables/mongodb_search_dev"

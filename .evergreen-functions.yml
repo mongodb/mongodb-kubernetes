@@ -36,6 +36,7 @@ variables:
       - otel_parent_id
       - otel_trace_id
       - registry
+      - REGISTRY
       - requester
       - task_name
       - triggered_by_git_tag

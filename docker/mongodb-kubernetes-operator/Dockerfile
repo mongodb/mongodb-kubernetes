@@ -44,14 +44,7 @@ COPY --from=builder /data/om_version_mapping.json /data/om_version_mapping.json
 
 ADD docker/mongodb-kubernetes-operator/licenses /data/licenses/
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal
-
-# Building an UBI-based image: https://red.ht/3n6b9y0
-RUN microdnf update \
-    --disableplugin=subscription-manager \
-    --disablerepo=* --enablerepo=ubi-9-appstream-rpms --enablerepo=ubi-9-baseos-rpms -y \
-    && rm -rf /var/cache/yum
-RUN microdnf install -y glibc-langpack-en
+FROM quay.io/mircea_cosbuc/ubi-micro-operator-base
 
 COPY --from=base /data/mongodb-kubernetes-operator /usr/local/bin/mongodb-kubernetes-operator
 COPY --from=base /data/om_version_mapping.json /usr/local/om_version_mapping.json
