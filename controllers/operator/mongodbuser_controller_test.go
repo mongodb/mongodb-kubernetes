@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -71,6 +72,26 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
 }
 
+// Not making this (DeepCopy) a method of type AutomationConfig because I want to be
+// explicit that this method is just for test code.
+func DeepCopy(origianl *om.AutomationConfig) (*om.AutomationConfig, error) {
+	if origianl == nil {
+		return nil, nil
+	}
+
+	b, err := json.Marshal(origianl)
+	if err != nil {
+		return nil, err
+	}
+
+	var newAC om.AutomationConfig
+	err = json.Unmarshal(b, &newAC)
+	if err != nil {
+		return nil, err
+	}
+	return &newAC, nil
+}
+
 func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
 	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
@@ -90,6 +111,10 @@ func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
 	assert.Equal(t, okReconcileResult, actual, "there should be a successful reconciliation if the password is a valid reference")
 
 	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	// since underlying implmentation of ReadAutomationConfig just has reference to automation config
+	// it's better to deep copy this version of AC so that it can be used to compare later.
+	origianAC, err := DeepCopy(ac)
+	assert.Nil(t, err)
 
 	// the automation config should have been updated during reconciliation
 	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
@@ -107,7 +132,7 @@ func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
 
 	acAfterSecondReconcile, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
 	// verify that the automation cnofig has not been changed because we ran reconciliation second time with the same user
-	assert.True(t, acAfterSecondReconcile.EqualsWithoutDeployment(*ac), "Automation config before the second reconciliation and after the second reconciliation should be same")
+	assert.True(t, acAfterSecondReconcile.EqualsWithoutDeployment(*origianAC), "Automation config before the second reconciliation and after the second reconciliation should be same")
 }
 
 func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T) {
