@@ -62,10 +62,7 @@ def main():
 
     if os.environ.get("SKIP_GITHUB_RELEASE_UPLOAD", "false").lower() == "false":
         github_artifacts = artifacts_tar + [checksum_file]
-        try:
-            upload_assets_to_github_release(github_artifacts, release_version)
-        except Exception as e:
-            raise e
+        upload_assets_to_github_release(github_artifacts, release_version)
 
 
 # get_commit_from_tag gets the commit associated with a release tag, so that we can use that

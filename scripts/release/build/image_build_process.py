@@ -134,8 +134,6 @@ class DockerImageBuilder(ImageBuilder):
             raise Exception(f"Failed to run skopeo inspect using 'docker run' for image {image}. Error: {e.stderr.strip()}") from e
         except FileNotFoundError:
             raise Exception("docker is not installed on the system.")
-        except Exception as e:
-            raise e
 
     def build_image(self, tags: list[str],
                     dockerfile: str,
@@ -196,8 +194,7 @@ class PodmanImageBuilder(ImageBuilder):
         return False
 
     def get_manfiest_list_digest(self, image) -> Optional[str]:
-        logger.warning(f"PodmanImageBuilder does not support getting digest for manifest list, returning empty digest.")
-        return ""
+        raise Exception("PodmanImageBuilder does not support getting digest for manifest list, use docker image builder instead.")
 
     def build_image(self, tags: list[str],
                     dockerfile: str,

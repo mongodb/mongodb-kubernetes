@@ -27,8 +27,6 @@ from scripts.release.kubectl_mongodb.utils import (
 SEARCH_IMAGE = "search"
 SEARCH_IMAGE_REPOSITORY = "quay.io/mongodb/mongodb-search"
 
-AGENT_IMAGE_REPOSITORY = "quay.io/mongodb/mongodb-agent"
-
 MONGODB_ENTERPRISE_SERVER_IMAGE = "mongodb-enterprise-server"
 MONGODB_ENTERPRISE_SERVER_REPOSITORY = "quay.io/mongodb/mongodb-enterprise-server"
 
@@ -62,14 +60,14 @@ def convert_to_release_info_json(build_info: BuildInfo, release_json_path: str, 
     images = {name: build_info.images[name] for name in RELEASE_INFO_IMAGES_ORDERED}
 
     for name, image in images.items():
-        add_image_info(release_info_output, name, image.repositories[0], image.platforms, operator_version)
+        add_image_info(release_info_output, name, image.repository, image.platforms, operator_version)
 
     # add OPS manager image info
     om_build_info = build_info.images[OPS_MANAGER_IMAGE]
     add_image_info(
         release_info_output,
         OPS_MANAGER_IMAGE,
-        om_build_info.repositories[0],
+        om_build_info.repository,
         om_build_info.platforms,
         latest_om_version(release_data),
     )
@@ -79,7 +77,7 @@ def convert_to_release_info_json(build_info: BuildInfo, release_json_path: str, 
     add_image_info(
         release_info_output,
         AGENT_IMAGE,
-        AGENT_IMAGE_REPOSITORY,
+        agent_build_info.repository,
         agent_build_info.platforms,
         latest_agent_version(release_data),
     )
@@ -89,7 +87,7 @@ def convert_to_release_info_json(build_info: BuildInfo, release_json_path: str, 
     add_image_info(
         release_info_output,
         UPGRADE_HOOK_IMAGE,
-        upgradehook_build_info.repositories[0],
+        upgradehook_build_info.repository,
         upgradehook_build_info.platforms,
         latest_upgrade_hook_version(release_data),
     )
@@ -99,7 +97,7 @@ def convert_to_release_info_json(build_info: BuildInfo, release_json_path: str, 
     add_image_info(
         release_info_output,
         READINESS_PROBE_IMAGE,
-        readiness_build_info.repositories[0],
+        readiness_build_info.repository,
         readiness_build_info.platforms,
         latest_readiness_version(release_data),
     )
@@ -199,7 +197,5 @@ if __name__ == "__main__":
     if release_info_filename is not None:
         with open(release_info_filename, "w") as file:
             file.write(release_info)
-    try:
-        upload_assets_to_github_release([release_info_filename], args.version)
-    except Exception as e:
-        raise e
+
+    upload_assets_to_github_release([release_info_filename], args.version)
