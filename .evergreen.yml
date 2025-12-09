@@ -11,9 +11,34 @@ include:
   - filename: .evergreen-release.yml
 
 variables:
+  - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
+
   - &ops_manager_70_latest 7.0.19 # The order/index is important, since these are anchors. Please do not change
 
   - &ops_manager_80_latest 8.0.16 # The order/index is important, since these are anchors. Please do not change
+
+  # The dependency unification between static and non-static is intentional here.
+  # Even though some images are exclusive, in EVG they all are built once and in parallel.
+  # It is not worth the effort of splitting them out.
+  # Once Static Containers are default, this piece can be cleaned up.
+  - &base_om6_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om60_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
 
   - &base_no_om_image_dependency
     depends_on:
@@ -1162,6 +1187,15 @@ task_groups:
       - e2e_om_ops_manager_backup
     <<: *teardown_group
 
+  # Tests features only supported on OM60
+  - name: e2e_ops_manager_kind_6_0_only_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_ops_manager_prometheus
+    <<: *teardown_group
+
   # Tests features only supported on OM80
   - name: e2e_ops_manager_kind_8_0_only_task_group
     max_hosts: -1
@@ -1179,6 +1213,15 @@ task_groups:
     <<: *setup_and_teardown_task
     tasks:
       - e2e_om_ops_manager_upgrade
+    <<: *teardown_group
+
+  # Tests features only supported on OM60
+  - name: e2e_static_ops_manager_kind_6_0_only_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_ops_manager_prometheus
     <<: *teardown_group
 
   - name: e2e_kind_olm_group
@@ -1316,6 +1359,29 @@ buildvariants:
       - name: e2e_mdb_openshift_ubi_cloudqa_task_group
 
   ## Ops Manager build variants
+
+  # Isolated Ops Manager Tests for 6.0 version - kept for on-demand testing only
+  - name: e2e_om60_kind_ubi
+    display_name: e2e_om60_kind_ubi
+    tags: [ "manual_patch", "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-medium-high-memory
+    <<: *base_om6_dependency
+    tasks:
+      - name: e2e_ops_manager_kind_only_task_group
+      - name: e2e_ops_manager_kind_5_0_only_task_group
+      - name: e2e_ops_manager_kind_6_0_only_task_group
+
+  # Isolated Ops Manager Tests for 6.0 version - kept for on-demand testing only
+  - name: e2e_static_om60_kind_ubi
+    display_name: e2e_static_om60_kind_ubi
+    tags: [ "manual_patch", "e2e_test_suite", "static" ]
+    run_on:
+      - ubuntu2404-large
+    <<: *base_om6_dependency
+    tasks:
+      - name: e2e_static_ops_manager_kind_only_task_group
+      - name: e2e_static_ops_manager_kind_6_0_only_task_group
 
   - name: e2e_om70_kind_ubi
     display_name: e2e_om70_kind_ubi
@@ -1787,6 +1853,15 @@ buildvariants:
       preflight_submit: false
     tasks:
       - name: preflight_images_task_group
+
+  # OM60 images build - kept for on-demand testing only
+  - name: build_om60_images
+    display_name: build_om60_images
+    tags: [ "manual_patch" ]
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: build_om_images
 
   - name: build_om70_images
     display_name: build_om70_images
