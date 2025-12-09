@@ -3,4 +3,4 @@ kind: other
 date: 2025-12-08
 ---
 
-* Added a new asset in GitHub releases that would contain detailed information about released MCK and other relevant container images.
+* Added the functionality to add a new asset named `release_info_<version>.json`, to further GitHub releases, that would contain detailed information about released MongoDB controllers for Kubernetes (MCK) and other relevant container images.
