@@ -1,6 +1,6 @@
 import json
-from dataclasses import dataclass, field
-from typing import Dict, List
+from dataclasses import dataclass
+from typing import Dict
 
 from scripts.release.build.build_scenario import BuildScenario
 
