@@ -71,6 +71,45 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
 }
 
+func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, client, omConnectionFactory := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	// initialize resources required for the tests
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+		SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+
+	okReconcileResult, _ := workflow.OK().ReconcileResult()
+
+	assert.Nil(t, err, "there should be no error on successful reconciliation")
+	assert.Equal(t, okReconcileResult, actual, "there should be a successful reconciliation if the password is a valid reference")
+
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+
+	// the automation config should have been updated during reconciliation
+	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
+
+	_, createdUser := ac.Auth.GetUser("my-user", "admin")
+	assert.Equal(t, user.Spec.Username, createdUser.Username)
+	assert.Equal(t, user.Spec.Database, createdUser.Database)
+	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
+
+	// reconcile the same user again and make sure the automation config is not updated, if the user's password is not changed
+	// we don't generate scram creds and because of that we wouldn't see changes in automatino config
+	reconcileResult, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	assert.Nil(t, err)
+	assert.Equal(t, okReconcileResult, reconcileResult)
+
+	acAfterSecondReconcile, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	// verify that the automation cnofig has not been changed because we ran reconciliation second time with the same user
+	assert.True(t, acAfterSecondReconcile.EqualsWithoutDeployment(*ac), "Automation config before the second reconciliation and after the second reconciliation should be same")
+}
+
 func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T) {
 	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
