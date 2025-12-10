@@ -110,6 +110,9 @@ type ShardedClusterDeploymentState struct {
 	CommonDeploymentState `json:",inline"`
 	LastAchievedSpec      *mdbv1.MongoDbSpec   `json:"lastAchievedSpec"`
 	Status                *mdbv1.MongoDbStatus `json:"status"`
+	// ProcessIds stores process IDs for replica sets to handle migration scenarios
+	// where process IDs have length 0.
+	ProcessIds om.ReplicaSetToProcessIds `json:"processIds,omitempty"`
 }
 
 // updateStatusFromResourceStatus updates the status in the deployment state with values from the resource status with additional ensurance that no data is accidentally lost.
@@ -132,6 +135,7 @@ func NewShardedClusterDeploymentState() *ShardedClusterDeploymentState {
 		CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{}},
 		LastAchievedSpec:      &mdbv1.MongoDbSpec{},
 		Status:                &mdbv1.MongoDbStatus{},
+		ProcessIds:            om.ReplicaSetToProcessIds{},
 	}
 }
 
@@ -1914,7 +1918,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	}
 
 	configSrvProcesses, configSrvMemberOptions := r.createDesiredConfigSrvProcessesAndMemberOptions(configSrvMemberCertPath)
-	configRs, _ := buildReplicaSetFromProcesses(sc.ConfigRsName(), configSrvProcesses, sc, configSrvMemberOptions, existingDeployment)
+	configRs, _ := buildReplicaSetFromProcesses(sc.ConfigRsName(), configSrvProcesses, sc, configSrvMemberOptions, existingDeployment, r.deploymentState)
 
 	// Shards
 	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
@@ -1925,7 +1929,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		shardInternalClusterPaths = append(shardInternalClusterPaths, fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, shardOptions.InternalClusterHash))
 		shardMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, shardOptions.CertificateHash)
 		desiredShardProcesses, desiredShardMemberOptions := r.createDesiredShardProcessesAndMemberOptions(shardIdx, shardMemberCertPath)
-		shards[shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment)
+		shards[shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment, r.deploymentState)
 	}
 
 	// updateOmAuthentication normally takes care of the certfile rotation code, but since sharded-cluster is special pertaining multiple clusterfiles, we code this part here for now.
@@ -2030,7 +2034,23 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		return nil, shardsRemoving, workflow.Pending("Performing multi stage reconciliation")
 	}
 
+	// Save final process IDs to deployment state for persistence across reconciliation cycles
+	if err := r.saveFinalProcessIdsToDeploymentState(conn); err != nil {
+		log.Warnf("Failed to save process IDs to deployment state: %v", err)
+	}
+
 	return finalProcesses, shardsRemoving, workflow.OK()
+}
+
+func (r *ShardedClusterReconcileHelper) saveFinalProcessIdsToDeploymentState(conn om.Connection) error {
+	finalProcessIds, err := om.GetReplicaSetMemberIds(conn)
+	if err != nil {
+		return err
+	}
+
+	saveReplicaSetProcessIdsToDeploymentState(finalProcessIds, r.deploymentState)
+
+	return nil
 }
 
 func logWarnIgnoredDueToRecovery(log *zap.SugaredLogger, err any) {
@@ -2230,12 +2250,41 @@ func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise b
 	return processes
 }
 
+// getReplicaSetProcessIdsFromDeploymentState retrieves process IDs from the deployment state
+// when they are empty (length 0), indicating a cluster migration scenario.
+func getReplicaSetProcessIdsFromDeploymentState(replicaSetName string, deploymentState *ShardedClusterDeploymentState) om.ProcessNameToId {
+	if processIds, ok := deploymentState.ProcessIds[replicaSetName]; ok {
+		return processIds
+	}
+
+	return om.ProcessNameToId{}
+}
+
+// saveReplicaSetProcessIdsToDeploymentState saves process IDs to the deployment state
+// for persistence across reconciliation cycles.
+func saveReplicaSetProcessIdsToDeploymentState(processIds om.ReplicaSetToProcessIds, deploymentState *ShardedClusterDeploymentState) {
+	if deploymentState.ProcessIds == nil {
+		deploymentState.ProcessIds = om.ReplicaSetToProcessIds{}
+	}
+
+	if len(processIds) > 0 {
+		deploymentState.ProcessIds = processIds
+	}
+}
+
 // buildReplicaSetFromProcesses creates the 'ReplicaSetWithProcesses' with specified processes. This is of use only
 // for sharded cluster (config server, shards)
-func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB, memberOptions []automationconfig.MemberOptions, deployment om.Deployment) (om.ReplicaSetWithProcesses, error) {
+func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB, memberOptions []automationconfig.MemberOptions, deployment om.Deployment, deploymentState *ShardedClusterDeploymentState) (om.ReplicaSetWithProcesses, error) {
 	replicaSet := om.NewReplicaSet(name, mdb.Spec.GetMongoDBVersion())
 
 	existingProcessIds := getReplicaSetProcessIdsFromReplicaSets(replicaSet.Name(), deployment)
+
+	// If there is no configuration saved in OM, it might be a new project, so we check the ids saved in the state map
+	// A project migration can happen if .spec.opsManager.configMapRef is changed, or the original configMap has been modified.
+	if len(existingProcessIds) == 0 {
+		existingProcessIds = getReplicaSetProcessIdsFromDeploymentState(replicaSet.Name(), deploymentState)
+	}
+
 	var rsWithProcesses om.ReplicaSetWithProcesses
 	if mdb.Spec.IsMultiCluster() {
 		// we're passing nil as connectivity argument as in sharded clusters horizons don't make much sense as we don't expose externally individual shards
