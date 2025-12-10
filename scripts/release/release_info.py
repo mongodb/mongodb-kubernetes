@@ -111,6 +111,7 @@ def convert_to_release_info_json(build_info: BuildInfo, release_json_path: str, 
         latest_search_version(release_data),
     )
 
+    # add enterprise server image info
     add_image_info(
         release_info_output,
         MONGODB_ENTERPRISE_SERVER_IMAGE,
