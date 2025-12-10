@@ -74,12 +74,12 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 
 // Not making this (DeepCopy) a method of type AutomationConfig because I want to be
 // explicit that this method is just for test code.
-func DeepCopy(origianl *om.AutomationConfig) (*om.AutomationConfig, error) {
-	if origianl == nil {
+func DeepCopy(original *om.AutomationConfig) (*om.AutomationConfig, error) {
+	if original == nil {
 		return nil, nil
 	}
 
-	b, err := json.Marshal(origianl)
+	b, err := json.Marshal(original)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
 	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
 	// since underlying implmentation of ReadAutomationConfig just has reference to automation config
 	// it's better to deep copy this version of AC so that it can be used to compare later.
-	origianAC, err := DeepCopy(ac)
+	originalAC, err := DeepCopy(ac)
 	assert.Nil(t, err)
 
 	// the automation config should have been updated during reconciliation
@@ -132,7 +132,7 @@ func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
 
 	acAfterSecondReconcile, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
 	// verify that the automation cnofig has not been changed because we ran reconciliation second time with the same user
-	assert.True(t, acAfterSecondReconcile.EqualsWithoutDeployment(*origianAC), "Automation config before the second reconciliation and after the second reconciliation should be same")
+	assert.True(t, acAfterSecondReconcile.EqualsWithoutDeployment(*originalAC), "Automation config before the second reconciliation and after the second reconciliation should be same")
 }
 
 func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T) {
