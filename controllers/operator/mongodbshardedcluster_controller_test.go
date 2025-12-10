@@ -1892,10 +1892,16 @@ func TestSharderClusterRoleAnnotationIsSet(t *testing.T) {
 	require.NoError(t, err)
 	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
 
-	roleString, _ := json.Marshal([]string{"embedded-role@admin"})
+	// Assert that the roles are saved in the state configmap
+	configMapName := fmt.Sprintf("%s-state", sc.Name)
+	stateConfigMap := &corev1.ConfigMap{}
+	err = cl.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: sc.Namespace}, stateConfigMap)
+	require.NoError(t, err)
 
-	// Assert that the member ids are saved in the annotation
-	assert.Equal(t, sc.GetAnnotations()[util.LastConfiguredRoles], string(roleString))
+	deploymentState := ShardedClusterDeploymentState{}
+	err = json.Unmarshal([]byte(stateConfigMap.Data[stateKey]), &deploymentState)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"embedded-role@admin"}, deploymentState.LastConfiguredRoles)
 
 	roles := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
 	assert.Len(t, roles, 1)
@@ -1906,8 +1912,15 @@ func TestSharderClusterRoleAnnotationIsSet(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
 
-	// Assert that the roles annotation is updated and role is removed
-	assert.Equal(t, sc.GetAnnotations()[util.LastConfiguredRoles], "[]")
+	// Assert that the state configmap is updated and role is removed
+	stateConfigMap = &corev1.ConfigMap{}
+	err = cl.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: sc.Namespace}, stateConfigMap)
+	require.NoError(t, err)
+
+	deploymentState = ShardedClusterDeploymentState{}
+	err = json.Unmarshal([]byte(stateConfigMap.Data[stateKey]), &deploymentState)
+	require.NoError(t, err)
+	assert.Equal(t, []string{}, deploymentState.LastConfiguredRoles)
 
 	roles = omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
 	assert.Len(t, roles, 0)
