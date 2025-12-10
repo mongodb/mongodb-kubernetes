@@ -62,6 +62,9 @@ from scripts.release.build.image_build_configuration import (
 )
 from scripts.release.build.image_build_process import PodmanImageBuilder
 
+CURRENT_AGENTS = "current"
+ALL_AGENTS = "all"
+
 """
 The goal of main.py, image_build_configuration.py and build_context.py is to provide a single source of truth for the build
 configuration. All parameters that depend on the the build environment (local dev, evg, etc) should be resolved here and
@@ -152,7 +155,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
                 "  --version current                                  (for currently used agents)\n"
                 "  --version <ver> --agent-tools-version <tools_ver>  (for specific agent)"
             )
-        is_special_version = version in ("all", "current")
+        is_special_version = version in (ALL_AGENTS, CURRENT_AGENTS)
         if not is_special_version and agent_tools_version is None:
             raise ValueError(
                 f"For agent builds with explicit version '{version}', --agent-tools-version must also be provided."
