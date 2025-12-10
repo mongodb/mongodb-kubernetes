@@ -28,10 +28,9 @@ var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
 
 // Environment variables used to configure the MongoDB StatefulSet.
 const (
-	MongodbRepoUrlEnv   = "MONGODB_REPO_URL"
-	MongodbImageEnv     = "MONGODB_IMAGE"
-	MongoDBImageTypeEnv = "MDB_IMAGE_TYPE"
-	AgentImageEnv       = "AGENT_IMAGE"
+	MongodbRepoUrlEnv = "MONGODB_REPO_URL"
+	MongodbImageEnv   = "MONGODB_IMAGE"
+	AgentImageEnv     = "AGENT_IMAGE"
 )
 
 // MCO only

@@ -129,7 +129,6 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
-				t.Setenv(construct.MongoDBImageTypeEnv, "ubi8")
 				t.Setenv(construct.MongodbImageEnv, util.DeprecatedImageAppdbUbiUrl)
 				t.Setenv(construct.MongodbRepoUrlEnv, construct.OfficialMongodbRepoUrls[1])
 			},
@@ -141,7 +140,6 @@ func TestGetAppDBImage(t *testing.T) {
 			setupEnvs: func(t *testing.T) {
 				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
 				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ent", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent")
-				t.Setenv(construct.MongoDBImageTypeEnv, "ubi8")
 				t.Setenv(construct.MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
 				t.Setenv(construct.MongodbRepoUrlEnv, construct.OfficialMongodbRepoUrls[1])
 			},

@@ -197,12 +197,6 @@ spec:
               value: {{ .Values.mongodb.name }}
             - name: MONGODB_REPO_URL
               value: {{ .Values.mongodb.repo }}
-            - name: MDB_IMAGE_TYPE
-              {{- if eq .Values.operator.mdbDefaultArchitecture "static" }}
-              value: "ubi9"
-              {{- else }}
-              value: {{ .Values.mongodb.imageType }}
-              {{- end }}
     {{- if eq .Values.mongodb.appdbAssumeOldFormat true }}
             - name: MDB_APPDB_ASSUME_OLD_FORMAT
               value: 'true'
