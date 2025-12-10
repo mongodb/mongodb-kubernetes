@@ -958,12 +958,9 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	}
 
 	// Set annotation and state for previously configured roles
-	roleAnnotation, roleStrings, err := r.commonController.getRoleAnnotation(ctx, r.sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(r.sc))
+	_, roleStrings, err := r.commonController.getRoleAnnotation(ctx, r.sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(r.sc))
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
-	}
-	for k, val := range roleAnnotation {
-		annotationsToAdd[k] = val
 	}
 	r.deploymentState.LastConfiguredRoles = roleStrings
 

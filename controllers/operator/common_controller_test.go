@@ -528,6 +528,95 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 	}
 }
 
+func TestMergeRoles(t *testing.T) {
+	externalRole := mdbv1.MongoDBRole{
+		Role: "ext_role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+	role1 := mdbv1.MongoDBRole{
+		Role: "role1",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "readWrite",
+		}},
+	}
+
+	role2 := mdbv1.MongoDBRole{
+		Role: "role2",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "readWrite",
+		}},
+	}
+
+	tests := []struct {
+		name          string
+		deployedRoles []mdbv1.MongoDBRole
+		currentRoles  []mdbv1.MongoDBRole
+		previousRoles []string
+		expectedRoles []mdbv1.MongoDBRole
+	}{
+		// externalRole was added via UI
+		// role1 and role2 were defined in the CR
+		// role2 was removed from the CR
+		{
+			name:          "Removing role from resource",
+			deployedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+			currentRoles:  []mdbv1.MongoDBRole{role1},
+			previousRoles: []string{"role1@admin", "role2@admin"},
+			expectedRoles: []mdbv1.MongoDBRole{externalRole, role1},
+		},
+		// externalRole was added via UI
+		// role1 was defined in the CR
+		// role2 was added in the CR
+		{
+			name:          "Adding role in resource",
+			deployedRoles: []mdbv1.MongoDBRole{externalRole, role1},
+			currentRoles:  []mdbv1.MongoDBRole{role1, role2},
+			previousRoles: []string{"role1@admin"},
+			expectedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+		},
+		{
+			name:          "Idempotency",
+			deployedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+			currentRoles:  []mdbv1.MongoDBRole{role1, role2},
+			previousRoles: []string{"role1@admin", "role2@admin"},
+			expectedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+		},
+		{
+			name:          "Nil previous roles - adding all defined roles",
+			deployedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+			currentRoles:  []mdbv1.MongoDBRole{role1, role2},
+			previousRoles: nil,
+			expectedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+		},
+		{
+			name:          "Nil current roles - removing all defined roles",
+			deployedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+			currentRoles:  nil,
+			previousRoles: []string{"role1@admin", "role2@admin"},
+			expectedRoles: []mdbv1.MongoDBRole{externalRole},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mergedRoles := mergeRoles(tc.deployedRoles, tc.currentRoles, tc.previousRoles)
+
+			require.Len(t, mergedRoles, len(tc.expectedRoles))
+			for _, r := range tc.expectedRoles {
+				assert.Contains(t, mergedRoles, r)
+			}
+		})
+	}
+}
+
 func TestExternalRoleIsNotRemoved(t *testing.T) {
 	ctx := context.Background()
 
@@ -562,6 +651,10 @@ func TestExternalRoleIsNotRemoved(t *testing.T) {
 	}
 	mockOm.AddRole(externalRole)
 
+	// Ensure external role is added
+	roles = mockOm.GetRoles()
+	require.Len(t, roles, 2)
+
 	// Reconcile again - role created from the UI should still be there
 	roleStrings, _ := controller.getRoleStrings(ctx, rs.Spec.DbCommonSpec, true, kube.ObjectKeyFromApiObject(rs))
 	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), roleStrings, zap.S())
@@ -570,7 +663,7 @@ func TestExternalRoleIsNotRemoved(t *testing.T) {
 	require.Len(t, roles, 2)
 
 	// Delete embedded role, only the external should remain
-	rs = DefaultReplicaSetBuilder().Build()
+	rs.Spec.Security.Roles = nil
 	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), roleStrings, zap.S())
 
 	roles = mockOm.GetRoles()
