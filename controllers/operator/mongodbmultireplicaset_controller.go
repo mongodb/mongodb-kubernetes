@@ -140,6 +140,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcileResult, err
 	}
 
+	if val, ok := mrs.Annotations[util.DisableReconciliation]; ok && val == util.DisableReconciliationValue {
+		log.Info("Reconciliation disabled")
+		return r.updateStatus(ctx, &mrs, workflow.Disabled(), log)
+	}
+
 	if !architectures.IsRunningStaticArchitecture(mrs.Annotations) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), true)
 	}
