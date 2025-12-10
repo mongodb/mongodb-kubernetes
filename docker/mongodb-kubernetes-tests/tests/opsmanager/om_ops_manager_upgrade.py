@@ -278,7 +278,7 @@ class TestOpsManagerVersionUpgrade:
     agent_version = None
 
     def test_agent_version(self, mdb: MongoDB):
-        if is_default_architecture_static:
+        if is_default_architecture_static():
             # Containers will not call the upgrade endpoint. Therefore, agent_version is not part of AC
             pod = client.CoreV1Api().read_namespaced_pod(mdb.name + "-0", mdb.namespace)
             image_tag = pod.spec.containers[0].image.split(":")[-1]
