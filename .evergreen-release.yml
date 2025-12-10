@@ -163,9 +163,9 @@ buildvariants:
     run_on:
       - ubuntu2404-small
     allowed_requesters: ["patch", "github_tag"]
-    # depends_on:
-    #   - name: "*"
-    #     variant: release_images
+    depends_on:
+      - name: "*"
+        variant: release_images
     tasks:
       - name: add_releaseinfo_to_github_assets
 
