@@ -1,0 +1,70 @@
+# yamllint configuration
+# See: https://yamllint.readthedocs.io/en/stable/configuration.html
+
+extends: default
+
+# Ignore helm templates (they contain Go template syntax) and vendored code
+ignore: |
+  helm_chart/templates/
+  docker/cluster-cleaner/templates/
+  vendor/
+  docker/mongodb-kubernetes-tests/vendor/
+  scripts/evergreen/deployments/multi-cluster-roles/templates/
+  scripts/evergreen/deployments/test-app/templates/
+
+rules:
+  # Disable brackets check - existing code has varied spacing
+  brackets: disable
+
+  # Disable braces check - existing code has varied spacing
+  braces: disable
+
+  # Colons
+  colons:
+    max-spaces-before: 0
+    max-spaces-after: 1
+
+  # Disable commas check - existing code has varied spacing
+  commas: disable
+
+  # Disable comments check - existing code has varied comment styles
+  comments: disable
+  comments-indentation: disable
+
+  # Document markers
+  document-end: disable
+  document-start: disable
+
+  # Empty lines
+  empty-lines:
+    max: 2
+    max-start: 0
+    max-end: 0
+
+  # Hyphens
+  hyphens:
+    max-spaces-after: 1
+
+  # Disable indentation check - existing code has varied styles
+  indentation: disable
+
+  # Key duplicates - keep this enabled as it catches real issues
+  key-duplicates: enable
+
+  # Line length - disable as some YAML files have long lines
+  line-length: disable
+
+  # New line at end of file
+  new-line-at-end-of-file: enable
+
+  # New lines
+  new-lines:
+    type: unix
+
+  # Trailing spaces
+  trailing-spaces: enable
+
+  # Truthy values - set as warning for flexibility
+  truthy:
+    level: warning
+    allowed-values: ['true', 'false', 'yes', 'no', 'on', 'off']

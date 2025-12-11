@@ -5,9 +5,26 @@ set -Eeou pipefail
 initial_index_state=$(git diff --name-only --cached --diff-filter=AM)
 
 export EVERGREEN_MODE=true
+# CI always runs with license updates enabled
+export MDB_UPDATE_LICENSES=true
 
-.githooks/pre-commit
-echo "Pre-commit hook has completed."
+# shellcheck disable=SC1091
+source scripts/dev/set_env_context.sh
+
+if [[ -f "${PROJECT_DIR}/venv/bin/activate" ]]; then
+  echo "Activating venv..."
+  # shellcheck disable=SC1091
+  source "${PROJECT_DIR}/venv/bin/activate"
+fi
+
+echo "Running pre-commit hooks..."
+echo "pre-commit version: $(pre-commit --version)"
+
+# Run pre-commit with verbose output
+# --show-diff-on-failure shows what changed when hooks modify files
+pre-commit run --all-files --show-diff-on-failure --verbose
+
+echo "Pre-commit hook has completed successfully."
 
 # Stage any changes made by the pre-commit hook
 git add -u

@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 
 import os
+import subprocess
 import sys
 from collections import defaultdict
+
+
+def is_gitignored(path):
+    """Check if a path is gitignored."""
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", path],
+        capture_output=True,
+    )
+    return result.returncode == 0
 
 
 def find_snippet_directories():
@@ -11,6 +21,10 @@ def find_snippet_directories():
 
     # Traverse current directory recursively to find test.sh files
     for root, dirs, files in os.walk("."):
+        if is_gitignored(root):
+            dirs.clear()  # Don't descend into gitignored directories
+            continue
+
         if "test.sh" in files:
             # Check if this directory also has a code_snippets subdirectory
             code_snippets_path = os.path.join(root, "code_snippets")
@@ -63,6 +77,4 @@ def verify_snippets_files_are_unique():
 
 if __name__ == "__main__":
     checks = [verify_snippets_files_are_unique()]
-
-    # Exit 0 if all checks pass, 1 if any fail
     sys.exit(0 if all(checks) else 1)

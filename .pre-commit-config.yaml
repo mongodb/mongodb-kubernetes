@@ -1,0 +1,246 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+#
+# Installation:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Run manually:
+#   pre-commit run --all-files
+#
+# Update hooks to latest versions:
+#   pre-commit autoupdate
+
+repos:
+  # =============================================================================
+  # Generation hooks (run FIRST so formatters can clean up generated files)
+  # =============================================================================
+  - repo: local
+    hooks:
+      - id: generate-manifests
+        name: Generate CRD manifests
+        entry: scripts/dev/generate_files.sh generate_manifests
+        language: script
+        files: ^api/.*\.go$
+        pass_filenames: false
+
+      - id: update-release-json
+        name: Update release.json
+        entry: scripts/dev/generate_files.sh update_release
+        language: script
+        files: (release\.json|scripts/evergreen/release/)
+        pass_filenames: false
+
+      - id: update-values-yaml
+        name: Update Helm values files
+        entry: scripts/dev/generate_files.sh update_values
+        language: script
+        files: ^helm_chart/values.*\.yaml$
+        pass_filenames: false
+
+      - id: generate-standalone-yaml
+        name: Generate standalone YAML files
+        entry: scripts/dev/generate_files.sh generate_standalone_yaml
+        language: script
+        files: ^helm_chart/
+        pass_filenames: false
+
+      - id: regenerate-mco-tests
+        name: Regenerate MCO evergreen tests
+        entry: scripts/dev/generate_files.sh update_mco_tests
+        language: script
+        files: ^scripts/evergreen/e2e/mco/
+        pass_filenames: false
+
+      - id: regenerate-multicluster-rbac
+        name: Regenerate multi-cluster RBAC samples
+        entry: scripts/dev/regenerate_multicluster_rbac.sh
+        language: script
+        files: ^(cmd/kubectl-mongodb|pkg/kubectl-mongodb)/
+        pass_filenames: false
+
+      - id: update-licenses
+        name: Update third-party licenses
+        entry: scripts/dev/generate_files.sh update_licenses
+        language: script
+        files: (go\.mod|go\.sum)$
+        pass_filenames: false
+
+  # =============================================================================
+  # Standard pre-commit hooks (run AFTER generation to clean up generated files)
+  # =============================================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+        exclude: |
+          (?x)^(
+            vendor/|
+            docker/mongodb-kubernetes-tests/vendor/
+          )
+      - id: end-of-file-fixer
+        exclude: |
+          (?x)^(
+            vendor/|
+            docker/mongodb-kubernetes-tests/vendor/
+          )
+      - id: check-yaml
+        args: [--allow-multiple-documents, --unsafe]
+        exclude: |
+          (?x)^(
+            helm_chart/templates/|
+            docker/cluster-cleaner/templates/|
+            vendor/|
+            docker/mongodb-kubernetes-tests/vendor/|
+            public/samples/|
+            scripts/evergreen/deployments/multi-cluster-roles/templates/|
+            scripts/evergreen/deployments/test-app/templates/
+          )
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: check-merge-conflict
+      - id: detect-private-key
+        exclude: |
+          (?x)^(
+            controllers/operator/testdata/certificates/|
+            controllers/operator/certs/|
+            controllers/operator/pem/|
+            docker/mongodb-kubernetes-tests/tests/.*/fixtures/|
+            docker/mongodb-community-tests/testdata/|
+            pkg/util/testdata/
+          )
+      - id: check-json
+        exclude: |
+          (?x)^(
+            vendor/|
+            docker/mongodb-kubernetes-tests/vendor/
+          )
+      - id: check-toml
+
+  # =============================================================================
+  # YAML Linting
+  # =============================================================================
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: [-c, .yamllint.yaml]
+
+  # =============================================================================
+  # Python formatting
+  # =============================================================================
+  - repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+      - id: black
+        exclude: |
+          (?x)^(
+            vendor/|
+            docker/mongodb-kubernetes-tests/vendor/
+          )
+
+  - repo: https://github.com/pycqa/isort
+    rev: 6.0.1
+    hooks:
+      - id: isort
+        exclude: |
+          (?x)^(
+            vendor/|
+            docker/mongodb-kubernetes-tests/vendor/
+          )
+
+  # =============================================================================
+  # Shell script linting
+  # =============================================================================
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args:
+          - -e
+          - SC2154  # var is referenced but not assigned
+          - -e
+          - SC1091  # not following sourced file
+          - -e
+          - SC1090  # can't follow non-constant source
+          - -e
+          - SC2148  # shebang not specified
+          - -e
+          - SC2250  # prefer ${var} over $var
+          - -e
+          - SC2086  # double quote to prevent globbing
+          - -o
+          - require-variable-braces
+          - -P
+          - scripts
+        files: \.(sh|bash)$|^scripts/funcs/|^scripts/dev/contexts/(?!private-context)
+        exclude: |
+          (?x)^(
+            vendor/|
+            docker/mongodb-kubernetes-tests/vendor/
+          )
+
+  # =============================================================================
+  # Local/custom linting hooks
+  # =============================================================================
+  - repo: local
+    hooks:
+      - id: golangci-lint
+        name: Go linting
+        entry: scripts/evergreen/lint_code.sh
+        language: script
+        types: [go]
+        pass_filenames: false
+        require_serial: true
+
+      - id: check-kubebuilder-annotations
+        name: Check erroneous kubebuilder annotations
+        entry: bash
+        args:
+          - -c
+          - |
+            if grep -r "// kubebuilder" --include="*.go" --exclude-dir=vendor .; then
+              echo "Found erroneous kubebuilder annotation (should be //+kubebuilder)"
+              exit 1
+            fi
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: check-makefile-brackets
+        name: Check Makefile variable brackets
+        entry: bash
+        args:
+          - -c
+          - |
+            # Check for curly bracket variables in Makefiles (should use parentheses)
+            # Exclude vendor directory
+            result=$(find . -name "Makefile" ! -path "./vendor/*" -exec grep -l '[$][{]' {} \; 2>/dev/null || true)
+            if [ -n "$result" ]; then
+              echo "ERROR: Makefiles should NEVER contain curly bracket variables"
+              echo "Found in: $result"
+              exit 1
+            fi
+        language: system
+        files: Makefile$
+        pass_filenames: false
+
+      - id: validate-snippets
+        name: Validate code snippets
+        entry: scripts/code_snippets/validate_snippets.py
+        language: python
+        pass_filenames: false
+
+      - id: helm-lint
+        name: Lint Helm chart
+        entry: scripts/dev/lint_helm_chart.sh
+        language: script
+        files: ^helm_chart/
+        pass_filenames: false
+
+# CI mode settings (set via environment variable PRE_COMMIT_FROM_REF/PRE_COMMIT_TO_REF)
+# In CI, pre-commit will check all files: pre-commit run --all-files
+ci:
+  autofix_prs: false
+  autoupdate_schedule: monthly

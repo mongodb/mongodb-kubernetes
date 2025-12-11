@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
+# shellcheck disable=SC1091
+source scripts/dev/set_env_context.sh
+
 # Set required version
 required_version="v2.0.2"
 

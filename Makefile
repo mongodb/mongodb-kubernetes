@@ -57,10 +57,12 @@ prerequisites:
 	@ scripts/dev/install.sh
 
 precommit:
-	@ .githooks/pre-commit
+	@ command -v pre-commit >/dev/null 2>&1 || pip install pre-commit
+	@ pre-commit run --all-files
 
 precommit-with-licenses:
-	@ MDB_UPDATE_LICENSES=true .githooks/pre-commit
+	@ command -v pre-commit >/dev/null 2>&1 || pip install pre-commit
+	@ MDB_UPDATE_LICENSES=true pre-commit run --all-files
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
