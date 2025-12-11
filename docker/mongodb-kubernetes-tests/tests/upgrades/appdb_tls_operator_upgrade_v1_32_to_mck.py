@@ -161,8 +161,11 @@ def test_upgrade_operator(
 @mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_om_tls_ok(ops_manager_tls: MongoDBOpsManager):
     ops_manager_tls.load()
-    ops_manager_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900, persist_for=3)
-    ops_manager_tls.om_status().assert_reaches_phase(Phase.Running, timeout=900, persist_for=3)
+    # We use assert_persist_phase here to ensure that the status stays in Running phase for some time,
+    # to avoid false positives due to a transient Running state before starting reconciliation of OM.
+    # TODO: Revert after fixing root issue (https://jira.mongodb.org/browse/CLOUDP-364841)
+    ops_manager_tls.appdb_status().assert_persist_phase(Phase.Running, timeout=900, persist_for=3)
+    ops_manager_tls.om_status().assert_persist_phase(Phase.Running, timeout=900, persist_for=3)
     ops_manager_tls.get_om_tester().assert_healthiness()
 
 

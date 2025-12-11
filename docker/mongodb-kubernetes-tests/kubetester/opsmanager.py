@@ -1017,7 +1017,41 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return self["spec"].get("topology", "") == "MultiCluster"
 
     class StatusCommon:
-        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False, persist_for=1):
+        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
+            intermediate_events = (
+                # This can be an intermediate error, right before we check for this secret we create it.
+                # The cluster might just be slow
+                "failed to locate the api key secret",
+                # etcd might be slow
+                "etcdserver: request timed out",
+            )
+
+            start_time = time.time()
+            self.ops_manager.wait_for(
+                lambda s: in_desired_state(
+                    current_state=self.get_phase(),
+                    desired_state=phase,
+                    current_generation=self.ops_manager.get_generation(),
+                    observed_generation=self.get_observed_generation(),
+                    current_message=self.get_message(),
+                    msg_regexp=msg_regexp,
+                    ignore_errors=ignore_errors,
+                    intermediate_events=intermediate_events,
+                ),
+                timeout,
+                should_raise=True,
+            )
+            end_time = time.time()
+            span = trace.get_current_span()
+            span.set_attribute("mck.resource", self.__class__.__name__)
+            span.set_attribute("mck.action", "assert_phase")
+            span.set_attribute("mck.desired_phase", phase.name)
+            span.set_attribute("mck.time_needed", end_time - start_time)
+            logger.debug(
+                f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
+            )
+
+        def assert_persist_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False, persist_for=3):
             intermediate_events = (
                 # This can be an intermediate error, right before we check for this secret we create it.
                 # The cluster might just be slow
@@ -1049,7 +1083,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             span.set_attribute("mck.desired_phase", phase.name)
             span.set_attribute("mck.time_needed", end_time - start_time)
             logger.debug(
-                f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
+                f"Persist phase {phase.name} ({persist_for} retries) for resource {self.__class__.__name__} took {end_time - start_time}s"
             )
 
         def assert_abandons_phase(self, phase: Phase, timeout=None):
@@ -1105,8 +1139,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         def assert_abandons_phase(self, phase: Phase, timeout=400):
             super().assert_abandons_phase(phase, timeout)
 
-        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=1000, ignore_errors=False, persist_for=1):
-            super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors, persist_for=persist_for)
+        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=1000, ignore_errors=False):
+            super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors)
+
+        def assert_persist_phase(self, phase: Phase, msg_regexp=None, timeout=1000, ignore_errors=False, persist_for=1):
+            super().assert_persist_phase(phase, msg_regexp, timeout, ignore_errors, persist_for=persist_for)
 
         def get_phase(self) -> Optional[Phase]:
             try:
@@ -1151,8 +1188,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         def assert_abandons_phase(self, phase: Phase, timeout=400):
             super().assert_abandons_phase(phase, timeout)
 
-        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=1200, ignore_errors=False, persist_for=1):
-            super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors, persist_for=persist_for)
+        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=1200, ignore_errors=False):
+            super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors)
+
+        def assert_persist_phase(self, phase: Phase, msg_regexp=None, timeout=1200, ignore_errors=False, persist_for=1):
+            super().assert_persist_phase(phase, msg_regexp, timeout, ignore_errors, persist_for=persist_for)
 
         def get_phase(self) -> Optional[Phase]:
             try:
