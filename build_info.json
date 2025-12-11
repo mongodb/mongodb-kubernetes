@@ -3,7 +3,7 @@
     "operator": {
       "dockerfile-path": "docker/mongodb-kubernetes-operator/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
         "platforms": [
           "linux/amd64"
         ]
@@ -11,7 +11,7 @@
       "staging": {
         "sign": true,
         "latest-tag": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes",
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -23,7 +23,7 @@
         "sign": true,
         "olm-tag": true,
         "skip-if-exists": true,
-        "repositories": ["quay.io/mongodb/mongodb-kubernetes"],
+        "repository": "quay.io/mongodb/mongodb-kubernetes",
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -35,14 +35,14 @@
     "operator-race": {
       "dockerfile-path": "docker/mongodb-kubernetes-operator/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
         "platforms": [
           "linux/amd64"
         ]
       },
       "staging": {
         "sign": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes",
         "platforms": [
           "linux/amd64"
         ]
@@ -51,7 +51,7 @@
     "init-database": {
       "dockerfile-path": "docker/mongodb-kubernetes-init-database/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
         "platforms": [
           "linux/amd64"
         ]
@@ -59,7 +59,7 @@
       "staging": {
         "sign": true,
         "latest-tag": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-database"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-database",
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -71,7 +71,7 @@
         "sign": true,
         "olm-tag": true,
         "skip-if-exists": true,
-        "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-database"],
+        "repository": "quay.io/mongodb/mongodb-kubernetes-init-database",
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -83,7 +83,7 @@
     "init-appdb": {
       "dockerfile-path": "docker/mongodb-kubernetes-init-appdb/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb",
         "platforms": [
           "linux/amd64"
         ]
@@ -91,7 +91,7 @@
       "staging": {
         "sign": true,
         "latest-tag": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-appdb"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-appdb",
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -103,7 +103,7 @@
         "sign": true,
         "olm-tag": true,
         "skip-if-exists": true,
-        "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-appdb"],
+        "repository": "quay.io/mongodb/mongodb-kubernetes-init-appdb",
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -115,7 +115,7 @@
     "init-ops-manager": {
       "dockerfile-path": "docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
         "platforms": [
           "linux/amd64"
         ]
@@ -123,7 +123,7 @@
       "staging": {
         "sign": true,
         "latest-tag": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager",
         "platforms": [
           "linux/amd64"
         ]
@@ -132,7 +132,7 @@
         "sign": true,
         "olm-tag": true,
         "skip-if-exists": true,
-        "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-ops-manager"],
+        "repository": "quay.io/mongodb/mongodb-kubernetes-init-ops-manager",
         "platforms": [
           "linux/amd64"
         ]
@@ -141,7 +141,7 @@
     "database": {
       "dockerfile-path": "docker/mongodb-kubernetes-database/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database",
         "platforms": [
           "linux/amd64"
         ]
@@ -149,7 +149,7 @@
       "staging": {
         "sign": true,
         "latest-tag": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-database"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-database",
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -161,7 +161,7 @@
         "sign": true,
         "olm-tag": true,
         "skip-if-exists": true,
-        "repositories": ["quay.io/mongodb/mongodb-kubernetes-database"],
+        "repository": "quay.io/mongodb/mongodb-kubernetes-database",
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -173,19 +173,19 @@
     "meko-tests": {
       "dockerfile-path": "docker/mongodb-kubernetes-tests/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests",
         "platforms": [
           "linux/amd64"
         ]
       },
       "staging": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
         "platforms": [
           "linux/amd64"
         ]
       },
       "release": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
         "platforms": [
           "linux/amd64"
         ]
@@ -194,27 +194,21 @@
     "meko-tests-arm64": {
       "dockerfile-path": "docker/mongodb-kubernetes-tests/Dockerfile",
       "patch": {
-        "repositories": [
-          "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"
-        ],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests",
         "platforms": [
           "linux/arm64"
         ],
         "architecture_suffix": true
       },
       "staging": {
-        "repositories": [
-          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
-        ],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
         "platforms": [
           "linux/arm64"
         ],
         "architecture_suffix": true
       },
       "release": {
-        "repositories": [
-          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
-        ],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
         "platforms": [
           "linux/arm64"
         ],
@@ -225,27 +219,21 @@
       "dockerfile-path": "docker/mongodb-kubernetes-tests/Dockerfile",
       "builder": "podman",
       "patch": {
-        "repositories": [
-          "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"
-        ],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests",
         "platforms": [
           "linux/s390x"
         ],
         "architecture_suffix": true
       },
       "staging": {
-        "repositories": [
-          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
-        ],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
         "platforms": [
           "linux/s390x"
         ],
         "architecture_suffix": true
       },
       "release": {
-        "repositories": [
-          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
-        ],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
         "platforms": [
           "linux/s390x"
         ],
@@ -256,27 +244,21 @@
       "dockerfile-path": "docker/mongodb-kubernetes-tests/Dockerfile",
       "builder": "podman",
       "patch": {
-        "repositories": [
-          "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"
-        ],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests",
         "platforms": [
           "linux/ppc64le"
         ],
         "architecture_suffix": true
       },
       "staging": {
-        "repositories": [
-          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
-        ],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
         "platforms": [
           "linux/ppc64le"
         ],
         "architecture_suffix": true
       },
       "release": {
-        "repositories": [
-          "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"
-        ],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
         "platforms": [
           "linux/ppc64le"
         ],
@@ -286,13 +268,13 @@
     "mco-tests": {
       "dockerfile-path": "docker/mongodb-community-tests/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-community-tests"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-community-tests",
         "platforms": [
           "linux/amd64"
         ]
       },
       "staging": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-community-tests"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-community-tests",
         "platforms": [
           "linux/amd64"
         ]
@@ -301,7 +283,7 @@
     "readiness-probe": {
       "dockerfile-path": "docker/mongodb-kubernetes-readinessprobe/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe",
         "platforms": [
           "linux/amd64"
         ]
@@ -309,7 +291,7 @@
       "staging": {
         "sign": true,
         "latest-tag": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-readinessprobe"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-readinessprobe",
         "platforms": [
           "linux/arm64",
           "linux/amd64"
@@ -319,9 +301,7 @@
         "sign": true,
         "olm-tag": true,
         "skip-if-exists": true,
-        "repositories": [
-          "quay.io/mongodb/mongodb-kubernetes-readinessprobe"
-        ],
+        "repository": "quay.io/mongodb/mongodb-kubernetes-readinessprobe",
         "platforms": [
           "linux/arm64",
           "linux/amd64"
@@ -331,7 +311,7 @@
     "upgrade-hook": {
       "dockerfile-path": "docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
         "platforms": [
           "linux/amd64"
         ]
@@ -339,7 +319,7 @@
       "staging": {
         "sign": true,
         "latest-tag": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
         "platforms": [
           "linux/arm64",
           "linux/amd64"
@@ -349,7 +329,7 @@
         "sign": true,
         "olm-tag": true,
         "skip-if-exists": true,
-        "repositories": ["quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
+        "repository": "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
         "platforms": [
           "linux/arm64",
           "linux/amd64"
@@ -360,7 +340,7 @@
       "dockerfile-path": "docker/mongodb-agent/Dockerfile",
       "patch": {
         "skip-if-exists": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent",
         "platforms": [
           "linux/amd64"
         ]
@@ -368,7 +348,7 @@
       "staging": {
         "sign": true,
         "skip-if-exists": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent",
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -380,7 +360,8 @@
         "sign": true,
         "olm-tag": true,
         "skip-if-exists": true,
-        "repositories": ["quay.io/mongodb/mongodb-agent-ubi", "quay.io/mongodb/mongodb-agent"],
+        "repository": "quay.io/mongodb/mongodb-agent",
+        "secondary-repositories": ["quay.io/mongodb/mongodb-agent-ubi"],
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -393,7 +374,7 @@
       "dockerfile-path": "docker/mongodb-enterprise-ops-manager/Dockerfile",
       "patch": {
         "skip-if-exists": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi",
         "platforms": [
           "linux/amd64"
         ]
@@ -401,7 +382,7 @@
       "staging": {
         "sign": true,
         "skip-if-exists": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi"],
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi",
         "platforms": [
           "linux/amd64"
         ]
@@ -410,7 +391,7 @@
         "sign": true,
         "olm-tag": true,
         "skip-if-exists": true,
-        "repositories": ["quay.io/mongodb/mongodb-enterprise-ops-manager-ubi"],
+        "repository": "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi",
         "platforms": [
           "linux/amd64"
         ]

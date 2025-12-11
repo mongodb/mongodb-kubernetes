@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict
 
 from scripts.release.build.build_scenario import BuildScenario
 
@@ -28,7 +28,7 @@ BUILDER_PODMAN = "podman"
 
 @dataclass
 class ImageInfo:
-    repositories: List[str]
+    repository: str
     platforms: list[str]
     dockerfile_path: str
     builder: str = BUILDER_DOCKER
@@ -37,6 +37,7 @@ class ImageInfo:
     olm_tag: bool = False
     skip_if_exists: bool = False
     architecture_suffix: bool = False
+    secondary_repositories: list[str] = None
 
 
 @dataclass
@@ -86,7 +87,8 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
             continue
 
         images[name] = ImageInfo(
-            repositories=scenario_data["repositories"],
+            repository=scenario_data["repository"],
+            secondary_repositories=scenario_data.get("secondary-repositories"),
             platforms=scenario_data["platforms"],
             dockerfile_path=data["dockerfile-path"],
             builder=data.get("builder", BUILDER_DOCKER),

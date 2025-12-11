@@ -16,6 +16,26 @@
   "search": {
     "version": "0.55.0"
   },
+  "latestOpsManagerAgentMapping": [
+    {
+      "6": {
+        "opsManagerVersion": "6.0.27",
+        "agentVersion": "12.0.35.7911-1"
+      }
+    },
+    {
+      "7": {
+        "opsManagerVersion": "7.0.19",
+        "agentVersion": "107.0.19.8805-1"
+      }
+    },
+    {
+      "8": {
+        "opsManagerVersion": "8.0.17",
+        "agentVersion": "108.0.16.8895-1"
+      }
+    }
+  ],
   "supportedImages": {
     "ops-manager": {
       "ssdlc_name": "MongoDB Controllers for Kubernetes Enterprise Ops Manager",
@@ -30,6 +50,7 @@
         "7.0.17",
         "7.0.18",
         "7.0.19",
+        "7.0.20",
         "8.0.0",
         "8.0.1",
         "8.0.2",
@@ -43,7 +64,8 @@
         "8.0.13",
         "8.0.14",
         "8.0.15",
-        "8.0.16"
+        "8.0.16",
+        "8.0.17"
       ],
       "variants": [
         "ubi"
@@ -98,7 +120,7 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.43.0.9995-1",
+        "cloud_manager": "13.44.0.10034-1",
         "cloud_manager_tools": "100.13.0",
         "ops_manager": {
           "6.0.27": {
@@ -131,6 +153,10 @@
           },
           "7.0.19": {
             "agent_version": "107.0.19.8805-1",
+            "tools_version": "100.13.0"
+          },
+          "7.0.20": {
+            "agent_version": "107.0.20.8807-1",
             "tools_version": "100.13.0"
           },
           "8.0.1": {
@@ -182,6 +208,10 @@
             "tools_version": "100.13.0"
           },
           "8.0.16": {
+            "agent_version": "108.0.16.8895-1",
+            "tools_version": "100.13.0"
+          },
+          "8.0.17": {
             "agent_version": "108.0.16.8895-1",
             "tools_version": "100.13.0"
           }

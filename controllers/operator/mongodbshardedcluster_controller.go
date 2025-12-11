@@ -109,6 +109,7 @@ func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, 
 type ShardedClusterDeploymentState struct {
 	CommonDeploymentState `json:",inline"`
 	LastAchievedSpec      *mdbv1.MongoDbSpec   `json:"lastAchievedSpec"`
+	LastConfiguredRoles   []string             `json:"lastConfiguredRoles"`
 	Status                *mdbv1.MongoDbStatus `json:"status"`
 }
 
@@ -131,6 +132,7 @@ func NewShardedClusterDeploymentState() *ShardedClusterDeploymentState {
 	return &ShardedClusterDeploymentState{
 		CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{}},
 		LastAchievedSpec:      &mdbv1.MongoDbSpec{},
+		LastConfiguredRoles:   []string{},
 		Status:                &mdbv1.MongoDbStatus{},
 	}
 }
@@ -762,7 +764,7 @@ func blockScalingBothWays(desiredReplicasScalers []interfaces.MultiClusterReplic
 func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context, reconciler *ReconcileCommonController, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	r.deploymentState = NewShardedClusterDeploymentState()
 
-	r.stateStore = NewStateStore[ShardedClusterDeploymentState](sc, reconciler.client)
+	r.stateStore = NewStateStore[ShardedClusterDeploymentState](sc, kube.BaseOwnerReference(sc), reconciler.client)
 	if state, err := r.stateStore.ReadState(ctx); err != nil {
 		if errors.IsNotFound(err) {
 			// If the deployment state config map is missing, then it might be either:
@@ -954,6 +956,14 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 			annotationsToAdd[k] = val
 		}
 	}
+
+	// Set annotation and state for previously configured roles
+	_, roleStrings, err := r.commonController.getRoleAnnotation(ctx, r.sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(r.sc))
+	if err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+	r.deploymentState.LastConfiguredRoles = roleStrings
+
 	// Set annotations that should be saved at the end of the reconciliation, e.g lastAchievedSpec
 	if err := annotations.SetAnnotations(ctx, sc, annotationsToAdd, r.commonController.client); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
@@ -1059,7 +1069,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		}
 	}
 
-	if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(sc), log); !workflowStatus.IsOK() {
+	if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(sc), r.deploymentState.LastConfiguredRoles, log); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
 
@@ -1547,13 +1557,19 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 		errs = multierror.Append(errs, err)
 	}
 
-	for _, item := range getHealthyMemberClusters(r.allMemberClusters) {
-		clusterClient := item.Client
-		clusterName := item.Name
-		if err := r.commonController.deleteClusterResources(ctx, clusterClient, clusterName, sc, log); err != nil {
-			errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+	// Delete resources explicitly only in multi-cluster mode where we can't set owner references cross cluster.
+	// In single-cluster deployments, OwnerReferences handle cleanup automatically via Kubernetes garbage collection.
+	if sc.Spec.IsMultiCluster() {
+		for _, item := range getHealthyMemberClusters(r.allMemberClusters) {
+			clusterClient := item.Client
+			clusterName := item.Name
+			if err := r.commonController.deleteClusterResources(ctx, clusterClient, clusterName, sc, log); err != nil {
+				errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+			}
 		}
 	}
+
+	r.commonController.resourceWatcher.RemoveDependentWatchedResources(sc.ObjectKey())
 
 	return errs
 }

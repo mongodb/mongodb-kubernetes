@@ -1,6 +1,7 @@
 package authentication
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -20,7 +22,7 @@ func (o *oidcAuthMechanism) GetName() MechanismName {
 	return MongoDBOIDC
 }
 
-func (o *oidcAuthMechanism) EnableAgentAuthentication(_ om.Connection, _ Options, _ *zap.SugaredLogger) error {
+func (o *oidcAuthMechanism) EnableAgentAuthentication(_ context.Context, _ kubernetesClient.Client, _ om.Connection, _ Options, _ *zap.SugaredLogger) error {
 	return xerrors.Errorf("OIDC agent authentication is not supported")
 }
 

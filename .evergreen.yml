@@ -13,9 +13,9 @@ include:
 variables:
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_70_latest 7.0.19 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_70_latest 7.0.20 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.16 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.17 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -287,19 +287,21 @@ tasks:
     commands:
       - func: lint_repo
 
-  # pct only triggers this variant once a new agent image is out
-  - name: release_agent
-    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
-    allowed_requesters: [ "patch", "github_pr" ]
+  # Runs on every merge - detects release.json changes and releases appropriate images
+  - name: release_om_and_agents
+    allowed_requesters: [ "patch" , "commit"]
     commands:
       - func: clone
+      - func: python_venv
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
-        vars:
-          image_name: agent
-          build_scenario: release
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: scripts/dev/run_python.sh
+          args:
+            - scripts/release/release_om_and_agents.py
 
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new agent registry
@@ -343,8 +345,9 @@ tasks:
       - func: quay_login
       - func: pipeline
         vars:
+          agent_version: all
           image_name: agent
-          flags: "--parallel --all-agents --skip-if-exists=false"
+          flags: "--parallel --skip-if-exists=false"
 
   - name: rebuild_currently_used_agents
     # this enables us to run this manually (patch) and rebuild current agent versions to verify
@@ -356,8 +359,9 @@ tasks:
       - func: quay_login
       - func: pipeline
         vars:
+          agent_version: current
           image_name: agent
-          flags: "--parallel --current-agents --skip-if-exists=false"
+          flags: "--parallel --skip-if-exists=false"
 
   - name: build_kubectl_mongodb_plugin
     commands:
@@ -463,7 +467,8 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
-          flags: "--parallel --all-agents"
+          agent_version: all
+          flags: "--parallel"
 
   - name: build_init_database_image_ubi
     commands:
@@ -745,6 +750,15 @@ task_groups:
       - e2e_sharded_cluster_scram_sha_1_user_connectivity
       - e2e_sharded_cluster_scram_x509_ic_manual_certs
       - e2e_sharded_cluster_external_access
+      - e2e_replica_set_scram_sha_256_switch_project
+      - e2e_sharded_cluster_scram_sha_256_switch_project
+      - e2e_replica_set_scram_sha_1_switch_project
+      - e2e_sharded_cluster_scram_sha_1_switch_project
+      # TODO CLOUDP-349093 - Disabled these tests as they don't use the password secret, and project migrations aren't fully supported yet.
+      # e2e_sharded_cluster_x509_switch_project
+      # e2e_replica_set_x509_switch_project
+      # e2e_replica_set_ldap_switch_project
+      # e2e_sharded_cluster_ldap_switch_project
       # e2e_auth_transitions_task_group
       - e2e_replica_set_scram_sha_and_x509
       - e2e_replica_set_x509_to_scram_transition
@@ -1879,26 +1893,6 @@ buildvariants:
     tasks:
       - name: build_om_images
 
-    # It will be called by pct while bumping the agent cloud manager image
-  - name: release_agent
-    display_name: release_agent
-    tags: [ "manual_patch", "release_agent" ]
-    run_on:
-      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
-    depends_on:
-      - variant: init_test_run
-        name: build_agent_images_ubi # this ensures the agent gets released to ECR as well
-      - variant: e2e_multi_cluster_kind
-        name: '*'
-      - variant: e2e_static_multi_cluster_2_clusters
-        name: '*'
-      - variant: e2e_mdb_kind_ubi_cloudqa
-        name: '*'
-      - variant: e2e_static_mdb_kind_ubi_cloudqa
-        name: '*'
-    tasks:
-      - name: release_agent
-
     # Only called manually, It's used for testing the task release_agents in case the release.json
     # has not changed, and you still want to push the images to registry.
   - name: manual_release_all_agents
@@ -1970,3 +1964,13 @@ buildvariants:
       - ubuntu2404-large
     tasks:
       - name: migrate_all_agents
+
+  # Runs on every merge to master and releases images auxiliary to the operator release like OM and the Agent
+  - name: release_om_and_agents
+    display_name: release_om_and_agents
+    allowed_requesters: [ "patch" , "commit"]
+    run_on:
+      - release-ubuntu2404-small
+    patchable: false  # Only run on commit builds
+    tasks:
+      - name: release_om_and_agents

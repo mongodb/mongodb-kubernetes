@@ -37,6 +37,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -1362,7 +1363,7 @@ func TestMigrateToNewDeploymentState(t *testing.T) {
 	err = kubeClient.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: sc.Namespace}, stateConfigMap)
 	require.NoError(t, err)
 
-	expectedDeploymentState := generateExpectedDeploymentState(t, sc)
+	expectedDeploymentState := generateExpectedDeploymentState(ctx, t, sc, reconciler.ReconcileCommonController)
 	require.Contains(t, stateConfigMap.Data, stateKey)
 	require.JSONEq(t, expectedDeploymentState, stateConfigMap.Data[stateKey])
 
@@ -3861,14 +3862,16 @@ func getMultiClusterFQDN(stsName string, namespace string, clusterIdx int, podId
 	return fmt.Sprintf("%s-svc.%s.svc.%s", getPodName(stsName, clusterIdx, podIdx), namespace, clusterDomain)
 }
 
-func generateExpectedDeploymentState(t *testing.T, sc *mdbv1.MongoDB) string {
+func generateExpectedDeploymentState(ctx context.Context, t *testing.T, sc *mdbv1.MongoDB, r *ReconcileCommonController) string {
 	lastSpec, _ := sc.GetLastSpec()
+	lastConfiguredRoles, _ := r.getRoleStrings(ctx, sc.Spec.DbCommonSpec, true, kube.ObjectKeyFromApiObject(sc))
 	expectedState := ShardedClusterDeploymentState{
 		CommonDeploymentState: CommonDeploymentState{
 			ClusterMapping: map[string]int{},
 		},
-		LastAchievedSpec: lastSpec,
-		Status:           &sc.Status,
+		LastAchievedSpec:    lastSpec,
+		LastConfiguredRoles: lastConfiguredRoles,
+		Status:              &sc.Status,
 	}
 	lastSpecBytes, err := json.Marshal(expectedState)
 	require.NoError(t, err)

@@ -386,8 +386,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 			return workflow.Failed(err)
 		}
 	}
+
+	previousRoles, err := getPreviousRolesFromAnnotation(*mrs)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
 	// Ensure custom roles are created in OM
-	if status := r.ensureRoles(ctx, mrs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(mrs), log); !status.IsOK() {
+	if status := r.ensureRoles(ctx, mrs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(mrs), previousRoles, log); !status.IsOK() {
 		return status
 	}
 
@@ -694,6 +700,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 		}
 	}
 
+	// Set annotation and state for previously configured roles
+	roleAnnotation, _, err := r.getRoleAnnotation(ctx, mrs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(&mrs))
+	if err != nil {
+		return err
+	}
+	for k, val := range roleAnnotation {
+		annotationsToAdd[k] = val
+	}
+
 	return annotations.SetAnnotations(ctx, &mrs, annotationsToAdd, r.client)
 }
 
@@ -826,6 +841,17 @@ func getReplicaSetProcessIdsFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) (
 		return processIds[mrs.Name], nil
 	}
 	return make(map[string]int), nil
+}
+
+func getPreviousRolesFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) ([]string, error) {
+	if rolesString, ok := mrs.Annotations[util.LastConfiguredRoles]; ok {
+		var roles []string
+		if err := json.Unmarshal([]byte(rolesString), &roles); err != nil {
+			return nil, err
+		}
+		return roles, nil
+	}
+	return nil, nil
 }
 
 func getSRVService(mrs *mdbmultiv1.MongoDBMultiCluster) corev1.Service {
@@ -1241,9 +1267,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	opts := authentication.Options{
 		AuthoritativeSet: false,
 		ProcessNames:     processNames,
+		MongoDBResource:  types.NamespacedName{Namespace: mrs.GetNamespace(), Name: mrs.GetName()},
 	}
 
-	if err := authentication.Disable(conn, opts, true, log); err != nil {
+	if err := authentication.Disable(ctx, r.client, conn, opts, true, log); err != nil {
 		return err
 	}
 	log.Infof("Removed deployment %s from Ops Manager at %s", mrs.Name, conn.BaseURL())

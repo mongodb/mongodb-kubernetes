@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -71,7 +72,7 @@ func TestOnAddStandalone(t *testing.T) {
 	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Service{}), 1)
 	assert.Len(t, mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{}), 1)
 	assert.Equal(t, *mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{})[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
-	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Secret{}), 2)
+	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Secret{}), 3)
 
 	omConn.(*om.MockedOmConnection).CheckDeployment(t, createDeploymentFromStandalone(st), "auth", "tls")
 	omConn.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
@@ -323,6 +324,44 @@ func TestStandaloneAgentVersionMapping(t *testing.T) {
 	agentVersionMappingTest(ctx, t, defaultResources, overriddenResources)
 }
 
+func TestStandaloneRoleAnnotationIsSet(t *testing.T) {
+	ctx := context.Background()
+
+	role := mdbv1.MongoDBRole{
+		Role: "embedded-role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+
+	st := DefaultStandaloneBuilder().SetRoles([]mdbv1.MongoDBRole{role}).Build()
+	reconciler, client, omConnectionFactory := defaultStandaloneReconciler(ctx, nil, "", "", om.NewEmptyMockedOmConnection, st)
+
+	checkReconcileSuccessful(ctx, t, reconciler, st, client)
+
+	roleString, _ := json.Marshal([]string{"embedded-role@admin"})
+
+	// Assert that the member ids are saved in the annotation
+	assert.Equal(t, st.GetAnnotations()[util.LastConfiguredRoles], string(roleString))
+
+	roles := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 1)
+
+	st.GetSecurity().Roles = []mdbv1.MongoDBRole{}
+	err := client.Update(ctx, st)
+	assert.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, st, client)
+
+	// Assert that the roles annotation is updated and role is removed
+	assert.Equal(t, st.GetAnnotations()[util.LastConfiguredRoles], "[]")
+
+	roles = omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 0)
+}
+
 // defaultStandaloneReconciler is the standalone reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation,
 // so it's possible to call 'reconcileAppDB()' on it right away
@@ -382,6 +421,14 @@ func (b *StandaloneBuilder) SetPersistent(p *bool) *StandaloneBuilder {
 
 func (b *StandaloneBuilder) SetService(s string) *StandaloneBuilder {
 	b.Spec.Service = s
+	return b
+}
+
+func (b *StandaloneBuilder) SetRoles(roles []mdbv1.MongoDBRole) *StandaloneBuilder {
+	if b.Spec.Security == nil {
+		b.Spec.Security = &mdbv1.Security{}
+	}
+	b.Spec.Security.Roles = roles
 	return b
 }
 

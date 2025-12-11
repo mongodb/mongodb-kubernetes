@@ -12,6 +12,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -430,15 +431,21 @@ func featureCompatibilityVersionValidation(d DbCommonSpec) v1.ValidationResult {
 	return ValidateFCV(fcv)
 }
 
-func ValidateFCV(fcv *string) v1.ValidationResult {
-	if fcv != nil {
-		f := *fcv
-		if f == util.AlwaysMatchVersionFCV {
+func ValidateFCV(fcvStringPointer *string) v1.ValidationResult {
+	if fcvStringPointer != nil {
+		fcvString := *fcvStringPointer
+		if fcvString == util.AlwaysMatchVersionFCV {
 			return v1.ValidationSuccess()
 		}
-		splitted := strings.Split(f, ".")
+
+		splitted := strings.Split(fcvString, ".")
 		if len(splitted) != 2 {
-			return v1.ValidationError("invalid feature compatibility version: %s, possible values are: '%s' or 'major.minor'", f, util.AlwaysMatchVersionFCV)
+			return v1.ValidationError("invalid feature compatibility version %q, possible values are: '%s' or 'major.minor'", fcvString, util.AlwaysMatchVersionFCV)
+		}
+
+		_, err := fcv.FeatureCompatibilityVersionToSemverFormat(fcvString)
+		if err != nil {
+			return v1.ValidationError("invalid feature compatibility version %q: %s", fcvString, err)
 		}
 	}
 	return v1.ValidationResult{}
