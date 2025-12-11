@@ -17,17 +17,31 @@ import (
 )
 
 const (
-	MongotDefaultWireprotoPort      = 27027
-	MongotDefaultGrpcPort           = 27028
-	MongotDefaultMetricsPort        = 9946
-	MongotDefautHealthCheckPort     = 8080
-	MongotDefaultSyncSourceUsername = "search-sync-source"
+	MongotDefaultWireprotoPort      int32 = 27027
+	MongotDefaultGrpcPort           int32 = 27028
+	MongotDefaultPrometheusPort     int32 = 9946
+	MongotDefautHealthCheckPort     int32 = 8080
+	MongotDefaultSyncSourceUsername       = "search-sync-source"
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 )
 
 func init() {
 	v1.SchemeBuilder.Register(&MongoDBSearch{}, &MongoDBSearchList{})
+}
+
+type Prometheus struct {
+	// Port where metrics endpoint will be exposed on. Defaults to 9946.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=65535
+	// +kubebuilder:default=9946
+	Port int `json:"port,omitempty"`
+}
+
+func (p *Prometheus) GetPort() int32 {
+	//nolint:gosec
+	return int32(p.Port)
 }
 
 type MongoDBSearchSpec struct {
@@ -54,6 +68,9 @@ type MongoDBSearchSpec struct {
 	// +kubebuilder:validation:Enum=TRACE;DEBUG;INFO;WARN;ERROR
 	// +optional
 	LogLevel mdb.LogLevel `json:"logLevel,omitempty"`
+	// Configure prometheus metrics endpoint in mongot. If not set, the metrics endpoint will be disabled.
+	// +optional
+	Prometheus *Prometheus `json:"prometheus,omitempty"`
 }
 
 type MongoDBSource struct {
@@ -105,6 +122,7 @@ type MongoDBSearchStatus struct {
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
+// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="MongoDB Search version reconciled by the operator."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB resource was created."
 // +kubebuilder:resource:path=mongodbsearch,scope=Namespaced,shortName=mdbs
 type MongoDBSearch struct {
@@ -144,6 +162,9 @@ func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status
 	s.Status.UpdateCommonFields(phase, s.GetGeneration(), statusOptions...)
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		s.Status.Warnings = append(s.Status.Warnings, option.(status.WarningsOption).Warnings...)
+	}
+	if option, exists := status.GetOption(statusOptions, MongoDBSearchVersionOption{}); exists {
+		s.Status.Version = option.(MongoDBSearchVersionOption).Version
 	}
 }
 
@@ -218,10 +239,6 @@ func (s *MongoDBSearch) GetMongotGrpcPort() int32 {
 	return MongotDefaultGrpcPort
 }
 
-func (s *MongoDBSearch) GetMongotMetricsPort() int32 {
-	return MongotDefaultMetricsPort
-}
-
 // TLSSecretNamespacedName will get the namespaced name of the Secret containing the server certificate and key
 func (s *MongoDBSearch) TLSSecretNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Spec.Security.TLS.CertificateKeySecret.Name, Namespace: s.Namespace}
@@ -262,4 +279,8 @@ func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
 		return s.GetMongotWireprotoPort()
 	}
 	return s.GetMongotGrpcPort()
+}
+
+func (s *MongoDBSearch) GetPrometheus() *Prometheus {
+	return s.Spec.Prometheus
 }

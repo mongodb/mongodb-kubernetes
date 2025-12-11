@@ -4043,6 +4043,10 @@ spec:
       jsonPath: .status.phase
       name: Phase
       type: string
+    - description: MongoDB Search version reconciled by the operator.
+      jsonPath: .status.version
+      name: Version
+      type: string
     - description: The time since the MongoDB resource was created.
       jsonPath: .metadata.creationTimestamp
       name: Age
@@ -4127,6 +4131,18 @@ spec:
                       storageClass:
                         type: string
                     type: object
+                type: object
+              prometheus:
+                description: Configure prometheus metrics endpoint in mongot. If not
+                  set, the metrics endpoint will be disabled.
+                properties:
+                  port:
+                    default: 9946
+                    description: Port where metrics endpoint will be exposed on. Defaults
+                      to 9946.
+                    maximum: 65535
+                    minimum: 0
+                    type: integer
                 type: object
               resourceRequirements:
                 description: Configure resource requests and limits for the MongoDB

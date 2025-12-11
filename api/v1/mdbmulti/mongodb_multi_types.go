@@ -180,6 +180,13 @@ func (m *MongoDBMultiCluster) GetOwnerLabels() map[string]string {
 	}
 }
 
+// GetKind returns the Kind of the MongoDBMultiCluster resource. This is needed because
+// when objects are retrieved from the Kubernetes API, the TypeMeta
+// (which contains Kind and APIVersion) is not populated.
+func (m *MongoDBMultiCluster) GetKind() string {
+	return "MongoDBMultiCluster"
+}
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBMultiClusterList struct {
 	metav1.TypeMeta `json:",inline"`
@@ -535,10 +542,10 @@ func (m *MongoDBMultiSpec) GetMemberOptions() []automationconfig.MemberOptions {
 
 func (m *MongoDBMultiSpec) MinimumMajorVersion() uint64 {
 	if m.FeatureCompatibilityVersion != nil && *m.FeatureCompatibilityVersion != "" {
-		fcv := *m.FeatureCompatibilityVersion
+		fcvString := *m.FeatureCompatibilityVersion
 
 		// ignore errors here as the format of FCV/version is handled by CRD validation
-		semverFcv, _ := semver.Make(fmt.Sprintf("%s.0", fcv))
+		semverFcv, _ := fcv.FeatureCompatibilityVersionToSemverFormat(fcvString)
 		return semverFcv.Major
 	}
 	semverVersion, _ := semver.Make(m.GetMongoDBVersion())

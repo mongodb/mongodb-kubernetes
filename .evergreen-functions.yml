@@ -396,29 +396,6 @@ functions:
           - bin
         binary: scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh
 
-  ### Publish and release image ###
-
-  # Tags and pushes an image into an external Docker registry. The source image
-  # needs to exist before it can be pushed to a remote registry.
-  # It is expected that IMAGE_SOURCE is accessible with no authentication (like a
-  # local image), and the IMAGE_TARGET will be authenticated with DOCKER_* series of
-  # environment variables.
-  release_docker_image_to_registry:
-    - command: subprocess.exec
-      type: system
-      params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        add_to_path:
-          - ${workdir}/bin
-        include_expansions_in_env:
-          - tag_source
-          - tag_dest
-          - image_source
-          - image_target
-          - docker_username
-          - docker_password
-        binary: scripts/evergreen/tag_push_docker_image.sh
-
   #
   # Performs some AWS cleanup
   #
@@ -430,33 +407,6 @@ functions:
       add_to_path:
         - ${workdir}/bin
       command: scripts/evergreen/prepare_aws.sh
-
-  build-dockerfiles:
-    - command: subprocess.exec
-      type: setup
-      params:
-        add_to_path:
-          - ${workdir}/bin
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/update_supported_dockerfiles.py
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        include_expansions_in_env:
-          - triggered_by_git_tag
-        # if you ever change the target folder structure, the same needs to be reflected in PCT
-        command: "tar -czvf ./public/dockerfiles-${triggered_by_git_tag}.tgz ./public/dockerfiles"
-
-  enable_QEMU:
-    - command: shell.exec
-      type: setup
-      params:
-        shell: bash
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          echo "Enabling QEMU building for Docker"
-          docker run --rm --privileged 268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/multiarch/qemu-user-static --reset -p yes
 
   # upload_e2e_logs has the responsibility of dumping as much information as
   # possible into the S3 bucket that corresponds to this ${version}. The
@@ -546,6 +496,7 @@ functions:
           IMAGE_NAME: ${image_name}
           BUILD_SCENARIO_OVERRIDE: ${build_scenario}
           FLAGS: ${flags}
+          AGENT_VERSION_OVERRIDE: ${agent_version}
 
   teardown_cloud_qa_all:
     - command: shell.exec
@@ -827,6 +778,20 @@ functions:
         env:
           GH_TOKEN: ${GH_TOKEN}
         binary: scripts/dev/run_python.sh scripts/release/create_chart_release_pr.py --chart_version ${OPERATOR_VERSION|*triggered_by_git_tag}
+
+  add_releaseinfo_to_github_assets:
+    - command: github.generate_token
+      params:
+        expansion_name: GH_TOKEN
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - OPERATOR_VERSION
+        env:
+          GH_TOKEN: ${GH_TOKEN}
+        binary: scripts/dev/run_python.sh scripts/release/release_info.py --version ${OPERATOR_VERSION|*triggered_by_git_tag}
 
   release_kubectl_mongodb_plugin:
     - command: github.generate_token

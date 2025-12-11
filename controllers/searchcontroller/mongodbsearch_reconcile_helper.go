@@ -76,7 +76,7 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
 		return workflow.Failed(err)
 	}
-	return workflow.OK()
+	return workflowStatus
 }
 
 func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
@@ -87,7 +87,9 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if err := r.ValidateSearchImageVersion(); err != nil {
+	version := r.getMongotVersion()
+
+	if err := r.ValidateSearchImageVersion(version); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -137,7 +139,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return statefulSetStatus
 	}
 
-	return workflow.OK()
+	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
 }
 
 // This is called only if the wireproto server is enabled, to set up they keyfile necessary for authentication.
@@ -272,7 +274,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 
 	mongotModification := func(config *mongot.Config) {
 		config.SyncSource.ReplicaSet.TLS = ptr.To(true)
-		config.SyncSource.CertificateAuthorityFile = ptr.To(tls.CAMountPath + "/" + tlsSourceConfig.CAFileName)
+		config.SyncSource.CertificateAuthorityFile = ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName)
 
 		// if the gRPC server is configured to accept TLS connections then toggle mTLS as well
 		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
@@ -312,7 +314,7 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		SetLabels(labels).
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetClusterIP("None").
-		SetPublishNotReadyAddresses(true).
+		SetPublishNotReadyAddresses(false).
 		SetOwnerReferences(search.GetOwnerReferences())
 
 	if search.IsWireprotoEnabled() {
@@ -331,12 +333,14 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		TargetPort: intstr.FromInt32(search.GetMongotGrpcPort()),
 	})
 
-	serviceBuilder.AddPort(&corev1.ServicePort{
-		Name:       "metrics",
-		Protocol:   corev1.ProtocolTCP,
-		Port:       search.GetMongotMetricsPort(),
-		TargetPort: intstr.FromInt32(search.GetMongotMetricsPort()),
-	})
+	if prometheus := search.GetPrometheus(); prometheus != nil {
+		serviceBuilder.AddPort(&corev1.ServicePort{
+			Name:       "prometheus",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       prometheus.GetPort(),
+			TargetPort: intstr.FromInt32(prometheus.GetPort()),
+		})
+	}
 
 	serviceBuilder.AddPort(&corev1.ServicePort{
 		Name:       "healthcheck",
@@ -385,10 +389,14 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 				},
 			}
 		}
-		config.Metrics = mongot.ConfigMetrics{
-			Enabled: true,
-			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotMetricsPort()),
+
+		if prometheus := search.GetPrometheus(); prometheus != nil {
+			config.Metrics = mongot.ConfigMetrics{
+				Enabled: true,
+				Address: fmt.Sprintf("0.0.0.0:%d", prometheus.GetPort()),
+			}
 		}
+
 		config.HealthCheck = mongot.ConfigHealthCheck{
 			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
 		}
@@ -449,9 +457,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
-	version := r.getMongotImage()
-
+func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.Contains(version, unsupportedSearchVersion) {
 		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
 	}
@@ -459,14 +465,15 @@ func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
+func (r *MongoDBSearchReconcileHelper) getMongotVersion() string {
 	version := strings.TrimSpace(r.mdbSearch.Spec.Version)
 	if version != "" {
 		return version
 	}
 
-	if r.operatorSearchConfig.SearchVersion != "" {
-		return r.operatorSearchConfig.SearchVersion
+	version = strings.TrimSpace(r.operatorSearchConfig.SearchVersion)
+	if version != "" {
+		return version
 	}
 
 	if r.mdbSearch.Spec.StatefulSetConfiguration == nil {
@@ -475,8 +482,27 @@ func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
 
 	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
 		if container.Name == MongotContainerName {
-			return container.Image
+			return extractImageTag(container.Image)
 		}
+	}
+
+	return ""
+}
+
+func extractImageTag(image string) string {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return ""
+	}
+
+	if at := strings.Index(image, "@"); at != -1 {
+		image = image[:at]
+	}
+
+	lastSlash := strings.LastIndex(image, "/")
+	lastColon := strings.LastIndex(image, ":")
+	if lastColon > lastSlash {
+		return image[lastColon+1:]
 	}
 
 	return ""

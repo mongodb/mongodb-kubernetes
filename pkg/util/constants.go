@@ -71,6 +71,7 @@ const (
 
 	// EnvVarDebug is used to decide whether we want to start the agent in debug mode
 	EnvVarDebug            = "MDB_AGENT_DEBUG"
+	EnvVarDebugImage       = "MDB_AGENT_DEBUG_IMAGE"
 	EnvVarAgentVersion     = "MDB_AGENT_VERSION"
 	EnvVarMultiClusterMode = "MULTI_CLUSTER_MODE"
 
@@ -284,6 +285,7 @@ const (
 	// Annotation keys used by the operator
 	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
+	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
 
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
