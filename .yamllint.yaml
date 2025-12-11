@@ -1,0 +1,68 @@
+# yamllint configuration file
+# See https://yamllint.readthedocs.io/en/stable/configuration.html
+
+extends: default
+
+ignore: |
+  vendor/
+  testdata/
+  helm_chart/templates/
+  config/
+  .evergreen*.yml
+  # Test fixtures, samples, and vendor code often have intentional formatting
+  docker/mongodb-kubernetes-tests/
+  public/samples/
+  public/opa_examples/
+  public/.github/
+  public/architectures/
+  public/multi_cluster_verify/
+  .github/
+  scripts/evergreen/deployments/
+  docker/cluster-cleaner/
+
+rules:
+  # Disable line length - YAML files can have long lines
+  line-length: disable
+
+  # Allow multiple documents in a file
+  document-start: disable
+
+  # Relax indentation rules
+  indentation:
+    spaces: 2
+    indent-sequences: whatever
+
+  # Relax comment rules
+  comments:
+    min-spaces-from-content: 1
+
+  comments-indentation: disable
+
+  # Relax truthy rules - allow 'yes', 'no', 'on', 'off'
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no', 'on', 'off']
+
+  # Allow empty values
+  empty-values: disable
+
+  # Relax bracket rules
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  # Relax brace rules
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  # Disable trailing spaces check (handled by trailing-whitespace hook when enabled)
+  trailing-spaces: disable
+
+  # Disable new-line-at-end-of-file check (handled by end-of-file-fixer hook when enabled)
+  new-line-at-end-of-file: disable
+
+  # Disable empty-lines check - too strict for test fixtures
+  empty-lines: disable
+
+  # Disable commas check - too strict
+  commas: disable

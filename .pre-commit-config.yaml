@@ -1,0 +1,175 @@
+# Pre-commit configuration for mongodb-kubernetes
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # TODO: Enable these hooks in a follow-up PR - they modify 200+ files
+      # - id: trailing-whitespace
+      #   exclude: |
+      #     (?x)^(
+      #       .*\.patch$|
+      #       vendor/.*|
+      #       testdata/.*|
+      #       helm_chart/crds/.*|
+      #       public/crds\.yaml$|
+      #       config/crd/bases/.*
+      #     )
+      # - id: end-of-file-fixer
+      #   exclude: |
+      #     (?x)^(
+      #       .*\.patch$|
+      #       vendor/.*|
+      #       testdata/.*|
+      #       helm_chart/crds/.*|
+      #       public/crds\.yaml$|
+      #       config/crd/bases/.*
+      #     )
+      - id: check-yaml
+        args: [--allow-multiple-documents, --unsafe]
+        exclude: |
+          (?x)^(
+            helm_chart/templates/.*|
+            config/.*|
+            vendor/.*|
+            testdata/.*|
+            docker/mongodb-kubernetes-tests/vendor/.*|
+            docker/cluster-cleaner/templates/.*|
+            scripts/evergreen/deployments/.*/templates/.*|
+            public/samples/mongodb_multicluster/replica-set-configure-storage\.yaml$|
+            \.evergreen.*\.yml$
+          )
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-json
+        exclude: |
+          (?x)^(
+            vendor/.*|
+            testdata/.*
+          )
+
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: [-c, .yamllint.yaml]
+        exclude: |
+          (?x)^(
+            helm_chart/templates/.*|
+            config/.*|
+            vendor/.*|
+            testdata/.*|
+            \.evergreen.*\.yml$
+          )
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        language_version: python3
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: [-e, SC2154, -e, SC1091, -e, SC1090, -e, SC2148, -o, require-variable-braces, -P, scripts]
+        exclude: |
+          (?x)^(
+            vendor/.*|
+            scripts/dev/contexts/private-context.*
+          )
+        files: |
+          (?x)(
+            \.sh$|
+            ^scripts/dev/contexts/[^/]+$|
+            ^scripts/funcs/[^/]+$
+          )
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.62.2
+    hooks:
+      - id: golangci-lint
+        args: [--timeout=10m]
+
+  # Local hooks for project-specific tasks
+  - repo: local
+    hooks:
+      - id: update-release-json
+        name: update-release-json
+        entry: scripts/dev/generate_files.sh update_release
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: update-values-yaml
+        name: update-values-yaml
+        entry: scripts/dev/generate_files.sh update_values
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: generate-standalone-yaml
+        name: generate-standalone-yaml
+        entry: scripts/dev/generate_files.sh generate_standalone_yaml
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: generate-manifests
+        name: generate-manifests
+        entry: scripts/dev/generate_files.sh generate_manifests
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: regenerate-mco-tests
+        name: regenerate-mco-tests
+        entry: scripts/dev/generate_files.sh update_mco_tests
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: regenerate-multicluster-rbac
+        name: regenerate-multicluster-rbac
+        entry: scripts/dev/regenerate_multicluster_rbac.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: update-licenses
+        name: update-licenses
+        entry: scripts/dev/generate_files.sh update_licenses
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: validate-snippets
+        name: validate-snippets
+        entry: scripts/code_snippets/validate_snippets.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check-kubebuilder-annotations
+        name: check-kubebuilder-annotations
+        entry: bash -c 'if grep -r "// kubebuilder" --include="*.go" --exclude-dir=vendor .; then echo "Found erroneous kubebuilder annotation"; exit 1; fi'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: helm-lint
+        name: helm-lint
+        entry: scripts/dev/lint_helm_chart.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
