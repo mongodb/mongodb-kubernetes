@@ -101,7 +101,7 @@ def get_mdbmc(ops_manager, namespace: str, idx: int, om_external_base_url: str) 
     name = f"mdb-{idx}-mc"
     central_client = get_central_cluster_client()
     resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi-cluster.yaml"),
+        yaml_fixture("mongodbmulticluster-multi-cluster.yaml"),
         namespace=namespace,
         name=name,
     ).configure(ops_manager, name, api_client=central_client)
