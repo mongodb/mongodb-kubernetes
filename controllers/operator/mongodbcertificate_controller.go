@@ -2,26 +2,28 @@ package operator
 
 import (
 	"context"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
-	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
-	corev1 "k8s.io/api/core/v1"
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"time"
+
+	"go.uber.org/zap"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"time"
+
+	corev1 "k8s.io/api/core/v1"
 
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/api/v1/certificate"
-	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"go.uber.org/zap"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 type MongoDBCertificateReconciler struct {
@@ -30,7 +32,7 @@ type MongoDBCertificateReconciler struct {
 	memberClusterSecretClientsMap map[string]secrets.SecretClient
 }
 
-func newMongoDBCertificateReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client) *MongoDBUserReconciler {
+func newMongoDBCertificateReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client) *MongoDBCertificateReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -41,7 +43,7 @@ func newMongoDBCertificateReconciler(ctx context.Context, kubeClient client.Clie
 			KubeClient:  clientsMap[k],
 		}
 	}
-	return &MongoDBUserReconciler{
+	return &MongoDBCertificateReconciler{
 		ReconcileCommonController:     NewReconcileCommonController(ctx, kubeClient),
 		memberClusterClientsMap:       clientsMap,
 		memberClusterSecretClientsMap: secretClientsMap,
@@ -84,6 +86,7 @@ func (r *MongoDBCertificateReconciler) Reconcile(ctx context.Context, request re
 	log.Info("-> MongoDBCertificate.Reconcile")
 
 	certificate, err := r.getCertificate(ctx, request, log)
+	certificate.Spec.CertificateWrapper.CertificateSpec = &cmv1.CertificateSpec{}
 	if err != nil {
 		log.Warnf("error getting certificate %s", err)
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
@@ -99,4 +102,12 @@ func (r *MongoDBCertificateReconciler) getCertificate(ctx context.Context, reque
 	}
 
 	return certificate, nil
+}
+
+func (r *MongoDBCertificateReconciler) delete(ctx context.Context, obj interface{}, log *zap.SugaredLogger) error {
+	certificate := obj.(*mdbcv1.MongoDBCertificate)
+
+	r.resourceWatcher.RemoveAllDependentWatchedResources(certificate.Namespace, kube.ObjectKeyFromApiObject(certificate))
+
+	return nil
 }

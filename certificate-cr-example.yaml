@@ -1,0 +1,13 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBCertificate
+metadata:
+  name: mongodb-certificate
+  namespace: mongodb-test
+spec:
+  type: tls
+  resourceRef:
+    name: om-appdb-external-svc
+    namespace: mongodb-test
+  certificateSpec:
+    subject: test-subject
+    commonName: easy-rsa.mdb-test.svc.cluster.local

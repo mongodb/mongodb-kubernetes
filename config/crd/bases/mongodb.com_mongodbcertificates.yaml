@@ -39,6 +39,9 @@ spec:
             type: object
           spec:
             properties:
+              certificateSpec:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
               issuerRef:
                 properties:
                   name:
@@ -48,7 +51,7 @@ spec:
                 required:
                 - name
                 type: object
-              mongodbResourceRef:
+              resourceRef:
                 properties:
                   name:
                     type: string
@@ -63,7 +66,7 @@ spec:
                 type: string
             required:
             - certificateSpec
-            - mongodbResourceRef
+            - resourceRef
             - type
             type: object
           status:
