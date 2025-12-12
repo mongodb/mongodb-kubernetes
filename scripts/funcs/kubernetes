@@ -17,6 +17,7 @@ metadata:
   name: ${namespace}
   labels:
     evg: task
+    pod-security.kubernetes.io/warn: "restricted"
   annotations:
     evg/version: "https://evergreen.mongodb.com/version/${version_id:-'not-specified'}"
     evg/task-name: ${TASK_NAME:-'not-specified'}
