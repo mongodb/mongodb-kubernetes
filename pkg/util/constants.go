@@ -30,6 +30,9 @@ const (
 	// MongoDbSearchController name of the MongoDBSearch controller
 	MongoDbSearchController = "mongodbsearch-controller"
 
+	// MongoDbCertificateController name of the MongoDBCertificate controller
+	MongoDbCertificateController = "mongodbcertificate-controller"
+
 	// Kinds
 	ClusterMongoDBRoleKind = "ClusterMongoDBRole"
 

@@ -68,6 +68,7 @@ const (
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
 	mongoDBSearchCRDPlural       = "mongodbsearch"
 	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
+	mongoDBCertificateCRDPlural  = "mongodbcertificates"
 )
 
 var (
@@ -118,6 +119,7 @@ func main() {
 			mongoDBCommunityCRDPlural,
 			mongoDBSearchCRDPlural,
 			clusterMongoDBRoleCRDPlural,
+			mongoDBCertificateCRDPlural,
 		}
 	}
 
@@ -284,6 +286,12 @@ func main() {
 		}
 	}
 
+	if slices.Contains(crds, mongoDBCertificateCRDPlural) {
+		if err := setupMongoDBCertificateCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	for _, r := range crds {
 		log.Infof("Registered CRD: %s", r)
 	}
@@ -399,6 +407,10 @@ func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
 		SearchName:    env.ReadOrPanic("MDB_SEARCH_NAME"),
 		SearchVersion: env.ReadOrPanic("MDB_SEARCH_VERSION"),
 	})
+}
+
+func setupMongoDBCertificateCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+	return operator.AddMongoDBCertificateController(ctx, mgr, memberClusterObjectsMap)
 }
 
 func setupCommunityController(

@@ -219,7 +219,7 @@ def test_configure_nginx(namespace: str):
         if e.status == 409:
             apps_api.replace_namespaced_deployment("nginx", namespace, nginx_deployment)
         else:
-            raise Exception(f"failed to create nginx_deployment: {e}")
+            raise Exception(f"failed to create nginx_deployment:", e)
 
     nginx_service = yaml.safe_load(open(_fixture("nginx-service.yaml")))
     create_or_update_service(namespace, service=nginx_service)
