@@ -1,9 +1,7 @@
 import unittest
 
 from scripts.release.changelog import ChangeKind
-from scripts.release.version import (
-    increment_previous_version,
-)
+from scripts.release.version import increment_previous_version
 
 
 class TestCalculateNextReleaseVersion(unittest.TestCase):

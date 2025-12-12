@@ -2,12 +2,7 @@ import logging
 
 import kubernetes
 from kubetester import try_load
-from kubetester.certs import (
-    SetPropertiesMultiCluster,
-    generate_cert,
-    get_agent_x509_subject,
-    get_mongodb_x509_subject,
-)
+from kubetester.certs import SetPropertiesMultiCluster, generate_cert, get_agent_x509_subject, get_mongodb_x509_subject
 from kubetester.certs_mongodb_multi import create_multi_cluster_tls_certs
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import skip_if_local

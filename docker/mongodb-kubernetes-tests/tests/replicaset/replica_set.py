@@ -3,11 +3,7 @@ from typing import Dict
 
 import pytest
 from kubernetes import client
-from kubetester import (
-    assert_pod_container_security_context,
-    assert_pod_security_context,
-    try_load,
-)
+from kubetester import assert_pod_container_security_context, assert_pod_security_context, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture

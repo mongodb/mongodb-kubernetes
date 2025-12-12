@@ -10,18 +10,9 @@ import kubernetes.client
 import requests
 from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
-from kubetester import (
-    create_configmap,
-    create_or_update_secret,
-    read_secret,
-)
+from kubetester import create_configmap, create_or_update_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import (
-    KubernetesTester,
-    build_list_of_hosts,
-    get_pods,
-    is_default_architecture_static,
-)
+from kubetester.kubetester import KubernetesTester, build_list_of_hosts, get_pods, is_default_architecture_static
 from kubetester.mongodb_common import MongoDBCommon
 from kubetester.mongodb_utils_state import in_desired_state
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester, ReplicaSetTester
@@ -30,10 +21,7 @@ from kubetester.phase import Phase
 from opentelemetry import trace
 from requests.auth import HTTPDigestAuth
 from tests import test_logger
-from tests.common.multicluster.multicluster_utils import (
-    multi_cluster_pod_names,
-    multi_cluster_service_names,
-)
+from tests.common.multicluster.multicluster_utils import multi_cluster_pod_names, multi_cluster_service_names
 from tests.conftest import (
     get_central_cluster_client,
     get_member_cluster_api_client,
