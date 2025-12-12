@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"time"
 
@@ -86,7 +85,6 @@ func (r *MongoDBCertificateReconciler) Reconcile(ctx context.Context, request re
 	log.Info("-> MongoDBCertificate.Reconcile")
 
 	certificate, err := r.getCertificate(ctx, request, log)
-	certificate.Spec.CertificateWrapper.CertificateSpec = &cmv1.CertificateSpec{}
 	if err != nil {
 		log.Warnf("error getting certificate %s", err)
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil

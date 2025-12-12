@@ -1,6 +1,7 @@
 package certificate
 
 import (
+	"encoding/json"
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -61,7 +62,17 @@ type ResourceRef struct {
 }
 
 type CertificateSpecWrapper struct {
-	CertificateSpec *cmv1.CertificateSpec `json:"-"`
+	Spec *cmv1.CertificateSpec `json:"-"`
+}
+
+// MarshalJSON defers JSON encoding to the wrapped map
+func (s *CertificateSpecWrapper) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.Spec)
+}
+
+// UnmarshalJSON will decode the data into the wrapped map
+func (s *CertificateSpecWrapper) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &s.Spec)
 }
 
 type MongoDBCertificateStatus struct {

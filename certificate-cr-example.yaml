@@ -9,5 +9,4 @@ spec:
     name: om-appdb-external-svc
     namespace: mongodb-test
   certificateSpec:
-    subject: test-subject
     commonName: easy-rsa.mdb-test.svc.cluster.local
