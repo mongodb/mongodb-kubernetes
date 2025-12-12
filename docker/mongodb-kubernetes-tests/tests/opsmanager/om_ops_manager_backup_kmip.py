@@ -15,11 +15,7 @@ from kubetester.phase import Phase
 from pymongo import ReadPreference
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.om_ops_manager_backup import (
-    S3_SECRET_NAME,
-    create_aws_secret,
-    create_s3_bucket,
-)
+from tests.opsmanager.om_ops_manager_backup import S3_SECRET_NAME, create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}

@@ -2,16 +2,9 @@ import pymongo
 import pytest
 from kubernetes import client
 from kubetester import try_load
-from kubetester.kubetester import (
-    assert_statefulset_architecture,
-    ensure_ent_version,
-)
+from kubetester.kubetester import assert_statefulset_architecture, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.kubetester import (
-    get_default_architecture,
-    is_multi_cluster,
-    skip_if_multi_cluster,
-)
+from kubetester.kubetester import get_default_architecture, is_multi_cluster, skip_if_multi_cluster
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from kubetester.operator import Operator

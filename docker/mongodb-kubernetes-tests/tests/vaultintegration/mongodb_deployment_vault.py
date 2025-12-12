@@ -5,18 +5,8 @@ import kubetester
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import (
-    create_configmap,
-    delete_secret,
-    get_statefulset,
-    random_k8s_name,
-    read_secret,
-)
-from kubetester.certs import (
-    create_mongodb_tls_certs,
-    create_x509_agent_tls_certs,
-    create_x509_mongodb_tls_certs,
-)
+from kubetester import create_configmap, delete_secret, get_statefulset, random_k8s_name, read_secret
+from kubetester.certs import create_mongodb_tls_certs, create_x509_agent_tls_certs, create_x509_mongodb_tls_certs
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture

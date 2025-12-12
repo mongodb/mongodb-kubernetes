@@ -8,14 +8,9 @@ from pathlib import Path
 from botocore.exceptions import ClientError
 
 from lib.base_logger import logger
-from scripts.release.build.build_info import (
-    KUBECTL_PLUGIN_BINARY,
-    load_build_info,
-)
+from scripts.release.build.build_info import KUBECTL_PLUGIN_BINARY, load_build_info
 from scripts.release.build.build_scenario import BuildScenario
-from scripts.release.kubectl_mongodb.download_kubectl_plugin import (
-    download_kubectl_plugin_from_s3,
-)
+from scripts.release.kubectl_mongodb.download_kubectl_plugin import download_kubectl_plugin_from_s3
 from scripts.release.kubectl_mongodb.utils import (
     CHECKSUMS_PATH,
     LOCAL_ARTIFACTS_DIR,

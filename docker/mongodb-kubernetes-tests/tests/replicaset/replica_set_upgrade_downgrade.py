@@ -3,11 +3,7 @@ from kubetester import try_load
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
-from kubetester.mongotester import (
-    MongoDBBackgroundTester,
-    MongoTester,
-    ReplicaSetTester,
-)
+from kubetester.mongotester import MongoDBBackgroundTester, MongoTester, ReplicaSetTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
 

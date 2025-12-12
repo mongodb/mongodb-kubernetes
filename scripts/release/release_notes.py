@@ -4,17 +4,9 @@ import pathlib
 from git import Repo
 from jinja2 import Template
 
-from scripts.release.changelog import (
-    ChangeKind,
-)
-from scripts.release.constants import (
-    DEFAULT_CHANGELOG_PATH,
-    DEFAULT_RELEASE_INITIAL_VERSION,
-    DEFAULT_REPOSITORY_PATH,
-)
-from scripts.release.version import (
-    calculate_next_version_with_changelog,
-)
+from scripts.release.changelog import ChangeKind
+from scripts.release.constants import DEFAULT_CHANGELOG_PATH, DEFAULT_RELEASE_INITIAL_VERSION, DEFAULT_REPOSITORY_PATH
+from scripts.release.version import calculate_next_version_with_changelog
 
 
 def generate_release_notes(
