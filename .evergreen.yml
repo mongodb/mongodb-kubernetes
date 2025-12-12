@@ -1374,10 +1374,10 @@ buildvariants:
 
   ## Ops Manager build variants
 
-  # Isolated Ops Manager Tests for 6.0 version
+  # Isolated Ops Manager Tests for 6.0 version - kept for on-demand testing only
   - name: e2e_om60_kind_ubi
     display_name: e2e_om60_kind_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "manual_patch", "e2e_test_suite" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om6_dependency
@@ -1386,10 +1386,10 @@ buildvariants:
       - name: e2e_ops_manager_kind_5_0_only_task_group
       - name: e2e_ops_manager_kind_6_0_only_task_group
 
-  # Isolated Ops Manager Tests for 6.0 version
+  # Isolated Ops Manager Tests for 6.0 version - kept for on-demand testing only
   - name: e2e_static_om60_kind_ubi
     display_name: e2e_static_om60_kind_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "manual_patch", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1585,7 +1585,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_kind_task_group
 
@@ -1594,7 +1594,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_kind_task_group
 
@@ -1603,7 +1603,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_2_clusters_task_group
 
@@ -1612,7 +1612,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_2_clusters_task_group
 
@@ -1621,7 +1621,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_om_appdb_task_group
 
@@ -1630,7 +1630,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_static_multi_cluster_om_appdb_task_group
 
@@ -1678,8 +1678,6 @@ buildvariants:
     run_on:
       - ubuntu2404-large
     depends_on:
-      - name: build_om_images
-        variant: build_om60_images
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_test_image
@@ -1703,8 +1701,6 @@ buildvariants:
     run_on:
       - ubuntu2404-large
     depends_on:
-      - name: build_om_images
-        variant: build_om60_images
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_test_image
@@ -1840,8 +1836,6 @@ buildvariants:
   - name: init_tests_with_olm
     display_name: init_tests_with_olm
     depends_on:
-      - name: build_om_images
-        variant: build_om60_images
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
@@ -1874,9 +1868,10 @@ buildvariants:
     tasks:
       - name: preflight_images_task_group
 
+  # OM60 images build - kept for on-demand testing only
   - name: build_om60_images
     display_name: build_om60_images
-    tags: [ "pr_patch", "staging" ]
+    tags: [ "manual_patch" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1930,6 +1925,36 @@ buildvariants:
       - name: backup_csv_images_dry_run
       - name: backup_csv_images_limit_3
       - name: backup_csv_images_all
+
+  - name: publish_om70_images
+    display_name: publish_om70_images
+    tags: [ "manual_patch" ]
+    allowed_requesters: [ "patch", "github_pr" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    depends_on:
+      - variant: e2e_om70_kind_ubi
+        name: '*'
+      - variant: e2e_static_om70_kind_ubi
+        name: '*'
+    tasks:
+      - name: publish_ops_manager
+      - name: release_agent
+
+  - name: publish_om80_images
+    display_name: publish_om80_images
+    tags: [ "manual_patch" ]
+    allowed_requesters: [ "patch", "github_pr" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    depends_on:
+      - variant: e2e_om80_kind_ubi
+        name: '*'
+      - variant: e2e_static_om80_kind_ubi
+        name: '*'
+    tasks:
+      - name: publish_ops_manager
+      - name: release_agent
 
   - name: migrate_all_agents
     display_name: migrate_all_agents
