@@ -108,7 +108,6 @@ export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kub
 export CLUSTER_DOMAIN="cluster.local"
 
 export MDB_MAX_CONCURRENT_RECONCILES=10
-export MDB_IMAGE_TYPE="ubi9"
 
 # leaving them empty for now
 export OM_HOST=https://cloud-qa.mongodb.com
