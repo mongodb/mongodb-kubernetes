@@ -102,74 +102,12 @@ repos:
         args: [--timeout=10m]
 
   # Local hooks for project-specific tasks
+  # Runs all generation/validation jobs in parallel internally
   - repo: local
     hooks:
-      - id: update-release-json
-        name: update-release-json
-        entry: scripts/dev/generate_files.sh update_release
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: update-values-yaml
-        name: update-values-yaml
-        entry: scripts/dev/generate_files.sh update_values
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: generate-standalone-yaml
-        name: generate-standalone-yaml
-        entry: scripts/dev/generate_files.sh generate_standalone_yaml
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: generate-manifests
-        name: generate-manifests
-        entry: scripts/dev/generate_files.sh generate_manifests
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: regenerate-mco-tests
-        name: regenerate-mco-tests
-        entry: scripts/dev/generate_files.sh update_mco_tests
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: regenerate-multicluster-rbac
-        name: regenerate-multicluster-rbac
-        entry: scripts/dev/regenerate_multicluster_rbac.sh
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: update-licenses
-        name: update-licenses
-        entry: scripts/dev/generate_files.sh update_licenses
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: validate-snippets
-        name: validate-snippets
-        entry: scripts/code_snippets/validate_snippets.py
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: check-kubebuilder-annotations
-        name: check-kubebuilder-annotations
-        entry: bash -c 'if grep -r "// kubebuilder" --include="*.go" --exclude-dir=vendor .; then echo "Found erroneous kubebuilder annotation"; exit 1; fi'
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: helm-lint
-        name: helm-lint
-        entry: scripts/dev/lint_helm_chart.sh
+      - id: generate-and-validate
+        name: generate-and-validate (parallel)
+        entry: scripts/dev/generate_files.sh generate_all
         language: system
         pass_filenames: false
         stages: [pre-commit]

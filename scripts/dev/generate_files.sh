@@ -123,16 +123,6 @@ update_licenses() {
   fi
 }
 
-# Main update jobs - runs the generation tasks
-update_jobs() {
-  # Update release.json first in case there is a newer version
-  time update_release_json
-  # We need to generate the values files first
-  time update_values_yaml_files
-  # The values files are used for generating the standalone yaml
-  time generate_standalone_yaml
-}
-
 # bg_job_ vars are global; run_job_in_background function is appending to them on each call
 bg_job_pids=()
 bg_job_pids_with_names=()
@@ -178,13 +168,51 @@ wait_for_all_background_jobs() {
   return 0
 }
 
-generate_all() {
-  run_job_in_background "update_jobs"
-  run_job_in_background "update_licenses"
-  run_job_in_background "regenerate_public_rbac_multi_cluster"
+validate_snippets() {
+  scripts/code_snippets/validate_snippets.py
+}
 
+check_kubebuilder_annotations() {
+  if grep -r "// kubebuilder" --include="*.go" --exclude-dir=vendor .; then
+    echo "Found erroneous kubebuilder annotation"
+    return 1
+  fi
+}
+
+helm_lint() {
+  scripts/dev/lint_helm_chart.sh
+}
+
+generate_all() {
+  title "Running pre-commit jobs in parallel"
+
+  # Phase 1: Run generation jobs - some have dependencies
+  # update_release and update_values must run before generate_standalone_yaml
+  run_job_in_background "update_release_json"
+  run_job_in_background "update_values_yaml_files"
+
+  # These can run in parallel with the above
+  run_job_in_background "generate_manifests"
+  run_job_in_background "update_mco_tests"
+  run_job_in_background "regenerate_public_rbac_multi_cluster"
+  run_job_in_background "update_licenses"
+  run_job_in_background "validate_snippets"
+  run_job_in_background "check_kubebuilder_annotations"
+  run_job_in_background "helm_lint"
+
+  # Wait for update_release and update_values to complete before generate_standalone_yaml
+  local release_pid="${bg_job_pids[0]}"
+  local values_pid="${bg_job_pids[1]}"
+
+  wait "${release_pid}" || true
+  wait "${values_pid}" || true
+
+  # Now run generate_standalone_yaml (depends on values files)
+  run_job_in_background "generate_standalone_yaml"
+
+  # Wait for all remaining jobs
   if wait_for_all_background_jobs; then
-    echo -e "${GREEN}generate_files: All generation jobs completed!${NO_COLOR}"
+    echo -e "${GREEN}All pre-commit jobs completed successfully!${NO_COLOR}"
     return 0
   else
     return 1
