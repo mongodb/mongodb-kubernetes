@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -69,6 +70,69 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	assert.Equal(t, user.Spec.Username, createdUser.Username)
 	assert.Equal(t, user.Spec.Database, createdUser.Database)
 	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
+}
+
+// Not making this (DeepCopy) a method of type AutomationConfig because I want to be
+// explicit that this method is just for test code.
+func DeepCopy(original *om.AutomationConfig) (*om.AutomationConfig, error) {
+	if original == nil {
+		return nil, nil
+	}
+
+	b, err := json.Marshal(original)
+	if err != nil {
+		return nil, err
+	}
+
+	var newAC om.AutomationConfig
+	err = json.Unmarshal(b, &newAC)
+	if err != nil {
+		return nil, err
+	}
+	return &newAC, nil
+}
+
+func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, client, omConnectionFactory := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	// initialize resources required for the tests
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+		SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+
+	okReconcileResult, _ := workflow.OK().ReconcileResult()
+
+	assert.Nil(t, err, "there should be no error on successful reconciliation")
+	assert.Equal(t, okReconcileResult, actual, "there should be a successful reconciliation if the password is a valid reference")
+
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	// since underlying implmentation of ReadAutomationConfig just has reference to automation config
+	// it's better to deep copy this version of AC so that it can be used to compare later.
+	originalAC, err := DeepCopy(ac)
+	assert.Nil(t, err)
+
+	// the automation config should have been updated during reconciliation
+	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
+
+	_, createdUser := ac.Auth.GetUser("my-user", "admin")
+	assert.Equal(t, user.Spec.Username, createdUser.Username)
+	assert.Equal(t, user.Spec.Database, createdUser.Database)
+	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
+
+	// reconcile the same user again and make sure the automation config is not updated, if the user's password is not changed
+	// we don't generate scram creds and because of that we wouldn't see changes in automatino config
+	reconcileResult, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	assert.Nil(t, err)
+	assert.Equal(t, okReconcileResult, reconcileResult)
+
+	acAfterSecondReconcile, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	// verify that the automation cnofig has not been changed because we ran reconciliation second time with the same user
+	assert.True(t, acAfterSecondReconcile.EqualsWithoutDeployment(*originalAC), "Automation config before the second reconciliation and after the second reconciliation should be same")
 }
 
 func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T) {

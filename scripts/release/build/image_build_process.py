@@ -1,6 +1,6 @@
 import base64
 import subprocess
-from typing import Dict
+from typing import Dict, Optional
 
 import boto3
 import docker
@@ -21,6 +21,12 @@ class ImageBuilder(object):
                     path: str,
                     args: Dict[str, str],
                     platforms: list[str]):  pass
+
+    # check_if_image_exists could easily be used to get the digest of manfiest list but
+    # the python package that we use somehow doesn't return the digest of manifest list
+    # even though the respective docker CLI returns the digest. That's why we had to introduce
+    # this function.
+    def get_manfiest_list_digest(self, image: str) -> Optional[str]: pass
 
 
 DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
@@ -109,6 +115,26 @@ class DockerImageBuilder(ImageBuilder):
         else:
             return True
 
+    def get_manfiest_list_digest(self, image) -> Optional[str]:
+        SKOPEO_IMAGE = "quay.io/skopeo/stable"
+
+        skopeo_inspect_command = ["inspect",  f"docker://{image}", "--format", "{{.Digest}}"]
+        docker_run_skopeo = ["docker", "run", "--rm", SKOPEO_IMAGE]
+        docker_run_skopeo.extend(skopeo_inspect_command)
+        
+        try:
+            result = subprocess.run(
+                docker_run_skopeo,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            raise Exception(f"Failed to run skopeo inspect using 'docker run' for image {image}. Error: {e.stderr.strip()}") from e
+        except FileNotFoundError:
+            raise Exception("docker is not installed on the system.")
+
     def build_image(self, tags: list[str],
                     dockerfile: str,
                     path: str,
@@ -166,6 +192,9 @@ class PodmanImageBuilder(ImageBuilder):
         logger.warning(
             f"PodmanImageBuilder does not support checking if image exists remotely. Skipping check for {image_tag}.")
         return False
+
+    def get_manfiest_list_digest(self, image) -> Optional[str]:
+        raise Exception("PodmanImageBuilder does not support getting digest for manifest list, use docker image builder instead.")
 
     def build_image(self, tags: list[str],
                     dockerfile: str,

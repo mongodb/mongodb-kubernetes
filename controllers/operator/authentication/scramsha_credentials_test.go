@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 )
 
 func TestScramSha1SecretsMatch(t *testing.T) {
@@ -22,4 +24,42 @@ func assertSecretsMatch(t *testing.T, hash func() hash.Hash, passwordHash string
 	assert.NoError(t, err)
 	assert.Equal(t, computedStoredKey, storedKey)
 	assert.Equal(t, computedServerKey, serverKey)
+}
+
+var testAutomationConfig = &om.AutomationConfig{
+	Auth: &om.Auth{
+		Users: make([]*om.MongoDBUser, 0),
+	},
+}
+
+func Test_isPasswordChanged(t *testing.T) {
+	userPassword := "secretpassword"
+	userNewPassword := "newsecretpassword"
+
+	mongoUser := om.MongoDBUser{
+		Username: "new-user",
+		Database: "admin",
+	}
+
+	// will generate scram creds for the user mongoUser and set it in its fields
+	ConfigureScramCredentials(&mongoUser, userPassword, testAutomationConfig)
+
+	testAutomationConfig.Auth.Users = append(testAutomationConfig.Auth.Users, &om.MongoDBUser{
+		Username:         mongoUser.Username,
+		Database:         mongoUser.Database,
+		ScramSha256Creds: mongoUser.ScramSha256Creds,
+		ScramSha1Creds:   mongoUser.ScramSha1Creds,
+	})
+
+	// now that the scram creds are set in the automation config, let's say the reconciliation happens again
+	// with the same user and same password, isPasswordChanged should return false
+	_, u := testAutomationConfig.Auth.GetUser(mongoUser.Username, mongoUser.Database)
+	op, err := isPasswordChanged(&mongoUser, userPassword, u)
+	assert.Nil(t, err)
+	assert.False(t, op)
+
+	// if reconciliation happens again with diff password, isPasswordChanged should return true
+	op, err = isPasswordChanged(&mongoUser, userNewPassword, u)
+	assert.Nil(t, err)
+	assert.True(t, op)
 }

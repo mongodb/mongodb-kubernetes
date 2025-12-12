@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -1872,6 +1873,57 @@ func TestSingleClusterShardedScalingWithOverrides(t *testing.T) {
 			SingleClusterShardedScalingWithOverridesTestCase(t, tc)
 		})
 	}
+}
+
+func TestSharderClusterRoleAnnotationIsSet(t *testing.T) {
+	ctx := context.Background()
+
+	role := mdbv1.MongoDBRole{
+		Role: "embedded-role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+
+	sc := test.DefaultClusterBuilder().SetRoles([]mdbv1.MongoDBRole{role}).Build()
+	reconciler, _, cl, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil)
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+
+	// Assert that the roles are saved in the state configmap
+	configMapName := fmt.Sprintf("%s-state", sc.Name)
+	stateConfigMap := &corev1.ConfigMap{}
+	err = cl.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: sc.Namespace}, stateConfigMap)
+	require.NoError(t, err)
+
+	deploymentState := ShardedClusterDeploymentState{}
+	err = json.Unmarshal([]byte(stateConfigMap.Data[stateKey]), &deploymentState)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"embedded-role@admin"}, deploymentState.LastConfiguredRoles)
+
+	roles := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 1)
+
+	sc.GetSecurity().Roles = []mdbv1.MongoDBRole{}
+	err = cl.Update(ctx, sc)
+	assert.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+
+	// Assert that the state configmap is updated and role is removed
+	stateConfigMap = &corev1.ConfigMap{}
+	err = cl.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: sc.Namespace}, stateConfigMap)
+	require.NoError(t, err)
+
+	deploymentState = ShardedClusterDeploymentState{}
+	err = json.Unmarshal([]byte(stateConfigMap.Data[stateKey]), &deploymentState)
+	require.NoError(t, err)
+	assert.Equal(t, []string{}, deploymentState.LastConfiguredRoles)
+
+	roles = omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 0)
 }
 
 func generateHostsWithDistributionSingleCluster(stsName string, namespace string, memberCount int, clusterDomain string, externalClusterDomain string) ([]string, []string) {
