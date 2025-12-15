@@ -12,6 +12,19 @@ TRACER = trace.get_tracer("evergreen-agent")
 class MongoDBCommon:
     @TRACER.start_as_current_span("wait_for")
     def wait_for(self, fn, timeout=None, should_raise=True, persist_for=1):
+        """
+        Waits for the given function `fn` to return True, retrying until the timeout is reached.
+        If persist_for > 1, the function must return True for that many consecutive checks.
+        Optionally raises an exception if the condition is not met within the timeout.
+
+        Args:
+            fn: A callable that returns a boolean.
+            timeout: Maximum time to wait in seconds (default: 600).
+            should_raise: If True, raises an Exception on timeout (default: True).
+            persist_for: Number of consecutive successful checks required (default: 1).
+        Returns:
+            True if the condition is met within the timeout, otherwise raises Exception if `should_raise` is True.
+        """
         if timeout is None:
             timeout = 600
         initial_timeout = timeout
