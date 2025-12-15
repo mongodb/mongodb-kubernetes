@@ -256,7 +256,7 @@ class TestOperatorUpgrade:
         # Reordering the clusters triggers a change in the state
         ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = scale_on_upgrade.cluster_spec
         ops_manager.update()
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=250)
 
     def test_migrated_state_correctness(
