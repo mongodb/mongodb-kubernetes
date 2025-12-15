@@ -138,6 +138,13 @@ def test_ops_manager_has_been_updated_correctly_after_scaling():
     ac.assert_processes_size(3)
 
 
+@pytest.mark.e2e_multi_cluster_replica_set_scale_down
+def test_hosts_removed_from_monitoring_after_scaling(mongodb_multi: MongoDBMulti):
+    """Verifies that scaled-down hosts are removed from OM monitoring."""
+    # After scaling to [1, 0, 2] members, we should have 3 hosts total
+    mongodb_multi.get_om_tester().wait_until_hosts_count(3, timeout=60)
+
+
 @skip_if_local
 @pytest.mark.e2e_multi_cluster_replica_set_scale_down
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti, ca_path: str):
