@@ -36,6 +36,7 @@ import (
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -1134,6 +1135,54 @@ func TestScaling(t *testing.T) {
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 		assertStatefulSetReplicas(ctx, t, mrs, memberClusters, 0, 1, 0)
 	})
+}
+
+// TestMultiReplicaSetScaleDown_HostsRemovedFromMonitoring verifies that hosts are removed from monitoring
+// when scaling down a multi-cluster replica set
+func TestMultiReplicaSetScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	mrs.Spec.ClusterSpecList[0].Members = 2
+	mrs.Spec.ClusterSpecList[1].Members = 2
+	mrs.Spec.ClusterSpecList[2].Members = 2
+
+	// Use member cluster clients with addOMHosts=false to prevent the interceptor from
+	// re-adding hosts when StatefulSets are fetched during scale-down.
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(mrs)
+	memberClusterMap := getAppDBFakeMultiClusterMapWithClusters(clusters, omConnectionFactory)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc, memberClusterMap)
+
+	var allHostnames []string
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	require.NoError(t, err)
+	for _, item := range clusterSpecList {
+		clusterNum := mrs.ClusterNum(item.ClusterName)
+		hostnames := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, clusterNum, item.Members, "", nil)
+		allHostnames = append(allHostnames, hostnames...)
+	}
+
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+		connection.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(mrs)
+	})
+
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	// Compute hosts that will be removed (2nd host in cluster 0)
+	clusterNum := mrs.ClusterNum(mrs.Spec.ClusterSpecList[0].ClusterName)
+	cluster0Hostnames := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, clusterNum, 2, "", nil)
+	removedHost := cluster0Hostnames[1] // The 2nd host will be removed when scaling from 2 to 1
+
+	// Scale down cluster 0 from 2 to 1 member
+	mrs.Spec.ClusterSpecList[0].Members = 1
+	err = kubeClient.Update(ctx, mrs)
+	assert.NoError(t, err)
+
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+
+	mockedOmConn.CheckMonitoredHostsRemoved(t, []string{removedHost})
 }
 
 func TestClusterNumbering(t *testing.T) {

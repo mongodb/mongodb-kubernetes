@@ -1780,3 +1780,88 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 		})
 	}
 }
+
+// TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring verifies that hosts are removed from monitoring
+// when scaling down
+func TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+	centralClusterName := multicluster.LegacyCentralClusterName
+	memberClusterName1 := "member-cluster-1"
+	memberClusterName2 := "member-cluster-2"
+	clusters := []string{centralClusterName, memberClusterName1, memberClusterName2}
+
+	builder := DefaultOpsManagerBuilder().
+		SetName("om").
+		SetNamespace("ns").
+		SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+			{
+				ClusterName: memberClusterName1,
+				Members:     3,
+			},
+			{
+				ClusterName: memberClusterName2,
+				Members:     2,
+			},
+		}).
+		SetAppDbMembers(0).
+		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster)
+
+	opsManager := builder.Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	globalClusterMap := getAppDBFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
+
+	err := createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, opsManagerUserPassword)
+	assert.NoError(t, err)
+
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
+	require.NoError(t, err)
+
+	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
+	require.NoError(t, err)
+	assert.True(t, reconcileResult.Requeue)
+
+	createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
+
+	reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
+	require.NoError(t, err)
+	reconcileResult, err = reconciler.ReconcileAppDB(ctx, opsManager)
+	require.NoError(t, err)
+	require.False(t, reconcileResult.Requeue)
+
+	initialHostnames := []string{
+		"om-db-0-0-svc.ns.svc.cluster.local",
+		"om-db-0-1-svc.ns.svc.cluster.local",
+		"om-db-0-2-svc.ns.svc.cluster.local",
+		"om-db-1-0-svc.ns.svc.cluster.local",
+		"om-db-1-1-svc.ns.svc.cluster.local",
+	}
+
+	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), initialHostnames)
+
+	opsManager.Spec.AppDB.ClusterSpecList = mdbv1.ClusterSpecList{
+		{
+			ClusterName: memberClusterName1,
+			Members:     2,
+		},
+		{
+			ClusterName: memberClusterName2,
+			Members:     1,
+		},
+	}
+
+	for i := 0; i < 2; i++ {
+		reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
+		require.NoError(t, err)
+		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+		require.NoError(t, err)
+	}
+
+	expectedHostnamesAfterScaleDown := []string{
+		"om-db-0-0-svc.ns.svc.cluster.local",
+		"om-db-0-1-svc.ns.svc.cluster.local",
+		"om-db-1-0-svc.ns.svc.cluster.local",
+	}
+
+	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnamesAfterScaleDown)
+}

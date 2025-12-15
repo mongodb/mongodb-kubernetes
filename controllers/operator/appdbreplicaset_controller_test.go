@@ -344,6 +344,15 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		hosts, _ := omConnectionFactory.GetConnection().GetHosts()
 		assert.Len(t, hosts.Results, 5)
 	})
+
+	t.Run("Ensure hosts are removed when scaled down", func(t *testing.T) {
+		opsManager.Spec.AppDB.Members = 3
+		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+
+		// After scale-down, hosts should be removed from monitoring
+		hosts, _ := omConnectionFactory.GetConnection().GetHosts()
+		assert.Len(t, hosts.Results, 3, "Expected 3 hosts after scaling down from 5 to 3 members")
+	})
 }
 
 func TestEnsureAppDbAgentApiKey(t *testing.T) {
