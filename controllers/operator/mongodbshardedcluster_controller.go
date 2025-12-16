@@ -1825,6 +1825,9 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		logWarnIgnoredDueToRecovery(log, err)
 	}
 
+	// Capture hostnames before modification for later comparison
+	hostsBefore := dep.GetAllHostnames()
+
 	opts.finalizing = false
 	opts.processNames = dep.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
@@ -1871,10 +1874,17 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		}
 	}
 
-	currentHosts := r.getAllHostnames(false)
-	wantedHosts := r.getAllHostnames(true)
+	// Read deployment again to get actual state after modifications
+	depAfter, err := conn.ReadDeployment()
+	if err != nil {
+		if !isRecovering {
+			return workflow.Failed(err)
+		}
+		logWarnIgnoredDueToRecovery(log, err)
+	}
+	hostsAfter := depAfter.GetAllHostnames()
 
-	if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
+	if err = host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil {
 		if !isRecovering {
 			return workflow.Failed(err)
 		}
