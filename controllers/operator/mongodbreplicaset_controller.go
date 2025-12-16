@@ -739,8 +739,15 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		prometheusCertHash: deploymentOptions.prometheusCertHash,
 	}
 
+	// Capture hostsBefore inside callback to avoid extra API call
+	// ReadUpdateDeployment internally reads deployment and passes it to the callback
+	var hostsBefore []string
+
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
+			// Capture hostsBefore at START of callback, before any modifications
+			hostsBefore = d.GetHostnamesForReplicaSet(rs.Name)
+
 			if shouldMirrorKeyfileForMongot {
 				if err := r.mirrorKeyfileIntoSecretForMongot(ctx, d); err != nil {
 					return err
@@ -768,8 +775,12 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Pending("Performing multi stage reconciliation")
 	}
 
-	hostsBefore := getAllHostsForReplicas(rs, membersNumberBefore)
-	hostsAfter := getAllHostsForReplicas(rs, scale.ReplicasThisReconciliation(rs))
+	// Read hostsAfter from actual OM deployment state AFTER modifications
+	depAfter, err := conn.ReadDeployment()
+	if err != nil && !isRecovering {
+		return workflow.Failed(err)
+	}
+	hostsAfter := depAfter.GetHostnamesForReplicaSet(rs.Name)
 
 	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil && !isRecovering {
 		return workflow.Failed(err)
@@ -864,11 +875,6 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 		return err
 	}
 	return helper.OnDelete(ctx, obj, log)
-}
-
-func getAllHostsForReplicas(rs *mdbv1.MongoDB, membersCount int) []string {
-	hostnames, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), membersCount, rs.Spec.DbCommonSpec.GetExternalDomain())
-	return hostnames
 }
 
 func (r *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) bool {
