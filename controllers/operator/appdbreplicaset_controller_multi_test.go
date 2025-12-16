@@ -31,12 +31,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 const opsManagerUserPassword = "MBPYfkAj5ZM0l9uw6C7ggw" //nolint
@@ -1808,7 +1810,16 @@ func TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster)
 
 	opsManager := builder.Build()
-	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	// Use addOMHosts=false to prevent the interceptor from re-adding hosts when
+	// StatefulSets are fetched during scale-down. This allows testing host removal.
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(opsManager).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, false),
+		}).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
 	globalClusterMap := getAppDBFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
 
 	err := createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, opsManagerUserPassword)
@@ -1863,5 +1874,12 @@ func TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 		"om-db-1-0-svc.ns.svc.cluster.local",
 	}
 
-	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnamesAfterScaleDown)
+	// Only check hosts (not preferred hostnames) after scale-down because the API
+	// doesn't support removing preferred hostnames
+	// The important thing for monitoring is that hosts are removed.
+	omConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	hosts, _ := omConnection.GetHosts()
+	assert.Equal(t, expectedHostnamesAfterScaleDown, util.Transform(hosts.Results, func(obj host.Host) string {
+		return obj.Hostname
+	}), "the AppDB hosts should have been removed after scale-down")
 }

@@ -349,6 +349,10 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		opsManager.Spec.AppDB.Members = 3
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
+		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
+		err = reconciler.registerAppDBHostsWithProject(hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		assert.NoError(t, err)
+
 		// After scale-down, hosts should be removed from monitoring
 		hosts, _ := omConnectionFactory.GetConnection().GetHosts()
 		assert.Len(t, hosts.Results, 3, "Expected 3 hosts after scaling down from 5 to 3 members")

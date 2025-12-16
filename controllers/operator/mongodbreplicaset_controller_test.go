@@ -30,6 +30,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
@@ -413,6 +414,15 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 		reflect.ValueOf(mockedOmConn.GetHosts), reflect.ValueOf(mockedOmConn.RemoveHost))
 }
 
+// assertHostsEqual verifies that the monitored hosts in OM match the expected hostnames
+func assertHostsEqual(t *testing.T, conn *om.MockedOmConnection, expected []string) {
+	hosts, _ := conn.GetHosts()
+	actual := util.Transform(hosts.Results, func(obj host.Host) string {
+		return obj.Hostname
+	})
+	assert.Equal(t, expected, actual, "monitored hosts should match expected")
+}
+
 // TestReplicaSetScaleDown_HostsRemovedFromMonitoring verifies that hosts are removed from monitoring
 // when scaling down a replica set
 func TestReplicaSetScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
@@ -445,6 +455,10 @@ func TestReplicaSetScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
+	// Verify all 5 hosts are monitored after initial reconcile
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	assertHostsEqual(t, mockedOmConn, hostnames)
+
 	// Scale down from 5 to 4 members
 	rs.Spec.Members = 4
 	err := fakeClient.Update(ctx, rs)
@@ -452,9 +466,12 @@ func TestReplicaSetScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
-	// The 5th host should have been removed
+	// Verify exactly 4 hosts remain (the first 4)
+	expectedHostnamesAfterScaleDown := hostnames[:4]
+	assertHostsEqual(t, mockedOmConn, expectedHostnamesAfterScaleDown)
+
+	// Also verify the 5th host was specifically removed
 	removedHost := hostnames[4]
-	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
 	mockedOmConn.CheckMonitoredHostsRemoved(t, []string{removedHost})
 }
 

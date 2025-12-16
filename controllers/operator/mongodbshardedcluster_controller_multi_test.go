@@ -3988,36 +3988,39 @@ func TestMultiClusterShardedCluster_ScaleDown_HostsRemovedFromMonitoring(t *test
 		mongosDistribution:       map[string]int{cluster1: 1, cluster2: 0, cluster3: 1},
 	}
 
-	sc := test.DefaultClusterBuilder().
+	// Build scaled-down spec first - the reconcilerHelper must be initialized with the target state
+	// (similar to how the single-cluster test works)
+	scScaledDown := test.DefaultClusterBuilder().
 		SetTopology(mdbv1.ClusterTopologyMultiCluster).
-		SetShardCountSpec(initialState.shardCount).
+		SetShardCountSpec(scaledDownState.shardCount).
 		SetMongodsPerShardCountSpec(0).
 		SetConfigServerCountSpec(0).
 		SetMongosCountSpec(0).
-		SetShardClusterSpec(test.CreateClusterSpecList(memberClusterNames, initialState.shardDistribution)).
-		SetConfigSrvClusterSpec(test.CreateClusterSpecList(memberClusterNames, initialState.configServerDistribution)).
-		SetMongosClusterSpec(test.CreateClusterSpecList(memberClusterNames, initialState.mongosDistribution)).
+		SetShardClusterSpec(test.CreateClusterSpecList(memberClusterNames, scaledDownState.shardDistribution)).
+		SetConfigSrvClusterSpec(test.CreateClusterSpecList(memberClusterNames, scaledDownState.configServerDistribution)).
+		SetMongosClusterSpec(test.CreateClusterSpecList(memberClusterNames, scaledDownState.mongosDistribution)).
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(mock.GetDefaultResources()...).Build()
 	kubeClient := kubernetesClient.NewClient(fakeClient)
 
-	err := kubeClient.Create(ctx, sc)
+	err := kubeClient.Create(ctx, scScaledDown)
 	require.NoError(t, err)
 
 	memberClusterMap := getFakeMultiClusterMapWithoutInterceptor(memberClusterNames)
-	_, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	// Initialize reconcilerHelper with scaled-down spec (the target state)
+	_, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, scScaledDown, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 
-	// Generate hosts for initial state
+	// Generate hosts for initial state (what's currently in OM before scale-down)
 	initialShardDist := []map[string]int{initialState.shardDistribution, initialState.shardDistribution}
-	allInitialHosts, _ := generateAllHosts(sc, initialState.mongosDistribution, clusterMapping, initialState.configServerDistribution, initialShardDist, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+	allInitialHosts, _ := generateAllHosts(scScaledDown, initialState.mongosDistribution, clusterMapping, initialState.configServerDistribution, initialShardDist, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 
-	// Generate hosts for scaled-down state
+	// Generate hosts for scaled-down state (what we want after scale-down)
 	scaledDownShardDist := []map[string]int{scaledDownState.shardDistribution, scaledDownState.shardDistribution}
-	allScaledDownHosts, _ := generateAllHosts(sc, scaledDownState.mongosDistribution, clusterMapping, scaledDownState.configServerDistribution, scaledDownShardDist, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+	allScaledDownHosts, _ := generateAllHosts(scScaledDown, scaledDownState.mongosDistribution, clusterMapping, scaledDownState.configServerDistribution, scaledDownShardDist, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 
 	// Determine which hosts will be removed
 	var removedHosts []string
@@ -4034,28 +4037,38 @@ func TestMultiClusterShardedCluster_ScaleDown_HostsRemovedFromMonitoring(t *test
 		}
 	}
 
+	// Build initial spec to set up the initial deployment
+	scInitial := test.DefaultClusterBuilder().
+		SetTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetShardCountSpec(initialState.shardCount).
+		SetMongodsPerShardCountSpec(0).
+		SetConfigServerCountSpec(0).
+		SetMongosCountSpec(0).
+		SetShardClusterSpec(test.CreateClusterSpecList(memberClusterNames, initialState.shardDistribution)).
+		SetConfigSrvClusterSpec(test.CreateClusterSpecList(memberClusterNames, initialState.configServerDistribution)).
+		SetMongosClusterSpec(test.CreateClusterSpecList(memberClusterNames, initialState.mongosDistribution)).
+		Build()
+
+	// Create a reconcilerHelper for the initial state to set up the deployment
+	_, initialReconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, scInitial, memberClusterMap, kubeClient, omConnectionFactory)
+	require.NoError(t, err)
+
 	mockOm := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName}).(*om.MockedOmConnection)
 	_ = mockOm.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		ac.Auth.DeploymentAuthMechanisms = []string{}
 		return nil
 	}, nil)
+
+	// Add hosts BEFORE deployment so agents appear as registered (mock uses hostResults for agent status)
 	mockOm.AddHosts(allInitialHosts)
 
-	// Deploy initial state
-	assert.Equal(t, workflow.OK(), reconcilerHelper.updateOmDeploymentShardedCluster(ctx, mockOm, sc, deploymentOptions{}, false, zap.S()))
+	// Deploy initial state to populate the deployment
+	assert.Equal(t, workflow.OK(), initialReconcilerHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scInitial, deploymentOptions{}, false, zap.S()))
 
-	// Build and deploy scaled-down state
-	scScaledDown := test.DefaultClusterBuilder().
-		SetTopology(mdbv1.ClusterTopologyMultiCluster).
-		SetShardCountSpec(scaledDownState.shardCount).
-		SetMongodsPerShardCountSpec(0).
-		SetConfigServerCountSpec(0).
-		SetMongosCountSpec(0).
-		SetShardClusterSpec(test.CreateClusterSpecList(memberClusterNames, scaledDownState.shardDistribution)).
-		SetConfigSrvClusterSpec(test.CreateClusterSpecList(memberClusterNames, scaledDownState.configServerDistribution)).
-		SetMongosClusterSpec(test.CreateClusterSpecList(memberClusterNames, scaledDownState.mongosDistribution)).
-		Build()
+	// Clean history to start fresh for the scale-down operation
+	mockOm.CleanHistory()
 
+	// Now deploy scaled-down state - this should detect and remove hosts that are no longer needed
 	assert.Equal(t, workflow.OK(), reconcilerHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{}, false, zap.S()))
 
 	// Verify the removed hosts are no longer monitored
