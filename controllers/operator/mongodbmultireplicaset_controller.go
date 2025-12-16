@@ -781,8 +781,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	lastMongodbConfig := mrs.GetLastAdditionalMongodConfig()
 
+	// Capture hostsBefore inside callback to avoid extra API call
+	// ReadUpdateDeployment internally reads deployment and passes it to the callback
+	var hostsBefore []string
+
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
+			// Capture hostsBefore at START of callback, before any modifications
+			hostsBefore = d.GetHostnamesForReplicaSet(mrs.Name)
 			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.Name, rs, caFilePath, internalClusterCertPath, nil, log)
 		},
 		log,
@@ -814,6 +820,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	if err := om.WaitForReadyState(conn, reachableProcessNames, isRecovering, log); err != nil && !isRecovering {
 		return err
 	}
+
+	// Remove scaled-down hosts from monitoring
+	// Read hostsAfter from actual OM deployment state, not from helper's internal process list
+	depAfter, err := conn.ReadDeployment()
+	if err != nil && !isRecovering {
+		return err
+	}
+	hostsAfter := depAfter.GetHostnamesForReplicaSet(mrs.Name)
+	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil && !isRecovering {
+		return err
+	}
+
 	return nil
 }
 
