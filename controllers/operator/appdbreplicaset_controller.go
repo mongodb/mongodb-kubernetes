@@ -1497,6 +1497,22 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(hostnames []str
 			}
 		}
 	}
+
+	// Remove hosts that are no longer in the desired list (scale-down scenario)
+	desiredHostnames := make(map[string]struct{})
+	for _, h := range hostnames {
+		desiredHostnames[h] = struct{}{}
+	}
+
+	for _, existingHost := range getHostsResult.Results {
+		if _, wanted := desiredHostnames[existingHost.Hostname]; !wanted {
+			log.Debugf("Removing AppDB host %s from monitoring as it's no longer needed", existingHost.Hostname)
+			if err := conn.RemoveHost(existingHost.Id); err != nil {
+				return xerrors.Errorf("error removing appdb host %s: %w", existingHost.Hostname, err)
+			}
+		}
+	}
+
 	return nil
 }
 
