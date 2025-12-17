@@ -212,7 +212,7 @@ func resizePVCsStorage(kubeClient kubernetesClient.Client, statefulSetToCreate *
 		if template, _ := getMatchingPVCTemplateFromSTS(statefulSetToCreate, &existingPVC); template != nil {
 			currentSize := existingPVC.Spec.Resources.Requests[corev1.ResourceStorage]
 			targetSize := *template.Spec.Resources.Requests.Storage()
-			log.Infof("Resizing PVC %s/%s from %s to %s", existingPVC.Namespace, existingPVC.GetName(), currentSize.String(), targetSize.String())
+			log.Infof("Resizing PVC %s/%s from %s to %s", existingPVC.GetNamespace(), existingPVC.GetName(), currentSize.String(), targetSize.String())
 			existingPVC.Spec.Resources.Requests[corev1.ResourceStorage] = targetSize
 			if err := kubeClient.Update(ctx, &existingPVC); err != nil {
 				return err

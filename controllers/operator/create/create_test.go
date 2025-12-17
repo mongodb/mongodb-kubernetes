@@ -957,7 +957,16 @@ func TestResizePVCsStorage(t *testing.T) {
 
 	for _, template := range initialSts.Spec.VolumeClaimTemplates {
 		for i := range *initialSts.Spec.Replicas {
-			pvc := createPVCFromTemplate(template, initialSts.Name, i)
+			pvc := createPVCFromTemplate(template, initialSts.Name, initialSts.Namespace, i)
+			err = fakeClient.Create(context.TODO(), pvc)
+			assert.NoError(t, err)
+		}
+	}
+
+	// PVCs in different namespace should be ignored and not resized
+	for _, template := range initialSts.Spec.VolumeClaimTemplates {
+		for i := range *initialSts.Spec.Replicas {
+			pvc := createPVCFromTemplate(template, initialSts.Name, "mongodb-test-2", i)
 			err = fakeClient.Create(context.TODO(), pvc)
 			assert.NoError(t, err)
 		}
@@ -970,13 +979,31 @@ func TestResizePVCsStorage(t *testing.T) {
 	err = fakeClient.List(context.TODO(), &pvcList)
 	assert.NoError(t, err)
 
+	pvcSizesPerNamespace := map[string]map[string]string{
+		"mongodb-test": {
+			"data":    "30Gi",
+			"journal": "30Gi",
+			"logs":    "20Gi",
+		},
+		"mongodb-test-2": {
+			"data":    "20Gi",
+			"journal": "20Gi",
+			"logs":    "20Gi",
+		},
+	}
+
 	for _, pvc := range pvcList.Items {
+		pvcSizes, ok := pvcSizesPerNamespace[pvc.Namespace]
+		if !ok {
+			t.Fatalf("unexpected namespace %s for pvc %s", pvc.Namespace, pvc.Name)
+		}
+
 		if strings.HasPrefix(pvc.Name, "data") {
-			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), "30Gi")
+			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), pvcSizes["data"])
 		} else if strings.HasPrefix(pvc.Name, "journal") {
-			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), "30Gi")
+			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), pvcSizes["journal"])
 		} else if strings.HasPrefix(pvc.Name, "logs") {
-			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), "20Gi")
+			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), pvcSizes["logs"])
 		} else {
 			t.Fatal("no pvc was compared while we should have at least detected and compared one")
 		}
@@ -988,7 +1015,7 @@ func createStatefulSet(size1, size2, size3 string) *appsv1.StatefulSet {
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test",
-			Namespace: "default",
+			Namespace: "mongodb-test",
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas: ptr.To(int32(3)),
@@ -1034,12 +1061,12 @@ func createStatefulSet(size1, size2, size3 string) *appsv1.StatefulSet {
 	}
 }
 
-func createPVCFromTemplate(pvcTemplate corev1.PersistentVolumeClaim, stsName string, ordinal int32) *corev1.PersistentVolumeClaim {
+func createPVCFromTemplate(pvcTemplate corev1.PersistentVolumeClaim, stsName string, namespace string, ordinal int32) *corev1.PersistentVolumeClaim {
 	pvcName := fmt.Sprintf("%s-%s-%d", pvcTemplate.Name, stsName, ordinal)
 	return &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pvcName,
-			Namespace: "default",
+			Namespace: namespace,
 		},
 		Spec: pvcTemplate.Spec,
 	}
