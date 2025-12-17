@@ -44,8 +44,7 @@ type MongoDBCertificateSpec struct {
 	ResourceType ResourceType `json:"type"`
 	//+optional
 	IssuerRef *IssuerRef `json:"issuerRef,omitempty"`
-	// +kubebuilder:validation:Required
-	ResourceRef ResourceRef `json:"resourceRef"`
+
 	// +kubebuilder:validation:Required
 	// +kubebuilder:pruning:PreserveUnknownFields
 	CertificateWrapper CertificateSpecWrapper `json:"certificateSpec"`

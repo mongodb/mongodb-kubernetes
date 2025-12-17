@@ -1156,6 +1156,8 @@ type TLSConfig struct {
 	// CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
 	// used to validate the certificates created already.
 	CA string `json:"ca,omitempty"`
+
+	CertificateConfRef string `json:"issuerRef"`
 }
 
 func (m *MongoDbSpec) GetTLSConfig() *TLSConfig {
