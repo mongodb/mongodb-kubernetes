@@ -475,6 +475,45 @@ func TestReplicaSetScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 	mockedOmConn.CheckMonitoredHostsRemoved(t, []string{removedHost})
 }
 
+// TestReplicaSetOrphanedHostsCleanedUp verifies that orphaned hosts (hosts that exist in OM monitoring but shouldn't
+// based on current RS spec) are cleaned up during reconciliation.
+// This tests the self-healing property of the declarative host reconciliation approach.
+func TestReplicaSetOrphanedHostsCleanedUp(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
+
+	// Generate hostnames for 5 hosts (simulating 2 orphaned from previous failed scale-down)
+	allHostnames, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), 5, nil)
+	expectedHostnames := allHostnames[:3] // Only first 3 should remain
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	fakeClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().
+		WithObjects(rs).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, false),
+		}).Build())
+
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
+
+	// Simulate orphaned hosts: add 5 hosts to OM even though RS only has 3 members
+	// This simulates a scenario where a previous scale-down failed to remove hosts
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames) // Add all 5 hosts
+	})
+
+	// This reconciliation should clean up orphaned hosts
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	assertHostsEqual(t, mockedOmConn, expectedHostnames)
+
+	// Verify the orphaned hosts were specifically removed
+	orphanedHosts := allHostnames[3:] // hosts 3 and 4
+	mockedOmConn.CheckMonitoredHostsRemoved(t, orphanedHosts)
+}
+
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetVersion("4.0.0").EnableAuth().SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
