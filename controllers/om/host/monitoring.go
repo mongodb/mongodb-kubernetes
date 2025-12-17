@@ -2,6 +2,7 @@ package host
 
 import (
 	"errors"
+	"strings"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -66,4 +67,41 @@ func stopMonitoringHosts(getRemover GetRemover, hosts []string, log *zap.Sugared
 // monitoring from them.
 func CalculateDiffAndStopMonitoring(getRemover GetRemover, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
 	return stopMonitoringHosts(getRemover, util.FindLeftDifference(hostsBefore, hostsAfter), log)
+}
+
+// GetMonitoredHostnamesForRS returns hostnames from OM's monitored hosts that belong to the
+// specified replica set. Hosts are identified by matching the hostname pattern:
+// {rsName}-{ordinal}.{serviceFQDN}
+//
+// Note: The OM API supports server-side filtering via the clusterId query parameter:
+// GET /groups/{PROJECT-ID}/hosts?clusterId={CLUSTER-ID}
+// See: https://www.mongodb.com/docs/ops-manager/current/reference/api/hosts/get-all-hosts-in-group/
+// If we have access to the cluster ID reliably, we can take advantage of it
+func GetMonitoredHostnamesForRS(getter Getter, rsName, serviceFQDN string) ([]string, error) {
+	allHosts, err := getter.GetHosts()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get hosts from OM: %w", err)
+	}
+
+	prefix := rsName + "-"
+	var rsHosts []string
+	for _, h := range allHosts.Results {
+		if strings.HasPrefix(h.Hostname, prefix) && strings.Contains(h.Hostname, serviceFQDN) {
+			rsHosts = append(rsHosts, h.Hostname)
+		}
+	}
+	return rsHosts, nil
+}
+
+// RemoveUndesiredMonitoringHosts ensures only the desired hosts are monitored for a replica set.
+// This is idempotent: it compares actual monitored hosts against desired and removes any extras.
+// Should be called on every reconciliation to ensure orphaned hosts are cleaned up.
+func RemoveUndesiredMonitoringHosts(getRemover GetRemover, rsName, serviceFQDN string, hostsDesired []string, log *zap.SugaredLogger) error {
+	hostsMonitored, err := GetMonitoredHostnamesForRS(getRemover, rsName, serviceFQDN)
+	if err != nil {
+		return err
+	}
+
+	// Reuse existing diff calculation and removal logic
+	return CalculateDiffAndStopMonitoring(getRemover, hostsMonitored, hostsDesired, log)
 }
