@@ -477,7 +477,7 @@ func TestReplicaSetScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 
 // TestReplicaSetOrphanedHostsCleanedUp verifies that orphaned hosts (hosts that exist in OM monitoring but shouldn't
 // based on current RS spec) are cleaned up during reconciliation.
-// This tests the self-healing property of the declarative host reconciliation approach.
+// Ensure we clean up orphaned hosts from potential previous bad runs.
 func TestReplicaSetOrphanedHostsCleanedUp(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
