@@ -968,6 +968,7 @@ task_groups:
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_monitoring_tls
+      - e2e_om_appdb_tls_disable
       - e2e_om_ops_manager_backup
       - e2e_om_ops_manager_backup_light
       - e2e_om_ops_manager_backup_liveness_probe
@@ -1022,6 +1023,7 @@ task_groups:
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_monitoring_tls
+      - e2e_om_appdb_tls_disable
       - e2e_om_ops_manager_backup
       - e2e_om_ops_manager_backup_light
       - e2e_om_ops_manager_backup_liveness_probe
@@ -1076,6 +1078,7 @@ task_groups:
       - e2e_om_appdb_external_connectivity
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_monitoring_tls
+      - e2e_om_appdb_tls_disable
       - e2e_om_appdb_multi_change
       - e2e_om_appdb_scale_up_down
       - e2e_om_appdb_upgrade
@@ -1120,6 +1123,7 @@ task_groups:
       - e2e_om_appdb_external_connectivity
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_monitoring_tls
+      - e2e_om_appdb_tls_disable
       - e2e_om_appdb_multi_change
       - e2e_om_appdb_scale_up_down
       - e2e_om_appdb_upgrade
@@ -1439,7 +1443,21 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om8_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om80_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
       - name: e2e_static_ops_manager_kind_6_0_only_task_group
