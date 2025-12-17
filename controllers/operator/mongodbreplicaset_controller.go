@@ -768,15 +768,12 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Pending("Performing multi stage reconciliation")
 	}
 
-	// Monitoring hosts reconciliation
-	// Compare actually monitored hosts against desired hosts and remove any extras.
-	// This runs on EVERY reconciliation (not just scale-down) to ensure idempotency
-	// and self-healing of orphaned hosts from previous failed reconciliations.
+	// Monitoring hosts reconciliation: compare monitored hosts against desired and remove extras.
+	// Runs on EVERY reconciliation to ensure idempotency and self-healing of orphaned hosts.
+	// Note: Relies on constraint that one OM project = one deployment (all hosts belong to us).
 	hostsDesired, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(),
 		replicasTarget, rs.Spec.DbCommonSpec.GetExternalDomain())
-	serviceFQDN := dns.GetServiceFQDN(rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain())
-	// TODO: should we fail the reconciliation if we fail this cleanup ? Or should we just display a warning ?
-	if err := host.RemoveUndesiredMonitoringHosts(conn, rs.Name, serviceFQDN, hostsDesired, log); err != nil && !isRecovering {
+	if err := host.RemoveUndesiredMonitoringHosts(conn, hostsDesired, log); err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
