@@ -12,5 +12,6 @@ pushd "${script_dir}"
 prepare_snippets
 
 run ra-01_9010_delete_gke_clusters.sh
+run ra-01_9020_delete_disks.sh
 
 popd
