@@ -949,7 +949,7 @@ func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log 
 func TestResizePVCsStorage(t *testing.T) {
 	fakeClient, _ := mock.NewDefaultFakeClient()
 
-	initialSts := createStatefulSet("20Gi", "20Gi", "20Gi")
+	initialSts := createStatefulSet("test", "mongodb-test", "20Gi", "20Gi", "20Gi")
 
 	// Create the StatefulSet that we want to resize the PVC to
 	err := fakeClient.CreateStatefulSet(context.TODO(), *initialSts)
@@ -963,16 +963,23 @@ func TestResizePVCsStorage(t *testing.T) {
 		}
 	}
 
-	// PVCs in different namespace should be ignored and not resized
-	for _, template := range initialSts.Spec.VolumeClaimTemplates {
-		for i := range *initialSts.Spec.Replicas {
-			pvc := createPVCFromTemplate(template, initialSts.Name, "mongodb-test-2", i)
+	// PVCs from different STS (same name, but different namespace) should be ignored and not resized
+	// https://jira.mongodb.org/browse/HELP-85556
+	otherSTS := createStatefulSet("test", "mongodb-test-2", "25Gi", "20Gi", "15Gi")
+
+	// Create the StatefulSet that we want to resize the PVC to
+	err = fakeClient.CreateStatefulSet(context.TODO(), *otherSTS)
+	assert.NoError(t, err)
+
+	for _, template := range otherSTS.Spec.VolumeClaimTemplates {
+		for i := range *otherSTS.Spec.Replicas {
+			pvc := createPVCFromTemplate(template, otherSTS.Name, otherSTS.Namespace, i)
 			err = fakeClient.Create(context.TODO(), pvc)
 			assert.NoError(t, err)
 		}
 	}
 
-	err = resizePVCsStorage(fakeClient, createStatefulSet("30Gi", "30Gi", "20Gi"), zap.S())
+	err = resizePVCsStorage(fakeClient, createStatefulSet("test", "mongodb-test", "30Gi", "30Gi", "20Gi"), zap.S())
 	assert.NoError(t, err)
 
 	pvcList := corev1.PersistentVolumeClaimList{}
@@ -986,9 +993,9 @@ func TestResizePVCsStorage(t *testing.T) {
 			"logs":    "20Gi",
 		},
 		"mongodb-test-2": {
-			"data":    "20Gi",
+			"data":    "25Gi",
 			"journal": "20Gi",
-			"logs":    "20Gi",
+			"logs":    "15Gi",
 		},
 	}
 
@@ -1011,11 +1018,11 @@ func TestResizePVCsStorage(t *testing.T) {
 }
 
 // Helper function to create a StatefulSet
-func createStatefulSet(size1, size2, size3 string) *appsv1.StatefulSet {
+func createStatefulSet(name, namespace, size1, size2, size3 string) *appsv1.StatefulSet {
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test",
-			Namespace: "mongodb-test",
+			Name:      name,
+			Namespace: namespace,
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas: ptr.To(int32(3)),
