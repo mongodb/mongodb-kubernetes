@@ -774,7 +774,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	hostsDesired, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(),
 		replicasTarget, rs.Spec.DbCommonSpec.GetExternalDomain())
 	if err := host.RemoveUndesiredMonitoringHosts(conn, hostsDesired, log); err != nil && !isRecovering {
-		return workflow.Failed(err)
+		log.Warnf("failed to remove stale host(s) from Ops Manager monitoring: %s", err.Error())
 	}
 
 	if status := reconciler.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, reconciler.SecretClient, log); !status.IsOK() && !isRecovering {

@@ -1877,10 +1877,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	// Note: Relies on constraint that one OM project = one deployment (all hosts belong to us).
 	hostsDesired := r.getAllHostnames(true)
 	if err = host.RemoveUndesiredMonitoringHosts(conn, hostsDesired, log); err != nil {
-		if !isRecovering {
-			return workflow.Failed(err)
-		}
-		logWarnIgnoredDueToRecovery(log, err)
+		log.Warnf("failed to remove stale host(s) from Ops Manager monitoring: %s", err.Error())
 	}
 
 	if workflowStatus := r.commonController.ensureBackupConfigurationAndUpdateStatus(ctx, conn, sc, r.commonController.SecretClient, log); !workflowStatus.IsOK() {
