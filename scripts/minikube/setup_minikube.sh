@@ -48,10 +48,10 @@ setup_local_registry_and_custom_image() {
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo ">>> Setting up local registry and custom kicbase image for ppc64le..."
 
-    # Check if local registry is running (with fallback for namespace issues)
+    # Check if local registry is running
     registry_running=false
     if curl -s http://localhost:5000/v2/_catalog >/dev/null 2>&1; then
-      echo "Registry detected via HTTP check (podman ps failed)"
+      echo "Registry detected via HTTP check"
       registry_running=true
     fi
 
@@ -59,9 +59,9 @@ setup_local_registry_and_custom_image() {
       echo "Starting local container registry on port 5000..."
 
       # Clean up any existing registry first
-      sudo podman rm -f registry 2>/dev/null || true
+      docker rm -f registry 2>/dev/null || true
 
-      if ! sudo podman run -d -p 5000:5000 --name registry --restart=always docker.io/library/registry:2; then
+      if ! docker run -d -p 5000:5000 --name registry --restart=always docker.io/library/registry:2; then
         echo "❌ Failed to start local registry - trying alternative approach"
         exit 1
       fi
@@ -78,26 +78,20 @@ setup_local_registry_and_custom_image() {
       echo "✅ Local registry already running"
     fi
 
-    # Configure podman to trust local registry (both user and root level for minikube)
-    echo "Configuring registries.conf to trust local registry..."
+    # Configure docker to trust local registry (insecure registry)
+    echo "Configuring Docker to trust local registry..."
 
-    # User-level config
-    mkdir -p ~/.config/containers
-    cat > ~/.config/containers/registries.conf << 'EOF'
-[[registry]]
-location = "localhost:5000"
-insecure = true
-EOF
+    # Add insecure registry to Docker daemon config
+    if [[ -f /etc/docker/daemon.json ]]; then
+      sudo jq '. + {"insecure-registries": ((.["insecure-registries"] // []) + ["localhost:5000"] | unique)}' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp >/dev/null
+      sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json
+    else
+      sudo mkdir -p /etc/docker
+      echo '{"insecure-registries": ["localhost:5000"]}' | sudo tee /etc/docker/daemon.json >/dev/null
+    fi
+    sudo systemctl restart docker || true
 
-    # Root-level config (since minikube uses sudo podman)
-    sudo mkdir -p /root/.config/containers
-    sudo tee /root/.config/containers/registries.conf << 'EOF' >/dev/null
-[[registry]]
-location = "localhost:5000"
-insecure = true
-EOF
-
-    echo "✅ Registry configuration created for both user and root"
+    echo "✅ Docker insecure registry configured"
     custom_image_tag="localhost:5000/kicbase:v0.0.47"
 
     # Determine image tag
@@ -125,11 +119,11 @@ RUN if [ "$(uname -m)" = "ppc64le" ]; then \
 EOF
 
     cd "${PROJECT_DIR:-.}/scripts/minikube/kicbase"
-    sudo podman build -t "${custom_image_tag}" . || {
+    docker build -t "${custom_image_tag}" . || {
       echo "Failed to build custom image"
       return 1
     }
-    sudo podman push "${custom_image_tag}" --tls-verify=false || {
+    docker push "${custom_image_tag}" || {
       echo "Failed to push to registry"
       return 1
     }
@@ -139,9 +133,9 @@ EOF
   return 0
 }
 
-# Start minikube with podman driver
+# Start minikube with docker driver
 start_minikube_cluster() {
-  echo ">>> Starting minikube cluster with podman driver..."
+  echo ">>> Starting minikube cluster with docker driver..."
 
   # Clean up any existing minikube state to avoid cached configuration issues
   echo "Cleaning up any existing minikube state..."
@@ -153,7 +147,7 @@ start_minikube_cluster() {
   echo "Ensuring clean minikube state..."
   "${PROJECT_DIR:-.}/bin/minikube" delete 2>/dev/null || true
 
-  local start_args=("--driver=podman")
+  local start_args=("--driver=docker")
   start_args+=("--cpus=4" "--memory=8g")
 
   if [[ "${ARCH}" == "ppc64le" ]]; then
@@ -219,7 +213,7 @@ echo "=========================================="
 echo "✅ Setup Summary"
 echo "=========================================="
 echo "Architecture: ${ARCH}"
-echo "Minikube Driver: podman"
+echo "Minikube Driver: docker"
 echo "Minikube: Default cluster"
 echo "Minikube: ${minikube_version}"
 echo "CNI: bridge (default)"

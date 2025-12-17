@@ -2,42 +2,31 @@
 
 set -Eeou pipefail
 
-echo "Cleaning DNF cache..."
-sudo dnf clean all && sudo rm -r /var/cache/dnf
+echo "Setting up Docker as container runtime for IBM hosts..."
 
-echo "Installing/upgrading crun..."
-sudo dnf upgrade -y crun --disableplugin=subscription-manager || \
-sudo dnf install -y crun --disableplugin=subscription-manager || \
-sudo yum upgrade -y crun --disableplugin=subscription-manager || \
-sudo yum install -y crun --disableplugin=subscription-manager
-
-if ! crun --version &>/dev/null; then
-  echo "❌ crun installation failed"
+# Check if docker is available
+if ! command -v docker &>/dev/null; then
+  echo "❌ Docker is not installed. Please install Docker first."
   exit 1
 fi
 
-current_version=$(crun --version | head -n1)
-echo "✅ Using crun: ${current_version}"
+# Check if docker daemon is running
+if ! docker info &>/dev/null; then
+  echo "Docker daemon not running, attempting to start..."
+  sudo systemctl start docker || {
+    echo "❌ Failed to start Docker daemon"
+    exit 1
+  }
+fi
 
-# Clean up any existing conflicting configurations
-echo "Cleaning up existing container configurations..."
-rm -f ~/.config/containers/containers.conf 2>/dev/null || true
-sudo rm -f /root/.config/containers/containers.conf 2>/dev/null || true
-sudo rm -f /etc/containers/containers.conf 2>/dev/null || true
+docker_version=$(docker --version)
+echo "✅ Using Docker: ${docker_version}"
 
-crun_path=$(which crun)
-echo "Using crun path: ${crun_path}"
+# Ensure current user can run docker without sudo
+if ! docker ps &>/dev/null 2>&1; then
+  echo "Adding current user to docker group..."
+  sudo usermod -aG docker "${USER}" || true
+  echo "Note: You may need to log out and back in for group changes to take effect"
+fi
 
-config="[containers]
-cgroup_manager = \"cgroupfs\"
-
-[engine]
-runtime = \"crun\""
-
-mkdir -p ~/.config/containers
-echo "${config}" > ~/.config/containers/containers.conf
-
-sudo mkdir -p /root/.config/containers
-echo "${config}" | sudo tee /root/.config/containers/containers.conf >/dev/null
-
-echo "✅ Configured crun"
+echo "✅ Docker container runtime configured"

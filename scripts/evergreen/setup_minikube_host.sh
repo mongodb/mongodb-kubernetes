@@ -56,7 +56,7 @@ if [[ "${SKIP_MINIKUBE_SETUP:-}" != "true" ]]; then
 else
   echo "⏭️ Skipping Minikube setup as SKIP_MINIKUBE_SETUP=true"
 fi
-export CONTAINER_RUNTIME=podman
+export CONTAINER_RUNTIME=docker
 run_setup_step "Container Registry Authentication" "scripts/dev/configure_container_auth.sh"
 
 echo ""
@@ -65,7 +65,7 @@ echo "✅ host setup completed successfully!"
 echo "=========================================="
 echo ""
 echo "Installed tools summary:"
-echo "Container Runtime: podman"
+echo "Container Runtime: docker"
 echo "- Python: $(python --version 2>/dev/null || python3 --version 2>/dev/null || echo 'Not found')"
 echo "- AWS CLI: $(aws --version 2>/dev/null || echo 'Not found')"
 echo "- kubectl: $(kubectl version --client 2>/dev/null || echo 'Not found')"
