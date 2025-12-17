@@ -1825,9 +1825,6 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		logWarnIgnoredDueToRecovery(log, err)
 	}
 
-	// Capture hostnames before modification for later comparison
-	hostsBefore := dep.GetAllHostnames()
-
 	opts.finalizing = false
 	opts.processNames = dep.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
@@ -1874,17 +1871,12 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		}
 	}
 
-	// Read deployment again to get actual state after modifications
-	depAfter, err := conn.ReadDeployment()
-	if err != nil {
-		if !isRecovering {
-			return workflow.Failed(err)
-		}
-		logWarnIgnoredDueToRecovery(log, err)
-	}
-	hostsAfter := depAfter.GetAllHostnames()
-
-	if err = host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil {
+	// Monitoring hosts reconciliation: compare monitored hosts against desired and remove extras.
+	// Runs on EVERY reconciliation to ensure idempotency and self-healing of orphaned hosts.
+	// Note: we do not filter unhealthy clusters out
+	// Note: Relies on constraint that one OM project = one deployment (all hosts belong to us).
+	hostsDesired := r.getAllHostnames(true)
+	if err = host.RemoveUndesiredMonitoringHosts(conn, hostsDesired, log); err != nil {
 		if !isRecovering {
 			return workflow.Failed(err)
 		}
