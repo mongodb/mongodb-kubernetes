@@ -128,7 +128,7 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 			return workflow.Failed(xerrors.Errorf("can't add pvc annotation, err: %s", err))
 		}
 		log.Infof("Detected PVC size expansion; patching all pvcs and increasing the size for sts: %s", desiredSts.Name)
-		if err := resizePVCsStorage(memberClient, desiredSts); err != nil {
+		if err := resizePVCsStorage(memberClient, desiredSts, log); err != nil {
 			return workflow.Failed(xerrors.Errorf("can't resize pvc, err: %s", err))
 		}
 
@@ -198,20 +198,23 @@ func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Clie
 }
 
 // resizePVCsStorage takes the sts we want to create and update all matching pvc with the new storage
-func resizePVCsStorage(client kubernetesClient.Client, statefulSetToCreate *appsv1.StatefulSet) error {
+func resizePVCsStorage(kubeClient kubernetesClient.Client, statefulSetToCreate *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 	pvcList := corev1.PersistentVolumeClaimList{}
 
 	// this is to ensure that requests to a potentially not allowed resource is not blocking the operator until the end
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	if err := client.List(ctx, &pvcList); err != nil {
+	if err := kubeClient.List(ctx, &pvcList, client.InNamespace(statefulSetToCreate.Namespace)); err != nil {
 		return err
 	}
 	for _, existingPVC := range pvcList.Items {
 		if template, _ := getMatchingPVCTemplateFromSTS(statefulSetToCreate, &existingPVC); template != nil {
-			existingPVC.Spec.Resources.Requests[corev1.ResourceStorage] = *template.Spec.Resources.Requests.Storage()
-			if err := client.Update(ctx, &existingPVC); err != nil {
+			currentSize := existingPVC.Spec.Resources.Requests[corev1.ResourceStorage]
+			targetSize := *template.Spec.Resources.Requests.Storage()
+			log.Infof("Resizing PVC %s/%s from %s to %s", existingPVC.Namespace, existingPVC.GetName(), currentSize.String(), targetSize.String())
+			existingPVC.Spec.Resources.Requests[corev1.ResourceStorage] = targetSize
+			if err := kubeClient.Update(ctx, &existingPVC); err != nil {
 				return err
 			}
 		}

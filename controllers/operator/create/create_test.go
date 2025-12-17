@@ -963,7 +963,7 @@ func TestResizePVCsStorage(t *testing.T) {
 		}
 	}
 
-	err = resizePVCsStorage(fakeClient, createStatefulSet("30Gi", "30Gi", "20Gi"))
+	err = resizePVCsStorage(fakeClient, createStatefulSet("30Gi", "30Gi", "20Gi"), zap.S())
 	assert.NoError(t, err)
 
 	pvcList := corev1.PersistentVolumeClaimList{}
@@ -987,7 +987,8 @@ func TestResizePVCsStorage(t *testing.T) {
 func createStatefulSet(size1, size2, size3 string) *appsv1.StatefulSet {
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "test",
+			Name:      "test",
+			Namespace: "default",
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas: ptr.To(int32(3)),
