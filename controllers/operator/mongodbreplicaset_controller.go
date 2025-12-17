@@ -739,15 +739,8 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		prometheusCertHash: deploymentOptions.prometheusCertHash,
 	}
 
-	// Capture hostsBefore inside callback to avoid extra API call
-	// ReadUpdateDeployment internally reads deployment and passes it to the callback
-	var hostsBefore []string
-
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			// Capture hostsBefore at START of callback, before any modifications
-			hostsBefore = d.GetHostnamesForReplicaSet(rs.Name)
-
 			if shouldMirrorKeyfileForMongot {
 				if err := r.mirrorKeyfileIntoSecretForMongot(ctx, d); err != nil {
 					return err
@@ -775,14 +768,15 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Pending("Performing multi stage reconciliation")
 	}
 
-	// Read hostsAfter from actual OM deployment state AFTER modifications
-	depAfter, err := conn.ReadDeployment()
-	if err != nil && !isRecovering {
-		return workflow.Failed(err)
-	}
-	hostsAfter := depAfter.GetHostnamesForReplicaSet(rs.Name)
-
-	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil && !isRecovering {
+	// Monitoring hosts reconciliation
+	// Compare actually monitored hosts against desired hosts and remove any extras.
+	// This runs on EVERY reconciliation (not just scale-down) to ensure idempotency
+	// and self-healing of orphaned hosts from previous failed reconciliations.
+	hostsDesired, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(),
+		replicasTarget, rs.Spec.DbCommonSpec.GetExternalDomain())
+	serviceFQDN := dns.GetServiceFQDN(rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain())
+	// TODO: should we fail the reconciliation if we fail this cleanup ? Or should we just display a warning ?
+	if err := host.RemoveUndesiredMonitoringHosts(conn, rs.Name, serviceFQDN, hostsDesired, log); err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
