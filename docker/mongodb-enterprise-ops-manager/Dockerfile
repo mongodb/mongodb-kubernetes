@@ -73,6 +73,7 @@ COPY --from=base /data/scripts /opt/scripts
 RUN curl --fail -L -o ops_manager.tar.gz ${om_download_url} \
   && tar -xzf ops_manager.tar.gz \
   && rm ops_manager.tar.gz \
+  && rm -r mongodb-mms/agent \
   && mv mongodb-mms* "${MMS_HOME}"
 
 # permissions
