@@ -2139,6 +2139,12 @@ func (r *ShardedClusterReconcileHelper) getAllShardHostnamesAndPodNames(desiredR
 	var shardHostnames []string
 	var shardPodNames []string
 	for shardIdx, memberClusterMap := range r.shardsMemberClustersMap {
+		// When calculating desired hostnames (for monitoring cleanup), skip shards being removed.
+		// shardsMemberClustersMap includes shards up to max(spec.ShardCount, status.ShardCount),
+		// but we only want hostnames for shards that should exist (index < spec.ShardCount).
+		if desiredReplicas && shardIdx >= r.sc.Spec.ShardCount {
+			continue
+		}
 		for _, memberCluster := range memberClusterMap {
 			replicas := memberCluster.Replicas
 			if desiredReplicas {
