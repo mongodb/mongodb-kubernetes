@@ -153,3 +153,6 @@ export RELEASE_INITIAL_VERSION="1.3.0"
 
 export CLUSTER_TYPE=kind
 export OPERATOR_CLUSTER_SCOPED=false
+
+# for downloading helm binaries
+export HELM_VERSION="v3.19.4"
