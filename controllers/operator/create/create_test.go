@@ -949,7 +949,9 @@ func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log 
 func TestResizePVCsStorage(t *testing.T) {
 	fakeClient, _ := mock.NewDefaultFakeClient()
 
-	initialSts := createStatefulSet("test", "mongodb-test", "20Gi", "20Gi", "20Gi")
+	const testStsName = "test"
+	const testStsNamespace = "mongodb-test"
+	initialSts := createStatefulSet(testStsName, testStsNamespace, "20Gi", "20Gi", "20Gi")
 
 	// Create the StatefulSet that we want to resize the PVC to
 	err := fakeClient.CreateStatefulSet(context.TODO(), *initialSts)
@@ -965,7 +967,8 @@ func TestResizePVCsStorage(t *testing.T) {
 
 	// PVCs from different STS (same name, but different namespace) should be ignored and not resized
 	// Previously, we had not taken into account namespace when listing PVCs https://jira.mongodb.org/browse/HELP-85556
-	otherSts := createStatefulSet("test", "mongodb-test-2", "25Gi", "20Gi", "15Gi")
+	const otherTestStsNamespace = "mongodb-test-2"
+	otherSts := createStatefulSet(testStsName, otherTestStsNamespace, "25Gi", "20Gi", "15Gi")
 
 	// Create the StatefulSet that we want to resize the PVC to
 	err = fakeClient.CreateStatefulSet(context.TODO(), *otherSts)
@@ -980,20 +983,22 @@ func TestResizePVCsStorage(t *testing.T) {
 	}
 
 	// We are resizing only initialSts PVCs here and otherSts PVCs should remain unchanged
-	err = resizePVCsStorage(context.TODO(), fakeClient, createStatefulSet("test", "mongodb-test", "30Gi", "30Gi", "20Gi"), zap.S())
+	err = resizePVCsStorage(context.TODO(), fakeClient, createStatefulSet(testStsName, testStsNamespace, "30Gi", "30Gi", "20Gi"), zap.S())
 	assert.NoError(t, err)
 
 	pvcList := corev1.PersistentVolumeClaimList{}
 	err = fakeClient.List(context.TODO(), &pvcList)
 	assert.NoError(t, err)
 
-	pvcSizesPerNamespace := map[string]map[string]string{
-		"mongodb-test": {
+	expectedPVCSizesPerNamespace := map[string]map[string]string{
+		// PVCs from the STS namespace that was resized should have the new sizes
+		testStsNamespace: {
 			"data":    "30Gi",
 			"journal": "30Gi",
 			"logs":    "20Gi",
 		},
-		"mongodb-test-2": {
+		// PVCs from other namespace should remain unchanged
+		otherTestStsNamespace: {
 			"data":    "25Gi",
 			"journal": "20Gi",
 			"logs":    "15Gi",
@@ -1001,7 +1006,7 @@ func TestResizePVCsStorage(t *testing.T) {
 	}
 
 	for _, pvc := range pvcList.Items {
-		pvcSizes, ok := pvcSizesPerNamespace[pvc.Namespace]
+		pvcSizes, ok := expectedPVCSizesPerNamespace[pvc.Namespace]
 		if !ok {
 			t.Fatalf("unexpected namespace %s for pvc %s", pvc.Namespace, pvc.Name)
 		}
