@@ -24,14 +24,19 @@ RUN microdnf install -y --disableplugin=subscription-manager \
         krb5-libs \
         libcurl \
         lm_sensors-libs \
-        net-snmp \
-        net-snmp-agent-libs \
+        net-snmp-libs \
         openldap \
         openssl \
         jq \
         tar \
         xz-libs \
         findutils
+
+# Workaround for UBI8 repo version mismatch: net-snmp requires net-snmp-libs=5.8-31
+# but only 5.8-32 is available. Install with --nodeps since they are ABI compatible.
+RUN microdnf download net-snmp net-snmp-agent-libs && \
+        rpm -ivh --nodeps net-snmp-*.rpm && \
+        rm -f net-snmp-*.rpm
 
 RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
 

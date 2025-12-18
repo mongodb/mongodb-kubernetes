@@ -300,8 +300,11 @@ test: generate fmt vet manifests golang-tests
 # helm-tests will run helm chart unit tests
 helm-tests:
 	@echo "Running helm chart unit tests..."
-	@if ! helm plugin list | grep -q unittest; then \
-		echo "Installing helm-unittest plugin..."; \
+	helm version
+	helm plugin list || true
+	@if ! helm unittest --help >/dev/null 2>&1; then \
+		echo "helm-unittest plugin not working/not installed, reinstalling..."; \
+		helm plugin uninstall unittest 2>/dev/null || true; \
 		helm plugin install https://github.com/helm-unittest/helm-unittest; \
 	fi
 	helm unittest helm_chart --color
