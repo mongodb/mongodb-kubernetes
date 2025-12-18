@@ -251,15 +251,16 @@ func (d Deployment) MergeShardedCluster(opts DeploymentShardedClusterMergeOption
 	return shardsScheduledForRemoval, nil
 }
 
-// AddMonitoringAndBackup adds monitoring and backup agents to each process
-// The automation agent will update the agents versions to the latest version automatically
+// ConfigureMonitoringAndBackup configures monitoring and backup agents for each process.
+// This is called on every reconcile to ensure the monitoring/backup config matches the desired state.
+// The automation agent will update the agents versions to the latest version automatically.
 // Note, that these two are deliberately combined as all clients (standalone, rs etc.) need both backup and monitoring
-// together
-func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger, tls bool, caFilepath string) {
+// together.
+func (d Deployment) ConfigureMonitoringAndBackup(log *zap.SugaredLogger, tls bool, caFilepath string) {
 	if len(d.getProcesses()) == 0 {
 		return
 	}
-	d.AddMonitoring(log, tls, caFilepath)
+	d.ConfigureMonitoring(log, tls, caFilepath)
 	d.addBackup(log)
 }
 
@@ -277,8 +278,9 @@ func (d Deployment) GetReplicaSetByName(name string) ReplicaSet {
 	return nil
 }
 
-// AddMonitoring adds monitoring agents for all processes in the deployment
-func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool, caFilePath string) {
+// ConfigureMonitoring configures monitoring agents for all processes in the deployment.
+// This is called on every reconcile to ensure the monitoring config matches the desired state.
+func (d Deployment) ConfigureMonitoring(log *zap.SugaredLogger, tls bool, caFilePath string) {
 	if len(d.getProcesses()) == 0 {
 		return
 	}
@@ -306,21 +308,59 @@ func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool, caFilePath s
 		monitoringVersion["hostname"] = p.HostName()
 
 		if tls {
-			additionalParams := map[string]string{
-				"useSslForAllConnections":      "true",
-				"sslTrustedServerCertificates": caFilePath,
+			pemKeyFile := ""
+			if pem := p.EnsureTLSConfig()["PEMKeyFile"]; pem != nil {
+				pemKeyFile = pem.(string)
 			}
-
-			pemKeyFile := p.EnsureTLSConfig()["PEMKeyFile"]
-			if pemKeyFile != nil {
-				additionalParams["sslClientCertificate"] = pemKeyFile.(string)
-			}
-
-			monitoringVersion["additionalParams"] = additionalParams
+			params := map[string]string{}
+			addTLSParams(params, caFilePath, pemKeyFile)
+			monitoringVersion["additionalParams"] = params
+		} else {
+			// Clear TLS-specific params when TLS is disabled to prevent monitoring from
+			// trying to use certificate files that no longer exist.
+			// We only clear TLS fields, preserving any other additionalParams that may be set.
+			clearTLSParamsFromMonitoringVersion(monitoringVersion)
 		}
 
 	}
 	d.setMonitoringVersions(monitoringVersions)
+}
+
+// TLS param keys for monitoring additionalParams.
+const (
+	tlsParamUseSsl      = "useSslForAllConnections"
+	tlsParamTrustedCert = "sslTrustedServerCertificates"
+	tlsParamClientCert  = "sslClientCertificate"
+)
+
+func addTLSParams(params map[string]string, caFilePath, pemKeyFile string) {
+	params[tlsParamUseSsl] = "true"
+	params[tlsParamTrustedCert] = caFilePath
+	if pemKeyFile != "" {
+		params[tlsParamClientCert] = pemKeyFile
+	}
+}
+
+func clearTLSParams(params map[string]string) {
+	delete(params, tlsParamUseSsl)
+	delete(params, tlsParamTrustedCert)
+	delete(params, tlsParamClientCert)
+}
+
+// clearTLSParamsFromMonitoringVersion removes TLS-specific fields from the monitoring
+// version's additionalParams. If additionalParams becomes empty after removing TLS fields,
+// the entire map is removed.
+func clearTLSParamsFromMonitoringVersion(monitoringVersion map[string]interface{}) {
+	additionalParams, ok := monitoringVersion["additionalParams"].(map[string]string)
+	if !ok {
+		return
+	}
+
+	clearTLSParams(additionalParams)
+
+	if len(additionalParams) == 0 {
+		delete(monitoringVersion, "additionalParams")
+	}
 }
 
 // RemoveMonitoringAndBackup removes both monitoring and backup agent configurations. This must be called when the
