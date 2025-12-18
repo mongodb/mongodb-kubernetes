@@ -1,6 +1,7 @@
 package mdb
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,6 +38,54 @@ func TestMongoDB_ProcessValidations_HorizonsWithoutTLS(t *testing.T) {
 	rs.Spec.Connectivity.ReplicaSetHorizons = replicaSetHorizons
 	err := rs.ProcessValidationsOnReconcile(nil)
 	assert.Equal(t, "TLS must be enabled in order to use replica set horizons", err.Error())
+}
+
+func TestMongoDB_ProcessValidations_InvalidHorizonAddress(t *testing.T) {
+	tests := []struct {
+		name           string
+		invalidAddress string
+	}{
+		{
+			name:           "Empty address",
+			invalidAddress: ":27018",
+		},
+		{
+			name:           "Invalid characters in hostname",
+			invalidAddress: "my_db.com:27018",
+		},
+		{
+			name:           "Hostname too long",
+			invalidAddress: strings.Repeat("a", 256) + ":27018",
+		},
+		{
+			name:           "Label starts with hyphen",
+			invalidAddress: "-mydb.com:27018",
+		},
+		{
+			name:           "Label ends with hyphen",
+			invalidAddress: "mydb-.com:27018",
+		},
+		{
+			name:           "Uppercase letters in hostname",
+			invalidAddress: "MyDB.com:27018",
+		},
+		{
+			name:           "Consecutive dots",
+			invalidAddress: "my..db.com:27018",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			replicaSetHorizons := []MongoDBHorizonConfig{
+				{"my-horizon": tt.invalidAddress},
+			}
+			rs := NewDefaultReplicaSetBuilder().SetSecurityTLSEnabled().SetMembers(1).Build()
+			rs.Spec.Connectivity = &MongoDBConnectivity{}
+			rs.Spec.Connectivity.ReplicaSetHorizons = replicaSetHorizons
+			err := rs.ProcessValidationsOnReconcile(nil)
+			assert.Equal(t, "Horizons must have valid domain names", err.Error())
+		})
+	}
 }
 
 func TestMongoDB_ProcessValidationsOnReconcile_X509WithoutTls(t *testing.T) {
