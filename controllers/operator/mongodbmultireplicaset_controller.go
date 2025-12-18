@@ -742,7 +742,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) getAllHostnames(mrs mdbmultiv1.MongoDB
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, agentCertPath, tlsCertPath, internalClusterCertPath string, isRecovering bool, log *zap.SugaredLogger) error {
-
 	// This clusterSpecList reflects the desired state for this reconciliation, not the final one (the resource spec)
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
