@@ -63,8 +63,11 @@ type MockedOmConnection struct {
 	backupAgentConfig     *BackupAgentConfig
 	monitoringAgentConfig *MonitoringAgentConfig
 	controlledFeature     *controlledfeature.ControlledFeature
-	// hosts are used for both automation agents and monitoring endpoints.
-	// They are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
+	// In Ops Manager, "hosts" and "automation agents" are two different things:
+	// - hostResults: the monitored hosts shown in the OM UI (via /hosts API)
+	// - agentHostnameMap: the automation agents that ping OM (via /agents/AUTOMATION API)
+	// When we remove a host from monitoring (e.g. during scale down), the automation
+	// agent on that host doesn't just disappear - it keeps running until the pod is deleted.
 	hostResults      *host.Result
 	agentHostnameMap map[string]struct{}
 
@@ -168,6 +171,11 @@ func NewEmptyMockedOmConnection(ctx *OMContext) Connection {
 func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	connection := MockedOmConnection{deployment: d}
 	connection.hostResults = buildHostsFromDeployment(d)
+	// Also populate agentHostnameMap so the mock knows which agents are "registered"
+	connection.agentHostnameMap = make(map[string]struct{})
+	for _, h := range connection.hostResults.Results {
+		connection.agentHostnameMap[h.Hostname] = struct{}{}
+	}
 	connection.BackupConfigs = make(map[string]*backup.Config)
 	connection.BackupHostClusters = make(map[string]*backup.HostCluster)
 	connection.SnapshotSchedules = make(map[string]*backup.SnapshotSchedule)
@@ -481,10 +489,12 @@ func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, erro
 		return oc.ReadAutomationAgentsFunc(pageNum)
 	}
 
+	// We use agentHostnameMap here, not hostResults. In real OM, the /agents/AUTOMATION
+	// endpoint returns agents based on their heartbeats, independent of the /hosts endpoint.
 	results := make([]AgentStatus, 0)
-	for _, r := range oc.hostResults.Results {
+	for hostname := range oc.agentHostnameMap {
 		results = append(results,
-			AgentStatus{Hostname: r.Hostname, LastConf: time.Now().Add(time.Second * -1).Format(time.RFC3339)})
+			AgentStatus{Hostname: hostname, LastConf: time.Now().Add(time.Second * -1).Format(time.RFC3339)})
 	}
 
 	return AutomationAgentStatusResponse{AutomationAgents: results}, nil
@@ -504,9 +514,8 @@ func (oc *MockedOmConnection) RemoveHost(hostID string) error {
 		}
 	}
 	oc.hostResults = &host.Result{Results: toKeep}
-	oc.agentHostnameMap = util.TransformToMap(oc.hostResults.Results, func(obj host.Host, idx int) (string, struct{}) {
-		return obj.Hostname, struct{}{}
-	})
+	// We don't touch agentHostnameMap here - in real OM, removing a host from monitoring
+	// doesn't unregister its automation agent. The agent keeps pinging until the pod dies.
 	return nil
 }
 
