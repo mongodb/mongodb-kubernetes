@@ -964,22 +964,23 @@ func TestResizePVCsStorage(t *testing.T) {
 	}
 
 	// PVCs from different STS (same name, but different namespace) should be ignored and not resized
-	// https://jira.mongodb.org/browse/HELP-85556
-	otherSTS := createStatefulSet("test", "mongodb-test-2", "25Gi", "20Gi", "15Gi")
+	// Previously, we had not taken into account namespace when listing PVCs https://jira.mongodb.org/browse/HELP-85556
+	otherSts := createStatefulSet("test", "mongodb-test-2", "25Gi", "20Gi", "15Gi")
 
 	// Create the StatefulSet that we want to resize the PVC to
-	err = fakeClient.CreateStatefulSet(context.TODO(), *otherSTS)
+	err = fakeClient.CreateStatefulSet(context.TODO(), *otherSts)
 	assert.NoError(t, err)
 
-	for _, template := range otherSTS.Spec.VolumeClaimTemplates {
-		for i := range *otherSTS.Spec.Replicas {
-			pvc := createPVCFromTemplate(template, otherSTS.Name, otherSTS.Namespace, i)
+	for _, template := range otherSts.Spec.VolumeClaimTemplates {
+		for i := range *otherSts.Spec.Replicas {
+			pvc := createPVCFromTemplate(template, otherSts.Name, otherSts.Namespace, i)
 			err = fakeClient.Create(context.TODO(), pvc)
 			assert.NoError(t, err)
 		}
 	}
 
-	err = resizePVCsStorage(fakeClient, createStatefulSet("test", "mongodb-test", "30Gi", "30Gi", "20Gi"), zap.S())
+	// We are resizing only initialSts PVCs here and otherSts PVCs should remain unchanged
+	err = resizePVCsStorage(context.TODO(), fakeClient, createStatefulSet("test", "mongodb-test", "30Gi", "30Gi", "20Gi"), zap.S())
 	assert.NoError(t, err)
 
 	pvcList := corev1.PersistentVolumeClaimList{}
@@ -1182,9 +1183,11 @@ func TestResourceStorageHasChanged(t *testing.T) {
 }
 
 func TestHasFinishedResizing(t *testing.T) {
-	stsName := "test"
-	desiredSts := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: stsName},
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "mongodb-test",
+		},
 		Spec: appsv1.StatefulSetSpec{
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 				{
@@ -1219,17 +1222,21 @@ func TestHasFinishedResizing(t *testing.T) {
 	{
 		fakeClient, _ := mock.NewDefaultFakeClient()
 		// Scenario 1: All PVCs have finished resizing
-		pvc1 := createPVCWithCapacity("data-"+stsName+"-0", "20Gi")
-		pvc2 := createPVCWithCapacity("logs-"+stsName+"-0", "30Gi")
-		notPartOfSts := createPVCWithCapacity("random-sts-0", "30Gi")
+		pvc1 := createPVCWithCapacity("data-"+sts.Name+"-0", sts.Namespace, "20Gi")
+		pvc2 := createPVCWithCapacity("logs-"+sts.Name+"-0", sts.Namespace, "30Gi")
+		// PVCs in different namespace, but same name, should be ignored and not taken into account when checking resizing status
+		pvc1InDifferentNamespace := createPVCWithCapacity("data-"+sts.Name+"-0", "mongodb-test-2", "15Gi")
+		pvc2InDifferentNamespace := createPVCWithCapacity("logs-"+sts.Name+"-0", "mongodb-test-2", "10Gi")
 		err := fakeClient.Create(ctx, pvc1)
 		assert.NoError(t, err)
 		err = fakeClient.Create(ctx, pvc2)
 		assert.NoError(t, err)
-		err = fakeClient.Create(ctx, notPartOfSts)
+		err = fakeClient.Create(ctx, pvc1InDifferentNamespace)
+		assert.NoError(t, err)
+		err = fakeClient.Create(ctx, pvc2InDifferentNamespace)
 		assert.NoError(t, err)
 
-		finished, err := hasFinishedResizing(ctx, fakeClient, desiredSts)
+		finished, err := hasFinishedResizing(ctx, fakeClient, sts)
 		assert.NoError(t, err)
 		assert.True(t, finished, "PVCs should be finished resizing")
 	}
@@ -1237,22 +1244,22 @@ func TestHasFinishedResizing(t *testing.T) {
 	{
 		// Scenario 2: Some PVCs are still resizing
 		fakeClient, _ := mock.NewDefaultFakeClient()
-		pvc2Incomplete := createPVCWithCapacity("logs-"+stsName+"-0", "10Gi")
+		pvc2Incomplete := createPVCWithCapacity("logs-"+sts.Name+"-0", sts.Namespace, "10Gi")
 		err := fakeClient.Create(ctx, pvc2Incomplete)
 		assert.NoError(t, err)
 
-		finished, err := hasFinishedResizing(ctx, fakeClient, desiredSts)
+		finished, err := hasFinishedResizing(ctx, fakeClient, sts)
 		assert.NoError(t, err)
 		assert.False(t, finished, "PVCs should not be finished resizing")
 	}
 }
 
 // Helper function to create a PVC with a specific capacity and status
-func createPVCWithCapacity(name string, capacity string) *corev1.PersistentVolumeClaim {
+func createPVCWithCapacity(name string, namespace string, capacity string) *corev1.PersistentVolumeClaim {
 	return &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: "default",
+			Namespace: namespace,
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			Resources: corev1.VolumeResourceRequirements{
