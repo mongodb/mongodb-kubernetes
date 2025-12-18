@@ -1,0 +1,85 @@
+# Pre-commit configuration for mongodb-kubernetes
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # TODO: Enable these hooks in a follow-up PR - they modify 200+ files
+      # - id: trailing-whitespace
+      #   exclude: |
+      #     (?x)^(
+      #       .*\.patch$|
+      #       vendor/.*|
+      #       testdata/.*|
+      #       helm_chart/crds/.*|
+      #       public/crds\.yaml$|
+      #       config/crd/bases/.*
+      #     )
+      # - id: end-of-file-fixer
+      #   exclude: |
+      #     (?x)^(
+      #       .*\.patch$|
+      #       vendor/.*|
+      #       testdata/.*|
+      #       helm_chart/crds/.*|
+      #       public/crds\.yaml$|
+      #       config/crd/bases/.*
+      #     )
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-json
+        exclude: |
+          (?x)^(
+            vendor/.*|
+            testdata/.*
+          )
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        language_version: python3
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: [-e, SC2154, -e, SC1091, -e, SC1090, -e, SC2148, -o, require-variable-braces, -P, scripts]
+        exclude: |
+          (?x)^(
+            vendor/.*|
+            scripts/dev/contexts/private-context.*
+          )
+        files: |
+          (?x)(
+            \.sh$|
+            ^scripts/dev/contexts/[^/]+$|
+            ^scripts/funcs/[^/]+$
+          )
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.62.2
+    hooks:
+      - id: golangci-lint
+        args: [--timeout=10m]
+
+  # Local hooks for project-specific tasks
+  # Runs all generation/validation jobs in parallel internally
+  - repo: local
+    hooks:
+      - id: generate-and-validate
+        name: generate-and-validate (parallel)
+        entry: scripts/dev/generate_files.sh generate_all
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
