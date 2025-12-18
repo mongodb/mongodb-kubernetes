@@ -335,6 +335,16 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: scripts/evergreen/precommit_bump.sh
 
+  - name: run_conditionally_precommit_and_push
+    tags: [ "patch-run" ]
+    commands:
+      - func: clone
+      - func: run_task_conditionally
+        vars:
+          condition_script: scripts/evergreen/should_run_precommit_and_push.sh
+          variant: run_pre_commit
+          task: run_precommit_and_push
+
   - name: rebuild_all_agents
     # this enables us to run this manually (patch) and rebuild all agent versions to verify
     # Dockerfile, script changes etc.
@@ -1831,7 +1841,7 @@ buildvariants:
     run_on:
       - ubuntu2404-small
     tasks:
-      - name: run_precommit_and_push
+      - name: run_conditionally_precommit_and_push
 
   - name: init_tests_with_olm
     display_name: init_tests_with_olm
