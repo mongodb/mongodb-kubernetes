@@ -24,8 +24,6 @@ RUN microdnf install -y --disableplugin=subscription-manager \
         krb5-libs \
         libcurl \
         lm_sensors-libs \
-        net-snmp \
-        net-snmp-agent-libs \
         openldap \
         openssl \
         jq \
