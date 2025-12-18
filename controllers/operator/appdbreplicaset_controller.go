@@ -87,8 +87,8 @@ const (
 	// Used to convey to the operator to force reconfigure agent. At the moment
 	// it is used for DR in case of Multi-Cluster AppDB when after a cluster outage
 	// there is no primary in the AppDB deployment.
-	ForceReconfigureAnnotation = "mongodb.com/v1.forceReconfigure"
-
+	ForceReconfigureAnnotation                  = "mongodb.com/v1.forceReconfigure"
+	trueString                                  = "trueString"
 	ForcedReconfigureAlreadyPerformedAnnotation = "mongodb.com/v1.forceReconfigurePerformed"
 )
 
@@ -717,7 +717,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		opsManager.Annotations = map[string]string{}
 	}
 
-	if val, ok := opsManager.Annotations[ForceReconfigureAnnotation]; ok && val == "true" {
+	if val, ok := opsManager.Annotations[ForceReconfigureAnnotation]; ok && val == trueString {
 		annotationsToAdd := map[string]string{ForcedReconfigureAlreadyPerformedAnnotation: timeutil.Now()}
 
 		err := annotations.SetAnnotations(ctx, opsManager, annotationsToAdd, r.client)
@@ -1248,7 +1248,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 // it checks this with the user provided annotation and if the operator has actually performed a force reconfigure already
 func shouldPerformForcedReconfigure(annotations map[string]string) bool {
 	if val, ok := annotations[ForceReconfigureAnnotation]; ok {
-		if val == "true" {
+		if val == trueString {
 			if _, ok := annotations[ForcedReconfigureAlreadyPerformedAnnotation]; !ok {
 				return true
 			}
@@ -1472,7 +1472,7 @@ const (
 )
 
 func addTLSParams(params map[string]string, caFilePath, pemKeyFile string) {
-	params[tlsParamUseSsl] = "true"
+	params[tlsParamUseSsl] = trueString
 	params[tlsParamTrustedCert] = caFilePath
 	if pemKeyFile != "" {
 		params[tlsParamClientCert] = pemKeyFile
