@@ -3,13 +3,7 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester import (
-    create_or_update_configmap,
-    random_k8s_name,
-    read_configmap,
-    try_load,
-    wait_until,
-)
+from kubetester import create_or_update_configmap, random_k8s_name, read_configmap, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester

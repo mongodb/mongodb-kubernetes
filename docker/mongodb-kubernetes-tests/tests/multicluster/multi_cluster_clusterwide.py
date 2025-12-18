@@ -12,10 +12,7 @@ from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import (
-    _install_multi_cluster_operator,
-    run_kube_config_creation_tool,
-)
+from tests.conftest import _install_multi_cluster_operator, run_kube_config_creation_tool
 
 from ..constants import MULTI_CLUSTER_OPERATOR_NAME
 from . import prepare_multi_cluster_namespaces

@@ -2,11 +2,7 @@ import tempfile
 
 import pytest
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.certs import (
-    create_agent_tls_certs,
-    create_mongodb_tls_certs,
-    create_x509_user_cert,
-)
+from kubetester.certs import create_agent_tls_certs, create_mongodb_tls_certs, create_x509_user_cert
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb import MongoDB

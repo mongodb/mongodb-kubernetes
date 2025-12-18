@@ -8,6 +8,6 @@ while ! pgrep -f "mongodb-mms-automation-agent" > /dev/null; do
 done
 
 APP_PID=$(pgrep -f "mongodb-mms-automation-agent")
-echo "Found app with PID: $APP_PID, attaching Delve..."
+echo "Found app with PID: ${APP_PID}, attaching Delve..."
 
-dlv attach "$APP_PID" --headless --listen=:2345 --api-version=2 --accept-multiclient --continue
+dlv attach "${APP_PID}" --headless --listen=:2345 --api-version=2 --accept-multiclient --continue

@@ -7,15 +7,9 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import try_load
 from kubetester.awss3client import AwsS3Client
-from kubetester.kubetester import (
-    ensure_ent_version,
-)
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import (
-    is_default_architecture_static,
-    run_periodically,
-    skip_if_local,
-)
+from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
@@ -23,12 +17,7 @@ from pytest import fixture
 from tests import test_logger
 from tests.conftest import get_member_cluster_clients, is_multi_cluster
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
-from tests.opsmanager.om_ops_manager_backup import (
-    OPLOG_RS_NAME,
-    S3_SECRET_NAME,
-    create_aws_secret,
-    create_s3_bucket,
-)
+from tests.opsmanager.om_ops_manager_backup import OPLOG_RS_NAME, S3_SECRET_NAME, create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 # Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.
