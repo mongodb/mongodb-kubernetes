@@ -28,7 +28,7 @@ func CreateMongodProcessesFromMongoDB(mongoDBImage string, forceEnterprise bool,
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, mdb.Spec.GetAdditionalMongodConfig(), &mdb.Spec, tlsCertPath, mdb.Annotations, fcv)
+		processes[idx] = om.NewMongodProcess(fmt.Sprintf("k8s/%s/%s", mdb.Namespace, names[idx]), hostname, mongoDBImage, forceEnterprise, mdb.Spec.GetAdditionalMongodConfig(), &mdb.Spec, tlsCertPath, mdb.Annotations, fcv)
 	}
 
 	return processes

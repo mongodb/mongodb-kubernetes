@@ -215,10 +215,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, rs.Name, log)
-	if !reconcileResult.IsOK() {
-		return r.updateStatus(ctx, reconcileResult)
-	}
+	//reconcileResult := checkIfHasExcessProcesses(conn, rs.Name, log)
+	//if !reconcileResult.IsOK() {
+	//	return r.updateStatus(ctx, reconcileResult)
+	//}
 
 	if status := validateMongoDBResource(rs, conn); !status.IsOK() {
 		return r.updateStatus(ctx, status)

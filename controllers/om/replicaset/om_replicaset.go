@@ -24,7 +24,7 @@ func BuildFromStatefulSet(mongoDBImage string, forceEnterprise bool, set appsv1.
 // parameter.
 func BuildFromStatefulSetWithReplicas(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, replicas int, fcv string, tlsCertPath string) om.ReplicaSetWithProcesses {
 	members := process.CreateMongodProcessesWithLimit(mongoDBImage, forceEnterprise, set, dbSpec, replicas, fcv, tlsCertPath)
-	replicaSet := om.NewReplicaSet(set.Name, dbSpec.GetMongoDBVersion())
+	replicaSet := om.NewReplicaSet(set.Name, "", dbSpec.GetMongoDBVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, dbSpec.GetMemberOptions())
 	rsWithProcesses.SetHorizons(dbSpec.GetHorizonConfig())
 	return rsWithProcesses
@@ -34,7 +34,7 @@ func BuildFromStatefulSetWithReplicas(mongoDBImage string, forceEnterprise bool,
 // based on the given MongoDB resource directly without requiring a StatefulSet.
 func BuildFromMongoDBWithReplicas(mongoDBImage string, forceEnterprise bool, mdb *mdbv1.MongoDB, replicas int, fcv string, tlsCertPath string) om.ReplicaSetWithProcesses {
 	members := process.CreateMongodProcessesFromMongoDB(mongoDBImage, forceEnterprise, mdb, replicas, fcv, tlsCertPath)
-	replicaSet := om.NewReplicaSet(mdb.Name, mdb.Spec.GetMongoDBVersion())
+	replicaSet := om.NewReplicaSet(mdb.Name, mdb.Spec.ReplicaSetNameOverride, mdb.Spec.GetMongoDBVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, mdb.Spec.GetMemberOptions())
 	rsWithProcesses.SetHorizons(mdb.Spec.GetHorizonConfig())
 	return rsWithProcesses

@@ -142,20 +142,20 @@ func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArg
 
 // MergeReplicaSet merges the "operator" replica set and its members to the "OM" deployment ("d"). If "alien" RS members are
 // removed after merge - corresponding processes are removed as well.
-func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs26, prevArgs26 map[string]interface{}, l *zap.SugaredLogger) {
+func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs26, prevArgs26 map[string]interface{}, externalMembers []string, l *zap.SugaredLogger) {
 	log := l.With("replicaSet", operatorRs.Rs.Name())
 
 	r := d.getReplicaSetByName(operatorRs.Rs.Name())
 	// If the new replica set is bigger than old one - we need to copy first member to positions of new members so that
 	// they were merged with operator replica sets on next step
 	// (in case OM made any changes to existing processes - these changes must be propagated to new members).
-	if r != nil && len(operatorRs.Rs.Members()) > len(r.Members()) {
-		if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.Members()), l); err != nil {
-			// I guess this error is not so serious to fail the whole process - RS will be scaled up anyway
-			log.Error("Failed to copy first process (so new replica set processes may miss Ops Manager changes done to "+
-				"existing replica set processes): %s", err)
-		}
-	}
+	//if r != nil && len(operatorRs.Rs.Members()) > len(r.Members()) {
+	//	if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.Members()), l); err != nil {
+	//		// I guess this error is not so serious to fail the whole process - RS will be scaled up anyway
+	//		log.Error("Failed to copy first process (so new replica set processes may miss Ops Manager changes done to "+
+	//			"existing replica set processes): %s", err)
+	//	}
+	//}
 
 	// Merging all RS processes
 	for _, p := range operatorRs.Processes {
@@ -168,7 +168,7 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 		log.Debugw("Added replica set as current OM deployment didn't have it")
 	} else {
 
-		processesToRemove := r.mergeFrom(operatorRs.Rs)
+		processesToRemove := r.mergeFrom(operatorRs.Rs, externalMembers)
 		log.Debugw("Merged replica set into existing one")
 
 		if len(processesToRemove) > 0 {
@@ -793,7 +793,7 @@ func (d Deployment) mergeConfigReplicaSet(opts DeploymentShardedClusterMergeOpti
 		p.setClusterRoleConfigSrv()
 	}
 
-	d.MergeReplicaSet(opts.ConfigServerRs, opts.ConfigServerAdditionalOptionsDesired, opts.ConfigServerAdditionalOptionsPrev, l)
+	d.MergeReplicaSet(opts.ConfigServerRs, opts.ConfigServerAdditionalOptionsDesired, opts.ConfigServerAdditionalOptionsPrev, nil, l)
 }
 
 // mergeShards does merge of replicasets for shards (which in turn merge each process) and merge or add the sharded cluster
@@ -801,7 +801,7 @@ func (d Deployment) mergeConfigReplicaSet(opts DeploymentShardedClusterMergeOpti
 func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *zap.SugaredLogger) bool {
 	// First merging the individual replica sets for each shard
 	for _, v := range opts.Shards {
-		d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, log)
+		d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, nil, log)
 	}
 	cluster := NewShardedCluster(opts.Name, opts.ConfigServerRs.Rs.Name(), opts.Shards)
 
