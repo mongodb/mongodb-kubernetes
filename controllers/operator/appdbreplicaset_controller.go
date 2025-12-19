@@ -88,7 +88,7 @@ const (
 	// it is used for DR in case of Multi-Cluster AppDB when after a cluster outage
 	// there is no primary in the AppDB deployment.
 	ForceReconfigureAnnotation                  = "mongodb.com/v1.forceReconfigure"
-	trueString                                  = "trueString"
+	trueString                                  = "true"
 	ForcedReconfigureAlreadyPerformedAnnotation = "mongodb.com/v1.forceReconfigurePerformed"
 )
 
@@ -1433,7 +1433,17 @@ func addMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger
 		for i, m := range monitoringVersions {
 			if m.Hostname == p.HostName {
 				found = true
-				if !tls {
+				if tls {
+					// Add/update TLS params when TLS is enabled
+					pemKeyFile := ""
+					if pem := p.Args26.Get("net.tls.certificateKeyFile"); pem != nil {
+						pemKeyFile = pem.String()
+					}
+					if monitoringVersions[i].AdditionalParams == nil {
+						monitoringVersions[i].AdditionalParams = map[string]string{}
+					}
+					addTLSParams(monitoringVersions[i].AdditionalParams, appdbCAFilePath, pemKeyFile)
+				} else {
 					// Clear TLS-specific params when TLS is disabled to prevent monitoring from
 					// trying to use certificate files that no longer exist.
 					clearTLSParams(monitoringVersions[i].AdditionalParams)

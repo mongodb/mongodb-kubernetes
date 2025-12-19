@@ -351,15 +351,25 @@ func clearTLSParams(params map[string]string) {
 // version's additionalParams. If additionalParams becomes empty after removing TLS fields,
 // the entire map is removed.
 func clearTLSParamsFromMonitoringVersion(monitoringVersion map[string]interface{}) {
-	additionalParams, ok := monitoringVersion["additionalParams"].(map[string]string)
-	if !ok {
+	additionalParamsRaw, exists := monitoringVersion["additionalParams"]
+	if !exists || additionalParamsRaw == nil {
 		return
 	}
 
-	clearTLSParams(additionalParams)
-
-	if len(additionalParams) == 0 {
-		delete(monitoringVersion, "additionalParams")
+	// Handle both map[string]string (locally created) and map[string]interface{} (from JSON/API)
+	switch params := additionalParamsRaw.(type) {
+	case map[string]string:
+		clearTLSParams(params)
+		if len(params) == 0 {
+			delete(monitoringVersion, "additionalParams")
+		}
+	case map[string]interface{}:
+		delete(params, tlsParamUseSsl)
+		delete(params, tlsParamTrustedCert)
+		delete(params, tlsParamClientCert)
+		if len(params) == 0 {
+			delete(monitoringVersion, "additionalParams")
+		}
 	}
 }
 
