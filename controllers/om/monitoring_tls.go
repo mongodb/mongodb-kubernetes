@@ -31,11 +31,19 @@ func ClearTLSParams(params map[string]string) {
 }
 
 // ClearTLSParamsFromMonitoringVersion removes TLS-specific fields from the monitoring
-// version's additionalParams.
+// version's additionalParams. If additionalParams becomes empty after removing TLS fields,
+// it is deleted from the monitoring version.
 func ClearTLSParamsFromMonitoringVersion(monitoringVersion map[string]interface{}) {
-	params, ok := monitoringVersion["additionalParams"].(map[string]interface{})
-	if !ok {
-		return
+	var isEmpty bool
+	switch params := monitoringVersion["additionalParams"].(type) {
+	case map[string]string:
+		clearTLSParamsFromMap(params)
+		isEmpty = len(params) == 0
+	case map[string]interface{}:
+		clearTLSParamsFromMap(params)
+		isEmpty = len(params) == 0
 	}
-	clearTLSParamsFromMap(params)
+	if isEmpty {
+		delete(monitoringVersion, "additionalParams")
+	}
 }

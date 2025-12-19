@@ -1457,7 +1457,6 @@ func addMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger
 		}
 	}
 	ac.MonitoringVersions = monitoringVersions
-
 }
 
 // registerAppDBHostsWithProject uses the Hosts API to add each process in the AppDB to the project
