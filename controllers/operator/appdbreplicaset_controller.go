@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1427,72 +1428,36 @@ func addMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger
 	if len(ac.Processes) == 0 {
 		return
 	}
+
 	monitoringVersions := ac.MonitoringVersions
 	for _, p := range ac.Processes {
-		found := false
-		for i, m := range monitoringVersions {
-			if m.Hostname == p.HostName {
-				found = true
-				if tls {
-					// Add/update TLS params when TLS is enabled
-					pemKeyFile := ""
-					if pem := p.Args26.Get("net.tls.certificateKeyFile"); pem != nil {
-						pemKeyFile = pem.String()
-					}
-					if monitoringVersions[i].AdditionalParams == nil {
-						monitoringVersions[i].AdditionalParams = map[string]string{}
-					}
-					addTLSParams(monitoringVersions[i].AdditionalParams, appdbCAFilePath, pemKeyFile)
-				} else {
-					// Clear TLS-specific params when TLS is disabled to prevent monitoring from
-					// trying to use certificate files that no longer exist.
-					clearTLSParams(monitoringVersions[i].AdditionalParams)
-					if len(monitoringVersions[i].AdditionalParams) == 0 {
-						monitoringVersions[i].AdditionalParams = nil
-					}
-				}
-				break
-			}
-		}
-		if !found {
-			monitoringVersion := automationconfig.MonitoringVersion{
-				Hostname: p.HostName,
+		hostname := p.HostName
+		pemKeyFile := p.Args26.Get("net.tls.certificateKeyFile").String()
+
+		foundIdx := slices.IndexFunc(monitoringVersions, func(m automationconfig.MonitoringVersion) bool {
+			return m.Hostname == hostname
+		})
+
+		if foundIdx == -1 {
+			mv := automationconfig.MonitoringVersion{
+				Hostname: hostname,
 				Name:     om.MonitoringAgentDefaultVersion,
 			}
 			if tls {
-				pemKeyFile := ""
-				if pem := p.Args26.Get("net.tls.certificateKeyFile"); pem != nil {
-					pemKeyFile = pem.String()
-				}
-				monitoringVersion.AdditionalParams = map[string]string{}
-				addTLSParams(monitoringVersion.AdditionalParams, appdbCAFilePath, pemKeyFile)
+				mv.AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)
 			}
-			log.Debugw("Added monitoring agent configuration", "host", p.HostName, "tls", tls)
-			monitoringVersions = append(monitoringVersions, monitoringVersion)
+			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
+			monitoringVersions = append(monitoringVersions, mv)
+		} else {
+			if tls {
+				monitoringVersions[foundIdx].AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)
+			} else {
+				om.ClearTLSParams(monitoringVersions[foundIdx].AdditionalParams)
+			}
 		}
 	}
 	ac.MonitoringVersions = monitoringVersions
-}
 
-// TLS param keys for monitoring additionalParams.
-const (
-	tlsParamUseSsl      = "useSslForAllConnections"
-	tlsParamTrustedCert = "sslTrustedServerCertificates"
-	tlsParamClientCert  = "sslClientCertificate"
-)
-
-func addTLSParams(params map[string]string, caFilePath, pemKeyFile string) {
-	params[tlsParamUseSsl] = trueString
-	params[tlsParamTrustedCert] = caFilePath
-	if pemKeyFile != "" {
-		params[tlsParamClientCert] = pemKeyFile
-	}
-}
-
-func clearTLSParams(params map[string]string) {
-	delete(params, tlsParamUseSsl)
-	delete(params, tlsParamTrustedCert)
-	delete(params, tlsParamClientCert)
 }
 
 // registerAppDBHostsWithProject uses the Hosts API to add each process in the AppDB to the project

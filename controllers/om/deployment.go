@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
@@ -264,11 +265,6 @@ func (d Deployment) ConfigureMonitoringAndBackup(log *zap.SugaredLogger, tls boo
 	d.addBackup(log)
 }
 
-// DEPRECATED: this shouldn't be used as it may panic because of different underlying type; use GetReplicaSets instead
-func (d Deployment) ReplicaSets() []ReplicaSet {
-	return d["replicaSets"].([]ReplicaSet)
-}
-
 func (d Deployment) GetReplicaSetByName(name string) ReplicaSet {
 	for _, rs := range d.GetReplicaSets() {
 		if rs.Name() == name {
@@ -284,93 +280,36 @@ func (d Deployment) ConfigureMonitoring(log *zap.SugaredLogger, tls bool, caFile
 	if len(d.getProcesses()) == 0 {
 		return
 	}
+
 	monitoringVersions := d.getMonitoringVersions()
 	for _, p := range d.getProcesses() {
-		found := false
-		var monitoringVersion map[string]interface{}
-		for _, m := range monitoringVersions {
-			monitoringVersion = m.(map[string]interface{})
-			if monitoringVersion["hostname"] == p.HostName() {
-				found = true
-				break
-			}
-		}
+		hostname := p.HostName()
+		pemKeyFile := p.EnsureTLSConfig()["PEMKeyFile"]
 
-		if !found {
-			monitoringVersion = map[string]interface{}{
-				"hostname": p.HostName(),
+		foundIdx := slices.IndexFunc(monitoringVersions, func(m interface{}) bool {
+			return m.(map[string]interface{})["hostname"] == hostname
+		})
+
+		if foundIdx == -1 {
+			mv := map[string]interface{}{
+				"hostname": hostname,
 				"name":     MonitoringAgentDefaultVersion,
 			}
-			log.Debugw("Added monitoring agent configuration", "host", p.HostName(), "tls", tls)
-			monitoringVersions = append(monitoringVersions, monitoringVersion)
-		}
-
-		monitoringVersion["hostname"] = p.HostName()
-
-		if tls {
-			pemKeyFile := ""
-			if pem := p.EnsureTLSConfig()["PEMKeyFile"]; pem != nil {
-				pemKeyFile = pem.(string)
+			if tls {
+				mv["additionalParams"] = NewTLSParams(caFilePath, pemKeyFile)
 			}
-			params := map[string]string{}
-			addTLSParams(params, caFilePath, pemKeyFile)
-			monitoringVersion["additionalParams"] = params
+			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
+			monitoringVersions = append(monitoringVersions, mv)
 		} else {
-			// Clear TLS-specific params when TLS is disabled to prevent monitoring from
-			// trying to use certificate files that no longer exist.
-			// We only clear TLS fields, preserving any other additionalParams that may be set.
-			clearTLSParamsFromMonitoringVersion(monitoringVersion)
+			mv := monitoringVersions[foundIdx].(map[string]interface{})
+			if tls {
+				mv["additionalParams"] = NewTLSParams(caFilePath, pemKeyFile)
+			} else {
+				ClearTLSParamsFromMonitoringVersion(mv)
+			}
 		}
-
 	}
 	d.setMonitoringVersions(monitoringVersions)
-}
-
-// TLS param keys for monitoring additionalParams.
-const (
-	tlsParamUseSsl      = "useSslForAllConnections"
-	tlsParamTrustedCert = "sslTrustedServerCertificates"
-	tlsParamClientCert  = "sslClientCertificate"
-)
-
-func addTLSParams(params map[string]string, caFilePath, pemKeyFile string) {
-	params[tlsParamUseSsl] = "true"
-	params[tlsParamTrustedCert] = caFilePath
-	if pemKeyFile != "" {
-		params[tlsParamClientCert] = pemKeyFile
-	}
-}
-
-func clearTLSParams(params map[string]string) {
-	delete(params, tlsParamUseSsl)
-	delete(params, tlsParamTrustedCert)
-	delete(params, tlsParamClientCert)
-}
-
-// clearTLSParamsFromMonitoringVersion removes TLS-specific fields from the monitoring
-// version's additionalParams. If additionalParams becomes empty after removing TLS fields,
-// the entire map is removed.
-func clearTLSParamsFromMonitoringVersion(monitoringVersion map[string]interface{}) {
-	additionalParamsRaw, exists := monitoringVersion["additionalParams"]
-	if !exists || additionalParamsRaw == nil {
-		return
-	}
-
-	// Handle both map[string]string (locally created) and map[string]interface{} (from JSON/API)
-	switch params := additionalParamsRaw.(type) {
-	case map[string]string:
-		clearTLSParams(params)
-		if len(params) == 0 {
-			delete(monitoringVersion, "additionalParams")
-		}
-	case map[string]interface{}:
-		delete(params, tlsParamUseSsl)
-		delete(params, tlsParamTrustedCert)
-		delete(params, tlsParamClientCert)
-		if len(params) == 0 {
-			delete(monitoringVersion, "additionalParams")
-		}
-	}
 }
 
 // RemoveMonitoringAndBackup removes both monitoring and backup agent configurations. This must be called when the

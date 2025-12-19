@@ -1526,7 +1526,7 @@ func TestClearTLSParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			clearTLSParams(tt.input)
+			om.ClearTLSParams(tt.input)
 			assert.Equal(t, tt.expectedOutput, tt.input)
 		})
 	}
