@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeoux pipefail
+set -Eeou pipefail
 
 echo "Setting up IBM container runtime (rootful podman for minikube)"
 
