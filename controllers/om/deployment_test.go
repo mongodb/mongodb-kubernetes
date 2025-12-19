@@ -561,12 +561,12 @@ func TestConfigureMonitoringTLSDisable(t *testing.T) {
 	assert.Equal(t, expectedMonitoringVersionsWithoutTls, d.getMonitoringVersions())
 }
 
-func TestAddBackup(t *testing.T) {
+func TestConfigureBackup(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, nil, nil, zap.S())
-	d.addBackup(zap.S())
+	d.ConfigureBackup(zap.S())
 
 	expectedBackupVersions := []interface{}{
 		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": BackupAgentDefaultVersion},
@@ -576,7 +576,7 @@ func TestAddBackup(t *testing.T) {
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
 
 	// adding again - nothing changes
-	d.addBackup(zap.S())
+	d.ConfigureBackup(zap.S())
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
 }
 

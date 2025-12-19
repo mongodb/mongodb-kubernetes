@@ -1179,7 +1179,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		}).
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {
 			if acType == monitoring {
-				addMonitoring(automationConfig, log, rs.GetSecurity().IsTLSEnabled())
+				configureMonitoring(automationConfig, log, rs.GetSecurity().IsTLSEnabled())
 				automationConfig.ReplicaSets = []automationconfig.ReplicaSet{}
 				automationConfig.Processes = []automationconfig.Process{}
 			}
@@ -1424,7 +1424,7 @@ func setBaseUrlForAgents(ac *automationconfig.AutomationConfig, url string) {
 	}
 }
 
-func addMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
+func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
 	if len(ac.Processes) == 0 {
 		return
 	}

@@ -262,7 +262,7 @@ func (d Deployment) ConfigureMonitoringAndBackup(log *zap.SugaredLogger, tls boo
 		return
 	}
 	d.ConfigureMonitoring(log, tls, caFilepath)
-	d.addBackup(log)
+	d.ConfigureBackup(log)
 }
 
 func (d Deployment) GetReplicaSetByName(name string) ReplicaSet {
@@ -1058,8 +1058,8 @@ func (d Deployment) removeMonitoring(processNames []string) {
 	d.setMonitoringVersions(updatedMonitoringVersions)
 }
 
-// addBackup adds backup agent configuration for each of the processes of deployment
-func (d Deployment) addBackup(log *zap.SugaredLogger) {
+// ConfigureBackup adds backup agent configuration for each of the processes of deployment
+func (d Deployment) ConfigureBackup(log *zap.SugaredLogger) {
 	backupVersions := d.getBackupVersions()
 	for _, p := range d.getProcesses() {
 		found := false
