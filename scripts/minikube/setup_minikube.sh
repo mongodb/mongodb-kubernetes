@@ -174,17 +174,13 @@ start_minikube_cluster() {
   # Use rootful podman - rootless has iptables/CNI issues on ppc64le and s390x
   local start_args=("--driver=podman" "--container-runtime=containerd" "--rootless=false")
   start_args+=("--cpus=4" "--memory=8g")
+  start_args+=("--cni=bridge")
 
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo "Using custom kicbase image for ppc64le with crictl..."
 
     start_args+=("--base-image=localhost:5000/kicbase:v0.0.48")
     start_args+=("--insecure-registry=localhost:5000")
-    # Use bridge CNI for ppc64le - kindnet doesn't have ppc64le images
-    start_args+=("--cni=bridge")
-  elif [[ "${ARCH}" == "s390x" ]]; then
-    # Use bridge CNI for s390x to avoid potential image availability issues
-    start_args+=("--cni=bridge")
   fi
 
   echo "Starting minikube with args: ${start_args[*]}"
