@@ -15,7 +15,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.21 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.17 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.18 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -334,6 +334,16 @@ tasks:
             - GH_TOKEN
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: scripts/evergreen/precommit_bump.sh
+
+  - name: run_conditionally_precommit_and_push
+    tags: [ "patch-run" ]
+    commands:
+      - func: clone
+      - func: run_task_conditionally
+        vars:
+          condition_script: scripts/evergreen/should_run_precommit_and_push.sh
+          variant: run_pre_commit
+          task: run_precommit_and_push
 
   - name: rebuild_all_agents
     # this enables us to run this manually (patch) and rebuild all agent versions to verify
@@ -1831,7 +1841,7 @@ buildvariants:
     run_on:
       - ubuntu2404-small
     tasks:
-      - name: run_precommit_and_push
+      - name: run_conditionally_precommit_and_push
 
   - name: init_tests_with_olm
     display_name: init_tests_with_olm
