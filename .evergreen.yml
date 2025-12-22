@@ -407,7 +407,6 @@ tasks:
       - func: setup_building_host_minikube
         vars:
           skip_minikube_setup: true
-          skip_install_python_requirements: false
       - func: download_multi_cluster_binary
         vars:
           platform: linux/s390x
@@ -421,7 +420,6 @@ tasks:
       - func: setup_building_host_minikube
         vars:
           skip_minikube_setup: true
-          skip_install_python_requirements: false
       - func: download_multi_cluster_binary
         vars:
           platform: linux/ppc64le

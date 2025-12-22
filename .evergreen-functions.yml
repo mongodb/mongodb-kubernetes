@@ -297,7 +297,6 @@ functions:
       params:
         env:
           SKIP_MINIKUBE_SETUP: ${skip_minikube_setup!|false}
-          SKIP_INSTALL_REQUIREMENTS: ${skip_install_python_requirements!|true}
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
