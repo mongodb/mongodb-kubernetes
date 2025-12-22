@@ -124,7 +124,7 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
             sign=scenario_data.get("sign", False),
             version_prefix=scenario_data.get("version-prefix"),
             registry=scenario_data.get("registry"),
-            region=scenario_data.get("region")
+            region=scenario_data.get("region"),
         )
 
     return BuildInfo(images=images, binaries=binaries, helm_charts=helm_charts)

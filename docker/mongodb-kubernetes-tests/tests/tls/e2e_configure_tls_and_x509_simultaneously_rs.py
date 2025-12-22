@@ -1,9 +1,5 @@
 import pytest
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    create_agent_tls_certs,
-    create_mongodb_tls_certs,
-)
+from kubetester.certs import ISSUER_CA_NAME, create_agent_tls_certs, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester

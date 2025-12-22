@@ -4,17 +4,8 @@ from typing import Optional
 
 import kubernetes
 import kubernetes.client
-from kubetester import (
-    delete_statefulset,
-    get_statefulset,
-    read_configmap,
-    try_load,
-    update_configmap,
-)
-from kubetester.kubetester import (
-    KubernetesTester,
-    ensure_ent_version,
-)
+from kubetester import delete_statefulset, get_statefulset, read_configmap, try_load, update_configmap
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import (
     get_env_var_or_fail,
@@ -29,16 +20,10 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import (
-    get_central_cluster_client,
-    get_member_cluster_api_client,
-)
+from tests.conftest import get_central_cluster_client, get_member_cluster_api_client
 from tests.constants import MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP
 from tests.multicluster.conftest import cluster_spec_list
-from tests.shardedcluster.conftest import (
-    enable_multi_cluster_deployment,
-    get_all_sharded_cluster_pod_names,
-)
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_all_sharded_cluster_pod_names
 
 MEMBER_CLUSTERS = ["kind-e2e-cluster-1", "kind-e2e-cluster-2", "kind-e2e-cluster-3"]
 FAILED_MEMBER_CLUSTER_INDEX = 2

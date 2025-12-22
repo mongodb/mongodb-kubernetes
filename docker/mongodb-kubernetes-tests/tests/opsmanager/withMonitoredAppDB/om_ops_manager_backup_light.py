@@ -11,11 +11,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import (
-    get_central_cluster_client,
-    get_member_cluster_api_client,
-    is_multi_cluster,
-)
+from tests.conftest import get_central_cluster_client, get_member_cluster_api_client, is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import (
     HEAD_PATH,
     OPLOG_RS_NAME,

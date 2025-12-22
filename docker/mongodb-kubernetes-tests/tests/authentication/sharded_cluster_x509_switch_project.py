@@ -1,19 +1,11 @@
 import pytest
-from kubetester import (
-    try_load,
-)
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    create_sharded_cluster_certs,
-    create_x509_agent_tls_certs,
-)
+from kubetester import try_load
+from kubetester.certs import ISSUER_CA_NAME, create_sharded_cluster_certs, create_x509_agent_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 
-from .helper_switch_project import (
-    SwitchProjectHelper,
-)
+from .helper_switch_project import SwitchProjectHelper
 
 MDB_RESOURCE_NAME = "sharded-cluster-x509-switch-project"
 

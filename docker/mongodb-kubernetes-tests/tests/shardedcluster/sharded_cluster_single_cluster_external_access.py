@@ -10,15 +10,8 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import (
-    get_central_cluster_name,
-    is_multi_cluster,
-    update_coredns_hosts,
-)
-from tests.shardedcluster.conftest import (
-    get_dns_hosts_for_external_access,
-    setup_external_access,
-)
+from tests.conftest import get_central_cluster_name, is_multi_cluster, update_coredns_hosts
+from tests.shardedcluster.conftest import get_dns_hosts_for_external_access, setup_external_access
 
 SCALED_SHARD_COUNT = 2
 logger = test_logger.get_test_logger(__name__)

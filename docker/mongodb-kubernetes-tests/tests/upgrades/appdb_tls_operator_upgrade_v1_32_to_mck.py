@@ -6,12 +6,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
-from tests.conftest import (
-    get_default_operator,
-    get_multi_cluster_operator,
-    install_official_operator,
-    is_multi_cluster,
-)
+from tests.conftest import get_default_operator, get_multi_cluster_operator, install_official_operator, is_multi_cluster
 from tests.constants import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_CHART,

@@ -17,11 +17,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import (
-    default_external_domain,
-    external_domain_fqdns,
-    update_coredns_hosts,
-)
+from tests.conftest import default_external_domain, external_domain_fqdns, update_coredns_hosts
 
 
 @fixture(scope="module")
