@@ -911,7 +911,7 @@ func TestScaling(t *testing.T) {
 		dep, err := omConnectionFactory.GetConnection().ReadDeployment()
 		assert.NoError(t, err)
 
-		replicaSets := dep.ReplicaSets()
+		replicaSets := dep.GetReplicaSets()
 
 		assert.Len(t, replicaSets, 1)
 		members := replicaSets[0].Members()
@@ -932,7 +932,7 @@ func TestScaling(t *testing.T) {
 		dep, err = omConnectionFactory.GetConnection().ReadDeployment()
 		assert.NoError(t, err)
 
-		replicaSets = dep.ReplicaSets()
+		replicaSets = dep.GetReplicaSets()
 
 		assert.Len(t, replicaSets, 1)
 		members = replicaSets[0].Members()

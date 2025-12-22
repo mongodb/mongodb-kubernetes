@@ -2006,7 +2006,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 				return err
 			}
 
-			d.AddMonitoringAndBackup(log, sc.Spec.GetSecurity().IsTLSEnabled(), opts.caFilePath)
+			d.ConfigureMonitoringAndBackup(log, sc.Spec.GetSecurity().IsTLSEnabled(), opts.caFilePath)
 			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath)
 
 			setupInternalClusterAuth(d, sc.Name, sc.GetSecurity().GetInternalClusterAuthenticationMode(),

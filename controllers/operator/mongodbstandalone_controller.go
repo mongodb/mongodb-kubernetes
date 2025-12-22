@@ -365,7 +365,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 
 			d.MergeStandalone(standaloneOmObject, s.Spec.AdditionalMongodConfig.ToMap(), lastStandaloneConfig.ToMap(), nil)
 			// TODO change last argument in separate PR
-			d.AddMonitoringAndBackup(log, s.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+			d.ConfigureMonitoringAndBackup(log, s.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 			d.ConfigureTLS(s.Spec.GetSecurity(), util.CAFilePathInContainer)
 			return nil
 		},
