@@ -14,6 +14,8 @@ from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
+from tests.common.mongodb_tools_pod.mongodb_tools_pod import get_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
@@ -225,7 +227,9 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
 
 @mark.e2e_search_enterprise_x509_cluster_auth
-def test_search_restore_sample_database(mdb: MongoDB):
+def test_search_restore_sample_database(
+    mdb: MongoDB,
+):
     get_admin_sample_movies_helper(mdb).restore_sample_database()
 
 
@@ -249,7 +253,8 @@ def get_admin_sample_movies_helper(mdb):
             get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD),
             use_ssl=True,
             ca_path=get_issuer_ca_filepath(),
-        )
+        ),
+        tools_pod=get_tools_pod(mdb.namespace),
     )
 
 
@@ -257,5 +262,6 @@ def get_user_sample_movies_helper(mdb):
     return movies_search_helper.SampleMoviesSearchHelper(
         SearchTester(
             get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=True, ca_path=get_issuer_ca_filepath()
-        )
+        ),
+        get_tools_pod(mdb.namespace),
     )
