@@ -42,6 +42,8 @@ spec:
       emptyDir: { }
     - name: diagnostics
       emptyDir: { }
+    - name: tests-home-dir
+      emptyDir: { }
   {{ if .Values.multiCluster.memberClusters }}
     - name: kube-config-volume
       secret:
@@ -52,6 +54,12 @@ spec:
         defaultMode: 420
         secretName: test-pod-multi-cluster-config
   {{ end }}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 2000
+    fsGroup: 2000
+    seccompProfile:
+      type: RuntimeDefault
   containers:
   - image: public.ecr.aws/docker/library/busybox:1.37.0
     name: keepalive
@@ -61,6 +69,11 @@ spec:
         mountPath: /tmp/results
       - name: diagnostics
         mountPath: /tmp/diagnostics
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
   - name: mongodb-enterprise-operator-tests
     env:
     # OTEL env vars can either be used to construct custom spans or are used by pytest opentelemetry dynamic instrumentation
@@ -198,7 +211,10 @@ spec:
       value: {{ .Values.cognito_workload_url }}
     - name: cognito_workload_user_id
       value: {{ .Values.cognito_workload_user_id }}
+    - name: HOME
+      value: /home/tests-home
     image: "{{ .Values.mekoTestsRegistry }}/mongodb-kubernetes-tests:{{ .Values.mekoTestsVersion }}"
+    # Used by helm to create .config and .cache directories. Also used by some tests that need to write files.
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
     {{ if .Values.otel_endpoint }}
@@ -214,9 +230,16 @@ spec:
         mountPath: /tmp/results
       - name: diagnostics
         mountPath: /tmp/diagnostics
+      - name: tests-home-dir
+        mountPath: /home/tests-home
     {{ if .Values.multiCluster.memberClusters }}
       - mountPath: /etc/config
         name: kube-config-volume
       - mountPath: /etc/multicluster
         name: multi-cluster-config
     {{ end }}
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
