@@ -458,6 +458,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:108.0.15.8888-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_16_8895_1
               value: "quay.io/mongodb/mongodb-agent:108.0.16.8895-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_18_8921_1
+              value: "quay.io/mongodb/mongodb-agent:108.0.18.8921-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_2_8729_1
               value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_3_8758_1
@@ -524,6 +526,8 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.16"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_17
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.17"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_18
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.18"
             # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
             - name: RELATED_IMAGE_MONGODB_IMAGE_4_4_0_ubi8
               value: "quay.io/mongodb/mongodb-enterprise-server:4.4.0-ubi8"
