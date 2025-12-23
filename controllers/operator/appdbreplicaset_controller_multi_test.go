@@ -1861,25 +1861,35 @@ func TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 		},
 	}
 
+	// The scaler processes clusters in order (cluster1 first, then cluster2).
+	// So cluster1 scales down first (3→2), then cluster2 scales down (2→1).
+	expectedHostnamesAfterReconcileStep := [][]string{
+		{
+			// After first reconcile: cluster1 scaled from 3 to 2 (removed om-db-0-2)
+			"om-db-0-0-svc.ns.svc.cluster.local",
+			"om-db-0-1-svc.ns.svc.cluster.local",
+			"om-db-1-0-svc.ns.svc.cluster.local",
+			"om-db-1-1-svc.ns.svc.cluster.local",
+		},
+		{
+			// After second reconcile: cluster2 scaled from 2 to 1 (removed om-db-1-1)
+			"om-db-0-0-svc.ns.svc.cluster.local",
+			"om-db-0-1-svc.ns.svc.cluster.local",
+			"om-db-1-0-svc.ns.svc.cluster.local",
+		},
+	}
+
 	for i := 0; i < 2; i++ {
 		reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
 		require.NoError(t, err)
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 		require.NoError(t, err)
-	}
 
-	expectedHostnamesAfterScaleDown := []string{
-		"om-db-0-0-svc.ns.svc.cluster.local",
-		"om-db-0-1-svc.ns.svc.cluster.local",
-		"om-db-1-0-svc.ns.svc.cluster.local",
+		// Ensure the hosts are removed in the right reconcile step.
+		omConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+		hosts, _ := omConnection.GetHosts()
+		assert.Equal(t, expectedHostnamesAfterReconcileStep[i], util.Transform(hosts.Results, func(obj host.Host) string {
+			return obj.Hostname
+		}), "the AppDB hosts should have been removed after scale-down")
 	}
-
-	// Only check hosts (not preferred hostnames) after scale-down because the API
-	// doesn't support removing preferred hostnames
-	// The important thing for monitoring is that hosts are removed.
-	omConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	hosts, _ := omConnection.GetHosts()
-	assert.Equal(t, expectedHostnamesAfterScaleDown, util.Transform(hosts.Results, func(obj host.Host) string {
-		return obj.Hostname
-	}), "the AppDB hosts should have been removed after scale-down")
 }
