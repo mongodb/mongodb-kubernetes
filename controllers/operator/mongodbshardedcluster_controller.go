@@ -1871,13 +1871,14 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		}
 	}
 
-	// Monitoring hosts reconciliation: compare monitored hosts against desired and remove extras.
-	// Runs on EVERY reconciliation to ensure idempotency and self-healing of orphaned hosts.
-	// Note: we do not filter unhealthy clusters out
-	// Note: Relies on constraint that one OM project = one deployment (all hosts belong to us).
-	hostsDesired := r.getAllHostnames(true)
-	if err = host.RemoveUndesiredMonitoringHosts(conn, hostsDesired, log); err != nil {
-		log.Warnf("failed to remove stale host(s) from Ops Manager monitoring: %s", err.Error())
+	currentHosts := r.getAllHostnames(false)
+	wantedHosts := r.getAllHostnames(true)
+
+	if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
+		if !isRecovering {
+			return workflow.Failed(err)
+		}
+		logWarnIgnoredDueToRecovery(log, err)
 	}
 
 	if workflowStatus := r.commonController.ensureBackupConfigurationAndUpdateStatus(ctx, conn, sc, r.commonController.SecretClient, log); !workflowStatus.IsOK() {
@@ -2139,12 +2140,6 @@ func (r *ShardedClusterReconcileHelper) getAllShardHostnamesAndPodNames(desiredR
 	var shardHostnames []string
 	var shardPodNames []string
 	for shardIdx, memberClusterMap := range r.shardsMemberClustersMap {
-		// When calculating desired hostnames (for monitoring cleanup), skip shards being removed.
-		// shardsMemberClustersMap includes shards up to max(spec.ShardCount, status.ShardCount),
-		// but we only want hostnames for shards that should exist (index < spec.ShardCount).
-		if desiredReplicas && shardIdx >= r.sc.Spec.ShardCount {
-			continue
-		}
 		for _, memberCluster := range memberClusterMap {
 			replicas := memberCluster.Replicas
 			if desiredReplicas {

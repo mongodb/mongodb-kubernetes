@@ -531,17 +531,6 @@ func (d Deployment) GetAllHostnames() []string {
 	return hostnames
 }
 
-// GetHostnamesForReplicaSet returns all hostnames for processes belonging to a specific replica set.
-func (d Deployment) GetHostnamesForReplicaSet(rsName string) []string {
-	var hostnames []string
-	for _, p := range d.getProcesses() {
-		if p.replicaSetName() == rsName {
-			hostnames = append(hostnames, p.HostName())
-		}
-	}
-	return hostnames
-}
-
 func (d Deployment) NumberOfProcesses() int {
 	return len(d.getProcesses())
 }

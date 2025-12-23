@@ -30,7 +30,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
-	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
@@ -42,7 +41,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -412,106 +410,6 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 	mockedOmConn.CheckOrderOfOperations(t,
 		reflect.ValueOf(mockedOmConn.ReadUpdateDeployment), reflect.ValueOf(mockedOmConn.ReadAutomationStatus),
 		reflect.ValueOf(mockedOmConn.GetHosts), reflect.ValueOf(mockedOmConn.RemoveHost))
-}
-
-// assertHostsEqual verifies that the monitored hosts in OM match the expected hostnames
-func assertHostsEqual(t *testing.T, conn *om.MockedOmConnection, expected []string) {
-	hosts, _ := conn.GetHosts()
-	actual := util.Transform(hosts.Results, func(obj host.Host) string {
-		return obj.Hostname
-	})
-	assert.Equal(t, expected, actual, "monitored hosts should match expected")
-}
-
-// TestReplicaSetScaleDown_HostsRemovedFromMonitoring verifies that hosts are removed from monitoring
-// when scaling down a replica set
-func TestReplicaSetScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
-	ctx := context.Background()
-	rs := DefaultReplicaSetBuilder().SetMembers(5).Build()
-
-	hostnames, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), 5, nil)
-
-	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-
-	// Create fake client with addOMHosts=false to prevent the interceptor from
-	// re-adding hosts when the StatefulSet is fetched during scale-down.
-	// The StatefulSet still has the old replica count when first fetched, which would
-	// cause the removed host to be re-added if addOMHosts were true.
-	fakeClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().
-		WithObjects(rs).
-		WithObjects(mock.GetDefaultResources()...).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, false),
-		}).Build())
-
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
-
-	// Use PostCreateHook to add hosts when the connection is first created.
-	// This ensures the connection has the proper BaseURL set from the ConfigMap.
-	// With addOMHosts=false in the interceptor, hosts won't be re-added during scale-down.
-	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		connection.(*om.MockedOmConnection).AddHosts(hostnames)
-	})
-
-	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
-
-	// Verify all 5 hosts are monitored after initial reconcile
-	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	assertHostsEqual(t, mockedOmConn, hostnames)
-
-	// Scale down from 5 to 4 members
-	rs.Spec.Members = 4
-	err := fakeClient.Update(ctx, rs)
-	assert.NoError(t, err)
-
-	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
-
-	// Verify exactly 4 hosts remain (the first 4)
-	expectedHostnamesAfterScaleDown := hostnames[:4]
-	assertHostsEqual(t, mockedOmConn, expectedHostnamesAfterScaleDown)
-
-	// Also verify the 5th host was specifically removed
-	removedHost := hostnames[4]
-	mockedOmConn.CheckMonitoredHostsRemoved(t, []string{removedHost})
-}
-
-// TestReplicaSetOrphanedHostsCleanedUp verifies that orphaned hosts (hosts that exist in OM monitoring but shouldn't
-// based on current RS spec) are cleaned up during reconciliation.
-// Ensure we clean up orphaned hosts from potential previous bad runs.
-func TestReplicaSetOrphanedHostsCleanedUp(t *testing.T) {
-	ctx := context.Background()
-	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
-
-	// Generate hostnames for 5 hosts (simulating 2 orphaned from previous failed scale-down)
-	allHostnames, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), 5, nil)
-	expectedHostnames := allHostnames[:3] // Only first 3 should remain
-
-	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-
-	fakeClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().
-		WithObjects(rs).
-		WithObjects(mock.GetDefaultResources()...).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, false),
-		}).Build())
-
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
-
-	// Simulate orphaned hosts: add 5 hosts to OM even though RS only has 3 members
-	// This simulates a scenario where a previous scale-down failed to remove hosts
-	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		connection.(*om.MockedOmConnection).AddHosts(allHostnames) // Add all 5 hosts
-	})
-
-	// This reconciliation should clean up orphaned hosts
-	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
-
-	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	assertHostsEqual(t, mockedOmConn, expectedHostnames)
-
-	// Verify the orphaned hosts were specifically removed
-	orphanedHosts := allHostnames[3:] // hosts 3 and 4
-	mockedOmConn.CheckMonitoredHostsRemoved(t, orphanedHosts)
 }
 
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {

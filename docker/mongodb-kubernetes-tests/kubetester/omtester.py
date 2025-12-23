@@ -344,15 +344,6 @@ class OMTester(object):
 
         run_periodically(fn=hosts_are_not_empty, timeout=timeout)
 
-    def wait_until_hosts_count(self, expected_count: int, timeout=60):
-        """Waits until the number of hosts in monitoring matches the expected count."""
-
-        def hosts_count_matches():
-            hosts = self.api_get_hosts()["results"]
-            return len(hosts) == expected_count
-
-        run_periodically(fn=hosts_count_matches, timeout=timeout)
-
     def assert_om_version(self, expected_version: str):
         assert self.api_get_om_version() == expected_version
 

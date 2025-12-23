@@ -105,11 +105,6 @@ class TestShardedClusterScalingDownscale:
         assert_config_srv_sts_members_count(sc, [2, 1, 1])
         assert_mongos_sts_members_count(sc, [1, 1, 1])
 
-    def test_hosts_removed_from_monitoring_after_scaling(self, sc: MongoDB):
-        """Verifies that scaled-down hosts are removed from OM monitoring."""
-        # After downscale: 4 shard + 4 config + 3 mongos = 11 hosts
-        sc.get_om_tester().wait_until_hosts_count(11, timeout=60)
-
 
 @mark.e2e_multi_cluster_sharded_scaling
 class TestShardedClusterScalingDownscaleToZero:

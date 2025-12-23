@@ -768,13 +768,11 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Pending("Performing multi stage reconciliation")
 	}
 
-	// Monitoring hosts reconciliation: compare monitored hosts against desired and remove extras.
-	// Runs on EVERY reconciliation to ensure idempotency and self-healing of orphaned hosts.
-	// Note: Relies on constraint that one OM project = one deployment (all hosts belong to us).
-	hostsDesired, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(),
-		replicasTarget, rs.Spec.DbCommonSpec.GetExternalDomain())
-	if err := host.RemoveUndesiredMonitoringHosts(conn, hostsDesired, log); err != nil && !isRecovering {
-		log.Warnf("failed to remove stale host(s) from Ops Manager monitoring: %s", err.Error())
+	hostsBefore := getAllHostsForReplicas(rs, membersNumberBefore)
+	hostsAfter := getAllHostsForReplicas(rs, scale.ReplicasThisReconciliation(rs))
+
+	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil && !isRecovering {
+		return workflow.Failed(err)
 	}
 
 	if status := reconciler.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, reconciler.SecretClient, log); !status.IsOK() && !isRecovering {
@@ -866,6 +864,11 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 		return err
 	}
 	return helper.OnDelete(ctx, obj, log)
+}
+
+func getAllHostsForReplicas(rs *mdbv1.MongoDB, membersCount int) []string {
+	hostnames, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), membersCount, rs.Spec.DbCommonSpec.GetExternalDomain())
+	return hostnames
 }
 
 func (r *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) bool {

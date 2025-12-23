@@ -99,9 +99,8 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 		fmt.Printf("deployment diff:\n%s", visualJsonDiffOfAnyObjects(t, expectedDeployment, mockedConn.GetDeployment()))
 	}
 	mockedConn.CheckNumberOfUpdateRequests(t, 2)
-	// GetHosts is always called to check for stale monitored hosts (for idempotency).
-	// RemoveHost should not be called since no hosts need to be removed on initial deployment.
-	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.RemoveHost))
+	// we don't remove hosts from monitoring if there is no scale down
+	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.GetHosts), reflect.ValueOf(mockedConn.RemoveHost))
 }
 
 // TestReconcileCreateSingleClusterShardedClusterWithNoServiceMeshSimplest assumes only Services for Mongos

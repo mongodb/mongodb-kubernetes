@@ -712,10 +712,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 	return annotations.SetAnnotations(ctx, &mrs, annotationsToAdd, r.client)
 }
 
-// getAllHostnames returns the hostnames of all replicas across all clusters.
-// Unhealthy clusters are ignored when reachableClustersOnly is set to true
-func (r *ReconcileMongoDbMultiReplicaSet) getAllHostnames(mrs mdbmultiv1.MongoDBMultiCluster, clusterSpecList mdb.ClusterSpecList, reachableClustersOnly bool, log *zap.SugaredLogger) ([]string, error) {
-	var hostnames []string
+// updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
+// to automation agents in containers
+func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, agentCertPath, tlsCertPath, internalClusterCertPath string, isRecovering bool, log *zap.SugaredLogger) error {
+	reachableHostnames := make([]string, 0)
+
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return err
+	}
 	failedClusterNames, err := mrs.GetFailedClusterNames()
 	if err != nil {
 		// When failing to retrieve the list of failed clusters we proceed assuming there are no failed clusters,
@@ -724,8 +729,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) getAllHostnames(mrs mdbmultiv1.MongoDB
 	}
 	for _, spec := range clusterSpecList {
 		hostnamesToAdd := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, mrs.Spec.GetClusterDomain(), mrs.Spec.GetExternalDomainForMemberCluster(spec.ClusterName))
-
-		if stringutil.Contains(failedClusterNames, spec.ClusterName) && reachableClustersOnly {
+		if stringutil.Contains(failedClusterNames, spec.ClusterName) {
 			log.Debugf("Skipping hostnames %+v as they are part of the failed cluster %s ", hostnamesToAdd, spec.ClusterName)
 			continue
 		}
@@ -733,24 +737,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) getAllHostnames(mrs mdbmultiv1.MongoDB
 			log.Debugf("Skipping hostnames %+v as they are part of a cluster not known by the operator %s ", hostnamesToAdd, spec.ClusterName)
 			continue
 		}
-		hostnames = append(hostnames, hostnamesToAdd...)
-	}
-
-	return hostnames, nil
-}
-
-// updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
-// to automation agents in containers
-func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, agentCertPath, tlsCertPath, internalClusterCertPath string, isRecovering bool, log *zap.SugaredLogger) error {
-	// This clusterSpecList reflects the desired state for this reconciliation, not the final one (the resource spec)
-	clusterSpecList, err := mrs.GetClusterSpecItems()
-	if err != nil {
-		return err
-	}
-
-	reachableHostnames, err := r.getAllHostnames(mrs, clusterSpecList, true, log)
-	if err != nil {
-		return err
+		reachableHostnames = append(reachableHostnames, hostnamesToAdd...)
 	}
 
 	err = agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, reachableHostnames, log)
@@ -827,17 +814,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	if err := om.WaitForReadyState(conn, reachableProcessNames, isRecovering, log); err != nil && !isRecovering {
 		return err
 	}
-
-	// The hostnames we get here are the ones for the current reconciliation. Not the final state.
-	// Note that we include unhealthy clusters (we don't want to remove them from monitoring)
-	allHostNames, err := r.getAllHostnames(mrs, clusterSpecList, false, log)
-	if err != nil && !isRecovering {
-		return err
-	}
-	if err := host.RemoveUndesiredMonitoringHosts(conn, allHostNames, log); err != nil {
-		log.Warnf("failed to remove stale host(s) from Ops Manager monitoring: %s", err.Error())
-	}
-
 	return nil
 }
 

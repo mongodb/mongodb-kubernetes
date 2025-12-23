@@ -515,13 +515,6 @@ def test_replica_set_can_be_scaled_down_and_connectable(replica_set: MongoDB):
 
 
 @pytest.mark.e2e_replica_set
-def test_hosts_removed_from_monitoring_after_scale_down(replica_set: MongoDB):
-    """Verifies that scaled-down hosts are removed from OM monitoring."""
-    # After scaling from 5 to 3 members, only 3 hosts should remain
-    replica_set.get_om_tester().wait_until_hosts_count(3, timeout=60)
-
-
-@pytest.mark.e2e_replica_set
 class TestReplicaSetDelete(KubernetesTester):
     """
     name: Replica Set Deletion

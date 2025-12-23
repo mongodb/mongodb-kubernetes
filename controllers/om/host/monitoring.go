@@ -62,45 +62,8 @@ func stopMonitoringHosts(getRemover GetRemover, hosts []string, log *zap.Sugared
 	return nil
 }
 
-// CalculateDiffAndStopMonitoring checks hosts that are present in hostsBefore but not hostsAfter, and removes
+// CalculateDiffAndStopMonitoringHosts checks hosts that are present in hostsBefore but not hostsAfter, and removes
 // monitoring from them.
 func CalculateDiffAndStopMonitoring(getRemover GetRemover, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
 	return stopMonitoringHosts(getRemover, util.FindLeftDifference(hostsBefore, hostsAfter), log)
-}
-
-// GetAllMonitoredHostnames returns all hostnames currently monitored in the OM project.
-//
-// Note: This relies on the constraint that one OM project = one deployment, which is enforced
-// by the MongoDB Kubernetes operator. All monitored hosts in the project belong to this deployment.
-//
-// The OM API supports server-side filtering via the clusterId query parameter:
-// GET /groups/{PROJECT-ID}/hosts?clusterId={CLUSTER-ID}
-// See: https://www.mongodb.com/docs/ops-manager/current/reference/api/hosts/get-all-hosts-in-group/
-// If we have access to the cluster ID reliably, we could use server-side filtering.
-func GetAllMonitoredHostnames(getter Getter) ([]string, error) {
-	allHosts, err := getter.GetHosts()
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get hosts from OM: %w", err)
-	}
-
-	hostnames := make([]string, len(allHosts.Results))
-	for i, h := range allHosts.Results {
-		hostnames[i] = h.Hostname
-	}
-	return hostnames, nil
-}
-
-// RemoveUndesiredMonitoringHosts ensures only the desired hosts are monitored.
-// It compares all monitored hosts in the OM project against the desired list and removes any extras.
-// This is idempotent and should be called on every reconciliation to clean up orphaned hosts.
-//
-// Note: This relies on the constraint that one OM project = one deployment.
-// All monitored hosts in the project belong to this deployment, so no filtering is needed.
-func RemoveUndesiredMonitoringHosts(getRemover GetRemover, hostsDesired []string, log *zap.SugaredLogger) error {
-	hostsMonitored, err := GetAllMonitoredHostnames(getRemover)
-	if err != nil {
-		return err
-	}
-
-	return CalculateDiffAndStopMonitoring(getRemover, hostsMonitored, hostsDesired, log)
 }
