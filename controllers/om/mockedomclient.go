@@ -738,7 +738,11 @@ func (oc *MockedOmConnection) CheckResourcesAndBackupDeleted(t *testing.T, resou
 	assert.Empty(t, oc.deployment.getShardedClusters())
 	assert.Empty(t, oc.deployment.getMonitoringVersions())
 	assert.Empty(t, oc.deployment.getBackupVersions())
-	assert.Empty(t, oc.hostResults.Results)
+
+	hosts, err := oc.GetHosts()
+	assert.NoError(t, err)
+	assert.NotNil(t, hosts)
+	assert.Empty(t, hosts.Results)
 
 	if resourceName != "" {
 		assert.NotEmpty(t, oc.BackupHostClusters)
