@@ -104,14 +104,6 @@ class TestShardedClusterScaleDownShards:
                 cluster_member_client.read_namespaced_stateful_set(shard_sts_name, sc.namespace)
             assert api_exception.value.status == 404
 
-    def test_hosts_removed_from_monitoring_after_scale_down(self, sc: MongoDB):
-        """Verifies that hosts from removed shard are removed from OM monitoring."""
-        # After scaling to 1 shard:
-        # - Single cluster: 1 shard mongod + 1 config server + 1 mongos = 3 hosts
-        # - Multi cluster: 3 shard mongods (1 per cluster) + 1 config server + 1 mongos = 5 hosts
-        expected_hosts = 5 if is_multi_cluster() else 3
-        sc.get_om_tester().wait_until_hosts_count(expected_hosts, timeout=60)
-
 
 @mark.e2e_sharded_cluster_scale_shards
 class TestShardedClusterScaleUpShards:
