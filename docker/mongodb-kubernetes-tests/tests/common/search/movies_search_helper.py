@@ -3,6 +3,7 @@ import logging
 import pymongo.errors
 from kubetester import kubetester
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search.search_tester import SearchTester
 
 logger = test_logger.get_test_logger(__name__)
@@ -13,15 +14,19 @@ class SampleMoviesSearchHelper:
     db_name: str
     col_name: str
     archive_url: str
+    tools_pod: mongodb_tools_pod.ToolsPod
 
-    def __init__(self, search_tester: SearchTester):
+    def __init__(self, search_tester: SearchTester, tools_pod: mongodb_tools_pod.ToolsPod):
         self.search_tester = search_tester
         self.db_name = "sample_mflix"
         self.col_name = "movies"
+        self.tools_pod = tools_pod
 
     def restore_sample_database(self):
         self.search_tester.mongorestore_from_url(
-            "https://atlas-education.s3.amazonaws.com/sample_mflix.archive", f"{self.db_name}.*"
+            "https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
+            f"{self.db_name}.*",
+            tools_pod=self.tools_pod,
         )
 
     def create_search_index(self):
