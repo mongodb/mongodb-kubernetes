@@ -62,7 +62,7 @@ setup_local_registry_and_custom_image() {
       # Clean up any existing registry first
       sudo podman rm -f registry 2>/dev/null || true
 
-      if ! sudo podman run -d -p 127.0.0.1:5000:5000 --name registry --restart=always docker.io/library/registry:2; then
+      if ! sudo podman run -d -p 127.0.0.1:5000:5000 --replace --name registry --restart=always docker.io/library/registry:2; then
         echo "❌ Failed to start local registry - trying alternative approach"
         exit 1
       fi
@@ -80,16 +80,19 @@ setup_local_registry_and_custom_image() {
     fi
 
     # Configure podman to trust local registry (rootful only since minikube uses sudo podman)
+    # Use 127.0.0.1 explicitly to avoid IPv6 resolution issues with localhost
     echo "Configuring registries.conf to trust local registry..."
     sudo mkdir -p /root/.config/containers
     sudo tee /root/.config/containers/registries.conf << 'EOF' >/dev/null
 [[registry]]
-location = "localhost:5000"
+location = "127.0.0.1:5000"
 insecure = true
 EOF
     echo "✅ Registry configuration created"
 
-    custom_image_tag="localhost:5000/kicbase:v0.0.48"
+    # Use 127.0.0.1 instead of localhost to avoid IPv6 resolution issues
+    # (localhost resolves to ::1 first on some systems, but registry only binds to 127.0.0.1)
+    custom_image_tag="127.0.0.1:5000/kicbase:v0.0.48"
     if curl -s --max-time 5 http://127.0.0.1:5000/v2/kicbase/tags/list | grep -q "v0.0.48"; then
       echo "Custom kicbase image already exists in local registry"
       return 0
@@ -122,7 +125,7 @@ EOF
     if ! curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
       echo "Registry not responding, restarting..."
       sudo podman rm -f registry 2>/dev/null || true
-      sudo podman run -d -p 127.0.0.1:5000:5000 --name registry --restart=always docker.io/library/registry:2
+      sudo podman run -d -p 127.0.0.1:5000:5000 --replace --name registry --restart=always docker.io/library/registry:2
       for _ in {1..15}; do
         if curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
           echo "Registry restarted successfully"
@@ -146,24 +149,26 @@ EOF
 start_minikube_cluster() {
   echo ">>> Starting minikube cluster with podman driver (rootful mode)..."
 
-  if "${PROJECT_DIR:-.}/bin/minikube" status &>/dev/null; then
-    echo "✅ Minikube is already running - verifying health..."
-    if "${PROJECT_DIR:-.}/bin/minikube" kubectl -- get nodes &>/dev/null; then
+  # Check if minikube container actually exists
+  # Don't rely on 'minikube status' as it may check wrong profile/state
+  if sudo podman ps --filter name=minikube --format '{{.Names}}' 2>/dev/null | grep -q '^minikube$'; then
+    echo "✅ Minikube container exists - verifying kubectl connectivity..."
+    if "${PROJECT_DIR:-.}/bin/minikube" kubectl -- get nodes &>/dev/null 2>&1; then
       echo "✅ Minikube cluster is healthy - skipping setup"
       return 0
     else
-      echo "⚠️ Minikube running but unhealthy - will recreate"
+      echo "⚠️ Minikube container exists but kubectl not working - will recreate"
     fi
   fi
 
   # Clean up any existing minikube state to avoid cached configuration issues
   echo "Cleaning up any existing minikube state..."
-  if [[ -d ~/.minikube/machines/minikube ]]; then
-    echo "Removing ~/.minikube/machines/minikube directory..."
-    rm -rf ~/.minikube/machines/minikube
-  fi
+  sudo rm -rf ~/.minikube/machines/minikube 2>/dev/null || true
+  rm -rf ~/.minikube/machines/minikube 2>/dev/null || true
 
   echo "Ensuring clean minikube state..."
+  # Use sudo for delete since minikube was started with --rootless=false
+  sudo "${PROJECT_DIR:-.}/bin/minikube" delete 2>/dev/null || true
   "${PROJECT_DIR:-.}/bin/minikube" delete 2>/dev/null || true
 
   # Clean up stale podman volumes
@@ -179,8 +184,8 @@ start_minikube_cluster() {
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo "Using custom kicbase image for ppc64le with crictl..."
 
-    start_args+=("--base-image=localhost:5000/kicbase:v0.0.48")
-    start_args+=("--insecure-registry=localhost:5000")
+    start_args+=("--base-image=127.0.0.1:5000/kicbase:v0.0.48")
+    start_args+=("--insecure-registry=127.0.0.1:5000")
   fi
 
   echo "Starting minikube with args: ${start_args[*]}"
