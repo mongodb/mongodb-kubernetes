@@ -11,16 +11,15 @@ set -Eeou pipefail
 export GOEXPERIMENT=synctest
 
 find . -name go.mod -not -path "./docker/mongodb-kubernetes-tests/*" -exec dirname "{}" \+ | xargs -L 1 /bin/bash -c '
-export GOEXPERIMENT=synctest
 cd "$0"
 echo "testing $0"
 rm -f result.suite
 if [ "$USE_RACE" = "true" ]; then
   echo "running test with race enabled"
-  GO_TEST_CMD="go test -v -coverprofile cover.out \$(go list ./... | grep -v \"mongodb-community-operator/test/e2e\")"
+  GO_TEST_CMD="GOEXPERIMENT=synctest go test -v -coverprofile cover.out \$(GOEXPERIMENT=synctest go list ./... | grep -v \"mongodb-community-operator/test/e2e\")"
 else
   echo "running test without race enabled"
-  GO_TEST_CMD="go test -v -coverprofile cover.out \$(go list ./... | grep -v \"mongodb-community-operator/test/e2e\")"
+  GO_TEST_CMD="GOEXPERIMENT=synctest go test -v -coverprofile cover.out \$(GOEXPERIMENT=synctest go list ./... | grep -v \"mongodb-community-operator/test/e2e\")"
 fi
 echo "running $GO_TEST_CMD"
 eval "$GO_TEST_CMD" | tee -a result.suite

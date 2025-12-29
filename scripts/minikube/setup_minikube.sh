@@ -62,7 +62,7 @@ setup_local_registry_and_custom_image() {
       # Clean up any existing registry first
       sudo podman rm -f registry 2>/dev/null || true
 
-      if ! sudo podman run -d -p 127.0.0.1:5000:5000 --name registry --restart=always docker.io/library/registry:2; then
+      if ! sudo podman run -d -p 127.0.0.1:5000:5000 --replace --name registry --restart=always docker.io/library/registry:2; then
         echo "❌ Failed to start local registry - trying alternative approach"
         exit 1
       fi
