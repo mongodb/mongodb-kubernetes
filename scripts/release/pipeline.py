@@ -4,14 +4,9 @@ from functools import partial
 from typing import Callable, Dict
 
 from opentelemetry import context, trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-    OTLPSpanExporter as OTLPSpanGrpcExporter,
-)
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as OTLPSpanGrpcExporter
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
-from opentelemetry.sdk.trace import (
-    SynchronousMultiSpanProcessor,
-    TracerProvider,
-)
+from opentelemetry.sdk.trace import SynchronousMultiSpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
@@ -53,13 +48,8 @@ from scripts.release.build.build_info import (
     UPGRADE_HOOK_IMAGE,
     load_build_info,
 )
-from scripts.release.build.build_scenario import (
-    SUPPORTED_SCENARIOS,
-    BuildScenario,
-)
-from scripts.release.build.image_build_configuration import (
-    ImageBuildConfiguration,
-)
+from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS, BuildScenario
+from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import PodmanImageBuilder
 
 CURRENT_AGENTS = "current"

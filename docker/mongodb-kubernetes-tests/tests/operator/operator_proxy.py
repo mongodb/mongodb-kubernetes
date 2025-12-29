@@ -2,9 +2,7 @@ import os
 
 from kubernetes import client
 from kubetester import create_or_update_configmap
-from kubetester.create_or_replace_from_yaml import (
-    create_or_replace_from_yaml as apply_yaml,
-)
+from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml as apply_yaml
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import get_pods

@@ -7,10 +7,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.shardedcluster.conftest import (
-    enable_multi_cluster_deployment,
-    get_mongos_service_names,
-)
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_mongos_service_names
 
 MDB_RESOURCE = "test-ssl-with-x509-sc"
 

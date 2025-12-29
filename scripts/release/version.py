@@ -1,11 +1,7 @@
 import semver
 from git import Commit, Repo, TagReference
 
-from scripts.release.changelog import (
-    ChangeEntry,
-    ChangeKind,
-    get_changelog_entries,
-)
+from scripts.release.changelog import ChangeEntry, ChangeKind, get_changelog_entries
 
 
 def calculate_next_version(

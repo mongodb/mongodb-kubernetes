@@ -6,17 +6,10 @@ from botocore.exceptions import ClientError
 
 from lib.base_logger import logger
 from scripts.release.argparse_utils import get_scenario_from_arg
-from scripts.release.build.build_info import (
-    KUBECTL_PLUGIN_BINARY,
-    load_build_info,
-)
+from scripts.release.build.build_info import KUBECTL_PLUGIN_BINARY, load_build_info
 from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS, BuildScenario
 from scripts.release.build.image_build_configuration import SUPPORTED_PLATFORMS
-from scripts.release.kubectl_mongodb.build_kubectl_plugin import (
-    kubectl_plugin_name,
-    parse_platform,
-    s3_path,
-)
+from scripts.release.kubectl_mongodb.build_kubectl_plugin import kubectl_plugin_name, parse_platform, s3_path
 from scripts.release.kubectl_mongodb.utils import create_s3_client
 
 KUBECTL_MONGODB_PLUGIN_BIN_PATH = "bin/kubectl-mongodb"

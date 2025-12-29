@@ -27,11 +27,7 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import (
-    assert_data_got_restored,
-    update_coredns_hosts,
-    wait_for_primary,
-)
+from tests.conftest import assert_data_got_restored, update_coredns_hosts, wait_for_primary
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
 

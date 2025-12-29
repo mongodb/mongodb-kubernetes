@@ -8,11 +8,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import (
-    get_central_cluster_client,
-    get_member_cluster_names,
-    read_deployment_state,
-)
+from tests.conftest import get_central_cluster_client, get_member_cluster_names, read_deployment_state
 from tests.multicluster.conftest import cluster_spec_list
 from tests.multicluster_shardedcluster import (
     build_expected_statefulsets,

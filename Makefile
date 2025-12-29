@@ -57,10 +57,10 @@ prerequisites:
 	@ scripts/dev/install.sh
 
 precommit:
-	@ .githooks/pre-commit
+	@ source scripts/dev/set_env_context.sh && pre-commit run --all-files
 
 precommit-with-licenses:
-	@ MDB_UPDATE_LICENSES=true .githooks/pre-commit
+	@ source scripts/dev/set_env_context.sh && MDB_UPDATE_LICENSES=true pre-commit run --all-files
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
@@ -346,12 +346,14 @@ manifests: controller-gen
 
 
 # Run go fmt against code
+# GOEXPERIMENT=synctest is needed to parse files that import testing/synctest
 fmt:
-	go fmt ./...
+	GOEXPERIMENT=synctest go fmt ./...
 
 # Run go vet against code
+# GOEXPERIMENT=synctest is needed to parse files that import testing/synctest
 vet:
-	go vet ./...
+	GOEXPERIMENT=synctest go vet ./...
 
 # Generate code
 generate: controller-gen
