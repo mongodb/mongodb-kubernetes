@@ -1457,3 +1457,77 @@ func createRunningAppDB(ctx context.Context, t *testing.T, startingMembers int, 
 	assert.Equal(t, ok, res)
 	return reconciler
 }
+
+// TestClearTLSParams tests CLOUDP-351614 fix:
+// When TLS is disabled on AppDB, TLS-specific params should be cleared from
+// the monitoring config's additionalParams to prevent the monitoring agent
+// from trying to use certificate files that no longer exist.
+func TestClearTLSParams(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          map[string]string
+		expectedOutput map[string]string
+	}{
+		{
+			name:           "nil map",
+			input:          nil,
+			expectedOutput: nil,
+		},
+		{
+			name:           "empty map",
+			input:          map[string]string{},
+			expectedOutput: map[string]string{},
+		},
+		{
+			name: "only TLS params",
+			input: map[string]string{
+				"useSslForAllConnections":      "true",
+				"sslTrustedServerCertificates": "/some/path/ca.pem",
+				"sslClientCertificate":         "/some/path/cert.pem",
+			},
+			expectedOutput: map[string]string{},
+		},
+		{
+			name: "mixed params - TLS and non-TLS",
+			input: map[string]string{
+				"useSslForAllConnections":      "true",
+				"sslTrustedServerCertificates": "/some/path/ca.pem",
+				"sslClientCertificate":         "/some/path/cert.pem",
+				"someOtherParam":               "someValue",
+				"anotherParam":                 "anotherValue",
+			},
+			expectedOutput: map[string]string{
+				"someOtherParam": "someValue",
+				"anotherParam":   "anotherValue",
+			},
+		},
+		{
+			name: "only non-TLS params",
+			input: map[string]string{
+				"someOtherParam": "someValue",
+				"anotherParam":   "anotherValue",
+			},
+			expectedOutput: map[string]string{
+				"someOtherParam": "someValue",
+				"anotherParam":   "anotherValue",
+			},
+		},
+		{
+			name: "partial TLS params",
+			input: map[string]string{
+				"useSslForAllConnections": "true",
+				"someOtherParam":          "someValue",
+			},
+			expectedOutput: map[string]string{
+				"someOtherParam": "someValue",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			om.ClearTLSParams(tt.input)
+			assert.Equal(t, tt.expectedOutput, tt.input)
+		})
+	}
+}
