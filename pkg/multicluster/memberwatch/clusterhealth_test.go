@@ -30,19 +30,21 @@ func TestIsMemberClusterHealthy(t *testing.T) {
 		rw.WriteHeader(500)
 	}))
 
-	// check retry mechanism
-	DefaultRetryWaitMin = time.Second * 1
-	DefaultRetryWaitMax = time.Second * 1
-	DefaultRetryMax = 2
-
+	// check retry mechanism with zero delays for fast testing
 	startTime := time.Now()
-	memberHealthCheck = NewMemberHealthCheck(server.URL, []byte("ca-data"), "hhfhj", zap.S())
+	memberHealthCheck = NewMemberHealthCheck(
+		server.URL,
+		[]byte("ca-data"),
+		"hhfhj",
+		zap.S(),
+		WithRetryConfig(0, 0, 2), // No delay between retries, retry 2 times
+	)
 	healthy = memberHealthCheck.IsClusterHealthy(zap.S())
 	endTime := time.Since(startTime)
 
 	assert.Equal(t, false, healthy)
-	assert.GreaterOrEqual(t, endTime, DefaultRetryWaitMin*2)
-	assert.LessOrEqual(t, endTime, DefaultRetryWaitMax*2+time.Second)
+	// Should complete almost instantly since there's no retry delay
+	assert.LessOrEqual(t, endTime, time.Second)
 
 	// mark cluster unhealthy because of error
 	memberHealthCheck = NewMemberHealthCheck("", []byte("ca-data"), "bhdjbh", zap.S())

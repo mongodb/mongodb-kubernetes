@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -103,7 +104,10 @@ func TestRetriesOnWritingAutomationConfig(t *testing.T) {
 	srv := serverMock(handleFunc)
 	defer srv.Close()
 
-	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+	connection := NewOpsManagerConnectionWithOptions(
+		&OMContext{BaseURL: srv.URL, GroupID: "1"},
+		api.OptionRetryConfig(0, 0, 3), // No delay between retries, still retry 3 times
+	)
 	err := connection.ReadUpdateAutomationConfig(func(ac *AutomationConfig) error {
 		return nil
 	}, logger)

@@ -169,8 +169,8 @@ func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClien
 	// In case it is still not reflected
 	deletedIsStatefulset := false
 	retries := 0
-	for retries < 3{
-		retries +=1
+	for retries < 3 {
+		retries += 1
 		time.Sleep(sleepDuration)
 		_, stsErr := memberClient.GetStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
 		if apiErrors.IsNotFound(stsErr) {
