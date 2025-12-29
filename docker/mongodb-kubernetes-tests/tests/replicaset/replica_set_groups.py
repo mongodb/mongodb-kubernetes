@@ -1,10 +1,5 @@
 import pytest
-from kubetester.kubetester import (
-    EXTERNALLY_MANAGED_TAG,
-    MAX_TAG_LEN,
-    KubernetesTester,
-    fixture,
-)
+from kubetester.kubetester import EXTERNALLY_MANAGED_TAG, MAX_TAG_LEN, KubernetesTester, fixture
 from kubetester.omtester import should_include_tag
 
 

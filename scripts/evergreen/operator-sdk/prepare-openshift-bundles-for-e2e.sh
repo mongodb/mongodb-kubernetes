@@ -47,7 +47,7 @@ generate_helm_charts() {
     helm_set_values+=("--set" "${param}")
   done
 
-  .githooks/pre-commit generate_standalone_yaml "${helm_set_values[@]}"
+  scripts/dev/generate_files.sh generate_standalone_yaml "${helm_set_values[@]}"
 }
 
 function clone_git_repo_into_temp() {

@@ -1,11 +1,7 @@
 import pytest
 from kubetester import find_fixture, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.certs import (
-    create_sharded_cluster_certs,
-    create_x509_agent_tls_certs,
-    rotate_and_assert_certificates,
-)
+from kubetester.certs import create_sharded_cluster_certs, create_x509_agent_tls_certs, rotate_and_assert_certificates
 from kubetester.kubetester import KubernetesTester, is_multi_cluster
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
