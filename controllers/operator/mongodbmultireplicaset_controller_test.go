@@ -548,102 +548,135 @@ func TestHeadlessServiceCreation(t *testing.T) {
 }
 
 func TestResourceDeletion(t *testing.T) {
-	ctx := context.Background()
-	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	reconciler, client, memberClients, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
-	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
-
-	t.Run("Resources are created", func(t *testing.T) {
-		clusterSpecs, err := mrs.GetClusterSpecItems()
-		if err != nil {
-			assert.NoError(t, err)
-		}
-		for _, item := range clusterSpecs {
-			c := memberClients[item.ClusterName]
-			t.Run("Stateful Set in each member cluster has been created", func(t *testing.T) {
-				ctx := context.Background()
-				sts := appsv1.StatefulSet{}
-				err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
-				assert.NoError(t, err)
-			})
-
-			t.Run("Services in each member cluster have been created", func(t *testing.T) {
-				ctx := context.Background()
-				svcList := corev1.ServiceList{}
-				err := c.List(ctx, &svcList)
-				assert.NoError(t, err)
-				assert.Len(t, svcList.Items, item.Members+2)
-			})
-
-			t.Run("Configmaps in each member cluster have been created", func(t *testing.T) {
-				ctx := context.Background()
-				configMapList := corev1.ConfigMapList{}
-				err := c.List(ctx, &configMapList)
-				assert.NoError(t, err)
-				assert.Len(t, configMapList.Items, 1)
-			})
-			t.Run("Secrets in each member cluster have been created", func(t *testing.T) {
-				ctx := context.Background()
-				secretList := corev1.SecretList{}
-				err := c.List(ctx, &secretList)
-				assert.NoError(t, err)
-				assert.Len(t, secretList.Items, 1)
-			})
-		}
-	})
-
-	err := reconciler.deleteManagedResources(ctx, *mrs, zap.S())
-	assert.NoError(t, err)
-
-	clusterSpecs, err := mrs.GetClusterSpecItems()
-	if err != nil {
-		assert.NoError(t, err)
-	}
-	for _, item := range clusterSpecs {
-		c := memberClients[item.ClusterName]
-		t.Run("Stateful Set in each member cluster has been removed", func(t *testing.T) {
-			ctx := context.Background()
-			sts := appsv1.StatefulSet{}
-			err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
-			assert.Error(t, err)
-		})
-
-		t.Run("Services in each member cluster have been removed", func(t *testing.T) {
-			ctx := context.Background()
-			svcList := corev1.ServiceList{}
-			err := c.List(ctx, &svcList)
-			assert.NoError(t, err)
-			assert.Empty(t, svcList.Items)
-		})
-
-		t.Run("Configmaps in each member cluster have been removed", func(t *testing.T) {
-			ctx := context.Background()
-			configMapList := corev1.ConfigMapList{}
-			err := c.List(ctx, &configMapList)
-			assert.NoError(t, err)
-			assert.Len(t, configMapList.Items, 0)
-		})
-
-		t.Run("Secrets in each member cluster have been removed", func(t *testing.T) {
-			ctx := context.Background()
-			secretList := corev1.SecretList{}
-			err := c.List(ctx, &secretList)
-			assert.NoError(t, err)
-			assert.Len(t, secretList.Items, 0)
-		})
+	testCases := []struct {
+		name   string
+		create func() *mdbmulti.MongoDBMultiCluster
+	}{
+		{
+			name: "WithoutExternalDomain",
+			create: func() *mdbmulti.MongoDBMultiCluster {
+				return mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+			},
+		},
+		{
+			name: "WithExternalDomain",
+			create: func() *mdbmulti.MongoDBMultiCluster {
+				return mdbmulti.DefaultMultiReplicaSetBuilder().
+					SetClusterSpecList(clusters).
+					SetExternalAccess(
+						mdb.ExternalAccessConfiguration{ExternalDomain: ptr.To("cluster-%d.testing")},
+						ptr.To("cluster-%d.testing"),
+					).
+					Build()
+			},
+		},
 	}
 
-	t.Run("Ops Manager state has been cleaned", func(t *testing.T) {
-		processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
-		assert.Len(t, processes, 0)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			mrs := tc.create()
+			reconciler, client, memberClients, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+			checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
-		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
-		assert.NoError(t, err)
+			t.Run("Resources are created", func(t *testing.T) {
+				clusterSpecs, err := mrs.GetClusterSpecItems()
+				if err != nil {
+					assert.NoError(t, err)
+				}
+				for _, item := range clusterSpecs {
+					c := memberClients[item.ClusterName]
+					t.Run("Stateful Set in each member cluster has been created", func(t *testing.T) {
+						ctx := context.Background()
+						sts := appsv1.StatefulSet{}
+						err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
+						assert.NoError(t, err)
+					})
 
-		assert.Empty(t, ac.Auth.AutoAuthMechanisms)
-		assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
-		assert.False(t, ac.Auth.IsEnabled())
-	})
+					t.Run("Services in each member cluster have been created", func(t *testing.T) {
+						ctx := context.Background()
+						svcList := corev1.ServiceList{}
+						err := c.List(ctx, &svcList)
+						assert.NoError(t, err)
+						assert.Len(t, svcList.Items, item.Members+2)
+					})
+
+					t.Run("Configmaps in each member cluster have been created", func(t *testing.T) {
+						ctx := context.Background()
+						configMapList := corev1.ConfigMapList{}
+						err := c.List(ctx, &configMapList)
+						assert.NoError(t, err)
+						assert.Len(t, configMapList.Items, 1)
+					})
+					t.Run("Secrets in each member cluster have been created", func(t *testing.T) {
+						ctx := context.Background()
+						secretList := corev1.SecretList{}
+						err := c.List(ctx, &secretList)
+						assert.NoError(t, err)
+						assert.Len(t, secretList.Items, 1)
+					})
+				}
+			})
+
+			err := reconciler.deleteManagedResources(ctx, *mrs, zap.S())
+			assert.NoError(t, err)
+
+			clusterSpecs, err := mrs.GetClusterSpecItems()
+			if err != nil {
+				assert.NoError(t, err)
+			}
+			for _, item := range clusterSpecs {
+				c := memberClients[item.ClusterName]
+				t.Run("Stateful Set in each member cluster has been removed", func(t *testing.T) {
+					ctx := context.Background()
+					sts := appsv1.StatefulSet{}
+					err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
+					assert.Error(t, err)
+				})
+
+				t.Run("Services in each member cluster have been removed", func(t *testing.T) {
+					ctx := context.Background()
+					svcList := corev1.ServiceList{}
+					err := c.List(ctx, &svcList)
+					assert.NoError(t, err)
+					assert.Empty(t, svcList.Items)
+				})
+
+				t.Run("Configmaps in each member cluster have been removed", func(t *testing.T) {
+					ctx := context.Background()
+					configMapList := corev1.ConfigMapList{}
+					err := c.List(ctx, &configMapList)
+					assert.NoError(t, err)
+					assert.Len(t, configMapList.Items, 0)
+				})
+
+				t.Run("Secrets in each member cluster have been removed", func(t *testing.T) {
+					ctx := context.Background()
+					secretList := corev1.SecretList{}
+					err := c.List(ctx, &secretList)
+					assert.NoError(t, err)
+					assert.Len(t, secretList.Items, 0)
+				})
+			}
+
+			t.Run("Ops Manager state has been cleaned", func(t *testing.T) {
+				processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
+				assert.Len(t, processes, 0)
+
+				hosts, err := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetHosts()
+				assert.NoError(t, err)
+				assert.NotNil(t, hosts)
+				assert.Len(t, hosts.Results, 0)
+
+				ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+				assert.NoError(t, err)
+
+				assert.Empty(t, ac.Auth.AutoAuthMechanisms)
+				assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
+				assert.False(t, ac.Auth.IsEnabled())
+			})
+		})
+	}
 }
 
 func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
