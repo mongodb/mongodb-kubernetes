@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 // nolint:forbidigo
@@ -22,4 +23,5 @@ func InitDefaultEnvVariables() {
 	_ = os.Setenv(util.BackupDisableWaitRetriesEnv, "3")
 	_ = os.Unsetenv(util.ManagedSecurityContextEnv)
 	_ = os.Unsetenv(util.ImagePullSecrets)
+	_ = os.Unsetenv(architectures.DefaultEnvArchitecture)
 }
