@@ -346,12 +346,14 @@ manifests: controller-gen
 
 
 # Run go fmt against code
+# GOEXPERIMENT=synctest is needed to parse files that import testing/synctest
 fmt:
-	go fmt ./...
+	GOEXPERIMENT=synctest go fmt ./...
 
 # Run go vet against code
+# GOEXPERIMENT=synctest is needed to parse files that import testing/synctest
 vet:
-	go vet ./...
+	GOEXPERIMENT=synctest go vet ./...
 
 # Generate code
 generate: controller-gen

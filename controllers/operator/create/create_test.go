@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -1397,7 +1397,7 @@ func TestGetMatchingPVCTemplateFromSTS(t *testing.T) {
 
 func TestCheckStatefulsetIsDeleted(t *testing.T) {
 	ctx := context.TODO()
-	sleepDuration := 10 * time.Millisecond
+	sleepDuration := 100 * time.Millisecond
 	log := zap.NewNop().Sugar()
 
 	namespace := "default"
@@ -1411,52 +1411,58 @@ func TestCheckStatefulsetIsDeleted(t *testing.T) {
 	}
 
 	t.Run("StatefulSet is deleted", func(t *testing.T) {
-		fakeClient, _ := mock.NewDefaultFakeClient()
-		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
-		assert.NoError(t, err)
+		synctest.Run(func() {
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
+			assert.NoError(t, err)
 
-		// Simulate the deletion by deleting the StatefulSet
-		err = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
-		assert.NoError(t, err)
-
-		// Check if the StatefulSet is detected as deleted
-		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
-
-		assert.True(t, result, "StatefulSet should be detected as deleted")
-	})
-
-	t.Run("StatefulSet is not deleted", func(t *testing.T) {
-		fakeClient, _ := mock.NewDefaultFakeClient()
-		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
-		assert.NoError(t, err)
-
-		// Do not delete the StatefulSet, to simulate it still existing
-		// Check if the StatefulSet is detected as not deleted
-		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
-
-		assert.False(t, result, "StatefulSet should not be detected as deleted")
-	})
-
-	t.Run("StatefulSet is deleted after some retries", func(t *testing.T) {
-		fakeClient, _ := mock.NewDefaultFakeClient()
-		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
-		assert.NoError(t, err)
-
-		var wg sync.WaitGroup
-		wg.Add(1)
-		// Use a goroutine to delete the StatefulSet after a delay, making it race-safe
-		go func() {
-			defer wg.Done()
-			time.Sleep(20 * time.Millisecond) // Wait for a bit longer than the first sleep
+			// Delete before calling the function
 			err = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
 			assert.NoError(t, err)
-		}()
 
-		// Check if the StatefulSet is detected as deleted after retries
-		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+			result, retries := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
 
-		wg.Wait()
+			assert.True(t, result, "StatefulSet should be detected as deleted")
+			assert.Equal(t, 1, retries, "Should find deletion on first retry")
+		})
+	})
 
-		assert.True(t, result, "StatefulSet should be detected as deleted after retries")
+	t.Run("StatefulSet is not deleted and then delete it", func(t *testing.T) {
+		synctest.Run(func() {
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
+			assert.NoError(t, err)
+
+			result, retries := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+
+			assert.False(t, result, "StatefulSet should not be detected as deleted")
+			assert.Equal(t, 3, retries, "Should exhaust all retries")
+
+			err = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+			assert.NoError(t, err)
+
+			result, retries = checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+
+			assert.True(t, result, "StatefulSet should be detected as deleted")
+			assert.Equal(t, 1, retries, "Should find deletion on first retry")
+		})
+	})
+
+	t.Run("StatefulSet is deleted after second retry", func(t *testing.T) {
+		synctest.Run(func() {
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
+			assert.NoError(t, err)
+
+			go func() {
+				time.Sleep(150 * time.Millisecond)
+				_ = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+			}()
+
+			result, retries := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+
+			assert.True(t, result, "StatefulSet should be detected as deleted")
+			assert.Equal(t, 2, retries, "Should find deletion on second retry")
+		})
 	})
 }
