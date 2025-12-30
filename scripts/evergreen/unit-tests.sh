@@ -18,7 +18,11 @@ echo "GOEXPERIMENT before setting: $(go env GOEXPERIMENT)"
 go env -w GOEXPERIMENT=synctest
 export GOEXPERIMENT=synctest
 
+# Unset any GOFLAGS that might interfere
+unset GOFLAGS
+
 echo "GOEXPERIMENT after setting: $(go env GOEXPERIMENT)"
+echo "GOFLAGS: $GOFLAGS"
 
 # Clear Go build cache to avoid stale cache issues with GOEXPERIMENT
 echo "Clearing Go build cache..."

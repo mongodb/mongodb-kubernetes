@@ -1411,7 +1411,7 @@ func TestCheckStatefulsetIsDeleted(t *testing.T) {
 	}
 
 	t.Run("StatefulSet is deleted", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
+		synctest.Run(func() {
 			fakeClient, _ := mock.NewDefaultFakeClient()
 			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
 			assert.NoError(t, err)
@@ -1428,7 +1428,7 @@ func TestCheckStatefulsetIsDeleted(t *testing.T) {
 	})
 
 	t.Run("StatefulSet is not deleted and then delete it", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
+		synctest.Run(func() {
 			fakeClient, _ := mock.NewDefaultFakeClient()
 			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
 			assert.NoError(t, err)
@@ -1449,7 +1449,7 @@ func TestCheckStatefulsetIsDeleted(t *testing.T) {
 	})
 
 	t.Run("StatefulSet is deleted after second retry", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
+		synctest.Run(func() {
 			fakeClient, _ := mock.NewDefaultFakeClient()
 			err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
 			assert.NoError(t, err)
