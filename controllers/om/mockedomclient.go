@@ -377,8 +377,16 @@ func (oc *MockedOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *A
 	return err
 }
 
-func (oc *MockedOmConnection) AddHost(host host.Host) error {
-	oc.hostResults.Results = append(oc.hostResults.Results, host)
+func (oc *MockedOmConnection) AddHost(h host.Host) error {
+	// Generate a unique ID if not provided (similar to AddHosts)
+	if h.Id == "" {
+		if oc.agentHostnameMap == nil {
+			oc.agentHostnameMap = map[string]struct{}{}
+		}
+		h.Id = strconv.Itoa(len(oc.hostResults.Results))
+		oc.agentHostnameMap[h.Hostname] = struct{}{}
+	}
+	oc.hostResults.Results = append(oc.hostResults.Results, h)
 	return nil
 }
 
