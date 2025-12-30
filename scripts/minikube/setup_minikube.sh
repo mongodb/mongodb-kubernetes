@@ -146,7 +146,7 @@ start_minikube_cluster() {
   # Check rootful podman directly (minikube status checks wrong namespace)
   if sudo podman ps --filter name=minikube --format '{{.Names}}' 2>/dev/null | grep -q '^minikube$'; then
     echo "✅ Minikube container exists - verifying kubectl connectivity..."
-    if "${PROJECT_DIR:-.}/bin/minikube" kubectl -- get nodes &>/dev/null 2>&1; then
+    if sudo "${PROJECT_DIR:-.}/bin/minikube" kubectl -- get nodes &>/dev/null 2>&1; then
       echo "✅ Minikube cluster is healthy - skipping setup"
       return 0
     else
@@ -179,12 +179,12 @@ start_minikube_cluster() {
   fi
 
   echo "Starting minikube with args: ${start_args[*]}"
-  if "${PROJECT_DIR:-.}/bin/minikube" start "${start_args[@]}"; then
+  if sudo "${PROJECT_DIR:-.}/bin/minikube" start "${start_args[@]}"; then
     echo "✅ Minikube started successfully"
   else
     echo "❌ Minikube failed to start"
     echo "Minikube logs:"
-    "${PROJECT_DIR:-.}/bin/minikube" logs | tail -20
+    sudo "${PROJECT_DIR:-.}/bin/minikube" logs | tail -20
     return 1
   fi
 }
@@ -212,7 +212,7 @@ start_minikube_cluster
 # Update kubectl context to point to the running cluster
 echo ""
 echo ">>> Updating kubectl context for minikube cluster..."
-"${PROJECT_DIR:-.}/bin/minikube" update-context
+sudo "${PROJECT_DIR:-.}/bin/minikube" update-context
 echo "✅ Kubectl context updated successfully"
 
 echo "Minikube host setup completed successfully for ${ARCH}!"
