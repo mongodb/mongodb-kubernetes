@@ -18,7 +18,6 @@ mkdir -p "$(go env GOPATH)/bin"
 update_mco_tests() {
   echo "Regenerating MCO evergreen tests configuration"
   python scripts/evergreen/e2e/mco/create_mco_tests.py >.evergreen-mco.yml
-  git add .evergreen-mco.yml
 }
 
 # Generates a yaml file to install the operator from the helm sources.
@@ -69,33 +68,18 @@ generate_standalone_yaml() {
 
 generate_manifests() {
   make manifests
-
-  git add config/crd/bases
-  git add helm_chart/crds
-  git add public/crds.yaml
 }
 
 update_values_yaml_files() {
   # ensure that all helm values files are up to date.
   # shellcheck disable=SC2154
   python scripts/evergreen/release/update_helm_values_files.py
-
-  # commit any changes we made
-  git add helm_chart/values.yaml
-  git add helm_chart/values-openshift.yaml
-
-  # these can change if the version of community operator is different
-  git add go.mod
-  git add go.sum
 }
 
 update_release_json() {
   # ensure that release.json is up 2 date
   # shellcheck disable=SC2154
   python scripts/evergreen/release/update_release.py
-
-  # commit any changes we made
-  git add release.json
 }
 
 regenerate_public_rbac_multi_cluster() {
@@ -111,7 +95,6 @@ regenerate_public_rbac_multi_cluster() {
     pushd pkg/kubectl-mongodb/common/
     EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
     popd
-    git add public/samples/multi-cluster-cli-gitops
   fi
 }
 
@@ -119,7 +102,6 @@ update_licenses() {
   if [[ "${MDB_UPDATE_LICENSES:-""}" == "true" ]]; then
     echo 'regenerating licenses'
     time scripts/evergreen/update_licenses.sh 2>&1 | prepend "update_licenses"
-    git add LICENSE-THIRD-PARTY
   fi
 }
 
@@ -168,19 +150,11 @@ wait_for_all_background_jobs() {
   return 0
 }
 
-validate_snippets() {
-  scripts/code_snippets/validate_snippets.py
-}
-
 check_kubebuilder_annotations() {
   if grep -r "// kubebuilder" --include="*.go" --exclude-dir=vendor .; then
     echo "Found erroneous kubebuilder annotation"
     return 1
   fi
-}
-
-helm_lint() {
-  scripts/dev/lint_helm_chart.sh
 }
 
 generate_all() {
@@ -196,9 +170,7 @@ generate_all() {
   run_job_in_background "update_mco_tests"
   run_job_in_background "regenerate_public_rbac_multi_cluster"
   run_job_in_background "update_licenses"
-  run_job_in_background "validate_snippets"
   run_job_in_background "check_kubebuilder_annotations"
-  run_job_in_background "helm_lint"
 
   # Wait for update_release and update_values to complete before generate_standalone_yaml
   local release_pid="${bg_job_pids[0]}"
@@ -211,12 +183,11 @@ generate_all() {
   run_job_in_background "generate_standalone_yaml"
 
   # Wait for all remaining jobs
-  if wait_for_all_background_jobs; then
-    echo -e "${GREEN}All pre-commit jobs completed successfully!${NO_COLOR}"
-    return 0
-  else
+  if ! wait_for_all_background_jobs; then
     return 1
   fi
+
+  echo -e "${GREEN}All generation jobs completed successfully!${NO_COLOR}"
 }
 
 cmd=${1:-"generate_all"}

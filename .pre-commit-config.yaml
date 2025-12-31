@@ -5,6 +5,34 @@
 default_stages: [pre-commit]
 
 repos:
+  # Runs all generation/validation jobs in parallel internally
+  - repo: local
+    hooks:
+      - id: generate-and-validate
+        name: generate-and-validate (parallel)
+        entry: scripts/dev/generate_files.sh generate_all
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: validate-snippets
+        name: validate-snippets
+        entry: scripts/code_snippets/validate_snippets.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: validate-helm-charts
+        name: validate-helm-charts
+        entry: scripts/dev/lint_helm_chart.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -72,14 +100,3 @@ repos:
     hooks:
       - id: golangci-lint
         args: [--timeout=10m]
-
-  # Local hooks for project-specific tasks
-  # Runs all generation/validation jobs in parallel internally
-  - repo: local
-    hooks:
-      - id: generate-and-validate
-        name: generate-and-validate (parallel)
-        entry: scripts/dev/generate_files.sh generate_all
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
