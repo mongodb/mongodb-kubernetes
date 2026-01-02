@@ -90,7 +90,7 @@ regenerate_public_rbac_multi_cluster() {
     git_last_changed=$(git diff --cached --name-only --diff-filter=ACM origin/master)
   fi
 
-  if echo "${git_last_changed}" | grep -q -e 'cmd/kubectl-mongodb' -e 'pkg/kubectl-mongodb'; then
+  if echo "${git_last_changed}" | grep -e 'cmd/kubectl-mongodb' -e 'pkg/kubectl-mongodb' > /dev/null; then
     echo 'regenerating multicluster RBAC public example'
     pushd pkg/kubectl-mongodb/common/
     EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
