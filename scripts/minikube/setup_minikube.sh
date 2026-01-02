@@ -44,39 +44,41 @@ download_minikube() {
   scripts/minikube/install_minikube.sh
 }
 
+# Start or restart the local registry container
+start_local_registry() {
+  echo "Starting local container registry on port 5000..."
+  # Clean up any existing registry first (stop + rm to handle all states)
+  sudo podman stop registry 2>/dev/null || true
+  sudo podman rm -f registry 2>/dev/null || true
+
+  if ! sudo podman run -d -p 127.0.0.1:5000:5000 --replace --name registry --restart=always docker.io/library/registry:2; then
+    echo "❌ Failed to start local registry"
+    return 1
+  fi
+
+  # Wait for registry to be ready
+  echo "Waiting for registry to be ready..."
+  for _ in {1..30}; do
+    if curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
+      echo "✅ Registry is ready"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "❌ Registry failed to become ready"
+  return 1
+}
+
 # Setup local registry and build custom kicbase image for ppc64le with crictl
 setup_local_registry_and_custom_image() {
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo ">>> Setting up local registry and custom kicbase image for ppc64le..."
 
     # Check if local registry is running (use 127.0.0.1 to avoid IPv6 fallback delay)
-    registry_running=false
     if curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
-      echo "Registry detected via HTTP check"
-      registry_running=true
-    fi
-
-    if ! ${registry_running}; then
-      echo "Starting local container registry on port 5000..."
-
-      # Clean up any existing registry first
-      sudo podman rm -f registry 2>/dev/null || true
-
-      if ! sudo podman run -d -p 127.0.0.1:5000:5000 --replace --name registry --restart=always docker.io/library/registry:2; then
-        echo "❌ Failed to start local registry - trying alternative approach"
-        exit 1
-      fi
-
-      # Wait for registry to be ready
-      echo "Waiting for registry to be ready..."
-      for _ in {1..30}; do
-        if curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
-          break
-        fi
-        sleep 1
-      done
-    else
       echo "✅ Local registry already running"
+    else
+      start_local_registry || exit 1
     fi
 
     # Configure podman to trust local registry (use 127.0.0.1 to avoid IPv6 issues)
@@ -115,18 +117,10 @@ EOF
       return 1
     }
 
-    # Use 127.0.0.1 to avoid IPv6 issues with podman on ppc64le, we might bind to ipv6 and it might not work
+    # Ensure registry is still running before push (use 127.0.0.1 to avoid IPv6 issues)
     if ! curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
       echo "Registry not responding, restarting..."
-      sudo podman rm -f registry 2>/dev/null || true
-      sudo podman run -d -p 127.0.0.1:5000:5000 --replace --name registry --restart=always docker.io/library/registry:2
-      for _ in {1..15}; do
-        if curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
-          echo "Registry restarted successfully"
-          break
-        fi
-        sleep 1
-      done
+      start_local_registry || return 1
     fi
 
     sudo podman push "${custom_image_tag}" --tls-verify=false || {
