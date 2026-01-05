@@ -4,12 +4,13 @@
 
 default_stages: [pre-commit]
 
+# everything is run serially except the generate-and-update hook
 repos:
-  # Runs all generation/validation jobs in parallel internally
+  # Runs the generation jobs are squashed together to run in parallel
   - repo: local
     hooks:
-      - id: generate-and-validate
-        name: generate-and-validate (parallel)
+      - id: generate-and-update
+        name: generate-and-update (parallel)
         entry: scripts/dev/generate_files.sh generate_all
         language: system
         pass_filenames: false
