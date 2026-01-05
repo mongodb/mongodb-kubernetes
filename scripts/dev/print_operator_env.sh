@@ -2,111 +2,62 @@
 
 set -Eeou pipefail
 
-# NOTE: these are the env vars which are required to run the operator, either via a pod or locally
-# This is not used by E2E evergreen, only when running tests "locally"
+# CLOUDP-301133: Refactored to read from the operator-installation-config ConfigMap.
+# This ensures the ConfigMap is the single source of truth for operator configuration,
+# used by both deployed operators (via helm) and local development.
+#
+# Prerequisites: Run `make prepare-local-e2e` first to create the ConfigMap.
 
-UBI_IMAGE_SUFFIX="-ubi"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${SCRIPT_DIR}/../.."
 
-# Convert context variables to variables required by the operator binary
-function print_operator_env() {
-  echo "OPERATOR_ENV=\"${OPERATOR_ENV}\"
-WATCH_NAMESPACE=\"${WATCH_NAMESPACE}\"
-NAMESPACE=\"${NAMESPACE}\"
-IMAGE_PULL_POLICY=\"Always\"
-MONGODB_ENTERPRISE_DATABASE_IMAGE=\"${MONGODB_ENTERPRISE_DATABASE_IMAGE:-${DATABASE_REGISTRY}/mongodb-kubernetes-database}\"
-INIT_DATABASE_IMAGE_REPOSITORY=\"${INIT_DATABASE_REGISTRY}/mongodb-kubernetes-init-database\"
-INIT_DATABASE_VERSION=\"${INIT_DATABASE_VERSION}\"
-DATABASE_VERSION=\"${DATABASE_VERSION}\"
-OPS_MANAGER_IMAGE_REPOSITORY=\"${OPS_MANAGER_REGISTRY}/mongodb-enterprise-ops-manager${UBI_IMAGE_SUFFIX}\"
-INIT_OPS_MANAGER_IMAGE_REPOSITORY=\"${INIT_OPS_MANAGER_REGISTRY}/mongodb-kubernetes-init-ops-manager\"
-INIT_OPS_MANAGER_VERSION=\"${INIT_OPS_MANAGER_VERSION}\"
-INIT_APPDB_IMAGE_REPOSITORY=\"${INIT_APPDB_REGISTRY}/mongodb-kubernetes-init-appdb\"
-INIT_APPDB_VERSION=\"${INIT_APPDB_VERSION}\"
-OPS_MANAGER_IMAGE_PULL_POLICY=\"Always\"
-MONGODB_IMAGE=\"mongodb-enterprise-server\"
-MONGODB_AGENT_VERSION=\"${MONGODB_AGENT_VERSION:-}\"
-MONGODB_REPO_URL=\"${MONGODB_REPO_URL:-}\"
-IMAGE_PULL_SECRETS=\"image-registries-secret\"
-MDB_DEFAULT_ARCHITECTURE=\"${MDB_DEFAULT_ARCHITECTURE:-non-static}\"
-MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY=\"${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}\"
-MDB_OPERATOR_TELEMETRY_SEND_ENABLED=\"${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}\"
-MDB_COMMUNITY_IMAGE=\"${MDB_COMMUNITY_IMAGE}\"
-MDB_COMMUNITY_REPO_URL=\"${MDB_COMMUNITY_REPO_URL}\"
-MDB_COMMUNITY_AGENT_IMAGE=\"${MDB_COMMUNITY_AGENT_IMAGE}\"
-MDB_COMMUNITY_IMAGE_TYPE=\"${MDB_COMMUNITY_IMAGE_TYPE}\"
-VERSION_UPGRADE_HOOK_IMAGE=\"${VERSION_UPGRADE_HOOK_IMAGE}\"
-READINESS_PROBE_IMAGE=\"${READINESS_PROBE_IMAGE}\"
-MDB_SEARCH_VERSION=\"${MDB_SEARCH_VERSION}\"
-MDB_SEARCH_NAME=\"${MDB_SEARCH_NAME}\"
-MDB_SEARCH_REPO_URL=\"${MDB_SEARCH_REPO_URL}\"
-OPERATOR_NAME=\"${OPERATOR_NAME}\"
-"
+# Extract environment variables by reading helm values from the ConfigMap
+# and rendering them through helm template
+extract_env_vars_from_configmap() {
+  # Read helm values from the ConfigMap and convert to helm --set arguments
+  local helm_args=()
+  while IFS='=' read -r key value; do
+    helm_args+=("--set" "${key}=${value}")
+  done < <(kubectl get configmap operator-installation-config -n "${NAMESPACE}" -o json \
+    | jq -r '.data | to_entries[] | "\(.key)=\(.value)"')
 
-  if [[ "${AGENT_IMAGE:-}" != "" ]]; then
-    echo "AGENT_IMAGE=${AGENT_IMAGE}"
-  else
-    echo "AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX}:${AGENT_VERSION:-}\""
-  fi
+  # Run helm template and extract env vars from the deployment
+  # Filter out env vars that use valueFrom (they're set by k8s at runtime)
+  helm template mongodb-kubernetes-operator "${PROJECT_DIR}/helm_chart" \
+    "${helm_args[@]}" \
+    --show-only templates/operator.yaml 2>/dev/null \
+    | yq e '
+      .spec.template.spec.containers[0].env[]
+      | select(.value != null)
+      | .name + "=\"" + .value + "\""
+    ' -
+}
 
-  if [[ "${KUBECONFIG:-""}" != "" ]]; then
-    echo "KUBECONFIG=${KUBECONFIG}"
-  fi
+# Print environment variables that are set at runtime by k8s (via valueFrom.fieldRef)
+# but need to be explicitly set when running locally
+print_runtime_env_vars() {
+  echo "NAMESPACE=\"${NAMESPACE}\""
+  echo "WATCH_NAMESPACE=\"${WATCH_NAMESPACE}\""
+}
 
-  if [[ "${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY:-""}" != "" ]]; then
-    echo "MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY=${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY}"
-  fi
+# Print local-only environment variables that are not part of the helm chart
+print_local_only_env_vars() {
+  [[ "${KUBECONFIG:-}" != "" ]] && echo "KUBECONFIG=\"${KUBECONFIG}\""
+  [[ "${KUBE_CONFIG_PATH:-}" != "" ]] && echo "KUBE_CONFIG_PATH=\"${KUBE_CONFIG_PATH}\""
+  [[ "${MDB_AGENT_DEBUG:-}" != "" ]] && echo "MDB_AGENT_DEBUG=\"${MDB_AGENT_DEBUG}\""
+  [[ "${MDB_AGENT_DEBUG_IMAGE:-}" != "" ]] && echo "MDB_AGENT_DEBUG_IMAGE=\"${MDB_AGENT_DEBUG_IMAGE}\""
+  [[ "${OM_DEBUG_HTTP:-}" != "" ]] && echo "OM_DEBUG_HTTP=\"${OM_DEBUG_HTTP}\""
+  [[ "${OPS_MANAGER_MONITOR_APPDB:-}" != "" ]] && echo "OPS_MANAGER_MONITOR_APPDB=\"${OPS_MANAGER_MONITOR_APPDB}\""
+  [[ "${MDB_OM_VERSION_MAPPING_PATH:-}" != "" ]] && echo "MDB_OM_VERSION_MAPPING_PATH=\"${MDB_OM_VERSION_MAPPING_PATH}\""
+  [[ "${MDB_AGENT_VERSION:-}" != "" ]] && echo "MDB_AGENT_VERSION=\"${MDB_AGENT_VERSION}\""
+  [[ "${MONGODB_AGENT_VERSION:-}" != "" ]] && echo "MONGODB_AGENT_VERSION=\"${MONGODB_AGENT_VERSION}\""
+  true  # Ensure function returns 0 even if all conditions are false
+}
 
-  if [[ "${MDB_OPERATOR_TELEMETRY_SEND_BASEURL:-""}" != "" ]]; then
-    echo "MDB_OPERATOR_TELEMETRY_SEND_BASEURL=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}"
-  fi
-
-  if [[ "${MDB_AGENT_VERSION:-""}" != "" ]]; then
-    echo "MDB_AGENT_VERSION=${MDB_AGENT_VERSION}"
-  fi
-
-  if [[ "${MDB_AGENT_DEBUG:-""}" != "" ]]; then
-    echo "MDB_AGENT_DEBUG=${MDB_AGENT_DEBUG}"
-  fi
-
-    if [[ "${MDB_AGENT_DEBUG_IMAGE:-""}" != "" ]]; then
-      echo "MDB_AGENT_DEBUG_IMAGE=${MDB_AGENT_DEBUG_IMAGE}"
-    fi
-
-  if [[ "${KUBE_CONFIG_PATH:-""}" != "" ]]; then
-    echo "KUBE_CONFIG_PATH=${KUBE_CONFIG_PATH}"
-  fi
-
-  if [[ "${PERFORM_FAILOVER:-""}" != "" ]]; then
-    echo "PERFORM_FAILOVER=${PERFORM_FAILOVER}"
-  fi
-
-  if [[ "${OM_DEBUG_HTTP:-""}" != "" ]]; then
-    echo "OM_DEBUG_HTTP=${OM_DEBUG_HTTP}"
-  fi
-
-  if [[ "${OPS_MANAGER_MONITOR_APPDB:-""}" != "" ]]; then
-    echo "OPS_MANAGER_MONITOR_APPDB=${OPS_MANAGER_MONITOR_APPDB}"
-  fi
-
-  if [[ "${OPERATOR_ENV:-""}" != "" ]]; then
-    echo "OPERATOR_ENV=${OPERATOR_ENV}"
-  fi
-
-  if [[ "${MDB_OM_VERSION_MAPPING_PATH:-""}" != "" ]]; then
-    echo "MDB_OM_VERSION_MAPPING_PATH=${MDB_OM_VERSION_MAPPING_PATH}"
-  fi
-
-  if [[ "${MDB_AGENT_IMAGE_REPOSITORY:-""}" != "" ]]; then
-    echo "MDB_AGENT_IMAGE_REPOSITORY=${MDB_AGENT_IMAGE_REPOSITORY}"
-  fi
-
-  if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-""}" != "" ]]; then
-    echo "MDB_MAX_CONCURRENT_RECONCILES=${MDB_MAX_CONCURRENT_RECONCILES}"
-  fi
-
-  if [[ "${OPERATOR_NAME:-""}" != "" ]]; then
-    echo "OPERATOR_NAME=${OPERATOR_NAME}"
-  fi
+print_operator_env() {
+  extract_env_vars_from_configmap
+  print_runtime_env_vars
+  print_local_only_env_vars
 }
 
 print_operator_env
