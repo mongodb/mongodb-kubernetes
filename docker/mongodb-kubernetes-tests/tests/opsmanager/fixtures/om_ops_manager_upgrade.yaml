@@ -7,6 +7,19 @@ spec:
   # version is configured in the test
   adminCredentials: ops-manager-admin-secret
 
+  # Use RWO PVC for data volume instead of emptyDir to test upgrade with persistent storage
+  # This validates the fix for CLOUDP-339918 (/tmp directory size limits)
+  statefulSet:
+    spec:
+      volumeClaimTemplates:
+        - metadata:
+            name: data
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 10Gi
+
   backup:
     enabled: true
     s3Stores:
