@@ -961,6 +961,26 @@ def install_official_operator(
         "operator.mdbDefaultArchitecture": operator_installation_config["operator.mdbDefaultArchitecture"],
     }
 
+    # For upgrade tests in patch builds, we need to use ECR registries for workload images
+    # (OpsManager, Agent, etc.) since new versions may not be released to quay.io yet.
+    # The operator itself still comes from the official helm chart, but resources it creates
+    # should use the dev registries where unreleased images are available.
+    # For staging/release builds, we use quay.io to verify the actual public release path.
+    build_scenario = operator_installation_config.get("buildScenario", "")
+    if build_scenario == "patch":
+        logger.debug("Patch build detected: using ECR registries for workload images in upgrade tests")
+        registry_keys = [
+            "registry.opsManager",
+            "registry.agent",
+            "registry.initOpsManager",
+            "registry.initAppDb",
+            "registry.initDatabase",
+            "registry.database",
+        ]
+        for key in registry_keys:
+            if key in operator_installation_config:
+                helm_args[key] = operator_installation_config[key]
+
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead of the "ubi"
     # images are used for installing the dev Operator
@@ -1008,9 +1028,9 @@ def install_official_operator(
                 "multiCluster.clusters": operator_installation_config["multiCluster.clusters"],
             }
         )
-        # The "official" Operator will be installed, from the Helm Repo ("mongodb/enterprise-operator")
-        # We pass helm_args as operator installation config below instead of the full configmap data, otherwise
-        # it overwrites registries and image versions, and we wouldn't use the official images but the dev ones
+        # The "official" Operator will be installed from the Helm Repo ("mongodb/enterprise-operator")
+        # but workload images (OpsManager, Agent, etc.) will use dev registries from operator_installation_config
+        # to support testing unreleased versions in patch builds.
         return _install_multi_cluster_operator(
             namespace,
             helm_args,
