@@ -4,11 +4,10 @@ import re
 import tempfile
 from typing import Dict, List
 
-import requests
-from kubernetes import client
-
 import kubetester
+import requests
 from kubeobject import CustomObject
+from kubernetes import client
 from kubetester import run_periodically
 
 
@@ -187,14 +186,9 @@ def get_registry_env_vars_for_subscription(operator_installation_config: Dict[st
     Returns registry env vars to add to OLM subscription config for patch builds.
 
     For upgrade tests in patch builds, we need to use ECR registries for workload images
-    (OpsManager) since new versions may not be released to quay.io yet.
+    (OpsManager, Agent) since new versions may not be released to quay.io yet.
     For staging/release builds, images are already published to quay.io, so we use quay.io
     to verify the actual public release path.
-
-    Note: We only pass OM registry (not agent) for OLM subscriptions because:
-    1. The stable/released operators may use different agent tag formats that don't exist in ECR
-    2. OLM subscription env vars persist across channel upgrades, so we can't differentiate
-       between released and dev operators
 
     This function returns the env vars in the format expected by OLM subscription config:
     [{"name": "ENV_VAR_NAME", "value": "value"}, ...]
@@ -206,12 +200,15 @@ def get_registry_env_vars_for_subscription(operator_installation_config: Dict[st
 
     env_vars = []
 
-    # Only override OM registry - OM version tags are standard (e.g., 7.0.21)
-    # Agent registry is not overridden because released operators may use different tag formats
+    # Override OM registry for patch builds (unreleased versions not on quay.io)
     if "registry.opsManager" in operator_installation_config:
-        # Get the opsManager.name value for building the full repository path
         ops_manager_name = operator_installation_config.get("opsManager.name", "mongodb-enterprise-ops-manager-ubi")
         registry = operator_installation_config["registry.opsManager"]
         env_vars.append({"name": "OPS_MANAGER_IMAGE_REPOSITORY", "value": f"{registry}/{ops_manager_name}"})
+
+    # Override agent registry for patch builds (unreleased versions not on quay.io)
+    if "registry.agent" in operator_installation_config:
+        registry = operator_installation_config["registry.agent"]
+        env_vars.append({"name": "MDB_AGENT_IMAGE_REPOSITORY", "value": registry})
 
     return env_vars
