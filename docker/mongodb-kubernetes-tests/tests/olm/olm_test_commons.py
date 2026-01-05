@@ -219,6 +219,6 @@ def get_registry_env_vars_for_subscription(
     # MEKO uses suffixed agent versions (e.g., 107.0.15.8741-1_1.33.0) that only exist on quay.io
     if include_agent_registry and "registry.agent" in operator_installation_config:
         registry = operator_installation_config["registry.agent"]
-        env_vars.append({"name": "MDB_AGENT_IMAGE_REPOSITORY", "value": registry})
+        env_vars.append({"name": "MDB_AGENT_IMAGE_REPOSITORY", "value": f"{registry}/mongodb-agent"})
 
     return env_vars
