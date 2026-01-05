@@ -160,29 +160,20 @@ check_kubebuilder_annotations() {
 generate_all() {
   title "Running pre-commit jobs in parallel"
 
-  # Phase 1: Run generation jobs - some have dependencies
-  # update_release and update_values must run before generate_standalone_yaml
-  run_job_in_background "update_release_json"
-  run_job_in_background "update_values_yaml_files"
+  # NOTE: The following are now separate pre-commit hooks that run serially
+  # BEFORE this hook to avoid race conditions with release.json:
+  #   - update_release_json (writes release.json)
+  #   - update_values_yaml_files (reads release.json)
+  #   - generate_standalone_yaml (reads values files)
 
-  # These can run in parallel with the above
+  # All remaining jobs can run in parallel
   run_job_in_background "generate_manifests"
   run_job_in_background "update_mco_tests"
   run_job_in_background "regenerate_public_rbac_multi_cluster"
   run_job_in_background "update_licenses"
   run_job_in_background "check_kubebuilder_annotations"
 
-  # Wait for update_release and update_values to complete before generate_standalone_yaml
-  local release_pid="${bg_job_pids[0]}"
-  local values_pid="${bg_job_pids[1]}"
-
-  wait "${release_pid}" || true
-  wait "${values_pid}" || true
-
-  # Now run generate_standalone_yaml (depends on values files)
-  run_job_in_background "generate_standalone_yaml"
-
-  # Wait for all remaining jobs
+  # Wait for all jobs
   if ! wait_for_all_background_jobs; then
     return 1
   fi

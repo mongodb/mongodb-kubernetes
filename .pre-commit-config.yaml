@@ -4,11 +4,37 @@
 
 default_stages: [pre-commit]
 
-# everything is run serially except the generate-and-update hook
+# Hooks run serially in definition order. The following local hooks have
+# dependencies and must run in this order:
+#   1. update-release-json: writes release.json
+#   2. update-values-yaml: reads release.json, writes helm values files
+#   3. generate-standalone-yaml: reads helm values files
+#   4. generate-and-update: remaining parallel jobs
 repos:
-  # Runs the generation jobs are squashed together to run in parallel
   - repo: local
     hooks:
+      - id: update-release-json
+        name: update-release-json
+        entry: scripts/dev/generate_files.sh update_release
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: update-values-yaml
+        name: update-values-yaml
+        entry: scripts/dev/generate_files.sh update_values
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: generate-standalone-yaml
+        name: generate-standalone-yaml
+        entry: scripts/dev/generate_files.sh generate_standalone_yaml
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      # Remaining generation jobs run in parallel
       - id: generate-and-update
         name: generate-and-update (parallel)
         entry: scripts/dev/generate_files.sh generate_all
