@@ -6,6 +6,27 @@ spec:
   replicas: 1
   version: 5.0.2
   adminCredentials: ops-manager-admin-secret
+
+  # Test mounting only /tmp as RWO PVC (TSE reported this approach fails)
+  # This keeps the default emptyDir for data volume, only /tmp gets PVC
+  statefulSet:
+    spec:
+      volumeClaimTemplates:
+        - metadata:
+            name: tmp-storage
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 10Gi
+      template:
+        spec:
+          containers:
+            - name: mongodb-ops-manager
+              volumeMounts:
+                - name: tmp-storage
+                  mountPath: /tmp
+
   backup:
     enabled: false
   security:
