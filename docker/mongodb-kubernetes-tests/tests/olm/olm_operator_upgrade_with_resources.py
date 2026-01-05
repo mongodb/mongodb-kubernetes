@@ -64,7 +64,10 @@ def subscription(namespace: str, catalog_source: CustomObject, operator_installa
         {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
     ]
     # Add registry env vars for patch builds (ECR registries for unreleased images)
-    registry_env_vars = get_registry_env_vars_for_subscription(operator_installation_config)
+    # MCK-to-MCK upgrades use non-suffixed agent versions that exist in ECR
+    registry_env_vars = get_registry_env_vars_for_subscription(
+        operator_installation_config, include_agent_registry=True
+    )
     all_env_vars = base_env_vars + registry_env_vars
 
     return get_subscription_custom_object(
