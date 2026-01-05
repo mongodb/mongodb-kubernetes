@@ -78,9 +78,7 @@ def subscription(namespace: str, catalog_source: CustomObject, operator_installa
             "installPlanApproval": "Automatic",
             # In certified OpenShift bundles we have this enabled, so the operator is not defining security context (it's managed globally by OpenShift).
             # In Kind this will result in empty security contexts and problems deployments with filesystem permissions.
-            "config": {
-                "env": all_env_vars
-            },
+            "config": {"env": all_env_vars},
         },
     )
 

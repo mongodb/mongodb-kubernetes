@@ -2,15 +2,13 @@ import json
 import os
 import re
 import tempfile
-import time
-from typing import Callable, List, Dict
+from typing import Dict, List
+
+import requests
+from kubernetes import client
 
 import kubetester
-import pytest
-import requests
-import yaml
 from kubeobject import CustomObject
-from kubernetes import client
 from kubetester import run_periodically
 
 
