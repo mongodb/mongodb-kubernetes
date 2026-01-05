@@ -146,6 +146,11 @@ variables:
         variant: init_test_run
       - name: publish_helm_chart
         variant: init_test_run
+      # Wait for OM images to be published to quay.io on commit builds (staging).
+      # On patch builds, this dependency is skipped (task doesn't exist).
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+        patch_optional: true
 
   - &base_om7_dependency_with_race
     depends_on:
@@ -185,6 +190,11 @@ variables:
         variant: init_test_run
       - name: publish_helm_chart
         variant: init_test_run
+      # Wait for OM images to be published to quay.io on commit builds (staging).
+      # On patch builds, this dependency is skipped (task doesn't exist).
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+        patch_optional: true
 
 parameters:
   - key: evergreen_retry
