@@ -967,21 +967,18 @@ def install_official_operator(
     # should use the dev registries where unreleased images are available.
     # For staging/release builds, images are already published to quay.io, so we use quay.io
     # to verify the actual public release path.
-    # IMPORTANT: Don't use ECR for legacy operator versions (e.g., 1.27.0) because they use
-    # different image tag formats that only exist on quay.io, not in ECR.
     build_scenario = operator_installation_config.get("buildScenario", "")
-    if build_scenario == "patch" and custom_operator_version is None:
+    if build_scenario == "patch":
         logger.debug("Patch build detected: using ECR registries for workload images in upgrade tests")
-        # Only override OM and Agent registries - these are the images that may not be released
-        # to quay.io yet. Init images (initOpsManager, initAppDb, initDatabase) are already
-        # released to quay.io and don't exist in ECR with the same version tags.
-        registry_keys = [
-            "registry.opsManager",
-            "registry.agent",
-        ]
-        for key in registry_keys:
-            if key in operator_installation_config:
-                helm_args[key] = operator_installation_config[key]
+        # Override OM registry for ALL operators (including legacy) - OM version tags are standard (e.g., 7.0.21)
+        if "registry.opsManager" in operator_installation_config:
+            helm_args["registry.opsManager"] = operator_installation_config["registry.opsManager"]
+
+        # Only override Agent registry for current operator (not legacy) because legacy operators
+        # use different agent tag formats (e.g., 13.21.0.9059-1_1.27.0) that don't exist in ECR.
+        # Init images are already released to quay.io and don't need ECR override.
+        if custom_operator_version is None and "registry.agent" in operator_installation_config:
+            helm_args["registry.agent"] = operator_installation_config["registry.agent"]
 
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead of the "ubi"

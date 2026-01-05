@@ -3,7 +3,7 @@ import os
 import re
 import tempfile
 import time
-from typing import Callable
+from typing import Callable, List, Dict
 
 import kubetester
 import pytest
@@ -182,3 +182,38 @@ def wait_for_operator_ready(namespace: str, name: str, expected_operator_version
         timeout=120,
         msg=f"operator ready and with {expected_operator_version} version",
     )
+
+
+def get_registry_env_vars_for_subscription(operator_installation_config: Dict[str, str]) -> List[Dict[str, str]]:
+    """
+    Returns registry env vars to add to OLM subscription config for patch builds.
+
+    For upgrade tests in patch builds, we need to use ECR registries for workload images
+    (OpsManager) since new versions may not be released to quay.io yet.
+    For staging/release builds, images are already published to quay.io, so we use quay.io
+    to verify the actual public release path.
+
+    Note: We only pass OM registry (not agent) for OLM subscriptions because:
+    1. The stable/released operators may use different agent tag formats that don't exist in ECR
+    2. OLM subscription env vars persist across channel upgrades, so we can't differentiate
+       between released and dev operators
+
+    This function returns the env vars in the format expected by OLM subscription config:
+    [{"name": "ENV_VAR_NAME", "value": "value"}, ...]
+    """
+    build_scenario = operator_installation_config.get("buildScenario", "")
+
+    if build_scenario != "patch":
+        return []
+
+    env_vars = []
+
+    # Only override OM registry - OM version tags are standard (e.g., 7.0.21)
+    # Agent registry is not overridden because released operators may use different tag formats
+    if "registry.opsManager" in operator_installation_config:
+        # Get the opsManager.name value for building the full repository path
+        ops_manager_name = operator_installation_config.get("opsManager.name", "mongodb-enterprise-ops-manager-ubi")
+        registry = operator_installation_config["registry.opsManager"]
+        env_vars.append({"name": "OPS_MANAGER_IMAGE_REPOSITORY", "value": f"{registry}/{ops_manager_name}"})
+
+    return env_vars
