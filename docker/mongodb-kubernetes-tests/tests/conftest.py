@@ -961,13 +961,15 @@ def install_official_operator(
         "operator.mdbDefaultArchitecture": operator_installation_config["operator.mdbDefaultArchitecture"],
     }
 
-    # For upgrade tests in patch builds, we need to use ECR registries for workload images
-    # (OpsManager, Agent, etc.) since new versions may not be released to quay.io yet.
+    # For upgrade tests in patch/staging builds, we need to use ECR registries for workload
+    # images (OpsManager, Agent, etc.) since new versions may not be released to quay.io yet.
     # The operator itself still comes from the official helm chart, but resources it creates
-    # should use the dev registries where unreleased images are available.
-    # For staging/release builds, we use quay.io to verify the actual public release path.
+    # should use the dev/staging registries where unreleased images are available.
+    # For release builds (git tag), we use quay.io to verify the actual public release path.
+    # IMPORTANT: Don't use ECR for legacy operator versions (e.g., 1.27.0) because they use
+    # different image tag formats that only exist on quay.io, not in ECR.
     build_scenario = operator_installation_config.get("buildScenario", "")
-    if build_scenario == "patch":
+    if build_scenario in ("patch") and custom_operator_version is None:
         logger.debug("Patch build detected: using ECR registries for workload images in upgrade tests")
         registry_keys = [
             "registry.opsManager",
