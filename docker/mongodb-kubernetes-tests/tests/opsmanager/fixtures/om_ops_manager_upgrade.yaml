@@ -7,8 +7,9 @@ spec:
   # version is configured in the test
   adminCredentials: ops-manager-admin-secret
 
-  # Test mounting only /tmp as RWO PVC (TSE reported this approach fails)
-  # This keeps the default emptyDir for data volume, only /tmp gets PVC
+  # Test mounting only /tmp as RWO PVC with full volumeMount override
+  # Attempt to replace the /tmp mount from data volume with a separate PVC
+  # while keeping other data subPath mounts intact
   statefulSet:
     spec:
       volumeClaimTemplates:
@@ -24,8 +25,25 @@ spec:
           containers:
             - name: mongodb-ops-manager
               volumeMounts:
+                # Use separate PVC for /tmp instead of data subPath
                 - name: tmp-storage
                   mountPath: /tmp
+                # Keep other mounts using data volume with subPaths
+                - name: data
+                  mountPath: /mongodb-ops-manager/tmp
+                  subPath: tmp-mms
+                - name: data
+                  mountPath: /mongodb-ops-manager/logs
+                  subPath: logs-mms
+                - name: data
+                  mountPath: /mongodb-ops-manager/etc
+                  subPath: etc-mms
+                - name: data
+                  mountPath: /mongodb-ops-manager/conf
+                  subPath: conf-mms
+                - name: data
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+                  subPath: downloads-mms
 
   backup:
     enabled: true
