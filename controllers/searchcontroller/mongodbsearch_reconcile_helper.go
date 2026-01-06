@@ -42,6 +42,20 @@ const (
 		"The operator will ignore this resource: it will not reconcile or reconfigure the workload. " +
 		"Existing deployments will continue to run, but cannot be managed by the operator. " +
 		"To regain operator management, you must delete and recreate the MongoDBSearch resource."
+
+	// embeddingKeyFilePath is the path that is used in mongot config to specify the api keys
+	// this where query and index keys would be available.
+	embeddingKeyFilePath   = "/etc/mongot/secrets"
+	embeddingKeyVolumeName = "auto-embedding-api-keys"
+
+	indexingKeyName = "indexing-key"
+	queryKeyName    = "query-key"
+
+	apiKeysTempVolumeName = "api-keys-config"
+	// To overcome the strict requirement of api keys having 0400 permission we mount the api keys
+	// to a temp location apiKeysTempVolumeMount and then copy it to correct location embeddingKeyFilePath,
+	// changing the permission to 0400.
+	apiKeysTempVolumeMount = "/tmp/api-keys"
 )
 
 type OperatorSearchConfig struct {
@@ -119,8 +133,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
 
+	embeddingConfigMongotModification, embeddingConfigStsModification, err := r.ensureEmbeddingConfig()
+
 	// the egress TLS modification needs to always be applied after the ingress one, because it toggles mTLS based on the mode set by the ingress modification
-	configHash, err := r.ensureMongotConfig(ctx, log, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification)
+	configHash, err := r.ensureMongotConfig(ctx, log, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -131,7 +147,15 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		},
 	))
 
-	if err := r.createOrUpdateStatefulSet(ctx, log, CreateSearchStatefulSetFunc(r.mdbSearch, r.db, r.buildImageString()), configHashModification, keyfileStsModification, ingressTlsStsModification, egressTlsStsModification); err != nil {
+	if err := r.createOrUpdateStatefulSet(ctx,
+		log,
+		CreateSearchStatefulSetFunc(r.mdbSearch, r.db, r.buildImageString()),
+		configHashModification,
+		keyfileStsModification,
+		ingressTlsStsModification,
+		egressTlsStsModification,
+		embeddingConfigStsModification,
+	); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -229,6 +253,56 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	log.Debugf("Updated mongot config yaml config map: %v (%s) with the following configuration: %s", cmName, op, string(configData))
 
 	return hashBytes(configData), nil
+}
+
+func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig() (mongot.Modification, statefulset.Modification, error) {
+	if r.mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret == "" && r.mdbSearch.Spec.AutoEmbedding.ProviderEndpoint == "" {
+		return mongot.NOOP(), statefulset.NOOP(), nil
+	}
+
+	autoEmbeddingViewWriterTrue := true
+	mongotModification := func(config *mongot.Config) {
+		if r.mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret != "" {
+			config.Embedding.IndexingKeyFile = fmt.Sprintf("%s/%s", embeddingKeyFilePath, indexingKeyName)
+			config.Embedding.QueryKeyFile = fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName)
+
+			// Since MCK right now installs search with one replica only it's safe to alway set IsAutoEmbeddingViewWriter to true.
+			// Once we start supporting multiple mongot instances, we need to figure this out and then set here.
+			config.Embedding.IsAutoEmbeddingViewWriter = &autoEmbeddingViewWriterTrue
+		}
+
+		if r.mdbSearch.Spec.AutoEmbedding.ProviderEndpoint != "" {
+			config.Embedding.ProviderEndpoint = r.mdbSearch.Spec.AutoEmbedding.ProviderEndpoint
+		}
+	}
+	readOnlyByOwnerPermission := int32(400)
+	apiKeyVolume := statefulset.CreateVolumeFromSecret(embeddingKeyVolumeName, r.mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret, statefulset.WithSecretDefaultMode(&readOnlyByOwnerPermission))
+	apiKeyVolumeMount := statefulset.CreateVolumeMount(embeddingKeyVolumeName, apiKeysTempVolumeMount, statefulset.WithReadOnly(true))
+
+	emptyDirVolume := statefulset.CreateVolumeFromEmptyDir(apiKeysTempVolumeName)
+	emptyDirVolumeMount := statefulset.CreateVolumeMount(apiKeysTempVolumeName, embeddingKeyFilePath)
+
+	stsModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+		podtemplatespec.WithVolume(apiKeyVolume),
+		podtemplatespec.WithVolumeMounts(MongotContainerName, apiKeyVolumeMount),
+		podtemplatespec.WithVolume(emptyDirVolume),
+		podtemplatespec.WithVolumeMounts(MongotContainerName, emptyDirVolumeMount),
+		podtemplatespec.WithContainer(MongotContainerName, setupMongotContainerArgsForAPIKeys()),
+	))
+	return mongotModification, stsModification, nil
+}
+
+func setupMongotContainerArgsForAPIKeys() container.Modification {
+	return container.Apply(
+		container.WithName(MongotContainerName),
+		// Since API keys are expected to have 0400 permission, add the arg into the search container to make
+		// sure we copy the api keys from temp location (apiKeysTempVolumeMount) to correct location (embeddingKeyFilePath)
+		// with correct permissions.
+		// Directly setting the permission in the volume doesn't work because volumes are mounted as symlinks and they would have diff permissions,
+		// using subpath kind of resolves the probelm but because of fsGroup that we set K8s makes sure that the file is group readable,
+		// and that's why the file permissions still don't become 0400 (it's -r--r-----). That's why copying is necessary.
+		prependCommand(sensitiveFilePermissionsForAPIKeys(apiKeysTempVolumeMount, embeddingKeyFilePath, "0400")),
+	)
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {

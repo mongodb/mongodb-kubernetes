@@ -71,6 +71,17 @@ type MongoDBSearchSpec struct {
 	// Configure prometheus metrics endpoint in mongot. If not set, the metrics endpoint will be disabled.
 	// +optional
 	Prometheus *Prometheus `json:"prometheus,omitempty"`
+	// Configure the embedding model's API endpoint and its details to generate vector auto embeddings.
+	// `embedding` field of mongot config is generated using the values provided here.
+	// +optional
+	AutoEmbedding EmbeddingConfig `json:"autoEmbedding"`
+}
+
+type EmbeddingConfig struct {
+	ProviderEndpoint string `json:"providerEndpoint,omitempty"`
+	// EmbeddingModelAPIKeySecret would have the name of the secret that has two keys
+	// query-key and indexing-key for embedding model's API keys.
+	EmbeddingModelAPIKeySecret string `json:"embeddingModelAPIKeySecret,omitempty"`
 }
 
 type MongoDBSource struct {

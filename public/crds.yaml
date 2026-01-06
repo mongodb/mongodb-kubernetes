@@ -4074,6 +4074,19 @@ spec:
             type: object
           spec:
             properties:
+              autoEmbedding:
+                description: |-
+                  Configure the embedding model's API endpoint and its details to generate vector auto embeddings.
+                  `embedding` field of mongot config is generated using the values provided here.
+                properties:
+                  embeddingModelAPIKeySecret:
+                    description: |-
+                      EmbeddingModelAPIKeySecret would have the name of the secret that has two keys
+                      query-key and indexing-key for embedding model's API keys.
+                    type: string
+                  providerEndpoint:
+                    type: string
+                type: object
               logLevel:
                 description: Configure verbosity of mongot logs. Defaults to INFO
                   if not set.
