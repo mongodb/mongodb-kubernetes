@@ -91,13 +91,8 @@ echo "workdir=\"${workdir:-.}\"" >> "${destination_envs_file}.env"
 # We need to tail +5 lines due to above generated comment.
 awk '{print "export " $0}' < "${destination_envs_file}".env | tail -n +5 > "${destination_envs_file}".export.env
 
-# Skip operator env generation in evergreen - only needed for local development
-if [ -z "${EVR_TASK_ID-}" ]; then
-  scripts/dev/print_operator_env.sh | sort | uniq >"${destination_envs_file}.operator.env"
-  awk '{print "export " $0}' < "${destination_envs_file}".operator.env > "${destination_envs_file}".operator.export.env
-else
-  touch "${destination_envs_file}.operator.env" "${destination_envs_file}.operator.export.env"
-fi
+scripts/dev/print_operator_env.sh | sort | uniq >"${destination_envs_file}.operator.env"
+awk '{print "export " $0}' < "${destination_envs_file}".operator.env > "${destination_envs_file}".operator.export.env
 
 echo -n "${context}" > "${destination_envs_dir}/.current_context"
 
