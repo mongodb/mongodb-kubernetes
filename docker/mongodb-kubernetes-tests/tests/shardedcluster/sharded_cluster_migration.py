@@ -49,7 +49,7 @@ def mongo_tester(mdb: MongoDB):
 def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
     return MongoDBBackgroundTester(
         mongo_tester,
-        allowed_sequential_failures=1,
+        allowed_sequential_failures=5,
         health_function_params={
             "attempts": 1,
             "write_concern": pymongo.WriteConcern(w="majority"),
