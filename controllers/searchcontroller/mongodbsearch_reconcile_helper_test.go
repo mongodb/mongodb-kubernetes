@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
 )
 
 func init() {
@@ -315,4 +317,163 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 			assertServicePorts(t, svc, tc.expectedPorts)
 		})
 	}
+}
+
+var testApiKeySecretName = "api-key-secret"
+var embeddingWriterTrue = true
+var mode = int32(400)
+var expectedVolumes = []corev1.Volume{
+	{
+		Name: embeddingKeyVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName:  testApiKeySecretName,
+				DefaultMode: &mode,
+			},
+		},
+	},
+	{
+		Name: apiKeysTempVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		},
+	},
+}
+var expectedVolumeMount = []corev1.VolumeMount{
+	{
+		Name:      apiKeysTempVolumeName,
+		MountPath: embeddingKeyFilePath,
+		ReadOnly:  false,
+	},
+	{
+		Name:      embeddingKeyVolumeName,
+		MountPath: apiKeysTempVolumeMount,
+		ReadOnly:  true,
+	},
+}
+
+func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
+	providerEndpoint := "https://api.voyageai.com/v1/embeddings"
+
+	search := newTestMongoDBSearch("mdb-searh", "mongodb", func(s *searchv1.MongoDBSearch) {
+		s.Spec.AutoEmbedding = searchv1.EmbeddingConfig{
+			ProviderEndpoint:           providerEndpoint,
+			EmbeddingModelAPIKeySecret: testApiKeySecretName,
+		}
+	})
+
+	conf := &mongot.Config{}
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Args:         []string{"echo", "test"},
+							Name:         MongotContainerName,
+							Image:        "searchimage:tag",
+							VolumeMounts: []corev1.VolumeMount{},
+						},
+					},
+					Volumes: []corev1.Volume{},
+				},
+			},
+		},
+	}
+
+	embeddingWriterTrue := true
+	expectedMongotConfig := mongot.Config{
+		Embedding: mongot.EmbeddingConfig{
+			ProviderEndpoint:          providerEndpoint,
+			IsAutoEmbeddingViewWriter: &embeddingWriterTrue,
+			QueryKeyFile:              fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName),
+			IndexingKeyFile:           fmt.Sprintf("%s/%s", embeddingKeyFilePath, indexingKeyName),
+		},
+	}
+
+	helper := NewMongoDBSearchReconcileHelper(nil, search, nil, OperatorSearchConfig{})
+	mongotModif, stsModif := helper.ensureEmbeddingConfig()
+
+	mongotModif(conf)
+	stsModif(sts)
+
+	assert.Equal(t, expectedVolumeMount, sts.Spec.Template.Spec.Containers[0].VolumeMounts)
+	assert.Equal(t, expectedVolumes, sts.Spec.Template.Spec.Volumes)
+	assert.Equal(t, expectedMongotConfig.Embedding, conf.Embedding)
+}
+
+func TestEnsureEmbeddingConfig_WOAutoEmbedding(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-searh", "mongodb")
+	helper := NewMongoDBSearchReconcileHelper(nil, search, nil, OperatorSearchConfig{})
+	mongotModif, stsModif := helper.ensureEmbeddingConfig()
+
+	conf := &mongot.Config{}
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Args:         []string{"echo", "test"},
+							Name:         MongotContainerName,
+							Image:        "searchimage:tag",
+							VolumeMounts: []corev1.VolumeMount{},
+						},
+					},
+					Volumes: []corev1.Volume{},
+				},
+			},
+		},
+	}
+
+	mongotModif(conf)
+	stsModif(sts)
+
+	// because search CR didn't have autoEmbedding configured, there wont be any change in conf or sts
+	assert.Equal(t, sts, sts)
+	assert.Equal(t, conf, conf)
+}
+
+func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "mongodb", func(s *searchv1.MongoDBSearch) {
+		s.Spec.AutoEmbedding = searchv1.EmbeddingConfig{
+			EmbeddingModelAPIKeySecret: testApiKeySecretName,
+		}
+	})
+	helper := NewMongoDBSearchReconcileHelper(nil, search, nil, OperatorSearchConfig{})
+	mongotModif, stsModif := helper.ensureEmbeddingConfig()
+
+	conf := &mongot.Config{}
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Args:         []string{"echo", "test"},
+							Name:         MongotContainerName,
+							Image:        "searchimage:tag",
+							VolumeMounts: []corev1.VolumeMount{},
+						},
+					},
+					Volumes: []corev1.Volume{},
+				},
+			},
+		},
+	}
+
+	mongotModif(conf)
+	stsModif(sts)
+
+	// We are just providing the autoEmbedding API Key secret, that's why we will only see that in the config
+	// and we will see the volumes, mounts in sts
+	assert.Equal(t, mongot.EmbeddingConfig{
+		QueryKeyFile:              fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName),
+		IndexingKeyFile:           fmt.Sprintf("%s/%s", embeddingKeyFilePath, indexingKeyName),
+		IsAutoEmbeddingViewWriter: &embeddingWriterTrue,
+		ProviderEndpoint:          "",
+	}, conf.Embedding)
+
+	assert.Equal(t, expectedVolumeMount, sts.Spec.Template.Spec.Containers[0].VolumeMounts)
+	assert.Equal(t, expectedVolumes, sts.Spec.Template.Spec.Volumes)
 }
