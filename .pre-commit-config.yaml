@@ -4,7 +4,62 @@
 
 default_stages: [pre-commit]
 
+# Hooks run serially in definition order. The following local hooks have
+# dependencies and must run in this order:
+#   1. update-release-json: writes release.json
+#   2. update-values-yaml: reads release.json, writes helm values files
+#   3. generate-standalone-yaml: reads helm values files
+#   4. generate-and-update: remaining parallel jobs
 repos:
+  - repo: local
+    hooks:
+      - id: update-release-json
+        name: update-release-json
+        entry: scripts/dev/generate_files.sh update_release
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: update-values-yaml
+        name: update-values-yaml
+        entry: scripts/dev/generate_files.sh update_values
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: generate-standalone-yaml
+        name: generate-standalone-yaml
+        entry: scripts/dev/generate_files.sh generate_standalone_yaml
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      # Remaining generation jobs run in parallel
+      - id: generate-and-update
+        name: generate-and-update (parallel)
+        entry: scripts/dev/generate_files.sh generate_all
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: validate-snippets
+        name: validate-snippets
+        entry: scripts/code_snippets/validate_snippets.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: validate-helm-charts
+        name: validate-helm-charts
+        entry: scripts/dev/lint_helm_chart.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -72,14 +127,3 @@ repos:
     hooks:
       - id: golangci-lint
         args: [--timeout=10m]
-
-  # Local hooks for project-specific tasks
-  # Runs all generation/validation jobs in parallel internally
-  - repo: local
-    hooks:
-      - id: generate-and-validate
-        name: generate-and-validate (parallel)
-        entry: scripts/dev/generate_files.sh generate_all
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
