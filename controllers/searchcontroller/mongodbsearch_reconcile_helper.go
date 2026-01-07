@@ -133,7 +133,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
 
-	embeddingConfigMongotModification, embeddingConfigStsModification, err := r.ensureEmbeddingConfig()
+	embeddingConfigMongotModification, embeddingConfigStsModification := r.ensureEmbeddingConfig()
 
 	// the egress TLS modification needs to always be applied after the ingress one, because it toggles mTLS based on the mode set by the ingress modification
 	configHash, err := r.ensureMongotConfig(ctx, log, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
@@ -255,9 +255,9 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	return hashBytes(configData), nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig() (mongot.Modification, statefulset.Modification, error) {
+func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig() (mongot.Modification, statefulset.Modification) {
 	if r.mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret == "" && r.mdbSearch.Spec.AutoEmbedding.ProviderEndpoint == "" {
-		return mongot.NOOP(), statefulset.NOOP(), nil
+		return mongot.NOOP(), statefulset.NOOP()
 	}
 
 	autoEmbeddingViewWriterTrue := true
@@ -289,7 +289,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig() (mongot.Modificat
 		podtemplatespec.WithVolumeMounts(MongotContainerName, emptyDirVolumeMount),
 		podtemplatespec.WithContainer(MongotContainerName, setupMongotContainerArgsForAPIKeys()),
 	))
-	return mongotModification, stsModification, nil
+	return mongotModification, stsModification
 }
 
 func setupMongotContainerArgsForAPIKeys() container.Modification {
