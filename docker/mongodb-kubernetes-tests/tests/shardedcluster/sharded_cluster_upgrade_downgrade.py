@@ -45,10 +45,12 @@ def mongod_tester(sc: MongoDB) -> MongoTester:
 
 @fixture(scope="module")
 def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
+    # After running multiple tests, it seems that on sharded_cluster version changes we have more sequential errors.
+    # Multi-cluster tests have higher latency due to cross-cluster pod scheduling and network delays.
+    allowed_failures = 10 if is_multi_cluster() else 5
     return MongoDBBackgroundTester(
         mongod_tester,
-        # After running multiple tests, it seems that on sharded_cluster version changes we have more sequential errors.
-        allowed_sequential_failures=5,
+        allowed_sequential_failures=allowed_failures,
         health_function_params={
             "attempts": 1,
             "write_concern": pymongo.WriteConcern(w="majority"),
