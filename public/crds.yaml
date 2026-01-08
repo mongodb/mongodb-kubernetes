@@ -4076,16 +4076,29 @@ spec:
             properties:
               autoEmbedding:
                 description: |-
-                  Configure the embedding model's API endpoint and its details to generate vector auto embeddings.
+                  Configure MongoDB Search's automatic generation of vector embeddings using an embedding model service.
                   `embedding` field of mongot config is generated using the values provided here.
                 properties:
                   embeddingModelAPIKeySecret:
                     description: |-
                       EmbeddingModelAPIKeySecret would have the name of the secret that has two keys
                       query-key and indexing-key for embedding model's API keys.
-                    type: string
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
                   providerEndpoint:
                     type: string
+                required:
+                - embeddingModelAPIKeySecret
                 type: object
               logLevel:
                 description: Configure verbosity of mongot logs. Defaults to INFO

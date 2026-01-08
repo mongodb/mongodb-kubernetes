@@ -356,9 +356,11 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 	providerEndpoint := "https://api.voyageai.com/v1/embeddings"
 
 	search := newTestMongoDBSearch("mdb-searh", "mongodb", func(s *searchv1.MongoDBSearch) {
-		s.Spec.AutoEmbedding = searchv1.EmbeddingConfig{
-			ProviderEndpoint:           providerEndpoint,
-			EmbeddingModelAPIKeySecret: testApiKeySecretName,
+		s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
+			ProviderEndpoint: providerEndpoint,
+			EmbeddingModelAPIKeySecret: &corev1.LocalObjectReference{
+				Name: testApiKeySecretName,
+			},
 		}
 	})
 
@@ -391,8 +393,10 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 		},
 	}
 
+	ctx := context.TODO()
 	helper := NewMongoDBSearchReconcileHelper(nil, search, nil, OperatorSearchConfig{})
-	mongotModif, stsModif := helper.ensureEmbeddingConfig()
+	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
+	assert.Nil(t, err)
 
 	mongotModif(conf)
 	stsModif(sts)
@@ -405,7 +409,9 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 func TestEnsureEmbeddingConfig_WOAutoEmbedding(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-searh", "mongodb")
 	helper := NewMongoDBSearchReconcileHelper(nil, search, nil, OperatorSearchConfig{})
-	mongotModif, stsModif := helper.ensureEmbeddingConfig()
+	ctx := context.TODO()
+	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
+	assert.Nil(t, err)
 
 	conf := &mongot.Config{}
 	sts := &appsv1.StatefulSet{
@@ -436,12 +442,16 @@ func TestEnsureEmbeddingConfig_WOAutoEmbedding(t *testing.T) {
 
 func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "mongodb", func(s *searchv1.MongoDBSearch) {
-		s.Spec.AutoEmbedding = searchv1.EmbeddingConfig{
-			EmbeddingModelAPIKeySecret: testApiKeySecretName,
+		s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
+			EmbeddingModelAPIKeySecret: &corev1.LocalObjectReference{
+				Name: testApiKeySecretName,
+			},
 		}
 	})
 	helper := NewMongoDBSearchReconcileHelper(nil, search, nil, OperatorSearchConfig{})
-	mongotModif, stsModif := helper.ensureEmbeddingConfig()
+	ctx := context.TODO()
+	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
+	assert.Nil(t, err)
 
 	conf := &mongot.Config{}
 	sts := &appsv1.StatefulSet{
