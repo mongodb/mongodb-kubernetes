@@ -157,6 +157,11 @@ func TopologySpreadConstraints(original, override []corev1.TopologySpreadConstra
 	for _, v := range mergedMap {
 		mergedElements = append(mergedElements, v)
 	}
+
+	sort.SliceStable(mergedElements, func(i, j int) bool {
+		return mergedElements[i].TopologyKey < mergedElements[j].TopologyKey
+	})
+
 	return mergedElements
 }
 
