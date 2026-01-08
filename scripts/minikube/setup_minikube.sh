@@ -44,39 +44,41 @@ download_minikube() {
   scripts/minikube/install_minikube.sh
 }
 
+# Start or restart the local registry container
+start_local_registry() {
+  echo "Starting local container registry on port 5000..."
+  # Clean up any existing registry first (stop + rm to handle all states)
+  sudo podman stop registry 2>/dev/null || true
+  sudo podman rm -f registry 2>/dev/null || true
+
+  if ! sudo podman run -d -p 127.0.0.1:5000:5000 --replace --name registry --restart=always docker.io/library/registry:2; then
+    echo "❌ Failed to start local registry"
+    return 1
+  fi
+
+  # Wait for registry to be ready
+  echo "Waiting for registry to be ready..."
+  for _ in {1..30}; do
+    if curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
+      echo "✅ Registry is ready"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "❌ Registry failed to become ready"
+  return 1
+}
+
 # Setup local registry and build custom kicbase image for ppc64le with crictl
 setup_local_registry_and_custom_image() {
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo ">>> Setting up local registry and custom kicbase image for ppc64le..."
 
     # Check if local registry is running (use 127.0.0.1 to avoid IPv6 fallback delay)
-    registry_running=false
     if curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
-      echo "Registry detected via HTTP check"
-      registry_running=true
-    fi
-
-    if ! ${registry_running}; then
-      echo "Starting local container registry on port 5000..."
-
-      # Clean up any existing registry first
-      sudo podman rm -f registry 2>/dev/null || true
-
-      if ! sudo podman run -d -p 127.0.0.1:5000:5000 --replace --name registry --restart=always docker.io/library/registry:2; then
-        echo "❌ Failed to start local registry - trying alternative approach"
-        exit 1
-      fi
-
-      # Wait for registry to be ready
-      echo "Waiting for registry to be ready..."
-      for _ in {1..30}; do
-        if curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
-          break
-        fi
-        sleep 1
-      done
-    else
       echo "✅ Local registry already running"
+    else
+      start_local_registry || exit 1
     fi
 
     # Configure podman to trust local registry (use 127.0.0.1 to avoid IPv6 issues)
@@ -115,18 +117,10 @@ EOF
       return 1
     }
 
-    # Use 127.0.0.1 to avoid IPv6 issues with podman on ppc64le, we might bind to ipv6 and it might not work
+    # Ensure registry is still running before push (use 127.0.0.1 to avoid IPv6 issues)
     if ! curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
       echo "Registry not responding, restarting..."
-      sudo podman rm -f registry 2>/dev/null || true
-      sudo podman run -d -p 127.0.0.1:5000:5000 --replace --name registry --restart=always docker.io/library/registry:2
-      for _ in {1..15}; do
-        if curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
-          echo "Registry restarted successfully"
-          break
-        fi
-        sleep 1
-      done
+      start_local_registry || return 1
     fi
 
     sudo podman push "${custom_image_tag}" --tls-verify=false || {
@@ -143,10 +137,16 @@ EOF
 start_minikube_cluster() {
   echo ">>> Starting minikube cluster with podman driver (rootful mode)..."
 
+  # Use a root-owned TMPDIR to avoid juju lock file permission issues
+  # See: https://github.com/kubernetes/minikube/issues/6391
+  local MINIKUBE_TMPDIR="/root/.minikube-tmp"
+  sudo rm -rf "${MINIKUBE_TMPDIR}" 2>/dev/null || true
+  sudo mkdir -p "${MINIKUBE_TMPDIR}"
+
   # Check rootful podman directly (minikube status checks wrong namespace)
   if sudo podman ps --filter name=minikube --format '{{.Names}}' 2>/dev/null | grep -q '^minikube$'; then
     echo "✅ Minikube container exists - verifying kubectl connectivity..."
-    if "${PROJECT_DIR:-.}/bin/minikube" kubectl -- get nodes &>/dev/null 2>&1; then
+    if sudo TMPDIR="${MINIKUBE_TMPDIR}" "${PROJECT_DIR:-.}/bin/minikube" kubectl -- get nodes &>/dev/null 2>&1; then
       echo "✅ Minikube cluster is healthy - skipping setup"
       return 0
     else
@@ -159,15 +159,19 @@ start_minikube_cluster() {
   rm -rf ~/.minikube/machines/minikube 2>/dev/null || true
 
   echo "Ensuring clean minikube state..."
-  sudo "${PROJECT_DIR:-.}/bin/minikube" delete 2>/dev/null || true
+  sudo TMPDIR="${MINIKUBE_TMPDIR}" "${PROJECT_DIR:-.}/bin/minikube" delete 2>/dev/null || true
   "${PROJECT_DIR:-.}/bin/minikube" delete 2>/dev/null || true
 
   echo "Cleaning up stale podman volumes..."
   sudo podman volume rm -f minikube 2>/dev/null || true
   sudo podman network rm -f minikube 2>/dev/null || true
 
+  echo "Cleaning up juju lock files (prevents permission issues with mixed user/root runs)..."
+  sudo rm -f /tmp/juju-mk* 2>/dev/null || true
+
   # Use rootful podman - rootless has iptables/CNI issues on ppc64le and s390x
-  local start_args=("--driver=podman" "--container-runtime=containerd" "--rootless=false")
+  # --force allows running minikube with root privileges
+  local start_args=("--driver=podman" "--container-runtime=containerd" "--force")
   start_args+=("--cpus=4" "--memory=8g")
   start_args+=("--cni=bridge")
 
@@ -179,12 +183,12 @@ start_minikube_cluster() {
   fi
 
   echo "Starting minikube with args: ${start_args[*]}"
-  if "${PROJECT_DIR:-.}/bin/minikube" start "${start_args[@]}"; then
+  if sudo TMPDIR="${MINIKUBE_TMPDIR}" "${PROJECT_DIR:-.}/bin/minikube" start "${start_args[@]}"; then
     echo "✅ Minikube started successfully"
   else
     echo "❌ Minikube failed to start"
     echo "Minikube logs:"
-    "${PROJECT_DIR:-.}/bin/minikube" logs | tail -20
+    sudo TMPDIR="${MINIKUBE_TMPDIR}" "${PROJECT_DIR:-.}/bin/minikube" logs | tail -20
     return 1
   fi
 }
@@ -212,7 +216,16 @@ start_minikube_cluster
 # Update kubectl context to point to the running cluster
 echo ""
 echo ">>> Updating kubectl context for minikube cluster..."
-"${PROJECT_DIR:-.}/bin/minikube" update-context
+sudo TMPDIR="/root/.minikube-tmp" "${PROJECT_DIR:-.}/bin/minikube" update-context
+
+# Export flattened kubeconfig to current user (minikube runs as root, but e2e tests run as user)
+# --flatten embeds certs inline so user doesn't need access to /root/.minikube/
+echo ">>> Exporting kubeconfig to current user..."
+mkdir -p "${HOME}/.kube"
+# - sudo command | tee file - the pipe breaks the sudo context, so tee runs as the current user
+# - This avoids SC2024 because there's no redirect directly after sudo
+sudo TMPDIR="/root/.minikube-tmp" "${PROJECT_DIR:-.}/bin/minikube" kubectl -- config view --flatten | tee "${HOME}/.kube/config" > /dev/null
+chmod 600 "${HOME}/.kube/config"
 echo "✅ Kubectl context updated successfully"
 
 echo "Minikube host setup completed successfully for ${ARCH}!"
