@@ -671,6 +671,33 @@ func TestExternalRoleIsNotRemoved(t *testing.T) {
 	assert.Equal(t, roles[0].Role, "external-role")
 }
 
+// TestSetupCommonWatchers_NilTLSConfig_WithCertificatesSecretsPrefix tests that SetupCommonWatchers
+// panics when CertificatesSecretsPrefix is set but TLSConfig is nil.
+// This demonstrates the bug reported in CLOUDP-352133: IsTLSEnabled() returns true when
+// CertificatesSecretsPrefix is set, but then accessing TLSConfig.CA causes a nil pointer dereference.
+func TestSetupCommonWatchers_NilTLSConfig_WithCertificatesSecretsPrefix(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+	// Set CertificatesSecretsPrefix but leave TLSConfig nil - this triggers the bug
+	// IsTLSEnabled() will return true because CertificatesSecretsPrefix != ""
+	// but accessing TLSConfig.CA will panic because TLSConfig is nil
+	rs.Spec.Security = &mdbv1.Security{
+		CertificatesSecretsPrefix: "my-prefix",
+		// TLSConfig is intentionally nil
+	}
+
+	kubeClient, _ := mock.NewDefaultFakeClient(rs)
+	controller := NewReconcileCommonController(ctx, kubeClient)
+
+	// This should panic with current buggy code because:
+	// 1. IsTLSEnabled() returns true (CertificatesSecretsPrefix != "")
+	// 2. Code then tries to access security.TLSConfig.CA
+	// 3. TLSConfig is nil -> panic
+	assert.Panics(t, func() {
+		controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
+	}, "SetupCommonWatchers should panic when CertificatesSecretsPrefix is set but TLSConfig is nil")
+}
+
 func TestSecretWatcherWithAllResources(t *testing.T) {
 	ctx := context.Background()
 	caName := "custom-ca"
