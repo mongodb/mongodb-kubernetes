@@ -352,6 +352,17 @@ var expectedVolumeMount = []corev1.VolumeMount{
 	},
 }
 
+var apiKeySecret = &corev1.Secret{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "api-key-secret",
+		Namespace: "mongodb",
+	},
+	Data: map[string][]byte{
+		"indexing-key": []byte(""),
+		"query-key":    []byte(""),
+	},
+}
+
 func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 	providerEndpoint := "https://api.voyageai.com/v1/embeddings"
 
@@ -394,8 +405,9 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 	}
 
 	ctx := context.TODO()
-	helper := NewMongoDBSearchReconcileHelper(nil, search, nil, OperatorSearchConfig{})
-	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
+	fakeClient := newTestFakeClient(search, apiKeySecret)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{})
+	mongotModif, stsModif, _, err := helper.ensureEmbeddingConfig(ctx)
 	assert.Nil(t, err)
 
 	mongotModif(conf)
@@ -408,9 +420,10 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 
 func TestEnsureEmbeddingConfig_WOAutoEmbedding(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-searh", "mongodb")
-	helper := NewMongoDBSearchReconcileHelper(nil, search, nil, OperatorSearchConfig{})
+	fakeClient := newTestFakeClient(search)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{})
 	ctx := context.TODO()
-	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
+	mongotModif, stsModif, _, err := helper.ensureEmbeddingConfig(ctx)
 	assert.Nil(t, err)
 
 	conf := &mongot.Config{}
@@ -448,9 +461,10 @@ func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 			},
 		}
 	})
-	helper := NewMongoDBSearchReconcileHelper(nil, search, nil, OperatorSearchConfig{})
+	fakeClient := newTestFakeClient(search, apiKeySecret)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{})
 	ctx := context.TODO()
-	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
+	mongotModif, stsModif, _, err := helper.ensureEmbeddingConfig(ctx)
 	assert.Nil(t, err)
 
 	conf := &mongot.Config{}
@@ -486,4 +500,114 @@ func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 
 	assert.Equal(t, expectedVolumeMount, sts.Spec.Template.Spec.Containers[0].VolumeMounts)
 	assert.Equal(t, expectedVolumes, sts.Spec.Template.Spec.Volumes)
+}
+
+func TestValidateSearchResource(t *testing.T) {
+	search := newTestMongoDBSearch("mdb-search", "mongodb", func(s *searchv1.MongoDBSearch) {
+		s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
+			EmbeddingModelAPIKeySecret: &corev1.LocalObjectReference{
+				Name: testApiKeySecretName,
+			},
+		}
+	})
+	ctx := context.TODO()
+	for _, tc := range []struct {
+		apiKeySecret  *corev1.Secret
+		errAssertion  assert.ErrorAssertionFunc
+		errMsg        string
+		searchVersion string
+	}{
+		{
+			apiKeySecret: &corev1.Secret{},
+			errAssertion: assert.Error,
+			errMsg:       fmt.Sprintf("secrets \"%s\" not found", testApiKeySecretName),
+		},
+		{
+			apiKeySecret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: testApiKeySecretName,
+				},
+			},
+			errAssertion: assert.Error,
+			errMsg:       fmt.Sprintf("secrets \"%s\" not found", testApiKeySecretName),
+		},
+		{
+			apiKeySecret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      testApiKeySecretName,
+					Namespace: "mongodb",
+				},
+			},
+			errAssertion: assert.Error,
+			errMsg:       fmt.Sprintf("Required key \"%s\" is not present in the Secret mongodb/%s", indexingKeyName, testApiKeySecretName),
+		},
+		{
+			apiKeySecret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      testApiKeySecretName,
+					Namespace: "mongodb",
+				},
+				Data: map[string][]byte{
+					"indexing-key": []byte(""),
+				},
+			},
+			errAssertion: assert.Error,
+			errMsg:       fmt.Sprintf("Required key \"%s\" is not present in the Secret mongodb/%s", queryKeyName, testApiKeySecretName),
+		},
+		{
+			apiKeySecret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      testApiKeySecretName,
+					Namespace: "mongodb",
+				},
+				Data: map[string][]byte{
+					"indexing-key": []byte(""),
+					"query-key":    []byte(""),
+				},
+			},
+			errAssertion:  assert.Error,
+			searchVersion: "0.55.0",
+			errMsg:        "The MongoDB search version 0.55.0 doesn't support auto embeddings. Please use version 0.58.0 or newer.",
+		},
+		{
+			apiKeySecret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      testApiKeySecretName,
+					Namespace: "mongodb",
+				},
+				Data: map[string][]byte{
+					"indexing-key": []byte(""),
+					"query-key":    []byte(""),
+				},
+			},
+			errAssertion:  assert.NoError,
+			searchVersion: "0.58.0",
+			errMsg:        "",
+		},
+		{
+			apiKeySecret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      testApiKeySecretName,
+					Namespace: "mongodb",
+				},
+				Data: map[string][]byte{
+					"indexing-key": []byte(""),
+					"query-key":    []byte(""),
+				},
+			},
+			errAssertion:  assert.NoError,
+			searchVersion: "1.58.0",
+			errMsg:        "",
+		},
+	} {
+		fakeClient := newTestFakeClient(search, tc.apiKeySecret)
+		helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
+			SearchVersion: tc.searchVersion,
+		})
+		_, err := helper.validateSearchResource(ctx)
+		tc.errAssertion(t, err)
+		if tc.errMsg != "" {
+			assert.Equal(t, tc.errMsg, err.Error())
+		}
+	}
 }
