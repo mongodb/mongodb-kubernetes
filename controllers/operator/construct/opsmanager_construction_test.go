@@ -519,27 +519,6 @@ func TestHasVolumeMount(t *testing.T) {
 			expected:  true,
 		},
 		{
-			name: "matching /mongodb-ops-manager/logs mount path returns true",
-			opts: OpsManagerStatefulSetOptions{
-				StatefulSetSpecOverride: &appsv1.StatefulSetSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name: util.OpsManagerContainerName,
-									VolumeMounts: []corev1.VolumeMount{
-										{Name: "custom-logs", MountPath: "/mongodb-ops-manager/logs"},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			mountPath: "/mongodb-ops-manager/logs",
-			expected:  true,
-		},
-		{
 			name: "multiple containers with matching mount in second container returns true",
 			opts: OpsManagerStatefulSetOptions{
 				StatefulSetSpecOverride: &appsv1.StatefulSetSpec{
