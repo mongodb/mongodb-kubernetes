@@ -19,6 +19,13 @@ spec:
             resources:
               requests:
                 storage: 20G
+        - metadata:
+            name: om-tmp
+          spec:
+            accessModes: [ "ReadWriteOnce" ]
+            resources:
+              requests:
+                storage: 5Gi
       template:
         spec:
           containers:
@@ -26,6 +33,8 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
+                - name: om-tmp
+                  mountPath: /tmp
 
 
   backup:

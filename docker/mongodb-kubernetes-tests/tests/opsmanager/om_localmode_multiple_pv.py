@@ -49,10 +49,15 @@ class TestOpsManagerCreation:
     def test_volume_mounts(self, ops_manager: MongoDBOpsManager):
         statefulset = ops_manager.read_statefulset()
 
-        # pod template has volume mount request
-        assert ("/mongodb-ops-manager/mongodb-releases", "mongodb-versions") in (
+        volume_mounts = [
             (mount.mount_path, mount.name) for mount in statefulset.spec.template.spec.containers[0].volume_mounts
-        )
+        ]
+
+        # pod template has volume mount request for mongodb-releases
+        assert ("/mongodb-ops-manager/mongodb-releases", "mongodb-versions") in volume_mounts
+
+        # pod template has volume mount request for /tmp (CLOUDP-339918)
+        assert ("/tmp", "om-tmp") in volume_mounts
 
     def test_pvcs(self, ops_manager: MongoDBOpsManager):
         for api_client, pod in ops_manager.read_om_pods():
