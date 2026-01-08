@@ -62,14 +62,29 @@ class TestOpsManagerCreation:
     def test_pvcs(self, ops_manager: MongoDBOpsManager):
         for api_client, pod in ops_manager.read_om_pods():
             claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
-            assert len(claims) == 1
+            assert len(claims) == 2
 
+            # Create a dict for easier lookup
+            claims_by_name = {claim.name: claim for claim in claims}
+
+            # Check mongodb-versions PVC
             KubernetesTester.check_single_pvc(
                 namespace=ops_manager.namespace,
-                volume=claims[0],
+                volume=claims_by_name["mongodb-versions"],
                 expected_name="mongodb-versions",
                 expected_claim_name="mongodb-versions-{}".format(pod.metadata.name),
                 expected_size="20G",
+                storage_class=get_default_storage_class(),
+                api_client=api_client,
+            )
+
+            # Check om-tmp PVC (CLOUDP-339918)
+            KubernetesTester.check_single_pvc(
+                namespace=ops_manager.namespace,
+                volume=claims_by_name["om-tmp"],
+                expected_name="om-tmp",
+                expected_claim_name="om-tmp-{}".format(pod.metadata.name),
+                expected_size="5Gi",
                 storage_class=get_default_storage_class(),
                 api_client=api_client,
             )
