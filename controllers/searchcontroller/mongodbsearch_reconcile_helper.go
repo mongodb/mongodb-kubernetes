@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"strings"
 
+	semver "github.com/Masterminds/semver/v3"
 	"github.com/ghodss/yaml"
 	"go.uber.org/zap"
-	semver "golang.org/x/mod/semver"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -296,8 +296,13 @@ func ensureEmbeddingAPIKeySecret(ctx context.Context, client secret.Getter, secr
 }
 
 func validateSearchVesionForEmbedding(_, version string) error {
-	// https://pkg.go.dev/golang.org/x/mod/semver#Compare
-	if a := semver.Compare(version, minSearchImageVersionForEmbedding); a == -1 {
+	searchVersion, err := semver.NewVersion(version)
+	if err != nil {
+		return fmt.Errorf("Failed getting semver of search image version. Version %s doesn't seem to be valid semver.", version)
+	}
+	minAllowedVersion, _ := semver.NewVersion(minSearchImageVersionForEmbedding)
+
+	if a := searchVersion.Compare(minAllowedVersion); a == -1 {
 		return xerrors.Errorf("The MongoDB search version %s doesn't support auto embeddings. Please use version %s or newer.", version, minSearchImageVersionForEmbedding)
 	}
 	return nil
