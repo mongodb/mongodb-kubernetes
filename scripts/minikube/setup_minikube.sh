@@ -222,7 +222,9 @@ sudo TMPDIR="/root/.minikube-tmp" "${PROJECT_DIR:-.}/bin/minikube" update-contex
 # --flatten embeds certs inline so user doesn't need access to /root/.minikube/
 echo ">>> Exporting kubeconfig to current user..."
 mkdir -p "${HOME}/.kube"
-sudo TMPDIR="/root/.minikube-tmp" "${PROJECT_DIR:-.}/bin/minikube" kubectl -- config view --flatten > "${HOME}/.kube/config"
+# - sudo command | tee file - the pipe breaks the sudo context, so tee runs as the current user
+# - This avoids SC2024 because there's no redirect directly after sudo
+sudo TMPDIR="/root/.minikube-tmp" "${PROJECT_DIR:-.}/bin/minikube" kubectl -- config view --flatten | tee "${HOME}/.kube/config" > /dev/null
 chmod 600 "${HOME}/.kube/config"
 echo "✅ Kubectl context updated successfully"
 
