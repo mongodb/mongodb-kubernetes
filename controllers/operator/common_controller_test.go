@@ -672,15 +672,15 @@ func TestExternalRoleIsNotRemoved(t *testing.T) {
 }
 
 // TestSetupCommonWatchers_NilTLSConfig_WithCertificatesSecretsPrefix tests that SetupCommonWatchers
-// panics when CertificatesSecretsPrefix is set but TLSConfig is nil.
-// This demonstrates the bug reported in CLOUDP-352133: IsTLSEnabled() returns true when
-// CertificatesSecretsPrefix is set, but then accessing TLSConfig.CA causes a nil pointer dereference.
+// handles the case when CertificatesSecretsPrefix is set but TLSConfig is nil.
+// This tests the fix for CLOUDP-352133: IsTLSEnabled() returns true when
+// CertificatesSecretsPrefix is set, and the code must handle nil TLSConfig gracefully.
 func TestSetupCommonWatchers_NilTLSConfig_WithCertificatesSecretsPrefix(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().Build()
-	// Set CertificatesSecretsPrefix but leave TLSConfig nil - this triggers the bug
+	// Set CertificatesSecretsPrefix but leave TLSConfig nil
 	// IsTLSEnabled() will return true because CertificatesSecretsPrefix != ""
-	// but accessing TLSConfig.CA will panic because TLSConfig is nil
+	// The code should handle nil TLSConfig gracefully without panicking
 	rs.Spec.Security = &mdbv1.Security{
 		CertificatesSecretsPrefix: "my-prefix",
 		// TLSConfig is intentionally nil
@@ -689,13 +689,11 @@ func TestSetupCommonWatchers_NilTLSConfig_WithCertificatesSecretsPrefix(t *testi
 	kubeClient, _ := mock.NewDefaultFakeClient(rs)
 	controller := NewReconcileCommonController(ctx, kubeClient)
 
-	// This should panic with current buggy code because:
-	// 1. IsTLSEnabled() returns true (CertificatesSecretsPrefix != "")
-	// 2. Code then tries to access security.TLSConfig.CA
-	// 3. TLSConfig is nil -> panic
-	assert.Panics(t, func() {
+	// After the fix, this should NOT panic
+	// The code now checks if TLSConfig is nil before accessing TLSConfig.CA
+	assert.NotPanics(t, func() {
 		controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
-	}, "SetupCommonWatchers should panic when CertificatesSecretsPrefix is set but TLSConfig is nil")
+	}, "SetupCommonWatchers should not panic when CertificatesSecretsPrefix is set but TLSConfig is nil")
 }
 
 func TestSecretWatcherWithAllResources(t *testing.T) {
