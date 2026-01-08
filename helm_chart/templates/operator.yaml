@@ -61,8 +61,10 @@ spec:
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           {{- end }}
-          {{- if .Values.multiCluster.clusters }}
           volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: webhook-server-dir
+          {{- if .Values.multiCluster.clusters }}
             - mountPath: /etc/config/kubeconfig
               name: kube-config-volume
           {{- end }}
@@ -278,13 +280,15 @@ spec:
               value: '{{ (splitn "=" 2 .)._1 }}'
       {{- end }}
     {{- end }}
-{{- if .Values.multiCluster.clusters }}
       volumes:
+        - name: webhook-server-dir
+          emptyDir: {}
+        {{- if .Values.multiCluster.clusters }}
         - name: kube-config-volume
           secret:
             defaultMode: 420
             secretName: {{ .Values.multiCluster.kubeConfigSecretName }}
-{{- end }}
+        {{- end }}
 
 {{- with .Values.operator }}
   {{- with .nodeSelector }}

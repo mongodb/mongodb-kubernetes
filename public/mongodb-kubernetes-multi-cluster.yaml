@@ -344,6 +344,8 @@ spec:
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: webhook-server-dir
             - mountPath: /etc/config/kubeconfig
               name: kube-config-volume
           resources:
@@ -436,6 +438,8 @@ spec:
             - name: MDB_SEARCH_VERSION
               value: "0.55.0"
       volumes:
+        - name: webhook-server-dir
+          emptyDir: {}
         - name: kube-config-volume
           secret:
             defaultMode: 420
