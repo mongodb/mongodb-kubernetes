@@ -689,8 +689,6 @@ func TestSetupCommonWatchers_NilTLSConfig_WithCertificatesSecretsPrefix(t *testi
 	kubeClient, _ := mock.NewDefaultFakeClient(rs)
 	controller := NewReconcileCommonController(ctx, kubeClient)
 
-	// After the fix, this should NOT panic
-	// The code now checks if TLSConfig is nil before accessing TLSConfig.CA
 	assert.NotPanics(t, func() {
 		controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
 	}, "SetupCommonWatchers should not panic when CertificatesSecretsPrefix is set but TLSConfig is nil")
