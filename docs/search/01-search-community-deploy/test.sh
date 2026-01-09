@@ -27,6 +27,7 @@ run 01_0308_issue_tls_certificates.sh
 run 01_0310_create_mongodb_community_resource.sh
 run_for_output 01_0315_wait_for_community_resource.sh
 run 01_0320_create_mongodb_search_resource.sh
+run 01_0322_enable_auto_embedding_in_search.sh
 run 01_0325_wait_for_search_resource.sh
 run_for_output 01_0330_wait_for_community_resource.sh
 run_for_output 01_0335_show_running_pods.sh
