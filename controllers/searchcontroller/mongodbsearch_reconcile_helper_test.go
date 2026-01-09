@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -396,7 +397,7 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 
 	embeddingWriterTrue := true
 	expectedMongotConfig := mongot.Config{
-		Embedding: mongot.EmbeddingConfig{
+		Embedding: &mongot.EmbeddingConfig{
 			ProviderEndpoint:          providerEndpoint,
 			IsAutoEmbeddingViewWriter: &embeddingWriterTrue,
 			QueryKeyFile:              fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName),
@@ -421,6 +422,22 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 }
 
 func TestEnsureEmbeddingConfig_WOAutoEmbedding(t *testing.T) {
+	mongotCMWithoutEmbedding := `healthCheck:
+  address: ""
+logging:
+  verbosity: ""
+metrics:
+  address: ""
+  enabled: false
+server: {}
+storage:
+  dataPath: ""
+syncSource:
+  replicaSet:
+    hostAndPort: null
+    passwordFile: ""
+    username: ""`
+
 	search := newTestMongoDBSearch("mdb-searh", "mongodb")
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
@@ -451,6 +468,12 @@ func TestEnsureEmbeddingConfig_WOAutoEmbedding(t *testing.T) {
 
 	mongotModif(conf)
 	stsModif(sts)
+
+	// verify that if the embedding config is not provided in the CR, the mongot config's YAML representation
+	// doesn't have even zero values of embedding config.
+	cm, err := yaml.Marshal(conf)
+	assert.Nil(t, err)
+	assert.YAMLEq(t, mongotCMWithoutEmbedding, string(cm))
 
 	// because search CR didn't have autoEmbedding configured, there wont be any change in conf or sts
 	assert.Equal(t, sts, sts)
@@ -497,7 +520,7 @@ func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 
 	// We are just providing the autoEmbedding API Key secret, that's why we will only see that in the config
 	// and we will see the volumes, mounts in sts
-	assert.Equal(t, mongot.EmbeddingConfig{
+	assert.Equal(t, &mongot.EmbeddingConfig{
 		QueryKeyFile:              fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName),
 		IndexingKeyFile:           fmt.Sprintf("%s/%s", embeddingKeyFilePath, indexingKeyName),
 		IsAutoEmbeddingViewWriter: &embeddingWriterTrue,

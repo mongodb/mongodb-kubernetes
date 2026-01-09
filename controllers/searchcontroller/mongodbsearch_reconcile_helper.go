@@ -329,8 +329,10 @@ func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context
 
 	autoEmbeddingViewWriterTrue := true
 	mongotModification := func(config *mongot.Config) {
-		config.Embedding.IndexingKeyFile = fmt.Sprintf("%s/%s", embeddingKeyFilePath, indexingKeyName)
-		config.Embedding.QueryKeyFile = fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName)
+		config.Embedding = &mongot.EmbeddingConfig{
+			IndexingKeyFile: fmt.Sprintf("%s/%s", embeddingKeyFilePath, indexingKeyName),
+			QueryKeyFile:    fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName),
+		}
 
 		// Since MCK right now installs search with one replica only it's safe to alway set IsAutoEmbeddingViewWriter to true.
 		// Once we start supporting multiple mongot instances, we need to figure this out and then set here.
