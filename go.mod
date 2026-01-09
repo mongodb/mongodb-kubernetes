@@ -3,6 +3,7 @@
 module github.com/mongodb/mongodb-kubernetes
 
 require (
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-logr/logr v1.4.3
@@ -47,7 +48,6 @@ require (
 require google.golang.org/protobuf v1.36.10 // indirect
 
 require (
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect

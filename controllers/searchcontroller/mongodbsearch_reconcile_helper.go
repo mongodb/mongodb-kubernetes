@@ -142,7 +142,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
 
-	embeddingConfigMongotModification, embeddingConfigStsModification, err := r.ensureEmbeddingConfig(ctx)
+	embeddingConfigMongotModification, embeddingConfigStsModification, err := r.ensureEmbeddingConfig(ctx, log)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -291,10 +291,11 @@ func ensureEmbeddingAPIKeySecret(ctx context.Context, client secret.Getter, secr
 	return hashBytes(d), nil
 }
 
-func validateSearchVesionForEmbedding(version string) error {
+func validateSearchVesionForEmbedding(version string, log *zap.SugaredLogger) error {
 	searchVersion, err := semver.NewVersion(version)
 	if err != nil {
-		return fmt.Errorf("Failed getting semver of search image version. Version %s doesn't seem to be valid semver.", version)
+		log.Debugf("Failed getting semver of search image version. Version %s doesn't seem to be valid semver.", version)
+		return nil
 	}
 	minAllowedVersion, _ := semver.NewVersion(minSearchImageVersionForEmbedding)
 
@@ -306,7 +307,7 @@ func validateSearchVesionForEmbedding(version string) error {
 
 // ensureEmbeddingConfig returns the mongot config and stateful set modification function based on the values provided in the search CR, it
 // also returns the hash of the secret that has the embedding API keys so that if the keys are changed the search pod is automatically restarted.
-func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
+func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context, log *zap.SugaredLogger) (mongot.Modification, statefulset.Modification, error) {
 	if r.mdbSearch.Spec.AutoEmbedding == nil {
 		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
@@ -322,7 +323,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context
 	}
 
 	_, version := r.searchImageAndVersion()
-	if err := validateSearchVesionForEmbedding(version); err != nil {
+	if err := validateSearchVesionForEmbedding(version, log); err != nil {
 		return nil, nil, err
 	}
 

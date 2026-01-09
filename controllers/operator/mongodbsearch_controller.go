@@ -78,7 +78,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.Security.TLS.CertificateKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
-	if mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret != nil {
+	if mdbSearch.Spec.AutoEmbedding != nil {
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 

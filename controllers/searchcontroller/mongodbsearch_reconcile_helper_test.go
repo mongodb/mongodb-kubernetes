@@ -369,7 +369,7 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-searh", "mongodb", func(s *searchv1.MongoDBSearch) {
 		s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
 			ProviderEndpoint: providerEndpoint,
-			EmbeddingModelAPIKeySecret: &corev1.LocalObjectReference{
+			EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
 				Name: testApiKeySecretName,
 			},
 		}
@@ -409,7 +409,7 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
 		SearchVersion: "0.58.0",
 	})
-	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
+	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	assert.Nil(t, err)
 
 	mongotModif(conf)
@@ -427,7 +427,7 @@ func TestEnsureEmbeddingConfig_WOAutoEmbedding(t *testing.T) {
 		SearchVersion: "0.58.0",
 	})
 	ctx := context.TODO()
-	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
+	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	assert.Nil(t, err)
 
 	conf := &mongot.Config{}
@@ -460,7 +460,7 @@ func TestEnsureEmbeddingConfig_WOAutoEmbedding(t *testing.T) {
 func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "mongodb", func(s *searchv1.MongoDBSearch) {
 		s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
-			EmbeddingModelAPIKeySecret: &corev1.LocalObjectReference{
+			EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
 				Name: testApiKeySecretName,
 			},
 		}
@@ -470,7 +470,7 @@ func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 		SearchVersion: "0.58.0",
 	})
 	ctx := context.TODO()
-	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
+	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	assert.Nil(t, err)
 
 	conf := &mongot.Config{}
@@ -511,7 +511,7 @@ func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 func TestValidateSearchResource(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "mongodb", func(s *searchv1.MongoDBSearch) {
 		s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
-			EmbeddingModelAPIKeySecret: &corev1.LocalObjectReference{
+			EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
 				Name: testApiKeySecretName,
 			},
 		}
@@ -610,7 +610,7 @@ func TestValidateSearchResource(t *testing.T) {
 		helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
 			SearchVersion: tc.searchVersion,
 		})
-		_, _, err := helper.ensureEmbeddingConfig(ctx)
+		_, _, err := helper.ensureEmbeddingConfig(ctx, nil)
 		tc.errAssertion(t, err)
 		if tc.errMsg != "" {
 			assert.Equal(t, tc.errMsg, err.Error())

@@ -82,7 +82,7 @@ type EmbeddingConfig struct {
 	// EmbeddingModelAPIKeySecret would have the name of the secret that has two keys
 	// query-key and indexing-key for embedding model's API keys.
 	// +kubebuilder:validation:Required
-	EmbeddingModelAPIKeySecret *corev1.LocalObjectReference `json:"embeddingModelAPIKeySecret"`
+	EmbeddingModelAPIKeySecret corev1.LocalObjectReference `json:"embeddingModelAPIKeySecret"`
 }
 
 type MongoDBSource struct {
