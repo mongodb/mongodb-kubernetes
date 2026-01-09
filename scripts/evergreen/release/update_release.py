@@ -61,33 +61,30 @@ def update_latest_om_agent_mapping(data):
     # and for those will have to make sure we have respective entry in latestOpsManagerAgentMapping.
     om_versions = data["supportedImages"]["ops-manager"]["versions"]
     # highest_versions_map is just going to have major version and and it's respective highest full version
-    # {6: Version(major=6, minor=0, patch=27, prerelease=None, build=None), 7: Version(major=7, minor=0, patch=20, prerelease=None, build=None), 8: Version(major=8, minor=0, patch=18, prerelease=None, build=None)} 
-    highest_versions_map = {}
+    # {6: Version(major=6, minor=0, patch=27, prerelease=None, build=None), 7: Version(major=7, minor=0, patch=20, prerelease=None, build=None), 8: Version(major=8, minor=0, patch=18, prerelease=None, build=None)}
+    highest_om_version_by_major = {}
     for version in om_versions:
-        current_ver = semver.Version.parse(version)
-        if current_ver.major in highest_versions_map:
-            stored_ver = highest_versions_map[current_ver.major]
-            if current_ver > stored_ver:
-                highest_versions_map[current_ver.major] = current_ver
-        else:
-            highest_versions_map[current_ver.major] = current_ver
+        ver = semver.Version.parse(version)
+        if ver.major not in highest_om_version_by_major or ver > highest_om_version_by_major[ver.major]:
+            highest_om_version_by_major[ver.major] = ver
 
     # final_output iterates over highest_versions_map and creates a list with OM Version and respective agent version
     final_output = []
-    for major in sorted(highest_versions_map.keys()):
-        version_obj = highest_versions_map[major]
+    for major in sorted(highest_om_version_by_major.keys()):
+        version_obj = highest_om_version_by_major[major]
+        om_version = str(version_obj)
+        agent_mapping = data["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"]
         final_output.append(
             {
                 str(major): {
-                    "opsManagerVersion": str(version_obj),
-                    "agentVersion": data["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][
-                        str(version_obj)
-                    ]["agent_version"],
+                    "opsManagerVersion": om_version,
+                    "agentVersion": agent_mapping[om_version]["agent_version"],
                 },
             }
         )
 
     data["latestOpsManagerAgentMapping"] = final_output
+
 
 def update_operator_related_versions(release: dict, version: str):
     """
