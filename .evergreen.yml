@@ -1521,9 +1521,6 @@ buildvariants:
       - rhel9-zseries-small
       - rhel9-zseries-large
     allowed_requesters: [ "patch", "commit" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
