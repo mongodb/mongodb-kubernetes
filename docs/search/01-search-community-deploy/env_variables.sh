@@ -42,7 +42,7 @@ export CERT_MANAGER_NAMESPACE="cert-manager"
 # that will be used in search resource to enable auto embedding for vector search
 export AUTO_EMBEDDING_API_INDEXING_KEY="${VOYAGE_API_KEY}"
 export AUTO_EMBEDDING_API_QUERY_KEY="${VOYAGE_API_KEY}"
-export AUTO_EMBEDDING_API_KEY_SECRET_NAME="voyage-api-keys-CHANGE-ME"
+export AUTO_EMBEDDING_API_KEY_SECRET_NAME="voyage-api-keys"
 
 # PROVIDER_ENDPOINT has the embedding model's provider endpoint
 export PROVIDER_ENDPOINT="https://api.voyageai.com/v1/embeddings"
