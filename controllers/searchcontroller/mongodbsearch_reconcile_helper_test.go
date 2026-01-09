@@ -406,8 +406,10 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 
 	ctx := context.TODO()
 	fakeClient := newTestFakeClient(search, apiKeySecret)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{})
-	mongotModif, stsModif, _, err := helper.ensureEmbeddingConfig(ctx)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
+		SearchVersion: "0.58.0",
+	})
+	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
 	assert.Nil(t, err)
 
 	mongotModif(conf)
@@ -421,9 +423,11 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 func TestEnsureEmbeddingConfig_WOAutoEmbedding(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-searh", "mongodb")
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{})
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
+		SearchVersion: "0.58.0",
+	})
 	ctx := context.TODO()
-	mongotModif, stsModif, _, err := helper.ensureEmbeddingConfig(ctx)
+	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
 	assert.Nil(t, err)
 
 	conf := &mongot.Config{}
@@ -462,9 +466,11 @@ func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 		}
 	})
 	fakeClient := newTestFakeClient(search, apiKeySecret)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{})
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
+		SearchVersion: "0.58.0",
+	})
 	ctx := context.TODO()
-	mongotModif, stsModif, _, err := helper.ensureEmbeddingConfig(ctx)
+	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx)
 	assert.Nil(t, err)
 
 	conf := &mongot.Config{}
@@ -604,7 +610,7 @@ func TestValidateSearchResource(t *testing.T) {
 		helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
 			SearchVersion: tc.searchVersion,
 		})
-		_, err := helper.validateSearchResource(ctx)
+		_, _, err := helper.ensureEmbeddingConfig(ctx)
 		tc.errAssertion(t, err)
 		if tc.errMsg != "" {
 			assert.Equal(t, tc.errMsg, err.Error())

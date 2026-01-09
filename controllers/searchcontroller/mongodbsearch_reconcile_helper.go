@@ -62,6 +62,9 @@ const (
 
 	// is the minimum search image version that is required to enable the auto embeddings for vector search
 	minSearchImageVersionForEmbedding = "0.58.0"
+
+	// autoEmbeddingDetailsAnnKey has the annotation key that would be added to search pod with emebdding API Key secret hash
+	autoEmbeddingDetailsAnnKey = "autoEmbeddingDetailsHash"
 )
 
 type OperatorSearchConfig struct {
@@ -139,7 +142,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
 
-	embeddingConfigMongotModification, embeddingConfigStsModification, apiKeySecretHash, err := r.ensureEmbeddingConfig(ctx)
+	embeddingConfigMongotModification, embeddingConfigStsModification, err := r.ensureEmbeddingConfig(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -156,18 +159,11 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		},
 	))
 
-	apiKeySecretHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
-		map[string]string{
-			"autoEmbeddingDetailsHash": apiKeySecretHash,
-		},
-	))
-
 	image, version := r.searchImageAndVersion()
 	if err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		CreateSearchStatefulSetFunc(r.mdbSearch, r.db, fmt.Sprintf("%s:%s", image, version)),
 		configHashModification,
-		apiKeySecretHashModification,
 		keyfileStsModification,
 		ingressTlsStsModification,
 		egressTlsStsModification,
@@ -295,7 +291,7 @@ func ensureEmbeddingAPIKeySecret(ctx context.Context, client secret.Getter, secr
 	return hashBytes(d), nil
 }
 
-func validateSearchVesionForEmbedding(_, version string) error {
+func validateSearchVesionForEmbedding(version string) error {
 	searchVersion, err := semver.NewVersion(version)
 	if err != nil {
 		return fmt.Errorf("Failed getting semver of search image version. Version %s doesn't seem to be valid semver.", version)
@@ -308,46 +304,36 @@ func validateSearchVesionForEmbedding(_, version string) error {
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) validateSearchResource(ctx context.Context) (string, error) {
+// ensureEmbeddingConfig returns the mongot config and stateful set modification function based on the values provided in the search CR, it
+// also returns the hash of the secret that has the embedding API keys so that if the keys are changed the search pod is automatically restarted.
+func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
+	if r.mdbSearch.Spec.AutoEmbedding == nil {
+		return mongot.NOOP(), statefulset.NOOP(), nil
+	}
+
+	// If AutoEmbedding is not nil, it's safe to assume that EmbeddingModelAPIKeySecret would be provided because we have marked it
+	// a required field.
 	apiKeySecretHash, err := ensureEmbeddingAPIKeySecret(ctx, r.client, client.ObjectKey{
 		Name:      r.mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name,
 		Namespace: r.mdbSearch.Namespace,
 	})
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
 
-	if err := validateSearchVesionForEmbedding(r.searchImageAndVersion()); err != nil {
-		return "", err
-	}
-
-	return apiKeySecretHash, nil
-}
-
-// ensureEmbeddingConfig returns the mongot config and stateful set modification function based on the values provided in the search CR, it
-// also returns the hash of the secret that has the embedding API keys so that if the keys are changed the search pod is automatically restarted.
-func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, string, error) {
-	if r.mdbSearch.Spec.AutoEmbedding == nil {
-		return mongot.NOOP(), statefulset.NOOP(), "", nil
-	}
-
-	// If AutoEmbedding is not nil, it's safe to assume that EmbeddingModelAPIKeySecret would be provided because we have marked it
-	// a required field.
-	secretHash, err := r.validateSearchResource(ctx)
-	if err != nil {
-		return nil, nil, "", err
+	_, version := r.searchImageAndVersion()
+	if err := validateSearchVesionForEmbedding(version); err != nil {
+		return nil, nil, err
 	}
 
 	autoEmbeddingViewWriterTrue := true
 	mongotModification := func(config *mongot.Config) {
-		if r.mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret != nil && r.mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name != "" {
-			config.Embedding.IndexingKeyFile = fmt.Sprintf("%s/%s", embeddingKeyFilePath, indexingKeyName)
-			config.Embedding.QueryKeyFile = fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName)
+		config.Embedding.IndexingKeyFile = fmt.Sprintf("%s/%s", embeddingKeyFilePath, indexingKeyName)
+		config.Embedding.QueryKeyFile = fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName)
 
-			// Since MCK right now installs search with one replica only it's safe to alway set IsAutoEmbeddingViewWriter to true.
-			// Once we start supporting multiple mongot instances, we need to figure this out and then set here.
-			config.Embedding.IsAutoEmbeddingViewWriter = &autoEmbeddingViewWriterTrue
-		}
+		// Since MCK right now installs search with one replica only it's safe to alway set IsAutoEmbeddingViewWriter to true.
+		// Once we start supporting multiple mongot instances, we need to figure this out and then set here.
+		config.Embedding.IsAutoEmbeddingViewWriter = &autoEmbeddingViewWriterTrue
 
 		if r.mdbSearch.Spec.AutoEmbedding.ProviderEndpoint != "" {
 			config.Embedding.ProviderEndpoint = r.mdbSearch.Spec.AutoEmbedding.ProviderEndpoint
@@ -366,8 +352,11 @@ func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context
 		podtemplatespec.WithVolume(emptyDirVolume),
 		podtemplatespec.WithVolumeMounts(MongotContainerName, emptyDirVolumeMount),
 		podtemplatespec.WithContainer(MongotContainerName, setupMongotContainerArgsForAPIKeys()),
+		podtemplatespec.WithAnnotations(map[string]string{
+			autoEmbeddingDetailsAnnKey: apiKeySecretHash,
+		}),
 	))
-	return mongotModification, stsModification, secretHash, nil
+	return mongotModification, stsModification, nil
 }
 
 func setupMongotContainerArgsForAPIKeys() container.Modification {
