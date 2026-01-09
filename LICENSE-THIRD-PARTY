@@ -1,4 +1,5 @@
 
+github.com/Masterminds/semver/v3,v3.4.0,https://github.com/Masterminds/semver/blob/v3.4.0/LICENSE.txt,MIT
 github.com/beorn7/perks/quantile,v1.0.1,https://github.com/beorn7/perks/blob/v1.0.1/LICENSE,MIT
 github.com/blang/semver,v3.5.1,https://github.com/blang/semver/blob/v3.5.1/LICENSE,MIT
 github.com/cenkalti/backoff/v4,v4.3.0,https://github.com/cenkalti/backoff/blob/v4.3.0/LICENSE,MIT
