@@ -15,7 +15,7 @@ from kubetester.phase import Phase
 from opentelemetry import trace
 from pycognito import Cognito
 from pymongo.auth_oidc import OIDCCallback, OIDCCallbackContext, OIDCCallbackResult
-from pymongo.errors import OperationFailure, PyMongoError, ServerSelectionTimeoutError
+from pymongo.errors import NotPrimaryError, OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pytest import fail
 
 TEST_DB = "test-db"
@@ -178,6 +178,7 @@ class MongoTester:
         col: str = "myCol",
         opts: Optional[List[Dict[str, any]]] = None,
         write_concern: pymongo.WriteConcern = None,
+        tolerate_election_errors: bool = False,
     ):
         if opts is None:
             opts = []
@@ -192,9 +193,15 @@ class MongoTester:
                 logging.warning(f"connected nodes: {self.client.nodes}")
                 self.client.admin.command("ismaster")
                 if write_concern:
-                    d = self.client.get_database(name=db, write_concern=write_concern)
-                    c = d.get_collection(name=col)
-                    c.insert_one({})
+                    try:
+                        d = self.client.get_database(name=db, write_concern=write_concern)
+                        c = d.get_collection(name=col)
+                        c.insert_one({})
+                    except NotPrimaryError:
+                        if tolerate_election_errors:
+                            logging.warning("Write failed due to election - tolerated")
+                        else:
+                            raise
                 if "authMechanism" in options:
                     # Perform an action that will require auth.
                     self.client[db][col].insert_one({})

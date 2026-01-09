@@ -47,12 +47,14 @@ def mongo_tester(mdb: MongoDB):
 
 @fixture(scope="module")
 def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
+    # Check both reads and writes, but tolerate election-related write failures.
     return MongoDBBackgroundTester(
         mongo_tester,
-        allowed_sequential_failures=5,
+        allowed_sequential_failures=2,
         health_function_params={
             "attempts": 1,
             "write_concern": pymongo.WriteConcern(w="majority"),
+            "tolerate_election_errors": True,
         },
     )
 
