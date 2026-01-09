@@ -83,19 +83,11 @@ update_release_json() {
 }
 
 regenerate_public_rbac_multi_cluster() {
-  if [[ -z "${EVERGREEN_MODE:-}" ]]; then
-    # According to the latest SSDLC recommendations, the CI needs to always check all the files. Not just delta.
-    git_last_changed=$(git ls-tree -r origin/master --name-only)
-  else
-    git_last_changed=$(git diff --cached --name-only --diff-filter=ACM origin/master)
-  fi
-
-  if echo "${git_last_changed}" | grep -e 'cmd/kubectl-mongodb' -e 'pkg/kubectl-mongodb' > /dev/null; then
-    echo 'regenerating multicluster RBAC public example'
-    pushd pkg/kubectl-mongodb/common/
-    EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
-    popd
-  fi
+  echo 'regenerating multicluster RBAC public example'
+  pushd pkg/kubectl-mongodb/common/
+  EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
+  popd
+  git add public/samples/multi-cluster-cli-gitops
 }
 
 update_licenses() {
