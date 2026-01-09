@@ -18,7 +18,6 @@ mkdir -p "$(go env GOPATH)/bin"
 update_mco_tests() {
   echo "Regenerating MCO evergreen tests configuration"
   python scripts/evergreen/e2e/mco/create_mco_tests.py >.evergreen-mco.yml
-  git add .evergreen-mco.yml
 }
 
 # Generates a yaml file to install the operator from the helm sources.
@@ -69,57 +68,32 @@ generate_standalone_yaml() {
 
 generate_manifests() {
   make manifests
-
-  git add config/crd/bases
-  git add helm_chart/crds
-  git add public/crds.yaml
 }
 
 update_values_yaml_files() {
   # ensure that all helm values files are up to date.
   # shellcheck disable=SC2154
   python scripts/evergreen/release/update_helm_values_files.py
-
-  # commit any changes we made
-  git add helm_chart/values.yaml
-  git add helm_chart/values-openshift.yaml
-
-  # these can change if the version of community operator is different
-  git add go.mod
-  git add go.sum
 }
 
 update_release_json() {
   # ensure that release.json is up 2 date
   # shellcheck disable=SC2154
   python scripts/evergreen/release/update_release.py
-
-  # commit any changes we made
-  git add release.json
 }
 
 regenerate_public_rbac_multi_cluster() {
-  if [[ -z "${EVERGREEN_MODE:-}" ]]; then
-    # According to the latest SSDLC recommendations, the CI needs to always check all the files. Not just delta.
-    git_last_changed=$(git ls-tree -r origin/master --name-only)
-  else
-    git_last_changed=$(git diff --cached --name-only --diff-filter=ACM origin/master)
-  fi
-
-  if echo "${git_last_changed}" | grep -q -e 'cmd/kubectl-mongodb' -e 'pkg/kubectl-mongodb'; then
-    echo 'regenerating multicluster RBAC public example'
-    pushd pkg/kubectl-mongodb/common/
-    EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
-    popd
-    git add public/samples/multi-cluster-cli-gitops
-  fi
+  echo 'regenerating multicluster RBAC public example'
+  pushd pkg/kubectl-mongodb/common/
+  EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
+  popd
+  git add public/samples/multi-cluster-cli-gitops
 }
 
 update_licenses() {
   if [[ "${MDB_UPDATE_LICENSES:-""}" == "true" ]]; then
     echo 'regenerating licenses'
     time scripts/evergreen/update_licenses.sh 2>&1 | prepend "update_licenses"
-    git add LICENSE-THIRD-PARTY
   fi
 }
 
@@ -168,10 +142,6 @@ wait_for_all_background_jobs() {
   return 0
 }
 
-validate_snippets() {
-  scripts/code_snippets/validate_snippets.py
-}
-
 check_kubebuilder_annotations() {
   if grep -r "// kubebuilder" --include="*.go" --exclude-dir=vendor .; then
     echo "Found erroneous kubebuilder annotation"
@@ -179,44 +149,28 @@ check_kubebuilder_annotations() {
   fi
 }
 
-helm_lint() {
-  scripts/dev/lint_helm_chart.sh
-}
-
 generate_all() {
   title "Running pre-commit jobs in parallel"
 
-  # Phase 1: Run generation jobs - some have dependencies
-  # update_release and update_values must run before generate_standalone_yaml
-  run_job_in_background "update_release_json"
-  run_job_in_background "update_values_yaml_files"
+  # NOTE: The following are now separate pre-commit hooks that run serially
+  # BEFORE this hook to avoid race conditions with release.json:
+  #   - update_release_json (writes release.json)
+  #   - update_values_yaml_files (reads release.json)
+  #   - generate_standalone_yaml (reads values files)
 
-  # These can run in parallel with the above
+  # All remaining jobs can run in parallel
   run_job_in_background "generate_manifests"
   run_job_in_background "update_mco_tests"
   run_job_in_background "regenerate_public_rbac_multi_cluster"
   run_job_in_background "update_licenses"
-  run_job_in_background "validate_snippets"
   run_job_in_background "check_kubebuilder_annotations"
-  run_job_in_background "helm_lint"
 
-  # Wait for update_release and update_values to complete before generate_standalone_yaml
-  local release_pid="${bg_job_pids[0]}"
-  local values_pid="${bg_job_pids[1]}"
-
-  wait "${release_pid}" || true
-  wait "${values_pid}" || true
-
-  # Now run generate_standalone_yaml (depends on values files)
-  run_job_in_background "generate_standalone_yaml"
-
-  # Wait for all remaining jobs
-  if wait_for_all_background_jobs; then
-    echo -e "${GREEN}All pre-commit jobs completed successfully!${NO_COLOR}"
-    return 0
-  else
+  # Wait for all jobs
+  if ! wait_for_all_background_jobs; then
     return 1
   fi
+
+  echo -e "${GREEN}All generation jobs completed successfully!${NO_COLOR}"
 }
 
 cmd=${1:-"generate_all"}
