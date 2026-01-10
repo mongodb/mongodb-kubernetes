@@ -3,6 +3,7 @@
 module github.com/mongodb/mongodb-kubernetes
 
 require (
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-logr/logr v1.4.3
