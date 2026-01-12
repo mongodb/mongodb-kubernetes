@@ -171,6 +171,32 @@ class MongoTester:
     def _init_client(self, **kwargs):
         return pymongo.MongoClient(self.cnx_string, **kwargs)
 
+    def _is_config_server_error(self, e: OperationFailure) -> bool:
+        return e.code == 133 and "config" in str(e).lower()
+
+    def _do_read(self, collection, tolerate_election_errors: bool):
+        try:
+            collection.with_options(read_preference=pymongo.ReadPreference.PRIMARY_PREFERRED).find_one({})
+        except OperationFailure as e:
+            if tolerate_election_errors and self._is_config_server_error(e):
+                logging.warning(f"Read failed: config server unavailable - tolerated")
+            else:
+                raise
+
+    def _do_write(self, collection, tolerate_election_errors: bool):
+        try:
+            collection.insert_one({})
+        except (NotPrimaryError, AutoReconnect, ServerSelectionTimeoutError) as e:
+            if tolerate_election_errors:
+                logging.warning(f"Write failed: {type(e).__name__} - tolerated")
+            else:
+                raise
+        except OperationFailure as e:
+            if tolerate_election_errors and self._is_config_server_error(e):
+                logging.warning(f"Write failed: config server unavailable - tolerated")
+            else:
+                raise
+
     def assert_connectivity(
         self,
         attempts: int = 50,
@@ -195,28 +221,8 @@ class MongoTester:
                 if write_concern:
                     d = self.client.get_database(name=db, write_concern=write_concern)
                     c = d.get_collection(name=col)
-                    try:
-                        # Read test - should succeed, can go to secondaries
-                        c.with_options(read_preference=pymongo.ReadPreference.PRIMARY_PREFERRED).find_one({})
-                        # Write test - requires primary
-                        c.insert_one({})
-                    except (NotPrimaryError, AutoReconnect, ServerSelectionTimeoutError) as e:
-                        if tolerate_election_errors:
-                            logging.warning(
-                                f"Operation failed due to primary unavailable ({type(e).__name__}) - tolerated"
-                            )
-                        else:
-                            raise
-                    except OperationFailure as e:
-                        # Code 133 = FailedToSatisfyReadPreference
-                        # Only tolerate if it's config server unavailability (expected during sharded cluster rolling updates)
-                        is_config_server_error = e.code == 133 and "config" in str(e).lower()
-                        if tolerate_election_errors and is_config_server_error:
-                            logging.warning(
-                                f"Operation failed due to config server unavailable (code {e.code}) - tolerated"
-                            )
-                        else:
-                            raise
+                    self._do_read(c, tolerate_election_errors)
+                    self._do_write(c, tolerate_election_errors)
                 if "authMechanism" in options:
                     # Perform an action that will require auth.
                     self.client[db][col].insert_one({})
