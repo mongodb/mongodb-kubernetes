@@ -15,7 +15,7 @@ from kubetester.phase import Phase
 from opentelemetry import trace
 from pycognito import Cognito
 from pymongo.auth_oidc import OIDCCallback, OIDCCallbackContext, OIDCCallbackResult
-from pymongo.errors import NotPrimaryError, OperationFailure, PyMongoError, ServerSelectionTimeoutError
+from pymongo.errors import AutoReconnect, NotPrimaryError, OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pytest import fail
 
 TEST_DB = "test-db"
@@ -193,13 +193,22 @@ class MongoTester:
                 logging.warning(f"connected nodes: {self.client.nodes}")
                 self.client.admin.command("ismaster")
                 if write_concern:
+                    d = self.client.get_database(name=db, write_concern=write_concern)
+                    c = d.get_collection(name=col)
+                    # Read test - must always succeed (can go to secondaries)
+                    c.with_options(read_preference=pymongo.ReadPreference.PRIMARY_PREFERRED).find_one({})
+                    # Write test - may fail during elections
                     try:
-                        d = self.client.get_database(name=db, write_concern=write_concern)
-                        c = d.get_collection(name=col)
                         c.insert_one({})
-                    except NotPrimaryError:
+                    except (NotPrimaryError, AutoReconnect, ServerSelectionTimeoutError) as e:
                         if tolerate_election_errors:
-                            logging.warning("Write failed due to election - tolerated")
+                            logging.warning(f"Write failed due to primary unavailable ({type(e).__name__}) - tolerated")
+                        else:
+                            raise
+                    except OperationFailure as e:
+                        # Code 133 = FailedToSatisfyReadPreference (can't find primary)
+                        if tolerate_election_errors and e.code == 133:
+                            logging.warning(f"Write failed due to primary unavailable (OperationFailure: {e.code}) - tolerated")
                         else:
                             raise
                 if "authMechanism" in options:
