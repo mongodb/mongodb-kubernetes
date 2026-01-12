@@ -13,3 +13,19 @@ mongorestore \
   --uri="${MDB_CONNECTION_STRING}"
 EOF
 )"
+
+# Restore sample_mflix database. Provide any TLS parameters directly within MDB_CONNECTION_STRING.
+kubectl exec -n "${MDB_NS}" --context "${K8S_CTX}" \
+  mongodb-tools-pod-auto-embedding -- env MDB_CONNECTION_STRING_AUTO_EMBEDDING="${MDB_CONNECTION_STRING_AUTO_EMBEDDING}" /bin/bash -eu -c "$(cat <<'EOF'
+echo "Downloading sample database archive..."
+curl -fSL https://atlas-education.s3.amazonaws.com/sample_mflix.archive -o /tmp/sample_mflix.archive
+
+echo "Restoring sample database"
+mongorestore \
+  --archive=/tmp/sample_mflix.archive \
+  --verbose=1 \
+  --drop \
+  --nsInclude 'sample_mflix.*' \
+  --uri="${MDB_CONNECTION_STRING_AUTO_EMBEDDING}"
+EOF
+)"

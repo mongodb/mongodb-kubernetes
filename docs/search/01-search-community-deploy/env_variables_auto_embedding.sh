@@ -1,0 +1,52 @@
+# set it to the context name of the k8s cluster
+export K8S_CTX="<local cluster context>"
+
+# the following namespace will be created if not exists
+export MDB_NS="mongodb"
+
+# MongoDBCommunity resource name referenced throughout the guide
+export MDB_RESOURCE_NAME="mdbc-rs"
+
+export MDB_RESOURCE_NAME_AUTO_EMBEDDING="mdbc-rs-embedding"
+
+# Number of replica set members deployed in the sample MongoDBCommunity
+export MDB_MEMBERS=3
+
+# TLS-related secret names used for MongoDBCommunity and MongoDBSearch
+export MDB_TLS_CA_SECRET_NAME_AUTO_EMBEDDING="${MDB_RESOURCE_NAME_AUTO_EMBEDDING}-ca"
+export MDB_TLS_SERVER_CERT_SECRET_NAME_AUTO_EMBEDDING="${MDB_RESOURCE_NAME_AUTO_EMBEDDING}-tls"
+export MDB_SEARCH_TLS_SECRET_NAME_AUTO_EMBEDDING="${MDB_RESOURCE_NAME_AUTO_EMBEDDING}-search-tls"
+
+export MDB_TLS_CA_CONFIGMAP_AUTO_EMBEDDING="${MDB_RESOURCE_NAME_AUTO_EMBEDDING}-ca-configmap"
+export MDB_TLS_SELF_SIGNED_ISSUER_AUTO_EMBEDDING="${MDB_RESOURCE_NAME_AUTO_EMBEDDING}-selfsigned-cluster-issuer"
+export MDB_TLS_CA_CERT_NAME_AUTO_EMBEDDING="${MDB_RESOURCE_NAME_AUTO_EMBEDDING}-selfsigned-ca"
+export MDB_TLS_CA_ISSUER_AUTO_EMBEDDING="${MDB_RESOURCE_NAME_AUTO_EMBEDDING}-cluster-issuer"
+
+# minimum required MongoDB version for running MongoDB Search is 8.2.0
+export MDB_VERSION="8.2.0"
+
+# root admin user for convenience, not used here at all in this guide
+export MDB_ADMIN_USER_PASSWORD="admin-user-password-CHANGE-ME"
+# regular user performing restore and search queries on sample mflix database
+export MDB_USER_PASSWORD="mdb-user-password-CHANGE-ME"
+# user for MongoDB Search to connect to the replica set to synchronise data from
+export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
+
+export OPERATOR_HELM_CHART="mongodb/mongodb-kubernetes"
+# comma-separated key=value pairs for additional parameters passed to the helm-chart installing the operator
+export OPERATOR_ADDITIONAL_HELM_VALUES=""
+
+# TLS is mandatory; connection string must include tls=true
+# export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME}-0.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_RESOURCE_NAME}&tls=true&tlsCAFile=/tls/ca.crt"
+export MDB_CONNECTION_STRING_AUTO_EMBEDDING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME_AUTO_EMBEDDING}-0.${MDB_RESOURCE_NAME_AUTO_EMBEDDING}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_RESOURCE_NAME_AUTO_EMBEDDING}&tls=true&tlsCAFile=/tls/ca.crt"
+
+export CERT_MANAGER_NAMESPACE="cert-manager"
+
+# AUTO_EMBEDDING_API_INDEXING_KEY and AUTO_EMBEDDING_API_QUERY_KEY will be used to create the K8s secret
+# that will be used in search resource to enable auto embedding for vector search
+export AUTO_EMBEDDING_API_INDEXING_KEY="${VOYAGE_API_KEY}"
+export AUTO_EMBEDDING_API_QUERY_KEY="${VOYAGE_API_KEY}"
+export AUTO_EMBEDDING_API_KEY_SECRET_NAME="voyage-api-keys"
+
+# PROVIDER_ENDPOINT has the embedding model's provider endpoint
+export PROVIDER_ENDPOINT="https://ai.mongodb.com/v1/embeddings"

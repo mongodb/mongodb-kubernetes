@@ -20,6 +20,7 @@ trap dump_logs EXIT
 
 test_dir="./docs/search/01-search-community-deploy"
 source "${test_dir}/env_variables.sh"
+source "${test_dir}/env_variables_auto_embedding.sh"
 echo "Sourcing env variables for ${CODE_SNIPPETS_FLAVOR} flavor"
 # shellcheck disable=SC1090
 test -f "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh" && source "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh"
@@ -32,5 +33,5 @@ test -f "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh" && source "${test
 
 export MDB_RESOURCE_NAME="mdbc-rs"
 export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME}-0.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_RESOURCE_NAME}&tls=true&tlsCAFile=/tls/ca.crt"
-
+export MDB_CONNECTION_STRING_AUTO_EMBEDDING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME_AUTO_EMBEDDING}-0.${MDB_RESOURCE_NAME_AUTO_EMBEDDING}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_RESOURCE_NAME_AUTO_EMBEDDING}&tls=true&tlsCAFile=/tls/ca.crt"
 ${test_dir}/test.sh
