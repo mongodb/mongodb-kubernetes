@@ -195,20 +195,26 @@ class MongoTester:
                 if write_concern:
                     d = self.client.get_database(name=db, write_concern=write_concern)
                     c = d.get_collection(name=col)
-                    # Read test - must always succeed (can go to secondaries)
-                    c.with_options(read_preference=pymongo.ReadPreference.PRIMARY_PREFERRED).find_one({})
-                    # Write test - may fail during elections
                     try:
+                        # Read test - should succeed, can go to secondaries
+                        c.with_options(read_preference=pymongo.ReadPreference.PRIMARY_PREFERRED).find_one({})
+                        # Write test - requires primary
                         c.insert_one({})
                     except (NotPrimaryError, AutoReconnect, ServerSelectionTimeoutError) as e:
                         if tolerate_election_errors:
-                            logging.warning(f"Write failed due to primary unavailable ({type(e).__name__}) - tolerated")
+                            logging.warning(
+                                f"Operation failed due to primary unavailable ({type(e).__name__}) - tolerated"
+                            )
                         else:
                             raise
                     except OperationFailure as e:
-                        # Code 133 = FailedToSatisfyReadPreference (can't find primary)
-                        if tolerate_election_errors and e.code == 133:
-                            logging.warning(f"Write failed due to primary unavailable (OperationFailure: {e.code}) - tolerated")
+                        # Code 133 = FailedToSatisfyReadPreference
+                        # Only tolerate if it's config server unavailability (expected during sharded cluster rolling updates)
+                        is_config_server_error = e.code == 133 and "config" in str(e).lower()
+                        if tolerate_election_errors and is_config_server_error:
+                            logging.warning(
+                                f"Operation failed due to config server unavailable (code {e.code}) - tolerated"
+                            )
                         else:
                             raise
                 if "authMechanism" in options:
