@@ -44,8 +44,8 @@ export CERT_MANAGER_NAMESPACE="cert-manager"
 
 # AUTO_EMBEDDING_API_INDEXING_KEY and AUTO_EMBEDDING_API_QUERY_KEY will be used to create the K8s secret
 # that will be used in search resource to enable auto embedding for vector search
-export AUTO_EMBEDDING_API_INDEXING_KEY="${VOYAGE_API_KEY}"
-export AUTO_EMBEDDING_API_QUERY_KEY="${VOYAGE_API_KEY}"
+export AUTO_EMBEDDING_API_INDEXING_KEY="<voyage-api-indexing-key>"
+export AUTO_EMBEDDING_API_QUERY_KEY="<voyage-api-querying-key>"
 export AUTO_EMBEDDING_API_KEY_SECRET_NAME="voyage-api-keys"
 
 # PROVIDER_ENDPOINT has the embedding model's provider endpoint

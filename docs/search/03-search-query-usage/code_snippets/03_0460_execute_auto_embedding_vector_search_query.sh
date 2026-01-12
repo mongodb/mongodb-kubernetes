@@ -7,8 +7,7 @@ db.movies.aggregate([
        "path": "plot",
        "query": "spy thriller",
        "numCandidates": 150,
-       "limit": 10,
-       "quantization": "scalar"
+       "limit": 10
      }
    },
    {
