@@ -47,12 +47,10 @@ def mongod_tester(sc: MongoDB) -> MongoTester:
 def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
     return MongoDBBackgroundTester(
         mongod_tester,
-        # After running multiple tests, it seems that on sharded_cluster version changes we have more sequential errors.
         allowed_sequential_failures=5,
         health_function_params={
             "attempts": 1,
             "write_concern": pymongo.WriteConcern(w="majority"),
-            "tolerate_election_errors": True,
         },
     )
 
@@ -85,6 +83,7 @@ class TestShardedClusterUpgradeDowngradeUpdate:
         sc["spec"]["featureCompatibilityVersion"] = fcv
         sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=2400)
+        sc.wait_for_agents_goal_state(timeout=300)
 
     def test_db_connectable(self, mongod_tester: MongoTester, custom_mdb_version: str):
         mongod_tester.assert_connectivity()
@@ -98,6 +97,7 @@ class TestShardedClusterUpgradeDowngradeRevert:
         sc.set_version(custom_mdb_prev_version)
         sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=2400)
+        sc.wait_for_agents_goal_state(timeout=300)
 
     def test_db_connectable(self, mongod_tester: MongoTester, custom_mdb_prev_version):
         mongod_tester.assert_connectivity()

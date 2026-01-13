@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
 import time
@@ -589,6 +591,68 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def is_multicluster(self) -> bool:
         return self["spec"].get("topology", None) == "MultiCluster"
+
+    def get_all_pod_names(self) -> List[str]:
+        """Get all pod names for this MongoDB resource."""
+        pods = []
+        if self.type == "ShardedCluster":
+            # Shards
+            shard_count = self["spec"].get("shardCount", 0)
+            mongods_per_shard = self["spec"].get("mongodsPerShardCount", 0)
+            for shard_idx in range(shard_count):
+                for member_idx in range(mongods_per_shard):
+                    pods.append(self.shard_pod_name(shard_idx, member_idx))
+            # Config servers
+            config_count = self["spec"].get("configServerCount", 0)
+            for member_idx in range(config_count):
+                pods.append(self.config_srv_pod_name(member_idx))
+            # Mongos
+            mongos_count = self["spec"].get("mongosCount", 0)
+            for member_idx in range(mongos_count):
+                pods.append(self.mongos_pod_name(member_idx))
+        elif self.type == "ReplicaSet":
+            members = self["spec"].get("members", 0)
+            for member_idx in range(members):
+                pods.append(f"{self.name}-{member_idx}")
+        return pods
+
+    def read_agent_health_status(self, pod_name: str, api_client=None) -> dict:
+        """Read agent-health-status.json from a pod."""
+        cmd = ["cat", "/var/log/mongodb-mms-automation/agent-health-status.json"]
+        try:
+            result = KubernetesTester.run_command_in_pod_container(
+                pod_name, self.namespace, cmd, container="mongodb-enterprise-database", api_client=api_client
+            )
+            return json.loads(result)
+        except Exception as e:
+            logging.warning(f"Failed to read agent health status from {pod_name}: {e}")
+            return {}
+
+    def wait_for_agents_goal_state(self, timeout: int = 300, api_client=None):
+        """Wait for all agents to reach goal state."""
+        pods = self.get_all_pod_names()
+        start = time.time()
+        while time.time() - start < timeout:
+            all_in_goal = True
+            for pod in pods:
+                status = self.read_agent_health_status(pod, api_client)
+                statuses = status.get("statuses", {})
+                if not statuses:
+                    all_in_goal = False
+                    logging.info(f"Pod {pod}: no status yet")
+                    break
+                for process, health in statuses.items():
+                    if not health.get("IsInGoalState", False):
+                        all_in_goal = False
+                        logging.info(f"Pod {pod} process {process}: not in goal state")
+                        break
+                if not all_in_goal:
+                    break
+            if all_in_goal:
+                logging.info("All agents reached goal state")
+                return
+            time.sleep(5)
+        raise TimeoutError(f"Agents did not reach goal state within {timeout}s")
 
     class Types:
         REPLICA_SET = "ReplicaSet"

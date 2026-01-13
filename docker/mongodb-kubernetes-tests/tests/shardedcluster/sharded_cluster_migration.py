@@ -49,11 +49,10 @@ def mongo_tester(mdb: MongoDB):
 def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
     return MongoDBBackgroundTester(
         mongo_tester,
-        allowed_sequential_failures=1,
+        allowed_sequential_failures=5,
         health_function_params={
             "attempts": 1,
             "write_concern": pymongo.WriteConcern(w="majority"),
-            "tolerate_election_errors": True,
         },
     )
 
@@ -86,6 +85,7 @@ class TestShardedClusterMigrationStatic:
 
         mdb.assert_abandons_phase(Phase.Running, timeout=1200)
         mdb.assert_reaches_phase(Phase.Running, timeout=1200)
+        mdb.wait_for_agents_goal_state(timeout=300)
 
         # Read StatefulSet after successful reconciliation
         for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(mdb.name, mdb.namespace):
