@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,8 +88,8 @@ const (
 	// Used to convey to the operator to force reconfigure agent. At the moment
 	// it is used for DR in case of Multi-Cluster AppDB when after a cluster outage
 	// there is no primary in the AppDB deployment.
-	ForceReconfigureAnnotation = "mongodb.com/v1.forceReconfigure"
-
+	ForceReconfigureAnnotation                  = "mongodb.com/v1.forceReconfigure"
+	trueString                                  = "true"
 	ForcedReconfigureAlreadyPerformedAnnotation = "mongodb.com/v1.forceReconfigurePerformed"
 )
 
@@ -717,7 +718,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		opsManager.Annotations = map[string]string{}
 	}
 
-	if val, ok := opsManager.Annotations[ForceReconfigureAnnotation]; ok && val == "true" {
+	if val, ok := opsManager.Annotations[ForceReconfigureAnnotation]; ok && val == trueString {
 		annotationsToAdd := map[string]string{ForcedReconfigureAlreadyPerformedAnnotation: timeutil.Now()}
 
 		err := annotations.SetAnnotations(ctx, opsManager, annotationsToAdd, r.client)
@@ -1178,7 +1179,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		}).
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {
 			if acType == monitoring {
-				addMonitoring(automationConfig, log, rs.GetSecurity().IsTLSEnabled())
+				configureMonitoring(automationConfig, log, rs.GetSecurity().IsTLSEnabled())
 				automationConfig.ReplicaSets = []automationconfig.ReplicaSet{}
 				automationConfig.Processes = []automationconfig.Process{}
 			}
@@ -1248,7 +1249,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 // it checks this with the user provided annotation and if the operator has actually performed a force reconfigure already
 func shouldPerformForcedReconfigure(annotations map[string]string) bool {
 	if val, ok := annotations[ForceReconfigureAnnotation]; ok {
-		if val == "true" {
+		if val == trueString {
 			if _, ok := annotations[ForcedReconfigureAlreadyPerformedAnnotation]; !ok {
 				return true
 			}
@@ -1423,37 +1424,36 @@ func setBaseUrlForAgents(ac *automationconfig.AutomationConfig, url string) {
 	}
 }
 
-func addMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
+func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
 	if len(ac.Processes) == 0 {
 		return
 	}
+
 	monitoringVersions := ac.MonitoringVersions
 	for _, p := range ac.Processes {
-		found := false
-		for _, m := range monitoringVersions {
-			if m.Hostname == p.HostName {
-				found = true
-				break
-			}
-		}
-		if !found {
-			monitoringVersion := automationconfig.MonitoringVersion{
-				Hostname: p.HostName,
+		hostname := p.HostName
+		pemKeyFile := p.Args26.Get("net.tls.certificateKeyFile").String()
+
+		foundIdx := slices.IndexFunc(monitoringVersions, func(m automationconfig.MonitoringVersion) bool {
+			return m.Hostname == hostname
+		})
+
+		if foundIdx == -1 {
+			mv := automationconfig.MonitoringVersion{
+				Hostname: hostname,
 				Name:     om.MonitoringAgentDefaultVersion,
 			}
 			if tls {
-				additionalParams := map[string]string{
-					"useSslForAllConnections":      "true",
-					"sslTrustedServerCertificates": appdbCAFilePath,
-				}
-				pemKeyFile := p.Args26.Get("net.tls.certificateKeyFile")
-				if pemKeyFile != nil {
-					additionalParams["sslClientCertificate"] = pemKeyFile.String()
-				}
-				monitoringVersion.AdditionalParams = additionalParams
+				mv.AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)
 			}
-			log.Debugw("Added monitoring agent configuration", "host", p.HostName, "tls", tls)
-			monitoringVersions = append(monitoringVersions, monitoringVersion)
+			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
+			monitoringVersions = append(monitoringVersions, mv)
+		} else {
+			if tls {
+				monitoringVersions[foundIdx].AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)
+			} else {
+				om.ClearTLSParams(monitoringVersions[foundIdx].AdditionalParams)
+			}
 		}
 	}
 	ac.MonitoringVersions = monitoringVersions
@@ -1497,6 +1497,22 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(hostnames []str
 			}
 		}
 	}
+
+	// Remove hosts that are no longer in the desired list (scale-down scenario)
+	desiredHostnames := make(map[string]struct{})
+	for _, h := range hostnames {
+		desiredHostnames[h] = struct{}{}
+	}
+
+	for _, existingHost := range getHostsResult.Results {
+		if _, wanted := desiredHostnames[existingHost.Hostname]; !wanted {
+			log.Debugf("Removing AppDB host %s from monitoring as it's no longer needed", existingHost.Hostname)
+			if err := conn.RemoveHost(existingHost.Id); err != nil {
+				return xerrors.Errorf("error removing appdb host %s: %w", existingHost.Hostname, err)
+			}
+		}
+	}
+
 	return nil
 }
 

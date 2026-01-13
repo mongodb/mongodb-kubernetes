@@ -21,6 +21,14 @@ type Config struct {
 	Metrics     ConfigMetrics     `json:"metrics"`
 	HealthCheck ConfigHealthCheck `json:"healthCheck"`
 	Logging     ConfigLogging     `json:"logging"`
+	Embedding   *EmbeddingConfig  `json:"embedding,omitempty"`
+}
+
+type EmbeddingConfig struct {
+	QueryKeyFile              string `json:"queryKeyFile" yaml:"queryKeyFile,omitempty"`
+	IndexingKeyFile           string `json:"indexingKeyFile" yaml:"indexingKeyFile,omitempty"`
+	ProviderEndpoint          string `json:"providerEndpoint" yaml:"providerEndpoint,omitempty"`
+	IsAutoEmbeddingViewWriter *bool  `json:"isAutoEmbeddingViewWriter" yaml:"isAutoEmbeddingViewWriter,omitempty"`
 }
 
 type ConfigSyncSource struct {

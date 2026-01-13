@@ -19,6 +19,7 @@ from tests.olm.olm_test_commons import (
     get_current_operator_version,
     get_latest_released_operator_version,
     get_operator_group_resource,
+    get_registry_env_vars_for_subscription,
     get_subscription_custom_object,
     increment_patch_version,
     wait_for_operator_ready,
@@ -54,8 +55,21 @@ def catalog_source(namespace: str, version_id: str):
 
 
 @fixture
-def subscription(namespace: str, catalog_source: CustomObject):
+def subscription(namespace: str, catalog_source: CustomObject, operator_installation_config: dict[str, str]):
     static_value = get_default_architecture()
+    base_env_vars = [
+        {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
+        {"name": "OPERATOR_ENV", "value": "dev"},
+        {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
+        {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
+    ]
+    # Add registry env vars for patch builds (ECR registries for unreleased images)
+    # MCK-to-MCK upgrades use non-suffixed agent versions that exist in ECR
+    registry_env_vars = get_registry_env_vars_for_subscription(
+        operator_installation_config, include_agent_registry=True
+    )
+    all_env_vars = base_env_vars + registry_env_vars
+
     return get_subscription_custom_object(
         OPERATOR_NAME,
         namespace,
@@ -67,14 +81,7 @@ def subscription(namespace: str, catalog_source: CustomObject):
             "installPlanApproval": "Automatic",
             # In certified OpenShift bundles we have this enabled, so the operator is not defining security context (it's managed globally by OpenShift).
             # In Kind this will result in empty security contexts and problems deployments with filesystem permissions.
-            "config": {
-                "env": [
-                    {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
-                    {"name": "OPERATOR_ENV", "value": "dev"},
-                    {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
-                    {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
-                ]
-            },
+            "config": {"env": all_env_vars},
         },
     )
 

@@ -10,17 +10,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
-from tests.conftest import (
-    default_external_domain,
-    external_domain_fqdns,
-    is_multi_cluster,
-    update_coredns_hosts,
-)
-from tests.opsmanager.om_ops_manager_backup import (
-    BLOCKSTORE_RS_NAME,
-    OPLOG_RS_NAME,
-    S3_SECRET_NAME,
-)
+from tests.conftest import default_external_domain, external_domain_fqdns, is_multi_cluster, update_coredns_hosts
+from tests.opsmanager.om_ops_manager_backup import BLOCKSTORE_RS_NAME, OPLOG_RS_NAME, S3_SECRET_NAME
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"

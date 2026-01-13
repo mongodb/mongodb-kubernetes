@@ -16,10 +16,7 @@ from tests.conftest import (
     install_legacy_deployment_state_meko,
     log_deployments_info,
 )
-from tests.constants import (
-    LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
-    MULTI_CLUSTER_OPERATOR_NAME,
-)
+from tests.constants import LEGACY_MULTI_CLUSTER_OPERATOR_NAME, MULTI_CLUSTER_OPERATOR_NAME
 from tests.multicluster.conftest import cluster_spec_list
 from tests.upgrades import downscale_operator_deployment
 

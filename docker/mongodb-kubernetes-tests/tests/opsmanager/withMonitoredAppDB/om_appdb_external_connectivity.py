@@ -9,11 +9,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.common.placeholders import placeholders
-from tests.conftest import (
-    default_external_domain,
-    external_domain_fqdns,
-    update_coredns_hosts,
-)
+from tests.conftest import default_external_domain, external_domain_fqdns, update_coredns_hosts
 
 OM_NAME = "om-appdb-external"
 APPDB_NAME = f"{OM_NAME}-db"

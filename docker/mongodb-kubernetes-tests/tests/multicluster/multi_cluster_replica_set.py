@@ -12,11 +12,7 @@ from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.conftest import (
-    assert_log_rotation_process,
-    member_cluster_clients,
-    setup_log_rotate_for_agents,
-)
+from tests.conftest import assert_log_rotation_process, member_cluster_clients, setup_log_rotate_for_agents
 from tests.multicluster.conftest import cluster_spec_list
 
 MONGODB_PORT = 30000

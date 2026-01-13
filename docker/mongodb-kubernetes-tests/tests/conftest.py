@@ -20,11 +20,7 @@ from kubetester import (
     update_configmap,
 )
 from kubetester.awss3client import AwsS3Client
-from kubetester.helm import (
-    helm_chart_path_and_version,
-    helm_install_from_chart,
-    helm_repo_add,
-)
+from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import running_locally
@@ -961,6 +957,25 @@ def install_official_operator(
         "operator.mdbDefaultArchitecture": operator_installation_config["operator.mdbDefaultArchitecture"],
     }
 
+    # For upgrade tests in patch builds, we need to use ECR registries for workload images
+    # (OpsManager, Agent, etc.) since new versions may not be released to quay.io yet.
+    # The operator itself still comes from the official helm chart, but resources it creates
+    # should use the dev registries where unreleased images are available.
+    # For staging/release builds, images are already published to quay.io, so we use quay.io
+    # to verify the actual public release path.
+    build_scenario = operator_installation_config.get("buildScenario", "")
+    if build_scenario == "patch":
+        logger.debug("Patch build detected: using ECR registries for workload images in upgrade tests")
+        # Override OM registry for ALL operators (including legacy) - OM version tags are standard (e.g., 7.0.21)
+        if "registry.opsManager" in operator_installation_config:
+            helm_args["registry.opsManager"] = operator_installation_config["registry.opsManager"]
+
+        # Only override Agent registry for current operator (not legacy) because legacy operators
+        # use different agent tag formats (e.g., 13.21.0.9059-1_1.27.0) that don't exist in ECR.
+        # Init images are already released to quay.io and don't need ECR override.
+        if custom_operator_version is None and "registry.agent" in operator_installation_config:
+            helm_args["registry.agent"] = operator_installation_config["registry.agent"]
+
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead of the "ubi"
     # images are used for installing the dev Operator
@@ -1008,9 +1023,9 @@ def install_official_operator(
                 "multiCluster.clusters": operator_installation_config["multiCluster.clusters"],
             }
         )
-        # The "official" Operator will be installed, from the Helm Repo ("mongodb/enterprise-operator")
-        # We pass helm_args as operator installation config below instead of the full configmap data, otherwise
-        # it overwrites registries and image versions, and we wouldn't use the official images but the dev ones
+        # The "official" Operator will be installed from the Helm Repo ("mongodb/enterprise-operator")
+        # but workload images (OpsManager, Agent, etc.) will use dev registries from operator_installation_config
+        # to support testing unreleased versions in patch builds.
         return _install_multi_cluster_operator(
             namespace,
             helm_args,

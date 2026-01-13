@@ -13,9 +13,9 @@ include:
 variables:
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_70_latest 7.0.20 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_70_latest 7.0.21 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.17 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.18 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -146,6 +146,11 @@ variables:
         variant: init_test_run
       - name: publish_helm_chart
         variant: init_test_run
+      # Wait for OM images to be published to quay.io on commit builds (staging).
+      # On patch builds, this dependency is skipped (task doesn't exist).
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+        patch_optional: true
 
   - &base_om7_dependency_with_race
     depends_on:
@@ -185,6 +190,11 @@ variables:
         variant: init_test_run
       - name: publish_helm_chart
         variant: init_test_run
+      # Wait for OM images to be published to quay.io on commit builds (staging).
+      # On patch builds, this dependency is skipped (task doesn't exist).
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+        patch_optional: true
 
 parameters:
   - key: evergreen_retry
@@ -407,7 +417,6 @@ tasks:
       - func: setup_building_host_minikube
         vars:
           skip_minikube_setup: true
-          skip_install_python_requirements: false
       - func: download_multi_cluster_binary
         vars:
           platform: linux/s390x
@@ -421,7 +430,6 @@ tasks:
       - func: setup_building_host_minikube
         vars:
           skip_minikube_setup: true
-          skip_install_python_requirements: false
       - func: download_multi_cluster_binary
         vars:
           platform: linux/ppc64le

@@ -10,10 +10,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import get_member_cluster_api_client, is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_multi_cluster_deployment,
-    get_om_member_cluster_names,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment, get_om_member_cluster_names
 
 # This version is not supported by the Ops Manager and is not present in the local mode.
 VERSION_NOT_IN_OPS_MANAGER = "6.0.4"

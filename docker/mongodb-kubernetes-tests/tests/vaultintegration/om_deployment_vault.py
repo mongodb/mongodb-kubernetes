@@ -4,13 +4,7 @@ from typing import Optional
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import (
-    create_configmap,
-    create_secret,
-    delete_secret,
-    get_statefulset,
-    read_secret,
-)
+from kubetester import create_configmap, create_secret, delete_secret, get_statefulset, read_secret
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, assert_container_count_with_static
 from kubetester.kubetester import fixture as yaml_fixture

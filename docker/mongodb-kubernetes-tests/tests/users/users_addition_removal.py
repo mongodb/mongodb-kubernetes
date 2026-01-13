@@ -3,12 +3,7 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.x509.oid import NameOID
 from kubetester import find_fixture
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    Certificate,
-    create_agent_tls_certs,
-    create_mongodb_tls_certs,
-)
+from kubetester.certs import ISSUER_CA_NAME, Certificate, create_agent_tls_certs, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB

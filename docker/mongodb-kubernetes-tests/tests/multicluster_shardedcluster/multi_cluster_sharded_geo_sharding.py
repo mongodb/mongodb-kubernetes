@@ -13,9 +13,7 @@ from tests.multicluster_shardedcluster import (
     assert_mongos_sts_members_count,
     assert_shard_sts_members_count,
 )
-from tests.shardedcluster.conftest import (
-    get_member_cluster_clients_using_cluster_mapping,
-)
+from tests.shardedcluster.conftest import get_member_cluster_clients_using_cluster_mapping
 
 MDB_RESOURCE_NAME = "sh-geo-sharding"
 logger = test_logger.get_test_logger(__name__)

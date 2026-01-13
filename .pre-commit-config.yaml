@@ -1,0 +1,129 @@
+# Pre-commit configuration for mongodb-kubernetes
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+default_stages: [pre-commit]
+
+# Hooks run serially in definition order. The following local hooks have
+# dependencies and must run in this order:
+#   1. update-release-json: writes release.json
+#   2. update-values-yaml: reads release.json, writes helm values files
+#   3. generate-standalone-yaml: reads helm values files
+#   4. generate-and-update: remaining parallel jobs
+repos:
+  - repo: local
+    hooks:
+      - id: update-release-json
+        name: update-release-json
+        entry: scripts/dev/generate_files.sh update_release
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: update-values-yaml
+        name: update-values-yaml
+        entry: scripts/dev/generate_files.sh update_values
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: generate-standalone-yaml
+        name: generate-standalone-yaml
+        entry: scripts/dev/generate_files.sh generate_standalone_yaml
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      # Remaining generation jobs run in parallel
+      - id: generate-and-update
+        name: generate-and-update (parallel)
+        entry: scripts/dev/generate_files.sh generate_all
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: validate-snippets
+        name: validate-snippets
+        entry: scripts/code_snippets/validate_snippets.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: validate-helm-charts
+        name: validate-helm-charts
+        entry: scripts/dev/lint_helm_chart.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # TODO: Enable these hooks in a follow-up PR - they modify 200+ files
+      # - id: trailing-whitespace
+      #   exclude: |
+      #     (?x)^(
+      #       .*\.patch$|
+      #       vendor/.*|
+      #       testdata/.*|
+      #       helm_chart/crds/.*|
+      #       public/crds\.yaml$|
+      #       config/crd/bases/.*
+      #     )
+      # - id: end-of-file-fixer
+      #   exclude: |
+      #     (?x)^(
+      #       .*\.patch$|
+      #       vendor/.*|
+      #       testdata/.*|
+      #       helm_chart/crds/.*|
+      #       public/crds\.yaml$|
+      #       config/crd/bases/.*
+      #     )
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-json
+        exclude: |
+          (?x)^(
+            vendor/.*|
+            testdata/.*
+          )
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        language_version: python3
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: [-e, SC2154, -e, SC1091, -e, SC1090, -e, SC2148, -o, require-variable-braces, -P, scripts]
+        exclude: |
+          (?x)^(
+            vendor/.*|
+            scripts/dev/contexts/private-context.*
+          )
+        files: |
+          (?x)(
+            \.sh$|
+            ^scripts/dev/contexts/[^/]+$|
+            ^scripts/funcs/[^/]+$
+          )
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.62.2
+    hooks:
+      - id: golangci-lint
+        args: [--timeout=10m]

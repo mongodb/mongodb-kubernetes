@@ -3,10 +3,7 @@ import argparse
 from scripts.release.build.build_info import BUILDER_DOCKER, BUILDER_PODMAN
 from scripts.release.build.build_scenario import BuildScenario
 from scripts.release.build.image_build_configuration import SUPPORTED_PLATFORMS
-from scripts.release.build.image_build_process import (
-    DockerImageBuilder,
-    PodmanImageBuilder,
-)
+from scripts.release.build.image_build_process import DockerImageBuilder, PodmanImageBuilder
 
 
 def str2bool(v):

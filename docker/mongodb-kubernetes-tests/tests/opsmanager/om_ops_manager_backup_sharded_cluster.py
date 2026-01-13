@@ -2,12 +2,7 @@ import time
 from typing import Optional
 
 from kubernetes.client.rest import ApiException
-from kubetester import (
-    create_or_update_secret,
-    get_default_storage_class,
-    try_load,
-    wait_until,
-)
+from kubetester import create_or_update_secret, get_default_storage_class, try_load, wait_until
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -21,12 +16,8 @@ from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
-from tests.shardedcluster.conftest import (
-    enable_multi_cluster_deployment as enable_multi_cluster_deployment_mdb,
-)
-from tests.shardedcluster.conftest import (
-    get_mongos_service_names,
-)
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment as enable_multi_cluster_deployment_mdb
+from tests.shardedcluster.conftest import get_mongos_service_names
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"

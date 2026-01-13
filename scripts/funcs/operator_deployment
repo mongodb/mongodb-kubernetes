@@ -9,6 +9,7 @@ get_operator_helm_values() {
 
   declare -a config=(
     "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
+    "buildScenario=${BUILD_SCENARIO:-}"
     "registry.operator=${OPERATOR_REGISTRY}"
     "registry.imagePullSecrets=image-registries-secret"
     "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY}"
