@@ -4,7 +4,7 @@ kubectl exec --context "${K8S_CTX}" -n "${MDB_NS}" mongodb-tools-pod -- \
     --eval 'db.movies.createSearchIndex("vector_auto_embed_index", "vectorSearch",
       { "fields": [ {
         "type": "autoEmbed",
-        "path": "plot",
         "modality": "text",
+        "path": "plot",
         "model": "voyage-3.5-lite"
       } ] });'
