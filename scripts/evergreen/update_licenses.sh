@@ -21,14 +21,14 @@ process_licenses() {
         return 1
     fi
 
-    echo "Go licenses version"
-
     PATH=$(go env GOPATH)/bin:${PATH} GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv 2> licenses_stderr  || true
+
 
     cat licenses_stderr
 
     # Filter and sort the licenses report
-    grep -v 10gen licenses_full.csv | grep -v "github.com/mongodb" | grep -v "^golang.org" | sort > LICENSE-THIRD-PARTY || true
+    # Use LC_COLLATE=C to ensure consistent ASCII sorting across macOS and Linux
+    grep -v 10gen licenses_full.csv | grep -v "github.com/mongodb" | grep -v "^golang.org" | LC_COLLATE=C sort > LICENSE-THIRD-PARTY || true
 
     # Return to the repo root directory
     cd "${REPO_DIR}" || exit
