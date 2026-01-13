@@ -9,9 +9,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.common.constants import MEMBER_CLUSTER_2, MEMBER_CLUSTER_3
-from tests.common.ops_manager.multi_cluster import (
-    ops_manager_multi_cluster_with_tls_s3_backups,
-)
+from tests.common.ops_manager.multi_cluster import ops_manager_multi_cluster_with_tls_s3_backups
 from tests.conftest import (
     create_issuer_ca_configmap,
     get_aws_s3_client,
@@ -30,10 +28,7 @@ from tests.conftest import (
 )
 from tests.multicluster import prepare_multi_cluster_namespaces
 from tests.multicluster.conftest import cluster_spec_list, create_namespace
-from tests.multicluster_appdb.conftest import (
-    create_s3_bucket_blockstore,
-    create_s3_bucket_oplog,
-)
+from tests.multicluster_appdb.conftest import create_s3_bucket_blockstore, create_s3_bucket_oplog
 
 # This test requires a cluster-wide operator.
 # To run it locally you must specify the following in private-context:

@@ -1277,7 +1277,7 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 	require.NoError(t, err)
 	automationConfig, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
 	require.NoError(t, err)
-	normalizedActualReplicaSets, err := normalizeObjectToInterfaceMap(map[string]any{"replicaSets": automationConfig.Deployment.ReplicaSets()})
+	normalizedActualReplicaSets, err := normalizeObjectToInterfaceMap(map[string]any{"replicaSets": automationConfig.Deployment.GetReplicaSets()})
 	require.NoError(t, err)
 	if !assert.Equal(t, normalizedExpectedReplicaSets, normalizedActualReplicaSets) {
 		visualDiff, err := getVisualJsonDiff(normalizedExpectedReplicaSets, normalizedActualReplicaSets)

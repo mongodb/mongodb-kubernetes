@@ -1,22 +1,13 @@
 import kubernetes
 from kubetester import try_load
-from kubetester.certs import (
-    SetPropertiesMultiCluster,
-    generate_cert,
-    get_agent_x509_subject,
-    get_mongodb_x509_subject,
-)
+from kubetester.certs import SetPropertiesMultiCluster, generate_cert, get_agent_x509_subject, get_mongodb_x509_subject
 from kubetester.certs_mongodb_multi import create_multi_cluster_tls_certs
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import (
-    get_central_cluster_client,
-    get_member_cluster_clients,
-    get_member_cluster_names,
-)
+from tests.conftest import get_central_cluster_client, get_member_cluster_clients, get_member_cluster_names
 from tests.multicluster.conftest import cluster_spec_list
 
 MDB_RESOURCE = "sharded-cluster-custom-certs"

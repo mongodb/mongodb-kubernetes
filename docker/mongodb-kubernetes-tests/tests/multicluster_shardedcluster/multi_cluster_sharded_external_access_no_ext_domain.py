@@ -10,10 +10,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import get_member_cluster_api_client
-from tests.shardedcluster.conftest import (
-    enable_multi_cluster_deployment,
-    setup_external_access,
-)
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment, setup_external_access
 
 MDB_RESOURCE_NAME = "sh"
 logger = test_logger.get_test_logger(__name__)

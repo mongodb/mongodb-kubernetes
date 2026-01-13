@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
@@ -251,21 +252,17 @@ func (d Deployment) MergeShardedCluster(opts DeploymentShardedClusterMergeOption
 	return shardsScheduledForRemoval, nil
 }
 
-// AddMonitoringAndBackup adds monitoring and backup agents to each process
-// The automation agent will update the agents versions to the latest version automatically
+// ConfigureMonitoringAndBackup configures monitoring and backup agents for each process.
+// This is called on every reconcile to ensure the monitoring/backup config matches the desired state.
+// The automation agent will update the agents versions to the latest version automatically.
 // Note, that these two are deliberately combined as all clients (standalone, rs etc.) need both backup and monitoring
-// together
-func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger, tls bool, caFilepath string) {
+// together.
+func (d Deployment) ConfigureMonitoringAndBackup(log *zap.SugaredLogger, tls bool, caFilepath string) {
 	if len(d.getProcesses()) == 0 {
 		return
 	}
-	d.AddMonitoring(log, tls, caFilepath)
-	d.addBackup(log)
-}
-
-// DEPRECATED: this shouldn't be used as it may panic because of different underlying type; use GetReplicaSets instead
-func (d Deployment) ReplicaSets() []ReplicaSet {
-	return d["replicaSets"].([]ReplicaSet)
+	d.ConfigureMonitoring(log, tls, caFilepath)
+	d.ConfigureBackup(log)
 }
 
 func (d Deployment) GetReplicaSetByName(name string) ReplicaSet {
@@ -277,48 +274,40 @@ func (d Deployment) GetReplicaSetByName(name string) ReplicaSet {
 	return nil
 }
 
-// AddMonitoring adds monitoring agents for all processes in the deployment
-func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool, caFilePath string) {
+// ConfigureMonitoring configures monitoring agents for all processes in the deployment.
+// This is called on every reconcile to ensure the monitoring config matches the desired state.
+func (d Deployment) ConfigureMonitoring(log *zap.SugaredLogger, tls bool, caFilePath string) {
 	if len(d.getProcesses()) == 0 {
 		return
 	}
+
 	monitoringVersions := d.getMonitoringVersions()
 	for _, p := range d.getProcesses() {
-		found := false
-		var monitoringVersion map[string]interface{}
-		for _, m := range monitoringVersions {
-			monitoringVersion = m.(map[string]interface{})
-			if monitoringVersion["hostname"] == p.HostName() {
-				found = true
-				break
-			}
-		}
+		hostname := p.HostName()
+		pemKeyFile := p.EnsureTLSConfig()["PEMKeyFile"]
 
-		if !found {
-			monitoringVersion = map[string]interface{}{
-				"hostname": p.HostName(),
+		foundIdx := slices.IndexFunc(monitoringVersions, func(m interface{}) bool {
+			return m.(map[string]interface{})["hostname"] == hostname
+		})
+
+		if foundIdx == -1 {
+			mv := map[string]interface{}{
+				"hostname": hostname,
 				"name":     MonitoringAgentDefaultVersion,
 			}
-			log.Debugw("Added monitoring agent configuration", "host", p.HostName(), "tls", tls)
-			monitoringVersions = append(monitoringVersions, monitoringVersion)
-		}
-
-		monitoringVersion["hostname"] = p.HostName()
-
-		if tls {
-			additionalParams := map[string]string{
-				"useSslForAllConnections":      "true",
-				"sslTrustedServerCertificates": caFilePath,
+			if tls {
+				mv["additionalParams"] = NewTLSParams(caFilePath, pemKeyFile)
 			}
-
-			pemKeyFile := p.EnsureTLSConfig()["PEMKeyFile"]
-			if pemKeyFile != nil {
-				additionalParams["sslClientCertificate"] = pemKeyFile.(string)
+			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
+			monitoringVersions = append(monitoringVersions, mv)
+		} else {
+			mv := monitoringVersions[foundIdx].(map[string]interface{})
+			if tls {
+				mv["additionalParams"] = NewTLSParams(caFilePath, pemKeyFile)
+			} else {
+				ClearTLSParamsFromMonitoringVersion(mv)
 			}
-
-			monitoringVersion["additionalParams"] = additionalParams
 		}
-
 	}
 	d.setMonitoringVersions(monitoringVersions)
 }
@@ -1069,8 +1058,8 @@ func (d Deployment) removeMonitoring(processNames []string) {
 	d.setMonitoringVersions(updatedMonitoringVersions)
 }
 
-// addBackup adds backup agent configuration for each of the processes of deployment
-func (d Deployment) addBackup(log *zap.SugaredLogger) {
+// ConfigureBackup adds backup agent configuration for each of the processes of deployment
+func (d Deployment) ConfigureBackup(log *zap.SugaredLogger) {
 	backupVersions := d.getBackupVersions()
 	for _, p := range d.getProcesses() {
 		found := false

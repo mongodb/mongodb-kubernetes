@@ -1,20 +1,14 @@
 from typing import Dict, List
 
 import pytest
-from kubetester import (
-    find_fixture,
-    try_load,
-    wait_until,
-)
+from kubetester import find_fixture, try_load, wait_until
 from kubetester.kubetester import KubernetesTester
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.phase import Phase
 
-from .helper_switch_project import (
-    SwitchProjectHelper,
-)
+from .helper_switch_project import SwitchProjectHelper
 
 MDB_RESOURCE_NAME = "sharded-cluster-ldap-switch-project"
 

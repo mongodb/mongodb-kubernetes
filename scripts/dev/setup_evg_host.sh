@@ -56,7 +56,7 @@ download_kubectl() {
 
 download_helm() {
   echo "Downloading helm..."
-  curl -s -o helm.tar.gz -L https://get.helm.sh/helm-v3.17.1-linux-"${ARCH}"tar.gz
+  curl -s -o helm.tar.gz -L "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}tar.gz"
   tar -xf helm.tar.gz 2>/dev/null
   sudo mv linux-"${ARCH}"helm /usr/local/bin/helm
   rm helm.tar.gz

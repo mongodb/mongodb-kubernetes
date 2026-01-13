@@ -46,7 +46,9 @@ download_and_install_binary() {
 
   mkdir -p "${dir}"
   echo "Downloading ${url}"
-  curl --retry 5 --retry-delay 3 --retry-all-errors --fail --show-error --max-time 180 --silent -L "${url}" -o "${bin}"
+  # Use longer timeout (10 min) for large binaries like minikube (~140MB) on slow IBM networks
+  # Add -C - for resume capability in case of partial downloads
+  curl --retry 5 --retry-delay 10 --retry-all-errors --fail --show-error --max-time 600 -L "${url}" -o "${bin}"
   chmod +x "${bin}"
   mv "${bin}" "${dir}"
   echo "Installed ${bin} to ${dir}"

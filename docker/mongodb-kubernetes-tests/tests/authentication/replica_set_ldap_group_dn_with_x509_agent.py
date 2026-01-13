@@ -5,11 +5,7 @@ from datetime import datetime, timezone
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import create_secret, find_fixture, kubetester
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    create_x509_agent_tls_certs,
-    create_x509_mongodb_tls_certs,
-)
+from kubetester.certs import ISSUER_CA_NAME, create_x509_agent_tls_certs, create_x509_mongodb_tls_certs
 from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, generic_user

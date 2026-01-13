@@ -5,13 +5,7 @@ from typing import List, Optional
 
 import kubernetes.client
 import pytest
-from kubetester import (
-    create_or_update_configmap,
-    create_or_update_secret,
-    find_fixture,
-    read_service,
-    try_load,
-)
+from kubetester import create_or_update_configmap, create_or_update_secret, find_fixture, read_service, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB

@@ -9,10 +9,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import central_cluster_client
-from tests.shardedcluster.conftest import (
-    enable_multi_cluster_deployment,
-    get_mongos_service_names,
-)
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_mongos_service_names
 
 MDB_RESOURCE = "sharded-cluster-custom-certs"
 

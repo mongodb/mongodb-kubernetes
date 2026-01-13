@@ -123,12 +123,12 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 	// and we are not in the middle of a resize (that means pvcPhase is pvc.PhaseNoAction) for this statefulset.
 	// This means we want to start one
 	if increaseStorageOfAtLeastOnePVC {
-		err := enterprisests.AddPVCAnnotation(desiredSts)
-		if err != nil {
+		if err := enterprisests.AddPVCAnnotation(desiredSts); err != nil {
 			return workflow.Failed(xerrors.Errorf("can't add pvc annotation, err: %s", err))
 		}
+
 		log.Infof("Detected PVC size expansion; patching all pvcs and increasing the size for sts: %s", desiredSts.Name)
-		if err := resizePVCsStorage(memberClient, desiredSts); err != nil {
+		if err := resizePVCsStorage(ctx, memberClient, desiredSts, log); err != nil {
 			return workflow.Failed(xerrors.Errorf("can't resize pvc, err: %s", err))
 		}
 
@@ -136,12 +136,13 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 		if err != nil {
 			return workflow.Failed(err)
 		}
+
 		if finishedResizing {
 			log.Info("PVCs finished resizing")
 			log.Info("Deleting StatefulSet and orphan pods")
 			// Cascade delete the StatefulSet
 			deletePolicy := metav1.DeletePropagationOrphan
-			if err := memberClient.Delete(context.TODO(), desiredSts, client.PropagationPolicy(deletePolicy)); err != nil && !apiErrors.IsNotFound(err) {
+			if err := memberClient.Delete(ctx, desiredSts, client.PropagationPolicy(deletePolicy)); err != nil && !apiErrors.IsNotFound(err) {
 				return workflow.Failed(xerrors.Errorf("error deleting sts, err: %s", err))
 			}
 
@@ -182,7 +183,7 @@ func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClien
 
 func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet) (bool, error) {
 	pvcList := corev1.PersistentVolumeClaimList{}
-	if err := memberClient.List(ctx, &pvcList); err != nil {
+	if err := memberClient.List(ctx, &pvcList, client.InNamespace(desiredSts.Namespace)); err != nil {
 		return false, err
 	}
 
@@ -198,20 +199,23 @@ func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Clie
 }
 
 // resizePVCsStorage takes the sts we want to create and update all matching pvc with the new storage
-func resizePVCsStorage(client kubernetesClient.Client, statefulSetToCreate *appsv1.StatefulSet) error {
-	pvcList := corev1.PersistentVolumeClaimList{}
-
+func resizePVCsStorage(ctx context.Context, kubeClient kubernetesClient.Client, statefulSetToCreate *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 	// this is to ensure that requests to a potentially not allowed resource is not blocking the operator until the end
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	if err := client.List(ctx, &pvcList); err != nil {
+	pvcList := corev1.PersistentVolumeClaimList{}
+	if err := kubeClient.List(ctx, &pvcList, client.InNamespace(statefulSetToCreate.Namespace)); err != nil {
 		return err
 	}
+
 	for _, existingPVC := range pvcList.Items {
 		if template, _ := getMatchingPVCTemplateFromSTS(statefulSetToCreate, &existingPVC); template != nil {
-			existingPVC.Spec.Resources.Requests[corev1.ResourceStorage] = *template.Spec.Resources.Requests.Storage()
-			if err := client.Update(ctx, &existingPVC); err != nil {
+			currentSize := existingPVC.Spec.Resources.Requests[corev1.ResourceStorage]
+			targetSize := *template.Spec.Resources.Requests.Storage()
+			log.Infof("Resizing PVC %s/%s from %s to %s", existingPVC.GetNamespace(), existingPVC.GetName(), currentSize.String(), targetSize.String())
+			existingPVC.Spec.Resources.Requests[corev1.ResourceStorage] = targetSize
+			if err := kubeClient.Update(ctx, &existingPVC); err != nil {
 				return err
 			}
 		}

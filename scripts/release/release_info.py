@@ -17,12 +17,8 @@ from scripts.release.build.build_info import (
     load_build_info,
 )
 from scripts.release.build.build_scenario import BuildScenario
-from scripts.release.build.image_build_process import (
-    DockerImageBuilder,
-)
-from scripts.release.kubectl_mongodb.utils import (
-    upload_assets_to_github_release,
-)
+from scripts.release.build.image_build_process import DockerImageBuilder
+from scripts.release.kubectl_mongodb.utils import upload_assets_to_github_release
 
 SEARCH_IMAGE = "search"
 SEARCH_IMAGE_REPOSITORY = "quay.io/mongodb/mongodb-search"

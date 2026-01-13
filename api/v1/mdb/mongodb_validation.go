@@ -2,10 +2,12 @@ package mdb
 
 import (
 	"errors"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -47,6 +49,19 @@ func horizonsMustEqualMembers(ms MongoDbSpec) v1.ValidationResult {
 	numHorizonMembers := len(ms.Connectivity.ReplicaSetHorizons)
 	if numHorizonMembers > 0 && numHorizonMembers != ms.Members {
 		return v1.ValidationError("Number of horizons must be equal to number of members in replica set")
+	}
+	return v1.ValidationSuccess()
+}
+
+func horizonDomainNamesMustBeValid(ms MongoDbSpec) v1.ValidationResult {
+	for _, horizon := range ms.Connectivity.ReplicaSetHorizons {
+		for _, address := range horizon {
+			URL := url.URL{Host: address}
+			errs := validation.IsDNS1123Subdomain(URL.Hostname())
+			if len(errs) > 0 {
+				return v1.ValidationError("Horizons must have valid domain names")
+			}
+		}
 	}
 	return v1.ValidationSuccess()
 }
@@ -456,6 +471,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	// Topology field
 	mongoDBValidators := []func(m MongoDbSpec) v1.ValidationResult{
 		horizonsMustEqualMembers,
+		horizonDomainNamesMustBeValid,
 		additionalMongodConfig,
 		replicasetMemberIsSpecified,
 	}

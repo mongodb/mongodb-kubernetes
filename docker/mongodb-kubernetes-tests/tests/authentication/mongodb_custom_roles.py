@@ -1,10 +1,4 @@
-from kubetester import (
-    create_or_update_configmap,
-    find_fixture,
-    read_configmap,
-    try_load,
-    wait_until,
-)
+from kubetester import create_or_update_configmap, find_fixture, read_configmap, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_multi import MongoDBMulti

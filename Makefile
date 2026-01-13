@@ -57,10 +57,10 @@ prerequisites:
 	@ scripts/dev/install.sh
 
 precommit:
-	@ .githooks/pre-commit
+	@ source scripts/dev/set_env_context.sh && pre-commit run --all-files
 
 precommit-with-licenses:
-	@ MDB_UPDATE_LICENSES=true .githooks/pre-commit
+	@ source scripts/dev/set_env_context.sh && MDB_UPDATE_LICENSES=true pre-commit run --all-files
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
@@ -299,8 +299,11 @@ test: generate fmt vet manifests golang-tests
 # helm-tests will run helm chart unit tests
 helm-tests:
 	@echo "Running helm chart unit tests..."
-	@if ! helm plugin list | grep -q unittest; then \
-		echo "Installing helm-unittest plugin..."; \
+	helm version
+	helm plugin list || true
+	@if ! helm unittest --help >/dev/null 2>&1; then \
+		echo "helm-unittest plugin not working/not installed, reinstalling..."; \
+		helm plugin uninstall unittest 2>/dev/null || true; \
 		helm plugin install https://github.com/helm-unittest/helm-unittest; \
 	fi
 	helm unittest helm_chart --color

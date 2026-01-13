@@ -2,6 +2,5 @@
 
 set -Eeou pipefail
 
-
-OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_60_latest\s+(\S+)\s+#" < "${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
+OM_VERSION=6.0.27
 export OM_VERSION

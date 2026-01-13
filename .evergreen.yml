@@ -13,9 +13,9 @@ include:
 variables:
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_70_latest 7.0.20 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_70_latest 7.0.21 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.17 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.18 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -146,6 +146,11 @@ variables:
         variant: init_test_run
       - name: publish_helm_chart
         variant: init_test_run
+      # Wait for OM images to be published to quay.io on commit builds (staging).
+      # On patch builds, this dependency is skipped (task doesn't exist).
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+        patch_optional: true
 
   - &base_om7_dependency_with_race
     depends_on:
@@ -185,6 +190,11 @@ variables:
         variant: init_test_run
       - name: publish_helm_chart
         variant: init_test_run
+      # Wait for OM images to be published to quay.io on commit builds (staging).
+      # On patch builds, this dependency is skipped (task doesn't exist).
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+        patch_optional: true
 
 parameters:
   - key: evergreen_retry
@@ -335,6 +345,16 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: scripts/evergreen/precommit_bump.sh
 
+  - name: run_conditionally_precommit_and_push
+    tags: [ "patch-run" ]
+    commands:
+      - func: clone
+      - func: run_task_conditionally
+        vars:
+          condition_script: scripts/evergreen/should_run_precommit_and_push.sh
+          variant: run_pre_commit
+          task: run_precommit_and_push
+
   - name: rebuild_all_agents
     # this enables us to run this manually (patch) and rebuild all agent versions to verify
     # Dockerfile, script changes etc.
@@ -397,7 +417,6 @@ tasks:
       - func: setup_building_host_minikube
         vars:
           skip_minikube_setup: true
-          skip_install_python_requirements: false
       - func: download_multi_cluster_binary
         vars:
           platform: linux/s390x
@@ -411,7 +430,6 @@ tasks:
       - func: setup_building_host_minikube
         vars:
           skip_minikube_setup: true
-          skip_install_python_requirements: false
       - func: download_multi_cluster_binary
         vars:
           platform: linux/ppc64le
@@ -1379,10 +1397,10 @@ buildvariants:
 
   ## Ops Manager build variants
 
-  # Isolated Ops Manager Tests for 6.0 version
+  # Isolated Ops Manager Tests for 6.0 version - kept for on-demand testing only
   - name: e2e_om60_kind_ubi
     display_name: e2e_om60_kind_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "manual_patch", "e2e_test_suite" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om6_dependency
@@ -1391,10 +1409,10 @@ buildvariants:
       - name: e2e_ops_manager_kind_5_0_only_task_group
       - name: e2e_ops_manager_kind_6_0_only_task_group
 
-  # Isolated Ops Manager Tests for 6.0 version
+  # Isolated Ops Manager Tests for 6.0 version - kept for on-demand testing only
   - name: e2e_static_om60_kind_ubi
     display_name: e2e_static_om60_kind_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "manual_patch", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1590,7 +1608,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_kind_task_group
 
@@ -1599,7 +1617,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_kind_task_group
 
@@ -1608,7 +1626,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_2_clusters_task_group
 
@@ -1617,7 +1635,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_2_clusters_task_group
 
@@ -1626,7 +1644,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_om_appdb_task_group
 
@@ -1635,7 +1653,7 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om6_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_static_multi_cluster_om_appdb_task_group
 
@@ -1683,8 +1701,6 @@ buildvariants:
     run_on:
       - ubuntu2404-large
     depends_on:
-      - name: build_om_images
-        variant: build_om60_images
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_test_image
@@ -1708,8 +1724,6 @@ buildvariants:
     run_on:
       - ubuntu2404-large
     depends_on:
-      - name: build_om_images
-        variant: build_om60_images
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_test_image
@@ -1840,13 +1854,11 @@ buildvariants:
     run_on:
       - ubuntu2404-small
     tasks:
-      - name: run_precommit_and_push
+      - name: run_conditionally_precommit_and_push
 
   - name: init_tests_with_olm
     display_name: init_tests_with_olm
     depends_on:
-      - name: build_om_images
-        variant: build_om60_images
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
@@ -1879,9 +1891,10 @@ buildvariants:
     tasks:
       - name: preflight_images_task_group
 
+  # OM60 images build - kept for on-demand testing only
   - name: build_om60_images
     display_name: build_om60_images
-    tags: [ "pr_patch", "staging" ]
+    tags: [ "manual_patch" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1935,6 +1948,36 @@ buildvariants:
       - name: backup_csv_images_dry_run
       - name: backup_csv_images_limit_3
       - name: backup_csv_images_all
+
+  - name: publish_om70_images
+    display_name: publish_om70_images
+    tags: [ "manual_patch" ]
+    allowed_requesters: [ "patch", "github_pr" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    depends_on:
+      - variant: e2e_om70_kind_ubi
+        name: '*'
+      - variant: e2e_static_om70_kind_ubi
+        name: '*'
+    tasks:
+      - name: publish_ops_manager
+      - name: release_agent
+
+  - name: publish_om80_images
+    display_name: publish_om80_images
+    tags: [ "manual_patch" ]
+    allowed_requesters: [ "patch", "github_pr" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    depends_on:
+      - variant: e2e_om80_kind_ubi
+        name: '*'
+      - variant: e2e_static_om80_kind_ubi
+        name: '*'
+    tasks:
+      - name: publish_ops_manager
+      - name: release_agent
 
   - name: migrate_all_agents
     display_name: migrate_all_agents

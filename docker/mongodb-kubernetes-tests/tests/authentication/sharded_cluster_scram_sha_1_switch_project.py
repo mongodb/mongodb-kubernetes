@@ -1,17 +1,12 @@
 import pytest
-from kubetester import (
-    create_or_update_secret,
-    try_load,
-)
+from kubetester import create_or_update_secret, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
 
-from .helper_switch_project import (
-    SwitchProjectHelper,
-)
+from .helper_switch_project import SwitchProjectHelper
 
 MDB_RESOURCE_NAME = "sharded-cluster-scram-sha-1-switch-project"
 

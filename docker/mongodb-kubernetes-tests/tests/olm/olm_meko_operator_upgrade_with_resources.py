@@ -20,6 +20,7 @@ from tests.olm.olm_test_commons import (
     get_current_operator_version,
     get_latest_released_operator_version,
     get_operator_group_resource,
+    get_registry_env_vars_for_subscription,
     get_subscription_custom_object,
     increment_patch_version,
     wait_for_operator_ready,
@@ -60,11 +61,21 @@ def catalog_source(namespace: str, version_id: str):
 
 
 @fixture
-def meko_subscription(namespace: str, catalog_source: CustomObject):
+def meko_subscription(namespace: str, catalog_source: CustomObject, operator_installation_config: dict[str, str]):
     """
     Create subscription for the MEKO operator.
     """
     static_value = get_default_architecture()
+    base_env_vars = [
+        {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
+        {"name": "OPERATOR_ENV", "value": "dev"},
+        {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
+        {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
+    ]
+    # Add registry env vars for patch builds (ECR registries for unreleased images)
+    registry_env_vars = get_registry_env_vars_for_subscription(operator_installation_config)
+    all_env_vars = base_env_vars + registry_env_vars
+
     return get_subscription_custom_object(
         LEGACY_OPERATOR_NAME,
         namespace,
@@ -76,24 +87,29 @@ def meko_subscription(namespace: str, catalog_source: CustomObject):
             "installPlanApproval": "Automatic",
             # In certified OpenShift bundles we have this enabled, so the operator is not defining security context (it's managed globally by OpenShift).
             # In Kind this will result in empty security contexts and problems deployments with filesystem permissions.
-            "config": {
-                "env": [
-                    {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
-                    {"name": "OPERATOR_ENV", "value": "dev"},
-                    {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
-                    {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
-                ]
-            },
+            "config": {"env": all_env_vars},
         },
     )
 
 
-def get_mck_subscription_object(namespace: str, catalog_source: CustomObject):
+def get_mck_subscription_object(
+    namespace: str, catalog_source: CustomObject, operator_installation_config: dict[str, str]
+):
     """
     Create a subscription object for the MCK operator.
     This is a separate function (not a fixture) so it can be called after uninstalling MEKO.
     """
     static_value = get_default_architecture()
+    base_env_vars = [
+        {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
+        {"name": "OPERATOR_ENV", "value": "dev"},
+        {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
+        {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
+    ]
+    # Add registry env vars for patch builds (ECR registries for unreleased images)
+    registry_env_vars = get_registry_env_vars_for_subscription(operator_installation_config)
+    all_env_vars = base_env_vars + registry_env_vars
+
     return get_subscription_custom_object(
         OPERATOR_NAME,
         namespace,
@@ -103,14 +119,7 @@ def get_mck_subscription_object(namespace: str, catalog_source: CustomObject):
             "source": catalog_source.name,
             "sourceNamespace": namespace,
             "installPlanApproval": "Automatic",
-            "config": {
-                "env": [
-                    {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
-                    {"name": "OPERATOR_ENV", "value": "dev"},
-                    {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
-                    {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
-                ]
-            },
+            "config": {"env": all_env_vars},
         },
     )
 
@@ -464,12 +473,13 @@ def test_connectivity_after_meko_uninstall(
 def test_install_mck_operator(
     namespace: str,
     catalog_source: CustomObject,
+    operator_installation_config: dict[str, str],
 ):
     current_operator_version = get_current_operator_version()
     incremented_operator_version = increment_patch_version(current_operator_version)
 
     # Create MCK subscription
-    mck_subscription = get_mck_subscription_object(namespace, catalog_source)
+    mck_subscription = get_mck_subscription_object(namespace, catalog_source, operator_installation_config)
     mck_subscription.update()
 
     wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{incremented_operator_version}")

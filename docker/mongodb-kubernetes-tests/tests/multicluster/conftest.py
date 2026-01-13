@@ -20,13 +20,7 @@ from kubetester.ldap import (
 )
 from kubetester.multicluster_client import MultiClusterClient
 from pytest import fixture
-from tests.authentication.conftest import (
-    AUTOMATION_AGENT_NAME,
-    LDAP_NAME,
-    LDAP_PASSWORD,
-    ldap_host,
-    openldap_install,
-)
+from tests.authentication.conftest import AUTOMATION_AGENT_NAME, LDAP_NAME, LDAP_PASSWORD, ldap_host, openldap_install
 from tests.conftest import (
     create_issuer,
     get_api_servers_from_test_pod_kubeconfig,

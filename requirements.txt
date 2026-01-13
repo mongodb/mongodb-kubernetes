@@ -35,6 +35,7 @@ python-frontmatter==1.1.0
 python-on-whales==0.79.0
 yamale==6.1.0
 yamllint==1.37.1
+pre-commit==4.0.1
 PyGithub==2.8.1
 
 # from kubeobject

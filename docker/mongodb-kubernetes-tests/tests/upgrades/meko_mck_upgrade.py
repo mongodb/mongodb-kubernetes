@@ -13,11 +13,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import (
-    get_multi_cluster_operator,
-    is_multi_cluster,
-    log_deployments_info,
-)
+from tests.conftest import get_multi_cluster_operator, is_multi_cluster, log_deployments_info
 from tests.constants import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_NAME,
@@ -27,9 +23,7 @@ from tests.constants import (
     OPERATOR_NAME,
 )
 from tests.multicluster.conftest import cluster_spec_list
-from tests.multicluster_appdb.multicluster_appdb_upgrade_downgrade_v1_27_to_mck import (
-    assert_cm_expected_data,
-)
+from tests.multicluster_appdb.multicluster_appdb_upgrade_downgrade_v1_27_to_mck import assert_cm_expected_data
 from tests.upgrades import downscale_operator_deployment
 
 logger = test_logger.get_test_logger(__name__)

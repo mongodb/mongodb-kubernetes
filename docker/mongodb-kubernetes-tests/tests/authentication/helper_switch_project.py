@@ -1,7 +1,4 @@
-from kubetester import (
-    create_or_update_configmap,
-    read_configmap,
-)
+from kubetester import create_or_update_configmap, read_configmap
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester, ShardedClusterTester
 from kubetester.phase import Phase

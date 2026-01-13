@@ -54,6 +54,11 @@ variables:
         variant: init_test_run
       - name: build_agent_images_ubi
         variant: init_test_run
+      # Wait for OM images to be published to quay.io on commit builds (staging).
+      # On patch builds, this dependency is skipped (task doesn't exist).
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+        patch_optional: true
 
 functions:
   upload_code_snippets_logs:
