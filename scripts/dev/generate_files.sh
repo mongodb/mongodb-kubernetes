@@ -88,7 +88,6 @@ regenerate_public_rbac_multi_cluster() {
     pushd pkg/kubectl-mongodb/common/
     EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
     popd
-    git add public/samples/multi-cluster-cli-gitops
   fi
 }
 
