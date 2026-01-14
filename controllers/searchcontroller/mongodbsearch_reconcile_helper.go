@@ -61,7 +61,7 @@ const (
 	apiKeysTempVolumeMount = "/tmp/auto-embedding-api-keys"
 
 	// is the minimum search image version that is required to enable the auto embeddings for vector search
-	minSearchImageVersionForEmbedding = "0.58.0"
+	minSearchImageVersionForEmbedding = "0.60.0"
 
 	// autoEmbeddingDetailsAnnKey has the annotation key that would be added to search pod with emebdding API Key secret hash
 	autoEmbeddingDetailsAnnKey = "autoEmbeddingDetailsHash"
