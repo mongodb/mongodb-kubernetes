@@ -6,5 +6,5 @@ kubectl exec --context "${K8S_CTX}" -n "${MDB_NS}" mongodb-tools-pod -- \
         "type": "autoEmbed",
         "modality": "text",
         "path": "plot",
-        "model": "voyage-4"
+        "model": "'"${EMBEDDING_MODEL}"'"
       } ] });'
