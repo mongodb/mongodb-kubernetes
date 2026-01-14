@@ -3,6 +3,7 @@
 set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
+go version
 go install github.com/google/go-licenses@v1.6.0
 
 # Define the root of the repo and the scripts directory
@@ -22,8 +23,12 @@ process_licenses() {
 
     PATH=$(go env GOPATH)/bin:${PATH} GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv 2> licenses_stderr  || true
 
+
+    cat licenses_stderr
+
     # Filter and sort the licenses report
-    grep -v 10gen licenses_full.csv | grep -v "github.com/mongodb" | grep -v "^golang.org" | sort > LICENSE-THIRD-PARTY || true
+    # Use LC_COLLATE=C to ensure consistent ASCII sorting across macOS and Linux
+    grep -v 10gen licenses_full.csv | grep -v "github.com/mongodb" | grep -v "^golang.org" | LC_COLLATE=C sort > LICENSE-THIRD-PARTY || true
 
     # Return to the repo root directory
     cd "${REPO_DIR}" || exit
