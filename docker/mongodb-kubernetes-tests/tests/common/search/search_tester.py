@@ -45,6 +45,32 @@ class SearchTester(MongoTester):
         result = collection.create_search_index(model=search_index_model)
         logger.debug(f"create_search_index result: {result}")
 
+    def create_auto_embedding_vector_search_index(
+        self,
+        database_name: str,
+        collection_name: str,
+        index_name: str = "vector_index",
+        field_path: str = "plot",
+        model: str = "voyage-4",
+    ):
+        database = self.client[database_name]
+        collection = database[collection_name]
+        search_index_model = SearchIndexModel(
+            definition={
+                "fields": [
+                    {
+                        "type": "autoEmbed",
+                        "path": field_path,
+                        "modality": "text",
+                        "model": model,
+                    }
+                ]
+            },
+            name=index_name,
+        )
+        result = collection.create_search_index(model=search_index_model)
+        logger.debug(f"create_auto_embedding_vector_search_index result: {result}")
+
     def wait_for_search_indexes_ready(self, database_name: str, collection_name: str, timeout=60):
         kubetester.run_periodically(
             fn=lambda: self.search_indexes_ready(database_name, collection_name),

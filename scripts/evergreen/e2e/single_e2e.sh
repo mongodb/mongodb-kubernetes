@@ -89,6 +89,7 @@ deploy_test_app() {
         "--set" "helm.oci.registry=${helm_oci_registry}"
         "--set" "helm.oci.repository=${helm_oci_repository}"
         "--set" "helm.oci.region=${helm_oci_registry_region}"
+        "--set" "autoEmbedding.apiKey"=${VOYAGE_API_KEY}
     )
 
     # shellcheck disable=SC2154
