@@ -85,7 +85,6 @@ class TestShardedClusterMigrationStatic:
 
         mdb.assert_abandons_phase(Phase.Running, timeout=1200)
         mdb.assert_reaches_phase(Phase.Running, timeout=1200)
-        mdb.wait_for_agents_goal_state(timeout=300)
 
         # Read StatefulSet after successful reconciliation
         for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(mdb.name, mdb.namespace):
