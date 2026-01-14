@@ -88,7 +88,7 @@ def test_create_database_resource(mdbc: MongoDBCommunity):
 
 @mark.e2e_search_community_auto_embedding
 def test_create_search_resource(mdbs: MongoDBSearch):
-    mdbs.spec["autoEmbedding"] = {
+    mdbs["spec"]["autoEmbedding"] = {
         "embeddingModelAPIKeySecret": {"name": VOYAGE_API_KEY_SECRET_NAME},
         "providerEndpoint": PROVIDER_ENDPOINT,
     }
