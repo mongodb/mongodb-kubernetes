@@ -1,0 +1,15 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-sh
+spec:
+  logLevel: DEBUG
+  lb:
+    mode: External
+    external:
+      sharded:
+        endpoints:
+          - shardName: mdb-sh-0
+            endpoint: mdb-sh-mongot-mdb-sh-0-svc.NAMESPACE.svc.cluster.local:27028
+          - shardName: mdb-sh-1
+            endpoint: mdb-sh-mongot-mdb-sh-1-svc.NAMESPACE.svc.cluster.local:27028
