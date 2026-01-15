@@ -90,7 +90,7 @@ deploy_test_app() {
         "--set" "helm.oci.repository=${helm_oci_repository}"
         "--set" "helm.oci.region=${helm_oci_registry_region}"
         "--set" "autoEmbedding.providerMongoDB.indexingKey=${AI_MONGODB_EMBEDDING_INDEXING_KEY}"
-        "--set" "autoEmbedding.providerMongoDB.queryKey:=${AI_MONGODB_EMBEDDING_QUERY_KEY}"
+        "--set" "autoEmbedding.providerMongoDB.queryKey=${AI_MONGODB_EMBEDDING_QUERY_KEY}"
     )
 
     # shellcheck disable=SC2154

@@ -60,12 +60,13 @@ class SearchTester(MongoTester):
                 "fields": [
                     {
                         "type": "autoEmbed",
-                        "path": field_path,
                         "modality": "text",
+                        "path": field_path,
                         "model": model,
                     }
                 ]
             },
+            type="vectorSearch",
             name=index_name,
         )
         result = collection.create_search_index(model=search_index_model)
