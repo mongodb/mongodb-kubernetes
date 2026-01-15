@@ -198,8 +198,10 @@ spec:
       value: "{{ .Values.cognito_workload_url }}"
     - name: cognito_workload_user_id
       value: "{{ .Values.cognito_workload_user_id }}"
-    - name: VOYAGE_API_KEY
-      value: {{ .Values.autoEmbedding.apiKey }}
+    - name: AI_MONGODB_EMBEDDING_INDEXING_KEY
+      value: "{{ .Values.autoEmbedding.providerMongoDB.indexingKey }}"
+    - name: AI_MONGODB_EMBEDDING_QUERY_KEY
+      value: "{{ .Values.autoEmbedding.providerMongoDB.queryKey }}"
     image: "{{ .Values.mekoTestsRegistry }}/mongodb-kubernetes-tests:{{ .Values.mekoTestsVersion }}"
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]

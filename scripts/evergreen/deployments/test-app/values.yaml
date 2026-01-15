@@ -53,4 +53,6 @@ helm:
     region: ""
 
 autoEmbedding:
-  apiKey: ""
+  providerMongoDB:
+    indexingKey: ""
+    queryKey: ""
