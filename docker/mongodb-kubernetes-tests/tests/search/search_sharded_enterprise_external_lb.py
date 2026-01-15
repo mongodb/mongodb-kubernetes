@@ -52,6 +52,7 @@ def mdb(namespace: str) -> MongoDB:
     if try_load(resource):
         return resource
 
+    # Configure OpsManager/CloudManager connection
     resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
     return resource
 
@@ -69,12 +70,12 @@ def mdbs(namespace: str) -> MongoDBSearch:
         return resource
 
     # Update the endpoints with the actual namespace
-    if "spec" in resource and "lb" in resource["spec"]:
-        lb_config = resource["spec"]["lb"]
-        if "external" in lb_config and "sharded" in lb_config["external"]:
-            endpoints = lb_config["external"]["sharded"]["endpoints"]
-            for endpoint in endpoints:
-                endpoint["endpoint"] = endpoint["endpoint"].replace("NAMESPACE", namespace)
+    # The spec is loaded from YAML, so we can access it directly
+    spec = resource["spec"]
+    if "lb" in spec and "external" in spec["lb"] and "sharded" in spec["lb"]["external"]:
+        endpoints = spec["lb"]["external"]["sharded"]["endpoints"]
+        for endpoint in endpoints:
+            endpoint["endpoint"] = endpoint["endpoint"].replace("NAMESPACE", namespace)
 
     return resource
 
