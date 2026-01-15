@@ -408,7 +408,7 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 	ctx := context.TODO()
 	fakeClient := newTestFakeClient(search, apiKeySecret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
-		SearchVersion: "0.58.0",
+		SearchVersion: "0.60.0",
 	})
 	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	assert.Nil(t, err)
@@ -490,7 +490,7 @@ func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 	})
 	fakeClient := newTestFakeClient(search, apiKeySecret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{
-		SearchVersion: "0.58.0",
+		SearchVersion: "0.60.0",
 	})
 	ctx := context.TODO()
 	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
@@ -596,7 +596,7 @@ func TestValidateSearchResource(t *testing.T) {
 			},
 			errAssertion:  assert.Error,
 			searchVersion: "0.55.0",
-			errMsg:        "The MongoDB search version 0.55.0 doesn't support auto embeddings. Please use version 0.58.0 or newer.",
+			errMsg:        "The MongoDB search version 0.55.0 doesn't support auto embeddings. Please use version 0.60.0 or newer.",
 		},
 		{
 			apiKeySecret: &corev1.Secret{
@@ -609,9 +609,9 @@ func TestValidateSearchResource(t *testing.T) {
 					"query-key":    []byte(""),
 				},
 			},
-			errAssertion:  assert.NoError,
+			errAssertion:  assert.Error,
 			searchVersion: "0.58.0",
-			errMsg:        "",
+			errMsg:        "The MongoDB search version 0.58.0 doesn't support auto embeddings. Please use version 0.60.0 or newer.",
 		},
 		{
 			apiKeySecret: &corev1.Secret{

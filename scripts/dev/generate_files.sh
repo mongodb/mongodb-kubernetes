@@ -83,11 +83,12 @@ update_release_json() {
 }
 
 regenerate_public_rbac_multi_cluster() {
-  echo 'regenerating multicluster RBAC public example'
-  pushd pkg/kubectl-mongodb/common/
-  EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
-  popd
-  git add public/samples/multi-cluster-cli-gitops
+  if [[ "${MDB_REGENERATE_RBAC:-""}" == "true" ]]; then
+    echo 'regenerating multicluster RBAC public example'
+    pushd pkg/kubectl-mongodb/common/
+    EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
+    popd
+  fi
 }
 
 update_licenses() {
