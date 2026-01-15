@@ -50,7 +50,8 @@ variables:
       - VERSION_UPGRADE_HOOK_VERSION
       - BUILD_SCENARIO
       - MDB_BASH_DEBUG
-      - VOYAGE_API_KEY
+      - AI_MONGODB_EMBEDDING_INDEXING_KEY
+      - AI_MONGODB_EMBEDDING_QUERY_KEY
 
 functions:
 
@@ -585,7 +586,8 @@ functions:
           - github_pr_number
           - project_identifier
           - revision_order_id
-          - VOYAGE_API_KEY
+          - AI_MONGODB_EMBEDDING_INDEXING_KEY
+          - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/e2e.sh

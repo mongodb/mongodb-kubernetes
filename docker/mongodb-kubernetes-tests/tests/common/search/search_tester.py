@@ -49,7 +49,7 @@ class SearchTester(MongoTester):
         self,
         database_name: str,
         collection_name: str,
-        index_name: str = "vector_index",
+        index_name: str = "vector_auto_embed_index",
         field_path: str = "plot",
         model: str = "voyage-4",
     ):

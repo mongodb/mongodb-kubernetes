@@ -24,9 +24,10 @@ USER_NAME = "mdb-user"
 USER_PASSWORD = "mdb-user-pass"
 
 MDBC_RESOURCE_NAME = "mdbc-rs"
-VOYAGE_API_KEY_ENV_VAR = "VOYAGE_API_KEY"
+EMBEDDING_INDEXING_KEY_ENV_VAR = "AI_MONGODB_EMBEDDING_INDEXING_KEY"
+EMBEDDING_QUERY_KEY_ENV_VAR = "AI_MONGODB_EMBEDDING_QUERY_KEY"
 VOYAGE_API_KEY_SECRET_NAME = "voyage-api-keys"
-PROVIDER_ENDPOINT = "https://api.voyageai.com/v1/embeddings"
+PROVIDER_ENDPOINT = "https://ai.mongodb.com/v1/embeddings"
 
 
 @fixture(scope="function")
@@ -71,13 +72,18 @@ def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
     create_or_update_secret(
         namespace=namespace, name=f"{mdbs.name}-{MONGOT_USER_NAME}-password", data={"password": MONGOT_USER_PASSWORD}
     )
-    voyage_api_key = os.getenv(VOYAGE_API_KEY_ENV_VAR)
-    if voyage_api_key:
-        create_or_update_secret(
-            namespace=namespace,
-            name=VOYAGE_API_KEY_SECRET_NAME,
-            data={"query-key": voyage_api_key, "indexing-key": voyage_api_key},
+
+    indexing_key = os.getenv(EMBEDDING_INDEXING_KEY_ENV_VAR)
+    query_key = os.getenv(EMBEDDING_QUERY_KEY_ENV_VAR)
+    if not indexing_key or not query_key:
+        raise ValueError(
+            f"Missing required environment variables: {EMBEDDING_INDEXING_KEY_ENV_VAR} and/or {EMBEDDING_QUERY_KEY_ENV_VAR}"
         )
+    create_or_update_secret(
+        namespace=namespace,
+        name=VOYAGE_API_KEY_SECRET_NAME,
+        data={"query-key": query_key, "indexing-key": indexing_key},
+    )
 
 
 @mark.e2e_search_community_auto_embedding
@@ -120,7 +126,7 @@ def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelp
 
 @mark.e2e_search_community_auto_embedding
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
-    sample_movies_helper.assert_search_query(retry_timeout=60)
+    sample_movies_helper.assert_auto_emb_vector_search_query(retry_timeout=60)
 
 
 def get_connection_string(mdbc: MongoDBCommunity, user_name: str, user_password: str) -> str:

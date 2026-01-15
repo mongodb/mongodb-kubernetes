@@ -84,7 +84,7 @@ class SampleMoviesSearchHelper:
             [
                 {
                     "$vectorSearch": {
-                        "index": "vector_index",
+                        "index": "vector_auto_embed_index",
                         "path": "plot",
                         "query": query,
                         "numCandidates": 150,
