@@ -51,3 +51,8 @@ helm:
     registry: ""
     repository: ""
     region: ""
+
+autoEmbedding:
+  providerMongoDB:
+    indexingKey: ""
+    queryKey: ""
