@@ -88,7 +88,7 @@ class SampleMoviesSearchHelper:
                         "path": "plot",
                         "query": query,
                         "numCandidates": 150,
-                        "limit": limit
+                        "limit": limit,
                     }
                 },
                 {
