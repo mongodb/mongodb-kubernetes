@@ -388,28 +388,48 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 
 // TestCreateDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset
 func TestCreateDeleteReplicaSet(t *testing.T) {
-	ctx := context.Background()
-	// First we need to create a replicaset
-	rs := DefaultReplicaSetBuilder().Build()
+	testCases := []struct {
+		name  string
+		build func() *mdbv1.MongoDB
+	}{
+		{
+			name: "WithoutExternalDomain",
+			build: func() *mdbv1.MongoDB {
+				return DefaultReplicaSetBuilder().Build()
+			},
+		},
+		{
+			name: "WithExternalDomain",
+			build: func() *mdbv1.MongoDB {
+				domain := "cluster.testing"
+				return DefaultReplicaSetBuilder().ExposedExternally(nil, nil, &domain).Build()
+			},
+		},
+	}
 
-	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
-	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", omConnectionFactory.GetConnectionFunc)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			rs := tc.build()
 
-	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
-	omConn := omConnectionFactory.GetConnection()
-	mockedOmConn := omConn.(*om.MockedOmConnection)
-	mockedOmConn.CleanHistory()
+			reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
 
-	// Now delete it
-	assert.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
+			checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+			omConn := omConnectionFactory.GetConnection()
+			mockedOmConn := omConn.(*om.MockedOmConnection)
+			mockedOmConn.CleanHistory()
 
-	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
-	mockedOmConn.CheckResourcesDeleted(t)
+			// Now delete it
+			assert.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
 
-	mockedOmConn.CheckOrderOfOperations(t,
-		reflect.ValueOf(mockedOmConn.ReadUpdateDeployment), reflect.ValueOf(mockedOmConn.ReadAutomationStatus),
-		reflect.ValueOf(mockedOmConn.GetHosts), reflect.ValueOf(mockedOmConn.RemoveHost))
+			// Operator doesn't mutate K8s state, so we don't check its changes, only OM
+			mockedOmConn.CheckResourcesDeleted(t)
+
+			mockedOmConn.CheckOrderOfOperations(t,
+				reflect.ValueOf(mockedOmConn.ReadUpdateDeployment), reflect.ValueOf(mockedOmConn.ReadAutomationStatus),
+				reflect.ValueOf(mockedOmConn.GetHosts), reflect.ValueOf(mockedOmConn.RemoveHost))
+		})
+	}
 }
 
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
@@ -1129,7 +1149,23 @@ func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T,
 
 func defaultReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		connection.(*om.MockedOmConnection).Hostnames = calculateReplicaSetExternalHostnames(rs)
+	})
 	return newReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+}
+
+func calculateReplicaSetExternalHostnames(rs *mdbv1.MongoDB) []string {
+	domain := rs.Spec.GetExternalDomain()
+	if domain == nil {
+		return nil
+	}
+
+	hostnames := make([]string, rs.Spec.Members)
+	for i := 0; i < rs.Spec.Members; i++ {
+		hostnames[i] = fmt.Sprintf("%s-%d.%s", rs.Name, i, *domain)
+	}
+	return hostnames
 }
 
 // newDefaultPodSpec creates pod spec with default values,sets only the topology key and persistence sizes,
