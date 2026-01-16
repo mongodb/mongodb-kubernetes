@@ -1389,7 +1389,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 			},
 			expectedProps: OperatorUsageSnapshotProperties{
 				OperatorID:           testOperatorUUID,
-				OperatorType:         MEKO,
+				OperatorType:         MCK,
 				OperatorArchitecture: runtime.GOARCH,
 				OperatorOS:           runtime.GOOS,
 			},
@@ -1423,7 +1423,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 			assert.Equal(t, runtime.GOARCH, event.Properties["operatorArchitecture"])
 			assert.Equal(t, runtime.GOOS, event.Properties["operatorOS"])
 			assert.Equal(t, testOperatorUUID, event.Properties["operatorID"])
-			assert.Equal(t, string(MEKO), event.Properties["operatorType"])
+			assert.Equal(t, string(MCK), event.Properties["operatorType"])
 
 			assert.Contains(t, event.Properties, "kubernetesClusterID")
 			assert.Contains(t, event.Properties, "kubernetesClusterIDs")
