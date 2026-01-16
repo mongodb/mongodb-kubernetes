@@ -104,10 +104,11 @@ class SampleMoviesSearchHelper:
 
     def assert_auto_emb_vector_search_query(self, retry_timeout: int = 1):
         def wait_for_auto_emb_search_results():
+            exp_document_count = 10
             count = 0
             status_msg = ""
             try:
-                result = self.execute_auto_embedding_vector_search_query()
+                result = self.execute_auto_embedding_vector_search_query(limit=exp_document_count)
                 status_msg = f"{self.db_name}/{self.col_name}: auto-embedding vector search query results:\n"
                 for r in result:
                     status_msg += f"{r}\n"
@@ -117,7 +118,7 @@ class SampleMoviesSearchHelper:
             except pymongo.errors.PyMongoError as e:
                 logger.debug(f"error: {e}")
 
-            return count > 0, status_msg
+            return count == exp_document_count, status_msg
 
         kubetester.run_periodically(
             fn=wait_for_auto_emb_search_results,

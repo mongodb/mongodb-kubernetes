@@ -126,7 +126,7 @@ def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelp
 
 @mark.e2e_search_community_auto_embedding
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
-    sample_movies_helper.assert_auto_emb_vector_search_query(retry_timeout=60)
+    sample_movies_helper.assert_auto_emb_vector_search_query(retry_timeout=90)
 
 
 def get_connection_string(mdbc: MongoDBCommunity, user_name: str, user_password: str) -> str:
