@@ -238,6 +238,10 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			Spec: corev1.PodSpec{},
 		}},
 	}
+
+	// when tests are executed with env set from current context, some kubeconfig validation tests might stop working
+	t.Setenv(multicluster.KubeConfigPathEnv, "")
+
 	tests := []struct {
 		name              string
 		isMultiCluster    bool

@@ -8,7 +8,7 @@
 vendor/
 pkg/client/
 docker/mongodb-kubernetes-tests
-scripts/
+# scripts/
 samples/
 .multi_cluster_local_test_files/
 
