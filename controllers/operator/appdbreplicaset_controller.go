@@ -746,7 +746,7 @@ func (r *ReconcileAppDbReplicaSet) blockNonEmptyClusterSpecItemRemoval(appDBSpec
 			return item.ClusterName == memberCluster.Name
 		}
 
-		if !slices.ContainsFunc(appDBSpec.ClusterSpecList, searchFunc) && memberCluster.Replicas > 0 {
+		if !slices.ContainsFunc(appDBSpec.GetClusterSpecList(), searchFunc) && memberCluster.Replicas > 0 {
 			return xerrors.Errorf("Cannot remove member cluster %s with non-zero members count. Please scale down members to zero first", memberCluster.Name)
 		}
 	}
