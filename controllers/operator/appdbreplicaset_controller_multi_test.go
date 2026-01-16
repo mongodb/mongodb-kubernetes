@@ -22,6 +22,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -1891,5 +1892,158 @@ func TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 		assert.Equal(t, expectedHostnamesAfterReconcileStep[i], util.Transform(hosts.Results, func(obj host.Host) string {
 			return obj.Hostname
 		}), "the AppDB hosts should have been removed after scale-down")
+	}
+}
+
+func TestAppDBBlockNonEmptyClusterSpecItemRemoval(t *testing.T) {
+	tests := []struct {
+		name            string
+		memberClusters  []multicluster.MemberCluster
+		clusterSpecList mdbv1.ClusterSpecList
+		wantErr         string
+	}{
+		{
+			name: "error when removing non-zero cluster-a",
+			memberClusters: []multicluster.MemberCluster{
+				{Name: "cluster-a", Replicas: 2},
+				{Name: "cluster-b", Replicas: 3},
+			},
+			clusterSpecList: mdbv1.ClusterSpecList{{ClusterName: "cluster-b", Members: 3}},
+			wantErr:         "Cannot remove member cluster cluster-a with non-zero members count. Please scale down members to zero first",
+		},
+		{
+			name: "no error when removing after scaling cluster-a to zero",
+			memberClusters: []multicluster.MemberCluster{
+				{Name: "cluster-a", Replicas: 0},
+				{Name: "cluster-b", Replicas: 3},
+			},
+			clusterSpecList: mdbv1.ClusterSpecList{{ClusterName: "cluster-b", Members: 3}},
+			wantErr:         "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			reconciler := &ReconcileAppDbReplicaSet{memberClusters: tc.memberClusters}
+
+			err := reconciler.blockNonEmptyClusterSpecItemRemoval(
+				omv1.AppDBSpec{
+					Topology:        mdbv1.ClusterTopologyMultiCluster,
+					ClusterSpecList: tc.clusterSpecList,
+				},
+			)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				require.Equal(t, tc.wantErr, err.Error())
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestReconcileAppDBBlockNonEmptyClusterSpecItemRemovalIntegration(t *testing.T) {
+	ctx := context.Background()
+	clusterA := "cluster-a"
+	clusterB := "cluster-b"
+
+	tests := []struct {
+		name               string
+		clusterSpecList    mdbv1.ClusterSpecList
+		lastAppliedMembers map[string]int
+		wantPhase          status.Phase
+		wantMessage        string
+	}{
+		{
+			name:            "error when removing non-zero cluster-a",
+			clusterSpecList: mdbv1.ClusterSpecList{{ClusterName: clusterB, Members: 1}},
+			lastAppliedMembers: map[string]int{
+				clusterB: 1,
+				clusterA: 2,
+			},
+			wantPhase:   status.PhaseFailed,
+			wantMessage: "Cannot remove member cluster cluster-a with non-zero members count. Please scale down members to zero first",
+		},
+		{
+			name:            "no error when removing after scaling cluster-a to zero",
+			clusterSpecList: mdbv1.ClusterSpecList{{ClusterName: clusterB, Members: 1}},
+			lastAppliedMembers: map[string]int{
+				clusterB: 1,
+				clusterA: 0,
+			},
+			wantPhase: status.PhaseRunning,
+		},
+		{
+			name:            "no error when there is no change in the spec",
+			clusterSpecList: mdbv1.ClusterSpecList{{ClusterName: clusterB, Members: 1}, {ClusterName: clusterA, Members: 2}},
+			lastAppliedMembers: map[string]int{
+				clusterB: 1,
+				clusterA: 2,
+			},
+			wantPhase: status.PhaseRunning,
+		},
+		{
+			name:            "no error when scaling up",
+			clusterSpecList: mdbv1.ClusterSpecList{{ClusterName: clusterB, Members: 1}, {ClusterName: clusterA, Members: 3}},
+			lastAppliedMembers: map[string]int{
+				clusterB: 1,
+				clusterA: 2,
+			},
+			wantPhase: status.PhaseRunning,
+		},
+		{
+			name:            "no error when scaling down",
+			clusterSpecList: mdbv1.ClusterSpecList{{ClusterName: clusterB, Members: 1}, {ClusterName: clusterA, Members: 1}},
+			lastAppliedMembers: map[string]int{
+				clusterB: 1,
+				clusterA: 2,
+			},
+			wantPhase: status.PhaseRunning,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opsManager := DefaultOpsManagerBuilder().
+				SetName("om").
+				SetNamespace("ns").
+				SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+				SetAppDBClusterSpecList(tc.clusterSpecList).
+				Build()
+
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+			memberClusterMap := getFakeMultiClusterMapWithClusters([]string{clusterA, clusterB}, omConnectionFactory)
+
+			state := AppDBDeploymentState{
+				CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{
+					clusterB: 0,
+					clusterA: 1,
+				}},
+				LastAppliedMemberSpec: tc.lastAppliedMembers,
+			}
+			stateBytes, err := json.Marshal(state)
+			require.NoError(t, err)
+
+			stateCM := corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("%s-state", opsManager.Spec.AppDB.Name()),
+					Namespace: opsManager.Spec.AppDB.Namespace,
+				},
+				Data: map[string]string{stateKey: string(stateBytes)},
+			}
+			require.NoError(t, kubeClient.Create(ctx, &stateCM))
+
+			reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+			require.NoError(t, err)
+
+			createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
+
+			_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+			require.NoError(t, err)
+
+			require.Equal(t, tc.wantPhase, opsManager.Status.AppDbStatus.Phase)
+			require.Equal(t, tc.wantMessage, opsManager.Status.AppDbStatus.Message)
+		})
 	}
 }
