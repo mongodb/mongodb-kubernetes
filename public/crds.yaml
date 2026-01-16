@@ -4100,6 +4100,63 @@ spec:
                 required:
                 - embeddingModelAPIKeySecret
                 type: object
+              lb:
+                description: LoadBalancer configures how mongod/mongos connect to
+                  mongot (Envoy vs External LB).
+                properties:
+                  envoy:
+                    description: Envoy contains configuration for operator-managed
+                      Envoy load balancer
+                    type: object
+                  external:
+                    description: External contains configuration for user-provided
+                      external L7 load balancer
+                    properties:
+                      endpoint:
+                        description: Endpoint is a single LB endpoint for ReplicaSet
+                          or shared sharded LB (host:port)
+                        type: string
+                      sharded:
+                        description: Sharded contains per-shard LB endpoint configuration
+                          for sharded clusters
+                        properties:
+                          endpoints:
+                            description: Endpoints is a list of per-shard LB endpoints
+                            items:
+                              description: ShardEndpoint maps a shard name to its
+                                external LB endpoint
+                              properties:
+                                endpoint:
+                                  description: |-
+                                    Endpoint is the external LB host:port for this shard's mongot pool
+                                    The hostname is typically used as SNI by the external LB to route to the correct shard-local mongot
+                                  minLength: 1
+                                  type: string
+                                shardName:
+                                  description: ShardName is the logical shard name
+                                    (e.g., "my-cluster-0")
+                                  minLength: 1
+                                  type: string
+                              required:
+                                - endpoint
+                                - shardName
+                              type: object
+                            minItems: 1
+                            type: array
+                        required:
+                          - endpoints
+                        type: object
+                    type: object
+                  mode:
+                    description: 'Mode specifies the load balancer mode: Envoy (operator-managed)
+                      or External (BYO L7 LB)'
+                    enum:
+                      - Envoy
+                      - External
+                    type: string
+                required:
+                  - mode
+                type: object
               logLevel:
                 description: Configure verbosity of mongot logs. Defaults to INFO
                   if not set.
@@ -4323,6 +4380,15 @@ spec:
                     required:
                     - name
                     type: object
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of mongot pods to deploy.
+                      For ReplicaSet source: this many mongot pods total.
+                      For Sharded source: this many mongot pods per shard.
+                      For this PoC with External LB mode, only 1 replica per shard is supported.
+                    minimum: 1
+                    type: integer
                   username:
                     type: string
                 type: object

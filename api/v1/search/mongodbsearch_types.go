@@ -75,6 +75,69 @@ type MongoDBSearchSpec struct {
 	// `embedding` field of mongot config is generated using the values provided here.
 	// +optional
 	AutoEmbedding *EmbeddingConfig `json:"autoEmbedding,omitempty"`
+	// LoadBalancer configures how mongod/mongos connect to mongot (Envoy vs External LB).
+	// +optional
+	LoadBalancer *LoadBalancerConfig `json:"lb,omitempty"`
+}
+
+// LBMode defines the load balancer mode for Search
+// +kubebuilder:validation:Enum=Envoy;External
+type LBMode string
+
+const (
+	// LBModeEnvoy indicates operator-managed Envoy load balancer
+	LBModeEnvoy LBMode = "Envoy"
+	// LBModeExternal indicates user-provided external L7 load balancer
+	LBModeExternal LBMode = "External"
+)
+
+// LoadBalancerConfig configures how mongod/mongos connect to mongot
+type LoadBalancerConfig struct {
+	// Mode specifies the load balancer mode: Envoy (operator-managed) or External (BYO L7 LB)
+	// +kubebuilder:validation:Required
+	Mode LBMode `json:"mode"`
+	// Envoy contains configuration for operator-managed Envoy load balancer
+	// +optional
+	Envoy *EnvoyConfig `json:"envoy,omitempty"`
+	// External contains configuration for user-provided external L7 load balancer
+	// +optional
+	External *ExternalLBConfig `json:"external,omitempty"`
+}
+
+// EnvoyConfig contains configuration for operator-managed Envoy load balancer
+// Placeholder for future Envoy configuration options
+type EnvoyConfig struct {
+	// Placeholder for future Envoy configuration
+}
+
+// ExternalLBConfig contains configuration for user-provided external L7 load balancer
+type ExternalLBConfig struct {
+	// Endpoint is a single LB endpoint for ReplicaSet or shared sharded LB (host:port)
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+	// Sharded contains per-shard LB endpoint configuration for sharded clusters
+	// +optional
+	Sharded *ShardedExternalLBConfig `json:"sharded,omitempty"`
+}
+
+// ShardedExternalLBConfig contains per-shard LB endpoint configuration
+type ShardedExternalLBConfig struct {
+	// Endpoints is a list of per-shard LB endpoints
+	// +kubebuilder:validation:MinItems=1
+	Endpoints []ShardEndpoint `json:"endpoints"`
+}
+
+// ShardEndpoint maps a shard name to its external LB endpoint
+type ShardEndpoint struct {
+	// ShardName is the logical shard name (e.g., "my-cluster-0")
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ShardName string `json:"shardName"`
+	// Endpoint is the external LB host:port for this shard's mongot pool
+	// The hostname is typically used as SNI by the external LB to route to the correct shard-local mongot
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Endpoint string `json:"endpoint"`
 }
 
 type EmbeddingConfig struct {
@@ -94,6 +157,14 @@ type MongoDBSource struct {
 	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
 	// +optional
 	Username *string `json:"username,omitempty"`
+	// Replicas is the number of mongot pods to deploy.
+	// For ReplicaSet source: this many mongot pods total.
+	// For Sharded source: this many mongot pods per shard.
+	// For this PoC with External LB mode, only 1 replica per shard is supported.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=1
+	Replicas int `json:"replicas,omitempty"`
 }
 
 type ExternalMongoDBSource struct {
@@ -295,4 +366,69 @@ func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
 
 func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 	return s.Spec.Prometheus
+}
+
+// IsExternalLBMode returns true if the Search resource is configured to use external L7 LB
+func (s *MongoDBSearch) IsExternalLBMode() bool {
+	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Mode == LBModeExternal
+}
+
+// IsShardedExternalLB returns true if the Search resource is configured for sharded external LB
+// This is the PoC scenario: internal sharded cluster + external L7 LB with per-shard endpoints
+func (s *MongoDBSearch) IsShardedExternalLB() bool {
+	return s.IsExternalLBMode() &&
+		s.Spec.LoadBalancer.External != nil &&
+		s.Spec.LoadBalancer.External.Sharded != nil &&
+		len(s.Spec.LoadBalancer.External.Sharded.Endpoints) > 0
+}
+
+// GetShardEndpointMap returns a map of shardName -> endpoint from the sharded external LB config
+func (s *MongoDBSearch) GetShardEndpointMap() map[string]string {
+	result := make(map[string]string)
+	if !s.IsShardedExternalLB() {
+		return result
+	}
+	for _, e := range s.Spec.LoadBalancer.External.Sharded.Endpoints {
+		result[e.ShardName] = e.Endpoint
+	}
+	return result
+}
+
+// GetReplicas returns the number of mongot replicas to deploy
+// For sharded clusters with External LB mode, this is enforced to 1 per shard in this PoC
+func (s *MongoDBSearch) GetReplicas() int {
+	if s.Spec.Source != nil && s.Spec.Source.Replicas > 0 {
+		return s.Spec.Source.Replicas
+	}
+	return 1
+}
+
+// ShardMongotStatefulSetName returns the StatefulSet name for a specific shard's mongot deployment
+func (s *MongoDBSearch) ShardMongotStatefulSetName(shardName string) string {
+	return fmt.Sprintf("%s-mongot-%s", s.Name, shardName)
+}
+
+// ShardMongotStatefulSetNamespacedName returns the namespaced name for a specific shard's mongot StatefulSet
+func (s *MongoDBSearch) ShardMongotStatefulSetNamespacedName(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: s.ShardMongotStatefulSetName(shardName), Namespace: s.Namespace}
+}
+
+// ShardMongotServiceName returns the Service name for a specific shard's mongot deployment
+func (s *MongoDBSearch) ShardMongotServiceName(shardName string) string {
+	return fmt.Sprintf("%s-mongot-%s-svc", s.Name, shardName)
+}
+
+// ShardMongotServiceNamespacedName returns the namespaced name for a specific shard's mongot Service
+func (s *MongoDBSearch) ShardMongotServiceNamespacedName(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: s.ShardMongotServiceName(shardName), Namespace: s.Namespace}
+}
+
+// ShardMongotConfigMapName returns the ConfigMap name for a specific shard's mongot configuration
+func (s *MongoDBSearch) ShardMongotConfigMapName(shardName string) string {
+	return fmt.Sprintf("%s-mongot-%s-config", s.Name, shardName)
+}
+
+// ShardMongotConfigMapNamespacedName returns the namespaced name for a specific shard's mongot ConfigMap
+func (s *MongoDBSearch) ShardMongotConfigMapNamespacedName(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: s.ShardMongotConfigMapName(shardName), Namespace: s.Namespace}
 }

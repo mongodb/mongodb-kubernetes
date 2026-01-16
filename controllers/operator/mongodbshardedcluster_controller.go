@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
@@ -31,6 +32,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
@@ -50,6 +52,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
@@ -846,6 +849,10 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	r.logAllScalers(log)
 
+	// Apply search overrides for shards if a MongoDBSearch resource is configured
+	// This implements the sharded internal + external L7 LB (BYO per-shard LB) PoC
+	r.applySearchOverridesForShards(ctx, log)
+
 	// After processing normal validations, we check for conflicting scale-up and scale-down operations within the same
 	// reconciliation cycle. If both scaling directions are detected, we block the reconciliation.
 	// This is not currently possible to do it safely with the operator. We check direction of scaling to decide for
@@ -987,6 +994,85 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 	for _, s := range r.getAllScalers() {
 		log.Debugf("%+v", s)
 	}
+}
+
+// applySearchOverridesForShards applies search configuration overrides for each shard in the sharded cluster.
+// This implements the sharded internal + external L7 LB (BYO per-shard LB) PoC:
+// - spec.lb.mode == External
+// - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
+// We map shardName -> endpoint and configure each mongod shard
+// to use its shard-local external LB endpoint for Search gRPC.
+func (r *ShardedClusterReconcileHelper) applySearchOverridesForShards(ctx context.Context, log *zap.SugaredLogger) {
+	sc := r.sc
+
+	search := r.lookupCorrespondingSearchResource(ctx, log)
+	if search == nil {
+		log.Debugf("No MongoDBSearch resource found for sharded cluster, skipping search overrides")
+		return
+	}
+
+	// Validate that the search resource is configured for sharded external LB
+	if !search.IsShardedExternalLB() {
+		log.Debugf("MongoDBSearch %s is not configured for sharded external LB, skipping per-shard search overrides", search.NamespacedName())
+		return
+	}
+
+	// Create a sharded search source to validate the configuration
+	shardedSource := searchcontroller.NewShardedEnterpriseSearchSource(sc, search)
+	if err := shardedSource.Validate(); err != nil {
+		log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
+		return
+	}
+
+	log.Infof("Applying per-shard search overrides from MongoDBSearch %s", search.NamespacedName())
+
+	// Apply search configuration to each shard
+	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+		shardName := sc.ShardRsName(shardIdx)
+		shardConfig := r.desiredShardsConfiguration[shardIdx]
+
+		if shardConfig.AdditionalMongodConfig == nil {
+			shardConfig.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
+		}
+
+		// Get the per-shard search mongod config parameters
+		searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain())
+		shardConfig.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
+
+		log.Debugf("Applied search config for shard %s: mongotHost=%v", shardName, searchMongodConfig["setParameter"])
+	}
+}
+
+// lookupCorrespondingSearchResource finds the MongoDBSearch resource that references this sharded cluster.
+func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx context.Context, log *zap.SugaredLogger) *searchv1.MongoDBSearch {
+	sc := r.sc
+
+	searchList := &searchv1.MongoDBSearchList{}
+	if err := r.commonController.client.List(ctx, searchList, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, sc.GetNamespace()+"/"+sc.GetName()),
+	}); err != nil {
+		log.Debugf("Failed to list MongoDBSearch resources: %v", err)
+		return nil
+	}
+
+	// Validate that there is exactly one MongoDBSearch pointing to this resource
+	if len(searchList.Items) == 0 {
+		return nil
+	}
+
+	if len(searchList.Items) > 1 {
+		log.Warnf("Found multiple MongoDBSearch resources for sharded cluster %s, using the first one", sc.Name)
+	}
+
+	search := &searchList.Items[0]
+
+	// Validate the search spec
+	if err := search.ValidateSpec(); err != nil {
+		log.Warnf("MongoDBSearch %s validation failed: %v", search.NamespacedName(), err)
+		return nil
+	}
+
+	return search
 }
 
 func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) workflow.Status {
