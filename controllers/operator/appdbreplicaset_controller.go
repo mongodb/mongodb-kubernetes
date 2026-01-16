@@ -534,6 +534,14 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error ensuring Ops Manager user password: %w", err)), log, appDbStatusOption)
 	}
 
+	// We cannot allow removing cluster specification if the cluster is not scaled down to zero.
+	// For example: we have 3 members in a cluster, and we try to remove the entire cluster spec. The operator is scaling members down one by one.
+	// We could remove one member successfully, but recreate other members with default configuration, rather the one that was used before.
+	// Removing cluster spec would remove all non-default cluster configuration i.e. priority, persistence, etc. and that can lead to unexpected issues.
+	if err := r.blockNonEmptyClusterSpecItemRemoval(rs); err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log)
+	}
+
 	// if any of the processes have been marked as disabled, we don't reconcile the AppDB.
 	// This could be the case if we want to disable a process to perform a manual backup of the AppDB.
 	shouldReconcile, err := r.shouldReconcileAppDB(ctx, opsManager, log)
@@ -730,6 +738,20 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
 	return r.updateStatus(ctx, opsManager, workflow.OK(), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...))
+}
+
+func (r *ReconcileAppDbReplicaSet) blockNonEmptyClusterSpecItemRemoval(appDBSpec omv1.AppDBSpec) error {
+	for _, memberCluster := range r.memberClusters {
+		searchFunc := func(item mdbv1.ClusterSpecItem) bool {
+			return item.ClusterName == memberCluster.Name
+		}
+
+		if !slices.ContainsFunc(appDBSpec.GetClusterSpecList(), searchFunc) && memberCluster.Replicas > 0 {
+			return xerrors.Errorf("Cannot remove member cluster %s with non-zero members count. Please scale down members to zero first", memberCluster.Name)
+		}
+	}
+
+	return nil
 }
 
 func (r *ReconcileAppDbReplicaSet) getNameOfFirstMemberCluster() string {
