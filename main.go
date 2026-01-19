@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-logr/zapr"
+	"github.com/joho/godotenv"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -26,12 +27,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	golog "log"
+	localruntime "runtime"
+
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	golog "log"
-	localruntime "runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	kubelog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -501,6 +503,26 @@ func initializeEnvironment() {
 	log.Infof("Go Version: %s", localruntime.Version())
 	log.Infof("Go OS/Arch: %s/%s", localruntime.GOOS, localruntime.GOARCH)
 
+	printEnvVariables()
+}
+
+// loadEnvFromLocalFileForDevelopment loads env vars from .generated/context.operator.env if not running in "prod" env
+func loadEnvFromLocalFileForDevelopment() {
+	if getOperatorEnv() == util.OperatorEnvironmentProd {
+		return
+	}
+
+	envFile := ".generated/context.operator.env"
+	if _, err := os.Stat(envFile); err == nil {
+		if err := godotenv.Load(envFile); err != nil {
+			log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
+		} else {
+			log.Infof("Loaded environment variables from file %s", envFile)
+		}
+	}
+}
+
+func printEnvVariables() {
 	printableEnvPrefixes := []string{
 		"BACKUP_WAIT_",
 		"POD_WAIT_",
@@ -534,8 +556,8 @@ func getOperatorEnv() util.OperatorEnvironment {
 		operatorEnvOnce.Do(func() {
 			golog.Printf("Configured environment %s, not recognized. Must be one of %v", operatorEnv, operatorEnvironments)
 			golog.Printf("Using default environment, %s, instead", util.OperatorEnvironmentDev)
+			operatorEnv = util.OperatorEnvironmentDev
 		})
-		operatorEnv = util.OperatorEnvironmentDev
 	}
 	return operatorEnv
 }
@@ -571,6 +593,8 @@ func getBuildSettingsString() string {
 // env variables). Having the central place to manage defaults increases manageability and transparency of the application
 // Method initializes variables only in case they are not specified already.
 func initEnvVariables() {
+	loadEnvFromLocalFileForDevelopment()
+
 	env.EnsureVar(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
 	env.EnsureVar(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
 	env.EnsureVar(util.OpsManagerMonitorAppDB, strconv.FormatBool(util.OpsManagerMonitorAppDBDefault))
