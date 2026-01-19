@@ -747,6 +747,8 @@ functions:
           - code_snippets_reset
           - task_name
           - MDB_BASH_DEBUG
+          - AI_MONGODB_EMBEDDING_INDEXING_KEY
+          - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
         script: |
