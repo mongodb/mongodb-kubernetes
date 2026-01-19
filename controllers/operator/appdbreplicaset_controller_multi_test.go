@@ -220,6 +220,30 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 1, log)
 	})
 
+	t.Run("scale down second cluster to zero before removal", func(t *testing.T) {
+		clusterSpecItems := mdbv1.ClusterSpecList{
+			{
+				ClusterName: memberClusterName,
+				Members:     2,
+			},
+			{
+				ClusterName: memberClusterName2,
+				Members:     0,
+			},
+		}
+
+		expectedHostnames := []string{
+			"om-db-0-0-svc.ns.svc.cluster.local",
+			"om-db-0-1-svc.ns.svc.cluster.local",
+		}
+
+		expectedProcessNames := []string{
+			"om-db-0-0",
+			"om-db-0-1",
+		}
+		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 1, log)
+	})
+
 	t.Run("remove second cluster and add new one", func(t *testing.T) {
 		clusterSpecItems := mdbv1.ClusterSpecList{
 			{
@@ -321,7 +345,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		// nothing to be scaled
 		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, false, expectedHostnames, expectedProcessNames, log)
 
-		// memberClusterName2 is removed
+		// Scale "failed" second cluster down to zero before removal
 		clusterSpecItems = mdbv1.ClusterSpecList{
 			{
 				ClusterName: memberClusterName,
@@ -330,6 +354,10 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 			{
 				ClusterName: memberClusterName3,
 				Members:     1,
+			},
+			{
+				ClusterName: memberClusterName2,
+				Members:     0,
 			},
 		}
 
@@ -364,6 +392,33 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 
 		// the last process from memberClusterName2 should be removed
 		// this should be final reconcile
+		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, false, expectedHostnames, expectedProcessNames, log)
+
+		// memberClusterName2 is removed
+		clusterSpecItems = mdbv1.ClusterSpecList{
+			{
+				ClusterName: memberClusterName,
+				Members:     2,
+			},
+			{
+				ClusterName: memberClusterName3,
+				Members:     1,
+			},
+		}
+
+		expectedHostnames = []string{
+			"om-db-0-0-svc.ns.svc.cluster.local",
+			"om-db-0-1-svc.ns.svc.cluster.local",
+			"om-db-2-0-svc.ns.svc.cluster.local",
+		}
+
+		expectedProcessNames = []string{
+			"om-db-0-0",
+			"om-db-0-1",
+			"om-db-2-0",
+		}
+
+		// nothing to be scaled
 		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, false, expectedHostnames, expectedProcessNames, log)
 	})
 	t.Run("add second cluster back to check indexes are preserved with different clusterSpecItem order", func(t *testing.T) {
@@ -716,14 +771,54 @@ func TestAppDB_MultiCluster_KeepUpdatingLegacyState(t *testing.T) {
 		checkLegacyLastAppliedMongoDBVersion(ctx, t, reconciler.centralClient, opsManager.Namespace, opsManager.GetName(), expectedLastAppliedMongoDBVersion)
 	})
 
-	// Update the cluster spec lists and perform new reconcile
-	opsManager.Spec.AppDB.ClusterSpecList = makeClusterSpecList(memberClusterName1, memberClusterName3)
-	reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, log, omConnectionFactory.GetConnectionFunc)
-	require.NoError(t, err)
-	_, err = reconciler.ReconcileAppDB(ctx, opsManager)
-	require.NoError(t, err)
+	t.Run("check that legacy config maps are updated on reconcile when scaling", func(t *testing.T) {
+		// Update the cluster spec lists and perform new reconcile
+		opsManager.Spec.AppDB.ClusterSpecList = []mdbv1.ClusterSpecItem{
+			{
+				ClusterName: memberClusterName1,
+				Members:     1,
+			},
+			{
+				ClusterName: memberClusterName2,
+				Members:     0,
+			},
+		}
+		reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, log, omConnectionFactory.GetConnectionFunc)
+		require.NoError(t, err)
+		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+		require.NoError(t, err)
 
-	t.Run("check that legacy config maps are updated on reconcile", func(t *testing.T) {
+		expectedClusterMapping := map[string]int{
+			memberClusterName1: 0,
+			memberClusterName2: 1,
+		}
+		checkLegacyClusterMapping(ctx, t, reconciler.centralClient, appdb.Namespace, appdb.Name(), expectedClusterMapping)
+
+		expectedLastAppliedMemberSpec := map[string]int{
+			memberClusterName1: 1,
+			memberClusterName2: 0,
+		}
+		checkLegacyLastAppliedMemberSpec(ctx, t, reconciler.centralClient, appdb.Namespace, appdb.Name(), expectedLastAppliedMemberSpec)
+		checkLegacyLastAppliedMongoDBVersion(ctx, t, reconciler.centralClient, opsManager.Namespace, opsManager.GetName(), expectedLastAppliedMongoDBVersion)
+	})
+
+	t.Run("check that legacy config maps are updated on reconcile when removing a cluster", func(t *testing.T) {
+		// Remove a cluster from the cluster spec list and add a new one
+		opsManager.Spec.AppDB.ClusterSpecList = []mdbv1.ClusterSpecItem{
+			{
+				ClusterName: memberClusterName1,
+				Members:     1,
+			},
+			{
+				ClusterName: memberClusterName3,
+				Members:     1,
+			},
+		}
+		reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, log, omConnectionFactory.GetConnectionFunc)
+		require.NoError(t, err)
+		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+		require.NoError(t, err)
+
 		// Cluster 2 is not in cluster spec list anymore, but the reconciler should keep it in the index map
 		expectedClusterMapping := map[string]int{
 			memberClusterName1: 0,
@@ -733,12 +828,9 @@ func TestAppDB_MultiCluster_KeepUpdatingLegacyState(t *testing.T) {
 		checkLegacyClusterMapping(ctx, t, reconciler.centralClient, appdb.Namespace, appdb.Name(), expectedClusterMapping)
 
 		expectedLastAppliedMemberSpec := map[string]int{
-			// After a full reconciliation, the final state would be [memberClusterName1: 1, memberClusterName3: 1],
-			// but we only run one loop here, and we can only modify one member at a time, so we only scaled down
-			// the replica on cluster 2, and end up with 1-0-0
 			memberClusterName1: 1,
 			memberClusterName2: 0,
-			memberClusterName3: 0,
+			memberClusterName3: 1,
 		}
 		checkLegacyLastAppliedMemberSpec(ctx, t, reconciler.centralClient, appdb.Namespace, appdb.Name(), expectedLastAppliedMemberSpec)
 		checkLegacyLastAppliedMongoDBVersion(ctx, t, reconciler.centralClient, opsManager.Namespace, opsManager.GetName(), expectedLastAppliedMongoDBVersion)
