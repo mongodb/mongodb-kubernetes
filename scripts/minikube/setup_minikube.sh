@@ -143,17 +143,7 @@ start_minikube_cluster() {
   sudo rm -rf "${MINIKUBE_TMPDIR}" 2>/dev/null || true
   sudo mkdir -p "${MINIKUBE_TMPDIR}"
 
-  # Check rootful podman directly (minikube status checks wrong namespace)
-  if sudo podman ps --filter name=minikube --format '{{.Names}}' 2>/dev/null | grep -q '^minikube$'; then
-    echo "✅ Minikube container exists - verifying kubectl connectivity..."
-    if sudo TMPDIR="${MINIKUBE_TMPDIR}" "${PROJECT_DIR:-.}/bin/minikube" kubectl -- get nodes &>/dev/null 2>&1; then
-      echo "✅ Minikube cluster is healthy - skipping setup"
-      return 0
-    else
-      echo "⚠️ Minikube container exists but kubectl not working - will recreate"
-    fi
-  fi
-
+  # Always clean up first to avoid stale cluster-scoped resources from previous runs
   echo "Cleaning up any existing minikube state..."
   sudo rm -rf ~/.minikube/machines/minikube 2>/dev/null || true
   rm -rf ~/.minikube/machines/minikube 2>/dev/null || true

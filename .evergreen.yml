@@ -15,7 +15,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.21 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.18 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.19 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -663,6 +663,7 @@ task_groups:
     tasks:
       - e2e_community_replicaset_scale
       - e2e_search_community_basic
+      - e2e_search_community_auto_embedding
       - e2e_search_community_tls
       - e2e_search_external_basic
       - e2e_search_external_tls

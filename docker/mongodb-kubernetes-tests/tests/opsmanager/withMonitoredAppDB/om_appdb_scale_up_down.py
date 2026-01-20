@@ -136,6 +136,10 @@ class TestOpsManagerAppDbScaleDown:
             assert statefulset.status.ready_replicas == 3
             assert statefulset.status.current_replicas == 3
 
+    def test_hosts_removed_from_monitoring_after_scale_down(self, ops_manager: MongoDBOpsManager):
+        """Verifies that scaled-down AppDB hosts are removed from OM monitoring."""
+        ops_manager.assert_appdb_hostnames_are_correct()
+
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_automation_config_tester().reached_version(3)
 

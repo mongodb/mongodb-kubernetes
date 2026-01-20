@@ -465,6 +465,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:108.0.16.8895-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_18_8921_1
               value: "quay.io/mongodb/mongodb-agent:108.0.18.8921-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_19_8941_1
+              value: "quay.io/mongodb/mongodb-agent:108.0.19.8941-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_2_8729_1
               value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_3_8758_1
@@ -477,8 +479,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:108.0.7.8810-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1
               value: "quay.io/mongodb/mongodb-agent:12.0.35.7911-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_13_44_0_10034_1
-              value: "quay.io/mongodb/mongodb-agent:13.44.0.10034-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_13_45_0_10119_1
+              value: "quay.io/mongodb/mongodb-agent:13.45.0.10119-1"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_26
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.26"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_27
@@ -535,6 +537,8 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.17"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_18
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.18"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_19
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.19"
             # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
             - name: RELATED_IMAGE_MONGODB_IMAGE_4_4_0_ubi8
               value: "quay.io/mongodb/mongodb-enterprise-server:4.4.0-ubi8"
@@ -634,14 +638,14 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_0_ubi9
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi9"
-            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_0_55_0
-              value: "quay.io/mongodb/mongodb-search:0.55.0"
+            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_0_60_1
+              value: "quay.io/mongodb/mongodb-search:0.60.1"
             - name: MDB_SEARCH_REPO_URL
               value: "quay.io/mongodb"
             - name: MDB_SEARCH_NAME
               value: "mongodb-search"
             - name: MDB_SEARCH_VERSION
-              value: "0.55.0"
+              value: "0.60.1"
       volumes:
         - name: webhook-server-dir
           emptyDir: {}
