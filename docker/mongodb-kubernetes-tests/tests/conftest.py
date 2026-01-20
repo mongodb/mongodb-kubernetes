@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from dotenv import load_dotenv
+from kubetester.certs import Certificate, ClusterIssuer, Issuer, SelfSignedClusterIssuer, SelfSignedIssuer
 
 
 def _load_env_from_local_file_for_development():
@@ -1437,6 +1438,80 @@ def run_multi_cluster_recovery_tool(
         print("Status: FAIL", exc.returncode, exc.output)
         return exc.returncode
     return 0
+
+
+def create_self_signed_issuer(
+    name: str, namespace: str, api_client: Optional[client.ApiClient] = None, clusterwide: bool = False
+):
+    if clusterwide:
+        issuer = SelfSignedClusterIssuer(name=name, namespace="")
+    else:
+        issuer = SelfSignedIssuer(name=name, namespace=namespace)
+
+    issuer["spec"] = {"selfSigned": {}}
+    issuer.api = kubernetes.client.CustomObjectsApi(api_client=api_client)
+
+    try:
+        issuer.create().block_until_ready()
+    except client.rest.ApiException as e:
+        if e.status == 409:
+            print("issuer already exists")
+        else:
+            raise e
+
+    return name
+
+
+def bootstrap_ca_issuer(
+    name: str,
+    namespace: str,
+    api_client: Optional[client.ApiClient] = None,
+    clusterwide: bool = False,
+    self_signed_issuer_name: str = "self-signed-issuer",
+):
+
+    # First creates a self-signed Issuer to sign the CA Issuer
+    self_signed_issuer = create_self_signed_issuer(self_signed_issuer_name, namespace, api_client, clusterwide)
+
+    # And then creates the Certificate and the Issuer
+    if clusterwide:
+        certificate = Certificate(namespace="cert-manager", name=name + "-ca-cert")
+        issuer = ClusterIssuer(name=name, namespace="")
+    else:
+        certificate = Certificate(namespace=namespace, name=name + "-ca-cert")
+        issuer = Issuer(name=name, namespace=namespace)
+
+    certificate["spec"] = {
+        "isCA": True,
+        "commonName": name,
+        "secretName": name + "-ca-key-pair",
+        "issuerRef": {
+            "name": self_signed_issuer,
+            "kind": "ClusterIssuer" if clusterwide else "Issuer",
+        },
+    }
+
+    certificate.api = kubernetes.client.CustomObjectsApi(api_client=api_client)
+    try:
+        certificate.create().block_until_ready()
+    except client.rest.ApiException as e:
+        if e.status == 409:
+            print(f"root certificate {certificate.name} already exists")
+        else:
+            raise e
+
+    issuer["spec"] = {"ca": {"secretName": name + "-ca-key-pair"}}
+    issuer.api = kubernetes.client.CustomObjectsApi(api_client=api_client)
+
+    try:
+        issuer.create().block_until_ready()
+    except client.rest.ApiException as e:
+        if e.status == 409:
+            print("issuer already exists")
+        else:
+            raise e
+
+    return name
 
 
 def create_issuer(

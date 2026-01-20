@@ -81,8 +81,16 @@ class Issuer(IssuerType, WaitForConditions):
     Reason = "KeyPairVerified"
 
 
+class SelfSignedIssuer(IssuerType, WaitForConditions):
+    Reason = "IsReady"
+
+
 class ClusterIssuer(ClusterIssuerType, WaitForConditions):
     Reason = "KeyPairVerified"
+
+
+class SelfSignedClusterIssuer(ClusterIssuerType, WaitForConditions):
+    Reason = "IsReady"
 
 
 def generate_cert(
@@ -614,15 +622,18 @@ def create_sharded_cluster_certs(
         )
 
 
-def create_x509_agent_tls_certs(issuer: str, namespace: str, name: str, secret_backend: Optional[str] = None) -> str:
+def create_x509_agent_tls_certs(
+    issuer: str, namespace: str, name: str, secret_prefix: Optional[str] = None, secret_backend: Optional[str] = None
+) -> str:
     spec = get_agent_x509_subject(namespace)
+    secret_name = "agent-certs" if secret_prefix is None else f"{secret_prefix}-{name}-agent-certs"
     return generate_cert(
         namespace=namespace,
         pod=[],
         dns=[],
         issuer=issuer,
         spec=spec,
-        secret_name="agent-certs",
+        secret_name=secret_name,
         secret_backend=secret_backend,
         vault_subpath="database",
     )
