@@ -37,3 +37,8 @@ for i in $(seq 0 $((MDB_SHARD_COUNT - 1))); do
   kubectl exec --context "${K8S_CTX}" -n "${MDB_NS}" ${pod_name} -- cat /data/automation-mongod.conf | grep -E "mongotHost|searchIndexManagementHostAndPort" || echo "Search parameters not found for shard ${i}"
 done
 
+# Run search query tests for sharded clusters using the sharded test script
+echo ""
+echo "Running search query tests for sharded cluster..."
+test_dir="./docs/search/03-search-query-usage"
+${test_dir}/test_sharded.sh
