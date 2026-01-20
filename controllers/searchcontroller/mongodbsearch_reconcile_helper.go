@@ -509,6 +509,25 @@ func createShardMongotConfig(search *searchv1.MongoDBSearch, shardedSource Shard
 				},
 			},
 		}
+
+		// Configure prometheus metrics if enabled
+		if prometheus := search.GetPrometheus(); prometheus != nil {
+			config.Metrics = mongot.ConfigMetrics{
+				Enabled: true,
+				Address: fmt.Sprintf("0.0.0.0:%d", prometheus.GetPort()),
+			}
+		}
+
+		// Configure health check endpoint - required for mongot to start
+		config.HealthCheck = mongot.ConfigHealthCheck{
+			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
+		}
+
+		// Configure logging
+		config.Logging = mongot.ConfigLogging{
+			Verbosity: string(search.GetLogLevel()),
+			LogPath:   nil,
+		}
 	}
 }
 

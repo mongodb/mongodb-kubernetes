@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1775,6 +1776,20 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 		if err != nil {
 			return err
 		}
+	}
+
+	// Watch for MongoDBSearch resources that reference this sharded cluster
+	// This triggers reconciliation when search configuration changes
+	err = c.Watch(source.Kind(mgr.GetCache(), &searchv1.MongoDBSearch{},
+		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, search *searchv1.MongoDBSearch) []reconcile.Request {
+			sourceRef := search.GetMongoDBResourceRef()
+			if sourceRef == nil {
+				return []reconcile.Request{}
+			}
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: sourceRef.Namespace, Name: sourceRef.Name}}}
+		})))
+	if err != nil {
+		return err
 	}
 
 	zap.S().Infof("Registered controller %s", util.MongoDbShardedClusterController)

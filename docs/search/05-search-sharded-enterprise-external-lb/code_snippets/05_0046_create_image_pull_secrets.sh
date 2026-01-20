@@ -1,4 +1,3 @@
-# Create image pull secrets if needed
-# This is a placeholder - customize based on your registry requirements
-echo "Image pull secrets creation - customize as needed for your environment"
-
+kubectl --context "${K8S_CTX}" -n "${MDB_NS}" \
+    create secret generic "image-registries-secret" \
+      --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
