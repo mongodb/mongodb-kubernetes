@@ -747,6 +747,7 @@ task_groups:
       - e2e_tls_x509_user_connectivity
       - e2e_tls_x509_users_addition_removal
       - e2e_replica_set_tls_process_hostnames
+      - e2e_tls_different_ca_for_server_and_client
       # e2e_ldap_task_group
       - e2e_replica_set_ldap
       - e2e_sharded_cluster_ldap
