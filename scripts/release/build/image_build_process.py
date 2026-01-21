@@ -1,6 +1,6 @@
 import base64
 import subprocess
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import boto3
 import python_on_whales
@@ -9,6 +9,7 @@ from python_on_whales.exceptions import DockerException
 
 import docker
 from lib.base_logger import logger
+from scripts.release.branch_detection import get_cache_scope, get_current_branch
 
 
 class ImageBuilder(object):
@@ -30,6 +31,65 @@ class ImageBuilder(object):
 
 
 DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
+
+
+def ensure_ecr_cache_repository(repository_name: str, region: str = "us-east-1"):
+    """
+    Ensure an ECR repository exists for caching, creating it if necessary.
+
+    :param repository_name: Name of the ECR repository to create
+    :param region: AWS region for ECR
+    """
+    ecr_client = boto3.client("ecr", region_name=region)
+    try:
+        _ = ecr_client.create_repository(repositoryName=repository_name)
+        logger.info(f"Successfully created ECR cache repository: {repository_name}")
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == 'RepositoryAlreadyExistsException':
+            logger.info(f"ECR cache repository already exists: {repository_name}")
+        else:
+            logger.error(f"Failed to create ECR cache repository {repository_name}: {error_code} - {e}")
+            raise
+
+
+def build_cache_configuration(base_registry: str) -> tuple[list[Any], dict[str, str]]:
+    """
+    Build cache configuration for branch-scoped BuildKit remote cache.
+
+    Implements the cache strategy:
+    - Per-image cache repo: …/dev/cache/<image>
+    - Per-branch run with read precedence: branch → master
+    - Write to branch scope only
+    - Use BuildKit registry cache exporter with mode=max, oci-mediatypes=true, image-manifest=true
+
+    :param base_registry: Base registry URL for cache (e.g., "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cache/mongodb-kubernetes")
+    """
+    cache_scope = get_cache_scope()
+
+    # Build cache references with read precedence: branch → master
+    cache_from_refs = []
+
+    # Read precedence: branch → master
+    branch_ref = f"{base_registry}:{cache_scope}"
+    master_ref = f"{base_registry}:master"
+
+    # Add to cache_from in order of precedence
+    if cache_scope != "master":
+        cache_from_refs.append({"type": "registry", "ref": branch_ref})
+        cache_from_refs.append({"type": "registry", "ref": master_ref})
+    else:
+        cache_from_refs.append({"type": "registry", "ref": master_ref})
+
+    cache_to_refs = {
+        "type": "registry",
+        "ref": branch_ref,
+        "mode": "max",
+        "oci-mediatypes": "true",
+        "image-manifest": "true"
+    }
+
+    return cache_from_refs, cache_to_refs
 
 
 class DockerImageBuilder(ImageBuilder):
@@ -132,6 +192,34 @@ class DockerImageBuilder(ImageBuilder):
         except FileNotFoundError:
             raise Exception("docker is not installed on the system.")
 
+    def _build_cache(self, tags: list[str]) -> tuple[list[Any], dict[str, str]]:
+        """
+        Build cache configuration for the given tags.
+
+        :param tags: List of image tags
+        :return: Tuple of (cache_from_refs, cache_to_refs)
+        """
+        # Filter tags to only include ECR ones (containing ".dkr.ecr.")
+        ecr_tags = [tag for tag in tags if ".dkr.ecr." in tag]
+        if not ecr_tags:
+            return [], {}
+
+        primary_tag = ecr_tags[0]
+        # Extract the repository URL without tag
+        repository_url = primary_tag.split(":")[0] if ":" in primary_tag else primary_tag
+        # Extract just the image name from the repository URL
+        cache_image_name = repository_url.split("/")[-1]
+        # Base cache repository name
+        base_cache_repo = f"dev/cache/{cache_image_name}"
+        # Build branch/arch-scoped cache configuration
+        base_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/{base_cache_repo}"
+
+        ensure_ecr_cache_repository(base_cache_repo)
+
+        # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
+        cache_from_refs, cache_to_refs = build_cache_configuration(base_registry)
+        return cache_from_refs, cache_to_refs
+
     def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str]):
         """
         Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
@@ -149,11 +237,19 @@ class DockerImageBuilder(ImageBuilder):
             # Convert build args to the format expected by python_on_whales
             build_args = {k: str(v) for k, v in args.items()}
 
+            # Build cache configuration
+            cache_from_refs, cache_to_refs = self._build_cache(tags)
+
             logger.info(f"Building image: {tags}")
             logger.info(f"Platforms: {platforms}")
             logger.info(f"Dockerfile: {dockerfile}")
             logger.info(f"Build context: {path}")
+            logger.info(f"Cache scope: {get_cache_scope()}")
+            logger.info(f"Current branch: {get_current_branch()}")
+            logger.info(f"Cache from sources: {len(cache_from_refs)} refs")
             logger.debug(f"Build args: {build_args}")
+            logger.debug(f"Cache from: {cache_from_refs}")
+            logger.debug(f"Cache to: {cache_to_refs}")
 
             # Use buildx for multi-platform builds
             if len(platforms) > 1:
@@ -170,6 +266,8 @@ class DockerImageBuilder(ImageBuilder):
                 push=True,
                 provenance=False,  # To not get an untagged image for single platform builds
                 pull=False,  # Don't always pull base images
+                cache_from=cache_from_refs,
+                cache_to=cache_to_refs,
             )
 
             logger.info(f"Successfully built and pushed {tags}")
