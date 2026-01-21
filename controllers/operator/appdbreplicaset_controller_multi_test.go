@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -31,6 +32,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
@@ -1778,5 +1780,116 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring verifies that hosts are removed from monitoring
+// when scaling down
+func TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+	centralClusterName := multicluster.LegacyCentralClusterName
+	memberClusterName1 := "member-cluster-1"
+	memberClusterName2 := "member-cluster-2"
+	clusters := []string{centralClusterName, memberClusterName1, memberClusterName2}
+
+	builder := DefaultOpsManagerBuilder().
+		SetName("om").
+		SetNamespace("ns").
+		SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+			{
+				ClusterName: memberClusterName1,
+				Members:     3,
+			},
+			{
+				ClusterName: memberClusterName2,
+				Members:     2,
+			},
+		}).
+		SetAppDbMembers(0).
+		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster)
+
+	opsManager := builder.Build()
+	// Use addOMHosts=false to prevent the interceptor from re-adding hosts when
+	// StatefulSets are fetched during scale-down. This allows testing host removal.
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(opsManager).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, false),
+		}).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	globalClusterMap := getAppDBFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
+
+	err := createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, opsManagerUserPassword)
+	assert.NoError(t, err)
+
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
+	require.NoError(t, err)
+
+	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
+	require.NoError(t, err)
+	assert.True(t, reconcileResult.Requeue)
+
+	createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
+
+	reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
+	require.NoError(t, err)
+	reconcileResult, err = reconciler.ReconcileAppDB(ctx, opsManager)
+	require.NoError(t, err)
+	require.False(t, reconcileResult.Requeue)
+
+	initialHostnames := []string{
+		"om-db-0-0-svc.ns.svc.cluster.local",
+		"om-db-0-1-svc.ns.svc.cluster.local",
+		"om-db-0-2-svc.ns.svc.cluster.local",
+		"om-db-1-0-svc.ns.svc.cluster.local",
+		"om-db-1-1-svc.ns.svc.cluster.local",
+	}
+
+	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), initialHostnames)
+
+	opsManager.Spec.AppDB.ClusterSpecList = mdbv1.ClusterSpecList{
+		{
+			ClusterName: memberClusterName1,
+			Members:     2,
+		},
+		{
+			ClusterName: memberClusterName2,
+			Members:     1,
+		},
+	}
+
+	// The scaler processes clusters in order (cluster1 first, then cluster2).
+	// So cluster1 scales down first (3→2), then cluster2 scales down (2→1).
+	expectedHostnamesAfterReconcileStep := [][]string{
+		{
+			// After first reconcile: cluster1 scaled from 3 to 2 (removed om-db-0-2)
+			"om-db-0-0-svc.ns.svc.cluster.local",
+			"om-db-0-1-svc.ns.svc.cluster.local",
+			"om-db-1-0-svc.ns.svc.cluster.local",
+			"om-db-1-1-svc.ns.svc.cluster.local",
+		},
+		{
+			// After second reconcile: cluster2 scaled from 2 to 1 (removed om-db-1-1)
+			"om-db-0-0-svc.ns.svc.cluster.local",
+			"om-db-0-1-svc.ns.svc.cluster.local",
+			"om-db-1-0-svc.ns.svc.cluster.local",
+		},
+	}
+
+	for i := 0; i < 2; i++ {
+		reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
+		require.NoError(t, err)
+		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+		require.NoError(t, err)
+
+		// Ensure the hosts are removed in the right reconcile step.
+		omConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+		hosts, _ := omConnection.GetHosts()
+		assert.Equal(t, expectedHostnamesAfterReconcileStep[i], util.Transform(hosts.Results, func(obj host.Host) string {
+			return obj.Hostname
+		}), "the AppDB hosts should have been removed after scale-down")
 	}
 }

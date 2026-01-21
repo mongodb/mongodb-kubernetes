@@ -338,7 +338,12 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 				secretNames = append(secretNames, security.AgentClientCertificateSecretName(resourceNameForSecret))
 			}
 		}
-		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, security.TLSConfig.CA, secretNames)
+		// TLSConfig may be nil if TLS is enabled via CertificatesSecretsPrefix only
+		var ca string
+		if security.TLSConfig != nil {
+			ca = security.TLSConfig.CA
+		}
+		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, ca, secretNames)
 	}
 
 	if security.GetInternalClusterAuthenticationMode() == util.X509 {

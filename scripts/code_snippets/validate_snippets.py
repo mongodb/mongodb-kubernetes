@@ -1,40 +1,31 @@
 #!/usr/bin/env python3
 
 import os
-import subprocess
 import sys
 from collections import defaultdict
 
-
-def is_git_ignored(path):
-    """Check if a path is git-ignored."""
-    try:
-        result = subprocess.run(
-            ["git", "check-ignore", "-q", path],
-            capture_output=True,
-            text=True,
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
+# Root directories known to contain code snippets.
+# Limiting the search to these paths avoids slow full-repo traversal.
+SNIPPET_ROOT_DIRS = [
+    "./docs",
+    "./public/architectures",
+]
 
 
 def find_snippet_directories():
     """Find all directories containing both test.sh and code_snippets subdirectory."""
     snippet_dirs = []
 
-    # Traverse current directory recursively to find test.sh files
-    for root, dirs, files in os.walk("."):
-        # Skip git-ignored directories
-        if is_git_ignored(root):
-            dirs.clear()  # Don't descend into ignored directories
+    for root_dir in SNIPPET_ROOT_DIRS:
+        if not os.path.isdir(root_dir):
             continue
 
-        if "test.sh" in files:
-            # Check if this directory also has a code_snippets subdirectory
-            code_snippets_path = os.path.join(root, "code_snippets")
-            if os.path.isdir(code_snippets_path):
-                snippet_dirs.append(root)
+        for root, dirs, files in os.walk(root_dir):
+            if "test.sh" in files:
+                # Check if this directory also has a code_snippets subdirectory
+                code_snippets_path = os.path.join(root, "code_snippets")
+                if os.path.isdir(code_snippets_path):
+                    snippet_dirs.append(root)
 
     return snippet_dirs
 
