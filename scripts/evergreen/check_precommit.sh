@@ -14,6 +14,9 @@ if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
   source "${PROJECT_DIR}/venv/bin/activate"
 fi
 
+# Add local bin to PATH (pip installs scripts there)
+export PATH="${HOME}/.local/bin:${PATH}"
+
 # Ensure pre-commit is installed
 if ! command -v pre-commit &>/dev/null; then
   echo "pre-commit not found, installing..."

@@ -146,7 +146,7 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 				return workflow.Failed(xerrors.Errorf("error deleting sts, err: %s", err))
 			}
 
-			deletedIsStatefulset := checkStatefulsetIsDeleted(ctx, memberClient, desiredSts, 1*time.Second, log)
+			deletedIsStatefulset, _ := checkStatefulsetIsDeleted(ctx, memberClient, desiredSts, 1*time.Second, log)
 
 			if !deletedIsStatefulset {
 				log.Info("deletion has not been reflected in kube yet, restarting the reconcile")
@@ -164,11 +164,13 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 	return workflow.OK()
 }
 
-func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, sleepDuration time.Duration, log *zap.SugaredLogger) bool {
+func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, sleepDuration time.Duration, log *zap.SugaredLogger) (bool, int) {
 	// After deleting the statefulset it can take seconds to be reflected in kubernetes.
 	// In case it is still not reflected
 	deletedIsStatefulset := false
-	for i := 0; i < 3; i++ {
+	retries := 0
+	for retries < 3 {
+		retries += 1
 		time.Sleep(sleepDuration)
 		_, stsErr := memberClient.GetStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
 		if apiErrors.IsNotFound(stsErr) {
@@ -178,7 +180,7 @@ func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClien
 			log.Info("Statefulset still exists, attempting again")
 		}
 	}
-	return deletedIsStatefulset
+	return deletedIsStatefulset, retries
 }
 
 func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet) (bool, error) {
