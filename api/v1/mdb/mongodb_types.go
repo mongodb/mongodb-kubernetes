@@ -710,8 +710,6 @@ type ProjectConfig struct {
 	BaseURL     string
 	ProjectName string
 	OrgID       string
-	Credentials string
-	UseCustomCA bool
 	env.SSLProjectConfig
 }
 
