@@ -262,8 +262,12 @@ func (s *MongoDBSearch) NamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name, Namespace: s.Namespace}
 }
 
-func (s *MongoDBSearch) SearchServiceNamespacedName() types.NamespacedName {
+func (s *MongoDBSearch) SearchHeadlessServiceNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-svc", Namespace: s.Namespace}
+}
+
+func (s *MongoDBSearch) SearchProxyServiceNamespacedName() types.NamespacedName {
+	return types.NamespacedName{Name: s.Name + "-proxy-svc", Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedName {

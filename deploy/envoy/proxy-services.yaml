@@ -1,0 +1,78 @@
+# Proxy services for SNI-based routing to multiple MongoDB replica sets
+# All services point to the same envoy-proxy deployment
+# Traffic is routed based on SNI (TLS Server Name Indication) to the appropriate backend
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mdb-rs-1-proxy-svc
+  namespace: ls
+  labels:
+    app: envoy-proxy
+    component: search-proxy
+    target-rs: mdb-rs-1
+  annotations:
+    description: "Proxy service for mdb-rs-1 search traffic"
+spec:
+  type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours
+  selector:
+    app: envoy-proxy
+  ports:
+  - name: grpc
+    port: 27029
+    targetPort: 27029
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mdb-rs-2-proxy-svc
+  namespace: ls
+  labels:
+    app: envoy-proxy
+    component: search-proxy
+    target-rs: mdb-rs-2
+  annotations:
+    description: "Proxy service for mdb-rs-2 search traffic"
+spec:
+  type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours
+  selector:
+    app: envoy-proxy
+  ports:
+  - name: grpc
+    port: 27029
+    targetPort: 27029
+    protocol: TCP
+
+---
+# Admin service for monitoring (optional, single service)
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy-proxy-admin
+  namespace: ls
+  labels:
+    app: envoy-proxy
+    component: search-proxy
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9901"
+    prometheus.io/path: "/stats/prometheus"
+spec:
+  type: ClusterIP
+  selector:
+    app: envoy-proxy
+  ports:
+  - name: admin
+    port: 9901
+    targetPort: 9901
+    protocol: TCP

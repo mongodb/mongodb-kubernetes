@@ -1,0 +1,285 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envoy-config
+  namespace: ls
+data:
+  envoy.yaml: |
+    admin:
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 9901
+
+    static_resources:
+      listeners:
+      - name: mongod_listener
+        address:
+          socket_address:
+            address: 0.0.0.0
+            port_value: 27029
+        listener_filters:
+        # TLS Inspector to extract SNI for routing
+        - name: envoy.filters.listener.tls_inspector
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
+        filter_chains:
+        # Filter chain for mdb-rs-1
+        - filter_chain_match:
+            server_names:
+            - "mdb-rs-1-proxy-svc.ls.svc.cluster.local"
+          filters:
+          - name: envoy.filters.network.http_connection_manager
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+              stat_prefix: ingress_rs1
+              codec_type: AUTO
+              route_config:
+                name: rs1_route
+                virtual_hosts:
+                - name: mongot_rs1_backend
+                  domains: ["*"]
+                  routes:
+                  - match:
+                      prefix: "/"
+                      grpc: {}
+                    route:
+                      cluster: mongot_rs1_cluster
+                      timeout: 300s
+              http_filters:
+              - name: envoy.filters.http.router
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+              http2_protocol_options:
+                initial_connection_window_size: 1048576
+                initial_stream_window_size: 1048576
+              stream_idle_timeout: 300s
+              request_timeout: 300s
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              common_tls_context:
+                tls_certificates:
+                - certificate_chain:
+                    filename: /etc/envoy/tls/server/cert.pem
+                  private_key:
+                    filename: /etc/envoy/tls/server/cert.pem
+                validation_context:
+                  trusted_ca:
+                    filename: /etc/envoy/tls/ca/ca-pem
+                  match_typed_subject_alt_names:
+                  - san_type: DNS
+                    matcher:
+                      suffix: ".ls.svc.cluster.local"
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_2
+                  tls_maximum_protocol_version: TLSv1_2
+                  cipher_suites:
+                  - "ECDHE-ECDSA-AES128-GCM-SHA256"
+                  - "ECDHE-RSA-AES128-GCM-SHA256"
+                  - "ECDHE-ECDSA-AES256-GCM-SHA384"
+                  - "ECDHE-RSA-AES256-GCM-SHA384"
+                  ecdh_curves:
+                  - "X25519"
+                  - "P-256"
+                alpn_protocols:
+                - "h2"
+              require_client_certificate: true
+
+        # Filter chain for mdb-rs-2
+        - filter_chain_match:
+            server_names:
+            - "mdb-rs-2-proxy-svc.ls.svc.cluster.local"
+          filters:
+          - name: envoy.filters.network.http_connection_manager
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+              stat_prefix: ingress_rs2
+              codec_type: AUTO
+              route_config:
+                name: rs2_route
+                virtual_hosts:
+                - name: mongot_rs2_backend
+                  domains: ["*"]
+                  routes:
+                  - match:
+                      prefix: "/"
+                      grpc: {}
+                    route:
+                      cluster: mongot_rs2_cluster
+                      timeout: 300s
+              http_filters:
+              - name: envoy.filters.http.router
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+              http2_protocol_options:
+                initial_connection_window_size: 1048576
+                initial_stream_window_size: 1048576
+              stream_idle_timeout: 300s
+              request_timeout: 300s
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              common_tls_context:
+                tls_certificates:
+                - certificate_chain:
+                    filename: /etc/envoy/tls/server/cert.pem
+                  private_key:
+                    filename: /etc/envoy/tls/server/cert.pem
+                validation_context:
+                  trusted_ca:
+                    filename: /etc/envoy/tls/ca/ca-pem
+                  match_typed_subject_alt_names:
+                  - san_type: DNS
+                    matcher:
+                      suffix: ".ls.svc.cluster.local"
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_2
+                  tls_maximum_protocol_version: TLSv1_2
+                  cipher_suites:
+                  - "ECDHE-ECDSA-AES128-GCM-SHA256"
+                  - "ECDHE-RSA-AES128-GCM-SHA256"
+                  - "ECDHE-ECDSA-AES256-GCM-SHA384"
+                  - "ECDHE-RSA-AES256-GCM-SHA384"
+                  ecdh_curves:
+                  - "X25519"
+                  - "P-256"
+                alpn_protocols:
+                - "h2"
+              require_client_certificate: true
+
+      clusters:
+      # Cluster for mdb-rs-1 search service
+      - name: mongot_rs1_cluster
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options:
+          initial_connection_window_size: 1048576
+          initial_stream_window_size: 1048576
+        load_assignment:
+          cluster_name: mongot_rs1_cluster
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    # Headless service DNS resolves to all mongot pods for rs-1
+                    address: mdb-rs-1-search-svc.ls.svc.cluster.local
+                    port_value: 27028
+        circuit_breakers:
+          thresholds:
+          - priority: DEFAULT
+            max_connections: 1024
+            max_pending_requests: 1024
+            max_requests: 1024
+            max_retries: 3
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            common_tls_context:
+              tls_certificates:
+              - certificate_chain:
+                  filename: /etc/envoy/tls/client/cert.pem
+                private_key:
+                  filename: /etc/envoy/tls/client/cert.pem
+              validation_context:
+                trusted_ca:
+                  filename: /etc/envoy/tls/ca/ca-pem
+                match_typed_subject_alt_names:
+                - san_type: DNS
+                  matcher:
+                    suffix: ".ls.svc.cluster.local"
+              tls_params:
+                tls_minimum_protocol_version: TLSv1_2
+                tls_maximum_protocol_version: TLSv1_2
+                cipher_suites:
+                - "ECDHE-ECDSA-AES128-GCM-SHA256"
+                - "ECDHE-RSA-AES128-GCM-SHA256"
+                - "ECDHE-ECDSA-AES256-GCM-SHA384"
+                - "ECDHE-RSA-AES256-GCM-SHA384"
+                ecdh_curves:
+                - "X25519"
+                - "P-256"
+              alpn_protocols:
+              - "h2"
+            sni: mdb-rs-1-search-svc.ls.svc.cluster.local
+        upstream_connection_options:
+          tcp_keepalive:
+            keepalive_time: 10
+            keepalive_interval: 3
+            keepalive_probes: 3
+        common_http_protocol_options:
+          idle_timeout: 300s
+
+      # Cluster for mdb-rs-2 search service
+      - name: mongot_rs2_cluster
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options:
+          initial_connection_window_size: 1048576
+          initial_stream_window_size: 1048576
+        load_assignment:
+          cluster_name: mongot_rs2_cluster
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    # Headless service DNS resolves to all mongot pods for rs-2
+                    address: mdb-rs-2-search-svc.ls.svc.cluster.local
+                    port_value: 27028
+        circuit_breakers:
+          thresholds:
+          - priority: DEFAULT
+            max_connections: 1024
+            max_pending_requests: 1024
+            max_requests: 1024
+            max_retries: 3
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            common_tls_context:
+              tls_certificates:
+              - certificate_chain:
+                  filename: /etc/envoy/tls/client/cert.pem
+                private_key:
+                  filename: /etc/envoy/tls/client/cert.pem
+              validation_context:
+                trusted_ca:
+                  filename: /etc/envoy/tls/ca/ca-pem
+                match_typed_subject_alt_names:
+                - san_type: DNS
+                  matcher:
+                    suffix: ".ls.svc.cluster.local"
+              tls_params:
+                tls_minimum_protocol_version: TLSv1_2
+                tls_maximum_protocol_version: TLSv1_2
+                cipher_suites:
+                - "ECDHE-ECDSA-AES128-GCM-SHA256"
+                - "ECDHE-RSA-AES128-GCM-SHA256"
+                - "ECDHE-ECDSA-AES256-GCM-SHA384"
+                - "ECDHE-RSA-AES256-GCM-SHA384"
+                ecdh_curves:
+                - "X25519"
+                - "P-256"
+              alpn_protocols:
+              - "h2"
+            sni: mdb-rs-2-search-svc.ls.svc.cluster.local
+        upstream_connection_options:
+          tcp_keepalive:
+            keepalive_time: 10
+            keepalive_interval: 3
+            keepalive_probes: 3
+        common_http_protocol_options:
+          idle_timeout: 300s
+
+    layered_runtime:
+      layers:
+      - name: static_layer
+        static_layer:
+          overload:
+            global_downstream_max_connections: 50000

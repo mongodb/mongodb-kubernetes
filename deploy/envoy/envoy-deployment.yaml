@@ -1,0 +1,224 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy-proxy
+  namespace: ls
+  labels:
+    app: envoy-proxy
+    component: search-proxy
+spec:
+  replicas: 1  # HA setup with 2 replicas
+  selector:
+    matchLabels:
+      app: envoy-proxy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Ensure zero downtime
+  template:
+    metadata:
+      labels:
+        app: envoy-proxy
+        component: search-proxy
+      annotations:
+        # Force pod restart when config or certs change
+        checksum/config: "{{ include (print $.Template.BasePath \"/envoy-configmap.yaml\") . | sha256sum }}"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9901"
+        prometheus.io/path: "/stats/prometheus"
+    spec:
+      # Enable shared process namespace for ephemeral debug containers
+      shareProcessNamespace: true
+
+      # Security context for the pod
+      # Note: runAsUser/runAsNonRoot moved to container level to allow root ephemeral containers
+      securityContext:
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Use affinity to spread replicas across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - envoy-proxy
+              topologyKey: kubernetes.io/hostname
+
+      containers:
+      - name: envoy
+        image: envoyproxy/envoy:v1.31-latest
+        imagePullPolicy: IfNotPresent
+
+        command:
+        - /usr/local/bin/envoy
+        args:
+        - -c
+        - /etc/envoy/envoy.yaml
+        - --service-cluster
+        - envoy-proxy
+        - --service-node
+        - $(POD_NAME)
+        - --log-level
+        - debug
+        - --component-log-level
+        - upstream:debug,connection:debug
+
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+
+        ports:
+        - name: grpc
+          containerPort: 27029
+          protocol: TCP
+        - name: admin
+          containerPort: 9901
+          protocol: TCP
+
+        # Resource limits
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+
+        # Liveness probe (admin endpoint)
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 9901
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # Readiness probe (admin endpoint)
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 9901
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+
+        # Startup probe for slow start scenarios
+        startupProbe:
+          httpGet:
+            path: /ready
+            port: 9901
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 12  # 60 seconds total
+
+        # Volume mounts
+        volumeMounts:
+        # Envoy configuration
+        - name: envoy-config
+          mountPath: /etc/envoy
+          readOnly: true
+
+        # Server certificate (for accepting mongod connections)
+        # Using MongoDB's certificate secret structure
+        - name: envoy-server-cert
+          mountPath: /etc/envoy/tls/server
+          readOnly: true
+
+        # Client certificate (for connecting to mongot)
+        # Using MongoDB's certificate secret structure
+        - name: envoy-client-cert
+          mountPath: /etc/envoy/tls/client
+          readOnly: true
+
+        # CA certificate (for validating both mongod and mongot certs)
+        # Using MongoDB's CA ConfigMap
+        - name: ca-cert
+          mountPath: /etc/envoy/tls/ca
+          readOnly: true
+
+        # Writable tmp directory for TLS key logging
+        - name: tmp
+          mountPath: /tmp
+
+        # Security context for container
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 101
+          capabilities:
+            drop:
+            - ALL
+
+      # Volumes
+      volumes:
+      # Envoy configuration from ConfigMap
+      - name: envoy-config
+        configMap:
+          name: envoy-config
+          defaultMode: 0444
+
+      # Server certificate for Envoy (presented to mongod)
+      # Using combined cert+key PEM file (same format as client cert)
+      - name: envoy-server-cert
+        secret:
+          secretName: envoy-server-cert-pem
+          defaultMode: 0440
+          items:
+          - key: cert.pem
+            path: cert.pem
+
+      # Client certificate for Envoy (presented to mongot)
+      # Using MongoDB operator certificate secret structure (combined cert+key PEM)
+      - name: envoy-client-cert
+        secret:
+          secretName: envoy-client-cert-pem
+          defaultMode: 0440
+          items:
+          - key: cert.pem
+            path: cert.pem
+
+      # CA certificate to validate both mongod and mongot certificates
+      # Using MongoDB operator CA ConfigMap
+      - name: ca-cert
+        configMap:
+          name: issuer-ca
+          defaultMode: 0444
+          items:
+          - key: ca-pem
+            path: ca-pem
+
+      # Writable tmp directory for TLS key logging
+      - name: tmp
+        emptyDir: {}
+
+      # Graceful termination
+      terminationGracePeriodSeconds: 30
+
+      # DNS configuration for better service discovery
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+        - name: ndots
+          value: "2"
+        - name: edns0

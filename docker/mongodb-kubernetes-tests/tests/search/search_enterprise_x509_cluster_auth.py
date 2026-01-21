@@ -10,6 +10,8 @@ from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
+from tests.common.mongodb_tools_pod.mongodb_tools_pod import get_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
@@ -222,8 +224,10 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
 
 @mark.e2e_search_enterprise_x509_cluster_auth
-def test_search_restore_sample_database(mdb: MongoDB):
-    get_admin_sample_movies_helper(mdb).restore_sample_database()
+def test_search_restore_sample_database(
+    mdb: MongoDB,
+):
+    get_admin_sample_movies_helper(mdb, get_tools_pod(mdb.namespace)).restore_sample_database()
 
 
 @mark.e2e_search_enterprise_x509_cluster_auth
@@ -240,19 +244,21 @@ def get_connection_string(mdb: MongoDB, user_name: str, user_password: str) -> s
     return f"mongodb://{user_name}:{user_password}@{mdb.name}-0.{mdb.name}-svc.{mdb.namespace}.svc.cluster.local:27017/?replicaSet={mdb.name}"
 
 
-def get_admin_sample_movies_helper(mdb):
+def get_admin_sample_movies_helper(mdb, tools_pod: mongodb_tools_pod.ToolsPod):
     return movies_search_helper.SampleMoviesSearchHelper(
         SearchTester(
             get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD),
             use_ssl=True,
             ca_path=get_issuer_ca_filepath(),
-        )
+        ),
+        tools_pod=tools_pod,
     )
 
 
-def get_user_sample_movies_helper(mdb):
+def get_user_sample_movies_helper(mdb, tools_pod: mongodb_tools_pod.ToolsPod):
     return movies_search_helper.SampleMoviesSearchHelper(
         SearchTester(
             get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=True, ca_path=get_issuer_ca_filepath()
-        )
+        ),
+        tools_pod,
     )

@@ -324,7 +324,7 @@ func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Con
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, search *searchv1.MongoDBSearch) error {
-	svcName := search.SearchServiceNamespacedName()
+	svcName := search.SearchHeadlessServiceNamespacedName()
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName.Name, Namespace: svcName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, svc, func() error {
 		resourceVersion := svc.ResourceVersion
@@ -740,7 +740,7 @@ func hashBytes(bytes []byte) string {
 
 func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 	labels := map[string]string{}
-	name := search.SearchServiceNamespacedName().Name
+	name := search.SearchHeadlessServiceNamespacedName().Name
 
 	labels["app"] = name
 
@@ -911,8 +911,12 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 	}
 
 	// Otherwise, use the internal service endpoint
-	svcName := search.SearchServiceNamespacedName()
+	svcName := search.SearchHeadlessServiceNamespacedName()
 	port := search.GetEffectiveMongotPort()
+	if useProxy, ok := search.Annotations["use-proxy"]; ok && useProxy == "true" {
+		port += 1
+		svcName = search.SearchProxyServiceNamespacedName()
+	}
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
 }
 

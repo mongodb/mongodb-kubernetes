@@ -208,7 +208,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			checkSearchReconcileSuccessful(ctx, t, reconciler, c, search)
 
 			svc := &corev1.Service{}
-			err := c.Get(ctx, search.SearchServiceNamespacedName(), svc)
+			err := c.Get(ctx, search.SearchHeadlessServiceNamespacedName(), svc)
 			assert.NoError(t, err)
 			servicePortNames := []string{}
 			for _, port := range svc.Spec.Ports {

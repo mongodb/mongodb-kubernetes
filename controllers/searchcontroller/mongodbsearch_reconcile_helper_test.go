@@ -30,28 +30,6 @@ func init() {
 	zap.ReplaceGlobals(logger)
 }
 
-func newTestMongoDBSearch(name, namespace string, modifications ...func(*searchv1.MongoDBSearch)) *searchv1.MongoDBSearch {
-	mdbSearch := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-		Spec: searchv1.MongoDBSearchSpec{
-			Source: &searchv1.MongoDBSource{
-				MongoDBResourceRef: &userv1.MongoDBResourceRef{
-					Name: "test-mongodb",
-				},
-			},
-		},
-	}
-
-	for _, modify := range modifications {
-		modify(mdbSearch)
-	}
-
-	return mdbSearch
-}
-
 func newTestMongoDBCommunity(name, namespace string, modifications ...func(*mdbcv1.MongoDBCommunity)) *mdbcv1.MongoDBCommunity {
 	mdbc := &mdbcv1.MongoDBCommunity{
 		ObjectMeta: metav1.ObjectMeta{
@@ -100,6 +78,33 @@ func reconcileMongoDBSearch(ctx context.Context, fakeClient kubernetesClient.Cli
 	)
 
 	return helper.Reconcile(ctx, zap.S())
+}
+
+func init() {
+	logger, _ := zap.NewDevelopment()
+	zap.ReplaceGlobals(logger)
+}
+
+func newTestMongoDBSearch(name, namespace string, modifications ...func(*searchv1.MongoDBSearch)) *searchv1.MongoDBSearch {
+	mdbSearch := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{
+					Name: "test-mongodb",
+				},
+			},
+		},
+	}
+
+	for _, modify := range modifications {
+		modify(mdbSearch)
+	}
+
+	return mdbSearch
 }
 
 func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource(t *testing.T) {
@@ -240,7 +245,7 @@ func TestGetMongodConfigParameters_TransportAndPorts(t *testing.T) {
 
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {
 	t.Helper()
-	svcName := mdbSearch.SearchServiceNamespacedName()
+	svcName := mdbSearch.SearchHeadlessServiceNamespacedName()
 
 	assert.Equal(t, svcName.Name, svc.Name)
 	assert.Equal(t, svcName.Namespace, svc.Namespace)
@@ -309,7 +314,7 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 
 			reconcileMongoDBSearch(t.Context(), fakeClient, mdbSearch, mdbc, newTestOperatorSearchConfig())
 
-			svcName := mdbSearch.SearchServiceNamespacedName()
+			svcName := mdbSearch.SearchHeadlessServiceNamespacedName()
 			svc, err := fakeClient.GetService(t.Context(), svcName)
 			require.NoError(t, err)
 			require.NotNil(t, svc)

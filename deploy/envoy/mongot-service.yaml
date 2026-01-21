@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mdb-ent-tls-mongot-svc
+  namespace: ls
+  labels:
+    app: mongot-proxy
+    component: search-proxy
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9901"
+    prometheus.io/path: "/stats/prometheus"
+spec:
+  type: ClusterIP
+  # Use session affinity to keep connections from same mongod to same Envoy pod
+  # This helps with connection pooling efficiency
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours
+  selector:
+    app: mongot-proxy
+  ports:
+  - name: grpc
+    port: 27029
+    targetPort: 27029
+    protocol: TCP
+  - name: admin
+    port: 9901
+    targetPort: 9901
+    protocol: TCP
+
+---
+# ServiceMonitor for Prometheus Operator (optional)
+#apiVersion: monitoring.coreos.com/v1
+#kind: ServiceMonitor
+#metadata:
+#  name: mongot-proxy
+#  namespace: ls
+#  labels:
+#    app: mongot-proxy
+#    component: search-proxy
+#spec:
+#  selector:
+#    matchLabels:
+#      app: mongot-proxy
+#  endpoints:
+#  - port: admin
+#    path: /stats/prometheus
+#    interval: 30s
+#    scrapeTimeout: 10s

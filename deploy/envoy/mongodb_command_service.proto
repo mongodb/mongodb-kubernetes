@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package mongodb;
+
+// This proto file is a representation of the gRPC wrapper around the MongoDB wire protocol,
+// as defined programmatically in the mongot project.
+// It is intended for use with tools like Wireshark for message dissection, allowing
+// the tool to parse the gRPC framing and treat the payload as a binary blob.
+
+// The WireMessage represents a single MongoDB wire protocol message, sent as an
+// opaque stream of bytes.
+message WireMessage {
+  bytes message = 1;
+}
+
+// The CommandService provides methods for streaming MongoDB wire protocol messages
+// over gRPC, effectively tunneling the wire protocol.
+service CommandService {
+  // A bidirectional stream for authenticated MongoDB wire protocol messages.
+  rpc AuthenticatedCommandStream(stream WireMessage) returns (stream WireMessage) {}
+
+  // A bidirectional stream for unauthenticated MongoDB wire protocol messages.
+  rpc UnauthenticatedCommandStream(stream WireMessage) returns (stream WireMessage) {}
+}

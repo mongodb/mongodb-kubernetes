@@ -74,7 +74,7 @@ type TLSSourceConfig struct {
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
 func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, searchImage string) statefulset.Modification {
 	labels := map[string]string{
-		"app": mdbSearch.SearchServiceNamespacedName().Name,
+		"app": mdbSearch.SearchHeadlessServiceNamespacedName().Name,
 	}
 
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
@@ -119,7 +119,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 	stsModifications := []statefulset.Modification{
 		statefulset.WithName(mdbSearch.StatefulSetNamespacedName().Name),
 		statefulset.WithNamespace(mdbSearch.StatefulSetNamespacedName().Namespace),
-		statefulset.WithServiceName(mdbSearch.SearchServiceNamespacedName().Name),
+		statefulset.WithServiceName(mdbSearch.SearchHeadlessServiceNamespacedName().Name),
 		statefulset.WithLabels(labels),
 		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),

@@ -95,5 +95,7 @@ logs
 
 # locally packaged chart
 mongodb-kubernetes-*.tgz
+deploy/envoy/captures
 
 scripts/code_snippets/tests/outputs/*
+deploy/envoy/tmp-envoy-certs

@@ -5,6 +5,7 @@ from kubetester.mongodb_search import MongoDBSearch
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
@@ -118,9 +119,10 @@ def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
 
 
 @fixture(scope="function")
-def sample_movies_helper(mdbc: MongoDBCommunity) -> SampleMoviesSearchHelper:
+def sample_movies_helper(mdbc: MongoDBCommunity, tools_pod: mongodb_tools_pod.ToolsPod) -> SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(get_connection_string(mdbc, USER_NAME, USER_PASSWORD))
+        SearchTester(get_connection_string(mdbc, USER_NAME, USER_PASSWORD)),
+        tools_pod=tools_pod,
     )
 
 

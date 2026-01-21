@@ -1,0 +1,69 @@
+{
+  "$schema": "https://lnav.org/schemas/format-v1.schema.json",
+  "envoy_log": {
+    "title": "Envoy Proxy Log Format",
+    "description": "Log format for Envoy proxy with timestamp, thread, level, and logger name",
+    "url": "https://www.envoyproxy.io/",
+    "multiline": true,
+    "regex": {
+      "std": {
+        "pattern": "^\\[(?<timestamp>\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3})\\]\\[(?<thread>\\d+)\\]\\[(?<level>\\w+)\\]\\[(?<logger>[^\\]]+)\\] (?<body>.*)$"
+      }
+    },
+    "timestamp-format": [
+      "%Y-%m-%d %H:%M:%S.%L"
+    ],
+    "level-field": "level",
+    "level": {
+      "trace": "trace",
+      "debug": "debug",
+      "info": "info",
+      "warning": "warn",
+      "error": "error",
+      "critical": "critical"
+    },
+    "value": {
+      "thread": {
+        "kind": "integer",
+        "identifier": true,
+        "description": "Thread ID that generated the log message"
+      },
+      "logger": {
+        "kind": "string",
+        "identifier": true,
+        "description": "Logger name (component) that generated the message"
+      }
+    },
+    "sample": [
+      {
+        "line": "[2025-11-09 15:15:47.731][1][debug][http] [Tags: \"ConnectionId\":\"20\"] new connection from 10.244.0.1:54812"
+      },
+      {
+        "line": "[2025-11-09 15:15:47.731][1][info][admin] request complete: path: /ready"
+      },
+      {
+        "line": "[2025-11-09 15:15:47.769][1][error][upstream] connection failed: connection refused"
+      }
+    ],
+    "opid-field": "thread",
+    "highlights": {
+      "error": {
+        "pattern": "error|fail|exception|timeout",
+        "color": "red",
+        "underline": true
+      },
+      "connection": {
+        "pattern": "connection|connect|disconnect",
+        "color": "cyan"
+      },
+      "tls": {
+        "pattern": "tls|ssl|certificate|handshake",
+        "color": "yellow"
+      },
+      "health": {
+        "pattern": "health|ready|live",
+        "color": "green"
+      }
+    }
+  }
+}

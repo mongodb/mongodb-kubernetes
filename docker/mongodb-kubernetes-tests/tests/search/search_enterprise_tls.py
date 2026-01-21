@@ -10,6 +10,7 @@ from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
@@ -270,20 +271,26 @@ def get_connection_string(mdb: MongoDB, user_name: str, user_password: str) -> s
 
 
 def get_admin_sample_movies_helper(mdb):
+    from tests.common.mongodb_tools_pod.mongodb_tools_pod import get_tools_pod
+
     return movies_search_helper.SampleMoviesSearchHelper(
         SearchTester(
             get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD),
             use_ssl=True,
             ca_path=get_issuer_ca_filepath(),
-        )
+        ),
+        tools_pod=get_tools_pod(namespace=mdb.namespace),
     )
 
 
 def get_user_sample_movies_helper(mdb):
+    from tests.common.mongodb_tools_pod.mongodb_tools_pod import get_tools_pod
+
     return movies_search_helper.SampleMoviesSearchHelper(
         SearchTester(
             get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=True, ca_path=get_issuer_ca_filepath()
-        )
+        ),
+        tools_pod=get_tools_pod(namespace=mdb.namespace),
     )
 
 
@@ -301,6 +308,28 @@ def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: boo
         assert "prometheus" not in ports
 
 
+def assert_search_pod_prometheus_endpoint(mdbs: MongoDBSearch, should_be_accessible: bool, port: int = 9946):
+    from tests.common.mongodb_tools_pod.mongodb_tools_pod import get_tools_pod
+
+    service_fqdn = f"{mdbs.name}-search-svc.{mdbs.namespace}.svc.cluster.local"
+    url = f"http://{service_fqdn}:{port}/metrics"
+
+    tools_pod = get_tools_pod(namespace=mdbs.namespace)
+    if should_be_accessible:
+        # We don't necessarily need the connectivity test to run via a bastion pod as we could connect to it directly when running test in pod.
+        # But it's not requiring forwarding when running locally.
+        result = tools_pod.run_command(["curl", "-f", "-s", url])
+        assert "# HELP" in result or "# TYPE" in result
+
+        logger.info(f"Prometheus endpoint is accessible at {url} and returning metrics")
+    else:
+        try:
+            result = tools_pod.run_command(["curl", "-f", "-s", "--max-time", "5", url])
+            assert False, f"Prometheus endpoint should not be accessible but got: {result}"
+        except Exception as e:
+            logger.info(f"Expected failure: Prometheus endpoint is not accessible at {url}: {e}")
+
+
 def deploy_mongodb_tools_pod(namespace: str):
     """
     Deploys a bastion pod to perform connectivty checks using pod exec. It's similar to how we
@@ -313,13 +342,13 @@ def deploy_mongodb_tools_pod(namespace: str):
         "kind": "Pod",
         "metadata": {
             "name": "mongodb-tools-pod",
-            "labels": {"app": "mongodb-tools"},
+            "labels": {"app": "mongodb-tools-pod"},
         },
         "spec": {
             "containers": [
                 {
                     "name": "mongodb-tools",
-                    "image": "mongodb/mongodb-community-server:8.0-ubi8",
+                    "image": "mongodb/mongodb-community-server:8.0-ubi9",
                     "command": ["/bin/bash", "-c"],
                     "args": ["sleep infinity"],
                 }
@@ -334,31 +363,5 @@ def deploy_mongodb_tools_pod(namespace: str):
     except Exception as e:
         logger.info(f"Pod may already exist: {e}")
 
-    get_pod_when_ready(namespace, "app=mongodb-tools", default_retry=60)
+    get_pod_when_ready(namespace, "app=mongodb-tools-pod", default_retry=60)
     logger.info("mongodb-tools-pod is ready")
-
-
-def assert_search_pod_prometheus_endpoint(mdbs: MongoDBSearch, should_be_accessible: bool, port: int = 9946):
-    service_fqdn = f"{mdbs.name}-search-svc.{mdbs.namespace}.svc.cluster.local"
-    url = f"http://{service_fqdn}:{port}/metrics"
-
-    if should_be_accessible:
-        # We don't necessarily need the connectivity test to run via a bastion pod as we could connect to it directly when running test in pod.
-        # But it's not requiring forwarding when running locally.
-        result = KubernetesTester.run_command_in_pod_container(
-            "mongodb-tools-pod", mdbs.namespace, ["curl", "-f", "-s", url], container="mongodb-tools"
-        )
-        assert "# HELP" in result or "# TYPE" in result
-
-        logger.info(f"Prometheus endpoint is accessible at {url} and returning metrics")
-    else:
-        try:
-            result = KubernetesTester.run_command_in_pod_container(
-                "mongodb-tools-pod",
-                mdbs.namespace,
-                ["curl", "-f", "-s", "--max-time", "5", url],
-                container="mongodb-tools",
-            )
-            assert False, f"Prometheus endpoint should not be accessible but got: {result}"
-        except Exception as e:
-            logger.info(f"Expected failure: Prometheus endpoint is not accessible at {url}: {e}")
