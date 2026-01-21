@@ -1,10 +1,7 @@
 import subprocess
 from unittest.mock import MagicMock, patch
 
-from scripts.release.branch_detection import (
-    get_cache_scope,
-    get_current_branch,
-)
+from scripts.release.branch_detection import get_cache_scope, get_current_branch
 
 
 class TestGetCurrentBranch:

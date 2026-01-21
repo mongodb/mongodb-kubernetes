@@ -1,8 +1,6 @@
 from unittest.mock import patch
 
-from scripts.release.build.image_build_process import (
-    build_cache_configuration,
-)
+from scripts.release.build.image_build_process import build_cache_configuration
 
 
 class TestBuildCacheConfiguration:
