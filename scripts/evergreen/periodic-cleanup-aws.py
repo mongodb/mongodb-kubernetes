@@ -1,10 +1,13 @@
 import argparse
+import json
 import re
 from datetime import datetime, timedelta, timezone
 from typing import List
 
 import boto3
+from botocore.exceptions import ClientError
 
+# Static list of known dev repositories to clean up
 REPOSITORIES_NAMES = [
     "dev/mongodb-agent-ubi",
     "dev/mongodb-agent",
@@ -15,6 +18,8 @@ REPOSITORIES_NAMES = [
     "dev/mongodb-enterprise-ops-manager-ubi",
     "dev/mongodb-kubernetes",
 ]
+# Prefix for dynamically discovered cache repositories
+CACHE_REPOSITORY_PREFIX = "dev/cache/"
 REGISTRY_ID = "268558157000"
 REGION = "us-east-1"
 DEFAULT_AGE_THRESHOLD_DAYS = 1  # Number of days to consider as the age threshold
@@ -161,6 +166,109 @@ def cleanup_repository(repository: str, age_threshold: int = DEFAULT_AGE_THRESHO
     print(f"Repository {repository} cleaned up")
 
 
+def discover_cache_repositories() -> List[str]:
+    """
+    Discover all cache repositories (dev/cache/*) in ECR.
+
+    Cache repositories are created dynamically during builds, so we need to
+    discover them rather than maintaining a static list.
+
+    :return: List of cache repository names
+    """
+    cache_repos = []
+    try:
+        paginator = ecr_client.get_paginator("describe_repositories")
+        page_iterator = paginator.paginate(registryId=REGISTRY_ID)
+
+        for page in page_iterator:
+            for repo in page.get("repositories", []):
+                repo_name = repo["repositoryName"]
+                if repo_name.startswith(CACHE_REPOSITORY_PREFIX):
+                    cache_repos.append(repo_name)
+
+        print(f"Discovered {len(cache_repos)} cache repositories")
+    except ClientError as e:
+        print(f"Warning: Failed to discover cache repositories: {e}")
+
+    return cache_repos
+
+
+def get_cache_lifecycle_policy() -> dict:
+    """
+    Get the standard lifecycle policy for cache repositories.
+
+    This is duplicated from scripts/release/build_cache.py to avoid import dependencies.
+    Keep in sync with that module.
+    """
+    return {
+        "rules": [
+            {
+                "rulePriority": 1,
+                "description": "Keep only latest master cache",
+                "selection": {
+                    "tagStatus": "tagged",
+                    "tagPatternList": ["master"],
+                    "countType": "imageCountMoreThan",
+                    "countNumber": 1,
+                },
+                "action": {"type": "expire"},
+            },
+            {
+                "rulePriority": 2,
+                "description": "Expire branch caches after 14 days",
+                "selection": {
+                    "tagStatus": "tagged",
+                    "tagPatternList": ["*"],
+                    "countType": "sinceImagePushed",
+                    "countUnit": "days",
+                    "countNumber": 14,
+                },
+                "action": {"type": "expire"},
+            },
+        ]
+    }
+
+
+def ensure_cache_lifecycle_policies(dry_run: bool = False) -> None:
+    """
+    Ensure all cache repositories have the correct lifecycle policy.
+
+    This acts as a safety net in case policies weren't applied during build
+    (e.g., due to transient errors or repositories created before policy support).
+
+    :param dry_run: If True, only report what would be done
+    """
+    cache_repos = discover_cache_repositories()
+    if not cache_repos:
+        print("No cache repositories found")
+        return
+
+    lifecycle_policy = get_cache_lifecycle_policy()
+    policy_text = json.dumps(lifecycle_policy)
+
+    for repo in cache_repos:
+        try:
+            # Check if policy already exists and matches
+            try:
+                existing = ecr_client.get_lifecycle_policy(repositoryName=repo, registryId=REGISTRY_ID)
+                existing_policy = existing.get("lifecyclePolicyText", "")
+                if existing_policy == policy_text:
+                    print(f"  {repo}: lifecycle policy already up-to-date")
+                    continue
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "LifecyclePolicyNotFoundException":
+                    raise
+                # No policy exists, we'll create one
+
+            if dry_run:
+                print(f"  {repo}: would apply lifecycle policy")
+            else:
+                ecr_client.put_lifecycle_policy(repositoryName=repo, registryId=REGISTRY_ID, lifecyclePolicyText=policy_text)
+                print(f"  {repo}: applied lifecycle policy")
+        except ClientError as e:
+            print(f"  {repo}: failed to apply lifecycle policy: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Process and delete old ECR images.")
     parser.add_argument(
@@ -174,11 +282,23 @@ def main():
         action="store_true",
         help="If specified, only display what would be deleted without actually deleting.",
     )
+    parser.add_argument(
+        "--skip-cache-policies",
+        action="store_true",
+        help="Skip ensuring lifecycle policies on cache repositories.",
+    )
     args = parser.parse_args()
 
     if args.dry_run:
         print("Dry run - not deleting images")
 
+    # Ensure cache repositories have lifecycle policies
+    if not args.skip_cache_policies:
+        print("\n=== Ensuring cache repository lifecycle policies ===")
+        ensure_cache_lifecycle_policies(dry_run=args.dry_run)
+
+    # Clean up dev repositories
+    print("\n=== Cleaning up dev repositories ===")
     for repository in REPOSITORIES_NAMES:
         cleanup_repository(repository, age_threshold=args.age_threshold, dry_run=args.dry_run)
 
