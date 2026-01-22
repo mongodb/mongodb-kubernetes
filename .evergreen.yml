@@ -276,7 +276,6 @@ tasks:
   - name: unit_tests_python
     tags: [ "unit_tests" ]
     commands:
-      - func: python_venv
       - func: "test_python_unit"
 
   - name: unit_tests_helm
@@ -291,13 +290,11 @@ tasks:
     # See https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-Configuration-Files#limiting-when-a-task-or-variant-will-run
     patchable: false
     commands:
-      - func: python_venv
-      - func: "test_python_sbom"
+      - func: "test_sboms"
 
   - name: lint_repo
     tags: [ "unit_tests" ]
     commands:
-      - func: python_venv
       - func: lint_repo
 
   # Runs on every merge - detects release.json changes and releases appropriate images
@@ -648,6 +645,7 @@ task_groups:
     setup_group_can_fail_task: true
     setup_group:
       - func: clone
+      - func: python_venv
       - func: download_kube_tools
       - func: setup_shellcheck
     tasks:
@@ -656,11 +654,6 @@ task_groups:
       - unit_tests_python
       - unit_tests_helm
       - sbom_tests
-    teardown_task:
-      - command: attach.xunit_results
-        params:
-          files: [ "src/github.com/mongodb/mongodb-kubernetes/*-result.xml" ]
-
 
   # Task group for deploying mongodbcommunity resources and testing the (former) MCO
   - name: e2e_mdb_community_task_group
