@@ -14,9 +14,9 @@ def get_current_branch() -> Optional[str]:
     """
     Detect the current git branch for cache scoping.
 
-    In CI environments like Evergreen, git rev-parse --abbrev-ref HEAD returns
-    auto-generated branch names like evg-pr-testing-<hash>. This function finds the original branch name by
-    looking for remote branches that point to the current commit.
+    Evergreen CI creates auto-generated branch names (evg-pr-test-*) when running patch builds,
+    which would cause cache misses if used directly. We need the original branch name so that
+    repeated builds on the same feature branch can share cached layers.
 
     :return: branch name or 'master' as fallback
     """
@@ -55,10 +55,8 @@ def get_cache_scope() -> str:
     """
     Get the cache scope for BuildKit remote cache.
 
-    Returns a scope string that combines branch and run information:
-    - For master branch: returns "master"
-    - For other branches: returns the branch name (sanitized for use in image tags)
-    - For patch builds: includes version_id to avoid conflicts
+    Branch names become Docker image tags for the cache, so they must be sanitized
+    to comply with OCI tag naming rules (lowercase alphanumeric, hyphens, underscores, periods).
 
     :return: cache scope string suitable for use in image tags
     """

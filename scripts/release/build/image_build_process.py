@@ -37,6 +37,9 @@ def ensure_ecr_cache_repository(repository_name: str, region: str = "us-east-1")
     """
     Ensure an ECR repository exists for caching, creating it if necessary.
 
+    Each image gets its own cache repository (dev/cache/<image-name>) to avoid
+    cache pollution between unrelated images and to make cache management easier.
+
     :param repository_name: Name of the ECR repository to create
     :param region: AWS region for ECR
     """
@@ -57,13 +60,15 @@ def build_cache_configuration(base_registry: str) -> tuple[list[Any], dict[str, 
     """
     Build cache configuration for branch-scoped BuildKit remote cache.
 
-    Implements the cache strategy:
-    - Per-image cache repo: …/dev/cache/<image>
-    - Per-branch run with read precedence: branch → master
-    - Write to branch scope only
-    - Use BuildKit registry cache exporter with mode=max, oci-mediatypes=true, image-manifest=true
+    Each branch gets its own cache scope so that parallel CI runs on different branches
+    don't overwrite each other's cache. Read precedence is branch → master so feature
+    branches benefit from master's cache on first build, then accumulate their own.
+    We only write to the current branch to prevent feature branches from polluting master.
 
-    :param base_registry: Base registry URL for cache (e.g., "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cache/mongodb-kubernetes")
+    Uses mode=max to cache all intermediate layers (not just final), oci-mediatypes for
+    broad registry compatibility, and image-manifest to store cache as a proper manifest.
+
+    :param base_registry: Base registry URL for cache
     """
     cache_scope = get_cache_scope()
 
@@ -195,6 +200,9 @@ class DockerImageBuilder(ImageBuilder):
     def _build_cache(self, tags: list[str]) -> tuple[list[Any], dict[str, str]]:
         """
         Build cache configuration for the given tags.
+
+        Only ECR tags trigger caching because our CI infrastructure uses ECR for remote cache
+        storage. Local or other registry builds skip caching to avoid authentication failures.
 
         :param tags: List of image tags
         :return: Tuple of (cache_from_refs, cache_to_refs)
