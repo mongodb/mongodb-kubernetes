@@ -9,7 +9,12 @@ from python_on_whales.exceptions import DockerException
 
 import docker
 from lib.base_logger import logger
-from scripts.release.branch_detection import get_cache_scope, get_current_branch
+from scripts.release.build_cache import (
+    build_cache_configuration,
+    ensure_ecr_cache_repository,
+    get_cache_scope,
+    get_current_branch,
+)
 
 
 class ImageBuilder(object):
@@ -31,70 +36,6 @@ class ImageBuilder(object):
 
 
 DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
-
-
-def ensure_ecr_cache_repository(repository_name: str, region: str = "us-east-1"):
-    """
-    Ensure an ECR repository exists for caching, creating it if necessary.
-
-    Each image gets its own cache repository (dev/cache/<image-name>) to avoid
-    cache pollution between unrelated images and to make cache management easier.
-
-    :param repository_name: Name of the ECR repository to create
-    :param region: AWS region for ECR
-    """
-    ecr_client = boto3.client("ecr", region_name=region)
-    try:
-        _ = ecr_client.create_repository(repositoryName=repository_name)
-        logger.info(f"Successfully created ECR cache repository: {repository_name}")
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        if error_code == "RepositoryAlreadyExistsException":
-            logger.info(f"ECR cache repository already exists: {repository_name}")
-        else:
-            logger.error(f"Failed to create ECR cache repository {repository_name}: {error_code} - {e}")
-            raise
-
-
-def build_cache_configuration(base_registry: str) -> tuple[list[Any], dict[str, str]]:
-    """
-    Build cache configuration for branch-scoped BuildKit remote cache.
-
-    Each branch gets its own cache scope so that parallel CI runs on different branches
-    don't overwrite each other's cache. Read precedence is branch → master so feature
-    branches benefit from master's cache on first build, then accumulate their own.
-    We only write to the current branch to prevent feature branches from polluting master.
-
-    Uses mode=max to cache all intermediate layers (not just final), oci-mediatypes for
-    broad registry compatibility, and image-manifest to store cache as a proper manifest.
-
-    :param base_registry: Base registry URL for cache
-    """
-    cache_scope = get_cache_scope()
-
-    # Build cache references with read precedence: branch → master
-    cache_from_refs = []
-
-    # Read precedence: branch → master
-    branch_ref = f"{base_registry}:{cache_scope}"
-    master_ref = f"{base_registry}:master"
-
-    # Add to cache_from in order of precedence
-    if cache_scope != "master":
-        cache_from_refs.append({"type": "registry", "ref": branch_ref})
-        cache_from_refs.append({"type": "registry", "ref": master_ref})
-    else:
-        cache_from_refs.append({"type": "registry", "ref": master_ref})
-
-    cache_to_refs = {
-        "type": "registry",
-        "ref": branch_ref,
-        "mode": "max",
-        "oci-mediatypes": "true",
-        "image-manifest": "true",
-    }
-
-    return cache_from_refs, cache_to_refs
 
 
 class DockerImageBuilder(ImageBuilder):
