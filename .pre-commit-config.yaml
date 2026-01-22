@@ -126,7 +126,7 @@ repos:
     hooks:
       - id: golangci-lint
         name: golangci-lint
-        entry: bash -c 'GOEXPERIMENT=synctest golangci-lint run --new-from-rev HEAD --fix --timeout=10m'
+        entry: scripts/dev/run_golangci_lint.sh
         language: system
         pass_filenames: false
         types: [go]
