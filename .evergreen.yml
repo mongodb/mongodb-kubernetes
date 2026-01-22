@@ -297,6 +297,7 @@ tasks:
   - name: lint_repo
     tags: [ "unit_tests" ]
     commands:
+      - func: python_venv
       - func: lint_repo
 
   # Runs on every merge - detects release.json changes and releases appropriate images
