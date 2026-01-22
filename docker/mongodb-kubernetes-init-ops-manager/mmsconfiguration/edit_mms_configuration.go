@@ -145,7 +145,7 @@ func readLinesFromFile(name string) ([]string, error) {
 func writeLinesToFile(name string, lines []string) error {
 	output := strings.Join(lines, lineBreak)
 
-	err := os.WriteFile(name, []byte(output), 0o644)
+	err := os.WriteFile(name, []byte(output), 0o644) // nolint:gosec
 	if err != nil {
 		return xerrors.Errorf("error writing to file %s: %w", name, err)
 	}
