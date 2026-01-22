@@ -122,11 +122,8 @@ repos:
             ^scripts/funcs/[^/]+$
           )
 
-  - repo: local
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.62.2
     hooks:
       - id: golangci-lint
-        name: golangci-lint
-        entry: scripts/dev/run_golangci_lint.sh
-        language: system
-        pass_filenames: false
-        types: [go]
+        args: [--timeout=10m]

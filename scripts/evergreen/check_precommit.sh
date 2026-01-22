@@ -28,6 +28,9 @@ title "Running pre-commit checks"
 # Set EVERGREEN_MODE to signal we're in CI
 export EVERGREEN_MODE=true
 
+# Enable synctest experiment for testing/synctest package support
+export GOEXPERIMENT=synctest
+
 # Store the current state of the index and working directory
 initial_index_state=$(git diff --name-only --cached --diff-filter=AM)
 
