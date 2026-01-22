@@ -122,10 +122,11 @@ repos:
             ^scripts/funcs/[^/]+$
           )
 
-  - repo: https://github.com/golangci/golangci-lint
-    rev: v1.62.2
+  - repo: local
     hooks:
       - id: golangci-lint
-        args: [--timeout=10m]
-        env:
-          GOEXPERIMENT: synctest
+        name: golangci-lint
+        entry: bash -c 'GOEXPERIMENT=synctest golangci-lint run --new-from-rev HEAD --fix --timeout=10m'
+        language: system
+        pass_filenames: false
+        types: [go]
