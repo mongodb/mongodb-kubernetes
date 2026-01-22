@@ -13,10 +13,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
-func init() {
-	os.Clearenv() // nolint:forbidigo
-}
-
 // replaceImageTagOrDigestToTag returns the image with the tag or digest replaced to a given version
 func replaceImageTagOrDigestToTag(image string, newVersion string) string {
 	// example: quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a
