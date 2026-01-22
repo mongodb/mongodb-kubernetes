@@ -291,6 +291,7 @@ tasks:
     # See https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-Configuration-Files#limiting-when-a-task-or-variant-will-run
     patchable: false
     commands:
+      - func: python_venv
       - func: "test_python_sbom"
 
   - name: lint_repo
