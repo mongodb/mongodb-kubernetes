@@ -17,7 +17,7 @@ from kubetester import (
     try_load,
 )
 from kubetester.certs import create_ops_manager_tls_certs
-from kubetester.kubetester import KubernetesTester, ensure_ent_version
+from kubetester.kubetester import KubernetesTester, ensure_ent_version, run_periodically
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
@@ -625,15 +625,15 @@ class TestBackupForMongodb:
     @skip_if_local
     @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_add_test_data(self, mongodb_multi_one_collection):
-        max_attempts = 100
-        while max_attempts > 0:
+        def insert_test_data():
             try:
                 mongodb_multi_one_collection.insert_one(TEST_DATA)
-                return
+                return True
             except Exception as e:
                 print(e)
-                max_attempts -= 1
-                time.sleep(6)
+                return False
+
+        run_periodically(insert_test_data, timeout=600, msg="test data insertion")
 
     @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_mdb_backed_up(self, project_one: OMTester):
