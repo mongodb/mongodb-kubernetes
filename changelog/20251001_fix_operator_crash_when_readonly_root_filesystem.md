@@ -3,4 +3,4 @@ kind: fix
 date: 2025-10-01
 ---
 
-* **MongoDB Kubernetes Operator**: Operator crashed when `securityContext.readOnlyRootFilesystem=true` was set, because it was trying to create `/tmp/k8s-webhook-server` directory that was unmounted.
+* Fixed an issue where the operator would crash when `securityContext.readOnlyRootFilesystem=true` was set in the helm chart values. The operator now creates an emptyDir volume for the webhook certificate.
