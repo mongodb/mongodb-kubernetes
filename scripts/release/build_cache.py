@@ -8,12 +8,16 @@ ECR repository management, and BuildKit cache configuration generation.
 import json
 import os
 import subprocess
+from pathlib import Path
 from typing import Any, Optional
 
 import boto3
 from botocore.exceptions import ClientError
 
 from lib.base_logger import logger
+
+# Path to the shared lifecycle policy JSON file
+_LIFECYCLE_POLICY_PATH = Path(__file__).parent / "cache_lifecycle_policy.json"
 
 
 def get_current_branch() -> tuple[str, bool]:
@@ -24,8 +28,8 @@ def get_current_branch() -> tuple[str, bool]:
     which would cause cache misses if used directly. We need the original branch name so that
     repeated builds on the same feature branch can share cached layers.
 
-    For fork PRs, we rely on the github_pr_head_branch environment variable set by Evergreen,
-    since fork branches won't appear under refs/remotes/origin.
+    For PRs, we rely on the github_pr_head_branch environment variable set by Evergreen,
+    which provides the original branch name for all PR builds (including forks).
 
     :return: tuple of (branch_name, found)
              found=False when we fall back to master (e.g., manual patches)
@@ -43,7 +47,12 @@ def get_current_branch() -> tuple[str, bool]:
 
         # Get all remote branches with their commit hashes
         remote_branches_result = subprocess.run(
-            ["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin"],
+            [
+                "git",
+                "for-each-ref",
+                "--format=%(refname:short) %(objectname)",
+                "refs/remotes/origin",
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -56,7 +65,7 @@ def get_current_branch() -> tuple[str, bool]:
             parts = line.split()
             if len(parts) >= 2:
                 branch_name, commit_hash = parts[0], parts[1]
-                if commit_hash == current_commit and not "evg-pr-test" in branch_name:
+                if commit_hash == current_commit and "evg-pr-test" not in branch_name:
                     # Remove 'origin/' prefix
                     original_branch = branch_name.replace("origin/", "", 1)
                     if original_branch:
@@ -95,35 +104,13 @@ def get_cache_lifecycle_policy() -> dict:
     - Keep only the latest master cache image
     - Expire branch caches after 14 days of inactivity
 
+    The policy is loaded from a shared JSON file (cache_lifecycle_policy.json)
+    to ensure consistency across all modules that need it.
+
     :return: Lifecycle policy dictionary suitable for ECR put_lifecycle_policy
     """
-    return {
-        "rules": [
-            {
-                "rulePriority": 1,
-                "description": "Keep only latest master cache",
-                "selection": {
-                    "tagStatus": "tagged",
-                    "tagPatternList": ["master"],
-                    "countType": "imageCountMoreThan",
-                    "countNumber": 1,
-                },
-                "action": {"type": "expire"},
-            },
-            {
-                "rulePriority": 2,
-                "description": "Expire branch caches after 14 days",
-                "selection": {
-                    "tagStatus": "tagged",
-                    "tagPatternList": ["*"],
-                    "countType": "sinceImagePushed",
-                    "countUnit": "days",
-                    "countNumber": 14,
-                },
-                "action": {"type": "expire"},
-            },
-        ]
-    }
+    with open(_LIFECYCLE_POLICY_PATH) as f:
+        return json.load(f)
 
 
 def apply_cache_lifecycle_policy(ecr_client, repository_name: str) -> bool:
@@ -177,7 +164,9 @@ def ensure_ecr_cache_repository(repository_name: str, region: str = "us-east-1")
     apply_cache_lifecycle_policy(ecr_client, repository_name)
 
 
-def build_cache_configuration(base_registry: str) -> tuple[list[Any], Optional[dict[str, str]]]:
+def build_cache_configuration(
+    base_registry: str,
+) -> tuple[list[Any], Optional[dict[str, str]]]:
     """
     Build cache configuration for branch-scoped BuildKit remote cache.
 

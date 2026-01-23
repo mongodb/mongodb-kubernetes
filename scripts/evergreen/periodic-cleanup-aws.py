@@ -2,6 +2,7 @@ import argparse
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import List
 
 import boto3
@@ -25,6 +26,9 @@ REGION = "us-east-1"
 DEFAULT_AGE_THRESHOLD_DAYS = 1  # Number of days to consider as the age threshold
 BOTO_MAX_PAGE_SIZE = 1000
 
+# Path to the shared lifecycle policy JSON file
+_LIFECYCLE_POLICY_PATH = Path(__file__).parent.parent / "release" / "cache_lifecycle_policy.json"
+
 ecr_client = boto3.client("ecr", region_name=REGION)
 
 
@@ -37,7 +41,9 @@ def describe_all_ecr_images(repository: str) -> List[dict]:
     paginator = ecr_client.get_paginator("describe_images")
 
     page_iterator = paginator.paginate(
-        repositoryName=repository, registryId=REGISTRY_ID, PaginationConfig={"PageSize": BOTO_MAX_PAGE_SIZE}
+        repositoryName=repository,
+        registryId=REGISTRY_ID,
+        PaginationConfig={"PageSize": BOTO_MAX_PAGE_SIZE},
     )
 
     for page in page_iterator:
@@ -111,13 +117,17 @@ def batch_delete_images(repository: str, images: List[dict]) -> None:
     # batch_delete_image only support a maximum of 100 images at a time
     for i in range(0, len(images_to_delete), 100):
         batch = images_to_delete[i : i + 100]
-        print(f"Deleting batch {i//100 + 1} with {len(batch)} images...")
+        print(f"Deleting batch {i // 100 + 1} with {len(batch)} images...")
         ecr_client.batch_delete_image(repositoryName=repository, registryId=REGISTRY_ID, imageIds=batch)
-    print(f"Deleted images")
+    print("Deleted images")
 
 
 def delete_image(repository: str, image_tag: str) -> None:
-    ecr_client.batch_delete_image(repositoryName=repository, registryId=REGISTRY_ID, imageIds=[{"imageTag": image_tag}])
+    ecr_client.batch_delete_image(
+        repositoryName=repository,
+        registryId=REGISTRY_ID,
+        imageIds=[{"imageTag": image_tag}],
+    )
     print(f"Deleted image with tag: {image_tag}")
 
 
@@ -153,7 +163,11 @@ def delete_images(
     print(f"{delete_count} images {deleted_message}")
 
 
-def cleanup_repository(repository: str, age_threshold: int = DEFAULT_AGE_THRESHOLD_DAYS, dry_run: bool = False):
+def cleanup_repository(
+    repository: str,
+    age_threshold: int = DEFAULT_AGE_THRESHOLD_DAYS,
+    dry_run: bool = False,
+):
     print(f"Cleaning up images older than {age_threshold} day(s) from repository {repository}")
     print("Getting list of images...")
     images_with_dates = get_images_with_dates(repository)
@@ -197,36 +211,13 @@ def get_cache_lifecycle_policy() -> dict:
     """
     Get the standard lifecycle policy for cache repositories.
 
-    This is duplicated from scripts/release/build_cache.py to avoid import dependencies.
-    Keep in sync with that module.
+    The policy is loaded from a shared JSON file (scripts/release/cache_lifecycle_policy.json)
+    to ensure consistency with the build_cache module.
+
+    :return: Lifecycle policy dictionary suitable for ECR put_lifecycle_policy
     """
-    return {
-        "rules": [
-            {
-                "rulePriority": 1,
-                "description": "Keep only latest master cache",
-                "selection": {
-                    "tagStatus": "tagged",
-                    "tagPatternList": ["master"],
-                    "countType": "imageCountMoreThan",
-                    "countNumber": 1,
-                },
-                "action": {"type": "expire"},
-            },
-            {
-                "rulePriority": 2,
-                "description": "Expire branch caches after 14 days",
-                "selection": {
-                    "tagStatus": "tagged",
-                    "tagPatternList": ["*"],
-                    "countType": "sinceImagePushed",
-                    "countUnit": "days",
-                    "countNumber": 14,
-                },
-                "action": {"type": "expire"},
-            },
-        ]
-    }
+    with open(_LIFECYCLE_POLICY_PATH) as f:
+        return json.load(f)
 
 
 def ensure_cache_lifecycle_policies(dry_run: bool = False) -> None:
@@ -264,7 +255,9 @@ def ensure_cache_lifecycle_policies(dry_run: bool = False) -> None:
                 print(f"  {repo}: would apply lifecycle policy")
             else:
                 ecr_client.put_lifecycle_policy(
-                    repositoryName=repo, registryId=REGISTRY_ID, lifecyclePolicyText=policy_text
+                    repositoryName=repo,
+                    registryId=REGISTRY_ID,
+                    lifecyclePolicyText=policy_text,
                 )
                 print(f"  {repo}: applied lifecycle policy")
         except ClientError as e:
