@@ -209,10 +209,11 @@ reset_namespace() {
   # a while to delete it.
   should_wait="false"
   # shellcheck disable=SC2153
-  if [[ ${KUBE_ENVIRONMENT_NAME} == "openshift" ]]; then
+  # Note: KUBE_ENVIRONMENT_NAME is set to "openshift_4" in context files, so we use glob pattern
+  if [[ ${KUBE_ENVIRONMENT_NAME} == *openshift* ]]; then
     should_wait="true"
     echo "Removing the test namespace ${namespace}, should_wait=${should_wait}"
-    kubectl --context "${context}" delete "namespace/${namespace}" --wait="${should_wait}" || true
+    kubectl --context "${context}" delete "namespace/${namespace}" --wait="${should_wait}" --timeout=120s || true
   fi
 
   echo "Removing CSRs"

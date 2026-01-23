@@ -1379,6 +1379,8 @@ buildvariants:
       - name: e2e_mdb_openshift_ubi_cloudqa_task_group
 
   # We do not want to run openshift variants on every PR.
+  # NOTE: This variant depends on e2e_mdb_openshift_ubi_cloudqa to run sequentially
+  # because both variants share the same OpenShift cluster and cannot run in parallel.
   - name: e2e_static_openshift_mdb_ubi_cloudqa
     display_name: e2e_static_openshift_mdb_ubi_cloudqa
     tags: [ "staging", "e2e_openshift_test_suite", "cloudqa", "static" ]
@@ -1389,7 +1391,10 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
-
+      # Sequential dependency: wait for non-static OpenShift variant to complete first
+      # Both variants share the same OpenShift cluster, so they must run sequentially
+      - variant: e2e_mdb_openshift_ubi_cloudqa
+        name: '*'
     run_on:
       - ubuntu2404-small
     tasks:

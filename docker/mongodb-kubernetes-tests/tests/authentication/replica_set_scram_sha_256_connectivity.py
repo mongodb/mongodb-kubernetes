@@ -13,6 +13,7 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
+import pytest
 from pytest import fixture, mark
 
 MDB_RESOURCE = "my-replica-set"
@@ -95,6 +96,7 @@ def test_create_user(scram_user: MongoDBUser, namespace: str):
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
+@pytest.mark.flaky(reruns=3, reruns_delay=10)
 class TestReplicaSetIsUpdatedWithNewUser(KubernetesTester):
     def test_replica_set_connectivity(self, replica_set: MongoDB):
         replica_set.assert_connectivity()

@@ -20,9 +20,11 @@ subjects:
   name: cluster-cleaner
   namespace: {{ .Values.cleanerNamespace }}
 
-# Remove old failed namespaces, which are older than 20 minutes.
-# This CJ runs every 10 minutes, so a failed namespace will live for
-# at least 20 minutes, but can live up to 30.
+# Remove old failed namespaces, which are older than 10 minutes.
+# This CJ runs every 5 minutes, so a failed namespace will live for
+# at least 10 minutes, but can live up to 15.
+# Reduced from 20 minutes to 10 minutes to help OpenShift tests that run
+# sequentially and are more sensitive to leftover resources.
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -30,8 +32,8 @@ metadata:
   name: cluster-cleaner-delete-each-hour
   namespace: {{ .Values.cleanerNamespace }}
 spec:
-  # Run every 10 minutes
-  schedule: "*/10 * * * *"
+  # Run every 5 minutes (reduced from 10 for faster cleanup on OpenShift)
+  schedule: "*/5 * * * *"
   jobTemplate:
     spec:
       template:
@@ -48,13 +50,13 @@ spec:
                 - name: DELETE_OLDER_THAN_UNIT
                   value: "minutes"
                 - name: DELETE_OLDER_THAN_AMOUNT
-                  value: "20"
+                  value: "10"
                 - name: LABELS
                   value: "evg=task,evg/state=failed"
 
 # Remove old testing namespaces, no matter if they have succeeded or failed.
-# This is run every 90 minutes, so every testing namespace, even if it has not
-# finished running it will be removed.
+# This is run every 5 minutes, cleaning namespaces older than 60 minutes.
+# Reduced from 90 minutes to 60 minutes for faster cleanup of stale test namespaces.
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -62,8 +64,8 @@ metadata:
   name: cluster-cleaner-delete-each-hour-all
   namespace: {{ .Values.cleanerNamespace }}
 spec:
-  # Run every 10 minutes
-  schedule: "*/10 * * * *"
+  # Run every 5 minutes (reduced from 10 for faster cleanup on OpenShift)
+  schedule: "*/5 * * * *"
   jobTemplate:
     spec:
       template:
@@ -80,7 +82,7 @@ spec:
                 - name: DELETE_OLDER_THAN_UNIT
                   value: "minutes"
                 - name: DELETE_OLDER_THAN_AMOUNT
-                  value: "90"
+                  value: "60"
                 - name: LABELS
                   value: "evg=task"
 

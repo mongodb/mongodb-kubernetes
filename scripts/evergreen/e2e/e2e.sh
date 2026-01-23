@@ -72,6 +72,58 @@ cleanup_openshift_cluster(){
   fi
 }
 
+# Pre-test cleanup for OpenShift to ensure a clean state before each test.
+# This helps prevent cascading failures from leftover resources of previous test runs.
+pre_test_cleanup_openshift() {
+  if [[ "${KUBE_ENVIRONMENT_NAME}" != *openshift* ]]; then
+    return 0
+  fi
+
+  echo "Running pre-test cleanup for OpenShift..."
+  local context
+  context=$(kubectl config current-context)
+
+  # Check if namespace already exists and clean it up if it does
+  if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
+    echo "Namespace ${NAMESPACE} already exists, cleaning up before test..."
+
+    # Check if namespace is in terminating state
+    local ns_status
+    ns_status=$(kubectl get namespace "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+
+    if [[ "${ns_status}" == "Terminating" ]]; then
+      echo "Namespace ${NAMESPACE} is in Terminating state, waiting for it to be fully deleted..."
+      # Wait up to 2 minutes for namespace to be fully deleted
+      local wait_count=0
+      while kubectl get namespace "${NAMESPACE}" &>/dev/null && [[ ${wait_count} -lt 24 ]]; do
+        echo "Waiting for namespace ${NAMESPACE} to be deleted... (${wait_count}/24)"
+        sleep 5
+        wait_count=$((wait_count + 1))
+      done
+
+      # If still exists after waiting, force cleanup
+      if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
+        echo "Namespace ${NAMESPACE} still stuck, attempting force cleanup..."
+        reset_namespace "${context}" "${NAMESPACE}" || true
+      fi
+    else
+      # Namespace exists but not terminating - clean it up
+      echo "Cleaning up existing namespace ${NAMESPACE}..."
+      reset_namespace "${context}" "${NAMESPACE}" || true
+
+      # Wait for namespace to be fully deleted
+      local wait_count=0
+      while kubectl get namespace "${NAMESPACE}" &>/dev/null && [[ ${wait_count} -lt 24 ]]; do
+        echo "Waiting for namespace ${NAMESPACE} to be deleted... (${wait_count}/24)"
+        sleep 5
+        wait_count=$((wait_count + 1))
+      done
+    fi
+  fi
+
+  echo "Pre-test cleanup for OpenShift completed."
+}
+
 if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
   echo "Kube configuration: ${KUBECONFIG} file does not exist!"
   exit 1
@@ -97,6 +149,9 @@ if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
   echo "Current context: ${current_context}, namespace=${NAMESPACE}"
   kubectl get nodes | grep "control-plane"
 fi
+
+# For OpenShift, clean up any leftover resources from previous test runs before creating namespace
+pre_test_cleanup_openshift
 
 ensure_namespace "${NAMESPACE}"
 
