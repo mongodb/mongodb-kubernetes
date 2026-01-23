@@ -76,6 +76,15 @@ func (r *ShardedEnterpriseSearchSource) HostSeeds() []string {
 	return nil
 }
 
+// MongosHostAndPort returns the mongos host:port for the sharded cluster.
+// This is used for the router section in mongot config.
+func (r *ShardedEnterpriseSearchSource) MongosHostAndPort() string {
+	clusterDomain := r.Spec.GetClusterDomain()
+	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
+	// Format: <serviceName>.<namespace>.svc.<clusterDomain>:<port>
+	return fmt.Sprintf("%s.%s.svc.%s:%d", r.ServiceName(), r.Namespace, clusterDomain, port)
+}
+
 // TLSConfig returns the TLS configuration for the sharded cluster.
 func (r *ShardedEnterpriseSearchSource) TLSConfig() *TLSSourceConfig {
 	if !r.Spec.Security.IsTLSEnabled() {

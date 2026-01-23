@@ -997,12 +997,21 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 	}
 }
 
-// applySearchOverridesForShards applies search configuration overrides for each shard in the sharded cluster.
-// This implements the sharded internal + external L7 LB (BYO per-shard LB) PoC:
-// - spec.lb.mode == External
-// - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
-// We map shardName -> endpoint and configure each mongod shard
-// to use its shard-local external LB endpoint for Search gRPC.
+// applySearchOverridesForShards applies search configuration overrides for each shard and mongos in the sharded cluster.
+// This configures:
+// 1. Per-shard mongod search parameters (only when external LB is configured)
+// 2. Mongos search parameters (always, when a MongoDBSearch resource exists)
+//
+// For sharded clusters with external LB (spec.lb.mode == External):
+//   - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
+//   - We map shardName -> endpoint and configure each mongod shard
+//     to use its shard-local external LB endpoint for Search gRPC.
+//
+// For mongos (always configured when MongoDBSearch exists):
+// - mongotHost: host:port of the first shard's mongot server
+// - searchIndexManagementHostAndPort: same as mongotHost
+// - useGrpcForSearch: true (required for mongot)
+// - searchTLSMode: TLS mode for mongot connections
 func (r *ShardedClusterReconcileHelper) applySearchOverridesForShards(ctx context.Context, log *zap.SugaredLogger) {
 	sc := r.sc
 
@@ -1012,36 +1021,52 @@ func (r *ShardedClusterReconcileHelper) applySearchOverridesForShards(ctx contex
 		return
 	}
 
-	// Validate that the search resource is configured for sharded external LB
-	if !search.IsShardedExternalLB() {
-		log.Debugf("MongoDBSearch %s is not configured for sharded external LB, skipping per-shard search overrides", search.NamespacedName())
-		return
-	}
+	log.Infof("Applying search overrides from MongoDBSearch %s", search.NamespacedName())
 
-	// Create a sharded search source to validate the configuration
-	shardedSource := searchcontroller.NewShardedEnterpriseSearchSource(sc, search)
-	if err := shardedSource.Validate(); err != nil {
-		log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
-		return
-	}
-
-	log.Infof("Applying per-shard search overrides from MongoDBSearch %s", search.NamespacedName())
-
-	// Apply search configuration to each shard
+	// Collect shard names for mongos configuration
+	shardNames := make([]string, sc.Spec.ShardCount)
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
-		shardName := sc.ShardRsName(shardIdx)
-		shardConfig := r.desiredShardsConfiguration[shardIdx]
+		shardNames[shardIdx] = sc.ShardRsName(shardIdx)
+	}
 
-		if shardConfig.AdditionalMongodConfig == nil {
-			shardConfig.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
+	// Apply per-shard search configuration only when external LB is configured
+	if search.IsShardedExternalLB() {
+		// Create a sharded search source to validate the configuration
+		shardedSource := searchcontroller.NewShardedEnterpriseSearchSource(sc, search)
+		if err := shardedSource.Validate(); err != nil {
+			log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
+			return
 		}
 
-		// Get the per-shard search mongod config parameters
-		searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain())
-		shardConfig.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
+		log.Infof("Applying per-shard search overrides (external LB mode)")
 
-		log.Debugf("Applied search config for shard %s: mongotHost=%v", shardName, searchMongodConfig["setParameter"])
+		// Apply search configuration to each shard
+		for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+			shardName := shardNames[shardIdx]
+			shardConfig := r.desiredShardsConfiguration[shardIdx]
+
+			if shardConfig.AdditionalMongodConfig == nil {
+				shardConfig.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
+			}
+
+			// Get the per-shard search mongod config parameters
+			searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain())
+			shardConfig.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
+
+			log.Debugf("Applied search config for shard %s: mongotHost=%v", shardName, searchMongodConfig["setParameter"])
+		}
 	}
+
+	// Always apply search configuration to mongos when a MongoDBSearch resource exists
+	// Mongos needs search parameters to route search queries to mongot
+	if r.desiredMongosConfiguration.AdditionalMongodConfig == nil {
+		r.desiredMongosConfiguration.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
+	}
+
+	searchMongosConfig := searchcontroller.GetMongosConfigParametersForSharded(search, shardNames, sc.Spec.GetClusterDomain())
+	r.desiredMongosConfiguration.AdditionalMongodConfig.AddOption("setParameter", searchMongosConfig["setParameter"])
+
+	log.Infof("Applied search config for mongos: mongotHost=%v", searchMongosConfig["setParameter"])
 }
 
 // lookupCorrespondingSearchResource finds the MongoDBSearch resource that references this sharded cluster.

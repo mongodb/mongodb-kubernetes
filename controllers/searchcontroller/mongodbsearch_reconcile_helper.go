@@ -120,6 +120,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
+	if err := r.ValidateMultipleReplicasConfig(); err != nil {
+		return workflow.Failed(err)
+	}
+
 	// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
 	// For sharded clusters, deploy per-shard mongot StatefulSets, Services, and ConfigMaps.
 	if shardedSource, ok := r.db.(ShardedSearchSourceDBResource); ok {
@@ -497,6 +501,13 @@ func createShardMongotConfig(search *searchv1.MongoDBSearch, shardedSource Shard
 				ReadPreference: ptr.To("secondaryPreferred"),
 				AuthSource:     ptr.To("admin"),
 			},
+			// Router configuration for mongos connection in sharded clusters
+			Router: &mongot.ConfigRouter{
+				HostAndPort:  shardedSource.MongosHostAndPort(),
+				Username:     search.SourceUsername(),
+				PasswordFile: TempSourceUserPasswordPath,
+				TLS:          ptr.To(false),
+			},
 		}
 		config.Storage = mongot.ConfigStorage{
 			DataPath: MongotDataPath,
@@ -640,19 +651,28 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
 
-	// TODO: validate that the certificate in the user-provided Secret in .spec.security.tls.certificateKeySecret is issued by the CA in the operator's CA Secret
-
 	certFileName, err := tls.EnsureTLSSecret(ctx, r.client, r.mdbSearch)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	// Determine TLS mode based on whether CA is configured for mTLS
+	tlsMode := mongot.ConfigTLSModeTLS
+	var caPath *string
+	if r.mdbSearch.IsMTLSEnabled() {
+		tlsMode = mongot.ConfigTLSModeMTLS
+		caPath = ptr.To(tls.IngressCAMountPath + "ca.crt")
+	}
+
 	mongotModification := func(config *mongot.Config) {
 		certPath := tls.OperatorSecretMountPath + certFileName
-		config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeTLS
+		config.Server.Grpc.TLS.Mode = tlsMode
 		config.Server.Grpc.TLS.CertificateKeyFile = ptr.To(certPath)
+		if caPath != nil {
+			config.Server.Grpc.TLS.CertificateAuthorityFile = caPath
+		}
 		if config.Server.Wireproto != nil {
-			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
+			config.Server.Wireproto.TLS.Mode = tlsMode
 			config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
 		}
 	}
@@ -660,10 +680,23 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	tlsSecret := r.mdbSearch.TLSOperatorSecretNamespacedName()
 	tlsVolume := statefulset.CreateVolumeFromSecret("tls", tlsSecret.Name)
 	tlsVolumeMount := statefulset.CreateVolumeMount("tls", tls.OperatorSecretMountPath, statefulset.WithReadOnly(true))
+
+	volumes := []corev1.Volume{tlsVolume}
+	volumeMounts := []corev1.VolumeMount{tlsVolumeMount}
+
+	// Add CA volume if mTLS is enabled
+	if r.mdbSearch.IsMTLSEnabled() {
+		caSecret := r.mdbSearch.TLSCASecretNamespacedName()
+		caVolume := statefulset.CreateVolumeFromSecret("ingress-ca", caSecret.Name)
+		caVolumeMount := statefulset.CreateVolumeMount("ingress-ca", tls.IngressCAMountPath, statefulset.WithReadOnly(true))
+		volumes = append(volumes, caVolume)
+		volumeMounts = append(volumeMounts, caVolumeMount)
+	}
+
 	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
-		podtemplatespec.WithVolume(tlsVolume),
+		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
-			container.WithVolumeMounts([]corev1.VolumeMount{tlsVolumeMount}),
+			container.WithVolumeMounts(volumeMounts),
 		)),
 	))
 
@@ -822,6 +855,7 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 			"mongotHost":                                      mongotHostAndPort(search, clusterDomain),
 			"searchIndexManagementHostAndPort":                mongotHostAndPort(search, clusterDomain),
 			"skipAuthenticationToSearchIndexManagementServer": false,
+			"skipAuthenticationToMongot":                      false,
 			"searchTLSMode":                                   string(searchTLSMode),
 			"useGrpcForSearch":                                !search.IsWireprotoEnabled(),
 		},
@@ -863,6 +897,7 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 			"mongotHost":                                      mongotEndpoint,
 			"searchIndexManagementHostAndPort":                mongotEndpoint,
 			"skipAuthenticationToSearchIndexManagementServer": false,
+			"skipAuthenticationToMongot":                      false,
 			"searchTLSMode":                                   string(searchTLSMode),
 			"useGrpcForSearch":                                !search.IsWireprotoEnabled(),
 		},
@@ -870,6 +905,12 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 }
 
 func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
+	// If external LB is configured for replica set, use the external endpoint
+	if search.IsReplicaSetExternalLB() {
+		return search.GetReplicaSetExternalLBEndpoint()
+	}
+
+	// Otherwise, use the internal service endpoint
 	svcName := search.SearchServiceNamespacedName()
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
@@ -880,6 +921,54 @@ func shardMongotHostAndPort(search *searchv1.MongoDBSearch, shardName string, cl
 	svcName := search.ShardMongotServiceNamespacedName(shardName)
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
+}
+
+// GetMongosConfigParametersForSharded returns the mongos configuration parameters for a sharded cluster.
+// For sharded clusters, mongos needs search parameters to route search queries to mongot.
+//
+// Required mongos parameters:
+// - mongotHost: host:port of the mongot server (or L4/L7 LB fronting mongot)
+// - searchIndexManagementHostAndPort: host:port for create/update/drop search indexes (same as mongotHost)
+// - useGrpcForSearch: tells mongos to talk to mongot over the MongoDB gRPC protocol (must be true)
+//
+// For sharded clusters with external LB, we use the first shard's external endpoint as the mongos endpoint.
+// This is because mongos needs a single endpoint to route search queries.
+func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, shardNames []string, clusterDomain string) map[string]any {
+	searchTLSMode := automationconfig.TLSModeDisabled
+	if search.Spec.Security.TLS != nil {
+		searchTLSMode = automationconfig.TLSModeRequired
+	}
+
+	// Determine the mongot endpoint for mongos
+	// For sharded clusters, mongos uses the first shard's mongot endpoint
+	var mongotEndpoint string
+	if len(shardNames) > 0 {
+		firstShardName := shardNames[0]
+		if search.IsShardedExternalLB() {
+			// Use the external LB endpoint for the first shard
+			endpointMap := search.GetShardEndpointMap()
+			if endpoint, ok := endpointMap[firstShardName]; ok {
+				mongotEndpoint = endpoint
+			} else {
+				// Fallback to internal service if no external endpoint configured
+				mongotEndpoint = shardMongotHostAndPort(search, firstShardName, clusterDomain)
+			}
+		} else {
+			// Use the internal shard-local mongot service for the first shard
+			mongotEndpoint = shardMongotHostAndPort(search, firstShardName, clusterDomain)
+		}
+	}
+
+	return map[string]any{
+		"setParameter": map[string]any{
+			"mongotHost":                                      mongotEndpoint,
+			"searchIndexManagementHostAndPort":                mongotEndpoint,
+			"skipAuthenticationToSearchIndexManagementServer": false,
+			"skipAuthenticationToMongot":                      false,
+			"searchTLSMode":                                   string(searchTLSMode),
+			"useGrpcForSearch":                                true, // Must be true for mongot
+		},
+	}
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
@@ -912,6 +1001,37 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.Contains(version, unsupportedSearchVersion) {
 		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
+	}
+
+	return nil
+}
+
+// ValidateMultipleReplicasConfig validates that when multiple mongot replicas are configured,
+// an external load balancer endpoint is also configured to distribute traffic across the replicas.
+func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
+	if !r.mdbSearch.HasMultipleReplicas() {
+		return nil
+	}
+
+	// For sharded clusters, check if sharded external LB is configured
+	if _, ok := r.db.(ShardedSearchSourceDBResource); ok {
+		if !r.mdbSearch.IsShardedExternalLB() {
+			return xerrors.Errorf(
+				"multiple mongot replicas (%d) require external load balancer configuration; "+
+					"please configure spec.lb.mode=External with spec.lb.external.sharded.endpoints for sharded clusters",
+				r.mdbSearch.GetReplicas(),
+			)
+		}
+		return nil
+	}
+
+	// For replica sets, check if replica set external LB is configured
+	if !r.mdbSearch.IsReplicaSetExternalLB() {
+		return xerrors.Errorf(
+			"multiple mongot replicas (%d) require external load balancer configuration; "+
+				"please configure spec.lb.mode=External with spec.lb.external.endpoint",
+			r.mdbSearch.GetReplicas(),
+		)
 	}
 
 	return nil

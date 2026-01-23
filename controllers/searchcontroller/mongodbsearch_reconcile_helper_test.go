@@ -948,6 +948,10 @@ func (m *mockShardedSource) GetExternalLBEndpointForShard(shardName string) stri
 	return ""
 }
 
+func (m *mockShardedSource) MongosHostAndPort() string {
+	return "mongos-svc.test-ns.svc.cluster.local:27017"
+}
+
 // Implement SearchSourceDBResource interface
 func (m *mockShardedSource) HostSeeds() []string {
 	return nil
@@ -996,4 +1000,383 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 
 	require.NotNil(t, healthPort, "healthcheck port should exist")
 	assert.Equal(t, int32(8080), healthPort.Port)
+}
+
+func TestMongoDBSearch_ReplicaSetExternalLBHelperMethods(t *testing.T) {
+	tests := []struct {
+		name                      string
+		search                    *searchv1.MongoDBSearch
+		expectReplicaSetLB        bool
+		expectedEndpoint          string
+		expectHasMultipleReplicas bool
+	}{
+		{
+			name: "No LB config",
+			search: &searchv1.MongoDBSearch{
+				Spec: searchv1.MongoDBSearchSpec{},
+			},
+			expectReplicaSetLB:        false,
+			expectedEndpoint:          "",
+			expectHasMultipleReplicas: false,
+		},
+		{
+			name: "External mode with single endpoint for replica set",
+			search: &searchv1.MongoDBSearch{
+				Spec: searchv1.MongoDBSearchSpec{
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Mode: searchv1.LBModeExternal,
+						External: &searchv1.ExternalLBConfig{
+							Endpoint: "lb.example.com:27028",
+						},
+					},
+				},
+			},
+			expectReplicaSetLB:        true,
+			expectedEndpoint:          "lb.example.com:27028",
+			expectHasMultipleReplicas: false,
+		},
+		{
+			name: "External mode with sharded endpoints (not replica set LB)",
+			search: &searchv1.MongoDBSearch{
+				Spec: searchv1.MongoDBSearchSpec{
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Mode: searchv1.LBModeExternal,
+						External: &searchv1.ExternalLBConfig{
+							Sharded: &searchv1.ShardedExternalLBConfig{
+								Endpoints: []searchv1.ShardEndpoint{
+									{ShardName: "shard-0", Endpoint: "lb0.example.com:27028"},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectReplicaSetLB:        false,
+			expectedEndpoint:          "",
+			expectHasMultipleReplicas: false,
+		},
+		{
+			name: "Multiple replicas with external LB",
+			search: &searchv1.MongoDBSearch{
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						Replicas: 3,
+					},
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Mode: searchv1.LBModeExternal,
+						External: &searchv1.ExternalLBConfig{
+							Endpoint: "lb.example.com:27028",
+						},
+					},
+				},
+			},
+			expectReplicaSetLB:        true,
+			expectedEndpoint:          "lb.example.com:27028",
+			expectHasMultipleReplicas: true,
+		},
+		{
+			name: "Multiple replicas without external LB",
+			search: &searchv1.MongoDBSearch{
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						Replicas: 2,
+					},
+				},
+			},
+			expectReplicaSetLB:        false,
+			expectedEndpoint:          "",
+			expectHasMultipleReplicas: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expectReplicaSetLB, tc.search.IsReplicaSetExternalLB())
+			assert.Equal(t, tc.expectedEndpoint, tc.search.GetReplicaSetExternalLBEndpoint())
+			assert.Equal(t, tc.expectHasMultipleReplicas, tc.search.HasMultipleReplicas())
+		})
+	}
+}
+
+func TestGetMongodConfigParameters_ExternalLBEndpoint(t *testing.T) {
+	tests := []struct {
+		name         string
+		search       *searchv1.MongoDBSearch
+		expectedHost string
+	}{
+		{
+			name: "No external LB - uses internal service",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test-ns",
+				},
+				Spec: searchv1.MongoDBSearchSpec{},
+			},
+			expectedHost: "test-search-search-svc.test-ns.svc.cluster.local:27028",
+		},
+		{
+			name: "External LB configured - uses external endpoint",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test-ns",
+				},
+				Spec: searchv1.MongoDBSearchSpec{
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Mode: searchv1.LBModeExternal,
+						External: &searchv1.ExternalLBConfig{
+							Endpoint: "lb.example.com:27028",
+						},
+					},
+				},
+			},
+			expectedHost: "lb.example.com:27028",
+		},
+		{
+			name: "Multiple replicas with external LB",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test-ns",
+				},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						Replicas: 3,
+					},
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Mode: searchv1.LBModeExternal,
+						External: &searchv1.ExternalLBConfig{
+							Endpoint: "lb.example.com:27028",
+						},
+					},
+				},
+			},
+			expectedHost: "lb.example.com:27028",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			params := GetMongodConfigParameters(tc.search, "cluster.local")
+			setParams := params["setParameter"].(map[string]any)
+			assert.Equal(t, tc.expectedHost, setParams["mongotHost"])
+		})
+	}
+}
+
+func TestValidateMultipleReplicasConfig(t *testing.T) {
+	mdbSearchSpec := searchv1.MongoDBSearchSpec{
+		Source: &searchv1.MongoDBSource{
+			MongoDBResourceRef: &userv1.MongoDBResourceRef{
+				Name: "test-mongodb",
+			},
+		},
+	}
+
+	mdbc := &mdbcv1.MongoDBCommunity{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-mongodb",
+			Namespace: "test",
+		},
+	}
+
+	tests := []struct {
+		name          string
+		search        *searchv1.MongoDBSearch
+		expectedError string
+	}{
+		{
+			name: "Single replica - no LB required",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test",
+				},
+				Spec: mdbSearchSpec,
+			},
+			expectedError: "",
+		},
+		{
+			name: "Multiple replicas without LB - error",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test",
+				},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+							Name: "test-mongodb",
+						},
+						Replicas: 3,
+					},
+				},
+			},
+			expectedError: "multiple mongot replicas (3) require external load balancer configuration; please configure spec.lb.mode=External with spec.lb.external.endpoint",
+		},
+		{
+			name: "Multiple replicas with external LB - valid",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test",
+				},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+							Name: "test-mongodb",
+						},
+						Replicas: 3,
+					},
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Mode: searchv1.LBModeExternal,
+						External: &searchv1.ExternalLBConfig{
+							Endpoint: "lb.example.com:27028",
+						},
+					},
+				},
+			},
+			expectedError: "",
+		},
+		{
+			name: "Multiple replicas with Envoy mode (no endpoint) - error",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test",
+				},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+							Name: "test-mongodb",
+						},
+						Replicas: 2,
+					},
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Mode: searchv1.LBModeEnvoy,
+					},
+				},
+			},
+			expectedError: "multiple mongot replicas (2) require external load balancer configuration; please configure spec.lb.mode=External with spec.lb.external.endpoint",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clientBuilder := mock.NewEmptyFakeClientBuilder()
+			clientBuilder.WithObjects(mdbc)
+
+			helper := NewMongoDBSearchReconcileHelper(
+				kubernetesClient.NewClient(clientBuilder.Build()),
+				tc.search,
+				NewCommunityResourceSearchSource(mdbc),
+				OperatorSearchConfig{},
+			)
+
+			err := helper.ValidateMultipleReplicasConfig()
+			if tc.expectedError == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tc.expectedError)
+			}
+		})
+	}
+}
+
+func TestGetMongosConfigParametersForSharded(t *testing.T) {
+	tests := []struct {
+		name          string
+		search        *searchv1.MongoDBSearch
+		shardNames    []string
+		clusterDomain string
+		expectedHost  string
+	}{
+		{
+			name: "Internal service endpoint (no external LB)",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test-ns",
+				},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+							Name: "test-mdb",
+						},
+					},
+				},
+			},
+			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
+			clusterDomain: "cluster.local",
+			// Uses first shard's internal service endpoint
+			expectedHost: "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
+		},
+		{
+			name: "External LB endpoint - uses first shard's endpoint",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test-ns",
+				},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+							Name: "test-mdb",
+						},
+					},
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Mode: searchv1.LBModeExternal,
+						External: &searchv1.ExternalLBConfig{
+							Sharded: &searchv1.ShardedExternalLBConfig{
+								Endpoints: []searchv1.ShardEndpoint{
+									{ShardName: "test-mdb-0", Endpoint: "lb-shard0.example.com:27028"},
+									{ShardName: "test-mdb-1", Endpoint: "lb-shard1.example.com:27028"},
+								},
+							},
+						},
+					},
+				},
+			},
+			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
+			clusterDomain: "cluster.local",
+			// Mongos uses first shard's external LB endpoint
+			expectedHost: "lb-shard0.example.com:27028",
+		},
+		{
+			name: "Empty shard names",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test-ns",
+				},
+				Spec: searchv1.MongoDBSearchSpec{},
+			},
+			shardNames:    []string{},
+			clusterDomain: "cluster.local",
+			expectedHost:  "", // No shards, no endpoint
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			config := GetMongosConfigParametersForSharded(tc.search, tc.shardNames, tc.clusterDomain)
+
+			setParameter, ok := config["setParameter"].(map[string]any)
+			require.True(t, ok, "setParameter should be a map")
+
+			mongotHost, ok := setParameter["mongotHost"].(string)
+			require.True(t, ok, "mongotHost should be a string")
+			assert.Equal(t, tc.expectedHost, mongotHost)
+
+			searchIndexHost, ok := setParameter["searchIndexManagementHostAndPort"].(string)
+			require.True(t, ok, "searchIndexManagementHostAndPort should be a string")
+			assert.Equal(t, tc.expectedHost, searchIndexHost)
+
+			// useGrpcForSearch must always be true for mongos
+			useGrpc, ok := setParameter["useGrpcForSearch"].(bool)
+			require.True(t, ok, "useGrpcForSearch should be a bool")
+			assert.True(t, useGrpc, "useGrpcForSearch must be true for mongos")
+		})
+	}
 }

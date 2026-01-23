@@ -60,6 +60,9 @@ type ShardedSearchSourceDBResource interface {
 	GetShardNames() []string
 	HostSeedsForShard(shardIdx int) []string
 	GetExternalLBEndpointForShard(shardName string) string
+	// MongosHostAndPort returns the mongos host:port for the sharded cluster.
+	// This is used for the router section in mongot config.
+	MongosHostAndPort() string
 }
 
 type TLSSourceConfig struct {
@@ -120,7 +123,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 		statefulset.WithLabels(labels),
 		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
-		statefulset.WithReplicas(1),
+		statefulset.WithReplicas(mdbSearch.GetReplicas()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
 		dataVolumeClaim,
 		statefulset.WithPodSpecTemplate(

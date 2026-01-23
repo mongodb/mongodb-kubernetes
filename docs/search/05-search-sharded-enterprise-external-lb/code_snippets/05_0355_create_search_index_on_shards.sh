@@ -20,3 +20,5 @@ mongosh "${MDB_CONNECTION_STRING}" --quiet --eval '
 '
 EOF
 )"
+
+echo "Search index creation complete"

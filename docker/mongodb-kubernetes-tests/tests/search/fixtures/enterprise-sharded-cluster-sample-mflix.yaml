@@ -15,6 +15,9 @@ spec:
       name: my-project
   credentials: my-credentials
   security:
+    certsSecretPrefix: mdb-sh
+    tls:
+      ca: mdb-sh-ca
     authentication:
       enabled: true
       ignoreUnknownUsers: true

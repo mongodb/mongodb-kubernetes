@@ -160,7 +160,8 @@ type MongoDBSource struct {
 	// Replicas is the number of mongot pods to deploy.
 	// For ReplicaSet source: this many mongot pods total.
 	// For Sharded source: this many mongot pods per shard.
-	// For this PoC with External LB mode, only 1 replica per shard is supported.
+	// When Replicas > 1, a load balancer configuration (lb.mode: External with lb.external.endpoint)
+	// is required to distribute traffic across mongot instances.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=1
@@ -192,6 +193,12 @@ type TLS struct {
 	// The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
 	// This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
 	CertificateKeySecret corev1.LocalObjectReference `json:"certificateKeySecretRef"`
+
+	// CA is a reference to a Secret containing the CA certificate used to validate client certificates for mTLS.
+	// The CA certificate is expected to be PEM encoded and available at the "ca.crt" key.
+	// When specified, mTLS will be enabled and mongot will require clients (mongod) to present valid certificates.
+	// +optional
+	CA *corev1.LocalObjectReference `json:"ca,omitempty"`
 }
 
 type MongoDBSearchStatus struct {
@@ -333,6 +340,19 @@ func (s *MongoDBSearch) TLSOperatorSecretNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-certificate-key", Namespace: s.Namespace}
 }
 
+// TLSCASecretNamespacedName will get the namespaced name of the Secret containing the CA certificate for mTLS
+func (s *MongoDBSearch) TLSCASecretNamespacedName() types.NamespacedName {
+	if s.Spec.Security.TLS == nil || s.Spec.Security.TLS.CA == nil {
+		return types.NamespacedName{}
+	}
+	return types.NamespacedName{Name: s.Spec.Security.TLS.CA.Name, Namespace: s.Namespace}
+}
+
+// IsMTLSEnabled returns true if mTLS is enabled (CA is configured)
+func (s *MongoDBSearch) IsMTLSEnabled() bool {
+	return s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CA != nil
+}
+
 func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
 	return MongotDefautHealthCheckPort
 }
@@ -373,6 +393,23 @@ func (s *MongoDBSearch) IsExternalLBMode() bool {
 	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Mode == LBModeExternal
 }
 
+// IsReplicaSetExternalLB returns true if the Search resource is configured for replica set external LB
+// This is used when a single external LB endpoint is configured for a replica set deployment
+func (s *MongoDBSearch) IsReplicaSetExternalLB() bool {
+	return s.IsExternalLBMode() &&
+		s.Spec.LoadBalancer.External != nil &&
+		s.Spec.LoadBalancer.External.Endpoint != ""
+}
+
+// GetReplicaSetExternalLBEndpoint returns the external LB endpoint for replica set deployments
+// Returns empty string if not configured
+func (s *MongoDBSearch) GetReplicaSetExternalLBEndpoint() string {
+	if !s.IsReplicaSetExternalLB() {
+		return ""
+	}
+	return s.Spec.LoadBalancer.External.Endpoint
+}
+
 // IsShardedExternalLB returns true if the Search resource is configured for sharded external LB
 // This is the PoC scenario: internal sharded cluster + external L7 LB with per-shard endpoints
 func (s *MongoDBSearch) IsShardedExternalLB() bool {
@@ -395,12 +432,18 @@ func (s *MongoDBSearch) GetShardEndpointMap() map[string]string {
 }
 
 // GetReplicas returns the number of mongot replicas to deploy
-// For sharded clusters with External LB mode, this is enforced to 1 per shard in this PoC
+// For ReplicaSet source: this many mongot pods total
+// For Sharded source: this many mongot pods per shard
 func (s *MongoDBSearch) GetReplicas() int {
 	if s.Spec.Source != nil && s.Spec.Source.Replicas > 0 {
 		return s.Spec.Source.Replicas
 	}
 	return 1
+}
+
+// HasMultipleReplicas returns true if more than one mongot replica is configured
+func (s *MongoDBSearch) HasMultipleReplicas() bool {
+	return s.GetReplicas() > 1
 }
 
 // ShardMongotStatefulSetName returns the StatefulSet name for a specific shard's mongot deployment

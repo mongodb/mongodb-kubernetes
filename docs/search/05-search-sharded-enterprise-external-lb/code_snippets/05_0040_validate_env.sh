@@ -22,5 +22,15 @@ for var in "${required_vars[@]}"; do
   fi
 done
 
-echo "All required environment variables are set"
+# Default MDB_MONGOT_REPLICAS to 1 if not set
+export MDB_MONGOT_REPLICAS="${MDB_MONGOT_REPLICAS:-1}"
 
+echo "All required environment variables are set"
+echo "Sharded cluster configuration:"
+echo "  Shards: ${MDB_SHARD_COUNT}"
+echo "  Mongods per shard: ${MDB_MONGODS_PER_SHARD}"
+echo "  Mongot replicas per shard: ${MDB_MONGOT_REPLICAS}"
+
+if [[ "${MDB_MONGOT_REPLICAS}" -gt 1 ]]; then
+  echo "  Note: Multiple mongot replicas configured - external LB endpoints will be used"
+fi

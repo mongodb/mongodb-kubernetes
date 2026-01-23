@@ -1,20 +1,11 @@
-# List search indexes on each shard
+# List search indexes through mongos
 
-for i in $(seq 0 $((MDB_SHARD_COUNT - 1))); do
-  shard_name="${MDB_RESOURCE_NAME}-${i}"
-  pod_name="${shard_name}-0"
-  
-  echo "--- Shard ${i} (${pod_name}) ---"
-  
-  kubectl exec --context "${K8S_CTX}" -n "${MDB_NS}" "${pod_name}" -- /bin/bash -c '
-    /var/lib/mongodb-mms-automation/mongosh-linux-x86_64-*/bin/mongosh \
-      --username mdb-admin \
-      --password "'"${MDB_ADMIN_USER_PASSWORD}"'" \
-      --authenticationDatabase admin \
-      --quiet \
-      --eval "
-        db.getSiblingDB(\"sample_mflix\").movies.getSearchIndexes().forEach(idx => printjson(idx));
-      "
-  '
-done
+echo "Listing search indexes..."
 
+kubectl exec -n "${MDB_NS}" --context "${K8S_CTX}" \
+  mongodb-tools-pod -- env MDB_CONNECTION_STRING="${MDB_CONNECTION_STRING}" /bin/bash -eu -c "$(cat <<'EOF'
+mongosh "${MDB_CONNECTION_STRING}" --quiet --eval '
+  db.getSiblingDB("sample_mflix").movies.getSearchIndexes().forEach(idx => printjson(idx));
+'
+EOF
+)"

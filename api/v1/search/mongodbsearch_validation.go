@@ -107,18 +107,10 @@ func validateShardedExternalLBEndpoints(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// validateReplicasForExternalLB validates that replicas is 1 for sharded external LB (PoC limitation)
+// validateReplicasForExternalLB validates replicas configuration for sharded external LB.
+// Multiple replicas per shard are supported when external LB endpoints are configured.
 func validateReplicasForExternalLB(s *MongoDBSearch) v1.ValidationResult {
-	if !s.IsShardedExternalLB() {
-		return v1.ValidationSuccess()
-	}
-
-	// For this PoC, only 1 replica per shard is supported with External LB
-	replicas := s.GetReplicas()
-	if replicas != 1 {
-		return v1.ValidationError("spec.source.replicas must be 1 for sharded clusters with External LB mode (PoC limitation), got %d", replicas)
-	}
-
+	// No validation needed - multiple replicas are supported with external LB
 	return v1.ValidationSuccess()
 }
 

@@ -271,6 +271,23 @@ spec:
                 properties:
                   tls:
                     properties:
+                      ca:
+                        description: |-
+                          CA is a reference to a Secret containing the CA certificate used to validate client certificates for mTLS.
+                          The CA certificate is expected to be PEM encoded and available at the "ca.crt" key.
+                          When specified, mTLS will be enabled and mongot will require clients (mongod) to present valid certificates.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
                       certificateKeySecretRef:
                         description: |-
                           CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
@@ -364,7 +381,8 @@ spec:
                       Replicas is the number of mongot pods to deploy.
                       For ReplicaSet source: this many mongot pods total.
                       For Sharded source: this many mongot pods per shard.
-                      For this PoC with External LB mode, only 1 replica per shard is supported.
+                      When Replicas > 1, a load balancer configuration (lb.mode: External with lb.external.endpoint)
+                      is required to distribute traffic across mongot instances.
                     minimum: 1
                     type: integer
                   username:

@@ -23,12 +23,12 @@ EOF
   echo "Attempt ${attempt}/${max_attempts}: Index status = ${status}"
 
   if [[ "${status}" == "READY" ]]; then
-    echo "Search index is READY"
+    echo "✓ Search index is READY"
     exit 0
   fi
 
   if [[ ${attempt} -eq ${max_attempts} ]]; then
-    echo "ERROR: Search index not ready after ${max_attempts} attempts"
+    echo "✗ ERROR: Search index not ready after ${max_attempts} attempts"
     exit 1
   fi
 

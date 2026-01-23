@@ -1,4 +1,4 @@
-# Create MongoDB Sharded Cluster
+# Create MongoDB Sharded Cluster with TLS enabled
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1
 kind: MongoDB
@@ -16,6 +16,10 @@ spec:
       name: om-project
   credentials: om-credentials
   security:
+    certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
+    tls:
+      enabled: true
+      ca: ${MDB_TLS_CA_CONFIGMAP}
     authentication:
       enabled: true
       ignoreUnknownUsers: true
@@ -37,4 +41,3 @@ spec:
                 cpu: "0.5"
                 memory: 512Mi
 EOF
-

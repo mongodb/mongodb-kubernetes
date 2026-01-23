@@ -4,6 +4,12 @@ metadata:
   name: mdb-sh
 spec:
   logLevel: DEBUG
+  security:
+    tls:
+      certificateKeySecretRef:
+        name: mdb-sh-search-cert
+      ca:
+        name: mdb-sh-ca
   lb:
     mode: External
     external:
