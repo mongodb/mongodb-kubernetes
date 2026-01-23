@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package replica_set_tls_rotate_delete_sts
 
 import (

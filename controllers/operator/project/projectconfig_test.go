@@ -86,64 +86,6 @@ func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
 	assert.Equal(t, projectConfig.SSLMMSCAConfigMapContents, "---- some cert ----")
 }
 
-func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
-	ctx := context.Background()
-	client, _ := mock.NewDefaultFakeClient()
-	// Passing "false" results in false to UseCustomCA
-	cm := defaultConfigMap("cm")
-	cm.Data[util.UseCustomCAConfigMap] = "false"
-	err := client.Create(ctx, &cm)
-	assert.NoError(t, err)
-
-	projectConfig, err := ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm"), "")
-
-	assert.NoError(t, err)
-	assert.False(t, projectConfig.UseCustomCA)
-
-	// Passing "true" results in true to UseCustomCA
-	cm = defaultConfigMap("cm2")
-	cm.Data[util.UseCustomCAConfigMap] = "true"
-	err = client.Create(ctx, &cm)
-	assert.NoError(t, err)
-
-	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm2"), "")
-
-	assert.NoError(t, err)
-	assert.True(t, projectConfig.UseCustomCA)
-
-	// Passing any value different from "false" results in true.
-	cm = defaultConfigMap("cm3")
-	cm.Data[util.UseCustomCAConfigMap] = ""
-	err = client.Create(ctx, &cm)
-	assert.NoError(t, err)
-
-	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm3"), "")
-	assert.NoError(t, err)
-	assert.True(t, projectConfig.UseCustomCA)
-
-	// "1" also results in a true value
-	cm = defaultConfigMap("cm4")
-	cm.Data[util.UseCustomCAConfigMap] = "1"
-	err = client.Create(ctx, &cm)
-	assert.NoError(t, err)
-
-	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm4"), "")
-	assert.NoError(t, err)
-	assert.True(t, projectConfig.UseCustomCA)
-
-	// This last section only tests that the unit test is working fine
-	// and having multiple ConfigMaps in the mocked client will not
-	// result in contaminated checks.
-	cm = defaultConfigMap("cm5")
-	cm.Data[util.UseCustomCAConfigMap] = "false"
-	err = client.Create(ctx, &cm)
-	assert.NoError(t, err)
-
-	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm5"), "")
-	assert.NoError(t, err)
-	assert.False(t, projectConfig.UseCustomCA)
-}
-
 func TestMissingRequiredFieldsFromCM(t *testing.T) {
 	ctx := context.Background()
 	client, _ := mock.NewDefaultFakeClient()

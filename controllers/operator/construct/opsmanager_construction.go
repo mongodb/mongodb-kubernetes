@@ -660,11 +660,13 @@ func opsManagerConfigurationToEnvVars(m *omv1.MongoDBOpsManager) []corev1.EnvVar
 	return envVars
 }
 
-func hasReleasesVolumeMount(opts OpsManagerStatefulSetOptions) bool {
+// hasVolumeMount checks if the user has provided a custom volume mount for the given path.
+// This allows users to override default emptyDir mounts with their own PVCs.
+func hasVolumeMount(opts OpsManagerStatefulSetOptions, mountPath string) bool {
 	if opts.StatefulSetSpecOverride != nil {
 		for _, c := range opts.StatefulSetSpecOverride.Template.Spec.Containers {
 			for _, vm := range c.VolumeMounts {
-				if vm.MountPath == util.OpsManagerPvcMountDownloads {
+				if vm.MountPath == mountPath {
 					return true
 				}
 			}
@@ -676,10 +678,20 @@ func hasReleasesVolumeMount(opts OpsManagerStatefulSetOptions) bool {
 func getNonPersistentOpsManagerVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount, opts OpsManagerStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.OpsManagerPvcNameData))
 
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathTmp, statefulset.WithSubPath(util.OpsManagerPvcNameTmp)))
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathLogs, statefulset.WithSubPath(util.OpsManagerPvcNameLogs)))
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathEtc, statefulset.WithSubPath(util.OpsManagerPvcNameEtc)))
+	// Mount default emptyDir paths only if user hasn't provided custom overrides.
+	// This allows users to use their own PVCs for any of these paths.
+	if !hasVolumeMount(opts, util.PvcMountPathTmp) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
+	}
+	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathTmp) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathTmp, statefulset.WithSubPath(util.OpsManagerPvcNameTmp)))
+	}
+	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathLogs) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathLogs, statefulset.WithSubPath(util.OpsManagerPvcNameLogs)))
+	}
+	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathEtc) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathEtc, statefulset.WithSubPath(util.OpsManagerPvcNameEtc)))
+	}
 
 	if opts.LoggingConfiguration != nil && opts.LoggingConfiguration.LogBackRef != nil {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(util.OpsManagerPvcLogBackNameVolume, opts.LoggingConfiguration.LogBackRef.Name))
@@ -691,13 +703,13 @@ func getNonPersistentOpsManagerVolumeMounts(volumes []corev1.Volume, volumeMount
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcLogBackAccessNameVolume, util.OpsManagerPvcLogbackAccessMountPath, statefulset.WithSubPath(util.OpsManagerPvcLogbackAccessSubPath)))
 	}
 
-	// This content is used by the Ops Manager to download mongodbs. Mount it only if there's no downloads override (like in om_localmode-multiple-pv.yaml for example)
-	if !hasReleasesVolumeMount(opts) {
+	if !hasVolumeMount(opts, util.OpsManagerPvcMountDownloads) {
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountDownloads, statefulset.WithSubPath(util.OpsManagerPvcNameDownloads)))
 	}
 
-	// This content is populated by the docker-entry-point.sh. It's being copied from conf-template
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathConf, statefulset.WithSubPath(util.OpsManagerPvcNameConf)))
+	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathConf) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathConf, statefulset.WithSubPath(util.OpsManagerPvcNameConf)))
+	}
 
 	return volumes, volumeMounts
 }

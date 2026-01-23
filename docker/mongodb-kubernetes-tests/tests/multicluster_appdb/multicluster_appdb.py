@@ -151,6 +151,14 @@ def test_add_cluster_to_cluster_spec(ops_manager: MongoDBOpsManager, appdb_membe
 
 @mark.e2e_multi_cluster_appdb
 def test_remove_cluster_from_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
+    # Before removing, we need to scale down the cluster to zero
+    ops_manager.load()
+    cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 0, 1])
+    ops_manager.update()
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+
+    # Now we can remove the cluster from the spec
     ops_manager.load()
     cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names[1:]
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 1])
