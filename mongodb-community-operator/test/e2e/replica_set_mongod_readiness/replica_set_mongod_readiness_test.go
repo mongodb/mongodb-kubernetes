@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package replica_set_mongod_readiness
 
 import (

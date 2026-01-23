@@ -50,6 +50,8 @@ variables:
       - VERSION_UPGRADE_HOOK_VERSION
       - BUILD_SCENARIO
       - MDB_BASH_DEBUG
+      - AI_MONGODB_EMBEDDING_INDEXING_KEY
+      - AI_MONGODB_EMBEDDING_QUERY_KEY
 
 functions:
 
@@ -584,6 +586,8 @@ functions:
           - github_pr_number
           - project_identifier
           - revision_order_id
+          - AI_MONGODB_EMBEDDING_INDEXING_KEY
+          - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/e2e.sh
@@ -615,12 +619,10 @@ functions:
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make test-race
-    - command: gotest.parse_files
-      params:
-        files: [ "src/github.com/mongodb/mongodb-kubernetes/*.suite", "src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/*.suite" ]
+        env:
+          USE_RACE: "true"
+          USE_COVERAGE: "true"
+        script: scripts/evergreen/unit-tests-golang.sh
 
   test_helm_unit:
     - command: shell.exec
@@ -638,19 +640,15 @@ functions:
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make python-tests
+        script: scripts/evergreen/unit-tests-python.sh
 
-  test_sboms:
+  test_python_sbom:
     - command: shell.exec
       type: test
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make sbom-tests
+        script: scripts/evergreen/unit-tests-sbom.sh
 
   generate_perf_tests_tasks:
     - command: shell.exec
@@ -743,6 +741,8 @@ functions:
           - code_snippets_reset
           - task_name
           - MDB_BASH_DEBUG
+          - AI_MONGODB_EMBEDDING_INDEXING_KEY
+          - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
         script: |

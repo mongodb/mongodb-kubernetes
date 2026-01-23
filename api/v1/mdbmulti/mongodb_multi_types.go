@@ -81,7 +81,7 @@ func (m *MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) 
 	}
 
 	for _, spec := range clusterSpecList {
-		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), nil)...)
+		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), m.Spec.GetExternalDomainForMemberCluster(spec.ClusterName))...)
 	}
 	return hostnames, nil
 }

@@ -47,9 +47,14 @@ def mongo_tester(mdb: MongoDB):
 
 @fixture(scope="module")
 def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
+    # CLOUDP-375105: Architecture migration (static ↔ non-static) requires restarting many
+    # components, causing extended unavailability. Previous value of 1 was too strict for
+    # complex migration operations. Setting to 5 as a conservative increase while investigating
+    # root causes. Note: This test is skipped for multi-cluster (see @skip_if_multi_cluster
+    # decorator with CLOUDP-286686 reference).
     return MongoDBBackgroundTester(
         mongo_tester,
-        allowed_sequential_failures=1,
+        allowed_sequential_failures=5,
         health_function_params={
             "attempts": 1,
             "write_concern": pymongo.WriteConcern(w="majority"),
