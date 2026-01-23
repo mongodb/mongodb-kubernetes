@@ -1,0 +1,35 @@
+{
+    "rules": [
+        {
+            "rulePriority": 1,
+            "description": "Keep only latest master cache",
+            "selection": {
+                "tagStatus": "tagged",
+                "tagPatternList": [
+                    "master"
+                ],
+                "countType": "imageCountMoreThan",
+                "countNumber": 1
+            },
+            "action": {
+                "type": "expire"
+            }
+        },
+        {
+            "rulePriority": 2,
+            "description": "Expire branch caches after 14 days",
+            "selection": {
+                "tagStatus": "tagged",
+                "tagPatternList": [
+                    "*"
+                ],
+                "countType": "sinceImagePushed",
+                "countUnit": "days",
+                "countNumber": 14
+            },
+            "action": {
+                "type": "expire"
+            }
+        }
+    ]
+}
