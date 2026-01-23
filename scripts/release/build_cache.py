@@ -176,6 +176,7 @@ def ensure_ecr_cache_repository(repository_name: str, region: str = "us-east-1")
     # This is idempotent and ensures policy is always up-to-date
     apply_cache_lifecycle_policy(ecr_client, repository_name)
 
+
 def build_cache_configuration(base_registry: str) -> tuple[list[Any], Optional[dict[str, str]]]:
     """
     Build cache configuration for branch-scoped BuildKit remote cache.

@@ -263,7 +263,9 @@ def ensure_cache_lifecycle_policies(dry_run: bool = False) -> None:
             if dry_run:
                 print(f"  {repo}: would apply lifecycle policy")
             else:
-                ecr_client.put_lifecycle_policy(repositoryName=repo, registryId=REGISTRY_ID, lifecyclePolicyText=policy_text)
+                ecr_client.put_lifecycle_policy(
+                    repositoryName=repo, registryId=REGISTRY_ID, lifecyclePolicyText=policy_text
+                )
                 print(f"  {repo}: applied lifecycle policy")
         except ClientError as e:
             print(f"  {repo}: failed to apply lifecycle policy: {e}")
