@@ -1,5 +1,6 @@
 from typing import Dict
 
+import pytest
 from kubetester import (
     create_or_update_secret,
     create_secret,
@@ -13,7 +14,6 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
-import pytest
 from pytest import fixture, mark
 
 MDB_RESOURCE = "my-replica-set"

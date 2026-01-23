@@ -1,7 +1,8 @@
 import pytest
 from kubernetes import client
-from kubetester.kubetester import KubernetesTester, fcv_from_version, run_periodically
+from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from tests.constants import LEGACY_OPERATOR_NAME, OPERATOR_NAME

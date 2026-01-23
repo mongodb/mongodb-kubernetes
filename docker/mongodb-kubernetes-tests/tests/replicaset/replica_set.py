@@ -4,9 +4,9 @@ import pytest
 from kubernetes import client
 from kubetester import assert_pod_container_security_context, assert_pod_security_context, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, fcv_from_version, run_periodically
+from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static, skip_if_local
+from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase

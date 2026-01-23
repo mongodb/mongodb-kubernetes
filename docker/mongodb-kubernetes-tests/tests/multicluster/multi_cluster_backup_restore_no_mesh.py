@@ -17,9 +17,9 @@ from kubetester import (
     try_load,
 )
 from kubetester.certs import create_ops_manager_tls_certs
-from kubetester.kubetester import KubernetesTester, ensure_ent_version, run_periodically
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
+from kubetester.kubetester import run_periodically, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser

@@ -55,6 +55,7 @@ class OpsManagerGroupNotFoundError(Exception):
 
     pass
 
+
 plural_map = {
     "MongoDB": "mongodb",
     "MongoDBUser": "mongodbusers",
@@ -1049,15 +1050,7 @@ class KubernetesTester(object):
             # Check for GROUP_NOT_FOUND error - this means the OM project was already deleted
             # (e.g., by TTL, cleanup processes, or parallel tests)
             if response.status_code == 404:
-                try:
-                    error_body = response.json()
-                    if error_body.get("errorCode") == "GROUP_NOT_FOUND":
-                        raise OpsManagerGroupNotFoundError(
-                            f"Ops Manager group not found: {error_body.get('detail', response.text)}"
-                        )
-                except (ValueError, KeyError):
-                    pass  # Not a JSON response or missing fields, fall through to generic error
-
+                raise OpsManagerGroupNotFoundError(f"Ops Manager group not found")
             raise Exception(
                 "Error sending request to Ops Manager API. {} ({}).\n Request details: {} {} (data: {})".format(
                     response.status_code, response.text, method, endpoint, json_object

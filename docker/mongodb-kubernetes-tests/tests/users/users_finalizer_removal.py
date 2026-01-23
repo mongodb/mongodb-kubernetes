@@ -2,8 +2,9 @@ import pytest
 from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 from kubetester import create_or_update_secret, find_fixture
-from kubetester.kubetester import KubernetesTester, run_periodically
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
