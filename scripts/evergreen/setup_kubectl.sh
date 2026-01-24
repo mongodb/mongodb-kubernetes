@@ -12,7 +12,6 @@ bindir="${PROJECT_DIR}/bin"
 tmpdir="${PROJECT_DIR}/tmp"
 mkdir -p "${bindir}" "${tmpdir}"
 
-# Use standardized retry options for resilience against transient network failures
 kubectl_version=$(curl --retry 5 --retry-delay 5 --retry-all-errors --fail --max-time 120 -Ls https://dl.k8s.io/release/stable.txt)
 echo "Downloading kubectl ${kubectl_version} for ${ARCH}"
 kubectl_version=$(echo "${kubectl_version}" | tail -n1 | tr -d '\n')

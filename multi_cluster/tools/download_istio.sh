@@ -7,7 +7,6 @@ ISTIO_SCRIPT_CHECKSUM="254c6bd6aa5b8ac8c552561c84d8e9b3a101d9e613e2a8edd6db1f19c
 echo "Checking if we need to download Istio ${VERSION}"
 if [ ! -d "istio-${VERSION}" ]; then
     echo "Downloading Istio ${VERSION}"
-    # Use standardized retry options for resilience against transient network failures
     curl --retry 5 --retry-delay 5 --retry-all-errors --fail --show-error --max-time 120 -O https://raw.githubusercontent.com/istio/istio/d710dfc2f95adb9399e1656165fa5ac22f6e1a16/release/downloadIstioCandidate.sh
     echo "${ISTIO_SCRIPT_CHECKSUM}  downloadIstioCandidate.sh" | sha256sum --check
     ISTIO_VERSION=${VERSION} sh downloadIstioCandidate.sh

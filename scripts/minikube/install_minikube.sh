@@ -11,7 +11,6 @@ echo "Installing minikube on ${ARCH} architecture..."
 
 # Install crictl (container runtime CLI)
 echo "Installing crictl for ${ARCH}..."
-# Use standardized retry options for resilience against transient network failures
 CRICTL_VERSION=$(curl --retry 5 --retry-delay 5 --retry-all-errors --fail --max-time 120 -s https://api.github.com/repos/kubernetes-sigs/cri-tools/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 
 # Download and extract crictl tar.gz
@@ -49,7 +48,6 @@ fi
 
 # Install minikube
 echo "Installing minikube for ${ARCH}..."
-# Use standardized retry options for resilience against transient network failures
 MINIKUBE_VERSION=$(curl --retry 5 --retry-delay 5 --retry-all-errors --fail --max-time 120 -s https://api.github.com/repos/kubernetes/minikube/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 
 # Download minikube for detected architecture

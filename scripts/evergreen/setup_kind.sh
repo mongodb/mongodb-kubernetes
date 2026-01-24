@@ -15,7 +15,6 @@ latest_version="v0.29.0"
 if [[ "${arch_suffix}" == "amd64" || "${arch_suffix}" == "arm64" ]]; then
   mkdir -p "${PROJECT_DIR}/bin/"
   echo "Saving kind to ${PROJECT_DIR}/bin"
-  # Use standardized retry options for resilience against transient network failures
   curl --retry 5 --retry-delay 5 --retry-all-errors --fail --show-error --max-time 600 -L "https://github.com/kubernetes-sigs/kind/releases/download/${latest_version}/kind-${os}-${arch_suffix}" -o kind
 
   chmod +x kind
