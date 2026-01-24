@@ -188,7 +188,7 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 				log.Infow("MongoDB version information is not yet available in Ops Manager, will retry",
 					"clusterId", config.ClusterId,
 					"desiredStatus", desiredConfig.Status)
-				return workflow.Pending("Waiting for MongoDB version information to be available in Ops Manager").WithRetry(10), nil
+				return workflow.Pending("Waiting for MongoDB version information to be available in Ops Manager").WithRetry(30), nil
 			}
 			return workflow.Failed(err), nil
 		}
