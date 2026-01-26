@@ -214,6 +214,11 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 	// we should eventually be able to remove this.
 	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
 		config.DisableX509Authentication()
+		// Clear username/password to prevent monitoring agent from attempting authentication
+		// when MongoDB has auth disabled. This fixes issues where stale credentials from a
+		// previous deployment cause authentication failures.
+		config.UnsetAgentUsername()
+		config.UnsetAgentPassword()
 		return nil
 	}, log)
 	if err != nil {
@@ -222,6 +227,10 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 
 	err = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
 		config.DisableX509Authentication()
+		// Clear username/password to prevent backup agent from attempting authentication
+		// when MongoDB has auth disabled.
+		config.UnsetAgentUsername()
+		config.UnsetAgentPassword()
 		return nil
 	}, log)
 	if err != nil {
