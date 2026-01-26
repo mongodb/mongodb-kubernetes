@@ -20,11 +20,8 @@ subjects:
   name: cluster-cleaner
   namespace: {{ .Values.cleanerNamespace }}
 
-# Remove old failed namespaces, which are older than 10 minutes.
-# This CJ runs every 5 minutes, so a failed namespace will live for
-# at least 10 minutes, but can live up to 15.
-# Reduced from 20 minutes to 10 minutes to help OpenShift tests that run
-# sequentially and are more sensitive to leftover resources.
+# Remove old failed namespaces after a grace period.
+# The grace period allows time for cleanup scripts to run before forced deletion.
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -32,7 +29,6 @@ metadata:
   name: cluster-cleaner-delete-each-hour
   namespace: {{ .Values.cleanerNamespace }}
 spec:
-  # Run every 5 minutes (reduced from 10 for faster cleanup on OpenShift)
   schedule: "*/5 * * * *"
   jobTemplate:
     spec:
@@ -54,9 +50,7 @@ spec:
                 - name: LABELS
                   value: "evg=task,evg/state=failed"
 
-# Remove old testing namespaces, no matter if they have succeeded or failed.
-# This is run every 5 minutes, cleaning namespaces older than 60 minutes.
-# Reduced from 90 minutes to 60 minutes for faster cleanup of stale test namespaces.
+# Remove old testing namespaces regardless of success or failure state.
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -64,7 +58,6 @@ metadata:
   name: cluster-cleaner-delete-each-hour-all
   namespace: {{ .Values.cleanerNamespace }}
 spec:
-  # Run every 5 minutes (reduced from 10 for faster cleanup on OpenShift)
   schedule: "*/5 * * * *"
   jobTemplate:
     spec:
