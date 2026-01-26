@@ -1,10 +1,9 @@
 ---
-title: Handle transient 409 error when starting backup
+title: Fix backup failure when redeploying MongoDB with authentication disabled
 kind: fix
 date: 2026-01-23
 ---
 
-* Fixed a flaky test issue where enabling backup on a newly created or recreated MongoDB deployment could fail with a 409 Conflict error ("MongoDB version information is not yet available").
-* The operator now treats this error as a transient condition and retries instead of immediately marking the deployment as Failed.
-* This allows the monitoring agent time to register with Ops Manager before backup configuration is attempted.
+* Fixed an issue where enabling backup on a MongoDB deployment with authentication disabled could fail with a 409 Conflict error ("MongoDB version information is not yet available") if a previous deployment had authentication enabled.
+* The operator now clears stale agent credentials when authentication is disabled, allowing the monitoring agent to connect properly and report version information to Ops Manager.
 
