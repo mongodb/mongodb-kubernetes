@@ -33,6 +33,26 @@ EOF
     fi
 }
 
+# Wait for a namespace to be fully deleted.
+# Returns 0 if namespace is deleted, 1 if still exists after timeout.
+wait_for_namespace_deletion() {
+    local namespace="${1}"
+    local max_attempts="${2:-24}"
+    local sleep_interval="${3:-5}"
+
+    local attempt=0
+    while kubectl get namespace "${namespace}" &>/dev/null && [[ ${attempt} -lt ${max_attempts} ]]; do
+        echo "Waiting for namespace ${namespace} to be deleted... (${attempt}/${max_attempts})"
+        sleep "${sleep_interval}"
+        attempt=$((attempt + 1))
+    done
+
+    if kubectl get namespace "${namespace}" &>/dev/null; then
+        return 1
+    fi
+    return 0
+}
+
 delete_operator() {
     local ns="$1"
     local name=${OPERATOR_NAME:=mongodb-kubernetes-operator}

@@ -91,27 +91,15 @@ pre_test_cleanup_openshift() {
 
     if [[ "${ns_status}" == "Terminating" ]]; then
       echo "Namespace ${NAMESPACE} is in Terminating state, waiting for it to be fully deleted..."
-      local wait_count=0
-      while kubectl get namespace "${NAMESPACE}" &>/dev/null && [[ ${wait_count} -lt 24 ]]; do
-        echo "Waiting for namespace ${NAMESPACE} to be deleted... (${wait_count}/24)"
-        sleep 5
-        wait_count=$((wait_count + 1))
-      done
-
-      if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
+      if ! wait_for_namespace_deletion "${NAMESPACE}"; then
         echo "Namespace ${NAMESPACE} still stuck, attempting force cleanup..."
         reset_namespace "${context}" "${NAMESPACE}" || true
+        wait_for_namespace_deletion "${NAMESPACE}" || true
       fi
     else
       echo "Cleaning up existing namespace ${NAMESPACE}..."
       reset_namespace "${context}" "${NAMESPACE}" || true
-
-      local wait_count=0
-      while kubectl get namespace "${NAMESPACE}" &>/dev/null && [[ ${wait_count} -lt 24 ]]; do
-        echo "Waiting for namespace ${NAMESPACE} to be deleted... (${wait_count}/24)"
-        sleep 5
-        wait_count=$((wait_count + 1))
-      done
+      wait_for_namespace_deletion "${NAMESPACE}" || true
     fi
   fi
 
