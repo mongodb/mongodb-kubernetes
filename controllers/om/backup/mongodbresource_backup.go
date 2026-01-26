@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"errors"
 	"reflect"
 
 	"go.uber.org/zap"
@@ -14,7 +13,6 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -179,17 +177,6 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 
 		updatedConfig, err := configReadUpdater.UpdateBackupConfig(desiredConfig)
 		if err != nil {
-			// Check if this is a transient 409 error indicating that MongoDB version information
-			// is not yet available in Ops Manager. This happens when the monitoring agent has not
-			// yet reported version information after a deployment is created or recreated.
-			// In this case, we return Pending instead of Failed to allow the operator to retry.
-			var apiErr *apierror.Error
-			if errors.As(err, &apiErr) && apiErr.ErrorBackupVersionNotAvailable() {
-				log.Infow("MongoDB version information is not yet available in Ops Manager, will retry",
-					"clusterId", config.ClusterId,
-					"desiredStatus", desiredConfig.Status)
-				return workflow.Pending("Waiting for MongoDB version information to be available in Ops Manager").WithRetry(30), nil
-			}
 			return workflow.Failed(err), nil
 		}
 

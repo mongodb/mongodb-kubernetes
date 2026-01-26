@@ -3,7 +3,6 @@ package apierror
 import (
 	"errors"
 	"fmt"
-	"strings"
 )
 
 const (
@@ -13,11 +12,6 @@ const (
 	BackupDaemonConfigNotFound = "DAEMON_MACHINE_CONFIG_NOT_FOUND"
 	UserAlreadyExists          = "USER_ALREADY_EXISTS"
 	DuplicateWhitelistEntry    = "DUPLICATE_GLOBAL_WHITELIST_ENTRY"
-
-	// BackupVersionNotAvailable is the message returned by Ops Manager when trying to start backup
-	// before the monitoring agent has reported MongoDB version information. This is a transient
-	// condition that resolves once the agent registers with Ops Manager.
-	BackupVersionNotAvailable = "MongoDB version information is not yet available"
 )
 
 // Error is the error extension that contains the details of OM error if OM returned the error. This allows the
@@ -95,23 +89,6 @@ func (e *Error) ErrorBackupDaemonConfigIsNotFound() bool {
 	}
 
 	if e.ErrorCode == BackupDaemonConfigNotFound {
-		return true
-	}
-
-	return false
-}
-
-// ErrorBackupVersionNotAvailable returns true if this is a 409 Conflict error indicating
-// that MongoDB version information is not yet available in Ops Manager. This is a transient
-// condition that occurs when the monitoring agent has not yet reported version information
-// to Ops Manager, typically after a MongoDB deployment is created or recreated.
-func (e *Error) ErrorBackupVersionNotAvailable() bool {
-	if e == nil {
-		return false
-	}
-
-	// This error is returned as a 409 Conflict with the message in the Detail field
-	if e.Status != nil && *e.Status == 409 && strings.Contains(e.Detail, BackupVersionNotAvailable) {
 		return true
 	}
 

@@ -4,6 +4,5 @@ kind: fix
 date: 2026-01-23
 ---
 
-* Fixed an issue where enabling backup on a MongoDB deployment with authentication disabled could fail with a 409 Conflict error ("MongoDB version information is not yet available") if a previous deployment had authentication enabled.
-* The operator now clears stale agent credentials when authentication is disabled, allowing the monitoring agent to connect properly and report version information to Ops Manager.
-
+* Fixed an issue where the monitoring agent failed to report version information to Ops Manager when a MongoDB deployment with authentication disabled was created after a previous deployment with authentication enabled had been deleted.
+* The operator now clears stale agent credentials from monitoring and backup agent configs when authentication is disabled, preventing authentication failures against MongoDB instances that have auth disabled.
