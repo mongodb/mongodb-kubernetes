@@ -7,7 +7,6 @@ ECR repository management, and BuildKit cache configuration generation.
 
 import json
 import os
-import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
@@ -24,55 +23,30 @@ def get_current_branch() -> tuple[str, bool]:
     """
     Detect the current git branch for cache scoping.
 
-    Evergreen CI creates auto-generated branch names (evg-pr-test-*) when running patch builds,
-    which would cause cache misses if used directly. We need the original branch name so that
-    repeated builds on the same feature branch can share cached layers.
-
-    For PRs, we rely on the github_pr_head_branch environment variable set by Evergreen,
-    which provides the original branch name for all PR builds (including forks).
+    Uses Evergreen's environment variables to determine the branch name:
+    - For GitHub PRs: uses github_pr_head_branch (the PR's source branch)
+    - For mainline/release builds: uses branch_name (the project's tracked branch)
 
     :return: tuple of (branch_name, found)
-             found=False when we fall back to master (e.g., manual patches)
+             found=False when we fall back to master (e.g., local builds without env vars)
     """
-    # First, check for Evergreen's github_pr_head_branch env var (handles fork PRs)
+    # For GitHub PRs, use the PR head branch name
+    # This is set by Evergreen for all PR builds (including forks)
     pr_head_branch = os.environ.get("github_pr_head_branch")
     if pr_head_branch:
         logger.debug(f"Using github_pr_head_branch env var: {pr_head_branch}")
         return pr_head_branch, True
 
-    try:
-        # Find the original branch (same commit, but not the evg-pr-test-* branch which evg creates)
-        current_commit_result = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
-        current_commit = current_commit_result.stdout.strip()
+    # For mainline commits and manual patches, use the project's tracked branch
+    # Evergreen sets this to the branch the project is configured to track (e.g., 'master')
+    branch_name = os.environ.get("branch_name")
+    if branch_name:
+        logger.debug(f"Using branch_name env var: {branch_name}")
+        return branch_name, True
 
-        # Get all remote branches with their commit hashes
-        remote_branches_result = subprocess.run(
-            [
-                "git",
-                "for-each-ref",
-                "--format=%(refname:short) %(objectname)",
-                "refs/remotes/origin",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-
-        # Find branches that point to the current commit, excluding auto-generated CI branches
-        for line in remote_branches_result.stdout.strip().split("\n"):
-            if not line:
-                continue
-            parts = line.split()
-            if len(parts) >= 2:
-                branch_name, commit_hash = parts[0], parts[1]
-                if commit_hash == current_commit and "evg-pr-test" not in branch_name:
-                    # Remove 'origin/' prefix
-                    original_branch = branch_name.replace("origin/", "", 1)
-                    if original_branch:
-                        return original_branch, True
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return "master", False
-
+    # Fallback for local builds or when env vars are not set
+    # Don't write to cache in this case to avoid polluting master cache
+    logger.debug("No Evergreen branch env vars found, falling back to 'master' (read-only)")
     return "master", False
 
 

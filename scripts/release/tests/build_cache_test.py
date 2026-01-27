@@ -1,112 +1,55 @@
-import subprocess
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from scripts.release.build_cache import build_cache_configuration, get_cache_scope, get_current_branch
 
 
 class TestGetCurrentBranch:
-    """Test branch detection logic for different scenarios."""
+    """Test branch detection logic for different scenarios.
 
-    @patch.dict("os.environ", {"github_pr_head_branch": "fork-feature-branch"})
-    @patch("subprocess.run")
-    def test_github_pr_head_branch_env_var(self, mock_run):
-        """Test that github_pr_head_branch env var takes precedence (for fork PRs)."""
+    The implementation uses Evergreen environment variables:
+    - github_pr_head_branch: For PR builds, provides the PR's source branch
+    - branch_name: For mainline/release builds, provides the project's tracked branch
+    """
+
+    @patch.dict("os.environ", {"github_pr_head_branch": "fork-feature-branch"}, clear=True)
+    def test_github_pr_head_branch_env_var(self):
+        """Test that github_pr_head_branch env var takes precedence (for PR builds)."""
         result, should_write = get_current_branch()
 
         assert result == "fork-feature-branch"
         assert should_write is True
-        # Git commands should not be called when env var is set
-        mock_run.assert_not_called()
 
-    @patch.dict("os.environ", {}, clear=True)
-    @patch("subprocess.run")
-    def test_ci_environment_with_original_branch(self, mock_run):
-        """Test detection of original branch in CI environment like Evergreen."""
-
-        # Mock the sequence of git commands
-        def side_effect(cmd, **kwargs):
-            if cmd == ["git", "rev-parse", "HEAD"]:
-                return MagicMock(stdout="4cecea664abcd1234567890\n", returncode=0)
-            elif cmd == ["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin"]:
-                return MagicMock(
-                    stdout="origin/master 1234567890abcdef\norigin/add-caching 4cecea664abcd1234567890\norigin/evg-pr-test-12345 4cecea664abcd1234567890\n",
-                    returncode=0,
-                )
-            elif cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
-                return MagicMock(stdout="evg-pr-test-12345\n", returncode=0)
-            return MagicMock(stdout="", returncode=1)
-
-        mock_run.side_effect = side_effect
-
+    @patch.dict("os.environ", {"github_pr_head_branch": "feature/my-branch", "branch_name": "master"}, clear=True)
+    def test_github_pr_head_branch_takes_precedence(self):
+        """Test that github_pr_head_branch takes precedence over branch_name."""
         result, should_write = get_current_branch()
 
-        assert result == "add-caching"
+        assert result == "feature/my-branch"
+        assert should_write is True
+
+    @patch.dict("os.environ", {"branch_name": "master"}, clear=True)
+    def test_branch_name_env_var(self):
+        """Test that branch_name env var is used for mainline builds."""
+        result, should_write = get_current_branch()
+
+        assert result == "master"
+        assert should_write is True
+
+    @patch.dict("os.environ", {"branch_name": "release-1.0"}, clear=True)
+    def test_branch_name_for_release_branch(self):
+        """Test branch_name for release branch builds."""
+        result, should_write = get_current_branch()
+
+        assert result == "release-1.0"
         assert should_write is True
 
     @patch.dict("os.environ", {}, clear=True)
-    @patch("subprocess.run")
-    def test_master_branch_fallback(self, mock_run):
-        """Test fallback to master when git commands fail."""
-
-        # Mock the sequence where git commands fail, triggering fallback
-        def side_effect(cmd, **kwargs):
-            if cmd == ["git", "rev-parse", "HEAD"]:
-                return MagicMock(stdout="4cecea664abcd1234567890\n", returncode=0)
-            elif cmd == ["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin"]:
-                raise subprocess.CalledProcessError(1, "git")  # This fails, triggering fallback
-            return MagicMock(stdout="", returncode=1)
-
-        mock_run.side_effect = side_effect
-
+    def test_fallback_when_no_env_vars(self):
+        """Test fallback to master when no env vars are set (e.g., local builds)."""
         result, should_write = get_current_branch()
 
         assert result == "master"
-        assert should_write is False  # Fallback means not positively detected
-
-    @patch.dict("os.environ", {}, clear=True)
-    @patch("subprocess.run")
-    def test_no_matching_branch_fallback(self, mock_run):
-        """Test fallback when no matching branch is found."""
-
-        # Mock the sequence where no branch matches the current commit
-        def side_effect(cmd, **kwargs):
-            if cmd == ["git", "rev-parse", "HEAD"]:
-                return MagicMock(stdout="4cecea664abcd1234567890\n", returncode=0)
-            elif cmd == ["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin"]:
-                return MagicMock(
-                    stdout="origin/master 1234567890abcdef\norigin/other-branch 9999999999999999\n",
-                    returncode=0,
-                )
-            return MagicMock(stdout="", returncode=1)
-
-        mock_run.side_effect = side_effect
-
-        result, should_write = get_current_branch()
-
-        assert result == "master"
-        assert should_write is False  # No match means fallback
-
-    @patch.dict("os.environ", {}, clear=True)
-    @patch("subprocess.run")
-    def test_git_command_fails(self, mock_run):
-        """Test fallback when all git commands fail."""
-        mock_run.side_effect = subprocess.CalledProcessError(1, "git")
-
-        result, should_write = get_current_branch()
-
-        assert result == "master"  # fallback to master
-        assert should_write is False
-
-    @patch.dict("os.environ", {}, clear=True)
-    @patch("subprocess.run")
-    def test_git_not_found(self, mock_run):
-        """Test fallback when git is not found."""
-        mock_run.side_effect = FileNotFoundError("git not found")
-
-        result, should_write = get_current_branch()
-
-        assert result == "master"  # fallback to master
-        assert should_write is False
+        assert should_write is False  # Fallback means no cache write
 
 
 class TestGetCacheScope:
