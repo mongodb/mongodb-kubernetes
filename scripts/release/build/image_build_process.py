@@ -9,11 +9,7 @@ from python_on_whales.exceptions import DockerException
 
 import docker
 from lib.base_logger import logger
-from scripts.release.build_cache import (
-    build_cache_configuration,
-    ensure_ecr_cache_repository,
-    should_write_cache,
-)
+from scripts.release.build_cache import build_cache_configuration, ensure_ecr_cache_repository, should_write_cache
 
 
 class ImageBuilder(object):
