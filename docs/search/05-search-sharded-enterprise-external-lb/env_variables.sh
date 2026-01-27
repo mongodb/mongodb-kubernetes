@@ -60,5 +60,11 @@ export MDB_TLS_CA_ISSUER="my-ca-issuer"
 export MDB_TLS_SERVER_CERT_SECRET_NAME="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-cert"
 export MDB_SEARCH_TLS_SECRET_NAME="${MDB_RESOURCE_NAME}-search-tls"
 
+# Envoy proxy configuration
+# Envoy is used as an L7 load balancer for mongot traffic
+# It provides SNI-based routing to per-shard mongot services
+export ENVOY_IMAGE="envoyproxy/envoy:v1.31-latest"
+export ENVOY_PROXY_PORT=27029
+
 # Connection string for mongos (sharded cluster entry point) with TLS
 export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME}-mongos-0.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca.crt"

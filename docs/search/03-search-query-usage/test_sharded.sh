@@ -28,6 +28,7 @@ echo ""
 # Note: For sharded clusters, we don't need the mongodb-tools-pod since we execute
 # commands directly on the shard pods using the built-in mongosh
 
+run 03_0410_run_mongodb_tools_pod.sh
 run 03_0421_import_movies_to_shards.sh
 run 03_0431_create_search_index_on_shards.sh
 run_for_output 03_0441_wait_for_search_index_ready_on_shards.sh

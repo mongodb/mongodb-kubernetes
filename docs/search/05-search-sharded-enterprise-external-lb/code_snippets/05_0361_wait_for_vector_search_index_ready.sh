@@ -9,8 +9,7 @@ for attempt in $(seq 1 ${max_attempts}); do
   status=$(kubectl exec -n "${MDB_NS}" --context "${K8S_CTX}" \
     mongodb-tools-pod -- env MDB_CONNECTION_STRING="${MDB_CONNECTION_STRING}" /bin/bash -eu -c "$(cat <<'EOF'
 mongosh "${MDB_CONNECTION_STRING}" --quiet --eval '
-  use sample_mflix;
-  const result = db.runCommand({ listSearchIndexes: "embedded_movies" });
+  const result = db.getSiblingDB("sample_mflix").runCommand({ listSearchIndexes: "embedded_movies" });
   if (result.ok && result.cursor && result.cursor.firstBatch) {
     const vectorIdx = result.cursor.firstBatch.find(idx => idx.name === "vector_index");
     if (vectorIdx) {
@@ -39,4 +38,3 @@ EOF
 
   sleep ${sleep_time}
 done
-

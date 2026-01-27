@@ -6,17 +6,17 @@ echo "Creating vector search index through mongos..."
 kubectl exec -n "${MDB_NS}" --context "${K8S_CTX}" \
   mongodb-tools-pod -- env MDB_CONNECTION_STRING="${MDB_CONNECTION_STRING}" /bin/bash -eu -c "$(cat <<'EOF'
 mongosh "${MDB_CONNECTION_STRING}" --quiet --eval '
-  use sample_mflix;
-  
+  const db_mflix = db.getSiblingDB("sample_mflix");
+
   // Check if index already exists
-  const existing = db.runCommand({ listSearchIndexes: "embedded_movies" });
-  const hasVectorIndex = existing.ok && existing.cursor && existing.cursor.firstBatch && 
+  const existing = db_mflix.runCommand({ listSearchIndexes: "embedded_movies" });
+  const hasVectorIndex = existing.ok && existing.cursor && existing.cursor.firstBatch &&
     existing.cursor.firstBatch.some(idx => idx.name === "vector_index");
-  
+
   if (hasVectorIndex) {
     print("Vector search index already exists");
   } else {
-    db.embedded_movies.createSearchIndex("vector_index", "vectorSearch", {
+    db_mflix.embedded_movies.createSearchIndex("vector_index", "vectorSearch", {
       "fields": [{
         "type": "vector",
         "path": "plot_embedding_voyage_3_large",
@@ -32,4 +32,3 @@ EOF
 )"
 
 echo "Vector search index creation complete"
-
