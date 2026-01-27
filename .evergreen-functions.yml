@@ -25,6 +25,7 @@ variables:
       - ecr_registry_needs_auth
       - execution
       - github_commit
+      - github_pr_head_branch
       - image_name
       - is_patch
       - mms_eng_test_aws_access_key
