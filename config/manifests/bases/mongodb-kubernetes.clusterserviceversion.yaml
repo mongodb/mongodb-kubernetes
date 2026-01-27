@@ -379,12 +379,12 @@ spec:
 
     ## Before You Start
 
-    To start using the operator you''ll need an account in MongoDB Cloud Manager or
+    To start using the operator you'll need an account in MongoDB Cloud Manager or
     a MongoDB Ops Manager deployment.
 
-    * [Create a Secret with your OpsManager API key](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/create-operator-credentials/#procedure)
+    * [Create a Secret with your OpsManager API key](https://www.mongodb.com/docs/kubernetes/current/tutorial/create-operator-credentials/)
 
-    * [Create a ConfigMap with your OpsManager project ID and URL](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/create-project-using-configmap/)
+    * [Create a ConfigMap with your OpsManager project ID and URL](https://www.mongodb.com/docs/kubernetes/current/tutorial/create-project-using-configmap/)
 
     By installing this integration, you will be able to deploy MongoDB instances
     with a single simple command.
@@ -393,7 +393,7 @@ spec:
 
     * `opsManager` or `cloudManager` - Enter the name of the ConfigMap containing project information
     * `credentials` - Enter the name of the Secret containing your OpsManager credentials
-    * `type` - Enter MongoDB Deployment Types ("Standalone", "ReplicaSet", "ShardedCluster"
+    * `type` - Enter MongoDB Deployment Types ("Standalone", "ReplicaSet", "ShardedCluster")
 
     ## Supported MongoDB Deployment Types ##
 
@@ -417,7 +417,7 @@ spec:
     ## Requirements for deploying MongoDB OpsManager
 
     * In order to deploy resources of type MongoDB OpsManager, you will need to
-    create a secret containing the [credentials](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/plan-om-resource/#om-rsrc-prereqs)
+    create a secret containing the [credentials](https://deploy-preview-17478--mongodb-mck.netlify.app/docs/kubernetes/upcoming/tutorial/plan-om-resource/#prerequisites-1)
     for the Global Owner user
 
     ## Security ##
@@ -429,7 +429,7 @@ spec:
     deprecated due to Kubernetes API changes.
 
     For more information, please read the official MongoDB
-    Kubernetes Operator  [docs](https://docs.mongodb.com/kubernetes-operator/stable/).
+    Kubernetes Operator  [docs](https://www.mongodb.com/docs/kubernetes/current/).
   displayName: MongoDB Controllers for Kubernetes
   icon:
   - base64data: 
