@@ -832,24 +832,25 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 
 func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 	ctx := context.Background()
+	fakeClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
 	t.Run("Om changed event got triggered, major version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("5.2.13").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("5.2.13").SetOMStatusVersion("4.2.13").Build(), fakeClient, zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event got triggered, minor version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0").SetOMStatusVersion("4.2.13").Build(), fakeClient, zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event got triggered, minor version update, candidate version", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0-rc2").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0-rc2").SetOMStatusVersion("4.2.13").Build(), fakeClient, zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event not triggered, patch version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), fakeClient, zap.S()))
 		assert.Equal(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 }

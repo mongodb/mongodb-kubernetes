@@ -432,6 +432,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	// 1. Reconcile AppDB
 	emptyResult, _ := workflow.OK().ReconcileResult()
 	retryResult := reconcile.Result{Requeue: true}
+	var result reconcile.Result = emptyResult
 
 	// TODO: make SetupCommonWatchers support opsmanager watcher setup
 	// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
@@ -446,22 +447,48 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	// register backup
 	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
 
-	result, err := appDbReconciler.ReconcileAppDB(ctx, opsManager)
-	if err != nil || (result != emptyResult && result != retryResult) {
-		return result, err
-	}
+	var appDBConnectionString string
+	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
+		secretRef := opsManager.Spec.ExternalApplicationDatabaseRef.ConnectionStringSecretRef
+		var opsManagerSecretPath string
+		if r.VaultClient != nil {
+			opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
+		}
 
-	appDBPassword, err := appDbReconciler.ensureAppDbPassword(ctx, opsManager, log)
-	if err != nil {
-		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error getting AppDB password: %w", err)), log, opsManagerExtraStatusParams)
+		secretData, err := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, secretRef.Name), opsManagerSecretPath)
+		if err != nil {
+			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("error reading external AppDB connection string secret %s: %w", secretRef.Name, err)), log, opsManagerExtraStatusParams)
+		}
+
+		key := "connectionString"
+		if secretRef.Key != "" {
+			key = secretRef.Key
+		}
+
+		var ok bool
+		appDBConnectionString, ok = secretData[key]
+		if !ok {
+			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("external AppDB connection string secret %s does not contain key %s", secretRef.Name, key)), log, opsManagerExtraStatusParams)
+		}
+		opsManager.UpdateStatus(mdbstatus.PhaseRunning, mdbstatus.NewOMPartOption(mdbstatus.AppDb))
+	} else {
+		result, err = appDbReconciler.ReconcileAppDB(ctx, opsManager)
+		if err != nil || (result != emptyResult && result != retryResult) {
+			return result, err
+		}
+
+		appDBPassword, err := appDbReconciler.ensureAppDbPassword(ctx, opsManager, log)
+		if err != nil {
+			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error getting AppDB password: %w", err)), log, opsManagerExtraStatusParams)
+		}
+
+		appDBConnectionString = buildMongoConnectionUrl(opsManager, appDBPassword, appDbReconciler.getCurrentStatefulsetHostnames(opsManager))
 	}
 
 	opsManagerReconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
 	}
-
-	appDBConnectionString := buildMongoConnectionUrl(opsManager, appDBPassword, appDbReconciler.getCurrentStatefulsetHostnames(opsManager))
 	for _, memberCluster := range opsManagerReconcilerHelper.getHealthyMemberClusters() {
 		if err := r.ensureAppDBConnectionStringInMemberCluster(ctx, opsManager, appDBConnectionString, memberCluster, log); err != nil {
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("error ensuring AppDB connection string in cluster %s: %w", memberCluster.Name, err)), log, opsManagerExtraStatusParams)
