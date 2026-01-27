@@ -118,7 +118,7 @@ operator:
     # Use this to allow multiple operator instances on the same cluster.
     # Example:
     #   name: "mdbpolicy.my-namespace.mongodb.com"
-    name: ""
+    name: ''
 
   telemetry:
     collection:

@@ -28,7 +28,7 @@ operator:
     # Use this to allow multiple operator instances on the same cluster.
     # Example:
     #   name: "mdbpolicy.my-namespace.mongodb.com"
-    name: ""
+    name: ''
 
   # Versions listed here are used to populate RELATED_IMAGE_ env variables in the operator deployment.
   # Environment variables prefixed with RELATED_IMAGE_ are used by operator-sdk to generate relatedImages section
