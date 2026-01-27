@@ -6,7 +6,7 @@ ECR repository management, and BuildKit cache configuration generation.
 
 Cache Strategy:
 - All builds read from the master cache
-- Only mainline merges (gitter_request) and merge queue (github_merge_request) write to master cache
+- Only mainline merges (gitter_request) write to master cache
 - PRs, manual patches, and other builds are read-only to prevent cache pollution
 """
 
@@ -26,8 +26,7 @@ _LIFECYCLE_POLICY_PATH = Path(__file__).parent / "cache_lifecycle_policy.json"
 
 # Requester types that are allowed to write to the master cache
 # - gitter_request: mainline commits merged to master
-# - github_merge_request: GitHub merge queue builds
-_CACHE_WRITE_REQUESTERS = {"gitter_request", "github_merge_request"}
+_CACHE_WRITE_REQUESTERS = {"gitter_request"}
 
 
 def should_write_cache() -> bool:
