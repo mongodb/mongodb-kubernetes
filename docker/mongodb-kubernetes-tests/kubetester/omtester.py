@@ -565,6 +565,9 @@ class OMTester(object):
     def api_read_automation_agents(self) -> List:
         return self._read_agents("AUTOMATION")
 
+    def api_read_backup_agents(self) -> List:
+        return self._read_agents("BACKUP")
+
     def _read_agents(self, agent_type: str, page_num: int = 1):
         return self.om_request(
             "get",
