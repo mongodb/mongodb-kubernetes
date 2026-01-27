@@ -11,7 +11,7 @@ mkdir -p "${BIN_LOCATION}"
 tmpdir=$(mktemp -d)
 cd "${tmpdir}"
 
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+curl --retry 10 --retry-delay 10 --retry-all-errors --max-time 300 -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip awscliv2.zip &> /dev/null
 
 docker_dir="/home/${USER}/.docker"

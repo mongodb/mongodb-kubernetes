@@ -10,7 +10,7 @@ latest_version="v0.27.0"
 
 mkdir -p "${PROJECT_DIR}/bin/"
 echo "Saving kind to ${PROJECT_DIR}/bin"
-curl --retry 3 --silent -L "https://github.com/kubernetes-sigs/kind/releases/download/${latest_version}/kind-${os}-amd64" -o kind
+curl --retry 10 --retry-delay 10 --retry-all-errors --max-time 300 -fsSL "https://github.com/kubernetes-sigs/kind/releases/download/${latest_version}/kind-${os}-amd64" -o kind
 
 chmod +x kind
 sudo mv kind "${PROJECT_DIR}/bin"
