@@ -19,7 +19,7 @@ if [ "${KUBE_ENVIRONMENT_NAME}" = "openshift_4" ]; then
 
     # Source of this file is https://access.redhat.com/downloads/content/290/ver=4.12/rhel---8/4.12.8/x86_64/product-software
     # But it has been copied to S3 to avoid authentication issues in the future.
-    curl --retry 5 --retry-delay 5 --retry-all-errors --fail --show-error --max-time 600 -s -L 'https://operator-kubernetes-build.s3.amazonaws.com/oc-4.12.8-linux.tar.gz' \
+    curl --retry 10 --retry-delay 5 --retry-all-errors --fail --show-error --max-time 600 -s -L 'https://operator-kubernetes-build.s3.amazonaws.com/oc-4.12.8-linux.tar.gz' \
         --output "${OC_PKG}"
     tar xfz "${OC_PKG}" &>/dev/null
     mv oc "${bindir}"

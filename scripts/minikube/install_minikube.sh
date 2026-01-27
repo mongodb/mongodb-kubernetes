@@ -11,14 +11,14 @@ echo "Installing minikube on ${ARCH} architecture..."
 
 # Install crictl (container runtime CLI)
 echo "Installing crictl for ${ARCH}..."
-CRICTL_VERSION=$(curl --retry 5 --retry-delay 5 --retry-all-errors --fail --max-time 120 -s https://api.github.com/repos/kubernetes-sigs/cri-tools/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+CRICTL_VERSION=$(curl --retry 10 --retry-delay 5 --retry-all-errors --fail --max-time 120 -s https://api.github.com/repos/kubernetes-sigs/cri-tools/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 
 # Download and extract crictl tar.gz
 mkdir -p "${PROJECT_DIR:-.}/bin"
 CRICTL_URL="https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VERSION}/crictl-${CRICTL_VERSION}-linux-${ARCH}.tar.gz"
 echo "Downloading ${CRICTL_URL}"
 TEMP_DIR=$(mktemp -d)
-curl --retry 5 --retry-delay 5 --retry-all-errors --fail --show-error --max-time 600 --silent -L "${CRICTL_URL}" -o "${TEMP_DIR}/crictl.tar.gz"
+curl --retry 10 --retry-delay 5 --retry-all-errors --fail --show-error --max-time 600 --silent -L "${CRICTL_URL}" -o "${TEMP_DIR}/crictl.tar.gz"
 tar -xzf "${TEMP_DIR}/crictl.tar.gz" -C "${TEMP_DIR}/"
 chmod +x "${TEMP_DIR}/crictl"
 mv "${TEMP_DIR}/crictl" "${PROJECT_DIR:-.}/bin/crictl"
@@ -48,7 +48,7 @@ fi
 
 # Install minikube
 echo "Installing minikube for ${ARCH}..."
-MINIKUBE_VERSION=$(curl --retry 5 --retry-delay 5 --retry-all-errors --fail --max-time 120 -s https://api.github.com/repos/kubernetes/minikube/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+MINIKUBE_VERSION=$(curl --retry 10 --retry-delay 5 --retry-all-errors --fail --max-time 120 -s https://api.github.com/repos/kubernetes/minikube/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 
 # Download minikube for detected architecture
 download_and_install_binary "${PROJECT_DIR:-.}/bin" minikube "https://github.com/kubernetes/minikube/releases/download/${MINIKUBE_VERSION}/minikube-linux-${ARCH}"
