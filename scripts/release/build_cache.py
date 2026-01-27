@@ -24,22 +24,17 @@ from lib.base_logger import logger
 _LIFECYCLE_POLICY_PATH = Path(__file__).parent / "cache_lifecycle_policy.json"
 
 
-# Requester types that are allowed to write to the master cache
-# - gitter_request: mainline commits merged to master
-_CACHE_WRITE_REQUESTERS = {"gitter_request"}
-
-
 def should_write_cache() -> bool:
     """
     Determine if this build should write to the master cache.
 
-    Only mainline merges and merge queue builds write to cache.
+    Only mainline merges (gitter_request) write to cache.
     All other builds (PRs, manual patches, etc.) are read-only.
 
     :return: True if this build should write to cache, False otherwise
     """
     requester = os.environ.get("requester", "")
-    should_write = requester in _CACHE_WRITE_REQUESTERS
+    should_write = requester == "gitter_request"
     logger.debug(f"Cache write decision: requester={requester}, write={should_write}")
     return should_write
 
