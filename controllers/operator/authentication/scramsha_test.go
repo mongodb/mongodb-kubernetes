@@ -80,3 +80,62 @@ func TestScramSha256_DisableAgentAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	assertAgentAuthenticationDisabled(t, scramSha256Mechanism, conn, Options{})
 }
+
+// TestDisableAgentAuthentication_ClearsMonitoringAndBackupCredentials verifies that
+// DisableAgentAuthentication properly clears monitoring and backup agent credentials.
+// This is critical to prevent SCRAM authentication attempts against deployments
+// that don't have auth enabled.
+func TestDisableAgentAuthentication_ClearsMonitoringAndBackupCredentials(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+
+	// First, enable SCRAM authentication which sets credentials
+	opts := Options{
+		AuthoritativeSet: true,
+		CAFilePath:       util.CAFilePathInContainer,
+		MongoDBResource:  mongoDBResource,
+	}
+
+	err := scramSha256Mechanism.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S())
+	require.NoError(t, err)
+
+	// Verify automation config has credentials set
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
+	assert.NotEmpty(t, ac.Auth.AutoUser, "AutoUser should be set after enabling auth")
+	assert.NotEmpty(t, ac.Auth.AutoPwd, "AutoPwd should be set after enabling auth")
+
+	// Pre-populate monitoring and backup configs with credentials (simulating project-level contamination)
+	monitoringConfig, err := conn.ReadMonitoringAgentConfig()
+	require.NoError(t, err)
+	monitoringConfig.MonitoringAgentTemplate.Username = "test-user"
+	monitoringConfig.MonitoringAgentTemplate.Password = "test-password"
+
+	backupConfig, err := conn.ReadBackupAgentConfig()
+	require.NoError(t, err)
+	backupConfig.BackupAgentTemplate.Username = "test-user"
+	backupConfig.BackupAgentTemplate.Password = "test-password"
+
+	// Now disable SCRAM authentication
+	err = scramSha256Mechanism.DisableAgentAuthentication(conn, zap.S())
+	require.NoError(t, err)
+
+	// Verify monitoring agent credentials are cleared (set to MergoDelete sentinel)
+	monitoringConfig, err = conn.ReadMonitoringAgentConfig()
+	require.NoError(t, err)
+	assert.Equal(t, util.MergoDelete, monitoringConfig.MonitoringAgentTemplate.Username,
+		"Monitoring agent username should be cleared (MergoDelete) after disabling SCRAM auth")
+	assert.Equal(t, util.MergoDelete, monitoringConfig.MonitoringAgentTemplate.Password,
+		"Monitoring agent password should be cleared (MergoDelete) after disabling SCRAM auth")
+
+	// Verify backup agent credentials are cleared
+	backupConfig, err = conn.ReadBackupAgentConfig()
+	require.NoError(t, err)
+	assert.Equal(t, util.MergoDelete, backupConfig.BackupAgentTemplate.Username,
+		"Backup agent username should be cleared (MergoDelete) after disabling SCRAM auth")
+	assert.Equal(t, util.MergoDelete, backupConfig.BackupAgentTemplate.Password,
+		"Backup agent password should be cleared (MergoDelete) after disabling SCRAM auth")
+}
