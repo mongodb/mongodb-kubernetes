@@ -374,14 +374,18 @@ func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.
 	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).
+		WithValidator(&mdbv1.MongoDBValidator{}).
+		Complete()
 }
 
 func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
 	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).
+		WithValidator(&omv1.MongoDBOpsManagerValidator{}).
+		Complete()
 }
 
 func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
@@ -392,7 +396,9 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
+		WithValidator(&mdbmultiv1.MongoDBMultiClusterValidator{}).
+		Complete()
 }
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
