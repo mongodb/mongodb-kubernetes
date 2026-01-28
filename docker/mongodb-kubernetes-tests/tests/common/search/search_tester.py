@@ -1,5 +1,6 @@
 import os
 import tempfile
+from typing import Optional
 
 import kubetester
 import requests
@@ -16,7 +17,7 @@ class SearchTester(MongoTester):
         self,
         connection_string: str,
         use_ssl: bool = False,
-        ca_path: str | None = None,
+        ca_path: Optional[str] = None,
     ):
         super().__init__(connection_string, use_ssl, ca_path)
 

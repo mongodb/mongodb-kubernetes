@@ -207,7 +207,8 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
             )
             pod_parameters.append(f"pod {idx} setParameter: {set_parameter}")
 
-        return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
+        newline = "\n"
+        return parameters_are_set, f'Not all pods have mongot parameters set:\n{newline.join(pod_parameters)}'
 
     run_periodically(check_mongod_parameters, timeout=600)
 

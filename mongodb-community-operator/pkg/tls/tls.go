@@ -15,6 +15,7 @@ import (
 
 const (
 	CAMountPath             = "/var/lib/tls/ca/"
+	IngressCAMountPath      = "/var/lib/tls/ingress-ca/"
 	OperatorSecretMountPath = "/var/lib/tls/server/" //nolint
 
 	tlsSecretCertName = "tls.crt"
