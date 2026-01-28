@@ -4,8 +4,6 @@ from typing import Dict, Optional
 import pytest
 from kubernetes import client
 from kubernetes.client import ApiException
-from pytest import fixture, mark
-
 from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
@@ -25,6 +23,7 @@ from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from kubetester.test_identifiers import set_test_identifier
+from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.constants import AWS_REGION
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
