@@ -1610,6 +1610,28 @@ spec:
                 description: The configuration properties passed to Ops Manager/Backup
                   Daemon
                 type: object
+              externalApplicationDatabaseRef:
+                description: |-
+                  ExternalApplicationDatabaseRef references an external Application Database that is unmanaged by the Operator.
+                  If this field is set, the Operator will not create an AppDB StatefulSet and will instead configure Ops Manager
+                  to use the provided external database.
+                properties:
+                  connectionStringSecretRef:
+                    description: |-
+                      ConnectionStringSecretRef is a reference to a Secret that contains the connection string
+                      for the external Application Database.
+                      The Secret must contain a key (default "connectionString.standard") with the standard MongoDB connection string.
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - connectionStringSecretRef
+                type: object
               externalConnectivity:
                 description: |-
                   MongoDBOpsManagerExternalConnectivity if sets allows for the creation of a Service for

@@ -432,7 +432,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	// 1. Reconcile AppDB
 	emptyResult, _ := workflow.OK().ReconcileResult()
 	retryResult := reconcile.Result{Requeue: true}
-	var result reconcile.Result = emptyResult
+	var result = emptyResult
 
 	// TODO: make SetupCommonWatchers support opsmanager watcher setup
 	// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
@@ -460,7 +460,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("error reading external AppDB connection string secret %s: %w", secretRef.Name, err)), log, opsManagerExtraStatusParams)
 		}
 
-		key := "connectionString"
+		key := "connectionString.standard"
 		if secretRef.Key != "" {
 			key = secretRef.Key
 		}
@@ -470,7 +470,8 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		if !ok {
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("external AppDB connection string secret %s does not contain key %s", secretRef.Name, key)), log, opsManagerExtraStatusParams)
 		}
-		opsManager.UpdateStatus(mdbstatus.PhaseRunning, mdbstatus.NewOMPartOption(mdbstatus.AppDb))
+
+		_, _ = r.updateStatus(ctx, opsManager, workflow.OK(), log, mdbstatus.NewOMPartOption(mdbstatus.AppDb))
 	} else {
 		result, err = appDbReconciler.ReconcileAppDB(ctx, opsManager)
 		if err != nil || (result != emptyResult && result != retryResult) {

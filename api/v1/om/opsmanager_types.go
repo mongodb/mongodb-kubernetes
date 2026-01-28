@@ -380,15 +380,9 @@ type MongoDBOpsManagerServiceDefinition struct {
 type ExternalApplicationDatabaseRef struct {
 	// ConnectionStringSecretRef is a reference to a Secret that contains the connection string
 	// for the external Application Database.
-	// The Secret must contain a key (default "connectionString") with the standard MongoDB connection string.
+	// The Secret must contain a key (default "connectionString.standard") with the standard MongoDB connection string.
 	// +kubebuilder:validation:Required
 	ConnectionStringSecretRef userv1.SecretKeyRef `json:"connectionStringSecretRef"`
-
-	// Name allows you to override the default name of the application database resource.
-	// This name is used as a prefix for the secret that stores the connection string.
-	// If not provided, it defaults to <OpsManagerName>-db.
-	// +optional
-	Name string `json:"name,omitempty"`
 }
 
 // MongoDBOpsManagerBackup backup structure for Ops Manager resources
@@ -661,8 +655,8 @@ func (om *MongoDBOpsManager) ExternalSvcName() string {
 }
 
 func (om *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
-	if om.Spec.ExternalApplicationDatabaseRef != nil && om.Spec.ExternalApplicationDatabaseRef.Name != "" {
-		return om.Spec.ExternalApplicationDatabaseRef.Name + "-connection-string"
+	if om.Spec.ExternalApplicationDatabaseRef != nil {
+		return om.Spec.ExternalApplicationDatabaseRef.ConnectionStringSecretRef.Name
 	}
 	return om.Spec.AppDB.Name() + "-connection-string"
 }
