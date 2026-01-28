@@ -1,0 +1,60 @@
+{
+  "mdbc_automation_agent_log": {
+    "title": "MongoDB Automation Agent Log",
+    "description": "Log format for MongoDB Database Kubernetes Automation Agent",
+    "url": "https://docs.mongodb.com/",
+    "regex": {
+      "std": {
+        "pattern": "^\\[(?P<timestamp>\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}[+-]\\d{4})\\]\\s+\\[(?P<level>[^\\]]+)\\]\\s+\\[(?P<source>[^\\]]*)\\](?:\\s+<(?P<thread>[^>]*)>)?\\s*(?:\\[(?P<time_short>[^\\]]*)\\]\\s*)?(?P<body>.*)"
+      }
+    },
+    "level-field": "level",
+    "level": {
+      "error": "error|Error|ERROR",
+      "warning": "warn|Warn|WARN|warning|Warning|WARNING",
+      "info": "info|Info|INFO|header\\.info",
+      "debug": "debug|Debug|DEBUG|\\.debug"
+    },
+    "timestamp-field": "timestamp",
+    "timestamp-format": [
+      "%Y-%m-%dT%H:%M:%S.%L%z"
+    ],
+    "value": {
+      "timestamp": {
+        "kind": "string",
+        "identifier": true
+      },
+      "level": {
+        "kind": "string",
+        "identifier": true
+      },
+      "source": {
+        "kind": "string",
+        "identifier": false
+      },
+      "thread": {
+        "kind": "string", 
+        "identifier": false
+      },
+      "time_short": {
+        "kind": "string",
+        "identifier": false
+      },
+      "body": {
+        "kind": "string",
+        "identifier": false
+      }
+    },
+    "sample": [
+      {
+        "line": "[2025-07-14T06:42:12.383+0000] [header.info] [::0]        GitCommitId = ec1573c1fd5d7da3acab288d628b9e9eaaec6b2b"
+      },
+      {
+        "line": "[2025-07-14T06:42:12.673+0000] [.debug] [src/main/cm.go:mainLoop:419] [06:42:12.673] Starting main loop iteration 17974 at 2025-07-14T06-42-12"
+      },
+      {
+        "line": "[2025-07-14T06:42:12.748+0000] [.debug] [src/hosts/cacheddnsservice.go:lookup:64] <hardwareMetricsCollector> [06:42:12.748] DNS cache hit on mdbc-rs-1.mdbc-rs-svc.ls.svc.cluster.local"
+      }
+    ]
+  }
+}
