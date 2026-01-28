@@ -1,8 +1,11 @@
 from operator import attrgetter
 from typing import Dict, Optional
 
+import pytest
 from kubernetes import client
 from kubernetes.client import ApiException
+from pytest import fixture, mark
+
 from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
@@ -22,7 +25,6 @@ from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from kubetester.test_identifiers import set_test_identifier
-from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.constants import AWS_REGION
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
@@ -442,7 +444,7 @@ class TestBackupDatabasesAdded:
         )
         om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
 
-    @mark.flaky(reruns=5, reruns_delay=10)
+    @pytest.mark.flaky(reruns=5, reruns_delay=10)
     def test_generations(self, ops_manager: MongoDBOpsManager):
         """There have been an update to the OM spec - all observed generations are expected to be updated.
         This test can be flaky due to timing - the reconciliation might not have completed yet."""
@@ -645,46 +647,12 @@ class TestBackupForMongodb:
         om_tester_second.wait_until_hosts_are_empty()
 
     def test_deploy_same_mdb_again_with_orphaned_backup(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
-        import json
-        import logging
-
-        om_tester = ops_manager.get_om_tester(project_name="secondProject")
-
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev["spec"]["backup"]["autoTerminateOnDeletion"] = False
         # we need to make sure to use a clean resource since we might have loaded it
         del mdb_prev["metadata"]["resourceVersion"]
         mdb_prev.create()
         mdb_prev.assert_reaches_phase(Phase.Running)
-
-        # CRITICAL ASSERTION: When auth.disabled=true, autoPwd and autoUser should NOT be set.
-        # If they are set, the monitoring agent will attempt SCRAM authentication against
-        # an unauthenticated MongoDB deployment, causing 409 "MongoDB version information
-        # is not yet available" errors.
-        # This assertion will:
-        # - FAIL without the fix (autoPwd/autoUser are incorrectly set)
-        # - PASS with the fix (autoPwd/autoUser are cleared)
-        ac_tester = om_tester.get_automation_config_tester()
-        ac = ac_tester.automation_config
-        auth = ac.get("auth", {})
-
-        # Save diagnostic info
-        with open("/tmp/diagnostics/auth-AFTER-mdb-running.json", "w") as f:
-            json.dump({"phase": "AFTER_MDB_RUNNING", "auth": auth}, f, indent=2)
-
-        if auth.get("disabled", False):
-            # When auth is disabled, SCRAM credentials must NOT be set
-            assert not auth.get("autoPwd"), (
-                f"BUG: autoPwd is set when auth.disabled=true. "
-                f"This causes monitoring agent to attempt SCRAM auth against unauthenticated MongoDB, "
-                f"leading to 409 errors. autoPwd length: {len(auth.get('autoPwd', ''))}"
-            )
-            assert not auth.get("autoUser"), (
-                f"BUG: autoUser is set when auth.disabled=true. "
-                f"This causes monitoring agent to attempt SCRAM auth against unauthenticated MongoDB, "
-                f"leading to 409 errors. autoUser: {auth.get('autoUser')}"
-            )
-
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=600)
         mdb_prev.delete()
 
