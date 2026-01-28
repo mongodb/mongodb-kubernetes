@@ -4,6 +4,9 @@ set -Eeou pipefail
 
 set -x
 
+# GOEXPERIMENT=synctest enables the testing/synctest package for fake-time testing
+export GOEXPERIMENT=synctest
+
 source scripts/dev/set_env_context.sh
 
 USE_RACE_SWITCH=""
