@@ -824,11 +824,10 @@ task_groups:
   # This task group mostly duplicates tests running in e2e_mdb_kind_ubi_cloudqa
   # This is mostly a smoke test, so we execute only a few essential ones.
   - name: e2e_mdb_openshift_ubi_cloudqa_task_group
-    # OM tests are also run on the same Openshift cluster, so we use 1 max host to not
-    # allow the helm installations to interfere with each other during the setup of the tests.
-    max_hosts: 1
+    max_hosts: 2
     <<: *setup_group
     <<: *setup_and_teardown_task_cloudqa
+    <<: *teardown_group
     tasks:
       - e2e_crd_validation
       - e2e_replica_set_scram_sha_256_user_connectivity
