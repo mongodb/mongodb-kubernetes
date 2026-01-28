@@ -184,6 +184,18 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 	}
 
 	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		// DIAGNOSTIC: Log current state before any changes
+		hasAutoPwd := ac.Auth.AutoPwd != "" && ac.Auth.AutoPwd != util.MergoDelete
+		numProcesses := ac.Deployment.NumberOfProcesses()
+		log.Infow("[DIAGNOSTIC-NO-FIX] Disable() called - BEFORE changes",
+			"auth.disabled", ac.Auth.Disabled,
+			"auth.autoUser", ac.Auth.AutoUser,
+			"auth.autoPwd_set", hasAutoPwd,
+			"auth.autoAuthMechanisms", ac.Auth.AutoAuthMechanisms,
+			"auth.autoAuthMechanism", ac.Auth.AutoAuthMechanism,
+			"numProcesses", numProcesses,
+		)
+
 		if err := ac.EnsureKeyFileContents(); err != nil {
 			return xerrors.Errorf("error ensuring keyfile contents: %w", err)
 		}
@@ -204,6 +216,13 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		ac.Auth.AuthoritativeSet = opts.AuthoritativeSet
 		ac.AgentSSL.ClientCertificateMode = util.OptionalClientCertficates
 		ac.AgentSSL.AutoPEMKeyFilePath = util.MergoDelete
+
+		// DIAGNOSTIC: Log state after changes
+		log.Infow("[DIAGNOSTIC-NO-FIX] Disable() - AFTER changes",
+			"auth.autoUser", ac.Auth.AutoUser,
+			"auth.autoPwd_set", ac.Auth.AutoPwd != "" && ac.Auth.AutoPwd != util.MergoDelete,
+			"auth.autoAuthMechanisms", ac.Auth.AutoAuthMechanisms,
+		)
 		return nil
 	}, log)
 	if err != nil {
