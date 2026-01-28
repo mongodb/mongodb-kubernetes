@@ -163,14 +163,11 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		return xerrors.Errorf("error reading automation config: %w", err)
 	}
 
-	// Track if we're transitioning from enabled to disabled
-	wasEnabled := ac.Auth.IsEnabled()
-
 	// Disabling auth must be done in two steps, otherwise the agents might not be able to transition.
 	// From a Slack conversation with Agent team:
 	// "First disable with leaving credentials and mechanisms and users in place. Wait for goal state.  Then remove the rest"
 	// "assume the agent is stateless.  So if you remove the authentication information before it has transitioned then it won't be able to transition"
-	if wasEnabled {
+	if ac.Auth.IsEnabled() {
 		log.Info("Disabling authentication")
 
 		err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
@@ -190,14 +187,7 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		if err := ac.EnsureKeyFileContents(); err != nil {
 			return xerrors.Errorf("error ensuring keyfile contents: %w", err)
 		}
-		// EnsurePassword is only needed during the transition from enabled to disabled.
-		// It provides credentials for agents to authenticate during the transition.
-		// AutoPwd is required when going from Disabled=false to Disabled=true.
-		if wasEnabled {
-			if _, err := ac.EnsurePassword(ctx, client, opts.MongoDBResource); err != nil {
-				return xerrors.Errorf("error ensuring agent password: %w", err)
-			}
-		}
+
 		// Clear AutoPwd to prevent stale credentials from causing monitoring agent
 		// auth failures when a new deployment with auth disabled is created in a
 		// project that previously had auth enabled.
