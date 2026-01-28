@@ -184,33 +184,17 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 	}
 
 	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		// DIAGNOSTIC: Log current state before any changes
-		hasAutoPwd := ac.Auth.AutoPwd != "" && ac.Auth.AutoPwd != util.MergoDelete
-		numProcesses := ac.Deployment.NumberOfProcesses()
-		log.Infow("[DIAGNOSTIC-WITH-FIX] Disable() called - BEFORE changes",
-			"auth.disabled", ac.Auth.Disabled,
-			"auth.autoUser", ac.Auth.AutoUser,
-			"auth.autoPwd_set", hasAutoPwd,
-			"auth.autoAuthMechanisms", ac.Auth.AutoAuthMechanisms,
-			"auth.autoAuthMechanism", ac.Auth.AutoAuthMechanism,
-			"numProcesses", numProcesses,
-		)
-
 		if err := ac.EnsureKeyFileContents(); err != nil {
 			return xerrors.Errorf("error ensuring keyfile contents: %w", err)
 		}
-
-		// FIX: Clear SCRAM credentials when disabling authentication.
-		// When auth.disabled is true, the monitoring agent should NOT attempt SCRAM authentication.
-		// If autoPwd and autoUser remain set, the agent will still try SCRAM-SHA-1 authentication
-		// using the default autoAuthMechanism (MONGODB-CR), which fails against a deployment
-		// without auth enabled, causing 409 "MongoDB version information is not yet available" errors.
-		//
-		// We no longer call EnsurePassword() here because that would set credentials that would
-		// cause the monitoring agent to attempt authentication against an unauthenticated deployment.
-		log.Info("Clearing SCRAM credentials to prevent monitoring agent auth attempts")
+		if _, err := ac.EnsurePassword(ctx, client, opts.MongoDBResource); err != nil {
+			return xerrors.Errorf("error ensuring agent password: %w", err)
+		}
+		// Clear the password after ensuring it exists (for transition safety).
+		// This prevents stale credentials from causing monitoring agent auth failures
+		// when a new deployment with auth disabled is created in a project that
+		// previously had auth enabled.
 		ac.Auth.AutoPwd = util.MergoDelete
-		ac.Auth.AutoUser = util.MergoDelete
 
 		// we don't always want to delete the users. This can result in the agents getting stuck
 		// certain situations around auth transitions.
@@ -219,18 +203,12 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		}
 		ac.Auth.AutoAuthMechanisms = []string{}
 		ac.Auth.DeploymentAuthMechanisms = []string{}
+		ac.Auth.AutoUser = util.AutomationAgentName
 		ac.Auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 		ac.Auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 		ac.Auth.AuthoritativeSet = opts.AuthoritativeSet
 		ac.AgentSSL.ClientCertificateMode = util.OptionalClientCertficates
 		ac.AgentSSL.AutoPEMKeyFilePath = util.MergoDelete
-
-		// DIAGNOSTIC: Log state after changes
-		log.Infow("[DIAGNOSTIC-WITH-FIX] Disable() - AFTER changes",
-			"auth.autoUser", ac.Auth.AutoUser,
-			"auth.autoPwd_set", ac.Auth.AutoPwd != "" && ac.Auth.AutoPwd != util.MergoDelete,
-			"auth.autoAuthMechanisms", ac.Auth.AutoAuthMechanisms,
-		)
 		return nil
 	}, log)
 	if err != nil {

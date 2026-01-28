@@ -288,7 +288,9 @@ func assertAuthenticationDisabled(t *testing.T, auth *om.Auth) {
 	assert.Empty(t, auth.AutoAuthMechanisms)
 	assert.Equal(t, auth.AutoUser, util.AutomationAgentName)
 	assert.NotEmpty(t, auth.Key)
-	assert.NotEmpty(t, auth.AutoPwd)
+	// AutoPwd should be cleared (set to MergoDelete) when auth is disabled
+	// to prevent stale credentials from causing monitoring agent auth failures
+	assert.Equal(t, util.MergoDelete, auth.AutoPwd)
 	assert.True(t, len(auth.Users) == 0 || allNil(auth.Users))
 }
 
