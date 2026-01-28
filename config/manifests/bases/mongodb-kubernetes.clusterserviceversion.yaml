@@ -364,8 +364,8 @@ spec:
         displayName: Type
         path: type
       version: v1
-    - description: ClusterMongoDBRole is a cluster-scoped resource that defines MongoDB
-        roles that can be granted to MongoDB users.
+    - description: ClusterMongoDBRole is a cluster-scoped resource that defines 
+        MongoDB roles that can be granted to MongoDB users.
       displayName: Cluster-wide MongoDB Role
       kind: ClusterMongoDBRole
       name: clustermongodbroles.mongodb.com
