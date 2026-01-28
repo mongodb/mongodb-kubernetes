@@ -68,7 +68,7 @@ metrics_server_version="v0.7.2"
 
 reg_name='kind-registry'
 reg_port='5000'
-kind_image="${registry}/kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f"
+kind_image="${registry}/kindest/node:v1.35.0"
 
 kind_delete_cluster() {
   kind delete cluster --name "${cluster_name}" || true
