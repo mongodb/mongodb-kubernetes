@@ -417,7 +417,7 @@ spec:
     ## Requirements for deploying MongoDB OpsManager
 
     * In order to deploy resources of type MongoDB OpsManager, you will need to
-    create a secret containing the [credentials](https://deploy-preview-17478--mongodb-mck.netlify.app/docs/kubernetes/upcoming/tutorial/plan-om-resource/#prerequisites-1)
+    create a secret containing the [credentials](https://www.mongodb.com/docs/kubernetes/current/tutorial/plan-om-resource/#prerequisites-1)
     for the Global Owner user
 
     ## Security ##
