@@ -648,27 +648,7 @@ class TestBackupForMongodb:
         import json
         import logging
 
-        # DIAGNOSTIC: Capture automation config BEFORE creating the new mdb
         om_tester = ops_manager.get_om_tester(project_name="secondProject")
-        try:
-            ac_tester = om_tester.get_automation_config_tester()
-            ac_before = ac_tester.automation_config
-            if ac_before:
-                # Remove large fields
-                if "mongoDbVersions" in ac_before:
-                    del ac_before["mongoDbVersions"]
-                with open("/tmp/diagnostics/auth-BEFORE-mdb-create.json", "w") as f:
-                    json.dump({
-                        "phase": "BEFORE_MDB_CREATE",
-                        "auth": ac_before.get("auth", {}),
-                        "processes_count": len(ac_before.get("processes", [])),
-                    }, f, indent=2)
-                logging.info(f"[DIAGNOSTIC] BEFORE mdb create - auth.disabled={ac_before.get('auth', {}).get('disabled')}, "
-                           f"auth.autoUser={ac_before.get('auth', {}).get('autoUser')}, "
-                           f"auth.autoPwd_set={bool(ac_before.get('auth', {}).get('autoPwd'))}, "
-                           f"auth.autoAuthMechanisms={ac_before.get('auth', {}).get('autoAuthMechanisms')}")
-        except Exception as e:
-            logging.warning(f"[DIAGNOSTIC] Failed to capture BEFORE automation config: {e}")
 
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev["spec"]["backup"]["autoTerminateOnDeletion"] = False
@@ -677,26 +657,33 @@ class TestBackupForMongodb:
         mdb_prev.create()
         mdb_prev.assert_reaches_phase(Phase.Running)
 
-        # DIAGNOSTIC: Capture automation config AFTER mdb reaches Running
-        try:
-            ac_tester = om_tester.get_automation_config_tester()
-            ac_after = ac_tester.automation_config
-            if ac_after:
-                if "mongoDbVersions" in ac_after:
-                    del ac_after["mongoDbVersions"]
-                with open("/tmp/diagnostics/auth-AFTER-mdb-running.json", "w") as f:
-                    json.dump({
-                        "phase": "AFTER_MDB_RUNNING",
-                        "auth": ac_after.get("auth", {}),
-                        "processes_count": len(ac_after.get("processes", [])),
-                    }, f, indent=2)
-                logging.info(f"[DIAGNOSTIC] AFTER mdb running - auth.disabled={ac_after.get('auth', {}).get('disabled')}, "
-                           f"auth.autoUser={ac_after.get('auth', {}).get('autoUser')}, "
-                           f"auth.autoPwd_set={bool(ac_after.get('auth', {}).get('autoPwd'))}, "
-                           f"auth.autoAuthMechanisms={ac_after.get('auth', {}).get('autoAuthMechanisms')}")
+        # CRITICAL ASSERTION: When auth.disabled=true, autoPwd and autoUser should NOT be set.
+        # If they are set, the monitoring agent will attempt SCRAM authentication against
+        # an unauthenticated MongoDB deployment, causing 409 "MongoDB version information
+        # is not yet available" errors.
+        # This assertion will:
+        # - FAIL without the fix (autoPwd/autoUser are incorrectly set)
+        # - PASS with the fix (autoPwd/autoUser are cleared)
+        ac_tester = om_tester.get_automation_config_tester()
+        ac = ac_tester.automation_config
+        auth = ac.get("auth", {})
 
-        except Exception as e:
-            logging.warning(f"[DIAGNOSTIC] Failed to capture AFTER automation config: {e}")
+        # Save diagnostic info
+        with open("/tmp/diagnostics/auth-AFTER-mdb-running.json", "w") as f:
+            json.dump({"phase": "AFTER_MDB_RUNNING", "auth": auth}, f, indent=2)
+
+        if auth.get("disabled", False):
+            # When auth is disabled, SCRAM credentials must NOT be set
+            assert not auth.get("autoPwd"), (
+                f"BUG: autoPwd is set when auth.disabled=true. "
+                f"This causes monitoring agent to attempt SCRAM auth against unauthenticated MongoDB, "
+                f"leading to 409 errors. autoPwd length: {len(auth.get('autoPwd', ''))}"
+            )
+            assert not auth.get("autoUser"), (
+                f"BUG: autoUser is set when auth.disabled=true. "
+                f"This causes monitoring agent to attempt SCRAM auth against unauthenticated MongoDB, "
+                f"leading to 409 errors. autoUser: {auth.get('autoUser')}"
+            )
 
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=600)
         mdb_prev.delete()
