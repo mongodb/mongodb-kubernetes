@@ -364,6 +364,22 @@ spec:
         displayName: Type
         path: type
       version: v1
+    - description: ClusterMongoDBRole is a cluster-scoped resource that defines MongoDB
+        roles that can be granted to MongoDB users.
+      displayName: Cluster-wide MongoDB Role
+      kind: ClusterMongoDBRole
+      name: clustermongodbroles.mongodb.com
+      version: v1
+    - description: MongoDB Search Deployment
+      displayName: MongoDB Search Deployment
+      kind: MongoDBSearch
+      name: mongodbsearch.mongodb.com
+      version: v1
+    - description: MongoDB Community Deployment
+      displayName: MongoDB Community Deployment
+      kind: MongoDBCommunity
+      name: mongodbcommunity.mongodbcommunity.mongodb.com
+      version: v1
   description: |
     MongoDB Controllers for Kubernetes (MCK) is an open-source project. It represents a merge of the previous
     MongoDB Community Operator (MCO) and MongoDB Enterprise Kubernetes Operator (MEKO).
