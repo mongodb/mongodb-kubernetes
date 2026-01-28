@@ -94,6 +94,10 @@ get_operator_helm_values() {
     config+=("operator.webhook.installClusterRole=${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE}")
   fi
 
+  if [[ "${MDB_WEBHOOK_NAME:-}" != "" ]]; then
+    config+=("operator.webhook.name=${MDB_WEBHOOK_NAME}")
+  fi
+
   echo "${config[@]}"
 }
 

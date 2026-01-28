@@ -113,6 +113,13 @@ operator:
     #  - ValidatingWebhookConfigurations will be managed by the operator.
     registerConfiguration: true
 
+    # name: Custom name for the ValidatingWebhookConfiguration resource.
+    # Default (when not set): "mdbpolicy.mongodb.com"
+    # Use this to allow multiple operator instances on the same cluster.
+    # Example:
+    #   name: "mdbpolicy.my-namespace.mongodb.com"
+    name: ''
+
   telemetry:
     collection:
       clusters: {}

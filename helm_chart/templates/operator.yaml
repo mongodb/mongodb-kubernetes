@@ -213,6 +213,10 @@ spec:
             - name: MDB_WEBHOOK_REGISTER_CONFIGURATION
               value: "false"
     {{- end }}
+    {{- if .Values.operator.webhook.name }}
+            - name: MDB_WEBHOOK_NAME
+              value: {{ .Values.operator.webhook.name | quote }}
+    {{- end }}
     {{- if .Values.operator.maxConcurrentReconciles }}
             - name: MDB_MAX_CONCURRENT_RECONCILES
               value: "{{ .Values.operator.maxConcurrentReconciles }}"
