@@ -20,8 +20,8 @@ mv kubectl "${bindir}"
 
 pushd "${tmpdir}" > /dev/null
 download_helm_binary "${HELM_VERSION}" "${ARCH}"
-mv linux-${ARCH}/helm "${bindir}"
-rm -rf linux-${ARCH}/
+mv "linux-${ARCH}/helm" "${bindir}"
+rm -rf "linux-${ARCH}/"
 popd > /dev/null
 
 "${bindir}"/helm version
