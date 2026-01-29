@@ -15,7 +15,10 @@ mkdir -p "${bindir}" "${tmpdir}"
 # Use pinned version from root-context (no external API call needed)
 echo "Downloading kubectl ${KUBECTL_VERSION} for ${ARCH}"
 
-# Try primary endpoint, fallback to CDN directly if it fails
+# kubectl needs special handling because:
+# 1. dl.k8s.io has experienced 503 outages that outlast our retry window
+# 2. Unlike other tools, kubectl binaries aren't available on GitHub releases
+# 3. dl.k8s.io redirects to cdn.dl.k8s.io (Fastly), so we try the CDN directly as fallback
 kubectl_url="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
 kubectl_cdn_url="https://cdn.dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
 

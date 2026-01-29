@@ -53,7 +53,10 @@ download_kubectl() {
   fi
   echo "Downloading kubectl ${version}..."
 
-  # Try primary endpoint, fallback to CDN directly if it fails
+  # kubectl needs special handling because:
+  # 1. dl.k8s.io has experienced 503 outages that outlast our retry window
+  # 2. Unlike other tools, kubectl binaries aren't available on GitHub releases
+  # 3. dl.k8s.io redirects to cdn.dl.k8s.io (Fastly), so we try the CDN directly as fallback
   local kubectl_url="https://dl.k8s.io/release/${version}/bin/linux/${ARCH}/kubectl"
   local kubectl_cdn_url="https://cdn.dl.k8s.io/release/${version}/bin/linux/${ARCH}/kubectl"
 
