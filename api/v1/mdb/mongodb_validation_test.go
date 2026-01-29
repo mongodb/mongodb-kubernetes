@@ -105,7 +105,7 @@ func TestMongoDB_ValidateCreate_Error(t *testing.T) {
 	rs := NewReplicaSetBuilder().Build()
 	rs.Spec.Connectivity = &MongoDBConnectivity{}
 	rs.Spec.Connectivity.ReplicaSetHorizons = replicaSetHorizons
-	_, err := rs.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, rs)
 	assert.Equal(t, "TLS must be enabled in order to use replica set horizons", err.Error())
 }
 
@@ -118,14 +118,14 @@ func TestMongoDB_MultipleAuthsButNoAgentAuth_Error(t *testing.T) {
 			Modes:   []AuthMode{"LDAP", "X509"},
 		},
 	}
-	_, err := rs.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, rs)
 	assert.Errorf(t, err, "spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes")
 }
 
 func TestMongoDB_ResourceTypeImmutable(t *testing.T) {
 	newRs := NewReplicaSetBuilder().Build()
 	oldRs := NewReplicaSetBuilder().setType(ShardedCluster).Build()
-	_, err := newRs.ValidateUpdate(oldRs)
+	_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
 	assert.Errorf(t, err, "'resourceType' cannot be changed once created")
 }
 
@@ -199,7 +199,7 @@ func TestMongoDB_NoSimultaneousTLSDisablingAndScaling(t *testing.T) {
 			newRs.Spec.Members = tt.newMembers
 
 			// Validate
-			_, err := newRs.ValidateUpdate(oldRs)
+			_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -216,7 +216,7 @@ func TestSpecProjectOnlyOneValue(t *testing.T) {
 	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
 		ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},
 	}
-	_, err := rs.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, rs)
 	assert.NoError(t, err)
 }
 
@@ -228,19 +228,19 @@ func TestMongoDB_ProcessValidations(t *testing.T) {
 func TestMongoDB_ValidateAdditionalMongodConfig(t *testing.T) {
 	t.Run("No sharded cluster additional config for replica set", func(t *testing.T) {
 		rs := NewReplicaSetBuilder().SetConfigSrvAdditionalConfig(NewAdditionalMongodConfig("systemLog.verbosity", 5)).Build()
-		_, err := rs.ValidateCreate()
+		_, err := validator.ValidateCreate(ctx, rs)
 		require.Error(t, err)
 		assert.Equal(t, "'spec.mongos', 'spec.configSrv', 'spec.shard' cannot be specified if type of MongoDB is ReplicaSet", err.Error())
 	})
 	t.Run("No sharded cluster additional config for standalone", func(t *testing.T) {
 		rs := NewStandaloneBuilder().SetMongosAdditionalConfig(NewAdditionalMongodConfig("systemLog.verbosity", 5)).Build()
-		_, err := rs.ValidateCreate()
+		_, err := validator.ValidateCreate(ctx, rs)
 		require.Error(t, err)
 		assert.Equal(t, "'spec.mongos', 'spec.configSrv', 'spec.shard' cannot be specified if type of MongoDB is Standalone", err.Error())
 	})
 	t.Run("No replica set additional config for sharded cluster", func(t *testing.T) {
 		rs := NewClusterBuilder().SetAdditionalConfig(NewAdditionalMongodConfig("systemLog.verbosity", 5)).Build()
-		_, err := rs.ValidateCreate()
+		_, err := validator.ValidateCreate(ctx, rs)
 		require.Error(t, err)
 		assert.Equal(t, "'spec.additionalMongodConfig' cannot be specified if type of MongoDB is ShardedCluster", err.Error())
 	})
