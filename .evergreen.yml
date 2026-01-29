@@ -1389,7 +1389,6 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
-
     run_on:
       - ubuntu2404-small
     tasks:

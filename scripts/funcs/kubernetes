@@ -33,6 +33,26 @@ EOF
     fi
 }
 
+# Wait for a namespace to be fully deleted.
+# Returns 0 if namespace is deleted, 1 if still exists after timeout.
+wait_for_namespace_deletion() {
+    local namespace="${1}"
+    local max_attempts="${2:-24}"
+    local sleep_interval="${3:-5}"
+
+    local attempt=0
+    while kubectl get namespace "${namespace}" &>/dev/null && [[ ${attempt} -lt ${max_attempts} ]]; do
+        echo "Waiting for namespace ${namespace} to be deleted... (${attempt}/${max_attempts})"
+        sleep "${sleep_interval}"
+        attempt=$((attempt + 1))
+    done
+
+    if kubectl get namespace "${namespace}" &>/dev/null; then
+        return 1
+    fi
+    return 0
+}
+
 delete_operator() {
     local ns="$1"
     local name=${OPERATOR_NAME:=mongodb-kubernetes-operator}
@@ -209,10 +229,11 @@ reset_namespace() {
   # a while to delete it.
   should_wait="false"
   # shellcheck disable=SC2153
-  if [[ ${KUBE_ENVIRONMENT_NAME} == "openshift" ]]; then
+  # Note: KUBE_ENVIRONMENT_NAME is set to "openshift_4" in context files, so we use glob pattern
+  if [[ ${KUBE_ENVIRONMENT_NAME} == *openshift* ]]; then
     should_wait="true"
     echo "Removing the test namespace ${namespace}, should_wait=${should_wait}"
-    kubectl --context "${context}" delete "namespace/${namespace}" --wait="${should_wait}" || true
+    kubectl --context "${context}" delete "namespace/${namespace}" --wait="${should_wait}" --timeout=120s || true
   fi
 
   echo "Removing CSRs"
