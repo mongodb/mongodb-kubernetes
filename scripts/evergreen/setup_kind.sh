@@ -13,13 +13,13 @@ latest_version="v0.31.0"
 
 # Only proceed with installation if architecture is supported (amd64 or arm64)
 if [[ "${arch_suffix}" == "amd64" || "${arch_suffix}" == "arm64" ]]; then
-  mkdir -p "${PROJECT_DIR}/bin/"
-  echo "Saving kind to ${PROJECT_DIR}/bin"
+  mkdir -p "${1:-${PROJECT_DIR}}/bin"
+  echo "Saving kind to ${1:-${PROJECT_DIR}}/bin"
   curl --retry 5 --retry-delay 5 --retry-all-errors --fail --show-error --max-time 600 -L "https://github.com/kubernetes-sigs/kind/releases/download/${latest_version}/kind-${os}-${arch_suffix}" -o kind
 
   chmod +x kind
-  sudo mv kind "${PROJECT_DIR}/bin"
-  echo "Installed kind in ${PROJECT_DIR}/bin"
+  sudo mv kind "${1:-${PROJECT_DIR}}/bin"
+  echo "Installed kind in ${1:-${PROJECT_DIR}}/bin"
 else
   echo "Architecture ${arch_suffix} not supported for kind installation, skipping"
 fi
