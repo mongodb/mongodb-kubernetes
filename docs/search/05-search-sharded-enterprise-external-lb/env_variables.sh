@@ -12,9 +12,9 @@ export MDB_DEPLOYMENT_TYPE="sharded"
 
 # Sharded cluster configuration
 export MDB_SHARD_COUNT=2
-export MDB_MONGODS_PER_SHARD=1
+export MDB_MONGODS_PER_SHARD=2
 export MDB_MONGOS_COUNT=1
-export MDB_CONFIG_SERVER_COUNT=1
+export MDB_CONFIG_SERVER_COUNT=2
 
 # Number of mongot replicas per shard (default: 1)
 # When > 1, multiple mongot pods are deployed per shard for high availability

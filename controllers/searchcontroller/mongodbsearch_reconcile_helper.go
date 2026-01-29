@@ -713,6 +713,11 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		config.SyncSource.ReplicaSet.TLS = ptr.To(true)
 		config.SyncSource.CertificateAuthorityFile = ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName)
 
+		// For sharded clusters, also enable TLS for the Router (mongos) connection
+		if config.SyncSource.Router != nil {
+			config.SyncSource.Router.TLS = ptr.To(true)
+		}
+
 		// if the gRPC server is configured to accept TLS connections then toggle mTLS as well
 		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
 			config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeMTLS

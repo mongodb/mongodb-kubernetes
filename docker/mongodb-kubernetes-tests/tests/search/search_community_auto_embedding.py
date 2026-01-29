@@ -9,19 +9,18 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.search import movies_search_helper
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.search_constants import (
+    ADMIN_USER_NAME,
+    ADMIN_USER_PASSWORD,
+    MONGOT_USER_NAME,
+    MONGOT_USER_PASSWORD,
+    USER_NAME,
+    USER_PASSWORD,
+)
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator
 
 logger = test_logger.get_test_logger(__name__)
-
-ADMIN_USER_NAME = "mdb-admin-user"
-ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
-
-MONGOT_USER_NAME = "search-sync-source"
-MONGOT_USER_PASSWORD = "search-sync-source-user-password"
-
-USER_NAME = "mdb-user"
-USER_PASSWORD = "mdb-user-pass"
 
 MDBC_RESOURCE_NAME = "mdbc-rs"
 EMBEDDING_INDEXING_KEY_ENV_VAR = "AI_MONGODB_EMBEDDING_INDEXING_KEY"
@@ -110,7 +109,7 @@ def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
 @fixture(scope="function")
 def sample_movies_helper(mdbc: MongoDBCommunity) -> SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(get_connection_string(mdbc, USER_NAME, USER_PASSWORD))
+        SearchTester.for_replicaset(mdbc, USER_NAME, USER_PASSWORD)
     )
 
 
@@ -127,7 +126,3 @@ def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelp
 @mark.e2e_search_community_auto_embedding
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.assert_auto_emb_vector_search_query(retry_timeout=90)
-
-
-def get_connection_string(mdbc: MongoDBCommunity, user_name: str, user_password: str) -> str:
-    return f"mongodb://{user_name}:{user_password}@{mdbc.name}-0.{mdbc.name}-svc.{mdbc.namespace}.svc.cluster.local:27017/?replicaSet={mdbc.name}"

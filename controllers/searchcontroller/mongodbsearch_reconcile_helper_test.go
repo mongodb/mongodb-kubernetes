@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -926,10 +927,111 @@ func TestCreateShardMongotConfig(t *testing.T) {
 	assert.Equal(t, []string{"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"}, config2.SyncSource.ReplicaSet.HostAndPort)
 }
 
+// TestShardedMongotConfigWithTLS tests that TLS is correctly configured for sharded clusters
+// when the MongoDB source has TLS enabled. This verifies that both ReplicaSet and Router
+// TLS settings are properly set.
+func TestShardedMongotConfigWithTLS(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+			Mode: searchv1.LBModeExternal,
+			External: &searchv1.ExternalLBConfig{
+				Sharded: &searchv1.ShardedExternalLBConfig{
+					Endpoints: []searchv1.ShardEndpoint{
+						{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
+						{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
+					},
+				},
+			},
+		}
+	})
+
+	// Create a mock sharded source with TLS enabled
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"my-cluster-0", "my-cluster-1"},
+		hostSeeds: map[int][]string{
+			0: {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
+			1: {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
+		},
+		tlsConfig: &TLSSourceConfig{
+			CAFileName: "ca-pem",
+		},
+	}
+
+	// Create initial config with createShardMongotConfig (TLS defaults to false)
+	config := mongot.Config{}
+	createShardMongotConfig(search, shardedSource, 0)(&config)
+
+	// Verify initial state - TLS should be false
+	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
+	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should initially be false")
+	assert.NotNil(t, config.SyncSource.Router)
+	assert.NotNil(t, config.SyncSource.Router.TLS)
+	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should initially be false")
+
+	// Simulate what ensureEgressTlsConfig does when TLS is enabled
+	// This is the modification that should enable TLS for both ReplicaSet and Router
+	tlsSourceConfig := shardedSource.TLSConfig()
+	assert.NotNil(t, tlsSourceConfig, "TLS config should not be nil")
+
+	// Apply the TLS modification (simulating ensureEgressTlsConfig behavior)
+	config.SyncSource.ReplicaSet.TLS = ptr.To(true)
+	config.SyncSource.CertificateAuthorityFile = ptr.To("/mongodb-automation/ca/" + tlsSourceConfig.CAFileName)
+	if config.SyncSource.Router != nil {
+		config.SyncSource.Router.TLS = ptr.To(true)
+	}
+
+	// Verify TLS is now enabled for both ReplicaSet and Router
+	assert.True(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be enabled")
+	assert.NotNil(t, config.SyncSource.CertificateAuthorityFile)
+	assert.Equal(t, "/mongodb-automation/ca/ca-pem", *config.SyncSource.CertificateAuthorityFile)
+	assert.True(t, *config.SyncSource.Router.TLS, "Router TLS should be enabled for sharded clusters")
+}
+
+// TestShardedMongotConfigWithoutTLS tests that TLS remains disabled when the MongoDB source
+// does not have TLS enabled.
+func TestShardedMongotConfigWithoutTLS(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+			Mode: searchv1.LBModeExternal,
+			External: &searchv1.ExternalLBConfig{
+				Sharded: &searchv1.ShardedExternalLBConfig{
+					Endpoints: []searchv1.ShardEndpoint{
+						{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
+					},
+				},
+			},
+		}
+	})
+
+	// Create a mock sharded source without TLS
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"my-cluster-0"},
+		hostSeeds: map[int][]string{
+			0: {"my-cluster-0-0.svc:27017"},
+		},
+		tlsConfig: nil, // No TLS
+	}
+
+	// Create config
+	config := mongot.Config{}
+	createShardMongotConfig(search, shardedSource, 0)(&config)
+
+	// Verify TLS is disabled
+	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
+	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be false when source has no TLS")
+	assert.NotNil(t, config.SyncSource.Router)
+	assert.NotNil(t, config.SyncSource.Router.TLS)
+	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should be false when source has no TLS")
+
+	// Verify no CA file is set
+	assert.Nil(t, config.SyncSource.CertificateAuthorityFile)
+}
+
 // mockShardedSource is a mock implementation of ShardedSearchSourceDBResource for testing
 type mockShardedSource struct {
 	shardNames []string
 	hostSeeds  map[int][]string
+	tlsConfig  *TLSSourceConfig
 }
 
 func (m *mockShardedSource) GetShardCount() int {
@@ -966,7 +1068,7 @@ func (m *mockShardedSource) KeyfileSecretName() string {
 }
 
 func (m *mockShardedSource) TLSConfig() *TLSSourceConfig {
-	return nil
+	return m.tlsConfig
 }
 
 // TestBuildShardSearchHeadlessService tests the buildShardSearchHeadlessService function

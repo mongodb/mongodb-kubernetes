@@ -1,7 +1,7 @@
 export K8S_CTX="kind-kind"
 
 # patch id from evergreen patch
-version_id="69767d08dfe34400070dba55"
+version_id="6978c1cad34f0000071b3126"
 
 # Cloud Manager configuration - using cloud-qa.mongodb.com
 export OPS_MANAGER_API_URL="https://cloud-qa.mongodb.com"
