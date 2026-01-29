@@ -51,30 +51,14 @@ download_kubectl() {
   if [[ -z "${version}" ]]; then
     version=$(curl_with_retry -Ls https://dl.k8s.io/release/stable.txt | tail -n1 | tr -d '\n')
   fi
-  echo "Downloading kubectl ${version}..."
 
-  # kubectl needs special handling because:
-  # 1. dl.k8s.io has experienced 503 outages that outlast our retry window
-  # 2. Unlike other tools, kubectl binaries aren't available on GitHub releases
-  # 3. dl.k8s.io redirects to cdn.dl.k8s.io (Fastly), so we try the CDN directly as fallback
-  local kubectl_url="https://dl.k8s.io/release/${version}/bin/linux/${ARCH}/kubectl"
-  local kubectl_cdn_url="https://cdn.dl.k8s.io/release/${version}/bin/linux/${ARCH}/kubectl"
-
-  if ! curl_with_retry -LOs "${kubectl_url}"; then
-    echo "Primary endpoint failed, trying CDN directly..."
-    curl_with_retry -LOs "${kubectl_cdn_url}"
-  fi
-
-  chmod +x kubectl
+  download_kubectl_binary "${version}" "${ARCH}"
   sudo mv kubectl /usr/local/bin/kubectl
 }
 
 download_helm() {
-  echo "Downloading helm..."
-  curl_with_retry -s -o helm.tar.gz -L "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz"
-  tar -xf helm.tar.gz 2>/dev/null
+  download_helm_binary "${HELM_VERSION}" "${ARCH}"
   sudo mv linux-"${ARCH}"/helm /usr/local/bin/helm
-  rm helm.tar.gz
   rm -rf linux-"${ARCH}/"
 }
 
