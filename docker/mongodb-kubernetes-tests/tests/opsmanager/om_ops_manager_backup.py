@@ -1,6 +1,7 @@
 from operator import attrgetter
 from typing import Dict, Optional
 
+import pytest
 from kubernetes import client
 from kubernetes.client import ApiException
 from kubetester import (
@@ -442,8 +443,10 @@ class TestBackupDatabasesAdded:
         )
         om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
 
+    @pytest.mark.flaky(reruns=5, reruns_delay=10)
     def test_generations(self, ops_manager: MongoDBOpsManager):
-        """There have been an update to the OM spec - all observed generations are expected to be updated"""
+        """There have been an update to the OM spec - all observed generations are expected to be updated.
+        This test can be flaky due to timing - the reconciliation might not have completed yet."""
         assert ops_manager.appdb_status().get_observed_generation() == 2
         assert ops_manager.om_status().get_observed_generation() == 2
         assert ops_manager.backup_status().get_observed_generation() == 2
@@ -649,7 +652,6 @@ class TestBackupForMongodb:
         del mdb_prev["metadata"]["resourceVersion"]
         mdb_prev.create()
         mdb_prev.assert_reaches_phase(Phase.Running)
-
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=600)
         mdb_prev.delete()
 

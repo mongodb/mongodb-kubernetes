@@ -187,9 +187,11 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		if err := ac.EnsureKeyFileContents(); err != nil {
 			return xerrors.Errorf("error ensuring keyfile contents: %w", err)
 		}
-		if _, err := ac.EnsurePassword(ctx, client, opts.MongoDBResource); err != nil {
-			return xerrors.Errorf("error ensuring agent password: %w", err)
-		}
+
+		// Clear AutoPwd to prevent stale credentials from causing monitoring agent
+		// auth failures when a new deployment with auth disabled is created in a
+		// project that previously had auth enabled.
+		ac.Auth.AutoPwd = util.MergoDelete
 
 		// we don't always want to delete the users. This can result in the agents getting stuck
 		// certain situations around auth transitions.
@@ -214,6 +216,11 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 	// we should eventually be able to remove this.
 	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
 		config.DisableX509Authentication()
+		// Clear username/password to prevent monitoring agent from attempting authentication
+		// when MongoDB has auth disabled. This fixes issues where stale credentials from a
+		// previous deployment cause authentication failures.
+		config.UnsetAgentUsername()
+		config.UnsetAgentPassword()
 		return nil
 	}, log)
 	if err != nil {
@@ -222,6 +229,10 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 
 	err = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
 		config.DisableX509Authentication()
+		// Clear username/password to prevent backup agent from attempting authentication
+		// when MongoDB has auth disabled.
+		config.UnsetAgentUsername()
+		config.UnsetAgentPassword()
 		return nil
 	}, log)
 	if err != nil {

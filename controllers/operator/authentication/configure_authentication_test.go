@@ -172,6 +172,77 @@ func TestDisableAuthentication(t *testing.T) {
 	assertAuthenticationDisabled(t, ac.Auth)
 }
 
+// TestDisableAuthenticationClearsAgentCredentials verifies that when authentication is disabled,
+// the monitoring and backup agent credentials are cleared. This is critical for the following scenario:
+//
+// 1. First MongoDB deployment has auth ENABLED - credentials are set in agent configs
+// 2. Deployment is deleted with autoTerminateOnDeletion=false (orphaned backup)
+// 3. Second MongoDB deployment is created with auth DISABLED
+// 4. WITHOUT this fix: monitoring agent still has old credentials, tries to authenticate
+//    against MongoDB that has no auth enabled -> authentication failure -> no metrics
+//    -> no version info reported to OM -> backup fails with 409 "version not available"
+// 5. WITH this fix: credentials are cleared, monitoring agent connects without auth -> works
+func TestDisableAuthenticationClearsAgentCredentials(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
+	dep := om.NewDeployment()
+	conn := om.NewMockedOmConnection(dep)
+
+	// Step 1: Simulate a previous deployment with auth enabled
+	// This sets credentials in the monitoring and backup agent configs
+	_ = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		ac.Auth.Enable()
+		return nil
+	}, zap.S())
+
+	// Simulate stale credentials in monitoring agent config (from previous deployment)
+	_ = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+		config.SetAgentUserName("mms-automation")
+		config.SetAgentPassword("stale-password-from-previous-deployment")
+		return nil
+	}, zap.S())
+
+	// Simulate stale credentials in backup agent config (from previous deployment)
+	_ = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
+		config.SetAgentUserName("mms-automation")
+		config.SetAgentPassword("stale-password-from-previous-deployment")
+		return nil
+	}, zap.S())
+
+	// Verify credentials are set before disabling auth
+	monitoringConfig, err := conn.ReadMonitoringAgentConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "mms-automation", monitoringConfig.MonitoringAgentTemplate.Username)
+	assert.Equal(t, "stale-password-from-previous-deployment", monitoringConfig.MonitoringAgentTemplate.Password)
+
+	backupConfig, err := conn.ReadBackupAgentConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "mms-automation", backupConfig.BackupAgentTemplate.Username)
+	assert.Equal(t, "stale-password-from-previous-deployment", backupConfig.BackupAgentTemplate.Password)
+
+	// Step 2: Disable authentication (simulating new deployment with auth disabled)
+	err = Disable(ctx, kubeClient, conn, Options{MongoDBResource: mongoDBResource}, true, zap.S())
+	require.NoError(t, err)
+
+	// Step 3: Verify that monitoring agent credentials are cleared
+	monitoringConfig, err = conn.ReadMonitoringAgentConfig()
+	require.NoError(t, err)
+	assert.Equal(t, util.MergoDelete, monitoringConfig.MonitoringAgentTemplate.Username,
+		"monitoring agent username should be cleared (set to MergoDelete) when auth is disabled")
+	assert.Equal(t, util.MergoDelete, monitoringConfig.MonitoringAgentTemplate.Password,
+		"monitoring agent password should be cleared (set to MergoDelete) when auth is disabled")
+
+	// Step 4: Verify that backup agent credentials are cleared
+	backupConfig, err = conn.ReadBackupAgentConfig()
+	require.NoError(t, err)
+	assert.Equal(t, util.MergoDelete, backupConfig.BackupAgentTemplate.Username,
+		"backup agent username should be cleared (set to MergoDelete) when auth is disabled")
+	assert.Equal(t, util.MergoDelete, backupConfig.BackupAgentTemplate.Password,
+		"backup agent password should be cleared (set to MergoDelete) when auth is disabled")
+}
+
 func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	ac, err := conn.ReadAutomationConfig()
@@ -217,7 +288,9 @@ func assertAuthenticationDisabled(t *testing.T, auth *om.Auth) {
 	assert.Empty(t, auth.AutoAuthMechanisms)
 	assert.Equal(t, auth.AutoUser, util.AutomationAgentName)
 	assert.NotEmpty(t, auth.Key)
-	assert.NotEmpty(t, auth.AutoPwd)
+	// AutoPwd should be cleared (set to MergoDelete) when auth is disabled
+	// to prevent stale credentials from causing monitoring agent auth failures
+	assert.Equal(t, util.MergoDelete, auth.AutoPwd)
 	assert.True(t, len(auth.Users) == 0 || allNil(auth.Users))
 }
 

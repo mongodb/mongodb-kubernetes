@@ -43,8 +43,31 @@ func (s *automationConfigScramSha) EnableAgentAuthentication(ctx context.Context
 }
 
 func (s *automationConfigScramSha) DisableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		ac.Auth.AutoAuthMechanisms = stringutil.Remove(ac.Auth.AutoAuthMechanisms, string(s.MechanismName))
+		return nil
+	}, log)
+	if err != nil {
+		return err
+	}
+
+	// Clear monitoring agent credentials to prevent SCRAM authentication attempts
+	// against deployments that don't have auth enabled. This follows the same pattern
+	// as LDAP and X509 authentication mechanisms.
+	log.Info("Clearing monitoring agent SCRAM credentials")
+	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+		config.UnsetAgentUsername()
+		config.UnsetAgentPassword()
+		return nil
+	}, log)
+	if err != nil {
+		return err
+	}
+
+	log.Info("Clearing backup agent SCRAM credentials")
+	return conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
+		config.UnsetAgentUsername()
+		config.UnsetAgentPassword()
 		return nil
 	}, log)
 }
