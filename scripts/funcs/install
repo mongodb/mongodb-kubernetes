@@ -37,6 +37,20 @@ detect_architecture() {
       esac
 }
 
+# Curl wrapper with jitter and consistent retry params for CI downloads.
+# Adds 0-30s random jitter to prevent thundering herd when CI retries trigger simultaneously.
+# Time range: 0-630s (0-30s jitter + up to 600s curl timeout).
+# Set SKIP_DOWNLOAD_JITTER=1 to disable jitter (useful for local development).
+# Usage: curl_with_retry [curl options...] URL
+curl_with_retry() {
+    if [[ "${SKIP_DOWNLOAD_JITTER:-}" != "1" ]]; then
+        local jitter=$((RANDOM % 31))
+        echo "Adding ${jitter}s jitter to spread out concurrent downloads..."
+        sleep "${jitter}"
+    fi
+    curl --retry 5 --retry-delay 10 --retry-all-errors --fail-with-body --show-error --max-time 600 "$@"
+}
+
 # Downloads a binary <bin> from <url> and moves it into <dir> directory.
 # Example usage: download_and_install_binary ${workdir}/bin jq "https://..."
 download_and_install_binary() {
@@ -46,9 +60,7 @@ download_and_install_binary() {
 
   mkdir -p "${dir}"
   echo "Downloading ${url}"
-  # Use longer timeout (10 min) for large binaries like minikube (~140MB) on slow IBM networks
-  # Add -C - for resume capability in case of partial downloads
-  curl --retry 5 --retry-delay 10 --retry-all-errors --fail --show-error --max-time 600 -L "${url}" -o "${bin}"
+  curl_with_retry -L "${url}" -o "${bin}"
   chmod +x "${bin}"
   mv "${bin}" "${dir}"
   echo "Installed ${bin} to ${dir}"
