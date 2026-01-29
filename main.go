@@ -556,8 +556,8 @@ func getOperatorEnv() util.OperatorEnvironment {
 		operatorEnvOnce.Do(func() {
 			golog.Printf("Configured environment %s, not recognized. Must be one of %v", operatorEnv, operatorEnvironments)
 			golog.Printf("Using default environment, %s, instead", util.OperatorEnvironmentDev)
-			operatorEnv = util.OperatorEnvironmentDev
 		})
+		operatorEnv = util.OperatorEnvironmentDev
 	}
 	return operatorEnv
 }

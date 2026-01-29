@@ -1,4 +1,3 @@
-import time
 from typing import Dict
 
 import pytest
@@ -7,7 +6,7 @@ from kubetester import assert_pod_container_security_context, assert_pod_securit
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static, skip_if_local
+from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase
@@ -525,10 +524,16 @@ class TestReplicaSetDelete(KubernetesTester):
 
     def test_replica_set_sts_doesnt_exist(self):
         """The StatefulSet must be removed by Kubernetes as soon as the MongoDB resource is removed.
-        Note, that this may lag sometimes (caching or whatever?) and it's more safe to wait a bit"""
-        time.sleep(15)
-        with pytest.raises(client.rest.ApiException):
-            self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
+        Note, that this may lag sometimes (caching or whatever?) so we poll until it's gone."""
+
+        def sts_is_deleted():
+            try:
+                self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
+                return False
+            except client.rest.ApiException:
+                return True
+
+        run_periodically(sts_is_deleted, timeout=60, msg="StatefulSet to be deleted")
 
     def test_service_does_not_exist(self):
         with pytest.raises(client.rest.ApiException):
