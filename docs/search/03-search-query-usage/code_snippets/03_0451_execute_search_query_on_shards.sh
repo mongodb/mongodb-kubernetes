@@ -18,6 +18,7 @@ for i in $(seq 0 $((MDB_SHARD_COUNT - 1))); do
   echo ""
   echo "=== Shard ${i} (${pod_name}) ==="
 
+  # shellcheck disable=SC2016
   result=$(kubectl exec --context "${K8S_CTX}" -n "${MDB_NS}" "${pod_name}" -- /bin/bash -c '
     /var/lib/mongodb-mms-automation/mongosh-linux-x86_64-*/bin/mongosh \
       '"${TLS_OPTIONS}"' \

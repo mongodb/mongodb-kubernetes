@@ -3,7 +3,7 @@
 # Provide any TLS parameters directly within MDB_CONNECTION_STRING.
 
 # Build admin connection string (replace mdb-user with mdb-admin)
-ADMIN_CONNECTION_STRING=$(echo "${MDB_CONNECTION_STRING}" | sed "s|mdb-user:${MDB_USER_PASSWORD}|mdb-admin:${MDB_ADMIN_USER_PASSWORD}|")
+ADMIN_CONNECTION_STRING="${MDB_CONNECTION_STRING//mdb-user:${MDB_USER_PASSWORD}/mdb-admin:${MDB_ADMIN_USER_PASSWORD}}"
 
 kubectl exec -n "${MDB_NS}" --context "${K8S_CTX}" \
   mongodb-tools-pod -- env MDB_CONNECTION_STRING="${MDB_CONNECTION_STRING}" ADMIN_CONNECTION_STRING="${ADMIN_CONNECTION_STRING}" /bin/bash -eu -c "$(cat <<'EOF'

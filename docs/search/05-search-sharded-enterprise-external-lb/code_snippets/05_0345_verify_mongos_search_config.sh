@@ -12,7 +12,7 @@ mongos_pod="${MDB_RESOURCE_NAME}-mongos-0"
 echo "=== Mongos (${mongos_pod}) ==="
 
 # Get the mongos configuration
-config=$(kubectl exec --context "${K8S_CTX}" -n "${MDB_NS}" ${mongos_pod} -- cat /var/lib/mongodb-mms-automation/workspace/mongos-${mongos_pod}.conf 2>/dev/null || echo "Failed to get config")
+config=$(kubectl exec --context "${K8S_CTX}" -n "${MDB_NS}" "${mongos_pod}" -- cat "/var/lib/mongodb-mms-automation/workspace/mongos-${mongos_pod}.conf" 2>/dev/null || echo "Failed to get config")
 
 # Extract and display search-related parameters
 echo "Search parameters from config file:"

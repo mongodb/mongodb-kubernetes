@@ -116,24 +116,24 @@ spec:
                                   minLength: 1
                                   type: string
                               required:
-                                - endpoint
-                                - shardName
+                              - endpoint
+                              - shardName
                               type: object
                             minItems: 1
                             type: array
                         required:
-                          - endpoints
+                        - endpoints
                         type: object
                     type: object
                   mode:
                     description: 'Mode specifies the load balancer mode: Envoy (operator-managed)
                       or External (BYO L7 LB)'
                     enum:
-                      - Envoy
-                      - External
+                    - Envoy
+                    - External
                     type: string
                 required:
-                  - mode
+                - mode
                 type: object
               logLevel:
                 description: Configure verbosity of mongot logs. Defaults to INFO

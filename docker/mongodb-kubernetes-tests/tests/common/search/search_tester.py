@@ -8,6 +8,7 @@ from kubetester.helm import process_run_and_check
 from kubetester.mongotester import MongoTester
 from pymongo.operations import SearchIndexModel
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -23,12 +24,12 @@ class SearchTester(MongoTester):
 
     @classmethod
     def for_replicaset(
-            cls,
-            mdb,
-            user_name: str,
-            password: str,
-            use_ssl: bool = False,
-            ca_path: Optional[str] = None,
+        cls,
+        mdb,
+        user_name: str,
+        password: str,
+        use_ssl: bool = False,
+        ca_path: Optional[str] = None,
     ) -> "SearchTester":
         """Create SearchTester for a replica set MongoDB resource.
 
@@ -51,12 +52,12 @@ class SearchTester(MongoTester):
 
     @classmethod
     def for_sharded(
-            cls,
-            mdb,
-            user_name: str,
-            password: str,
-            use_ssl: bool = False,
-            ca_path: Optional[str] = None,
+        cls,
+        mdb,
+        user_name: str,
+        password: str,
+        use_ssl: bool = False,
+        ca_path: Optional[str] = None,
     ) -> "SearchTester":
         """Create SearchTester for a sharded MongoDB resource (connects to mongos).
 
@@ -77,19 +78,39 @@ class SearchTester(MongoTester):
         )
         return cls(conn_str, use_ssl=use_ssl, ca_path=ca_path)
 
-    def mongorestore_from_url(self, archive_url: str, ns_include: str, mongodb_tools_dir: str = ""):
-        logger.debug(f"running mongorestore from {archive_url}")
-        with tempfile.NamedTemporaryFile(delete=False) as sample_file:
-            resp = requests.get(archive_url)
-            size = sample_file.write(resp.content)
-            logger.debug(f"Downloaded sample file from {archive_url} to {sample_file.name} (size: {size})")
-            mongorestore_path = os.path.join(mongodb_tools_dir, "mongorestore")
-            mongorestore_cmd = f"{mongorestore_path} --archive={sample_file.name} --verbose=1 --drop --nsInclude {ns_include} --uri={self.cnx_string}"
-            if self.default_opts.get("tls", False):
-                mongorestore_cmd += " --ssl"
-            if ca_path := self.default_opts.get("tlsCAFile"):
-                mongorestore_cmd += " --sslCAFile=" + ca_path
-            process_run_and_check(mongorestore_cmd.split(), capture_output=True)
+    def mongorestore_from_url(self, archive_url: str, ns_include: str, tools_pod: mongodb_tools_pod.ToolsPod):
+        logger.debug(f"running mongorestore from {archive_url} in pod {tools_pod.pod_name}")
+
+        archive_file = f"/tmp/mongodb_archive_{os.urandom(4).hex()}.archive"
+
+        logger.debug(f"Downloading archive to {archive_file}")
+        download_cmd = ["curl", "-L", "-o", archive_file, archive_url]
+        tools_pod.run_command(cmd=download_cmd)
+
+        logger.debug("Running mongorestore")
+        mongorestore_cmd = [
+            "mongorestore",
+            f"--archive={archive_file}",
+            "--verbose=1",
+            "--drop",
+            f"--nsInclude={ns_include}",
+            f"--uri={self.cnx_string}",
+        ]
+
+        if self.default_opts.get("tls", False):
+            mongorestore_cmd.append("--ssl")
+        if ca_path := self.default_opts.get("tlsCAFile"):
+            tools_pod.copy_file_to_pod(ca_path, "/tmp/ca.crt")
+            mongorestore_cmd.append(f"--sslCAFile=/tmp/ca.crt")
+
+        result = tools_pod.run_command(cmd=mongorestore_cmd)
+        logger.debug(f"mongorestore completed: {result}")
+
+        logger.debug("Cleaning up archive file")
+        cleanup_cmd = ["rm", "-f", archive_file]
+        tools_pod.run_command(cmd=cleanup_cmd)
+
+        return result
 
     def create_search_index(self, database_name: str, collection_name: str):
         database = self.client[database_name]
@@ -157,10 +178,12 @@ class SearchTester(MongoTester):
             # index ready if it exists with the expected name and has a latestDefinition.
             if status is None and queryable is None and idx.get("latestDefinition") is not None:
                 logger.debug(
-                    f"{database_name}/{collection_name}: search index {idx.get('name')} has no status but has latestDefinition, considering ready")
+                    f"{database_name}/{collection_name}: search index {idx.get('name')} has no status but has latestDefinition, considering ready"
+                )
                 continue
             logger.debug(
-                f"{database_name}/{collection_name}: search index {idx} is not ready (status={status}, queryable={queryable})")
+                f"{database_name}/{collection_name}: search index {idx} is not ready (status={status}, queryable={queryable})"
+            )
             return False
         return True
 
