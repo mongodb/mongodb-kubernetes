@@ -12,11 +12,18 @@ bindir="${PROJECT_DIR}/bin"
 tmpdir="${PROJECT_DIR}/tmp"
 mkdir -p "${bindir}" "${tmpdir}"
 
-kubectl_version=$(curl_with_retry -Ls https://dl.k8s.io/release/stable.txt)
-echo "Downloading kubectl ${kubectl_version} for ${ARCH}"
-kubectl_version=$(echo "${kubectl_version}" | tail -n1 | tr -d '\n')
+# Use pinned version from root-context (no external API call needed)
+echo "Downloading kubectl ${KUBECTL_VERSION} for ${ARCH}"
 
-curl_with_retry -LOs "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
+# Try primary endpoint, fallback to CDN directly if it fails
+kubectl_url="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
+kubectl_cdn_url="https://cdn.dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
+
+if ! curl_with_retry -LOs "${kubectl_url}"; then
+    echo "Primary endpoint failed, trying CDN directly..."
+    curl_with_retry -LOs "${kubectl_cdn_url}"
+fi
+
 chmod +x kubectl
 echo "kubectl version --client"
 ./kubectl version --client

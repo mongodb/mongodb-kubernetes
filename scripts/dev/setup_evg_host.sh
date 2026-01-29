@@ -45,11 +45,23 @@ download_kind() {
 }
 
 download_kubectl() {
-  kubectl_version=$(curl --retry 5 -Ls https://dl.k8s.io/release/stable.txt)
-  echo "Downloading kubectl ${kubectl_version}..."
-  kubectl_version=$(echo "${kubectl_version}" | tail -n1 | tr -d '\n')
+  # Use pinned version (KUBECTL_VERSION from root-context)
+  # Falls back to fetching stable.txt if KUBECTL_VERSION is not set
+  local version="${KUBECTL_VERSION:-}"
+  if [[ -z "${version}" ]]; then
+    version=$(curl --retry 5 -Ls https://dl.k8s.io/release/stable.txt | tail -n1 | tr -d '\n')
+  fi
+  echo "Downloading kubectl ${version}..."
 
-  curl --retry 5 -LOs "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
+  # Try primary endpoint, fallback to CDN directly if it fails
+  local kubectl_url="https://dl.k8s.io/release/${version}/bin/linux/${ARCH}/kubectl"
+  local kubectl_cdn_url="https://cdn.dl.k8s.io/release/${version}/bin/linux/${ARCH}/kubectl"
+
+  if ! curl --retry 5 --retry-delay 10 --retry-all-errors -LOs "${kubectl_url}"; then
+    echo "Primary endpoint failed, trying CDN directly..."
+    curl --retry 5 --retry-delay 10 --retry-all-errors -LOs "${kubectl_cdn_url}"
+  fi
+
   chmod +x kubectl
   sudo mv kubectl /usr/local/bin/kubectl
 }
