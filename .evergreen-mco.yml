@@ -49,7 +49,6 @@ task_groups:
   - statefulset_arbitrary_config_update
   teardown_group:
   - func: prune_docker_resources
-  - func: run_retry_script
   teardown_task:
   - func: upload_e2e_logs_gotest
   - func: teardown_kubernetes_environment

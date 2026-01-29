@@ -126,7 +126,6 @@ variables:
   - &teardown_group
     teardown_group:
       - func: prune_docker_resources
-      - func: run_retry_script
 
   - &base_om7_dependency
     depends_on:
@@ -197,10 +196,6 @@ variables:
         patch_optional: true
 
 parameters:
-  - key: evergreen_retry
-    value: "true"
-    description: set this to false to suppress retries on failure
-
   - key: OVERRIDE_VERSION_ID
     value: ""
     description: "Patch id to reuse images from other Evergreen build"
@@ -537,11 +532,6 @@ tasks:
       - func: setup_jq
       - func: setup_aws
       - func: prepare_aws
-
-  - name: run_retry_script
-    tags: [ "patch-run" ]
-    commands:
-      - func: run_retry_script
 
   - name: generate_perf_tasks_one_thread
     commands:
