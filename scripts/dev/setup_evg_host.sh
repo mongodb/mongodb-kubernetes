@@ -49,7 +49,7 @@ download_kubectl() {
   # Falls back to fetching stable.txt if KUBECTL_VERSION is not set
   local version="${KUBECTL_VERSION:-}"
   if [[ -z "${version}" ]]; then
-    version=$(curl --retry 5 -Ls https://dl.k8s.io/release/stable.txt | tail -n1 | tr -d '\n')
+    version=$(curl_with_retry -Ls https://dl.k8s.io/release/stable.txt | tail -n1 | tr -d '\n')
   fi
   echo "Downloading kubectl ${version}..."
 
@@ -60,9 +60,9 @@ download_kubectl() {
   local kubectl_url="https://dl.k8s.io/release/${version}/bin/linux/${ARCH}/kubectl"
   local kubectl_cdn_url="https://cdn.dl.k8s.io/release/${version}/bin/linux/${ARCH}/kubectl"
 
-  if ! curl --retry 5 --retry-delay 10 --retry-all-errors -LOs "${kubectl_url}"; then
+  if ! curl_with_retry -LOs "${kubectl_url}"; then
     echo "Primary endpoint failed, trying CDN directly..."
-    curl --retry 5 --retry-delay 10 --retry-all-errors -LOs "${kubectl_cdn_url}"
+    curl_with_retry -LOs "${kubectl_cdn_url}"
   fi
 
   chmod +x kubectl
@@ -71,9 +71,9 @@ download_kubectl() {
 
 download_helm() {
   echo "Downloading helm..."
-  curl -s -o helm.tar.gz -L "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}tar.gz"
+  curl_with_retry -s -o helm.tar.gz -L "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz"
   tar -xf helm.tar.gz 2>/dev/null
-  sudo mv linux-"${ARCH}"helm /usr/local/bin/helm
+  sudo mv linux-"${ARCH}"/helm /usr/local/bin/helm
   rm helm.tar.gz
   rm -rf linux-"${ARCH}/"
 }
