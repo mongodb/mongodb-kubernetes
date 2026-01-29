@@ -27,8 +27,10 @@ process_licenses() {
     cat licenses_stderr
 
     # Filter and sort the licenses report
-    # Use LC_COLLATE=C to ensure consistent ASCII sorting across macOS and Linux
-    grep -v 10gen licenses_full.csv | grep -v "github.com/mongodb" | grep -v "^golang.org" | LC_COLLATE=C sort > LICENSE-THIRD-PARTY || true
+    # Use LC_ALL=C to ensure consistent ASCII sorting across macOS and Linux
+    # LC_ALL overrides all locale settings including LC_COLLATE, which is necessary
+    # for macOS compatibility (macOS sort ignores LC_COLLATE without LC_ALL)
+    grep -v 10gen licenses_full.csv | grep -v "github.com/mongodb" | grep -v "^golang.org" | LC_ALL=C sort > LICENSE-THIRD-PARTY || true
 
     # Return to the repo root directory
     cd "${REPO_DIR}" || exit
