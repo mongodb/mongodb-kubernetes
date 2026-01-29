@@ -65,7 +65,7 @@ group = TaskGroup(
         FunctionCall("upload_e2e_logs_gotest"),
         FunctionCall("teardown_kubernetes_environment"),
     ],
-    teardown_group=[FunctionCall("prune_docker_resources"), FunctionCall("run_retry_script")],
+    teardown_group=[FunctionCall("prune_docker_resources")],
 )
 
 
