@@ -1,5 +1,9 @@
 .dir-locals.el
-.idea/
+.idea/workspace.xml
+.idea/usage.statistics.xml
+.idea/shelf
+
+
 
 /pkg/client
 /vendor/
@@ -21,7 +25,6 @@ cache
 **/pytest_cache/
 tmp/*
 bin/*
-**/*.iml
 helm_out
 .redo-last-namespace
 exports.do
