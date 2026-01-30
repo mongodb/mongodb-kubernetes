@@ -388,3 +388,110 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 		})
 	}
 }
+
+// TestBackupHostnameOverrideEnvVar verifies the MDB_BACKUP_HOSTNAME_OVERRIDE env var is set correctly based on external domain and override settings.
+func TestBackupHostnameOverrideEnvVar(t *testing.T) {
+	tests := []struct {
+		name                         string
+		hasExternalDomain            bool
+		enableBackupHostnameOverride bool
+		expectEnvVar                 bool
+	}{
+		{
+			name:                         "env var present when external domain configured and override enabled",
+			hasExternalDomain:            true,
+			enableBackupHostnameOverride: true,
+			expectEnvVar:                 true,
+		},
+		{
+			name:                         "env var absent when external domain configured but override disabled",
+			hasExternalDomain:            true,
+			enableBackupHostnameOverride: false,
+			expectEnvVar:                 false,
+		},
+		{
+			name:                         "env var absent when no external domain configured",
+			hasExternalDomain:            false,
+			enableBackupHostnameOverride: false,
+			expectEnvVar:                 false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := mdbv1.NewReplicaSetBuilder().Build()
+
+			var opts func(mdbv1.MongoDB) DatabaseStatefulSetOptions
+			if tc.hasExternalDomain {
+				externalDomain := "mongodb.example.com"
+				mdb.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{
+					ExternalDomain: &externalDomain,
+				}
+				opts = ReplicaSetOptions(
+					GetPodEnvOptions(),
+					func(options *DatabaseStatefulSetOptions) {
+						options.HostNameOverrideConfigmapName = mdb.GetHostNameOverrideConfigmapName()
+						options.EnableBackupHostnameOverride = tc.enableBackupHostnameOverride
+					},
+				)
+			} else {
+				opts = ReplicaSetOptions(GetPodEnvOptions())
+			}
+
+			sts := DatabaseStatefulSet(*mdb, opts, zap.S())
+
+			containerIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+				return c.Name == util.DatabaseContainerName
+			})
+			require.NotEqual(t, -1, containerIdx, "database container should exist")
+
+			envMap := env.ToMap(sts.Spec.Template.Spec.Containers[containerIdx].Env...)
+			val, ok := envMap["MDB_BACKUP_HOSTNAME_OVERRIDE"]
+
+			if tc.expectEnvVar {
+				assert.True(t, ok, "MDB_BACKUP_HOSTNAME_OVERRIDE should be present")
+				assert.Equal(t, "true", val)
+			} else {
+				assert.False(t, ok, "MDB_BACKUP_HOSTNAME_OVERRIDE should NOT be present")
+			}
+		})
+	}
+}
+
+// TestWithBackupHostnameOverrideOption verifies the option function correctly sets the EnableBackupHostnameOverride field.
+func TestWithBackupHostnameOverrideOption(t *testing.T) {
+	tests := []struct {
+		name          string
+		initialValue  bool
+		setValue      bool
+		expectedValue bool
+	}{
+		{
+			name:          "sets EnableBackupHostnameOverride to true",
+			initialValue:  false,
+			setValue:      true,
+			expectedValue: true,
+		},
+		{
+			name:          "sets EnableBackupHostnameOverride to false",
+			initialValue:  true,
+			setValue:      false,
+			expectedValue: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := &DatabaseStatefulSetOptions{EnableBackupHostnameOverride: tc.initialValue}
+
+			applyOpt := func(enabled bool) func(*DatabaseStatefulSetOptions) {
+				return func(opts *DatabaseStatefulSetOptions) {
+					opts.EnableBackupHostnameOverride = enabled
+				}
+			}
+
+			applyOpt(tc.setValue)(opts)
+			assert.Equal(t, tc.expectedValue, opts.EnableBackupHostnameOverride)
+		})
+	}
+}
