@@ -12,20 +12,16 @@ bindir="${PROJECT_DIR}/bin"
 tmpdir="${PROJECT_DIR}/tmp"
 mkdir -p "${bindir}" "${tmpdir}"
 
-kubectl_version=$(curl --retry 5 --retry-delay 5 --retry-all-errors --fail --max-time 120 -Ls https://dl.k8s.io/release/stable.txt)
-echo "Downloading kubectl ${kubectl_version} for ${ARCH}"
-kubectl_version=$(echo "${kubectl_version}" | tail -n1 | tr -d '\n')
-
-curl --retry 5 --retry-delay 5 --retry-all-errors --fail --show-error --max-time 600 -LOs "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
-chmod +x kubectl
+# Use pinned version from root-context (no external API call needed)
+download_kubectl_binary "${KUBECTL_VERSION}" "${ARCH}"
 echo "kubectl version --client"
 ./kubectl version --client
 mv kubectl "${bindir}"
 
-echo "Downloading helm ${HELM_VERSION} for ${ARCH}"
-helm_archive="${tmpdir}/helm.tgz"
-curl --retry 5 --retry-delay 5 --retry-all-errors --fail --show-error --max-time 600 -s "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" --output "${helm_archive}"
+pushd "${tmpdir}" > /dev/null
+download_helm_binary "${HELM_VERSION}" "${ARCH}"
+mv "linux-${ARCH}/helm" "${bindir}"
+rm -rf "linux-${ARCH}/"
+popd > /dev/null
 
-tar xfz "${helm_archive}" -C "${tmpdir}" &> /dev/null
-mv "${tmpdir}/linux-${ARCH}/helm" "${bindir}"
 "${bindir}"/helm version

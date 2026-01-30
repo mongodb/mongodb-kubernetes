@@ -140,3 +140,21 @@ tests:
       - equal:
           path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator-multi-cluster")].securityContext.capabilities.drop
           value: [ ALL ]
+  - it: webhook server certificate volume mount exists
+    asserts:
+      - exists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].volumeMounts[?(@.name=="webhook-server-dir")]
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].volumeMounts[?(@.name=="webhook-server-dir")].mountPath
+          value: /tmp/k8s-webhook-server/serving-certs
+      - exists:
+          path: spec.template.spec.volumes[?(@.name=="webhook-server-dir")]
+  - it: webhook server certificate volume mount exists
+    asserts:
+      - exists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].volumeMounts[?(@.name=="webhook-server-dir")]
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].volumeMounts[?(@.name=="webhook-server-dir")].mountPath
+          value: /tmp/k8s-webhook-server/serving-certs
+      - exists:
+          path: spec.template.spec.volumes[?(@.name=="webhook-server-dir")]
