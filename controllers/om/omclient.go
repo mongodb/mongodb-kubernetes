@@ -46,6 +46,7 @@ type Connection interface {
 	ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error
 	ReadAutomationStatus() (*AutomationStatus, error)
 	ReadAutomationAgents(page int) (Paginated, error)
+	ReadBackupAgents(page int) (Paginated, error)
 	MarkProjectAsBackingDatabase(databaseType BackingDatabaseType) error
 
 	ReadOrganizationsByName(name string) ([]*Organization, error)
@@ -509,11 +510,19 @@ func (oc *HTTPOmConnection) GenerateAgentKey() (string, error) {
 	return keyInfo["key"].(string), nil
 }
 
-// ReadAutomationAgents returns the state of the automation agents registered in Ops Manager
-func (oc *HTTPOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error) {
+// AgentType represents the type of agent to query from Ops Manager
+type AgentType string
+
+const (
+	AutomationAgentType AgentType = "AUTOMATION"
+	BackupAgentType     AgentType = "BACKUP"
+)
+
+// readAgents is a generic method to read agent status from Ops Manager
+func (oc *HTTPOmConnection) readAgents(agentType AgentType, pageNum int) (Paginated, error) {
 	// TODO: Add proper testing to this pagination. In order to test it I just used `itemsPerPage=1`, which will make
 	// the endpoint to be called 3 times in a 3 member replica set. The default itemsPerPage is 100
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/agents/AUTOMATION?pageNum=%d", oc.GroupID(), pageNum))
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/agents/%s?pageNum=%d", oc.GroupID(), agentType, pageNum))
 	if err != nil {
 		return nil, err
 	}
@@ -522,6 +531,16 @@ func (oc *HTTPOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error)
 		return nil, err
 	}
 	return resp, apierror.New(err)
+}
+
+// ReadAutomationAgents returns the state of the automation agents registered in Ops Manager
+func (oc *HTTPOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error) {
+	return oc.readAgents(AutomationAgentType, pageNum)
+}
+
+// ReadBackupAgents returns the state of the backup agents registered in Ops Manager
+func (oc *HTTPOmConnection) ReadBackupAgents(pageNum int) (Paginated, error) {
+	return oc.readAgents(BackupAgentType, pageNum)
 }
 
 // ReadAutomationStatus returns the state of the automation status, this includes if the agents
