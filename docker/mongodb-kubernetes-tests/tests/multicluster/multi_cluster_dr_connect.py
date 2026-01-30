@@ -1,10 +1,10 @@
 import subprocess
-import time
 from typing import Dict
 
 import kubernetes
 import pytest
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.operator import Operator
 from kubetester.phase import Phase
@@ -87,13 +87,13 @@ def test_replica_set_is_reachable_after_deletetion(mongodb_multi: MongoDBMulti):
 
 @pytest.mark.e2e_multi_cluster_dr
 def test_add_test_data_after_deletion(mongodb_multi_collection, capsys):
-    max_attempts = 100
-    while max_attempts > 0:
+    def insert_test_data():
         try:
             mongodb_multi_collection.insert_one(TEST_DATA.copy())
-            return
+            return True
         except Exception as e:
             with capsys.disabled():
                 print(e)
-            max_attempts -= 1
-            time.sleep(6)
+            return False
+
+    run_periodically(insert_test_data, timeout=600, msg="test data insertion")

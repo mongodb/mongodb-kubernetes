@@ -9,12 +9,7 @@ from python_on_whales.exceptions import DockerException
 
 import docker
 from lib.base_logger import logger
-from scripts.release.build_cache import (
-    build_cache_configuration,
-    ensure_ecr_cache_repository,
-    get_cache_scope,
-    get_current_branch,
-)
+from scripts.release.build_cache import build_cache_configuration, ensure_ecr_cache_repository, should_write_cache
 
 
 class ImageBuilder(object):
@@ -193,10 +188,7 @@ class DockerImageBuilder(ImageBuilder):
             logger.info(f"Platforms: {platforms}")
             logger.info(f"Dockerfile: {dockerfile}")
             logger.info(f"Build context: {path}")
-            cache_scope, _ = get_cache_scope()
-            current_branch, _ = get_current_branch()
-            logger.info(f"Cache scope: {cache_scope}")
-            logger.info(f"Current branch: {current_branch}")
+            logger.info(f"Cache write enabled: {should_write_cache()}")
             logger.info(f"Cache from sources: {len(cache_from_refs)} refs")
             logger.debug(f"Build args: {build_args}")
             logger.debug(f"Cache from: {cache_from_refs}")

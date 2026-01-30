@@ -8,7 +8,7 @@ from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
 from kubetester.kubetester import create_testing_namespace
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import running_locally
+from kubetester.kubetester import run_periodically, running_locally
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_utils_replicaset import generic_replicaset
 from kubetester.operator import Operator
@@ -203,9 +203,14 @@ def test_upgrade_mdb(mdb: MongoDB, custom_mdb_version):
 def test_delete_mdb(mdb: MongoDB):
     mdb.delete()
 
-    time.sleep(10)
-    with pytest.raises(client.rest.ApiException):
-        mdb.read_statefulset()
+    def sts_is_deleted():
+        try:
+            mdb.read_statefulset()
+            return False
+        except client.rest.ApiException:
+            return True
+
+    run_periodically(sts_is_deleted, timeout=60, msg="StatefulSet to be deleted")
 
 
 @pytest.mark.e2e_operator_multi_namespaces
