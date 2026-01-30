@@ -121,6 +121,10 @@ override_file="/opt/scripts/config/${hostpath}"
 if [[ -f "${override_file}" ]]; then
   override="$(cat "${override_file}")"
   agentOpts+=("-overrideLocalHost=${override}")
+  # The backup agent host must also be overridden, but only for new deployments (see CLOUDP-319138).
+  if [[ "${MDB_OVERRIDE_BACKUP_AGENT_HOST-}" == "true" ]]; then
+      agentOpts+=("-backupOverrideLocalHost=${override}")
+  else
   agentOpts+=("-ephemeralPortOffset=1")
 elif [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
   agentOpts+=("-ephemeralPortOffset=1")

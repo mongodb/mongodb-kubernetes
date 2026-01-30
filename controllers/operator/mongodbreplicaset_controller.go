@@ -583,6 +583,18 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		databaseSecretPath = reconciler.VaultClient.DatabaseSecretPath()
 	}
 
+	// If external domain and no backup agent, add env var
+	enableBackupHostnameOverride := false
+	if r.resource.Spec.HasExternalDomain() {
+		// We don't need any other page than the first one to check for existence. Pages are 1-based
+		backupAgents, err := conn.ReadBackupAgents(1)
+		if err != nil {
+			return nil, xerrors.Errorf("impossible to retrieve backup agents, : %w", err)
+		}
+		// If no backup agents exist, it is safe to set the external hostname.
+		enableBackupHostnameOverride = backupAgents.ItemsCount() == 0
+	}
+
 	// Determine automation agent version for static architecture
 	var automationAgentVersion string
 	if architectures.IsRunningStaticArchitecture(rs.Annotations) {
@@ -616,6 +628,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
+		WithBackupHostnameOverride(enableBackupHostnameOverride),
 	)
 
 	return rsConfig, nil

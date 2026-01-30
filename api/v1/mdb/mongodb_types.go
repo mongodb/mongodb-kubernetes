@@ -459,6 +459,10 @@ func (m *MongoDbSpec) GetExternalDomain() *string {
 	return nil
 }
 
+func (m *MongoDbSpec) HasExternalDomain() bool {
+	return m.ExternalAccessConfiguration != nil && m.ExternalAccessConfiguration.ExternalDomain != nil
+}
+
 func (m *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
 	return m.Connectivity.ReplicaSetHorizons
 }

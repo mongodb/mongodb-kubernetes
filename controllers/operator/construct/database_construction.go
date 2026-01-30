@@ -122,6 +122,7 @@ type DatabaseStatefulSetOptions struct {
 	// The certificate secrets and other dependencies named using the resource name will use the `Name` field.
 	StatefulSetNameOverride       string // this needs to be overriden of the
 	HostNameOverrideConfigmapName string
+	EnableBackupHostnameOverride  bool
 
 	AgentDebug      bool
 	AgentDebugImage string
@@ -808,6 +809,13 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		})
 		initContainerModifications = append(initContainerModifications, hostnameOverrideModification)
 		databaseContainerModifications = append(databaseContainerModifications, hostnameOverrideModification)
+		if opts.EnableBackupHostnameOverride {
+			backupOverrideEnv := container.WithEnvs(corev1.EnvVar{
+				Name:  "MDB_BACKUP_HOSTNAME_OVERRIDE",
+				Value: "true",
+			})
+			databaseContainerModifications = append(databaseContainerModifications, backupOverrideEnv)
+		}
 	}
 
 	mods := []podtemplatespec.Modification{
