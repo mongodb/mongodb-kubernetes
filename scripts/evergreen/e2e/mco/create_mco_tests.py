@@ -16,6 +16,7 @@ class RetryableFunctionCall(FunctionCall):
             d["retry_on_failure"] = True
         return d
 
+
 # Define the list of dynamically generated task names
 task_names = [
     "replica_set",
