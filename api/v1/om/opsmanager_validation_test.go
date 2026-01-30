@@ -188,7 +188,7 @@ func TestOpsManagerValidation(t *testing.T) {
 		},
 		"Invalid S3 OpLog Store config - objectLock enabled for s3 oplog": {
 			testedOm: NewOpsManagerBuilderDefault().
-				SetVersion("8.0.18").
+				SetVersion("8.0.19").
 				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLock: true}).
 				Build(),
 			expectedErrorMessage: "'objectLock' cannot be enabled for OpLog S3 Stores (S3 OpLog Store: test)",
