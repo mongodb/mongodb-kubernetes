@@ -228,6 +228,11 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 		return v1.ValidationSuccess()
 	}
 
+	// Parse Ops Manager version for Immutable Backup validation
+	// We can ignore errors since they are already caught in validOmVersion validation
+	v, _ := versionutil.StringToSemverVersion(os.Version)
+	immutableBackupVersion, _ := semver.Make("8.0.19")
+
 	if len(backup.S3Configs) > 0 {
 		for _, config := range backup.S3Configs {
 			if config.IRSAEnabled {
@@ -236,6 +241,8 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 				}
 			} else if config.S3SecretRef == nil || config.S3SecretRef.Name == "" {
 				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 Store: %s)", status.OpsManager, config.Name)
+			} else if config.ObjectLock && v.LT(immutableBackupVersion) {
+				return v1.OpsManagerResourceValidationError("'objectLock' can be enabled only for Ops Manager versions >= 8.0.19 (S3 Store: %s)", status.OpsManager, config.Name)
 			}
 		}
 	}
@@ -248,6 +255,8 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 				}
 			} else if oplogStoreConfig.S3SecretRef == nil || oplogStoreConfig.S3SecretRef.Name == "" {
 				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
+			} else if oplogStoreConfig.ObjectLock {
+				return v1.OpsManagerResourceValidationError("'objectLock' cannot be enabled for OpLog S3 Stores (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
 			}
 		}
 	}
