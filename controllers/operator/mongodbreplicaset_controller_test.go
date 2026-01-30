@@ -1611,16 +1611,16 @@ func TestBackupHostnameOverride_EnabledWhenExternalDomainAndNoAgents(t *testing.
 	}
 	require.NotNil(t, databaseContainer, "database container should exist")
 
-	// Check for MDB_BACKUP_HOSTNAME_OVERRIDE env var
+	// Check for BackupHostnameOverrideEnv env var
 	var foundEnvVar bool
 	for _, envVar := range databaseContainer.Env {
-		if envVar.Name == "MDB_BACKUP_HOSTNAME_OVERRIDE" {
+		if envVar.Name == construct.BackupHostnameOverrideEnv {
 			foundEnvVar = true
 			assert.Equal(t, "true", envVar.Value)
 			break
 		}
 	}
-	assert.True(t, foundEnvVar, "MDB_BACKUP_HOSTNAME_OVERRIDE env var should be present")
+	assert.True(t, foundEnvVar, construct.BackupHostnameOverrideEnv+" env var should be present")
 }
 
 // TestBackupHostnameOverride_DisabledWhenBackupAgentsExist tests that
@@ -1665,10 +1665,10 @@ func TestBackupHostnameOverride_DisabledWhenBackupAgentsExist(t *testing.T) {
 	}
 	require.NotNil(t, databaseContainer, "database container should exist")
 
-	// Check that MDB_BACKUP_HOSTNAME_OVERRIDE env var is NOT present
+	// Check that BackupHostnameOverrideEnv env var is NOT present
 	for _, envVar := range databaseContainer.Env {
-		assert.NotEqual(t, "MDB_BACKUP_HOSTNAME_OVERRIDE", envVar.Name,
-			"MDB_BACKUP_HOSTNAME_OVERRIDE env var should NOT be present when backup agents exist")
+		assert.NotEqual(t, construct.BackupHostnameOverrideEnv, envVar.Name,
+			construct.BackupHostnameOverrideEnv+" env var should NOT be present when backup agents exist")
 	}
 }
 
@@ -1698,9 +1698,9 @@ func TestBackupHostnameOverride_DisabledWithoutExternalDomain(t *testing.T) {
 	}
 	require.NotNil(t, databaseContainer, "database container should exist")
 
-	// Check that MDB_BACKUP_HOSTNAME_OVERRIDE env var is NOT present
+	// Check that BackupHostnameOverrideEnv env var is NOT present
 	for _, envVar := range databaseContainer.Env {
-		assert.NotEqual(t, "MDB_BACKUP_HOSTNAME_OVERRIDE", envVar.Name,
-			"MDB_BACKUP_HOSTNAME_OVERRIDE env var should NOT be present without external domain")
+		assert.NotEqual(t, construct.BackupHostnameOverrideEnv, envVar.Name,
+			construct.BackupHostnameOverrideEnv+" env var should NOT be present without external domain")
 	}
 }

@@ -389,7 +389,7 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 	}
 }
 
-// TestBackupHostnameOverrideEnvVar verifies the MDB_BACKUP_HOSTNAME_OVERRIDE env var is set correctly based on external domain and override settings.
+// TestBackupHostnameOverrideEnvVar verifies the BackupHostnameOverrideEnv env var is set correctly based on external domain and override settings.
 func TestBackupHostnameOverrideEnvVar(t *testing.T) {
 	tests := []struct {
 		name                         string
@@ -446,13 +446,13 @@ func TestBackupHostnameOverrideEnvVar(t *testing.T) {
 			require.NotEqual(t, -1, containerIdx, "database container should exist")
 
 			envMap := env.ToMap(sts.Spec.Template.Spec.Containers[containerIdx].Env...)
-			val, ok := envMap["MDB_BACKUP_HOSTNAME_OVERRIDE"]
+			val, ok := envMap[BackupHostnameOverrideEnv]
 
 			if tc.expectEnvVar {
-				assert.True(t, ok, "MDB_BACKUP_HOSTNAME_OVERRIDE should be present")
+				assert.True(t, ok, BackupHostnameOverrideEnv+" should be present")
 				assert.Equal(t, "true", val)
 			} else {
-				assert.False(t, ok, "MDB_BACKUP_HOSTNAME_OVERRIDE should NOT be present")
+				assert.False(t, ok, BackupHostnameOverrideEnv+" should NOT be present")
 			}
 		})
 	}

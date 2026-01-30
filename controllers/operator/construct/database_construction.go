@@ -68,6 +68,9 @@ const (
 	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
 	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
 	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
+
+	// BackupHostnameOverrideEnv triggers the -backupOverrideLocalHost flag in agent-launcher.sh
+	BackupHostnameOverrideEnv = "MDB_BACKUP_HOSTNAME_OVERRIDE"
 )
 
 type StsType int
@@ -811,7 +814,7 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		databaseContainerModifications = append(databaseContainerModifications, hostnameOverrideModification)
 		if opts.EnableBackupHostnameOverride {
 			backupOverrideEnv := container.WithEnvs(corev1.EnvVar{
-				Name:  "MDB_BACKUP_HOSTNAME_OVERRIDE",
+				Name:  BackupHostnameOverrideEnv,
 				Value: "true",
 			})
 			databaseContainerModifications = append(databaseContainerModifications, backupOverrideEnv)
