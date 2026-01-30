@@ -70,6 +70,7 @@ type MockedOmConnection struct {
 
 	ReadAutomationStatusFunc func() (*AutomationStatus, error)
 	ReadAutomationAgentsFunc func(int) (Paginated, error)
+	ReadBackupAgentsFunc     func(int) (Paginated, error)
 
 	numRequestsSent         int
 	AgentAPIKey             string
@@ -488,6 +489,15 @@ func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, erro
 	}
 
 	return AutomationAgentStatusResponse{AutomationAgents: results}, nil
+}
+
+func (oc *MockedOmConnection) ReadBackupAgents(pageNum int) (Paginated, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadBackupAgents))
+	if oc.ReadBackupAgentsFunc != nil {
+		return oc.ReadBackupAgentsFunc(pageNum)
+	}
+	// Default: return empty response (no backup agents)
+	return AutomationAgentStatusResponse{OMPaginated: OMPaginated{TotalCount: 0}}, nil
 }
 
 func (oc *MockedOmConnection) GetHosts() (*host.Result, error) {
