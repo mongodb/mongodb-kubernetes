@@ -144,6 +144,21 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "'s3SecretRef' must be specified if not using IRSA (S3 Store: test)",
 			expectedPart:         status.OpsManager,
 		},
+		"Invalid S3 Store config - objectLock enabled for version older than 8.0.19": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.18").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLock: true}).
+				Build(),
+			expectedErrorMessage: "'objectLock' can be enabled only for Ops Manager versions >= 8.0.19 (S3 Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Valid S3 Store config - objectLock enabled for version newer than 8.0.19": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.19").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLock: true}).
+				Build(),
+			expectedPart: status.None,
+		},
 		"Valid S3 Store config - no s3SecretRef if irsaEnabled": {
 			testedOm: NewOpsManagerBuilderDefault().
 				AddS3SnapshotStore(S3Config{Name: "test", IRSAEnabled: true}).
@@ -169,6 +184,14 @@ func TestOpsManagerValidation(t *testing.T) {
 				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{}}).
 				Build(),
 			expectedErrorMessage: "'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid S3 OpLog Store config - objectLock enabled for s3 oplog": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.18").
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLock: true}).
+				Build(),
+			expectedErrorMessage: "'objectLock' cannot be enabled for OpLog S3 Stores (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
 		},
 		"Valid S3 OpLog Store config - no s3SecretRef if irsaEnabled": {
