@@ -71,6 +71,14 @@ class AwsS3Client:
         extraArgs = {"ACL": "public-read"} if public_read else None
         self.s3_client.upload_file(file_path, bucket, object_name, extraArgs)
 
+    def enable_versioning(self, name: str):
+        self.s3_client.put_bucket_versioning(Bucket=name, VersioningConfiguration={"Status": "Enabled"})
+
+    def put_object_lock(self, name: str):
+        self.s3_client.put_object_lock_configuration(
+            Bucket=name, ObjectLockConfiguration={"ObjectLockEnabled": "Enabled"}
+        )
+
 
 def s3_endpoint(aws_region: str) -> str:
     return f"s3.{aws_region}.amazonaws.com"

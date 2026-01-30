@@ -51,7 +51,7 @@ spec:
   # and specify some port: 'port: 32400'. Don't forget to open it in AWS)
   configuration:
     # this property is critical to make backup S3 work in OM 4.2.10 and 4.2.12
-    brs.s3.validation.testing: disabled
+#    brs.s3.validation.testing: disabled
 
     automation.versions.source: mongodb
     mms.adminEmailAddr: cloud-manager-support@mongodb.com

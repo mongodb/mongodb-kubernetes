@@ -5,6 +5,7 @@ import kubernetes.client
 from kubernetes import client
 from kubetester import try_load, wait_until
 from kubetester.awss3client import AwsS3Client
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
@@ -19,6 +20,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     create_aws_secret,
     create_s3_bucket,
     new_om_data_store,
+    new_om_s3_store,
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
@@ -132,24 +134,22 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.assert_appdb_monitoring_group_was_created()
 
-        # TODO uncomment when CLOUDP-70468 is fixed and AppDB supports scram-sha-256
-        # making sure the s3 config pushed to OM references the appdb
-        # appdb_replica_set = ops_manager.get_appdb_resource()
-        # appdb_password = KubernetesTester.read_secret(
-        #     ops_manager.namespace, ops_manager.app_db_password_secret_name()
-        # )["password"]
-        # om_tester.assert_s3_stores(
-        #     [
-        #         new_om_s3_store(
-        #             appdb_replica_set,
-        #             "s3Store1",
-        #             s3_bucket,
-        #             aws_s3_client,
-        #             user_name=DEFAULT_APPDB_USER_NAME,
-        #             password=appdb_password,
-        #         )
-        #     ]
-        # )
+        appdb_replica_set = ops_manager.get_appdb_resource()
+        appdb_password = KubernetesTester.read_secret(ops_manager.namespace, ops_manager.app_db_password_secret_name())[
+            "password"
+        ]
+        om_tester.assert_s3_stores(
+            [
+                new_om_s3_store(
+                    appdb_replica_set,
+                    "s3Store1",
+                    s3_bucket,
+                    aws_s3_client,
+                    user_name=DEFAULT_APPDB_USER_NAME,
+                    password=appdb_password,
+                )
+            ]
+        )
 
     def test_enable_external_connectivity(self, ops_manager: MongoDBOpsManager, namespace: str):
         ops_manager.load()
