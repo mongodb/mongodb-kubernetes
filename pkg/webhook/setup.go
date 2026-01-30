@@ -239,8 +239,8 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 		}
 	}
 	if err != nil {
-		log.Warnf("Failed to configure admission webhooks. The operator might not have necessary permissions anymore. " +
-			"Admission webhooks might not work correctly. Ignore this error if the cluster role for the operator was removed deliberately.")
+		log.Warnf("Failed to configure admission webhooks. The operator might not have necessary permissions anymore. "+
+			"Admission webhooks might not work correctly. Ignore this error if the cluster role for the operator was removed deliberately. Error: %s", err)
 		return nil
 	}
 	log.Debugf("Configured ValidatingWebhookConfiguration %s", webhookConfig.Name)
