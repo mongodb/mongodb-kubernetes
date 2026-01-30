@@ -234,7 +234,7 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 		// client.Update results in internal K8s error "Invalid value: 0x0: must be specified for an update"
 		// (see https://github.com/kubernetes/kubernetes/issues/80515)
 		// this fixed in K8s 1.16.0+
-		if err = client.Delete(context.Background(), &webhookConfig); err == nil {
+		if err = client.Delete(ctx, &webhookConfig); err == nil {
 			err = client.Create(ctx, &webhookConfig)
 		}
 	}
