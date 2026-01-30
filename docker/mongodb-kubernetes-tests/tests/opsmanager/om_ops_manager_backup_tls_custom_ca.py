@@ -299,8 +299,7 @@ class TestBackupForMongodb:
     def test_backup_agents_use_external_hostnames(
         self, ops_manager: MongoDBOpsManager, mdb_external_domain: MongoDB
     ):
-        """Verify backup agents report external hostname when externalDomain is configured.
-        """
+        """CLOUDP-319138: Backup agents should report external hostnames, not internal ones."""
         om_tester = ops_manager.get_om_tester(project_name="externalDomain")
         backup_agents = om_tester.api_read_backup_agents()
 
