@@ -10,6 +10,7 @@ from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.mongodb_tools_pod.mongodb_tools_pod import get_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.search_constants import (
     ADMIN_USER_NAME,
@@ -215,13 +216,15 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
             pod_parameters.append(f"pod {idx} setParameter: {set_parameter}")
 
         newline = "\n"
-        return parameters_are_set, f'Not all pods have mongot parameters set:\n{newline.join(pod_parameters)}'
+        return parameters_are_set, f"Not all pods have mongot parameters set:\n{newline.join(pod_parameters)}"
 
     run_periodically(check_mongod_parameters, timeout=600)
 
 
 @mark.e2e_search_enterprise_x509_cluster_auth
-def test_search_restore_sample_database(mdb: MongoDB):
+def test_search_restore_sample_database(
+    mdb: MongoDB,
+):
     get_admin_sample_movies_helper(mdb).restore_sample_database()
 
 
@@ -237,12 +240,15 @@ def test_search_assert_search_query(mdb: MongoDB):
 
 def get_admin_sample_movies_helper(mdb):
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester.for_replicaset(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True,
-                                    ca_path=get_issuer_ca_filepath())
+        SearchTester.for_replicaset(
+            mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()
+        ),
+        tools_pod=get_tools_pod(mdb.namespace),
     )
 
 
 def get_user_sample_movies_helper(mdb):
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester.for_replicaset(mdb, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath())
+        SearchTester.for_replicaset(mdb, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()),
+        tools_pod=get_tools_pod(mdb.namespace),
     )
