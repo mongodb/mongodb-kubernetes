@@ -2,6 +2,20 @@ from shrub.v2 import BuildVariant, ShrubProject, TaskGroup
 from shrub.v2.command import FunctionCall, gotest_parse_files
 from shrub.v2.task import Task
 
+
+class RetryableFunctionCall(FunctionCall):
+    """FunctionCall with retry_on_failure support."""
+
+    def __init__(self, name: str, retry_on_failure: bool = False):
+        super().__init__(name)
+        self._retry_on_failure = retry_on_failure
+
+    def as_dict(self):
+        d = super().as_dict()
+        if self._retry_on_failure:
+            d["retry_on_failure"] = True
+        return d
+
 # Define the list of dynamically generated task names
 task_names = [
     "replica_set",
@@ -42,7 +56,7 @@ for task_name in task_names:
     task = Task(
         name=task_name,
         commands=[
-            FunctionCall(name="e2e_test"),
+            RetryableFunctionCall(name="e2e_test", retry_on_failure=True),
         ],
     )
     tasks.append(task)
