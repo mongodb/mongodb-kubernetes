@@ -204,6 +204,7 @@ const (
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
+	MdbWebhookNameEnv                  = "MDB_WEBHOOK_NAME"
 
 	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
 
