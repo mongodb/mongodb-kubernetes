@@ -394,6 +394,13 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return reconcileResult, err
 	}
 
+	// Check if this is a ReplicaSet resource - skip reconciliation for other resource types
+	// This is needed because the MongoDBSearch watch can trigger reconciliation for any MongoDB resource
+	if rs.Spec.ResourceType != mdbv1.ReplicaSet {
+		log.Debugf("Skipping reconciliation for non-ReplicaSet resource type: %s", rs.Spec.ResourceType)
+		return reconcile.Result{}, nil
+	}
+
 	// Create helper for THIS reconciliation
 	helper, err := r.newReconcilerHelper(ctx, rs, log)
 	if err != nil {
