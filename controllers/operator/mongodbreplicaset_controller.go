@@ -588,8 +588,9 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 	// CRITICAL: Only enable for NEW deployments. Enabling on existing deployments
 	// with registered backup agents causes issues (see CLOUDP-260397).
 	// Checks: (1) already enabled in StatefulSet, or (2) no backup agents registered yet.
+	// Version gate: The -backupOverrideLocalHost flag requires agent v13.26.0+ (OM 7.0+).
 	enableBackupHostnameOverride := false
-	if r.resource.Spec.HasExternalDomain() {
+	if r.resource.Spec.HasExternalDomain() && isBackupHostnameOverrideSupported(conn) {
 		alreadyEnabled, err := r.backupEnvVarAlreadyInSts(ctx)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to check existing StatefulSet for backup env var: %w", err)
