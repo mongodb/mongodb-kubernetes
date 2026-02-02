@@ -12,4 +12,5 @@ source scripts/funcs/install
 jq_arch=$(detect_architecture "jq")
 echo "Detected architecture: ${jq_arch}"
 
-download_and_install_binary "${PROJECT_DIR:-${workdir}}/bin" jq "https://github.com/stedolan/jq/releases/download/jq-1.8.1/jq-linux-${jq_arch}"
+# Use jqlang/jq (canonical repo) directly to avoid redirect from stedolan/jq
+download_and_install_binary "${PROJECT_DIR:-${workdir}}/bin" jq "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-${jq_arch}"

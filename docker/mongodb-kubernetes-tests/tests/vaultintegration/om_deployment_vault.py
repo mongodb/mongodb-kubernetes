@@ -1,4 +1,3 @@
-import time
 from typing import Optional
 
 import pytest
@@ -8,7 +7,7 @@ from kubetester import create_configmap, create_secret, delete_secret, get_state
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, assert_container_count_with_static
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import get_pods, is_default_architecture_static
+from kubetester.kubetester import get_pods, is_default_architecture_static, run_periodically
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
@@ -323,16 +322,18 @@ def test_rotate_appdb_certs(
     vault_name: str,
     namespace: str,
 ):
-    omTries = 10
-    while omTries > 0:
+    secret_name = f"appdb-{ops_manager.name}-db-cert"
+    old_version = None
+
+    def annotation_exists():
+        nonlocal old_version
         ops_manager.load()
-        secret_name = f"appdb-{ops_manager.name}-db-cert"
-        if secret_name not in ops_manager["metadata"]["annotations"]:
-            omTries -= 1
-            time.sleep(30)
-            continue
-        old_version = ops_manager["metadata"]["annotations"][secret_name]
-        break
+        if secret_name in ops_manager["metadata"]["annotations"]:
+            old_version = ops_manager["metadata"]["annotations"][secret_name]
+            return True
+        return False
+
+    run_periodically(annotation_exists, timeout=300, msg=f"annotation {secret_name} to appear")
 
     cmd = [
         "vault",
@@ -344,11 +345,8 @@ def test_rotate_appdb_certs(
 
     run_command_in_vault(vault_namespace, vault_name, cmd, ["version"])
 
-    tries = 30
-    while tries > 0:
+    def annotation_changed():
         ops_manager.load()
-        if old_version != ops_manager["metadata"]["annotations"][secret_name]:
-            return
-        tries -= 1
-        time.sleep(30)
-    pytest.fail("Not reached new annotation")
+        return old_version != ops_manager["metadata"]["annotations"][secret_name]
+
+    run_periodically(annotation_changed, timeout=900, msg="annotation to change after vault patch")

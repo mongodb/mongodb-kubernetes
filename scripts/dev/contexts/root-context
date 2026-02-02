@@ -154,5 +154,6 @@ export RELEASE_INITIAL_VERSION="1.3.0"
 export CLUSTER_TYPE=kind
 export OPERATOR_CLUSTER_SCOPED=false
 
-# for downloading helm binaries
+# for downloading helm and kubectl binaries
 export HELM_VERSION="v3.19.4"
+export KUBECTL_VERSION="v1.35.0"
