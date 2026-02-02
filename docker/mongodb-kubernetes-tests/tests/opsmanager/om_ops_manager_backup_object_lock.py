@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 
-from kubetester import try_load, run_periodically
+from kubetester import run_periodically, try_load
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
