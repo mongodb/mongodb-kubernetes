@@ -1229,6 +1229,7 @@ task_groups:
     tasks:
       - e2e_search_enterprise_tls
       - e2e_search_enterprise_x509_cluster_auth
+      - e2e_om_ops_manager_backup_object_lock
     <<: *teardown_group
 
   # Tests features only supported on OM70 and OM80, its only upgrade test as we test upgrading from 6 to 7 or 7 to 8
