@@ -16,19 +16,12 @@ import (
 )
 
 // ShardedEnterpriseSearchSource implements SearchSourceDBResource for sharded MongoDB clusters.
-// It provides per-shard host seeds and configuration for the sharded Search + external L7 LB PoC.
-//
-// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
-// - spec.lb.mode == External
-// - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
-// We map shardName -> endpoint and configure each mongod shard
-// to use its shard-local external LB endpoint for Search gRPC.
+// It provides per-shard host seeds and external LB endpoint mapping.
 type ShardedEnterpriseSearchSource struct {
 	*mdbv1.MongoDB
 	search *searchv1.MongoDBSearch
 }
 
-// NewShardedEnterpriseSearchSource creates a new ShardedEnterpriseSearchSource for a sharded MongoDB cluster.
 func NewShardedEnterpriseSearchSource(mdb *mdbv1.MongoDB, search *searchv1.MongoDBSearch) *ShardedEnterpriseSearchSource {
 	return &ShardedEnterpriseSearchSource{
 		MongoDB: mdb,
@@ -36,7 +29,6 @@ func NewShardedEnterpriseSearchSource(mdb *mdbv1.MongoDB, search *searchv1.Mongo
 	}
 }
 
-// GetShardNames returns the list of shard names for this sharded cluster.
 func (r *ShardedEnterpriseSearchSource) GetShardNames() []string {
 	shardNames := make([]string, r.Spec.ShardCount)
 	for i := 0; i < r.Spec.ShardCount; i++ {
@@ -45,13 +37,10 @@ func (r *ShardedEnterpriseSearchSource) GetShardNames() []string {
 	return shardNames
 }
 
-// GetShardCount returns the number of shards in this cluster.
 func (r *ShardedEnterpriseSearchSource) GetShardCount() int {
 	return r.Spec.ShardCount
 }
 
-// HostSeedsForShard returns the host seeds for a specific shard.
-// These are the mongod hosts that mongot will connect to for data synchronization.
 func (r *ShardedEnterpriseSearchSource) HostSeedsForShard(shardIdx int) []string {
 	shardName := r.ShardRsName(shardIdx)
 	members := r.Spec.MongodsPerShardCount
@@ -67,8 +56,7 @@ func (r *ShardedEnterpriseSearchSource) HostSeedsForShard(shardIdx int) []string
 	return seeds
 }
 
-// HostSeeds returns the host seeds for the first shard (for backward compatibility).
-// For sharded clusters, use HostSeedsForShard instead.
+// HostSeeds returns the host seeds for the first shard for backward compatibility.
 func (r *ShardedEnterpriseSearchSource) HostSeeds() []string {
 	if r.Spec.ShardCount > 0 {
 		return r.HostSeedsForShard(0)
@@ -76,16 +64,12 @@ func (r *ShardedEnterpriseSearchSource) HostSeeds() []string {
 	return nil
 }
 
-// MongosHostAndPort returns the mongos host:port for the sharded cluster.
-// This is used for the router section in mongot config.
 func (r *ShardedEnterpriseSearchSource) MongosHostAndPort() string {
 	clusterDomain := r.Spec.GetClusterDomain()
 	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
-	// Format: <serviceName>.<namespace>.svc.<clusterDomain>:<port>
 	return fmt.Sprintf("%s.%s.svc.%s:%d", r.ServiceName(), r.Namespace, clusterDomain, port)
 }
 
-// TLSConfig returns the TLS configuration for the sharded cluster.
 func (r *ShardedEnterpriseSearchSource) TLSConfig() *TLSSourceConfig {
 	if !r.Spec.Security.IsTLSEnabled() {
 		return nil
@@ -102,12 +86,10 @@ func (r *ShardedEnterpriseSearchSource) TLSConfig() *TLSSourceConfig {
 	}
 }
 
-// KeyfileSecretName returns the keyfile secret name for the sharded cluster.
 func (r *ShardedEnterpriseSearchSource) KeyfileSecretName() string {
 	return fmt.Sprintf("%s-%s", r.Name, MongotKeyfileFilename)
 }
 
-// Validate validates that the MongoDB resource is suitable for sharded Search.
 func (r *ShardedEnterpriseSearchSource) Validate() error {
 	version, err := semver.ParseTolerant(util.StripEnt(r.Spec.GetMongoDBVersion()))
 	if err != nil {
@@ -152,8 +134,6 @@ func (r *ShardedEnterpriseSearchSource) Validate() error {
 	return nil
 }
 
-// GetExternalLBEndpointForShard returns the external LB endpoint for a specific shard.
-// Returns empty string if not configured.
 func (r *ShardedEnterpriseSearchSource) GetExternalLBEndpointForShard(shardName string) string {
 	if r.search == nil || !r.search.IsShardedExternalLB() {
 		return ""
@@ -162,17 +142,14 @@ func (r *ShardedEnterpriseSearchSource) GetExternalLBEndpointForShard(shardName 
 	return endpointMap[shardName]
 }
 
-// GetMongoDB returns the underlying MongoDB resource.
 func (r *ShardedEnterpriseSearchSource) GetMongoDB() *mdbv1.MongoDB {
 	return r.MongoDB
 }
 
-// GetSearch returns the MongoDBSearch resource.
 func (r *ShardedEnterpriseSearchSource) GetSearch() *searchv1.MongoDBSearch {
 	return r.search
 }
 
-// IsShardedSource returns true indicating this is a sharded search source.
 func (r *ShardedEnterpriseSearchSource) IsShardedSource() bool {
 	return true
 }
