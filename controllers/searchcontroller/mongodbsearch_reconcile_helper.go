@@ -632,23 +632,12 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 		return nil, nil, err
 	}
 
-	// Determine TLS mode based on whether CA is configured for mTLS
-	tlsMode := mongot.ConfigTLSModeTLS
-	var caPath *string
-	if r.mdbSearch.IsMTLSEnabled() {
-		tlsMode = mongot.ConfigTLSModeMTLS
-		caPath = ptr.To(tls.IngressCAMountPath + "ca.crt")
-	}
-
 	mongotModification := func(config *mongot.Config) {
 		certPath := tls.OperatorSecretMountPath + certFileName
-		config.Server.Grpc.TLS.Mode = tlsMode
+		config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeTLS
 		config.Server.Grpc.TLS.CertificateKeyFile = ptr.To(certPath)
-		if caPath != nil {
-			config.Server.Grpc.TLS.CertificateAuthorityFile = caPath
-		}
 		if config.Server.Wireproto != nil {
-			config.Server.Wireproto.TLS.Mode = tlsMode
+			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
 			config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
 		}
 	}
@@ -656,23 +645,10 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	tlsSecret := r.mdbSearch.TLSOperatorSecretNamespacedName()
 	tlsVolume := statefulset.CreateVolumeFromSecret("tls", tlsSecret.Name)
 	tlsVolumeMount := statefulset.CreateVolumeMount("tls", tls.OperatorSecretMountPath, statefulset.WithReadOnly(true))
-
-	volumes := []corev1.Volume{tlsVolume}
-	volumeMounts := []corev1.VolumeMount{tlsVolumeMount}
-
-	// Add CA volume if mTLS is enabled
-	if r.mdbSearch.IsMTLSEnabled() {
-		caSecret := r.mdbSearch.TLSCASecretNamespacedName()
-		caVolume := statefulset.CreateVolumeFromSecret("ingress-ca", caSecret.Name)
-		caVolumeMount := statefulset.CreateVolumeMount("ingress-ca", tls.IngressCAMountPath, statefulset.WithReadOnly(true))
-		volumes = append(volumes, caVolume)
-		volumeMounts = append(volumeMounts, caVolumeMount)
-	}
-
 	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
-		podtemplatespec.WithVolumes(volumes),
+		podtemplatespec.WithVolume(tlsVolume),
 		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
-			container.WithVolumeMounts(volumeMounts),
+			container.WithVolumeMounts([]corev1.VolumeMount{tlsVolumeMount}),
 		)),
 	))
 

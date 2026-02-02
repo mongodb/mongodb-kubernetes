@@ -193,12 +193,6 @@ type TLS struct {
 	// The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
 	// This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
 	CertificateKeySecret corev1.LocalObjectReference `json:"certificateKeySecretRef"`
-
-	// CA is a reference to a Secret containing the CA certificate used to validate client certificates for mTLS.
-	// The CA certificate is expected to be PEM encoded and available at the "ca.crt" key.
-	// When specified, mTLS will be enabled and mongot will require clients (mongod) to present valid certificates.
-	// +optional
-	CA *corev1.LocalObjectReference `json:"ca,omitempty"`
 }
 
 type MongoDBSearchStatus struct {
@@ -338,19 +332,6 @@ func (s *MongoDBSearch) TLSSecretNamespacedName() types.NamespacedName {
 // containing the combined certificate and key.
 func (s *MongoDBSearch) TLSOperatorSecretNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-certificate-key", Namespace: s.Namespace}
-}
-
-// TLSCASecretNamespacedName will get the namespaced name of the Secret containing the CA certificate for mTLS
-func (s *MongoDBSearch) TLSCASecretNamespacedName() types.NamespacedName {
-	if s.Spec.Security.TLS == nil || s.Spec.Security.TLS.CA == nil {
-		return types.NamespacedName{}
-	}
-	return types.NamespacedName{Name: s.Spec.Security.TLS.CA.Name, Namespace: s.Namespace}
-}
-
-// IsMTLSEnabled returns true if mTLS is enabled (CA is configured)
-func (s *MongoDBSearch) IsMTLSEnabled() bool {
-	return s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CA != nil
 }
 
 func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
