@@ -1,7 +1,14 @@
 export K8S_CTX="kind-kind"
 
 # patch id from evergreen patch
-version_id="6969124ffd1e5d00076895fa"
+version_id="6978c1cad34f0000071b3126"
+
+# Cloud Manager configuration - using cloud-qa.mongodb.com
+export OPS_MANAGER_API_URL="https://cloud-qa.mongodb.com"
+export OPS_MANAGER_API_USER="${OPS_MANAGER_API_USER:-}"
+export OPS_MANAGER_API_KEY="${OPS_MANAGER_API_KEY:-}"
+export OPS_MANAGER_ORG_ID="${OPS_MANAGER_ORG_ID:-}"
+export OPS_MANAGER_PROJECT_NAME="mongodb-test-${MDB_RESOURCE_NAME:-mdb-sh}"
 
 #search_image_repo="268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
 #search_image_hash="fbd60fb055dd500058edcb45677ea85d19421f47"
@@ -32,5 +39,6 @@ SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
 
 OPERATOR_ADDITIONAL_HELM_VALUES="$(echo -n "${helm_values[@]}" | tr ' ' ',')"
 export OPERATOR_ADDITIONAL_HELM_VALUES
-OPERATOR_HELM_CHART="$(realpath "${SCRIPT_DIR}/../../helm_chart")"
+# Use the helm_chart directory relative to the repo root
+OPERATOR_HELM_CHART="$(realpath "${SCRIPT_DIR}/../../../helm_chart")"
 export OPERATOR_HELM_CHART
