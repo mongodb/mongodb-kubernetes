@@ -74,6 +74,9 @@ class AwsS3Client:
     def enable_versioning(self, name: str):
         self.s3_client.put_bucket_versioning(Bucket=name, VersioningConfiguration={"Status": "Enabled"})
 
+    def get_versioning(self, name: str):
+        return self.s3_client.get_bucket_versioning(Bucket=name)
+
     def put_object_lock(self, name: str):
         self.s3_client.put_object_lock_configuration(
             Bucket=name, ObjectLockConfiguration={"ObjectLockEnabled": "Enabled"}

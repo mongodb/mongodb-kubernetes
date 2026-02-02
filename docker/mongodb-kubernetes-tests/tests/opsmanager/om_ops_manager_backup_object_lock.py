@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 
-from kubetester import try_load
+from kubetester import try_load, run_periodically
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -136,6 +136,14 @@ class TestOpsManagerCreation:
 
     def test_enable_versioning_and_object_lock_on_bucket(self, s3_bucket: str, aws_s3_client: AwsS3Client):
         aws_s3_client.enable_versioning(s3_bucket)
+
+        def versioning_is_enabled():
+            return aws_s3_client.get_versioning(s3_bucket)["Status"] == "Enabled"
+
+        # We need to ensure that versioning is set before enabling object lock
+        run_periodically(versioning_is_enabled, timeout=300)
+
+    def test_enable_object_lock(self, s3_bucket: str, aws_s3_client: AwsS3Client):
         aws_s3_client.put_object_lock(s3_bucket)
 
     def test_om_passes_validations(self, ops_manager: MongoDBOpsManager):
