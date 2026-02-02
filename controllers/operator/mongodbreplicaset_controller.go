@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -583,16 +584,27 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		databaseSecretPath = reconciler.VaultClient.DatabaseSecretPath()
 	}
 
-	// If external domain and no backup agent, add env var
+	// Determine if backup hostname override should be enabled.
+	// CRITICAL: Only enable for NEW deployments. Enabling on existing deployments
+	// with registered backup agents causes issues (see CLOUDP-260397).
+	// Checks: (1) already enabled in StatefulSet, or (2) no backup agents registered yet.
 	enableBackupHostnameOverride := false
 	if r.resource.Spec.HasExternalDomain() {
-		// We don't need any other page than the first one to check for existence. Pages are 1-based
-		backupAgents, err := conn.ReadBackupAgents(1)
+		alreadyEnabled, err := r.backupEnvVarAlreadyInSts(ctx)
 		if err != nil {
-			return nil, xerrors.Errorf("impossible to retrieve backup agents, : %w", err)
+			return nil, xerrors.Errorf("failed to check existing StatefulSet for backup env var: %w", err)
 		}
-		// If no backup agents exist, it is safe to set the external hostname.
-		enableBackupHostnameOverride = backupAgents.ItemsCount() == 0
+		if alreadyEnabled {
+			enableBackupHostnameOverride = true
+		} else {
+			// We don't need any other page than the first one to check for existence. Pages are 1-based
+			backupAgents, err := conn.ReadBackupAgents(1)
+			if err != nil {
+				return nil, xerrors.Errorf("impossible to retrieve backup agents: %w", err)
+			}
+			// If no backup agents exist, it is safe to set the external hostname.
+			enableBackupHostnameOverride = backupAgents.ItemsCount() == 0
+		}
 	}
 
 	// Determine automation agent version for static architecture
@@ -632,6 +644,38 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 	)
 
 	return rsConfig, nil
+}
+
+func (r *ReplicaSetReconcilerHelper) backupEnvVarAlreadyInSts(ctx context.Context) (bool, error) {
+	stsNamespacedName := kube.ObjectKey(r.resource.Namespace, r.resource.Name)
+	sts, err := r.reconciler.client.GetStatefulSet(ctx, stsNamespacedName)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// New StatefulSet, env var not present yet
+			return false, nil
+		}
+		return false, err
+	}
+
+	// Determine which container to check based on architecture.
+	// In non-static, agent-launcher.sh runs in the database container.
+	// In static, agent-launcher-shim.sh (which exec's agent-launcher.sh) runs in the agent container.
+	containerName := util.DatabaseContainerName
+	if architectures.IsRunningStaticArchitecture(r.resource.GetAnnotations()) {
+		containerName = util.AgentContainerName
+	}
+
+	containerIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+		return c.Name == containerName
+	})
+	if containerIdx == -1 {
+		return false, nil
+	}
+
+	// Check if the env var is present and enabled
+	return slices.ContainsFunc(sts.Spec.Template.Spec.Containers[containerIdx].Env, func(e corev1.EnvVar) bool {
+		return e.Name == construct.BackupHostnameOverrideEnv && e.Value == "true"
+	}), nil
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
