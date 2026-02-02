@@ -388,21 +388,16 @@ func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 	return s.Spec.Prometheus
 }
 
-// IsExternalLBMode returns true if the Search resource is configured to use external L7 LB
 func (s *MongoDBSearch) IsExternalLBMode() bool {
 	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Mode == LBModeExternal
 }
 
-// IsReplicaSetExternalLB returns true if the Search resource is configured for replica set external LB
-// This is used when a single external LB endpoint is configured for a replica set deployment
 func (s *MongoDBSearch) IsReplicaSetExternalLB() bool {
 	return s.IsExternalLBMode() &&
 		s.Spec.LoadBalancer.External != nil &&
 		s.Spec.LoadBalancer.External.Endpoint != ""
 }
 
-// GetReplicaSetExternalLBEndpoint returns the external LB endpoint for replica set deployments
-// Returns empty string if not configured
 func (s *MongoDBSearch) GetReplicaSetExternalLBEndpoint() string {
 	if !s.IsReplicaSetExternalLB() {
 		return ""
@@ -410,8 +405,6 @@ func (s *MongoDBSearch) GetReplicaSetExternalLBEndpoint() string {
 	return s.Spec.LoadBalancer.External.Endpoint
 }
 
-// IsShardedExternalLB returns true if the Search resource is configured for sharded external LB
-// This is the PoC scenario: internal sharded cluster + external L7 LB with per-shard endpoints
 func (s *MongoDBSearch) IsShardedExternalLB() bool {
 	return s.IsExternalLBMode() &&
 		s.Spec.LoadBalancer.External != nil &&
@@ -419,7 +412,6 @@ func (s *MongoDBSearch) IsShardedExternalLB() bool {
 		len(s.Spec.LoadBalancer.External.Sharded.Endpoints) > 0
 }
 
-// GetShardEndpointMap returns a map of shardName -> endpoint from the sharded external LB config
 func (s *MongoDBSearch) GetShardEndpointMap() map[string]string {
 	result := make(map[string]string)
 	if !s.IsShardedExternalLB() {
@@ -431,9 +423,6 @@ func (s *MongoDBSearch) GetShardEndpointMap() map[string]string {
 	return result
 }
 
-// GetReplicas returns the number of mongot replicas to deploy
-// For ReplicaSet source: this many mongot pods total
-// For Sharded source: this many mongot pods per shard
 func (s *MongoDBSearch) GetReplicas() int {
 	if s.Spec.Source != nil && s.Spec.Source.Replicas > 0 {
 		return s.Spec.Source.Replicas
@@ -441,37 +430,30 @@ func (s *MongoDBSearch) GetReplicas() int {
 	return 1
 }
 
-// HasMultipleReplicas returns true if more than one mongot replica is configured
 func (s *MongoDBSearch) HasMultipleReplicas() bool {
 	return s.GetReplicas() > 1
 }
 
-// ShardMongotStatefulSetName returns the StatefulSet name for a specific shard's mongot deployment
 func (s *MongoDBSearch) ShardMongotStatefulSetName(shardName string) string {
 	return fmt.Sprintf("%s-mongot-%s", s.Name, shardName)
 }
 
-// ShardMongotStatefulSetNamespacedName returns the namespaced name for a specific shard's mongot StatefulSet
 func (s *MongoDBSearch) ShardMongotStatefulSetNamespacedName(shardName string) types.NamespacedName {
 	return types.NamespacedName{Name: s.ShardMongotStatefulSetName(shardName), Namespace: s.Namespace}
 }
 
-// ShardMongotServiceName returns the Service name for a specific shard's mongot deployment
 func (s *MongoDBSearch) ShardMongotServiceName(shardName string) string {
 	return fmt.Sprintf("%s-mongot-%s-svc", s.Name, shardName)
 }
 
-// ShardMongotServiceNamespacedName returns the namespaced name for a specific shard's mongot Service
 func (s *MongoDBSearch) ShardMongotServiceNamespacedName(shardName string) types.NamespacedName {
 	return types.NamespacedName{Name: s.ShardMongotServiceName(shardName), Namespace: s.Namespace}
 }
 
-// ShardMongotConfigMapName returns the ConfigMap name for a specific shard's mongot configuration
 func (s *MongoDBSearch) ShardMongotConfigMapName(shardName string) string {
 	return fmt.Sprintf("%s-mongot-%s-config", s.Name, shardName)
 }
 
-// ShardMongotConfigMapNamespacedName returns the namespaced name for a specific shard's mongot ConfigMap
 func (s *MongoDBSearch) ShardMongotConfigMapNamespacedName(shardName string) types.NamespacedName {
 	return types.NamespacedName{Name: s.ShardMongotConfigMapName(shardName), Namespace: s.Namespace}
 }
