@@ -1704,3 +1704,78 @@ func TestBackupHostnameOverride_DisabledWithoutExternalDomain(t *testing.T) {
 			construct.BackupHostnameOverrideEnv+" env var should NOT be present without external domain")
 	}
 }
+
+// TestBackupHostnameOverride_PersistsAcrossReconciliations tests that the backup hostname
+// override env var persists across multiple reconciliations, even when backup agents
+// register after the initial deployment. This prevents the bug where the env var would
+// be removed on the second reconcile when backup agents appear.
+func TestBackupHostnameOverride_PersistsAcrossReconciliations(t *testing.T) {
+	ctx := context.Background()
+	externalDomain := "mongodb.example.com"
+
+	rs := DefaultReplicaSetBuilder().SetName("test-rs").SetMembers(3).ExposedExternally(nil, nil, &externalDomain).Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	// Mutable counter - starts with no backup agents
+	backupAgentCount := 0
+
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		mockedConn := connection.(*om.MockedOmConnection)
+		mockedConn.ReadBackupAgentsFunc = func(_ int) (om.Paginated, error) {
+			return om.AutomationAgentStatusResponse{
+				OMPaginated: om.OMPaginated{TotalCount: backupAgentCount},
+			}, nil
+		}
+		mockedConn.Hostnames = []string{
+			"test-rs-0." + externalDomain,
+			"test-rs-1." + externalDomain,
+			"test-rs-2." + externalDomain,
+		}
+	})
+
+	// Helper to verify env var presence
+	verifyEnvVarPresent := func(reconcileNum int) {
+		sts := &appsv1.StatefulSet{}
+		err := kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), sts)
+		require.NoError(t, err)
+
+		var databaseContainer *corev1.Container
+		for i := range sts.Spec.Template.Spec.Containers {
+			if sts.Spec.Template.Spec.Containers[i].Name == util.DatabaseContainerName {
+				databaseContainer = &sts.Spec.Template.Spec.Containers[i]
+				break
+			}
+		}
+		require.NotNil(t, databaseContainer, "database container should exist")
+
+		var foundEnvVar bool
+		for _, envVar := range databaseContainer.Env {
+			if envVar.Name == construct.BackupHostnameOverrideEnv {
+				foundEnvVar = true
+				assert.Equal(t, "true", envVar.Value,
+					"reconcile %d: env var value should be 'true'", reconcileNum)
+				break
+			}
+		}
+		assert.True(t, foundEnvVar,
+			"reconcile %d: %s env var should be present", reconcileNum, construct.BackupHostnameOverrideEnv)
+	}
+
+	// First reconciliation: no backup agents, env var should be added
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+	verifyEnvVarPresent(1)
+
+	// Simulate backup agents registering after first reconcile
+	backupAgentCount = 3
+
+	// Second reconciliation: backup agents now exist, but env var should persist
+	// (because it's already in the StatefulSet)
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	assert.NoError(t, err)
+	verifyEnvVarPresent(2)
+
+	// Third reconciliation: env var should still persist
+	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	assert.NoError(t, err)
+	verifyEnvVarPresent(3)
+}
