@@ -762,6 +762,15 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		agentContainerModifications = append(agentContainerModifications, hostnameOverrideModification)
 		mongodContainerModifications = append(mongodContainerModifications, hostnameOverrideModification)
 		agentUtilitiesHolderModifications = append(agentUtilitiesHolderModifications, hostnameOverrideModification)
+		// In static architecture, agent-launcher-shim.sh (which exec's agent-launcher.sh) runs in the agent container.
+		// agent-launcher.sh reads this env var to set the -backupOverrideLocalHost flag.
+		if opts.EnableBackupHostnameOverride {
+			backupOverrideEnv := container.WithEnvs(corev1.EnvVar{
+				Name:  BackupHostnameOverrideEnv,
+				Value: "true",
+			})
+			agentContainerModifications = append(agentContainerModifications, backupOverrideEnv)
+		}
 	}
 
 	mods := []podtemplatespec.Modification{

@@ -395,24 +395,49 @@ func TestBackupHostnameOverrideEnvVar(t *testing.T) {
 		name                         string
 		hasExternalDomain            bool
 		enableBackupHostnameOverride bool
+		staticArchitecture           bool
 		expectEnvVar                 bool
 	}{
 		{
-			name:                         "env var present when external domain configured and override enabled",
+			name:                         "non-static: env var present when external domain configured and override enabled",
 			hasExternalDomain:            true,
 			enableBackupHostnameOverride: true,
+			staticArchitecture:           false,
 			expectEnvVar:                 true,
 		},
 		{
-			name:                         "env var absent when external domain configured but override disabled",
+			name:                         "non-static: env var absent when external domain configured but override disabled",
 			hasExternalDomain:            true,
 			enableBackupHostnameOverride: false,
+			staticArchitecture:           false,
 			expectEnvVar:                 false,
 		},
 		{
-			name:                         "env var absent when no external domain configured",
+			name:                         "non-static: env var absent when no external domain configured",
 			hasExternalDomain:            false,
 			enableBackupHostnameOverride: false,
+			staticArchitecture:           false,
+			expectEnvVar:                 false,
+		},
+		{
+			name:                         "static: env var present when external domain configured and override enabled",
+			hasExternalDomain:            true,
+			enableBackupHostnameOverride: true,
+			staticArchitecture:           true,
+			expectEnvVar:                 true,
+		},
+		{
+			name:                         "static: env var absent when external domain configured but override disabled",
+			hasExternalDomain:            true,
+			enableBackupHostnameOverride: false,
+			staticArchitecture:           true,
+			expectEnvVar:                 false,
+		},
+		{
+			name:                         "static: env var absent when no external domain configured",
+			hasExternalDomain:            false,
+			enableBackupHostnameOverride: false,
+			staticArchitecture:           true,
 			expectEnvVar:                 false,
 		},
 	}
@@ -420,6 +445,9 @@ func TestBackupHostnameOverrideEnvVar(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			mdb := mdbv1.NewReplicaSetBuilder().Build()
+			if tc.staticArchitecture {
+				mdb.Annotations = map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}
+			}
 
 			var opts func(mdbv1.MongoDB) DatabaseStatefulSetOptions
 			if tc.hasExternalDomain {
@@ -440,19 +468,26 @@ func TestBackupHostnameOverrideEnvVar(t *testing.T) {
 
 			sts := DatabaseStatefulSet(*mdb, opts, zap.S())
 
+			// In non-static architecture, the env var is in the database container (which runs agent-launcher.sh).
+			// In static architecture, the env var is in the agent container (which runs agent-launcher-shim.sh -> agent-launcher.sh).
+			containerName := util.DatabaseContainerName
+			if tc.staticArchitecture {
+				containerName = util.AgentContainerName
+			}
+
 			containerIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
-				return c.Name == util.DatabaseContainerName
+				return c.Name == containerName
 			})
-			require.NotEqual(t, -1, containerIdx, "database container should exist")
+			require.NotEqual(t, -1, containerIdx, containerName+" container should exist")
 
 			envMap := env.ToMap(sts.Spec.Template.Spec.Containers[containerIdx].Env...)
 			val, ok := envMap[BackupHostnameOverrideEnv]
 
 			if tc.expectEnvVar {
-				assert.True(t, ok, BackupHostnameOverrideEnv+" should be present")
+				assert.True(t, ok, BackupHostnameOverrideEnv+" should be present in "+containerName)
 				assert.Equal(t, "true", val)
 			} else {
-				assert.False(t, ok, BackupHostnameOverrideEnv+" should NOT be present")
+				assert.False(t, ok, BackupHostnameOverrideEnv+" should NOT be present in "+containerName)
 			}
 		})
 	}
