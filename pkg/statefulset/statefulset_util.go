@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -177,27 +176,15 @@ func AddPVCAnnotation(statefulSetToCreate *appsv1.StatefulSet) error {
 	return nil
 }
 
-// GetFilePathFromAnnotationOrDefault returns a concatenation of a default path and an annotation, or a default value
-// if the annotation is not present.
-func GetFilePathFromAnnotationOrDefault(sts appsv1.StatefulSet, key string, path string, defaultValue string) string {
-	val, ok := sts.Annotations[key]
-
-	if ok {
-		return fmt.Sprintf("%s/%s", path, val)
-	}
-
-	return defaultValue
-}
-
 // GetStatefulSetStatus returns the workflow.Status based on the status of the
 // If the StatefulSet is not ready the request will be retried in 3 seconds (instead of the default 10 seconds)
 // allowing to reach "ready" status sooner
-func GetStatefulSetStatus(ctx context.Context, namespace, name string, client kubernetesClient.Client) workflow.Status {
+func GetStatefulSetStatus(ctx context.Context, namespace, name string, expectedGeneration int64, client kubernetesClient.Client) workflow.Status {
 	set, err := client.GetStatefulSet(ctx, kube.ObjectKey(namespace, name))
 	i := 0
 
 	// Sometimes it is possible that the StatefulSet which has just been created
-	// returns a not found error when getting it too soon afterwards.
+	// returns a not found error when getting it too soon afterward.
 	for apiErrors.IsNotFound(err) && i < 10 {
 		i++
 		zap.S().Debugf("StatefulSet was not found: %s, attempt %d", err, i)
@@ -209,7 +196,7 @@ func GetStatefulSetStatus(ctx context.Context, namespace, name string, client ku
 		return workflow.Failed(err)
 	}
 
-	if statefulSetState := inspect.StatefulSet(set); !statefulSetState.IsReady() {
+	if statefulSetState := inspect.StatefulSet(set, expectedGeneration); !statefulSetState.IsReady() {
 		return workflow.Pending("%s", statefulSetState.GetMessage()).
 			WithResourcesNotReady(statefulSetState.GetResourcesNotReadyStatus()).
 			WithRetry(3)

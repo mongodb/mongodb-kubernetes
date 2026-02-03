@@ -126,6 +126,9 @@ elif [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
   agentOpts+=("-ephemeralPortOffset=1")
 fi
 
+# Remove stale health check file if exists
+rm -f "${MMS_LOG_DIR}/agent-health-status.json" 2>/dev/null || true
+
 agentOpts+=("-healthCheckFilePath=${MMS_LOG_DIR}/agent-health-status.json")
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   agentOpts+=("-useLocalMongoDbTools=true")
