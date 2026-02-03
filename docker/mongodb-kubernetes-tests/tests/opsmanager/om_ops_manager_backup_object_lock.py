@@ -138,7 +138,10 @@ class TestOpsManagerCreation:
         aws_s3_client.enable_versioning(s3_bucket)
 
         def versioning_is_enabled():
-            return aws_s3_client.get_versioning(s3_bucket)["Status"] == "Enabled"
+            try:
+                return aws_s3_client.get_versioning(s3_bucket)["Status"] == "Enabled"
+            except Exception:
+                return False
 
         # We need to ensure that versioning is set before enabling object lock
         run_periodically(versioning_is_enabled, timeout=300)
