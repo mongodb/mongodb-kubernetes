@@ -85,8 +85,8 @@ class TestShardedClusterMigrationStatic:
         mdb.load()
         assert mdb["metadata"]["annotations"]["mongodb.com/v1.architecture"] == target_architecture
 
-        mdb.assert_abandons_phase(Phase.Running, timeout=1200)
-        mdb.assert_reaches_phase(Phase.Running, timeout=1200)
+        mdb.assert_abandons_phase(Phase.Running, timeout=200)
+        mdb.assert_reaches_phase(Phase.Running, timeout=1600)
 
         # Read StatefulSet after successful reconciliation
         for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(mdb.name, mdb.namespace):
