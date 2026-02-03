@@ -836,7 +836,7 @@ func TestOpsManagerBackupObjectLock(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().
 		SetVersion("8.0.19").
 		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
-		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLock: true}).
+		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: true}).
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()

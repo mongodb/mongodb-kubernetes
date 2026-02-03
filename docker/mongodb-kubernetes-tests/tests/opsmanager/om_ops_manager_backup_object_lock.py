@@ -91,7 +91,7 @@ def ops_manager(
     resource["spec"]["backup"]["members"] = 1
 
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
-    resource["spec"]["backup"]["s3Stores"][0]["objectLock"] = True
+    resource["spec"]["backup"]["s3Stores"][0]["objectLockEnabled"] = True
 
     resource["spec"]["configuration"]["brs.immutableBackupEnabled"] = "true"
 

@@ -125,7 +125,7 @@ func NewS3Config(opsManager *omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri
 		PathStyleAccessEnabled: true,
 		AuthMethod:             string(authMode),
 		S3RegionOverride:       &s3Config.S3RegionOverride,
-		ObjectLockEnabled:      s3Config.ObjectLock,
+		ObjectLockEnabled:      s3Config.ObjectLockEnabled,
 	}
 
 	if _, err := versionutil.StringToSemverVersion(opsManager.Spec.Version); err == nil {

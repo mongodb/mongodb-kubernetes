@@ -1283,9 +1283,9 @@ spec:
                           type: object
                         name:
                           type: string
-                        objectLock:
+                        objectLockEnabled:
                           description: |-
-                            ObjectLock indicates whether S3 Object Lock is enabled for the bucket.
+                            ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
                             This should be enabled to leverage Immutable Backups.
                           type: boolean
                         pathStyleAccessEnabled:
@@ -1380,9 +1380,9 @@ spec:
                           type: object
                         name:
                           type: string
-                        objectLock:
+                        objectLockEnabled:
                           description: |-
-                            ObjectLock indicates whether S3 Object Lock is enabled for the bucket.
+                            ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
                             This should be enabled to leverage Immutable Backups.
                           type: boolean
                         pathStyleAccessEnabled:
