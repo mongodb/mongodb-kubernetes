@@ -134,7 +134,7 @@ class TestOpsManagerCreation:
             timeout=500,
         )
 
-    def test_enable_versioning_and_object_lock_on_bucket(self, s3_bucket: str, aws_s3_client: AwsS3Client):
+    def test_enable_versioning(self, s3_bucket: str, aws_s3_client: AwsS3Client):
         aws_s3_client.enable_versioning(s3_bucket)
 
         def versioning_is_enabled():
