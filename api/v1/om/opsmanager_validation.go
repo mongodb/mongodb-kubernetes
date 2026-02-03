@@ -231,7 +231,7 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	// Parse Ops Manager version for Immutable Backup validation
 	// We can ignore errors since they are already caught in validOmVersion validation
 	v, _ := versionutil.StringToSemverVersion(os.Version)
-	immutableBackupVersion, _ := semver.Make("8.0.19")
+	immutableBackupVersion := semver.MustParse(util.MinimumVersionImmutableBackup)
 
 	if len(backup.S3Configs) > 0 {
 		for _, config := range backup.S3Configs {
