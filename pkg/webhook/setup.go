@@ -234,13 +234,13 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 		// client.Update results in internal K8s error "Invalid value: 0x0: must be specified for an update"
 		// (see https://github.com/kubernetes/kubernetes/issues/80515)
 		// this fixed in K8s 1.16.0+
-		if err = client.Delete(context.Background(), &webhookConfig); err == nil {
+		if err = client.Delete(ctx, &webhookConfig); err == nil {
 			err = client.Create(ctx, &webhookConfig)
 		}
 	}
 	if err != nil {
-		log.Warnf("Failed to configure admission webhooks. The operator might not have necessary permissions anymore. " +
-			"Admission webhooks might not work correctly. Ignore this error if the cluster role for the operator was removed deliberately.")
+		log.Warnf("Failed to configure admission webhooks. The operator might not have necessary permissions anymore. "+
+			"Admission webhooks might not work correctly. Ignore this error if the cluster role for the operator was removed deliberately. Error: %s", err)
 		return nil
 	}
 	log.Debugf("Configured ValidatingWebhookConfiguration %s", webhookConfig.Name)
