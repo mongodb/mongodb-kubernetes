@@ -1561,7 +1561,7 @@ func TestPublishAutomationConfigFirstRS(t *testing.T) {
 				Build()
 			kubeClient := kubernetesClient.NewClient(fakeClient)
 
-			result := publishAutomationConfigFirstRS(ctx, kubeClient, tc.mdb, tc.lastSpec, tc.currentAgentAuthMode, tc.sslMMSCAConfigMap, zap.S())
+			result := publishAutomationConfigFirstRS(ctx, kubeClient, tc.existingSts, tc.mdb, tc.lastSpec, tc.currentAgentAuthMode, tc.sslMMSCAConfigMap, zap.S())
 
 			assert.Equal(t, tc.expectedPublishACFirst, result)
 		})

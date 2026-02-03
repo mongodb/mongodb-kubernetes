@@ -267,11 +267,40 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
 		}
 	}
+
+	// Fetch StatefulSet once for use by multiple functions below
+	existingSts, err := r.getStatefulSetIfExists(ctx)
+	if err != nil {
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to fetch existing StatefulSet: %w", err)))
+	}
+
+	// Check if we override backup agent hostname
+	// Determine if backup hostname override should be enabled.
+	// Important: It must only be enabled for NEW deployments. Enabling on existing
+	// deployments with registered backup agents causes issues (see CLOUDP-260397).
+	// Checks: (1) already enabled in StatefulSet, or (2) no backup agents registered yet.
+	// Version gate: The -backupOverrideLocalHost flag requires agent v13.26.0+ (OM 7.0+).
+	enableBackupHostnameOverride := false
+	if r.resource.Spec.HasExternalDomain() && isBackupHostnameOverrideSupported(conn) {
+		if r.backupEnvVarAlreadyInSts(existingSts) {
+			enableBackupHostnameOverride = true
+		} else {
+			// We don't need any other page than the first one to check for existence. Pages are 1-based
+			backupAgents, err := conn.ReadBackupAgents(1)
+			if err != nil {
+				return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("impossible to read agents from OM: %w", err)))
+			}
+			// If no backup agents exist, it is safe to set the external hostname.
+			enableBackupHostnameOverride = backupAgents.ItemsCount() == 0
+		}
+	}
+
 	deploymentOpts := deploymentOptionsRS{
-		prometheusCertHash:   prometheusCertHash,
-		agentCertPath:        agentCertPath,
-		agentCertHash:        agentCertHash,
-		currentAgentAuthMode: currentAgentAuthMode,
+		prometheusCertHash:           prometheusCertHash,
+		agentCertPath:                agentCertPath,
+		agentCertHash:                agentCertHash,
+		currentAgentAuthMode:         currentAgentAuthMode,
+		enableBackupHostnameOverride: enableBackupHostnameOverride,
 	}
 
 	// 3. Search Overrides
@@ -296,7 +325,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
-	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
+	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, reconciler.client, existingSts, *rs, r.deploymentState.LastAchievedSpec, deploymentOpts.currentAgentAuthMode, projectConfig.SSLMMSCAConfigMap, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
@@ -360,10 +389,11 @@ func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imag
 }
 
 type deploymentOptionsRS struct {
-	agentCertPath        string
-	agentCertHash        string
-	prometheusCertHash   string
-	currentAgentAuthMode string
+	agentCertPath                string
+	agentCertHash                string
+	prometheusCertHash           string
+	currentAgentAuthMode         string
+	enableBackupHostnameOverride bool
 }
 
 // Generic Kubernetes Resources
@@ -405,29 +435,24 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	return helper.Reconcile(ctx)
 }
 
-func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, currentAgentAuthMode string, sslMMSCAConfigMap string, log *zap.SugaredLogger) bool {
-	namespacedName := kube.ObjectKey(mdb.Namespace, mdb.Name)
-	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// No need to publish state as this is a new StatefulSet
-			log.Debugf("New StatefulSet %s", namespacedName)
-			return false
-		}
-
-		log.Debugw(fmt.Sprintf("Error getting StatefulSet %s", namespacedName), "error", err)
+// publishAutomationConfigFirstRS determines if the automation config should be published before the StatefulSet.
+// If currentSts is nil, it means the StatefulSet doesn't exist yet (new deployment).
+func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient.Client, currentSts *appsv1.StatefulSet, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, currentAgentAuthMode string, sslMMSCAConfigMap string, log *zap.SugaredLogger) bool {
+	if currentSts == nil {
+		// No need to publish state as this is a new StatefulSet
+		log.Debugf("New StatefulSet %s/%s", mdb.Namespace, mdb.Name)
 		return false
 	}
 
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
 	volumeMounts := databaseContainer.VolumeMounts
 
-	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(ctx, getter, currentSts, mdb, log) {
+	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(ctx, getter, *currentSts, mdb, log) {
 		log.Debug(automationConfigFirstMsg("security.tls.enabled", "false"))
 		return true
 	}
 
-	if mdb.Spec.Security.TLSConfig.CA == "" && wasCAConfigMapMounted(ctx, getter, currentSts, mdb, log) {
+	if mdb.Spec.Security.TLSConfig.CA == "" && wasCAConfigMapMounted(ctx, getter, *currentSts, mdb, log) {
 		log.Debug(automationConfigFirstMsg("security.tls.CA", "empty"))
 		return true
 	}
@@ -584,30 +609,6 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		databaseSecretPath = reconciler.VaultClient.DatabaseSecretPath()
 	}
 
-	// Determine if backup hostname override should be enabled.
-	// CRITICAL: Only enable for NEW deployments. Enabling on existing deployments
-	// with registered backup agents causes issues (see CLOUDP-260397).
-	// Checks: (1) already enabled in StatefulSet, or (2) no backup agents registered yet.
-	// Version gate: The -backupOverrideLocalHost flag requires agent v13.26.0+ (OM 7.0+).
-	enableBackupHostnameOverride := false
-	if r.resource.Spec.HasExternalDomain() && isBackupHostnameOverrideSupported(conn) {
-		alreadyEnabled, err := r.backupEnvVarAlreadyInSts(ctx)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to check existing StatefulSet for backup env var: %w", err)
-		}
-		if alreadyEnabled {
-			enableBackupHostnameOverride = true
-		} else {
-			// We don't need any other page than the first one to check for existence. Pages are 1-based
-			backupAgents, err := conn.ReadBackupAgents(1)
-			if err != nil {
-				return nil, xerrors.Errorf("impossible to retrieve backup agents: %w", err)
-			}
-			// If no backup agents exist, it is safe to set the external hostname.
-			enableBackupHostnameOverride = backupAgents.ItemsCount() == 0
-		}
-	}
-
 	// Determine automation agent version for static architecture
 	var automationAgentVersion string
 	if architectures.IsRunningStaticArchitecture(rs.Annotations) {
@@ -641,21 +642,28 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
-		WithBackupHostnameOverride(enableBackupHostnameOverride),
+		WithBackupHostnameOverride(deploymentOptions.enableBackupHostnameOverride),
 	)
 
 	return rsConfig, nil
 }
 
-func (r *ReplicaSetReconcilerHelper) backupEnvVarAlreadyInSts(ctx context.Context) (bool, error) {
+// getStatefulSetIfExists fetches the StatefulSet for this resource if it exists.
+// Returns nil (without error) if the StatefulSet does not exist yet.
+func (r *ReplicaSetReconcilerHelper) getStatefulSetIfExists(ctx context.Context) (*appsv1.StatefulSet, error) {
 	stsNamespacedName := kube.ObjectKey(r.resource.Namespace, r.resource.Name)
 	sts, err := r.reconciler.client.GetStatefulSet(ctx, stsNamespacedName)
 	if err != nil {
-		if errors.IsNotFound(err) {
-			// New StatefulSet, env var not present yet
-			return false, nil
-		}
-		return false, err
+		return nil, client.IgnoreNotFound(err)
+	}
+	return &sts, nil
+}
+
+// backupEnvVarAlreadyInSts checks if the backup hostname override env var is already set in the StatefulSet.
+// If sts is nil, it means the StatefulSet doesn't exist yet.
+func (r *ReplicaSetReconcilerHelper) backupEnvVarAlreadyInSts(sts *appsv1.StatefulSet) bool {
+	if sts == nil {
+		return false
 	}
 
 	// Determine which container to check based on architecture.
@@ -670,13 +678,13 @@ func (r *ReplicaSetReconcilerHelper) backupEnvVarAlreadyInSts(ctx context.Contex
 		return c.Name == containerName
 	})
 	if containerIdx == -1 {
-		return false, nil
+		return false
 	}
 
 	// Check if the env var is present and enabled
 	return slices.ContainsFunc(sts.Spec.Template.Spec.Containers[containerIdx].Env, func(e corev1.EnvVar) bool {
 		return e.Name == construct.BackupHostnameOverrideEnv && e.Value == "true"
-	}), nil
+	})
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
