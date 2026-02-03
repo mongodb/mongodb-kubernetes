@@ -1366,9 +1366,9 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 		statefulSetStatus = statefulSetStatus.Merge(workflowStatus)
 
 		if !mongosScalingFirstTime {
-			log.Debugw("Mongos StatefulSet status", "stsName", mongosSts.Name, "statusOk", statefulSetStatus.IsOK())
-			if !statefulSetStatus.IsOK() {
-				return statefulSetStatus
+			log.Debugw("Mongos StatefulSet status", "stsName", mongosSts.Name, "statusOk", workflowStatus.IsOK())
+			if !workflowStatus.IsOK() {
+				return workflowStatus
 			}
 		}
 	}
@@ -1411,7 +1411,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 
 			expectedGeneration := mutatedSts.GetGeneration()
 			workflowStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, shardSts.Name, expectedGeneration, memberCluster.Client)
-			statefulSetStatus.Merge(workflowStatus)
+			statefulSetStatus = statefulSetStatus.Merge(workflowStatus)
 
 			// If we scale for the first time, we deploy all statefulsets across all clusters for the given shard.
 			// We can do that because when doing the initial deployment there is no automation config, so we can deploy
@@ -1420,9 +1420,9 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			// and all agents are starting to wire things up and configure the replicaset.
 			// If we don't scale for the first time we need to wait for each individual sts as we need to scale members of the whole replica set one at a time
 			if !scalingFirstTime {
-				log.Debugw("Shard StatefulSet status", "stsName", shardSts.Name, "statusOk", statefulSetStatus.IsOK())
-				if !statefulSetStatus.IsOK() {
-					return statefulSetStatus
+				log.Debugw("Shard StatefulSet status", "stsName", shardSts.Name, "statusOk", workflowStatus.IsOK())
+				if !workflowStatus.IsOK() {
+					return workflowStatus
 				}
 			}
 		}
@@ -1462,12 +1462,12 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 
 		expectedGeneration := mutatedSts.GetGeneration()
 		workflowStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, configSrvSts.Name, expectedGeneration, memberCluster.Client)
-		statefulSetStatus.Merge(workflowStatus)
+		statefulSetStatus = statefulSetStatus.Merge(workflowStatus)
 
 		if !configSrvScalingFirstTime {
 			log.Debugw("Config-srv StatefulSet status", "name", configSrvSts.Name, "statusOk", workflowStatus.IsOK())
-			if !statefulSetStatus.IsOK() {
-				return statefulSetStatus
+			if !workflowStatus.IsOK() {
+				return workflowStatus
 			}
 		}
 	}
