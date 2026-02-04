@@ -98,6 +98,7 @@ functions:
   python_venv: &python_venv
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       command: scripts/dev/recreate_python_venv.sh

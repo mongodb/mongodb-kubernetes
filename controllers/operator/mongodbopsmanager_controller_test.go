@@ -1241,6 +1241,7 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 }
 
 func TestUniqueClusterNames(t *testing.T) {
+	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().Build()
 	testOm.Spec.AppDB.Topology = "MultiCluster"
 	testOm.Spec.AppDB.ClusterSpecList = mdbv1.ClusterSpecList{
@@ -1258,7 +1259,8 @@ func TestUniqueClusterNames(t *testing.T) {
 		},
 	}
 
-	_, err := testOm.ValidateCreate()
+	validator := &omv1.MongoDBOpsManagerValidator{}
+	_, err := validator.ValidateCreate(ctx, testOm)
 	require.Error(t, err)
 	assert.Equal(t, "Multiple clusters with the same name (abc) are not allowed", err.Error())
 }
