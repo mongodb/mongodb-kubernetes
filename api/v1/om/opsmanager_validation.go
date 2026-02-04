@@ -243,7 +243,7 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 			} else if config.S3SecretRef == nil || config.S3SecretRef.Name == "" {
 				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 Store: %s)", status.OpsManager, config.Name)
 			} else if config.ObjectLockEnabled && v.LT(immutableBackupVersion) {
-				return v1.OpsManagerResourceValidationError("'objectLock' can be enabled only for Ops Manager versions >= 8.0.19 (S3 Store: %s)", status.OpsManager, config.Name)
+				return v1.OpsManagerResourceValidationError("'objectLockEnabled' can be configured only for Ops Manager versions >= %s (S3 Store: %s)", status.OpsManager, util.MinimumVersionImmutableBackup, config.Name)
 			}
 		}
 	}
@@ -257,7 +257,7 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 			} else if oplogStoreConfig.S3SecretRef == nil || oplogStoreConfig.S3SecretRef.Name == "" {
 				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
 			} else if oplogStoreConfig.ObjectLockEnabled {
-				return v1.OpsManagerResourceValidationError("'objectLock' cannot be enabled for OpLog S3 Stores (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
+				return v1.OpsManagerResourceValidationError("'objectLockEnabled' cannot be configured for OpLog S3 Stores (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
 			}
 		}
 	}

@@ -149,10 +149,10 @@ func TestOpsManagerValidation(t *testing.T) {
 				SetVersion("8.0.18").
 				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: true}).
 				Build(),
-			expectedErrorMessage: "'objectLock' can be enabled only for Ops Manager versions >= 8.0.19 (S3 Store: test)",
+			expectedErrorMessage: "'objectLockEnabled' can be configured only for Ops Manager versions >= 8.0.19 (S3 Store: test)",
 			expectedPart:         status.OpsManager,
 		},
-		"Valid S3 Store config - objectLock enabled for version newer than 8.0.19": {
+		"Valid S3 Store config - objectLockEnabled set for version newer than 8.0.19": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.19").
 				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: true}).
@@ -191,7 +191,7 @@ func TestOpsManagerValidation(t *testing.T) {
 				SetVersion("8.0.19").
 				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: true}).
 				Build(),
-			expectedErrorMessage: "'objectLock' cannot be enabled for OpLog S3 Stores (S3 OpLog Store: test)",
+			expectedErrorMessage: "'objectLockEnabled' cannot be configured for OpLog S3 Stores (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
 		},
 		"Valid S3 OpLog Store config - no s3SecretRef if irsaEnabled": {
