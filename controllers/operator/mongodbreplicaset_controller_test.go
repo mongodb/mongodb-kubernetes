@@ -1734,7 +1734,7 @@ func TestBackupHostnameOverride_PersistsAcrossReconciliations(t *testing.T) {
 	})
 
 	// Helper to verify env var presence
-	verifyEnvVarPresent := func(reconcileNum int) {
+	verifyEnvVarPresent := func() {
 		sts := &appsv1.StatefulSet{}
 		err := kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), sts)
 		require.NoError(t, err)
@@ -1752,18 +1752,16 @@ func TestBackupHostnameOverride_PersistsAcrossReconciliations(t *testing.T) {
 		for _, envVar := range databaseContainer.Env {
 			if envVar.Name == construct.BackupHostnameOverrideEnv {
 				foundEnvVar = true
-				assert.Equal(t, "true", envVar.Value,
-					"reconcile %d: env var value should be 'true'", reconcileNum)
+				assert.Equal(t, "true", envVar.Value, "env var value should be 'true'")
 				break
 			}
 		}
-		assert.True(t, foundEnvVar,
-			"reconcile %d: %s env var should be present", reconcileNum, construct.BackupHostnameOverrideEnv)
+		assert.True(t, foundEnvVar, "%s env var should be present", construct.BackupHostnameOverrideEnv)
 	}
 
 	// First reconciliation: no backup agents, env var should be added
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
-	verifyEnvVarPresent(1)
+	verifyEnvVarPresent()
 
 	// Simulate backup agents registering after first reconcile
 	backupAgentCount = 3
@@ -1772,10 +1770,10 @@ func TestBackupHostnameOverride_PersistsAcrossReconciliations(t *testing.T) {
 	// (because it's already in the StatefulSet)
 	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
 	assert.NoError(t, err)
-	verifyEnvVarPresent(2)
+	verifyEnvVarPresent()
 
 	// Third reconciliation: env var should still persist
 	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
 	assert.NoError(t, err)
-	verifyEnvVarPresent(3)
+	verifyEnvVarPresent()
 }
