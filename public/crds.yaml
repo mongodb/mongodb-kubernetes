@@ -4321,6 +4321,9 @@ spec:
                   external:
                     properties:
                       hostAndPorts:
+                        description: |-
+                          HostAndPorts is the list of mongod host:port seeds for replica set sources.
+                          Mutually exclusive with Sharded.
                         items:
                           type: string
                         type: array
@@ -4334,6 +4337,45 @@ spec:
                             type: string
                         required:
                         - name
+                        type: object
+                      sharded:
+                        description: |-
+                          Sharded contains configuration for external sharded MongoDB clusters.
+                          Mutually exclusive with HostAndPorts.
+                        properties:
+                          mongosHostAndPort:
+                            description: MongosHostAndPort is the mongos router endpoint
+                              (host:port)
+                            minLength: 1
+                            type: string
+                          shards:
+                            description: Shards is the list of shard configurations
+                            items:
+                              description: ExternalShardConfig contains configuration
+                                for a single shard in an external sharded cluster
+                              properties:
+                                hostAndPorts:
+                                  description: HostAndPorts is the list of mongod
+                                    host:port seeds for this shard's replica set
+                                  items:
+                                    type: string
+                                  minItems: 1
+                                  type: array
+                                name:
+                                  description: |-
+                                    Name is the logical shard name (e.g., "shard-0").
+                                    This name is used to match with lb.external.sharded.endpoints[].shardName
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - hostAndPorts
+                              - name
+                              type: object
+                            minItems: 1
+                            type: array
+                        required:
+                        - mongosHostAndPort
+                        - shards
                         type: object
                       tls:
                         description: TLS configuration for the external MongoDB deployment

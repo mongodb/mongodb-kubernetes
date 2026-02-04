@@ -169,12 +169,43 @@ type MongoDBSource struct {
 }
 
 type ExternalMongoDBSource struct {
+	// HostAndPorts is the list of mongod host:port seeds for replica set sources.
+	// Mutually exclusive with Sharded.
+	// +optional
 	HostAndPorts []string `json:"hostAndPorts,omitempty"`
+	// Sharded contains configuration for external sharded MongoDB clusters.
+	// Mutually exclusive with HostAndPorts.
+	// +optional
+	Sharded *ExternalShardedConfig `json:"sharded,omitempty"`
 	// mongod keyfile used to connect to the external MongoDB deployment
+	// +optional
 	KeyFileSecretKeyRef *userv1.SecretKeyRef `json:"keyfileSecretRef,omitempty"`
 	// TLS configuration for the external MongoDB deployment
 	// +optional
 	TLS *ExternalMongodTLS `json:"tls,omitempty"`
+}
+
+// ExternalShardedConfig contains configuration for external sharded MongoDB clusters
+type ExternalShardedConfig struct {
+	// MongosHostAndPort is the mongos router endpoint (host:port)
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	MongosHostAndPort string `json:"mongosHostAndPort"`
+	// Shards is the list of shard configurations
+	// +kubebuilder:validation:MinItems=1
+	Shards []ExternalShardConfig `json:"shards"`
+}
+
+// ExternalShardConfig contains configuration for a single shard in an external sharded cluster
+type ExternalShardConfig struct {
+	// Name is the logical shard name (e.g., "shard-0").
+	// This name is used to match with lb.external.sharded.endpoints[].shardName
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// HostAndPorts is the list of mongod host:port seeds for this shard's replica set
+	// +kubebuilder:validation:MinItems=1
+	HostAndPorts []string `json:"hostAndPorts"`
 }
 
 type ExternalMongodTLS struct {
@@ -340,6 +371,12 @@ func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
 
 func (s *MongoDBSearch) IsExternalMongoDBSource() bool {
 	return s.Spec.Source != nil && s.Spec.Source.ExternalMongoDBSource != nil
+}
+
+// IsExternalShardedSource returns true if the source is an external sharded MongoDB cluster
+func (s *MongoDBSearch) IsExternalShardedSource() bool {
+	return s.IsExternalMongoDBSource() &&
+		s.Spec.Source.ExternalMongoDBSource.Sharded != nil
 }
 
 func (s *MongoDBSearch) GetLogLevel() mdb.LogLevel {
