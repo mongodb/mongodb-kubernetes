@@ -485,8 +485,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			Data: secretByte,
 		}
 
-		err = secret.CreateOrUpdate(ctx, memberClient, secretObject)
-		if err != nil {
+		if err := secret.CreateOrUpdate(ctx, memberClient, secretObject); err != nil {
 			return workflow.Failed(err)
 		}
 
@@ -506,8 +505,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 				automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
 				if err != nil {
 					log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
-					status := workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
-					return status
+					return workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
 				}
 			}
 		}
@@ -562,13 +560,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 
 		expectedGeneration := mutatedSts.GetGeneration()
 		statefulsetStatus := statefulset.GetStatefulSetStatus(ctx, sts.Namespace, sts.Name, expectedGeneration, memberClient)
-		workflowStatus.Merge(statefulsetStatus)
+		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 
 		// If we don't have processes defined yet, that means we are in the first deployment, and we can deploy all
 		// stateful-sets in parallel.
-		// If we have processes defined, it means we want to wait until all of them are ready.
+		// If we have processes defined, it means we want to wait until each of the statefulset is ready before moving
+		// to the next one.
 		if len(processes) > 0 {
-			// We already have processes defined, and therefore we are waiting for each of them
 			if !workflowStatus.IsOK() {
 				return workflowStatus
 			}
@@ -577,15 +575,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		}
 	}
 
-	// Running into this means we are in the first deployment/don't have processes yet.
-	// That means we have created them in parallel and now waiting for them to get ready.
-	if len(processes) == 0 {
-		if !workflowStatus.IsOK() {
-			return workflowStatus
-		}
-	}
-
-	return workflow.OK()
+	return workflowStatus
 }
 
 // updateStatusFromInnerMethod ensures to only update the status if it has been updated.
