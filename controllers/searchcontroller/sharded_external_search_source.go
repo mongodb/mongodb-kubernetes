@@ -10,13 +10,11 @@ import (
 )
 
 // ShardedExternalSearchSource implements ShardedSearchSourceDBResource for external sharded MongoDB clusters.
-// It provides per-shard host seeds for sharded clusters that are managed outside the Kubernetes cluster.
 type ShardedExternalSearchSource struct {
 	namespace string
 	spec      *searchv1.ExternalMongoDBSource
 }
 
-// NewShardedExternalSearchSource creates a new ShardedExternalSearchSource for external sharded MongoDB clusters.
 func NewShardedExternalSearchSource(namespace string, spec *searchv1.ExternalMongoDBSource) *ShardedExternalSearchSource {
 	return &ShardedExternalSearchSource{
 		namespace: namespace,
@@ -24,7 +22,6 @@ func NewShardedExternalSearchSource(namespace string, spec *searchv1.ExternalMon
 	}
 }
 
-// Validate validates the sharded external source configuration.
 func (r *ShardedExternalSearchSource) Validate() error {
 	if r.spec.Sharded == nil {
 		return xerrors.New("sharded configuration is required for ShardedExternalSearchSource")
@@ -50,7 +47,6 @@ func (r *ShardedExternalSearchSource) Validate() error {
 	return nil
 }
 
-// TLSConfig returns the TLS configuration for the external sharded source.
 func (r *ShardedExternalSearchSource) TLSConfig() *TLSSourceConfig {
 	if r.spec.TLS == nil {
 		return nil
@@ -67,7 +63,6 @@ func (r *ShardedExternalSearchSource) TLSConfig() *TLSSourceConfig {
 	}
 }
 
-// KeyfileSecretName returns the keyfile secret name for the external sharded source.
 func (r *ShardedExternalSearchSource) KeyfileSecretName() string {
 	if r.spec.KeyFileSecretKeyRef != nil {
 		return r.spec.KeyFileSecretKeyRef.Name
@@ -75,7 +70,6 @@ func (r *ShardedExternalSearchSource) KeyfileSecretName() string {
 	return ""
 }
 
-// HostSeeds returns the host seeds for the first shard for backward compatibility.
 func (r *ShardedExternalSearchSource) HostSeeds() []string {
 	if r.spec.Sharded != nil && len(r.spec.Sharded.Shards) > 0 {
 		return r.spec.Sharded.Shards[0].HostAndPorts
@@ -83,7 +77,6 @@ func (r *ShardedExternalSearchSource) HostSeeds() []string {
 	return nil
 }
 
-// GetShardCount returns the number of shards in the external sharded cluster.
 func (r *ShardedExternalSearchSource) GetShardCount() int {
 	if r.spec.Sharded == nil {
 		return 0
@@ -91,7 +84,6 @@ func (r *ShardedExternalSearchSource) GetShardCount() int {
 	return len(r.spec.Sharded.Shards)
 }
 
-// GetShardNames returns the logical names of all shards.
 func (r *ShardedExternalSearchSource) GetShardNames() []string {
 	if r.spec.Sharded == nil {
 		return nil
@@ -103,7 +95,6 @@ func (r *ShardedExternalSearchSource) GetShardNames() []string {
 	return names
 }
 
-// HostSeedsForShard returns the host seeds for a specific shard by index.
 func (r *ShardedExternalSearchSource) HostSeedsForShard(shardIdx int) []string {
 	if r.spec.Sharded == nil || shardIdx < 0 || shardIdx >= len(r.spec.Sharded.Shards) {
 		return nil
@@ -111,7 +102,6 @@ func (r *ShardedExternalSearchSource) HostSeedsForShard(shardIdx int) []string {
 	return r.spec.Sharded.Shards[shardIdx].HostAndPorts
 }
 
-// MongosHostAndPort returns the mongos router endpoint for the sharded cluster.
 func (r *ShardedExternalSearchSource) MongosHostAndPort() string {
 	if r.spec.Sharded == nil {
 		return ""
