@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+
+# Binary caching for Evergreen CI
+#
+# Files written outside the task directory persist between Evergreen runs.
+# This module provides functions to cache binaries in /opt/mck-cache/ to avoid
+# re-downloading ~600MB+ of binaries on every task run.
+#
+# Reference: https://github.com/evergreen-ci/evergreen/blob/main/docs/Project-Configuration/Task-Runtime-Behavior.md
+# "only the task directory is cleaned up - if any file is written outside the task directory, it will not be cleaned up"
+
+set -euo pipefail
+
+# Cache directory - /opt persists between Evergreen task runs
+CACHE_DIR="${MCK_CACHE_DIR:-/opt/mck-cache}"
+
+# Initialize cache directory with appropriate permissions
+# Returns 0 if cache is usable, 1 if caching should be skipped
+init_cache_dir() {
+    # Skip caching if explicitly disabled
+    if [[ "${SKIP_BINARY_CACHE:-}" == "1" ]]; then
+        return 1
+    fi
+
+    # Try to create cache directory if it doesn't exist
+    if [[ ! -d "$CACHE_DIR" ]]; then
+        if sudo mkdir -p "$CACHE_DIR" 2>/dev/null; then
+            sudo chmod 777 "$CACHE_DIR" 2>/dev/null || true
+        elif mkdir -p "$CACHE_DIR" 2>/dev/null; then
+            : # Directory created without sudo
+        else
+            # Can't create cache directory, skip caching
+            echo "Warning: Cannot create cache directory $CACHE_DIR, skipping cache" >&2
+            return 1
+        fi
+    fi
+
+    # Verify we can write to the cache directory
+    if [[ ! -w "$CACHE_DIR" ]]; then
+        echo "Warning: Cache directory $CACHE_DIR is not writable, skipping cache" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+# Check if cached binary exists and copy to target
+# Usage: get_cached_binary <name> <version> <target_path>
+# Returns 0 if cache hit (binary copied to target), 1 if cache miss
+get_cached_binary() {
+    local name="$1"
+    local version="$2"
+    local target="$3"
+
+    local cached="${CACHE_DIR}/${name}/${version}/${name}"
+
+    if [[ -f "$cached" && -x "$cached" ]]; then
+        local target_dir
+        target_dir=$(dirname "$target")
+        mkdir -p "$target_dir"
+        cp "$cached" "$target"
+        chmod +x "$target"
+        echo "Cache hit: Using cached ${name} ${version} from ${cached}"
+        return 0
+    fi
+
+    echo "Cache miss: ${name} ${version} not found in cache"
+    return 1
+}
+
+# Store binary in cache for future runs
+# Usage: cache_binary <name> <version> <source_path>
+cache_binary() {
+    local name="$1"
+    local version="$2"
+    local source="$3"
+
+    # Skip if source doesn't exist or isn't executable
+    if [[ ! -f "$source" || ! -x "$source" ]]; then
+        echo "Warning: Cannot cache ${name} - source file invalid: ${source}" >&2
+        return 1
+    fi
+
+    local cache_path="${CACHE_DIR}/${name}/${version}"
+
+    # Create cache subdirectory
+    if [[ ! -d "$cache_path" ]]; then
+        if ! mkdir -p "$cache_path" 2>/dev/null; then
+            if ! sudo mkdir -p "$cache_path" 2>/dev/null; then
+                echo "Warning: Cannot create cache path ${cache_path}" >&2
+                return 1
+            fi
+            sudo chmod 777 "${CACHE_DIR}/${name}" 2>/dev/null || true
+            sudo chmod 777 "$cache_path" 2>/dev/null || true
+        fi
+    fi
+
+    cp "$source" "${cache_path}/${name}"
+    chmod +x "${cache_path}/${name}"
+    echo "Cached: ${name} ${version} stored at ${cache_path}/${name}"
+    return 0
+}
+
+# Check if cached archive exists and copy to target
+# Usage: get_cached_archive <name> <version> <target_path>
+# Returns 0 if cache hit (archive copied to target), 1 if cache miss
+get_cached_archive() {
+    local name="$1"
+    local version="$2"
+    local target="$3"
+
+    local cached="${CACHE_DIR}/${name}/${version}/${name}"
+
+    if [[ -f "$cached" ]]; then
+        local target_dir
+        target_dir=$(dirname "$target")
+        mkdir -p "$target_dir"
+        cp "$cached" "$target"
+        echo "Cache hit: Using cached ${name} archive ${version} from ${cached}"
+        return 0
+    fi
+
+    echo "Cache miss: ${name} archive ${version} not found in cache"
+    return 1
+}
+
+# Store archive in cache for future runs
+# Usage: cache_archive <name> <version> <source_path>
+cache_archive() {
+    local name="$1"
+    local version="$2"
+    local source="$3"
+
+    # Skip if source doesn't exist
+    if [[ ! -f "$source" ]]; then
+        echo "Warning: Cannot cache ${name} - source file not found: ${source}" >&2
+        return 1
+    fi
+
+    local cache_path="${CACHE_DIR}/${name}/${version}"
+
+    # Create cache subdirectory
+    if [[ ! -d "$cache_path" ]]; then
+        if ! mkdir -p "$cache_path" 2>/dev/null; then
+            if ! sudo mkdir -p "$cache_path" 2>/dev/null; then
+                echo "Warning: Cannot create cache path ${cache_path}" >&2
+                return 1
+            fi
+            sudo chmod 777 "${CACHE_DIR}/${name}" 2>/dev/null || true
+            sudo chmod 777 "$cache_path" 2>/dev/null || true
+        fi
+    fi
+
+    cp "$source" "${cache_path}/${name}"
+    echo "Cached: ${name} archive ${version} stored at ${cache_path}/${name}"
+    return 0
+}
+
+# List all cached binaries (useful for debugging)
+# Usage: list_cached_binaries
+list_cached_binaries() {
+    if [[ ! -d "$CACHE_DIR" ]]; then
+        echo "Cache directory does not exist: $CACHE_DIR"
+        return 0
+    fi
+
+    echo "Cached binaries in ${CACHE_DIR}:"
+    find "$CACHE_DIR" -type f -executable 2>/dev/null | while read -r file; do
+        local size
+        size=$(du -h "$file" 2>/dev/null | cut -f1)
+        echo "  ${file} (${size})"
+    done
+}
+
+# Clean old versions of a binary, keeping only the specified version
+# Usage: clean_old_versions <name> <keep_version>
+clean_old_versions() {
+    local name="$1"
+    local keep_version="$2"
+    local binary_cache_dir="${CACHE_DIR}/${name}"
+
+    if [[ ! -d "$binary_cache_dir" ]]; then
+        return 0
+    fi
+
+    find "$binary_cache_dir" -mindepth 1 -maxdepth 1 -type d | while read -r version_dir; do
+        local version
+        version=$(basename "$version_dir")
+        if [[ "$version" != "$keep_version" ]]; then
+            echo "Cleaning old cached version: ${name} ${version}"
+            rm -rf "$version_dir" 2>/dev/null || sudo rm -rf "$version_dir" 2>/dev/null || true
+        fi
+    done
+}

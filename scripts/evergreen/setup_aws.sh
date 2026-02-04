@@ -3,6 +3,17 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/install
+source scripts/funcs/binary_cache
+
+# AWS CLI version for caching (we use "v2-latest" as the key since AWS CLI doesn't pin versions well)
+# The actual version downloaded is the latest v2
+AWS_CLI_CACHE_VERSION="v2-latest"
+
+# Initialize cache (if available) - done early for use in functions
+CACHE_AVAILABLE=false
+if init_cache_dir; then
+    CACHE_AVAILABLE=true
+fi
 
 # Install AWS CLI v2 via binary download (for amd64 and arm64)
 install_aws_cli_binary() {
@@ -13,14 +24,22 @@ install_aws_cli_binary() {
     local aws_arch
     aws_arch=$(uname -m)
 
-    # Download and install AWS CLI v2
+    # Check cache for the zip file first
     local temp_dir
     temp_dir=$(mktemp -d)
+    local zip_file="${temp_dir}/awscliv2.zip"
+
+    if [[ "$CACHE_AVAILABLE" == "true" ]] && get_cached_archive "awscli" "${AWS_CLI_CACHE_VERSION}-${aws_arch}" "${zip_file}"; then
+        echo "AWS CLI archive restored from cache"
+    else
+        echo "Downloading AWS CLI v2 for ${aws_arch}..."
+        curl_with_retry -s "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "${zip_file}"
+        if [[ "$CACHE_AVAILABLE" == "true" ]]; then
+            cache_archive "awscli" "${AWS_CLI_CACHE_VERSION}-${aws_arch}" "${zip_file}"
+        fi
+    fi
+
     cd "${temp_dir}"
-
-    echo "Downloading AWS CLI v2 for ${aws_arch}..."
-    curl_with_retry -s "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "awscliv2.zip"
-
     unzip -q awscliv2.zip
     sudo ./aws/install --update
 
