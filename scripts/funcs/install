@@ -37,6 +37,20 @@ detect_architecture() {
       esac
 }
 
+# Curl wrapper with jitter and consistent retry params for CI downloads.
+# Adds 0-30s random jitter to prevent thundering herd when CI retries trigger simultaneously.
+# Time range: 0-630s (0-30s jitter + up to 600s curl timeout).
+# Set SKIP_DOWNLOAD_JITTER=1 to disable jitter (useful for local development).
+# Usage: curl_with_retry [curl options...] URL
+curl_with_retry() {
+    if [[ "${SKIP_DOWNLOAD_JITTER:-}" != "1" ]]; then
+        local jitter=$((RANDOM % 31))
+        echo "Adding ${jitter}s jitter to spread out concurrent downloads..."
+        sleep "${jitter}"
+    fi
+    curl --retry 5 --retry-delay 10 --retry-all-errors --fail-with-body --show-error --max-time 600 "$@"
+}
+
 # Downloads a binary <bin> from <url> and moves it into <dir> directory.
 # Example usage: download_and_install_binary ${workdir}/bin jq "https://..."
 download_and_install_binary() {
@@ -46,10 +60,50 @@ download_and_install_binary() {
 
   mkdir -p "${dir}"
   echo "Downloading ${url}"
-  # Use longer timeout (10 min) for large binaries like minikube (~140MB) on slow IBM networks
-  # Add -C - for resume capability in case of partial downloads
-  curl --retry 5 --retry-delay 10 --retry-all-errors --fail --show-error --max-time 600 -L "${url}" -o "${bin}"
+  curl_with_retry -L "${url}" -o "${bin}"
   chmod +x "${bin}"
   mv "${bin}" "${dir}"
   echo "Installed ${bin} to ${dir}"
+}
+
+# Downloads kubectl binary to the current directory.
+# kubectl needs special handling because:
+# 1. dl.k8s.io has experienced 503 outages that outlast our retry window
+# 2. Unlike other tools, kubectl binaries aren't available on GitHub releases
+# 3. dl.k8s.io redirects to cdn.dl.k8s.io (Fastly), so we try the CDN directly as fallback
+#
+# Usage: download_kubectl_binary <version> <arch>
+# Example: download_kubectl_binary "v1.28.0" "amd64"
+# Downloads kubectl to ./kubectl in the current directory
+download_kubectl_binary() {
+  local version=$1
+  local arch=$2
+
+  echo "Downloading kubectl ${version} for ${arch}..."
+
+  local kubectl_url="https://dl.k8s.io/release/${version}/bin/linux/${arch}/kubectl"
+  local kubectl_cdn_url="https://cdn.dl.k8s.io/release/${version}/bin/linux/${arch}/kubectl"
+
+  if ! curl_with_retry -LOs "${kubectl_url}"; then
+    echo "Primary endpoint failed, trying CDN directly..."
+    curl_with_retry -LOs "${kubectl_cdn_url}"
+  fi
+
+  chmod +x kubectl
+}
+
+# Downloads and extracts helm binary to the current directory.
+# Usage: download_helm_binary <version> <arch>
+# Example: download_helm_binary "v3.12.0" "amd64"
+# Downloads and extracts helm to ./linux-<arch>/helm in the current directory
+download_helm_binary() {
+  local version=$1
+  local arch=$2
+
+  echo "Downloading helm ${version} for ${arch}..."
+
+  local helm_url="https://get.helm.sh/helm-${version}-linux-${arch}.tar.gz"
+  curl_with_retry -s -L "${helm_url}" -o helm.tar.gz
+  tar -xf helm.tar.gz 2>/dev/null
+  rm helm.tar.gz
 }
