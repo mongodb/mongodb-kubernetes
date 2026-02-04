@@ -187,25 +187,35 @@ type ExternalMongoDBSource struct {
 
 // ExternalShardedConfig contains configuration for external sharded MongoDB clusters
 type ExternalShardedConfig struct {
-	// MongosHostAndPort is the mongos router endpoint (host:port)
+	// Router contains the mongos router configuration
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinLength=1
-	MongosHostAndPort string `json:"mongosHostAndPort"`
+	Router ExternalRouterConfig `json:"router"`
 	// Shards is the list of shard configurations
 	// +kubebuilder:validation:MinItems=1
 	Shards []ExternalShardConfig `json:"shards"`
 }
 
+// ExternalRouterConfig contains configuration for mongos routers in an external sharded cluster
+type ExternalRouterConfig struct {
+	// Hosts is the list of mongos router endpoints (host:port)
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	Hosts []string `json:"hosts"`
+	// TLS configuration specific to the router. If not specified, falls back to the top-level external.tls config.
+	// +optional
+	TLS *ExternalMongodTLS `json:"tls,omitempty"`
+}
+
 // ExternalShardConfig contains configuration for a single shard in an external sharded cluster
 type ExternalShardConfig struct {
-	// Name is the logical shard name (e.g., "shard-0").
+	// ShardName is the logical shard name (e.g., "shard-0").
 	// This name is used to match with lb.external.sharded.endpoints[].shardName
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
-	Name string `json:"name"`
-	// HostAndPorts is the list of mongod host:port seeds for this shard's replica set
+	ShardName string `json:"shardName"`
+	// Hosts is the list of mongod host:port seeds for this shard's replica set
 	// +kubebuilder:validation:MinItems=1
-	HostAndPorts []string `json:"hostAndPorts"`
+	Hosts []string `json:"hosts"`
 }
 
 type ExternalMongodTLS struct {

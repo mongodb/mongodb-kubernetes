@@ -14,10 +14,22 @@ func newShardedExternalSearchSource(spec *searchv1.ExternalMongoDBSource) *Shard
 	return NewShardedExternalSearchSource("test-namespace", spec)
 }
 
-func newExternalShardedConfig(mongosHostAndPort string, shards []searchv1.ExternalShardConfig) *searchv1.ExternalShardedConfig {
+func newExternalShardedConfig(routerHosts []string, shards []searchv1.ExternalShardConfig) *searchv1.ExternalShardedConfig {
 	return &searchv1.ExternalShardedConfig{
-		MongosHostAndPort: mongosHostAndPort,
-		Shards:            shards,
+		Router: searchv1.ExternalRouterConfig{
+			Hosts: routerHosts,
+		},
+		Shards: shards,
+	}
+}
+
+func newExternalShardedConfigWithRouterTLS(routerHosts []string, routerTLS *searchv1.ExternalMongodTLS, shards []searchv1.ExternalShardConfig) *searchv1.ExternalShardedConfig {
+	return &searchv1.ExternalShardedConfig{
+		Router: searchv1.ExternalRouterConfig{
+			Hosts: routerHosts,
+			TLS:   routerTLS,
+		},
+		Shards: shards,
 	}
 }
 
@@ -35,59 +47,59 @@ func TestShardedExternalSearchSource_Validate(t *testing.T) {
 			expectedErrMsg: "sharded configuration is required",
 		},
 		{
-			name: "Empty mongos host and port",
+			name: "Empty router hosts",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("", []searchv1.ExternalShardConfig{
-					{Name: "shard-0", HostAndPorts: []string{"host:27017"}},
+				Sharded: newExternalShardedConfig([]string{}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
 				}),
 			},
 			expectError:    true,
-			expectedErrMsg: "mongosHostAndPort is required",
+			expectedErrMsg: "router.hosts must have at least one host",
 		},
 		{
 			name: "Empty shards list",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos.example.com:27017", []searchv1.ExternalShardConfig{}),
+				Sharded: newExternalShardedConfig([]string{"mongos.example.com:27017"}, []searchv1.ExternalShardConfig{}),
 			},
 			expectError:    true,
 			expectedErrMsg: "at least one shard must be configured",
 		},
 		{
-			name: "Shard with empty name",
+			name: "Shard with empty shardName",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos.example.com:27017", []searchv1.ExternalShardConfig{
-					{Name: "", HostAndPorts: []string{"host:27017"}},
+				Sharded: newExternalShardedConfig([]string{"mongos.example.com:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "", Hosts: []string{"host:27017"}},
 				}),
 			},
 			expectError:    true,
-			expectedErrMsg: "shard[0].name is required",
+			expectedErrMsg: "shard[0].shardName is required",
 		},
 		{
-			name: "Shard with empty host list",
+			name: "Shard with empty hosts list",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos.example.com:27017", []searchv1.ExternalShardConfig{
-					{Name: "shard-0", HostAndPorts: []string{}},
+				Sharded: newExternalShardedConfig([]string{"mongos.example.com:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{}},
 				}),
 			},
 			expectError:    true,
-			expectedErrMsg: "shard[0].hostAndPorts must have at least one host",
+			expectedErrMsg: "shard[0].hosts must have at least one host",
 		},
 		{
-			name: "Second shard with empty name",
+			name: "Second shard with empty shardName",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos.example.com:27017", []searchv1.ExternalShardConfig{
-					{Name: "shard-0", HostAndPorts: []string{"host0:27017"}},
-					{Name: "", HostAndPorts: []string{"host1:27017"}},
+				Sharded: newExternalShardedConfig([]string{"mongos.example.com:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"host0:27017"}},
+					{ShardName: "", Hosts: []string{"host1:27017"}},
 				}),
 			},
 			expectError:    true,
-			expectedErrMsg: "shard[1].name is required",
+			expectedErrMsg: "shard[1].shardName is required",
 		},
 		{
 			name: "Valid single shard config",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos.example.com:27017", []searchv1.ExternalShardConfig{
-					{Name: "shard-0", HostAndPorts: []string{"shard0-0.example.com:27017", "shard0-1.example.com:27017"}},
+				Sharded: newExternalShardedConfig([]string{"mongos.example.com:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017", "shard0-1.example.com:27017"}},
 				}),
 			},
 			expectError: false,
@@ -95,10 +107,19 @@ func TestShardedExternalSearchSource_Validate(t *testing.T) {
 		{
 			name: "Valid multi-shard config",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos.example.com:27017", []searchv1.ExternalShardConfig{
-					{Name: "shard-0", HostAndPorts: []string{"shard0-0.example.com:27017", "shard0-1.example.com:27017"}},
-					{Name: "shard-1", HostAndPorts: []string{"shard1-0.example.com:27017", "shard1-1.example.com:27017"}},
-					{Name: "shard-2", HostAndPorts: []string{"shard2-0.example.com:27017"}},
+				Sharded: newExternalShardedConfig([]string{"mongos.example.com:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017", "shard0-1.example.com:27017"}},
+					{ShardName: "shard-1", Hosts: []string{"shard1-0.example.com:27017", "shard1-1.example.com:27017"}},
+					{ShardName: "shard-2", Hosts: []string{"shard2-0.example.com:27017"}},
+				}),
+			},
+			expectError: false,
+		},
+		{
+			name: "Valid config with multiple router hosts",
+			spec: &searchv1.ExternalMongoDBSource{
+				Sharded: newExternalShardedConfig([]string{"mongos1.example.com:27017", "mongos2.example.com:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017"}},
 				}),
 			},
 			expectError: false,
@@ -134,8 +155,8 @@ func TestShardedExternalSearchSource_GetShardCount(t *testing.T) {
 		{
 			name: "Single shard",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos:27017", []searchv1.ExternalShardConfig{
-					{Name: "shard-0", HostAndPorts: []string{"host:27017"}},
+				Sharded: newExternalShardedConfig([]string{"mongos:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
 				}),
 			},
 			expected: 1,
@@ -143,10 +164,10 @@ func TestShardedExternalSearchSource_GetShardCount(t *testing.T) {
 		{
 			name: "Multiple shards",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos:27017", []searchv1.ExternalShardConfig{
-					{Name: "shard-0", HostAndPorts: []string{"host0:27017"}},
-					{Name: "shard-1", HostAndPorts: []string{"host1:27017"}},
-					{Name: "shard-2", HostAndPorts: []string{"host2:27017"}},
+				Sharded: newExternalShardedConfig([]string{"mongos:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"host0:27017"}},
+					{ShardName: "shard-1", Hosts: []string{"host1:27017"}},
+					{ShardName: "shard-2", Hosts: []string{"host2:27017"}},
 				}),
 			},
 			expected: 3,
@@ -175,8 +196,8 @@ func TestShardedExternalSearchSource_GetShardNames(t *testing.T) {
 		{
 			name: "Single shard",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos:27017", []searchv1.ExternalShardConfig{
-					{Name: "my-shard-0", HostAndPorts: []string{"host:27017"}},
+				Sharded: newExternalShardedConfig([]string{"mongos:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "my-shard-0", Hosts: []string{"host:27017"}},
 				}),
 			},
 			expected: []string{"my-shard-0"},
@@ -184,10 +205,10 @@ func TestShardedExternalSearchSource_GetShardNames(t *testing.T) {
 		{
 			name: "Multiple shards",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos:27017", []searchv1.ExternalShardConfig{
-					{Name: "shard-alpha", HostAndPorts: []string{"host0:27017"}},
-					{Name: "shard-beta", HostAndPorts: []string{"host1:27017"}},
-					{Name: "shard-gamma", HostAndPorts: []string{"host2:27017"}},
+				Sharded: newExternalShardedConfig([]string{"mongos:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-alpha", Hosts: []string{"host0:27017"}},
+					{ShardName: "shard-beta", Hosts: []string{"host1:27017"}},
+					{ShardName: "shard-gamma", Hosts: []string{"host2:27017"}},
 				}),
 			},
 			expected: []string{"shard-alpha", "shard-beta", "shard-gamma"},
@@ -204,9 +225,9 @@ func TestShardedExternalSearchSource_GetShardNames(t *testing.T) {
 
 func TestShardedExternalSearchSource_HostSeedsForShard(t *testing.T) {
 	spec := &searchv1.ExternalMongoDBSource{
-		Sharded: newExternalShardedConfig("mongos:27017", []searchv1.ExternalShardConfig{
-			{Name: "shard-0", HostAndPorts: []string{"shard0-0.example.com:27017", "shard0-1.example.com:27017"}},
-			{Name: "shard-1", HostAndPorts: []string{"shard1-0.example.com:27017"}},
+		Sharded: newExternalShardedConfig([]string{"mongos:27017"}, []searchv1.ExternalShardConfig{
+			{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017", "shard0-1.example.com:27017"}},
+			{ShardName: "shard-1", Hosts: []string{"shard1-0.example.com:27017"}},
 		}),
 	}
 	src := newShardedExternalSearchSource(spec)
@@ -265,9 +286,9 @@ func TestShardedExternalSearchSource_HostSeeds(t *testing.T) {
 		{
 			name: "Returns first shard hosts",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos:27017", []searchv1.ExternalShardConfig{
-					{Name: "shard-0", HostAndPorts: []string{"first-0.example.com:27017", "first-1.example.com:27017"}},
-					{Name: "shard-1", HostAndPorts: []string{"second-0.example.com:27017"}},
+				Sharded: newExternalShardedConfig([]string{"mongos:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"first-0.example.com:27017", "first-1.example.com:27017"}},
+					{ShardName: "shard-1", Hosts: []string{"second-0.example.com:27017"}},
 				}),
 			},
 			expected: []string{"first-0.example.com:27017", "first-1.example.com:27017"},
@@ -294,13 +315,31 @@ func TestShardedExternalSearchSource_MongosHostAndPort(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "Valid mongos endpoint",
+			name: "Single router host",
 			spec: &searchv1.ExternalMongoDBSource{
-				Sharded: newExternalShardedConfig("mongos.example.com:27017", []searchv1.ExternalShardConfig{
-					{Name: "shard-0", HostAndPorts: []string{"host:27017"}},
+				Sharded: newExternalShardedConfig([]string{"mongos.example.com:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
 				}),
 			},
 			expected: "mongos.example.com:27017",
+		},
+		{
+			name: "Multiple router hosts returns first",
+			spec: &searchv1.ExternalMongoDBSource{
+				Sharded: newExternalShardedConfig([]string{"mongos1.example.com:27017", "mongos2.example.com:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
+				}),
+			},
+			expected: "mongos1.example.com:27017",
+		},
+		{
+			name: "Empty router hosts",
+			spec: &searchv1.ExternalMongoDBSource{
+				Sharded: newExternalShardedConfig([]string{}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
+				}),
+			},
+			expected: "",
 		},
 	}
 
@@ -349,11 +388,11 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		assert.Nil(t, src.TLSConfig())
 	})
 
-	t.Run("TLS configured", func(t *testing.T) {
+	t.Run("Top-level TLS configured", func(t *testing.T) {
 		spec := &searchv1.ExternalMongoDBSource{
 			TLS: &searchv1.ExternalMongodTLS{
 				CA: &corev1.LocalObjectReference{
-					Name: "ca-secret",
+					Name: "top-level-ca-secret",
 				},
 			},
 		}
@@ -363,6 +402,73 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		assert.NotNil(t, tlsConfig)
 		assert.Equal(t, "ca.crt", tlsConfig.CAFileName)
 		assert.Equal(t, "ca", tlsConfig.CAVolume.Name)
+		assert.Equal(t, "top-level-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
 		assert.NotNil(t, tlsConfig.ResourcesToWatch)
+	})
+
+	t.Run("Router-specific TLS overrides top-level TLS", func(t *testing.T) {
+		spec := &searchv1.ExternalMongoDBSource{
+			Sharded: newExternalShardedConfigWithRouterTLS(
+				[]string{"mongos:27017"},
+				&searchv1.ExternalMongodTLS{
+					CA: &corev1.LocalObjectReference{
+						Name: "router-ca-secret",
+					},
+				},
+				[]searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
+				},
+			),
+			TLS: &searchv1.ExternalMongodTLS{
+				CA: &corev1.LocalObjectReference{
+					Name: "top-level-ca-secret",
+				},
+			},
+		}
+		src := newShardedExternalSearchSource(spec)
+		tlsConfig := src.TLSConfig()
+
+		assert.NotNil(t, tlsConfig)
+		assert.Equal(t, "ca.crt", tlsConfig.CAFileName)
+		assert.Equal(t, "router-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
+	})
+
+	t.Run("Router TLS without top-level TLS", func(t *testing.T) {
+		spec := &searchv1.ExternalMongoDBSource{
+			Sharded: newExternalShardedConfigWithRouterTLS(
+				[]string{"mongos:27017"},
+				&searchv1.ExternalMongodTLS{
+					CA: &corev1.LocalObjectReference{
+						Name: "router-only-ca-secret",
+					},
+				},
+				[]searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
+				},
+			),
+		}
+		src := newShardedExternalSearchSource(spec)
+		tlsConfig := src.TLSConfig()
+
+		assert.NotNil(t, tlsConfig)
+		assert.Equal(t, "router-only-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
+	})
+
+	t.Run("Falls back to top-level TLS when router TLS not specified", func(t *testing.T) {
+		spec := &searchv1.ExternalMongoDBSource{
+			Sharded: newExternalShardedConfig([]string{"mongos:27017"}, []searchv1.ExternalShardConfig{
+				{ShardName: "shard-0", Hosts: []string{"host:27017"}},
+			}),
+			TLS: &searchv1.ExternalMongodTLS{
+				CA: &corev1.LocalObjectReference{
+					Name: "fallback-ca-secret",
+				},
+			},
+		}
+		src := newShardedExternalSearchSource(spec)
+		tlsConfig := src.TLSConfig()
+
+		assert.NotNil(t, tlsConfig)
+		assert.Equal(t, "fallback-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
 	})
 }
