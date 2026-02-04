@@ -2,6 +2,7 @@
 set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
+source scripts/funcs/install
 
 if [ -f ~/.docker/cli-plugins/docker-sbom ]; then
     echo "Docker sbom exists. Skipping the installation."
@@ -19,7 +20,7 @@ else
     mkdir -p "${plugins_dir}"
     sudo chown "${USER}":"${USER}" "${plugins_dir}" -R
     sudo chmod g+rwx "${plugins_dir}" -R
-    wget "https://github.com/docker/sbom-cli-plugin/releases/download/v0.6.1/sbom-cli-plugin_0.6.1_linux_amd64.tar.gz"
+    curl_with_retry -L -o sbom-cli-plugin_0.6.1_linux_amd64.tar.gz "https://github.com/docker/sbom-cli-plugin/releases/download/v0.6.1/sbom-cli-plugin_0.6.1_linux_amd64.tar.gz"
     tar -zxf sbom-cli-plugin_0.6.1_linux_amd64.tar.gz
     chmod +x ./docker-sbom
     mv ./docker-sbom "${plugins_dir}"
