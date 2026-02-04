@@ -69,7 +69,7 @@ const (
 	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
 	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
 
-	// BackupHostnameOverrideEnv triggers the -backupOverrideLocalHost flag in agent-launcher.sh
+	// BackupHostnameOverrideEnv sets up the -backupOverrideLocalHost flag in agent-launcher.sh
 	BackupHostnameOverrideEnv = "MDB_BACKUP_HOSTNAME_OVERRIDE"
 )
 

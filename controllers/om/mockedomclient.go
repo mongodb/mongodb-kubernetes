@@ -496,7 +496,6 @@ func (oc *MockedOmConnection) ReadBackupAgents(pageNum int) (Paginated, error) {
 	if oc.ReadBackupAgentsFunc != nil {
 		return oc.ReadBackupAgentsFunc(pageNum)
 	}
-	// Default: return empty response (no backup agents)
 	return AutomationAgentStatusResponse{OMPaginated: OMPaginated{TotalCount: 0}}, nil
 }
 

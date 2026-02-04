@@ -274,25 +274,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to fetch existing StatefulSet: %w", err)))
 	}
 
-	// Check if we override backup agent hostname
-	// Determine if backup hostname override should be enabled.
-	// Important: It must only be enabled for NEW deployments. Enabling on existing
-	// deployments with registered backup agents causes issues (see CLOUDP-260397).
-	// Checks: (1) already enabled in StatefulSet, or (2) no backup agents registered yet.
-	// Version gate: The -backupOverrideLocalHost flag requires agent v13.26.0+ (OM 7.0+).
-	enableBackupHostnameOverride := false
-	if r.resource.Spec.HasExternalDomain() && isBackupHostnameOverrideSupported(conn) {
-		if r.backupEnvVarAlreadyInSts(existingSts) {
-			enableBackupHostnameOverride = true
-		} else {
-			// We don't need any other page than the first one to check for existence. Pages are 1-based
-			backupAgents, err := conn.ReadBackupAgents(1)
-			if err != nil {
-				return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("impossible to read agents from OM: %w", err)))
-			}
-			// If no backup agents exist, it is safe to set the external hostname.
-			enableBackupHostnameOverride = backupAgents.ItemsCount() == 0
-		}
+	// Check if we should enable backup hostname override for external domains
+	enableBackupHostnameOverride, err := r.shouldEnableBackupHostnameOverride(conn, existingSts, log)
+	if err != nil {
+		return r.updateStatus(ctx, workflow.Failed(err))
 	}
 
 	deploymentOpts := deploymentOptionsRS{
@@ -657,6 +642,46 @@ func (r *ReplicaSetReconcilerHelper) getStatefulSetIfExists(ctx context.Context)
 		return nil, client.IgnoreNotFound(err)
 	}
 	return &sts, nil
+}
+
+// shouldEnableBackupHostnameOverride determines if backup agents should use external hostnames.
+// This is needed when spec.externalDomain is configured, so backup agents register with
+// resolvable hostnames instead of internal pod names.
+//
+// Important: This must only be enabled for NEW deployments. Enabling on existing deployments
+// with already-registered backup agents causes hostname mismatches (see CLOUDP-260397).
+//
+// The feature requires Ops Manager 7.0+ (agent v13.26.0+) which supports the -backupOverrideLocalHost flag.
+func (r *ReplicaSetReconcilerHelper) shouldEnableBackupHostnameOverride(conn om.Connection, existingSts *appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
+	if !r.resource.Spec.HasExternalDomain() {
+		return false, nil
+	}
+
+	if !isBackupHostnameOverrideSupported(conn) {
+		log.Debugf("Backup hostname override requires Ops Manager 7.0+, current version: %s", conn.OpsManagerVersion().VersionString)
+		return false, nil
+	}
+
+	// If already enabled in the StatefulSet, keep it enabled
+	if r.backupEnvVarAlreadyInSts(existingSts) {
+		log.Debug("Backup hostname override is already enabled in StatefulSet, keeping the override")
+		return true, nil
+	}
+
+	// For new or updated deployments, only enable if no backup agents are registered yet.
+	// Enabling on existing deployments with registered agents causes hostname mismatches.
+	backupAgents, err := conn.ReadBackupAgents(1)
+	if err != nil {
+		return false, xerrors.Errorf("failed to check registered backup agents in Ops Manager: %w", err)
+	}
+
+	if backupAgents.ItemsCount() == 0 {
+		log.Infof("Enabling backup hostname override: external domain is configured and no backup agents are registered yet")
+		return true, nil
+	}
+
+	log.Infof("Backup hostname override not enabled: %d backup agent(s) already registered. To avoid hostname mismatches, override is only enabled for new deployments", backupAgents.ItemsCount())
+	return false, nil
 }
 
 // backupEnvVarAlreadyInSts checks if the backup hostname override env var is already set in the StatefulSet.
