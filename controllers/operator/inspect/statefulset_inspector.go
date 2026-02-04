@@ -4,10 +4,9 @@ import (
 	"fmt"
 
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	appsv1 "k8s.io/api/apps/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 )

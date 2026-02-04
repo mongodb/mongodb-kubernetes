@@ -46,9 +46,9 @@ def mongo_tester(mdb: MongoDB):
 
 @fixture(scope="module")
 def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
-    # CLOUDP-375105: Architecture migration (static ↔ non-static) requires restarting many
-    # components, causing extended unavailability. Previous value of 1 was too strict for
-    # complex migration operations.
+    # Architecture migration (static ↔ non-static) requires restarting many components, which can cause
+    # extended unavailability. This shouldn't happen after fixes in CLOUDP-286686 and CLOUDP-375105, but it happens
+    # again please refer to those tickets for understanding of the issue.
     return MongoDBBackgroundTester(
         mongo_tester,
         allowed_sequential_failures=1,
