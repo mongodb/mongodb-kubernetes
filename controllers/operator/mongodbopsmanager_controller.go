@@ -799,8 +799,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 
 	// If backup is not enabled, we check whether it is still configured in OM to update the status.
 	if !opsManager.Spec.Backup.Enabled {
-		var backupStatus workflow.Status
-		backupStatus = workflow.Disabled()
+		var backupStatus workflow.Status = workflow.Disabled()
 
 		for _, fqdn := range reconcilerHelper.BackupDaemonHeadlessFQDNs() {
 			// In case there is a backup daemon running still, while backup is not enabled, we check whether it is still configured in OM.
@@ -813,10 +812,10 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 			}
 		}
 
-		_, err := r.updateStatus(ctx, opsManager, backupStatus, log, backupStatusPartOption)
-		if err != nil {
+		if _, err := r.updateStatus(ctx, opsManager, backupStatus, log, backupStatusPartOption); err != nil {
 			return workflow.Failed(err)
 		}
+
 		return backupStatus
 	}
 
@@ -825,6 +824,12 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 		// Prepare Backup Daemon StatefulSet (create and wait)
 		mutatedSts, err := r.createBackupDaemonStatefulset(ctx, reconcilerHelper, appDBConnectionString, memberCluster, initOpsManagerImage, opsManagerImage, log)
 		if err != nil {
+			// Check if it is a k8s error or a custom one
+			var statefulSetIsRecreatingError create.StatefulSetIsRecreating
+			if errors.As(err, &statefulSetIsRecreatingError) {
+				return workflow.Pending("%s", statefulSetIsRecreatingError.Error()).Requeue()
+			}
+
 			return workflow.Failed(xerrors.Errorf("error creating Backup Daemon statefulset in member cluster %s: %w", memberCluster.Name, err))
 		}
 
@@ -1011,10 +1016,6 @@ func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerR
 // as the daemon in this case just hangs silently (in practice it's ok to start it in ~1 min after start of OM though
 // we will just start them sequentially)
 func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
-	if !reconcilerHelper.opsManager.Spec.Backup.Enabled {
-		return nil, nil
-	}
-
 	if err := r.ensureAppDBConnectionStringInMemberCluster(ctx, reconcilerHelper.opsManager, appDBConnectionString, memberCluster, log); err != nil {
 		return nil, xerrors.Errorf("error ensuring AppDB connection string in cluster %s: %w", memberCluster.Name, err)
 	}
@@ -1025,6 +1026,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 	if r.VaultClient != nil {
 		vaultConfig = r.VaultClient.VaultConfig
 	}
+
 	clusterSpecItem := reconcilerHelper.getClusterSpecOMItem(memberCluster.Name)
 	sts, err := construct.BackupDaemonStatefulSet(ctx, r.SecretClient, reconcilerHelper.opsManager, memberCluster, log,
 		construct.WithInitOpsManagerImage(initOpsManagerImage),

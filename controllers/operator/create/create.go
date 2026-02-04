@@ -372,6 +372,14 @@ func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsM
 	return set, mekoService.CreateOrUpdateService(ctx, client, internalService)
 }
 
+type StatefulSetIsRecreating struct {
+	msg string
+}
+
+func (s StatefulSetIsRecreating) Error() string {
+	return s.msg
+}
+
 // BackupDaemonInKubernetes creates or updates the StatefulSet and Services required.
 func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
@@ -379,7 +387,7 @@ func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Clien
 		// Check if it is a k8s error or a custom one
 		var statefulSetCantBeUpdatedError enterprisests.StatefulSetCantBeUpdatedError
 		if !errors.As(err, &statefulSetCantBeUpdatedError) {
-			return nil, err
+			return nil, xerrors.Errorf("failed to create or update backup daemon statefulset: %w", err)
 		}
 
 		// In this case, we delete the old Statefulset
@@ -388,7 +396,7 @@ func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Clien
 			return nil, xerrors.Errorf("failed while trying to delete previous backup daemon statefulset: %w", deleteErr)
 		}
 
-		return nil, xerrors.New("Deleted the old backup stateful set and creating a new one in next reconciliation")
+		return nil, StatefulSetIsRecreating{"deleted the old backup stateful set and creating a new one in next reconciliation"}
 	}
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
@@ -514,7 +522,7 @@ func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, app
 	switch serviceType {
 	case corev1.ServiceTypeNodePort:
 		// Service will have a NodePort
-		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt(int(port)), Name: "mongodb"}
+		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt32(port), Name: "mongodb"}
 		svcPort.NodePort = mongoServiceDefinition.Port
 		if mongoServiceDefinition.Port != 0 {
 			svcPort.Port = mongoServiceDefinition.Port
@@ -523,7 +531,7 @@ func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, app
 		}
 		svcBuilder.AddPort(&svcPort).SetClusterIP("")
 	case corev1.ServiceTypeLoadBalancer:
-		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt(int(port)), Name: "mongodb"}
+		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt32(port), Name: "mongodb"}
 		if mongoServiceDefinition.Port != 0 {
 			svcPort.Port = mongoServiceDefinition.Port
 		} else {
