@@ -560,22 +560,27 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 
 		expectedGeneration := mutatedSts.GetGeneration()
 		statefulsetStatus := statefulset.GetStatefulSetStatus(ctx, sts.Namespace, sts.Name, expectedGeneration, memberClient)
-		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 
 		// If we don't have processes defined yet, that means we are in the first deployment, and we can deploy all
 		// stateful-sets in parallel.
 		// If we have processes defined, it means we want to wait until each of the statefulset is ready before moving
 		// to the next one.
 		if len(processes) > 0 {
-			if !workflowStatus.IsOK() {
-				return workflowStatus
+			if !statefulsetStatus.IsOK() {
+				return statefulsetStatus
 			}
-
-			log.Infof("Successfully ensured StatefulSet in cluster: %s", item.ClusterName)
 		}
+
+		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 	}
 
-	return workflowStatus
+	// wait for all statefulsets to become ready
+	if !workflowStatus.IsOK() {
+		return workflowStatus
+	}
+
+	log.Infof("Successfully ensured all StatefulSets are ready")
+	return workflow.OK()
 }
 
 // updateStatusFromInnerMethod ensures to only update the status if it has been updated.

@@ -1352,7 +1352,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 	// for ScalingFirstTime, which is iterating over all member clusters internally anyway
 	mongosScalingFirstTime := r.GetMongosScaler(r.mongosMemberClusters[0]).ScalingFirstTime()
 
-	var statefulSetStatus workflow.Status = workflow.OK()
+	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)
 		mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, log)
@@ -1361,24 +1361,23 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Mongos Stateful Set: %w", err))
 		}
+
 		expectedGeneration := mutatedSts.GetGeneration()
-		workflowStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, mongosSts.Name, expectedGeneration, memberCluster.Client)
-		statefulSetStatus = statefulSetStatus.Merge(workflowStatus)
+		statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, mongosSts.Name, expectedGeneration, memberCluster.Client)
 
 		if !mongosScalingFirstTime {
-			log.Debugw("Mongos StatefulSet status", "stsName", mongosSts.Name, "statusOk", workflowStatus.IsOK())
-			if !workflowStatus.IsOK() {
-				return workflowStatus
+			log.Debugw("Mongos StatefulSet status", "stsName", mongosSts.Name, "statusOk", statefulSetStatus.IsOK())
+			if !statefulSetStatus.IsOK() {
+				return statefulSetStatus
 			}
 		}
+
+		workflowStatus = workflowStatus.Merge(statefulSetStatus)
 	}
 
-	// we wait for mongos statefulsets here
-	if mongosScalingFirstTime {
-		log.Debugw("Mongos merged StatefulSet status", "statusOk", statefulSetStatus.IsOK())
-		if !statefulSetStatus.IsOK() {
-			return statefulSetStatus
-		}
+	// wait for all statefulsets to become ready
+	if !workflowStatus.IsOK() {
+		return workflowStatus
 	}
 
 	log.Infow("Created/updated StatefulSet for mongos servers", "name", s.MongosRsName())
@@ -1391,7 +1390,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 		// it doesn't matter for which cluster we get scaler as we need it only for ScalingFirstTime which is iterating over all member clusters internally anyway
 		scalingFirstTime := r.GetShardScaler(shardIdx, r.shardsMemberClustersMap[shardIdx][0]).ScalingFirstTime()
 
-		var statefulSetStatus workflow.Status = workflow.OK()
+		var workflowStatus workflow.Status = workflow.OK()
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
 			// shardsNames contains shard name, not statefulset name
 			// in single cluster sts name == shard name
@@ -1400,8 +1399,8 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster)
 			shardSts := construct.DatabaseStatefulSet(*s, shardOpts, log)
 
-			if workflowStatus := r.handlePVCResize(ctx, memberCluster, &shardSts, log); !workflowStatus.IsOK() {
-				return workflowStatus
+			if pvcStatus := r.handlePVCResize(ctx, memberCluster, &shardSts, log); !pvcStatus.IsOK() {
+				return pvcStatus
 			}
 
 			mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, shardSts, shardOpts, log)
@@ -1410,8 +1409,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			}
 
 			expectedGeneration := mutatedSts.GetGeneration()
-			workflowStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, shardSts.Name, expectedGeneration, memberCluster.Client)
-			statefulSetStatus = statefulSetStatus.Merge(workflowStatus)
+			statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, shardSts.Name, expectedGeneration, memberCluster.Client)
 
 			// If we scale for the first time, we deploy all statefulsets across all clusters for the given shard.
 			// We can do that because when doing the initial deployment there is no automation config, so we can deploy
@@ -1420,20 +1418,18 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			// and all agents are starting to wire things up and configure the replicaset.
 			// If we don't scale for the first time we need to wait for each individual sts as we need to scale members of the whole replica set one at a time
 			if !scalingFirstTime {
-				log.Debugw("Shard StatefulSet status", "stsName", shardSts.Name, "statusOk", workflowStatus.IsOK())
-				if !workflowStatus.IsOK() {
-					return workflowStatus
+				log.Debugw("Shard StatefulSet status", "stsName", shardSts.Name, "statusOk", statefulSetStatus.IsOK())
+				if !statefulSetStatus.IsOK() {
+					return statefulSetStatus
 				}
 			}
+
+			workflowStatus = workflowStatus.Merge(statefulSetStatus)
 		}
 
-		// if we scale for the first time we didn't wait for statefulsets to become ready in the loop over member clusters
-		// we need to wait for all sts here instead after all were deployed/scaled up to desired members
-		if scalingFirstTime {
-			log.Debugw("Shard merged StatefulSet status", "statusOk", statefulSetStatus.IsOK())
-			if !statefulSetStatus.IsOK() {
-				return statefulSetStatus
-			}
+		// wait for all statefulsets to become ready
+		if !workflowStatus.IsOK() {
+			return workflowStatus
 		}
 	}
 
@@ -1446,13 +1442,13 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 	// for ScalingFirstTime, which is iterating over all member clusters internally anyway
 	configSrvScalingFirstTime := r.GetConfigSrvScaler(r.configSrvMemberClusters[0]).ScalingFirstTime()
 
-	var statefulSetStatus workflow.Status = workflow.OK()
+	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)
 		configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, log)
 
-		if workflowStatus := r.handlePVCResize(ctx, memberCluster, &configSrvSts, log); !workflowStatus.IsOK() {
-			return workflowStatus
+		if pvcStatus := r.handlePVCResize(ctx, memberCluster, &configSrvSts, log); !pvcStatus.IsOK() {
+			return pvcStatus
 		}
 
 		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, configSrvSts, configSrvOpts, log)
@@ -1461,22 +1457,21 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 		}
 
 		expectedGeneration := mutatedSts.GetGeneration()
-		workflowStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, configSrvSts.Name, expectedGeneration, memberCluster.Client)
-		statefulSetStatus = statefulSetStatus.Merge(workflowStatus)
+		statefulsetStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, configSrvSts.Name, expectedGeneration, memberCluster.Client)
 
 		if !configSrvScalingFirstTime {
-			log.Debugw("Config-srv StatefulSet status", "name", configSrvSts.Name, "statusOk", workflowStatus.IsOK())
-			if !workflowStatus.IsOK() {
-				return workflowStatus
+			log.Debugw("Config-srv StatefulSet status", "name", configSrvSts.Name, "statusOk", statefulsetStatus.IsOK())
+			if !statefulsetStatus.IsOK() {
+				return statefulsetStatus
 			}
 		}
+
+		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 	}
 
-	if configSrvScalingFirstTime {
-		log.Debugw("Config-srv merged StatefulSet status", "statusOk", statefulSetStatus.IsOK())
-		if !statefulSetStatus.IsOK() {
-			return statefulSetStatus
-		}
+	// wait for all statefulsets to become ready
+	if !workflowStatus.IsOK() {
+		return workflowStatus
 	}
 
 	log.Infow("Created/updated StatefulSet for config servers", "name", s.ConfigRsName(), "servers count", 0)

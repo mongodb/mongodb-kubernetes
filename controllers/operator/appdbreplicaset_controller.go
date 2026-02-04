@@ -1948,7 +1948,6 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 
 		expectedGeneration := mutatedSts.GetGeneration()
 		statefulsetStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), expectedGeneration, memberCluster.Client)
-		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 
 		if statefulsetStatus.IsOK() {
 			if err := statefulset.ResetUpdateStrategy(ctx, opsManager.GetVersionedImplForMemberCluster(r.getMemberClusterIndex(memberCluster.Name)), memberCluster.Client); err != nil {
@@ -1958,17 +1957,17 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 
 		// we want to deploy all stateful sets the first time we're deploying stateful sets
 		if !scalingFirstTime {
-			if !workflowStatus.IsOK() {
-				return workflowStatus
+			if !statefulsetStatus.IsOK() {
+				return statefulsetStatus
 			}
 		}
+
+		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 	}
 
-	// if this is the first time deployment, then we need to wait for all stateful sets to become ready after deploying all of them
-	if scalingFirstTime {
-		if !workflowStatus.IsOK() {
-			return workflowStatus
-		}
+	// wait for all statefulsets to become ready
+	if !workflowStatus.IsOK() {
+		return workflowStatus
 	}
 
 	for k, v := range currentClusterSpecs {
