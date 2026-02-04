@@ -1,6 +1,7 @@
 package om
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -8,7 +9,6 @@ import (
 	"github.com/blang/semver"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
@@ -22,23 +22,25 @@ import (
 // resource. More complex validation, such as validation that needs to observe
 // the state of the cluster, belongs somewhere else.
 
-var _ webhook.Validator = &MongoDBOpsManager{}
+type MongoDBOpsManagerValidator struct{}
 
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
-func (om *MongoDBOpsManager) ValidateCreate() (admission.Warnings, error) {
-	return nil, om.ProcessValidationsWebhook()
+func (m MongoDBOpsManagerValidator) ValidateCreate(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	return nil, obj.(*MongoDBOpsManager).ProcessValidationsWebhook()
 }
 
-func (om *MongoDBOpsManager) ValidateUpdate(_ runtime.Object) (admission.Warnings, error) {
-	return nil, om.ProcessValidationsWebhook()
+func (m MongoDBOpsManagerValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+	return nil, newObj.(*MongoDBOpsManager).ProcessValidationsWebhook()
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
 // unnecessary
-func (om *MongoDBOpsManager) ValidateDelete() (admission.Warnings, error) {
+func (m MongoDBOpsManagerValidator) ValidateDelete(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
+
+var _ admission.CustomValidator = &MongoDBOpsManagerValidator{}
 
 func errorNotConfigurableForAppDB(field string) v1.ValidationResult {
 	return v1.OpsManagerResourceValidationError(fmt.Sprintf("%s field is not configurable for application databases", field), status.AppDb)
