@@ -1600,26 +1600,35 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		return err
 	}
 
+	// Collect errors during cleanup but continue with all cleanup steps.
+	// This ensures we attempt all cleanup operations even if some fail.
+	var errs error
+
 	logDiffOfProcessNames(processNames, r.getHealthyProcessNames(), log.With("ctx", "cleanOpsManagerState"))
 	if err := om.WaitForReadyState(conn, r.getHealthyProcessNames(), false, log); err != nil {
-		return err
+		log.Warnf("Failed to wait for ready state: %s. Continuing with cleanup.", err)
+		errs = multierror.Append(errs, err)
 	}
 
 	if sc.Spec.Backup != nil && sc.Spec.Backup.AutoTerminateOnDeletion {
 		if err := backup.StopBackupIfEnabled(conn, conn, sc.Name, backup.ShardedClusterType, log); err != nil {
-			return err
+			log.Warnf("Failed to stop backup: %s. Continuing with cleanup.", err)
+			errs = multierror.Append(errs, err)
 		}
 	}
 
 	hostsToRemove := r.getAllHostnames(false)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "hostsToBeRemoved", hostsToRemove)
 
-	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
-		return err
+	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
+		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
+		log.Warnf("Failed to stop monitoring for hosts %v: %s. Continuing with cleanup.", hostsToRemove, err)
+		errs = multierror.Append(errs, err)
 	}
 
 	if err := r.commonController.clearProjectAuthenticationSettings(ctx, conn, sc, processNames, log); err != nil {
-		return err
+		log.Warnf("Failed to clear project authentication settings: %s. Continuing with cleanup.", err)
+		errs = multierror.Append(errs, err)
 	}
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
@@ -1629,7 +1638,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	}
 
 	log.Infof("Removed deployment %s from Ops Manager at %s", sc.Name, conn.BaseURL())
-	return nil
+	return errs
 }
 
 func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log *zap.SugaredLogger) {

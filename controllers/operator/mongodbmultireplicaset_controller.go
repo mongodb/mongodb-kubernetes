@@ -1254,14 +1254,23 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 		return err
 	}
 
+	// Collect errors during cleanup but continue with all cleanup steps.
+	// This ensures we attempt all cleanup operations even if some fail.
+	var errs error
+
 	hostsToRemove, err := mrs.GetMultiClusterAgentHostnames()
 	if err != nil {
-		return err
+		log.Warnf("Failed to get multi-cluster agent hostnames: %s. Continuing with cleanup.", err)
+		errs = multierror.Append(errs, err)
 	}
-	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 
-	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
-		return err
+	if len(hostsToRemove) > 0 {
+		log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
+		if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
+			// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
+			log.Warnf("Failed to stop monitoring for hosts %v: %s. Continuing with cleanup.", hostsToRemove, err)
+			errs = multierror.Append(errs, err)
+		}
 	}
 
 	opts := authentication.Options{
@@ -1271,10 +1280,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	}
 
 	if err := authentication.Disable(ctx, r.client, conn, opts, true, log); err != nil {
-		return err
+		log.Warnf("Failed to disable authentication: %s. Continuing with cleanup.", err)
+		errs = multierror.Append(errs, err)
 	}
+
 	log.Infof("Removed deployment %s from Ops Manager at %s", mrs.Name, conn.BaseURL())
-	return nil
+	return errs
 }
 
 // deleteManagedResources deletes resources across all member clusters that are owned by this MongoDBMultiCluster resource.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -419,17 +420,26 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 		return xerrors.Errorf("failed to update Ops Manager automation config: %w", err)
 	}
 
+	// Collect errors during cleanup but continue with all cleanup steps.
+	// This ensures we attempt all cleanup operations even if some fail.
+	var errs error
+
 	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
-		return err
+		log.Warnf("Failed to wait for ready state: %s. Continuing with cleanup.", err)
+		errs = multierror.Append(errs, err)
 	}
 
 	hostsToRemove, _ := dns.GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.GetClusterDomain(), 1, nil)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
-		return err
+	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
+		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
+		log.Warnf("Failed to stop monitoring for hosts %v: %s. Continuing with cleanup.", hostsToRemove, err)
+		errs = multierror.Append(errs, err)
 	}
+
 	if err := r.clearProjectAuthenticationSettings(ctx, conn, s, processNames, log); err != nil {
-		return err
+		log.Warnf("Failed to clear project authentication settings: %s. Continuing with cleanup.", err)
+		errs = multierror.Append(errs, err)
 	}
 
 	r.resourceWatcher.RemoveDependentWatchedResources(s.ObjectKey())
@@ -441,7 +451,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 	}
 
 	log.Info("Removed standalone from Ops Manager!")
-	return nil
+	return errs
 }
 
 func createProcess(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB) om.Process {
