@@ -1304,7 +1304,7 @@ buildvariants:
     display_name: e2e_mdb_kind_ubi_cloudqa
     tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
-      - ubuntu2404-medium
+      - ubuntu2404-large
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group

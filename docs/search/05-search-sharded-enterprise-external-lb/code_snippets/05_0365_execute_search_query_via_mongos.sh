@@ -28,7 +28,7 @@ mongosh "${MDB_CONNECTION_STRING}" --quiet --eval '
   print("COUNT:" + results.length);
 '
 EOF
-)" 2>/dev/null)
+)")
 
 echo "${result}"
 count1=$(echo "${result}" | grep "^COUNT:" | cut -d: -f2)
@@ -66,7 +66,7 @@ mongosh "${MDB_CONNECTION_STRING}" --quiet --eval '
   print("COUNT:" + results.length);
 '
 EOF
-)" 2>/dev/null)
+)")
 
 echo "${result}"
 count2=$(echo "${result}" | grep "^COUNT:" | cut -d: -f2)
