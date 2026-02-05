@@ -1955,7 +1955,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 			}
 		}
 
-		// we want to deploy all stateful sets the first time we're deploying stateful sets
+		// if not scaling for the first time we want to deploy statefulsets one by one
 		if !scalingFirstTime {
 			if !statefulsetStatus.IsOK() {
 				return statefulsetStatus

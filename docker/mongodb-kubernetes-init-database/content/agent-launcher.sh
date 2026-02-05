@@ -126,7 +126,12 @@ elif [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
   agentOpts+=("-ephemeralPortOffset=1")
 fi
 
-# Remove stale health check file if exists
+# Remove stale agent health status file if exists.
+#
+# With `spec.persistent = true` the `{MMS_LOG_DIR}` directory is mounted using PVC. That means during pod recreation
+# we are not losing any logs. At the same time `agent-health-status.json` file is also is preserved during restarts.
+# This is problematic, because our readiness probe uses this file as source of truth for deployment status
+# and if it is stale we can quickly mark the container as ready, while in fact it is still booting up.
 rm -f "${MMS_LOG_DIR}/agent-health-status.json" 2>/dev/null || true
 
 agentOpts+=("-healthCheckFilePath=${MMS_LOG_DIR}/agent-health-status.json")

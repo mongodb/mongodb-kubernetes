@@ -566,7 +566,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	initAppdbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitAppdbImageUrlEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		// Ops manager & backup deamon images
+		// Ops manager & backup daemon images
 		initOpsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:@sha256:MONGODB_INIT_APPDB",
 		opsManagerRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
@@ -627,7 +627,7 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", mcoConstruct.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		// Ops manager & backup deamon images
+		// Ops manager & backup daemon images
 		opsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
 		// AppDB images

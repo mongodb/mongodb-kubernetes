@@ -1044,7 +1044,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 
 	mutatedSts, err := create.BackupDaemonInKubernetes(ctx, memberCluster.Client, reconcilerHelper.opsManager, sts, log)
 	if err != nil {
-		return nil, xerrors.Errorf("error creating Backup Deamon stateful set: %w", err)
+		return nil, xerrors.Errorf("error creating Backup Daemon stateful set: %w", err)
 	}
 
 	return mutatedSts, nil

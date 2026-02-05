@@ -416,6 +416,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 	}
 	currentAgentAuthMode := automationConfig.GetAgentAuthMode()
 	processes := automationConfig.Deployment.GetAllProcessNames()
+	// If we don't have processes defined yet, that means we are in the first deployment, and we can deploy all
+	// stateful-sets in parallel.
+	scalingFirstTime := len(processes) == 0
 
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, item := range clusterSpecList {
@@ -561,11 +564,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		expectedGeneration := mutatedSts.GetGeneration()
 		statefulsetStatus := statefulset.GetStatefulSetStatus(ctx, sts.Namespace, sts.Name, expectedGeneration, memberClient)
 
-		// If we don't have processes defined yet, that means we are in the first deployment, and we can deploy all
-		// stateful-sets in parallel.
-		// If we have processes defined, it means we want to wait until each of the statefulset is ready before moving
-		// to the next one.
-		if len(processes) > 0 {
+		// if not scaling for the first time we want to deploy statefulsets one by one
+		if !scalingFirstTime {
 			if !statefulsetStatus.IsOK() {
 				return statefulsetStatus
 			}
