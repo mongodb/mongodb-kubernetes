@@ -207,7 +207,7 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
             pod_parameters.append(f"pod {idx} setParameter: {set_parameter}")
 
         newline = "\n"
-        return parameters_are_set, f'Not all pods have mongot parameters set:\n{newline.join(pod_parameters)}'
+        return parameters_are_set, f"Not all pods have mongot parameters set:\n{newline.join(pod_parameters)}"
 
     run_periodically(check_mongod_parameters, timeout=600)
 
@@ -266,8 +266,9 @@ def test_search_assert_search_query(mdb: MongoDB):
 
 def get_admin_sample_movies_helper(mdb):
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester.for_replicaset(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True,
-                                    ca_path=get_issuer_ca_filepath())
+        SearchTester.for_replicaset(
+            mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()
+        )
     )
 
 

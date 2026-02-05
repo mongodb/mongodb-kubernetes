@@ -31,8 +31,9 @@ from kubetester import (
     try_load,
 )
 from kubetester.certs import create_sharded_cluster_certs, create_tls_certs
-from kubetester.kubetester import KubernetesTester, run_periodically
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -333,16 +334,10 @@ def mongorestore_from_pod(
     """
 
     if use_ssl:
-        cmd = cmd.replace(
-            f'--uri="{connection_string}"',
-            f'--uri="{connection_string}" --ssl'
-        )
+        cmd = cmd.replace(f'--uri="{connection_string}"', f'--uri="{connection_string}" --ssl')
 
     if ca_path:
-        cmd = cmd.replace(
-            f'--uri="{connection_string}"',
-            f'--uri="{connection_string}" --sslCAFile={ca_path}'
-        )
+        cmd = cmd.replace(f'--uri="{connection_string}"', f'--uri="{connection_string}" --sslCAFile={ca_path}')
 
     result = KubernetesTester.run_command_in_pod_container(
         pod_name=MONGODB_TOOLS_POD_NAME,
@@ -567,8 +562,10 @@ def _create_envoy_deployment(namespace: str):
                         {"name": "envoy-config", "configMap": {"name": "envoy-config"}},
                         {"name": "envoy-server-cert", "secret": {"secretName": "envoy-server-cert-pem"}},
                         {"name": "envoy-client-cert", "secret": {"secretName": "envoy-client-cert-pem"}},
-                        {"name": "ca-cert",
-                         "configMap": {"name": CA_CONFIGMAP_NAME, "items": [{"key": "ca-pem", "path": "ca-pem"}]}},
+                        {
+                            "name": "ca-cert",
+                            "configMap": {"name": CA_CONFIGMAP_NAME, "items": [{"key": "ca-pem", "path": "ca-pem"}]},
+                        },
                     ],
                 },
             },
@@ -835,8 +832,9 @@ def test_012_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
 
         # Verify the service has the expected port
         ports = {p.name: p.port for p in service.spec.ports}
-        assert "mongot" in ports or MONGOT_PORT in ports.values(), \
-            f"Service {service_name} does not have mongot port ({MONGOT_PORT})"
+        assert (
+            "mongot" in ports or MONGOT_PORT in ports.values()
+        ), f"Service {service_name} does not have mongot port ({MONGOT_PORT})"
 
         logger.info(f"✓ Per-shard Service {service_name} exists with ports: {ports}")
 
@@ -877,8 +875,9 @@ def test_013_verify_per_shard_statefulsets(namespace: str, mdbs: MongoDBSearch):
                 logger.warning(f"Error checking StatefulSet {sts_name}: {e}")
                 time.sleep(poll_interval)
 
-        assert ready_replicas >= 1, \
-            f"StatefulSet {sts_name} has {ready_replicas} ready replicas after {max_wait_time}s, expected >= 1"
+        assert (
+            ready_replicas >= 1
+        ), f"StatefulSet {sts_name} has {ready_replicas} ready replicas after {max_wait_time}s, expected >= 1"
 
         logger.info(f"✓ Per-shard StatefulSet {sts_name} exists with {ready_replicas} ready replicas")
 
@@ -949,8 +948,7 @@ def test_015_verify_mongos_search_config(namespace: str, mdb: MongoDB):
     def check_mongos_config():
         try:
             config = KubernetesTester.run_command_in_pod_container(
-                mongos_pod, namespace,
-                ["cat", f"/var/lib/mongodb-mms-automation/workspace/mongos-{mongos_pod}.conf"]
+                mongos_pod, namespace, ["cat", f"/var/lib/mongodb-mms-automation/workspace/mongos-{mongos_pod}.conf"]
             )
 
             has_mongot_host = "mongotHost" in config
@@ -1077,19 +1075,15 @@ def test_021_execute_text_search_query(mdb: MongoDB):
     def execute_search():
         try:
             # Execute search query using pymongo aggregation
-            results = list(search_tester.client["sample_mflix"]["movies"].aggregate([
-                {
-                    "$search": {
-                        "index": "default",
-                        "text": {
-                            "query": "star wars",
-                            "path": "title"
-                        }
-                    }
-                },
-                {"$limit": 10},
-                {"$project": {"_id": 0, "title": 1, "score": {"$meta": "searchScore"}}}
-            ]))
+            results = list(
+                search_tester.client["sample_mflix"]["movies"].aggregate(
+                    [
+                        {"$search": {"index": "default", "text": {"query": "star wars", "path": "title"}}},
+                        {"$limit": 10},
+                        {"$project": {"_id": 0, "title": 1, "score": {"$meta": "searchScore"}}},
+                    ]
+                )
+            )
 
             result_count = len(results)
             logger.info(f"Search returned {result_count} results")
@@ -1123,27 +1117,28 @@ def test_022_verify_search_results_from_all_shards(mdb: MongoDB):
     logger.info(f"Total documents in collection: {total_docs}")
 
     # Execute wildcard search to get all documents
-    results = list(movies_collection.aggregate([
-        {
-            "$search": {
-                "index": "default",
-                "wildcard": {
-                    "query": "*",
-                    "path": "title",
-                    "allowAnalyzedField": True
-                }
-            }
-        },
-        {"$project": {"_id": 0, "title": 1}}
-    ]))
+    results = list(
+        movies_collection.aggregate(
+            [
+                {
+                    "$search": {
+                        "index": "default",
+                        "wildcard": {"query": "*", "path": "title", "allowAnalyzedField": True},
+                    }
+                },
+                {"$project": {"_id": 0, "title": 1}},
+            ]
+        )
+    )
 
     search_count = len(results)
     logger.info(f"Search through mongos returned {search_count} documents")
 
     # Verify search returns all documents (or close to it - some tolerance for timing)
     assert search_count > 0, "Search returned no results"
-    assert search_count >= total_docs * 0.9, \
-        f"Search returned {search_count} but collection has {total_docs} (expected >= 90%)"
+    assert (
+        search_count >= total_docs * 0.9
+    ), f"Search returned {search_count} but collection has {total_docs} (expected >= 90%)"
 
     logger.info(f"✓ Search results verified: {search_count}/{total_docs} documents from all shards")
 

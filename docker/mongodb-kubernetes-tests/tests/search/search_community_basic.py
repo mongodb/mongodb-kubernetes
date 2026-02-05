@@ -86,9 +86,7 @@ def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
 
 @fixture(scope="function")
 def sample_movies_helper(mdbc: MongoDBCommunity) -> SampleMoviesSearchHelper:
-    return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester.for_replicaset(mdbc, USER_NAME, USER_PASSWORD)
-    )
+    return movies_search_helper.SampleMoviesSearchHelper(SearchTester.for_replicaset(mdbc, USER_NAME, USER_PASSWORD))
 
 
 @mark.e2e_search_community_basic

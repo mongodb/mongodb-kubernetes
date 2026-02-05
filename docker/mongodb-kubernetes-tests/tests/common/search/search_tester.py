@@ -23,12 +23,12 @@ class SearchTester(MongoTester):
 
     @classmethod
     def for_replicaset(
-            cls,
-            mdb,
-            user_name: str,
-            password: str,
-            use_ssl: bool = False,
-            ca_path: Optional[str] = None,
+        cls,
+        mdb,
+        user_name: str,
+        password: str,
+        use_ssl: bool = False,
+        ca_path: Optional[str] = None,
     ) -> "SearchTester":
         """Create SearchTester for a replica set MongoDB resource.
 
@@ -51,12 +51,12 @@ class SearchTester(MongoTester):
 
     @classmethod
     def for_sharded(
-            cls,
-            mdb,
-            user_name: str,
-            password: str,
-            use_ssl: bool = False,
-            ca_path: Optional[str] = None,
+        cls,
+        mdb,
+        user_name: str,
+        password: str,
+        use_ssl: bool = False,
+        ca_path: Optional[str] = None,
     ) -> "SearchTester":
         """Create SearchTester for a sharded MongoDB resource (connects to mongos).
 
@@ -157,10 +157,12 @@ class SearchTester(MongoTester):
             # index ready if it exists with the expected name and has a latestDefinition.
             if status is None and queryable is None and idx.get("latestDefinition") is not None:
                 logger.debug(
-                    f"{database_name}/{collection_name}: search index {idx.get('name')} has no status but has latestDefinition, considering ready")
+                    f"{database_name}/{collection_name}: search index {idx.get('name')} has no status but has latestDefinition, considering ready"
+                )
                 continue
             logger.debug(
-                f"{database_name}/{collection_name}: search index {idx} is not ready (status={status}, queryable={queryable})")
+                f"{database_name}/{collection_name}: search index {idx} is not ready (status={status}, queryable={queryable})"
+            )
             return False
         return True
 
