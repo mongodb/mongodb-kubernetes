@@ -1606,13 +1606,13 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 
 	logDiffOfProcessNames(processNames, r.getHealthyProcessNames(), log.With("ctx", "cleanOpsManagerState"))
 	if err := om.WaitForReadyState(conn, r.getHealthyProcessNames(), false, log); err != nil {
-		log.Warnf("Failed to wait for ready state: %s. Continuing with cleanup.", err)
+		log.Warn("Failed to wait for ready state. Continuing with cleanup.")
 		errs = multierror.Append(errs, err)
 	}
 
 	if sc.Spec.Backup != nil && sc.Spec.Backup.AutoTerminateOnDeletion {
 		if err := backup.StopBackupIfEnabled(conn, conn, sc.Name, backup.ShardedClusterType, log); err != nil {
-			log.Warnf("Failed to stop backup: %s. Continuing with cleanup.", err)
+			log.Warn("Failed to stop backup. Continuing with cleanup.")
 			errs = multierror.Append(errs, err)
 		}
 	}
@@ -1622,12 +1622,12 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 
 	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
-		log.Warnf("Failed to stop monitoring for hosts %v: %s. Continuing with cleanup.", hostsToRemove, err)
+		log.Warnf("Failed to stop monitoring for hosts %v. Continuing with cleanup.", hostsToRemove)
 		errs = multierror.Append(errs, err)
 	}
 
 	if err := r.commonController.clearProjectAuthenticationSettings(ctx, conn, sc, processNames, log); err != nil {
-		log.Warnf("Failed to clear project authentication settings: %s. Continuing with cleanup.", err)
+		log.Warn("Failed to clear project authentication settings. Continuing with cleanup.")
 		errs = multierror.Append(errs, err)
 	}
 
@@ -1637,7 +1637,11 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 	}
 
-	log.Infof("Removed deployment %s from Ops Manager at %s", sc.Name, conn.BaseURL())
+	if errs != nil {
+		log.Warnf("Sharded cluster cleanup from Ops Manager completed with errors")
+	} else {
+		log.Infof("Removed deployment %s from Ops Manager at %s", sc.Name, conn.BaseURL())
+	}
 	return errs
 }
 

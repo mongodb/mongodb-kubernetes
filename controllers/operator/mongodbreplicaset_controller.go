@@ -831,13 +831,13 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	var errs error
 
 	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
-		log.Warnf("Failed to wait for ready state: %s. Continuing with cleanup.", err)
+		log.Warn("Failed to wait for ready state. Continuing with cleanup.")
 		errs = multierror.Append(errs, err)
 	}
 
 	if rs.Spec.Backup != nil && rs.Spec.Backup.AutoTerminateOnDeletion {
 		if err := backup.StopBackupIfEnabled(conn, conn, rs.Name, backup.ReplicaSetType, log); err != nil {
-			log.Warnf("Failed to stop backup: %s. Continuing with cleanup.", err)
+			log.Warn("Failed to stop backup. Continuing with cleanup.")
 			errs = multierror.Append(errs, err)
 		}
 	}
@@ -849,12 +849,12 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 
 	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
-		log.Warnf("Failed to stop monitoring for hosts %v: %s. Continuing with cleanup.", hostsToRemove, err)
+		log.Warnf("Failed to stop monitoring for hosts %v. Continuing with cleanup.", hostsToRemove)
 		errs = multierror.Append(errs, err)
 	}
 
 	if err := r.reconciler.clearProjectAuthenticationSettings(ctx, conn, rs, processNames, log); err != nil {
-		log.Warnf("Failed to clear project authentication settings: %s. Continuing with cleanup.", err)
+		log.Warn("Failed to clear project authentication settings. Continuing with cleanup.")
 		errs = multierror.Append(errs, err)
 	}
 
@@ -864,7 +864,11 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 		log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 	}
 
-	log.Info("Removed replica set from Ops Manager!")
+	if errs != nil {
+		log.Warnf("Replica set cleanup from Ops Manager completed with errors")
+	} else {
+		log.Info("Removed replica set from Ops Manager!")
+	}
 	return errs
 }
 

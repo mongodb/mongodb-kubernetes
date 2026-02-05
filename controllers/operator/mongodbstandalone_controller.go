@@ -425,7 +425,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 	var errs error
 
 	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
-		log.Warnf("Failed to wait for ready state: %s. Continuing with cleanup.", err)
+		log.Warnf("Failed to wait for ready state. Continuing with cleanup.")
 		errs = multierror.Append(errs, err)
 	}
 
@@ -433,12 +433,12 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
-		log.Warnf("Failed to stop monitoring for hosts %v: %s. Continuing with cleanup.", hostsToRemove, err)
+		log.Warnf("Failed to stop monitoring for hosts %v. Continuing with cleanup.", hostsToRemove)
 		errs = multierror.Append(errs, err)
 	}
 
 	if err := r.clearProjectAuthenticationSettings(ctx, conn, s, processNames, log); err != nil {
-		log.Warnf("Failed to clear project authentication settings: %s. Continuing with cleanup.", err)
+		log.Warnf("Failed to clear project authentication settings. Continuing with cleanup.")
 		errs = multierror.Append(errs, err)
 	}
 
@@ -450,7 +450,11 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 		log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 	}
 
-	log.Info("Removed standalone from Ops Manager!")
+	if errs != nil {
+		log.Warnf("Standalone cleanup from Ops Manager completed with errors")
+	} else {
+		log.Info("Removed standalone from Ops Manager!")
+	}
 	return errs
 }
 
