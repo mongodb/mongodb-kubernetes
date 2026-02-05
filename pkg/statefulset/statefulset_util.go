@@ -179,6 +179,10 @@ func AddPVCAnnotation(statefulSetToCreate *appsv1.StatefulSet) error {
 // GetStatefulSetStatus returns the workflow.Status based on the status of the
 // If the StatefulSet is not ready the request will be retried in 3 seconds (instead of the default 10 seconds)
 // allowing to reach "ready" status sooner
+//
+// `expectedGeneration` is the `meta.generation` returned from create/update statefulset API calls.
+// It is used to compare with `status.observedGeneration` to avoid reading stale StatefulSet object.
+// We can rely on `meta.generation` because create/update statefulset API calls are idempotent.
 func GetStatefulSetStatus(ctx context.Context, namespace, name string, expectedGeneration int64, client kubernetesClient.Client) workflow.Status {
 	set, err := client.GetStatefulSet(ctx, kube.ObjectKey(namespace, name))
 	i := 0
