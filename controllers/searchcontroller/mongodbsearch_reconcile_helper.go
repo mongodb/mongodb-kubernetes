@@ -124,8 +124,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
-	// For sharded clusters, deploy per-shard mongot StatefulSets, Services, and ConfigMaps.
+	if err := r.ValidateAutoEmbeddingConfig(); err != nil {
+		return workflow.Failed(err)
+	}
+
 	if shardedSource, ok := r.db.(ShardedSearchSourceDBResource); ok {
 		return r.reconcileSharded(ctx, log, shardedSource, version)
 	}
@@ -134,7 +136,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	return r.reconcileNonSharded(ctx, log, version)
 }
 
-// reconcileNonSharded handles reconciliation for non-sharded (ReplicaSet) MongoDB sources.
 func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, log *zap.SugaredLogger, version string) workflow.Status {
 	keyfileStsModification := statefulset.NOOP()
 	if r.mdbSearch.IsWireprotoEnabled() {
@@ -195,14 +196,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
 }
 
-// reconcileSharded handles reconciliation for sharded MongoDB clusters.
-// It deploys one mongot StatefulSet, Service, and ConfigMap per shard.
-//
-// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
-// - spec.lb.mode == External
-// - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
-// We map shardName -> endpoint and configure each mongod shard
-// to use its shard-local external LB endpoint for Search gRPC.
+// reconcileSharded deploys one mongot StatefulSet, Service, and ConfigMap per shard.
 func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log *zap.SugaredLogger, shardedSource ShardedSearchSourceDBResource, version string) workflow.Status {
 	log.Infof("Reconciling sharded MongoDBSearch with %d shards", shardedSource.GetShardCount())
 
@@ -232,18 +226,15 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 	image, imageVersion := r.searchImageAndVersion()
 	searchImage := fmt.Sprintf("%s:%s", image, imageVersion)
 
-	// Deploy per-shard mongot resources
 	shardNames := shardedSource.GetShardNames()
 	for shardIdx, shardName := range shardNames {
 		shardLog := log.With("shard", shardName, "shardIdx", shardIdx)
 		shardLog.Infof("Reconciling mongot for shard %s", shardName)
 
-		// Create per-shard Service
 		if err := r.ensureShardSearchService(ctx, shardName); err != nil {
 			return workflow.Failed(err)
 		}
 
-		// Create per-shard mongot config with shard-specific host seeds
 		shardMongotConfig := createShardMongotConfig(r.mdbSearch, shardedSource, shardIdx)
 		configHash, err := r.ensureShardMongotConfig(ctx, shardLog, shardName, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 		if err != nil {
@@ -256,7 +247,6 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			},
 		))
 
-		// Create per-shard StatefulSet
 		if err := r.createOrUpdateShardStatefulSet(ctx,
 			shardLog,
 			shardName,
@@ -270,7 +260,6 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			return workflow.Failed(err)
 		}
 
-		// Check StatefulSet status
 		stsName := r.mdbSearch.ShardMongotStatefulSetNamespacedName(shardName)
 		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, stsName.Name, r.client); !statefulSetStatus.IsOK() {
 			return statefulSetStatus
@@ -369,9 +358,6 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	return hashBytes(configData), nil
 }
 
-// ensureShardSearchService creates or updates the headless Service for a specific shard's mongot.
-// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
-// Each shard gets its own mongot Service for internal cluster communication.
 func (r *MongoDBSearchReconcileHelper) ensureShardSearchService(ctx context.Context, shardName string) error {
 	svcName := r.mdbSearch.ShardMongotServiceNamespacedName(shardName)
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName.Name, Namespace: svcName.Namespace}}
@@ -390,9 +376,6 @@ func (r *MongoDBSearchReconcileHelper) ensureShardSearchService(ctx context.Cont
 	return nil
 }
 
-// ensureShardMongotConfig creates or updates the ConfigMap for a specific shard's mongot configuration.
-// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
-// Each shard gets its own mongot ConfigMap with shard-specific host seeds.
 func (r *MongoDBSearchReconcileHelper) ensureShardMongotConfig(ctx context.Context, log *zap.SugaredLogger, shardName string, modifications ...mongot.Modification) (string, error) {
 	mongotConfig := mongot.Config{}
 	mongot.Apply(modifications...)(&mongotConfig)
@@ -421,9 +404,6 @@ func (r *MongoDBSearchReconcileHelper) ensureShardMongotConfig(ctx context.Conte
 	return hashBytes(configData), nil
 }
 
-// createOrUpdateShardStatefulSet creates or updates the StatefulSet for a specific shard's mongot.
-// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
-// Each shard gets its own mongot StatefulSet.
 func (r *MongoDBSearchReconcileHelper) createOrUpdateShardStatefulSet(ctx context.Context, log *zap.SugaredLogger, shardName string, modifications ...statefulset.Modification) error {
 	stsName := r.mdbSearch.ShardMongotStatefulSetNamespacedName(shardName)
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
@@ -656,23 +636,12 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 		return nil, nil, err
 	}
 
-	// Determine TLS mode based on whether CA is configured for mTLS
-	tlsMode := mongot.ConfigTLSModeTLS
-	var caPath *string
-	if r.mdbSearch.IsMTLSEnabled() {
-		tlsMode = mongot.ConfigTLSModeMTLS
-		caPath = ptr.To(tls.IngressCAMountPath + "ca.crt")
-	}
-
 	mongotModification := func(config *mongot.Config) {
 		certPath := tls.OperatorSecretMountPath + certFileName
-		config.Server.Grpc.TLS.Mode = tlsMode
+		config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeTLS
 		config.Server.Grpc.TLS.CertificateKeyFile = ptr.To(certPath)
-		if caPath != nil {
-			config.Server.Grpc.TLS.CertificateAuthorityFile = caPath
-		}
 		if config.Server.Wireproto != nil {
-			config.Server.Wireproto.TLS.Mode = tlsMode
+			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
 			config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
 		}
 	}
@@ -680,23 +649,10 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	tlsSecret := r.mdbSearch.TLSOperatorSecretNamespacedName()
 	tlsVolume := statefulset.CreateVolumeFromSecret("tls", tlsSecret.Name)
 	tlsVolumeMount := statefulset.CreateVolumeMount("tls", tls.OperatorSecretMountPath, statefulset.WithReadOnly(true))
-
-	volumes := []corev1.Volume{tlsVolume}
-	volumeMounts := []corev1.VolumeMount{tlsVolumeMount}
-
-	// Add CA volume if mTLS is enabled
-	if r.mdbSearch.IsMTLSEnabled() {
-		caSecret := r.mdbSearch.TLSCASecretNamespacedName()
-		caVolume := statefulset.CreateVolumeFromSecret("ingress-ca", caSecret.Name)
-		caVolumeMount := statefulset.CreateVolumeMount("ingress-ca", tls.IngressCAMountPath, statefulset.WithReadOnly(true))
-		volumes = append(volumes, caVolume)
-		volumeMounts = append(volumeMounts, caVolumeMount)
-	}
-
 	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
-		podtemplatespec.WithVolumes(volumes),
+		podtemplatespec.WithVolume(tlsVolume),
 		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
-			container.WithVolumeMounts(volumeMounts),
+			container.WithVolumeMounts([]corev1.VolumeMount{tlsVolumeMount}),
 		)),
 	))
 
@@ -1035,6 +991,25 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 		return xerrors.Errorf(
 			"multiple mongot replicas (%d) require external load balancer configuration; "+
 				"please configure spec.lb.mode=External with spec.lb.external.endpoint",
+			r.mdbSearch.GetReplicas(),
+		)
+	}
+
+	return nil
+}
+
+// ValidateAutoEmbeddingConfig validates that auto embeddings are not configured with multiple mongot replicas.
+// Auto embeddings require the IsAutoEmbeddingViewWriter flag to be set to true for exactly one mongot instance.
+// When multiple replicas are configured, all mongot instances would have this flag set to true, causing conflicts.
+func (r *MongoDBSearchReconcileHelper) ValidateAutoEmbeddingConfig() error {
+	if r.mdbSearch.Spec.AutoEmbedding == nil {
+		return nil
+	}
+
+	if r.mdbSearch.HasMultipleReplicas() {
+		return xerrors.Errorf(
+			"auto embeddings are not supported with multiple mongot replicas (%d); "+
+				"please set spec.source.replicas to 1 or remove spec.autoEmbedding",
 			r.mdbSearch.GetReplicas(),
 		)
 	}

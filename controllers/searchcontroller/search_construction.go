@@ -47,21 +47,12 @@ type SearchSourceDBResource interface {
 }
 
 // ShardedSearchSourceDBResource extends SearchSourceDBResource for sharded MongoDB clusters.
-// It provides per-shard host seeds and configuration for the sharded Search + external L7 LB PoC.
-//
-// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
-// - spec.lb.mode == External
-// - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
-// We map shardName -> endpoint and configure each mongod shard
-// to use its shard-local external LB endpoint for Search gRPC.
 type ShardedSearchSourceDBResource interface {
 	SearchSourceDBResource
 	GetShardCount() int
 	GetShardNames() []string
 	HostSeedsForShard(shardIdx int) []string
 	GetExternalLBEndpointForShard(shardName string) string
-	// MongosHostAndPort returns the mongos host:port for the sharded cluster.
-	// This is used for the router section in mongot config.
 	MongosHostAndPort() string
 }
 
@@ -149,11 +140,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 }
 
 // CreateShardSearchStatefulSetFunc creates a StatefulSet for a specific shard's mongot deployment.
-// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
-// - spec.lb.mode == External
-// - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
-// We map shardName -> endpoint and configure each mongod shard
-// to use its shard-local external LB endpoint for Search gRPC.
 func CreateShardSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, shardedSource ShardedSearchSourceDBResource, shardIdx int, searchImage string) statefulset.Modification {
 	shardName := shardedSource.GetShardNames()[shardIdx]
 	stsName := mdbSearch.ShardMongotStatefulSetName(shardName)

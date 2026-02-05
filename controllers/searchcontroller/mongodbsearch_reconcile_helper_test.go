@@ -642,6 +642,91 @@ func TestValidateSearchResource(t *testing.T) {
 	}
 }
 
+func TestMongoDBSearchReconcileHelper_ValidateAutoEmbeddingConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		mdbSearch   *searchv1.MongoDBSearch
+		expectError bool
+		errContains string
+	}{
+		{
+			name: "No auto embedding configured - should pass",
+			mdbSearch: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+				s.Spec.AutoEmbedding = nil
+				s.Spec.Source.Replicas = 3
+			}),
+			expectError: false,
+		},
+		{
+			name: "Auto embedding with single replica - should pass",
+			mdbSearch: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
+					EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
+						Name: "api-key-secret",
+					},
+				}
+				s.Spec.Source.Replicas = 1
+			}),
+			expectError: false,
+		},
+		{
+			name: "Auto embedding with default replica (0 means 1) - should pass",
+			mdbSearch: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
+					EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
+						Name: "api-key-secret",
+					},
+				}
+				s.Spec.Source.Replicas = 0
+			}),
+			expectError: false,
+		},
+		{
+			name: "Auto embedding with multiple replicas (2) - should fail",
+			mdbSearch: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
+					EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
+						Name: "api-key-secret",
+					},
+				}
+				s.Spec.Source.Replicas = 2
+			}),
+			expectError: true,
+			errContains: "auto embeddings are not supported with multiple mongot replicas (2)",
+		},
+		{
+			name: "Auto embedding with multiple replicas (3) - should fail",
+			mdbSearch: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
+					EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
+						Name: "api-key-secret",
+					},
+					ProviderEndpoint: "https://api.openai.com/v1/embeddings",
+				}
+				s.Spec.Source.Replicas = 3
+			}),
+			expectError: true,
+			errContains: "auto embeddings are not supported with multiple mongot replicas (3)",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeClient := newTestFakeClient(tc.mdbSearch)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, tc.mdbSearch, nil, newTestOperatorSearchConfig())
+
+			err := helper.ValidateAutoEmbeddingConfig()
+
+			if tc.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestGetMongodConfigParametersForShard(t *testing.T) {
 	tests := []struct {
 		name          string
