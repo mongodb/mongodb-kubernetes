@@ -1,0 +1,32 @@
+{
+  "packages": {
+    "go":                          "latest",
+    "gopls":                       "latest",
+    "gotools":                     "latest",
+    "git":                         "latest",
+    "neovim":                      "latest",
+    "docker":                      "latest",
+    "kubectl":                     "latest",
+    "ripgrep":                     "latest",
+    "python3":                     "latest",
+    "awscli2":                     "latest",
+    "kustomize":                   "latest",
+    "kubernetes-controller-tools": "latest",
+    "python3Packages.pip":         "",
+    "shellcheck":                  "latest"
+  },
+  "env": {
+    "AWS_PROFILE": "mck",
+    "AWS_REGION":  "eu-west-1"
+  },
+  "shell": {
+    "init_hook": [
+      "# optional devbox env with preset env vars",
+      "go version",
+      "echo \"☁️  Active AWS Profile: ${AWS_PROFILE}\"",
+      "alias aws-login=\"aws sso login --profile ${AWS_PROFILE}\"",
+      "aws sts get-caller-identity --no-cli-pager",
+      "export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)"
+    ]
+  }
+}
