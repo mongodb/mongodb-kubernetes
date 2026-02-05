@@ -394,13 +394,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return reconcileResult, err
 	}
 
-	// Check if this is a ReplicaSet resource - skip reconciliation for other resource types
-	// This is needed because the MongoDBSearch watch can trigger reconciliation for any MongoDB resource
-	if rs.Spec.ResourceType != mdbv1.ReplicaSet {
-		log.Debugf("Skipping reconciliation for non-ReplicaSet resource type: %s", rs.Spec.ResourceType)
-		return reconcile.Result{}, nil
-	}
-
 	// Create helper for THIS reconciliation
 	helper, err := r.newReconcilerHelper(ctx, rs, log)
 	if err != nil {
@@ -690,13 +683,26 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 		}
 	}
 
+	// Watch for MongoDBSearch resources that reference ReplicaSet MongoDB resources
+	// Only enqueue reconciliation requests for ReplicaSet resources, not Standalone or ShardedCluster
+	kubeClient := mgr.GetClient()
 	err = c.Watch(source.Kind(mgr.GetCache(), &searchv1.MongoDBSearch{},
 		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, search *searchv1.MongoDBSearch) []reconcile.Request {
-			source := search.GetMongoDBResourceRef()
-			if source == nil {
+			sourceRef := search.GetMongoDBResourceRef()
+			if sourceRef == nil {
 				return []reconcile.Request{}
 			}
-			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: source.Namespace, Name: source.Name}}}
+			// Fetch the MongoDB resource to check its ResourceType
+			mdb := &mdbv1.MongoDB{}
+			if err := kubeClient.Get(ctx, types.NamespacedName{Namespace: sourceRef.Namespace, Name: sourceRef.Name}, mdb); err != nil {
+				// If we can't fetch the resource, don't enqueue (it might not exist or be a different type)
+				return []reconcile.Request{}
+			}
+			// Only enqueue if this is a ReplicaSet resource
+			if mdb.Spec.ResourceType != mdbv1.ReplicaSet {
+				return []reconcile.Request{}
+			}
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: sourceRef.Namespace, Name: sourceRef.Name}}}
 		})))
 	if err != nil {
 		return err

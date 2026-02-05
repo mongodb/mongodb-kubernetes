@@ -1803,12 +1803,23 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 		}
 	}
 
-	// Watch for MongoDBSearch resources that reference this sharded cluster
-	// This triggers reconciliation when search configuration changes
+	// Watch for MongoDBSearch resources that reference ShardedCluster MongoDB resources
+	// Only enqueue reconciliation requests for ShardedCluster resources, not ReplicaSet or Standalone
+	shardedKubeClient := mgr.GetClient()
 	err = c.Watch(source.Kind(mgr.GetCache(), &searchv1.MongoDBSearch{},
 		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, search *searchv1.MongoDBSearch) []reconcile.Request {
 			sourceRef := search.GetMongoDBResourceRef()
 			if sourceRef == nil {
+				return []reconcile.Request{}
+			}
+			// Fetch the MongoDB resource to check its ResourceType
+			mdb := &mdbv1.MongoDB{}
+			if err := shardedKubeClient.Get(ctx, types.NamespacedName{Namespace: sourceRef.Namespace, Name: sourceRef.Name}, mdb); err != nil {
+				// If we can't fetch the resource, don't enqueue (it might not exist or be a different type)
+				return []reconcile.Request{}
+			}
+			// Only enqueue if this is a ShardedCluster resource
+			if mdb.Spec.ResourceType != mdbv1.ShardedCluster {
 				return []reconcile.Request{}
 			}
 			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: sourceRef.Namespace, Name: sourceRef.Name}}}
