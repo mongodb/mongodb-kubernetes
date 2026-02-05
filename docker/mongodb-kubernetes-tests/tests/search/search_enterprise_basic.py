@@ -10,18 +10,19 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.search import movies_search_helper
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
-from tests.common.search.search_constants import (
-    ADMIN_USER_NAME,
-    ADMIN_USER_PASSWORD,
-    MONGOT_USER_NAME,
-    MONGOT_USER_PASSWORD,
-    USER_NAME,
-    USER_PASSWORD,
-)
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator
 
 logger = test_logger.get_test_logger(__name__)
+
+ADMIN_USER_NAME = "mdb-admin-user"
+ADMIN_USER_PASSWORD = f"{ADMIN_USER_NAME}-password"
+
+MONGOT_USER_NAME = "search-sync-source"
+MONGOT_USER_PASSWORD = f"{MONGOT_USER_NAME}-password"
+
+USER_NAME = "mdb-user"
+USER_PASSWORD = f"{USER_NAME}-password"
 
 MDB_RESOURCE_NAME = "mdb-rs"
 
@@ -157,7 +158,7 @@ def test_wait_for_database_resource_ready(mdb: MongoDB):
 @mark.e2e_search_enterprise_basic
 def test_search_restore_sample_database(mdb: MongoDB):
     sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester.for_replicaset(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
+        SearchTester(get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD))
     )
     sample_movies_helper.restore_sample_database()
 
@@ -165,7 +166,7 @@ def test_search_restore_sample_database(mdb: MongoDB):
 @mark.e2e_search_enterprise_basic
 def test_search_create_search_index(mdb: MongoDB):
     sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester.for_replicaset(mdb, USER_NAME, USER_PASSWORD)
+        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD))
     )
     sample_movies_helper.create_search_index()
 
@@ -173,6 +174,10 @@ def test_search_create_search_index(mdb: MongoDB):
 @mark.e2e_search_enterprise_basic
 def test_search_assert_search_query(mdb: MongoDB):
     sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester.for_replicaset(mdb, USER_NAME, USER_PASSWORD)
+        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD))
     )
     sample_movies_helper.assert_search_query(retry_timeout=60)
+
+
+def get_connection_string(mdb: MongoDB, user_name: str, user_password: str) -> str:
+    return f"mongodb://{user_name}:{user_password}@{mdb.name}-0.{mdb.name}-svc.{mdb.namespace}.svc.cluster.local:27017/?replicaSet={mdb.name}"

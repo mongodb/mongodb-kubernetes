@@ -42,22 +42,26 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.search import movies_search_helper
-from tests.common.search.search_constants import (
-    ADMIN_USER_NAME,
-    ADMIN_USER_PASSWORD,
-    ENVOY_ADMIN_PORT,
-    ENVOY_PROXY_PORT,
-    MONGOT_PORT,
-    MONGOT_USER_NAME,
-    MONGOT_USER_PASSWORD,
-    USER_NAME,
-    USER_PASSWORD,
-)
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
+
+# User credentials
+ADMIN_USER_NAME = "mdb-admin-user"
+ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
+
+MONGOT_USER_NAME = "search-sync-source"
+MONGOT_USER_PASSWORD = "search-sync-source-user-password"
+
+USER_NAME = "mdb-user"
+USER_PASSWORD = "mdb-user-pass"
+
+# Ports
+MONGOT_PORT = 27028
+ENVOY_PROXY_PORT = 27029
+ENVOY_ADMIN_PORT = 9901
 
 # Resource names
 MDB_RESOURCE_NAME = "mdb-sh"
