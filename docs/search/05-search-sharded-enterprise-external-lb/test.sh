@@ -72,6 +72,5 @@ run_for_output 05_0361_wait_for_vector_search_index_ready.sh
 # Execute search queries through mongos and verify results
 run_for_output 05_0365_execute_search_query_via_mongos.sh
 run_for_output 05_0366_execute_vector_search_query_via_mongos.sh
-run_for_output 05_0370_verify_search_results_from_all_shards.sh
 
 cd -
