@@ -853,7 +853,7 @@ func TestOpsManagerBackupObjectLock(t *testing.T) {
 	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, "", zap.S())
 	s3Configs, _ := mockedAdmin.ReadS3Configs()
 	// then
-	assert.Equal(t, true, s3Configs[0].ObjectLockEnabled)
+	assert.Equal(t, true, *s3Configs[0].ObjectLockEnabled)
 }
 
 func TestOpsManagerBackupObjectLockNotSentWhenUnset(t *testing.T) {
