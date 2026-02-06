@@ -563,17 +563,17 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	initOpsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3", util.InitOpsManagerImageUrl)
 	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl)
 	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", mcoConstruct.MongodbImageEnv)
-	initAppdbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitAppdbImageUrlEnv)
+	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitDatabaseImageUrlEnv)
 
 	imageUrlsMock := images.ImageUrls{
 		// Ops manager & backup deamon images
-		initOpsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:@sha256:MONGODB_INIT_APPDB",
+		initOpsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:@sha256:MONGODB_INIT_OPS_MANAGER",
 		opsManagerRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
 		// AppDB images
-		mcoConstruct.AgentImageEnv: "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", // In non-static architecture, this env var holds full container image uri
-		mongodbRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
-		initAppdbRelatedImageEnv:   "quay.io/mongodb/mongodb-kubernetes-init-appdb@sha256:INIT_APPDB_SHA",
+		mcoConstruct.AgentImageEnv:      "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", // In non-static architecture, this env var holds full container image uri
+		mongodbRelatedImageEnv:          "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
+		initDatabaseRelatedImageEnv:     "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:INIT_DATABASE_SHA",
 	}
 
 	ctx := context.Background()
@@ -602,7 +602,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 			require.Len(t, sts.Spec.Template.Spec.InitContainers, 1)
 			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
 
-			assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:@sha256:MONGODB_INIT_APPDB", sts.Spec.Template.Spec.InitContainers[0].Image)
+			assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:@sha256:MONGODB_INIT_OPS_MANAGER", sts.Spec.Template.Spec.InitContainers[0].Image)
 			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER", sts.Spec.Template.Spec.Containers[0].Image)
 		})
 	}
@@ -614,7 +614,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 1)
 	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
 
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-appdb@sha256:INIT_APPDB_SHA", appDBSts.Spec.Template.Spec.InitContainers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:INIT_DATABASE_SHA", appDBSts.Spec.Template.Spec.InitContainers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", appDBSts.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
 	assert.NotContains(t, appDBSts.Spec.Template.Spec.Containers[2].Image, util.OperatorVersion)
@@ -972,7 +972,7 @@ func TestOpsManagerRace(t *testing.T) {
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager1.CentralURL(), t: t, skipChecks: true}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, "fake-initAppdbVersion", "fake-initOpsManagerImageVersion", omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, "fake-initDatabaseVersion", "fake-initOpsManagerImageVersion", omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
 	})
 
@@ -1325,7 +1325,7 @@ func configureBackupResources(ctx context.Context, m kubernetesClient.Client, te
 	}
 }
 
-func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*OpsManagerReconciler, kubernetesClient.Client, *MockedInitializer) {
+func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*OpsManagerReconciler, kubernetesClient.Client, *MockedInitializer) {
 	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory, opsManager.DeepCopy())
 
 	// create an admin user secret
@@ -1341,7 +1341,7 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 		}

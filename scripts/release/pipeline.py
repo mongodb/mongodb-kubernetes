@@ -20,7 +20,6 @@ from scripts.release.argparse_utils import (
 from scripts.release.atomic_pipeline import (
     build_agent,
     build_database_image,
-    build_init_appdb_image,
     build_init_database_image,
     build_init_om_image,
     build_mco_tests_image,
@@ -33,7 +32,6 @@ from scripts.release.atomic_pipeline import (
 from scripts.release.build.build_info import (
     AGENT_IMAGE,
     DATABASE_IMAGE,
-    INIT_APPDB_IMAGE,
     INIT_DATABASE_IMAGE,
     INIT_OPS_MANAGER_IMAGE,
     MCO_TESTS_IMAGE,
@@ -78,7 +76,6 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         DATABASE_IMAGE: build_database_image,
         AGENT_IMAGE: build_agent,
         # Init images
-        INIT_APPDB_IMAGE: build_init_appdb_image,
         INIT_DATABASE_IMAGE: build_init_database_image,
         INIT_OPS_MANAGER_IMAGE: build_init_om_image,
         # Ops Manager image

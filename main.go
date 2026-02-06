@@ -133,7 +133,6 @@ func main() {
 	forceEnterprise := env.ReadBoolOrDefault(architectures.MdbAssumeEnterpriseImage, false)
 	initDatabaseNonStaticImageVersion := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
 	databaseNonStaticImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
-	initAppdbVersion := env.ReadOrDefault(construct.InitAppdbVersionEnv, "latest")
 	initOpsManagerImageVersion := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
 	// Namespace where the operator is installed
 	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
@@ -266,7 +265,7 @@ func main() {
 		}
 	}
 	if slices.Contains(crds, mongoDBOpsManagerCRDPlural) {
-		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
+		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseNonStaticImageVersion, initOpsManagerImageVersion); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -379,8 +378,8 @@ func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.
 		Complete()
 }
 
-func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
-	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
+func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string) error {
+	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).

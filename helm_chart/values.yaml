@@ -150,11 +150,6 @@ initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
   version: 1.6.1
 
-## Application Database
-initAppDb:
-  name: mongodb-kubernetes-init-appdb
-  version: 1.6.1
-
 agent:
   name: mongodb-agent
   version: 108.0.12.8846-1
@@ -184,7 +179,6 @@ registry:
   initDatabase: quay.io/mongodb
   initOpsManager: quay.io/mongodb
   opsManager: quay.io/mongodb
-  initAppDb: quay.io/mongodb
   agent: quay.io/mongodb
 
   # This is only used by the MongoDBCommunity resource reconciler - START

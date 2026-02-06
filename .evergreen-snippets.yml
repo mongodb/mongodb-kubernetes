@@ -48,8 +48,6 @@ variables:
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
       - name: build_agent_images_ubi

@@ -121,19 +121,19 @@ type ReconcileAppDbReplicaSet struct {
 	stateStore      *StateStore[AppDBDeploymentState]
 	deploymentState *AppDBDeploymentState
 
-	imageUrls        images.ImageUrls
-	initAppdbVersion string
+	imageUrls           images.ImageUrls
+	initDatabaseVersion string
 
 	ownerReferences []metav1.OwnerReference
 }
 
-func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initAppdbVersion string, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, ownerReferences []metav1.OwnerReference) (*ReconcileAppDbReplicaSet, error) {
+func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseVersion string, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, ownerReferences []metav1.OwnerReference) (*ReconcileAppDbReplicaSet, error) {
 	reconciler := &ReconcileAppDbReplicaSet{
 		ReconcileCommonController: commonController,
 		omConnectionFactory:       omConnectionFactory,
 		centralClient:             commonController.client,
 		imageUrls:                 imageUrls,
-		initAppdbVersion:          initAppdbVersion,
+		initDatabaseVersion:       initDatabaseVersion,
 		ownerReferences:           ownerReferences,
 	}
 
@@ -591,7 +591,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 
 	appdbOpts := construct.AppDBStatefulSetOptions{
-		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitAppdbImageUrlEnv, r.initAppdbVersion),
+		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
 		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations()),
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
