@@ -289,11 +289,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 			return r.updateOmDeployment(ctx, conn, s, sts, false, agentCertPath, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			if err = create.DatabaseInKubernetes(ctx, r.client, *s, sts, standaloneOpts, log); err != nil {
+			mutatedSts, err := create.DatabaseInKubernetes(ctx, r.client, *s, sts, standaloneOpts, log)
+			if err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
 			}
 
-			if status := statefulset.GetStatefulSetStatus(ctx, sts.Namespace, sts.Name, r.client); !status.IsOK() {
+			expectedGeneration := mutatedSts.GetGeneration()
+			if status := statefulset.GetStatefulSetStatus(ctx, sts.Namespace, sts.Name, expectedGeneration, r.client); !status.IsOK() {
 				return status
 			}
 

@@ -400,13 +400,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 	return r.reconcileStatefulSets(ctx, mrs, log, conn, projectConfig, agentCertHash)
 }
 
-type stsIdentifier struct {
-	namespace   string
-	name        string
-	client      kubernetesClient.Client
-	clusterName string
-}
-
 func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig, agentCertHash string) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
@@ -417,8 +410,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
 	}
 
-	var stsLocators []stsIdentifier
+	automationConfig, err := conn.ReadAutomationConfig()
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("Failed to retrieve current automation config: %w", err))
+	}
+	currentAgentAuthMode := automationConfig.GetAgentAuthMode()
+	processes := automationConfig.Deployment.GetAllProcessNames()
+	// If we don't have processes defined yet, that means we are in the first deployment, and we can deploy all
+	// stateful-sets in parallel.
+	scalingFirstTime := len(processes) == 0
 
+	var workflowStatus workflow.Status = workflow.OK()
 	for _, item := range clusterSpecList {
 		if stringutil.Contains(failedClusterNames, item.ClusterName) {
 			log.Warnf(fmt.Sprintf("failed to reconcile statefulset: cluster %s is marked as failed", item.ClusterName))
@@ -459,13 +461,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			return status
 		}
 
-		automationConfig, err := conn.ReadAutomationConfig()
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("Failed to retrieve current automation config in cluster: %s, err: %w", item.ClusterName, err))
-		}
-
-		currentAgentAuthMode := automationConfig.GetAgentAuthMode()
-
 		certConfigurator := certs.MongoDBMultiX509CertConfigurator{
 			MongoDBMultiCluster: mrs,
 			ClusterNum:          clusterNum,
@@ -493,8 +488,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			Data: secretByte,
 		}
 
-		err = secret.CreateOrUpdate(ctx, memberClient, secretObject)
-		if err != nil {
+		if err := secret.CreateOrUpdate(ctx, memberClient, secretObject); err != nil {
 			return workflow.Failed(err)
 		}
 
@@ -514,8 +508,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 				automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
 				if err != nil {
 					log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
-					status := workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
-					return status
+					return workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
 				}
 			}
 		}
@@ -554,50 +547,39 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			continue
 		}
 
-		workflowStatus := create.HandlePVCResize(ctx, memberClient, &sts, log)
-		if !workflowStatus.IsOK() {
-			return workflowStatus
+		pvcResizeStatus := create.HandlePVCResize(ctx, memberClient, &sts, log)
+		if !pvcResizeStatus.IsOK() {
+			return pvcResizeStatus
 		}
-		if err = r.updateStatusFromInnerMethod(ctx, mrs, log, workflowStatus); err != nil {
+
+		if err := r.updateStatusFromInnerMethod(ctx, mrs, log, pvcResizeStatus); err != nil {
 			return workflow.Failed(xerrors.Errorf("%w", err))
 		}
 
-		_, err = statefulset.CreateOrUpdateStatefulset(ctx, memberClient, mrs.Namespace, log, &sts)
+		mutatedSts, err := statefulset.CreateOrUpdateStatefulset(ctx, memberClient, mrs.Namespace, log, &sts)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("failed to create/update StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
 		}
 
-		processes := automationConfig.Deployment.GetAllProcessNames()
-		// If we don't have processes defined yet, that means we are in the first deployment, and we can deploy all
-		// stateful-sets in parallel.
-		// If we have processes defined, it means we want to wait until all of them are ready.
-		if len(processes) > 0 {
-			// We already have processes defined, and therefore we are waiting for each of them
-			if status := statefulset.GetStatefulSetStatus(ctx, sts.Namespace, sts.Name, memberClient); !status.IsOK() {
-				return status
+		expectedGeneration := mutatedSts.GetGeneration()
+		statefulsetStatus := statefulset.GetStatefulSetStatus(ctx, sts.Namespace, sts.Name, expectedGeneration, memberClient)
+
+		// if not scaling for the first time we want to deploy statefulsets one by one
+		if !scalingFirstTime {
+			if !statefulsetStatus.IsOK() {
+				return statefulsetStatus
 			}
-
-			log.Infof("Successfully ensured StatefulSet in cluster: %s", item.ClusterName)
-		} else {
-			// We create all sts in parallel and wait below for all of them to finish
-			stsLocators = append(stsLocators, stsIdentifier{
-				namespace:   sts.Namespace,
-				name:        sts.Name,
-				client:      memberClient,
-				clusterName: item.ClusterName,
-			})
 		}
+
+		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 	}
 
-	// Running into this means we are in the first deployment/don't have processes yet.
-	// That means we have created them in parallel and now waiting for them to get ready.
-	for _, locator := range stsLocators {
-		if status := statefulset.GetStatefulSetStatus(ctx, locator.namespace, locator.name, locator.client); !status.IsOK() {
-			return status
-		}
-		log.Infof("Successfully ensured StatefulSet in cluster: %s", locator.clusterName)
+	// wait for all statefulsets to become ready
+	if !workflowStatus.IsOK() {
+		return workflowStatus
 	}
 
+	log.Infof("Successfully ensured all StatefulSets are ready")
 	return workflow.OK()
 }
 

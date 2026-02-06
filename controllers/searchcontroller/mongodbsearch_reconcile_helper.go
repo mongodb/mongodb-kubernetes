@@ -160,7 +160,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	))
 
 	image, version := r.searchImageAndVersion()
-	if err := r.createOrUpdateStatefulSet(ctx,
+	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		CreateSearchStatefulSetFunc(r.mdbSearch, r.db, fmt.Sprintf("%s:%s", image, version)),
 		configHashModification,
@@ -168,11 +168,13 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		ingressTlsStsModification,
 		egressTlsStsModification,
 		embeddingConfigStsModification,
-	); err != nil {
+	)
+	if err != nil {
 		return workflow.Failed(err)
 	}
 
-	if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, r.mdbSearch.StatefulSetNamespacedName().Name, r.client); !statefulSetStatus.IsOK() {
+	expectedGeneration := mutatedSts.GetGeneration()
+	if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, r.mdbSearch.StatefulSetNamespacedName().Name, expectedGeneration, r.client); !statefulSetStatus.IsOK() {
 		return statefulSetStatus
 	}
 
@@ -206,7 +208,7 @@ func (r *MongoDBSearchReconcileHelper) searchImageAndVersion() (string, string) 
 	return fmt.Sprintf("%s/%s", r.operatorSearchConfig.SearchRepo, r.operatorSearchConfig.SearchName), imageVersion
 }
 
-func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, modifications ...statefulset.Modification) error {
+func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, modifications ...statefulset.Modification) (*appsv1.StatefulSet, error) {
 	stsName := r.mdbSearch.StatefulSetNamespacedName()
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, sts, func() error {
@@ -214,12 +216,12 @@ func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Con
 		return nil
 	})
 	if err != nil {
-		return xerrors.Errorf("error creating/updating search statefulset %v: %w", stsName, err)
+		return nil, xerrors.Errorf("error creating/updating search statefulset %v: %w", stsName, err)
 	}
 
 	log.Debugf("Search statefulset %s CreateOrUpdate result: %s", stsName, op)
 
-	return nil
+	return sts, nil
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, search *searchv1.MongoDBSearch) error {
