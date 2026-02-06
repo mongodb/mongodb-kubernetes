@@ -651,14 +651,15 @@ func (r *ReplicaSetReconcilerHelper) getStatefulSetIfExists(ctx context.Context)
 // Important: This must only be enabled for NEW deployments. Enabling on existing deployments
 // with already-registered backup agents causes hostname mismatches (see CLOUDP-260397).
 //
-// The feature requires Ops Manager 7.0+ (agent v13.26.0+) which supports the -backupOverrideLocalHost flag.
+// The feature requires Ops Manager 7.0.13+ or 8.0.4+ (CLOUDP-260397) which include agents
+// supporting the -backupOverrideLocalHost flag. Cloud Manager is always supported.
 func (r *ReplicaSetReconcilerHelper) shouldEnableBackupHostnameOverride(conn om.Connection, existingSts *appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
 	if !r.resource.Spec.HasExternalDomain() {
 		return false, nil
 	}
 
 	if !isBackupHostnameOverrideSupported(conn) {
-		log.Debugf("Backup hostname override requires Ops Manager 7.0+, current version: %s", conn.OpsManagerVersion().VersionString)
+		log.Debugf("Backup hostname override requires Ops Manager 7.0.13+ or 8.0.4+, current version: %s", conn.OpsManagerVersion().VersionString)
 		return false, nil
 	}
 

@@ -927,6 +927,10 @@ func (oc *MockedOmConnection) OpsManagerVersion() versionutil.OpsManagerVersion 
 	return versionutil.OpsManagerVersion{VersionString: "7.0.0"}
 }
 
+func (oc *MockedOmConnection) SetOMVersion(version string) {
+	oc.context.Version = versionutil.OpsManagerVersion{VersionString: version}
+}
+
 func (oc *MockedOmConnection) GetPreferredHostnames(agentApiKey string) ([]PreferredHostname, error) {
 	if agentApiKey != oc.AgentAPIKey {
 		return nil, apierror.New(xerrors.Errorf("Unauthorized"))

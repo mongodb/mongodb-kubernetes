@@ -1581,6 +1581,7 @@ func TestBackupHostnameOverride_EnabledWhenExternalDomainAndNoAgents(t *testing.
 	// Configure mock to return no backup agents
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		mockedConn := connection.(*om.MockedOmConnection)
+		mockedConn.SetOMVersion("7.0.13")
 		mockedConn.ReadBackupAgentsFunc = func(_ int) (om.Paginated, error) {
 			return om.AutomationAgentStatusResponse{
 				OMPaginated: om.OMPaginated{TotalCount: 0},
@@ -1635,6 +1636,7 @@ func TestBackupHostnameOverride_DisabledWhenBackupAgentsExist(t *testing.T) {
 	// Configure mock to return existing backup agents
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		mockedConn := connection.(*om.MockedOmConnection)
+		mockedConn.SetOMVersion("7.0.13")
 		mockedConn.ReadBackupAgentsFunc = func(_ int) (om.Paginated, error) {
 			return om.AutomationAgentStatusResponse{
 				OMPaginated: om.OMPaginated{TotalCount: 3},
@@ -1721,6 +1723,7 @@ func TestBackupHostnameOverride_PersistsAcrossReconciliations(t *testing.T) {
 
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		mockedConn := connection.(*om.MockedOmConnection)
+		mockedConn.SetOMVersion("7.0.13")
 		mockedConn.ReadBackupAgentsFunc = func(_ int) (om.Paginated, error) {
 			return om.AutomationAgentStatusResponse{
 				OMPaginated: om.OMPaginated{TotalCount: backupAgentCount},
@@ -1776,4 +1779,37 @@ func TestBackupHostnameOverride_PersistsAcrossReconciliations(t *testing.T) {
 	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
 	assert.NoError(t, err)
 	verifyEnvVarPresent()
+}
+
+// TestBackupHostnameOverride_DisabledWhenOMVersionTooOld verifies the per-major-version
+// gating for the -backupOverrideLocalHost agent flag (CLOUDP-260397).
+func TestBackupHostnameOverride_DisabledWhenOMVersionTooOld(t *testing.T) {
+	tests := []struct {
+		version  string
+		expected bool
+	}{
+		// OM 6.x: not supported
+		{"6.0.27", false},
+		// OM 7.x: requires 7.0.13+
+		{"7.0.0", false},
+		{"7.0.12", false},
+		{"7.0.13", true},
+		{"7.0.22", true},
+		// OM 8.x: requires 8.0.4+
+		{"8.0.0", false},
+		{"8.0.3", false},
+		{"8.0.4", true},
+		{"8.0.19", true},
+		// OM 9.x+: assumed supported
+		{"9.0.0", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.version, func(t *testing.T) {
+			conn := om.NewMockedOmConnection(nil)
+			conn.SetOMVersion(tc.version)
+			assert.Equal(t, tc.expected, isBackupHostnameOverrideSupported(conn),
+				"isBackupHostnameOverrideSupported for OM %s", tc.version)
+		})
+	}
 }
