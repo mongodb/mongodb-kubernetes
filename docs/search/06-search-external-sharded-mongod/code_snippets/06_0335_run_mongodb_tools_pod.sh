@@ -21,8 +21,8 @@ spec:
   restartPolicy: Never
   volumes:
   - name: mongo-ca
-    secret:
-      secretName: ${MDB_TLS_CA_SECRET_NAME}
+    configMap:
+      name: ${MDB_TLS_CA_CONFIGMAP}
       optional: true
       items:
       - key: ca.crt
@@ -31,4 +31,3 @@ EOF
 
 echo "Waiting for the mongodb-tools to be ready..."
 kubectl --context "${K8S_CTX}" -n "${MDB_NS}" wait --for=condition=Ready pod/mongodb-tools-pod --timeout=60s
-
