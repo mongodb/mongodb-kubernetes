@@ -132,8 +132,7 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.assert_appdb_monitoring_group_was_created()
 
-        # TODO uncomment when CLOUDP-70468 is fixed and AppDB supports scram-sha-256
-        # making sure the s3 config pushed to OM references the appdb
+        # TODO for multicluster appdb, the connection string uses the per-pod service, not the headless
         # appdb_replica_set = ops_manager.get_appdb_resource()
         # appdb_password = KubernetesTester.read_secret(
         #     ops_manager.namespace, ops_manager.app_db_password_secret_name()

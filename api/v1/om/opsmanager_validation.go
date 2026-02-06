@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/blang/semver"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -230,6 +231,11 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 		return v1.ValidationSuccess()
 	}
 
+	// Parse Ops Manager version for Immutable Backup validation
+	// We can ignore errors since they are already caught in validOmVersion validation
+	v, _ := versionutil.StringToSemverVersion(os.Version)
+	immutableBackupVersion := semver.MustParse(util.MinimumVersionImmutableBackup)
+
 	if len(backup.S3Configs) > 0 {
 		for _, config := range backup.S3Configs {
 			if config.IRSAEnabled {
@@ -238,6 +244,8 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 				}
 			} else if config.S3SecretRef == nil || config.S3SecretRef.Name == "" {
 				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 Store: %s)", status.OpsManager, config.Name)
+			} else if config.ObjectLockEnabled != nil && v.LT(immutableBackupVersion) {
+				return v1.OpsManagerResourceValidationError("'objectLockEnabled' can be configured only for Ops Manager versions >= %s (S3 Store: %s)", status.OpsManager, util.MinimumVersionImmutableBackup, config.Name)
 			}
 		}
 	}
@@ -250,6 +258,8 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 				}
 			} else if oplogStoreConfig.S3SecretRef == nil || oplogStoreConfig.S3SecretRef.Name == "" {
 				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
+			} else if oplogStoreConfig.ObjectLockEnabled != nil {
+				return v1.OpsManagerResourceValidationError("'objectLockEnabled' cannot be configured for OpLog S3 Stores (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
 			}
 		}
 	}
