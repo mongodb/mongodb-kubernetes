@@ -1,9 +1,9 @@
 # Verify that each shard's mongod has the correct search parameters configured
 # including TLS and authentication settings
 #
-# For external MongoDB source, the search config is manually applied via
-# 06_0326_update_mongodb_search_config.sh, so this script verifies that
-# the configuration was applied correctly.
+# For external MongoDB source, the search config is applied during initial
+# cluster creation in 06_0310_create_external_mongodb_sharded_cluster.sh.
+# This script verifies that the configuration was applied correctly.
 
 echo "Verifying mongod search configuration for each shard..."
 echo "Mongot replicas per shard: ${MDB_MONGOT_REPLICAS:-1}"
@@ -56,4 +56,3 @@ for i in $(seq 0 $((MDB_SHARD_COUNT - 1))); do
 done
 
 echo; echo "Verification complete"
-

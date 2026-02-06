@@ -27,7 +27,7 @@ run 06_0302_configure_tls_prerequisites.sh
 run 06_0304_generate_tls_certificates.sh
 
 # Create simulated external MongoDB sharded cluster (using Enterprise operator)
-# Note: MongoDB is created WITHOUT search config initially
+# Note: MongoDB is created WITH search config from the start (pointing to Envoy proxy endpoints)
 run 06_0310_create_external_mongodb_sharded_cluster.sh
 run_for_output 06_0315_wait_for_external_cluster.sh
 run 06_0305_create_external_mongodb_users.sh
@@ -40,10 +40,6 @@ run_for_output 06_0318_deploy_envoy.sh
 # Create MongoDB Search resource with external sharded source
 run 06_0320_create_mongodb_search_resource.sh
 run_for_output 06_0325_wait_for_search_resource.sh
-
-# Update MongoDB cluster with search config pointing to Envoy proxy
-run 06_0326_update_mongodb_search_config.sh
-run_for_output 06_0327_wait_for_mongodb_ready.sh
 
 run_for_output 06_0330_show_running_pods.sh
 

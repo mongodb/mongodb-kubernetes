@@ -1,4 +1,3 @@
-# Create a MongoDB Sharded Cluster to simulate an external MongoDB deployment
 #
 # This uses the Enterprise MongoDB CRD to create a sharded cluster.
 # The MongoDBSearch resource will treat this as an "external" source,
@@ -11,12 +10,37 @@
 # Note: TLS certificates must be created before running this script.
 # See 06_0304_generate_tls_certificates.sh
 #
-# IMPORTANT: Search configuration (mongotHost, searchIndexManagementHostAndPort) will be
-# added AFTER the MongoDBSearch resource and Envoy proxy are deployed. This is because
-# the search config needs to point to Envoy proxy endpoints which don't exist yet.
+# The search configuration (mongotHost, searchIndexManagementHostAndPort, etc.) is
+# included from the start. The Envoy proxy services don't exist yet, but the
+# service names are predictable. MongoDB will start with the search config, and
+# when Envoy proxy is deployed later, the connections will work.
 
-# Create the MongoDB Sharded Cluster WITHOUT search configuration
-# Search config will be added later via 06_0326_update_mongodb_search_config.sh
+# Build shardOverrides configuration dynamically
+# Each shard needs to point to its own Envoy proxy service
+shard_overrides_yaml=""
+for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
+  shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
+  # Envoy proxy service name follows the pattern: <search-name>-mongot-<shard-name>-proxy-svc
+  proxy_host="${MDB_SEARCH_RESOURCE_NAME}-mongot-${shard_name}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT:-27029}"
+
+  shard_overrides_yaml="${shard_overrides_yaml}
+    - shardNames:
+        - ${shard_name}
+      additionalMongodConfig:
+        setParameter:
+          mongotHost: ${proxy_host}
+          searchIndexManagementHostAndPort: ${proxy_host}
+          skipAuthenticationToSearchIndexManagementServer: false
+          skipAuthenticationToMongot: false
+          searchTLSMode: requireTLS
+          useGrpcForSearch: true"
+done
+
+# For mongos, we use the first shard's Envoy proxy service as the search endpoint
+first_shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-0"
+mongos_proxy_host="${MDB_SEARCH_RESOURCE_NAME}-mongot-${first_shard_name}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT:-27029}"
+
+# Create the MongoDB Sharded Cluster WITH search configuration
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1
 kind: MongoDB
@@ -46,6 +70,18 @@ spec:
   agent:
     logLevel: DEBUG
   persistent: true
+  # Configure mongos with search parameters to route search queries via Envoy
+  mongos:
+    additionalMongodConfig:
+      setParameter:
+        mongotHost: ${mongos_proxy_host}
+        searchIndexManagementHostAndPort: ${mongos_proxy_host}
+        skipAuthenticationToSearchIndexManagementServer: false
+        skipAuthenticationToMongot: false
+        searchTLSMode: requireTLS
+        useGrpcForSearch: true
+  # Configure each shard with its own Envoy proxy endpoint using shardOverrides
+  shardOverrides:${shard_overrides_yaml}
   podSpec:
     podTemplate:
       spec:
@@ -60,5 +96,7 @@ spec:
                 memory: 512Mi
 EOF
 
-echo "MongoDB Sharded Cluster '${MDB_EXTERNAL_CLUSTER_NAME}' created (without search config)"
-echo "Search configuration will be added after Envoy proxy and MongoDBSearch are deployed"
+echo "MongoDB Sharded Cluster '${MDB_EXTERNAL_CLUSTER_NAME}' created with search configuration"
+echo "  - Each shard's mongod points to its Envoy proxy service"
+echo "  - Mongos points to first shard's Envoy proxy service"
+echo "  - Traffic flow: mongod -> Envoy proxy -> mongot"

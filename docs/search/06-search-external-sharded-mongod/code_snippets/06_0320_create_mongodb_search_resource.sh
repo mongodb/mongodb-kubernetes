@@ -41,6 +41,18 @@ for ((i = 0; i < MDB_MONGOS_COUNT; i++)); do
           - ${host}"
 done
 
+# Build the lb endpoints configuration for Envoy proxy
+# These endpoints tell the operator where mongod/mongos should connect to reach mongot
+lb_endpoints_yaml=""
+for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
+  shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
+  # Envoy proxy service endpoint (port 27029)
+  endpoint="${MDB_SEARCH_RESOURCE_NAME}-mongot-${shard_name}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT:-27029}"
+  lb_endpoints_yaml="${lb_endpoints_yaml}
+          - shardName: ${shard_name}
+            endpoint: ${endpoint}"
+done
+
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1
 kind: MongoDBSearch
@@ -65,6 +77,11 @@ spec:
     tls:
       certificateKeySecretRef:
         name: ${MDB_SEARCH_TLS_SECRET_NAME}
+  lb:
+    mode: External
+    external:
+      sharded:
+        endpoints:${lb_endpoints_yaml}
   resourceRequirements:
     limits:
       cpu: "2"
