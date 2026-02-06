@@ -109,7 +109,7 @@ clear_undefined_credentials() { # this enables the SSO auth path
     unset AWS_ACCESS_KEY_ID
   fi
 
-  if [[ "$AWS_SECRET_ACCESS_KEY" == "undefined" || -z "$AWS_SECRET_ACCESS_KEY" ]]; then
+  if [[ "${AWS_SECRET_ACCESS_KEY}" == "undefined" || -z "${AWS_SECRET_ACCESS_KEY}" ]]; then
     unset AWS_SECRET_ACCESS_KEY
   fi
 }
@@ -153,6 +153,8 @@ if [[ -f "${CONFIG_PATH}" ]]; then
     fi
   fi
 fi
+
+echo "$(aws --version)}"
 
 aws ecr get-login-password --region "us-east-1" | registry_login "AWS" "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 
