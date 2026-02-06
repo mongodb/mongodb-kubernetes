@@ -189,6 +189,54 @@
       "last_modified": "2026-02-04T01:49:30Z",
       "resolved": "github:NixOS/nixpkgs/aa290c9891fa4ebe88f8889e59633d20cc06a5f2?lastModified=1770169770&narHash=sha256-awR8qIwJxJJiOmcEGgP2KUqYmHG4v%2Fz8XpL9z8FnT1A%3D"
     },
+    "go-licenses@1.6.0": {
+      "last_modified": "2026-01-23T17:20:52Z",
+      "resolved": "github:NixOS/nixpkgs/a1bab9e494f5f4939442a57a58d0449a109593fe#go-licenses",
+      "source": "devbox-search",
+      "version": "1.6.0",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/8ggbhid5x28jwri4bxwfm98gplvcd3jl-go-licenses-1.6.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/8ggbhid5x28jwri4bxwfm98gplvcd3jl-go-licenses-1.6.0"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/l7xprhr9giqml6gg3398x9nj8hak428q-go-licenses-1.6.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/l7xprhr9giqml6gg3398x9nj8hak428q-go-licenses-1.6.0"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/2hjvfv8mpa9iriis441mr0bs6zj2zcdz-go-licenses-1.6.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/2hjvfv8mpa9iriis441mr0bs6zj2zcdz-go-licenses-1.6.0"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/rqwv5qkhml48f72ibmh1j1innkjgjaq3-go-licenses-1.6.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/rqwv5qkhml48f72ibmh1j1innkjgjaq3-go-licenses-1.6.0"
+        }
+      }
+    },
     "go@latest": {
       "last_modified": "2026-01-23T17:20:52Z",
       "resolved": "github:NixOS/nixpkgs/a1bab9e494f5f4939442a57a58d0449a109593fe#go",

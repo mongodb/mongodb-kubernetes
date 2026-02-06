@@ -13,7 +13,8 @@
     "kustomize":                   "latest",
     "kubernetes-controller-tools": "latest",
     "python3Packages.pip":         "",
-    "shellcheck":                  "latest"
+    "shellcheck":                  "latest",
+    "go-licenses":                 "1.6.0"
   },
   "env": {
     "AWS_PROFILE": "mck",
