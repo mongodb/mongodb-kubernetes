@@ -3,6 +3,7 @@ package om
 import (
 	"testing"
 
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/ptr"
 
@@ -147,7 +148,7 @@ func TestOpsManagerValidation(t *testing.T) {
 		"Invalid S3 Store config - objectLock enabled for version older than 8.0.19": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.18").
-				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: true}).
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: util.BooleanRef(true)}).
 				Build(),
 			expectedErrorMessage: "'objectLockEnabled' can be configured only for Ops Manager versions >= 8.0.19 (S3 Store: test)",
 			expectedPart:         status.OpsManager,
@@ -155,7 +156,7 @@ func TestOpsManagerValidation(t *testing.T) {
 		"Valid S3 Store config - objectLockEnabled set for version newer than 8.0.19": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.19").
-				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: true}).
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: util.BooleanRef(true)}).
 				Build(),
 			expectedPart: status.None,
 		},
@@ -189,7 +190,7 @@ func TestOpsManagerValidation(t *testing.T) {
 		"Invalid S3 OpLog Store config - objectLock enabled for s3 oplog": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.19").
-				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: true}).
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: util.BooleanRef(true)}).
 				Build(),
 			expectedErrorMessage: "'objectLockEnabled' cannot be configured for OpLog S3 Stores (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,

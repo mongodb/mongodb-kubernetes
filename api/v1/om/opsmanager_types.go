@@ -539,7 +539,7 @@ type S3Config struct {
 	// ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
 	// This should be enabled to leverage Immutable Backups.
 	// +optional
-	ObjectLockEnabled bool `json:"objectLockEnabled"`
+	ObjectLockEnabled *bool `json:"objectLockEnabled"`
 }
 
 func (s S3Config) Identifier() interface{} {

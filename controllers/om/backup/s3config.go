@@ -75,7 +75,7 @@ type S3Config struct {
 
 	// ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
 	// This should be enabled for Immutable Backups.
-	ObjectLockEnabled bool `json:"objectLockEnabled,omitempty"`
+	ObjectLockEnabled *bool `json:"objectLockEnabled,omitempty"`
 }
 
 // S3CustomCertificate stores the filename or contents of a custom certificate PEM file.
