@@ -13,7 +13,8 @@
     "kustomize":                   "latest",
     "kubernetes-controller-tools": "latest",
     "python3Packages.pip":         "",
-    "shellcheck":                  "latest"
+    "shellcheck":                  "latest",
+    "go-licenses":                 "1.6.0"
   },
   "env": {
     "AWS_PROFILE": "mck",
@@ -21,7 +22,12 @@
   },
   "shell": {
     "init_hook": [
-      "# optional devbox env with preset env vars",
+      "# Prepend Go's managed GOROOT to PATH",
+      "# This allows Go's toolbox version control overiding Nix's paths",
+      "export NIX_GOROOT=$(go env GOROOT)",
+      "export PATH=$NIX_GOROOT/bin:$PATH",
+      "unset GOROOT            # force to calculate GOROOT automatically",
+      "export GOTOOLCHAIN=auto # honor go.mod's toolchain",
       "go version",
       "echo \"☁️  Active AWS Profile: ${AWS_PROFILE}\"",
       "alias aws-login=\"aws sso login --profile ${AWS_PROFILE}\"",
