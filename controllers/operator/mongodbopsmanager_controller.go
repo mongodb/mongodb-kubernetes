@@ -95,13 +95,13 @@ type OpsManagerReconciler struct {
 	memberClustersMap map[string]client.Client
 
 	imageUrls                  images.ImageUrls
-	initAppdbVersion           string
+	initDatabaseVersion        string
 	initOpsManagerImageVersion string
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
+func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController:  NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:        omFunc,
@@ -111,7 +111,7 @@ func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memb
 		programmaticKeyVersion:     semver.MustParse(programmaticKeyVersion),
 		memberClustersMap:          memberClustersMap,
 		imageUrls:                  imageUrls,
-		initAppdbVersion:           initAppdbVersion,
+		initDatabaseVersion:        initDatabaseVersion,
 		initOpsManagerImageVersion: initOpsManagerImageVersion,
 	}
 }
@@ -936,8 +936,8 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 	return workflow.OK()
 }
 
-func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
-	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initAppdbVersion, initOpsManagerImageVersion, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
+func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string) error {
+	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initDatabaseVersion, initOpsManagerImageVersion, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -2153,7 +2153,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initAppdbVersion, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log, kube.BaseOwnerReference(opsManager))
+	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log, kube.BaseOwnerReference(opsManager))
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource

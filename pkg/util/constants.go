@@ -185,7 +185,6 @@ const (
 	OpsManagerImageUrl               = "OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerImageUrl           = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerVersion            = "INIT_OPS_MANAGER_VERSION"
-	InitAppdbImageUrlEnv             = "INIT_APPDB_IMAGE_REPOSITORY"
 	InitDatabaseImageUrlEnv          = "INIT_DATABASE_IMAGE_REPOSITORY"
 	OpsManagerPullPolicy             = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	NonStaticDatabaseEnterpriseImage = "MONGODB_ENTERPRISE_DATABASE_IMAGE"

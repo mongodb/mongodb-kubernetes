@@ -33,8 +33,6 @@ variables:
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
       - name: publish_helm_chart
@@ -53,8 +51,6 @@ variables:
       - name: build_init_om_images_ubi
         variant: init_test_run
       - name: build_test_image
-        variant: init_test_run
-      - name: build_init_appdb_images_ubi
         variant: init_test_run
       - name: publish_helm_chart
         variant: init_test_run
@@ -139,8 +135,6 @@ variables:
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
       - name: publish_helm_chart
@@ -163,8 +157,6 @@ variables:
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
       - name: publish_helm_chart
@@ -182,8 +174,6 @@ variables:
       - name: build_database_image_ubi
         variant: init_test_run
       - name: build_test_image
-        variant: init_test_run
-      - name: build_init_appdb_images_ubi
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
@@ -462,14 +452,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-ops-manager
-
-  - name: build_init_appdb_images_ubi
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: pipeline
-        vars:
-          image_name: init-appdb
 
   - name: build_agent_images_ubi
     commands:
@@ -1336,8 +1318,6 @@ buildvariants:
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
@@ -1698,8 +1678,6 @@ buildvariants:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
-      - name: build_init_appdb_images_ubi
-        variant: init_test_run
       - name: prepare_and_upload_openshift_bundles_for_e2e
         variant: init_tests_with_olm
     tasks:
@@ -1716,8 +1694,6 @@ buildvariants:
       - name: build_test_image
         variant: init_test_run
       - name: build_init_om_images_ubi
-        variant: init_test_run
-      - name: build_init_appdb_images_ubi
         variant: init_test_run
       - name: prepare_and_upload_openshift_bundles_for_e2e
         variant: init_tests_with_olm
@@ -1781,7 +1757,6 @@ buildvariants:
         depends_on:
           - name: build_kubectl_mongodb_plugin
       - name: build_mco_test_image
-      - name: build_init_appdb_images_ubi
       - name: build_init_om_images_ubi
       - name: build_init_database_image_ubi
       - name: build_database_image_ubi
@@ -1853,8 +1828,6 @@ buildvariants:
       - name: build_database_image_ubi
         variant: init_test_run
       - name: build_test_image
-        variant: init_test_run
-      - name: build_init_appdb_images_ubi
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
