@@ -125,7 +125,8 @@
         "latest-tag": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager",
         "platforms": [
-          "linux/amd64"
+          "linux/amd64",
+          "linux/arm64"
         ]
       },
       "release": {
@@ -384,7 +385,8 @@
         "skip-if-exists": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi",
         "platforms": [
-          "linux/amd64"
+          "linux/amd64",
+          "linux/arm64"
         ]
       },
       "release": {

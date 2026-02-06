@@ -237,9 +237,12 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     if om_download_url == "":
         om_download_url = find_om_url(om_version)
 
+    jdk_arm_download_url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.6%2B7/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.6_7.tar.gz"
+
     args = {
         "version": om_version,
         "om_download_url": om_download_url,
+        "jdk_arm_download_url": jdk_arm_download_url,
     }
 
     build_image(
