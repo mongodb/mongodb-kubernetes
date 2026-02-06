@@ -53,11 +53,10 @@ run_for_output 06_0329_verify_mongos_search_config.sh
 # Import sample data and shard collections
 run_for_output 06_0340_import_sample_data.sh
 
-# Create search indexes
+# Create search indexes and wait for them to sync
 run 06_0345_create_search_index.sh
 run 06_0346_create_vector_search_index.sh
-run_for_output 06_0350_wait_for_search_index_ready.sh
-run_for_output 06_0351_wait_for_vector_search_index_ready.sh
+run_for_output 06_0350_wait_for_search_indexes.sh
 
 # Execute search queries and verify results
 run_for_output 06_0355_execute_search_query.sh
