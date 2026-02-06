@@ -45,14 +45,14 @@ run_for_output 06_0325_wait_for_search_resource.sh
 run 06_0326_update_mongodb_search_config.sh
 run_for_output 06_0327_wait_for_mongodb_ready.sh
 
+run_for_output 06_0330_show_running_pods.sh
+
+# Create tools pod for running MongoDB commands (needed for verification and data import)
+run 06_0335_run_mongodb_tools_pod.sh
+
 # Verify search configuration was applied correctly
 run_for_output 06_0328_verify_mongod_search_config.sh
 run_for_output 06_0329_verify_mongos_search_config.sh
-
-run_for_output 06_0330_show_running_pods.sh
-
-# Create tools pod for running MongoDB commands
-run 06_0335_run_mongodb_tools_pod.sh
 
 # Import sample data and shard collections
 run_for_output 06_0340_import_sample_data.sh
