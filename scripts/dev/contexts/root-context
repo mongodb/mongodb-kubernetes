@@ -157,3 +157,5 @@ export OPERATOR_CLUSTER_SCOPED=false
 # for downloading helm and kubectl binaries
 export HELM_VERSION="v3.19.4"
 export KUBECTL_VERSION="v1.35.0"
+
+export LOCAL_CLUSTERS_PREFIX="local-"
