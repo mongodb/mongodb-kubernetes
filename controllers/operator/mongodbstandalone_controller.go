@@ -425,21 +425,18 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 	var errs error
 
 	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
-		log.Warnf("Failed to wait for ready state. Continuing with cleanup.")
-		errs = multierror.Append(errs, err)
+		errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
 	}
 
 	hostsToRemove, _ := dns.GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.GetClusterDomain(), 1, nil)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
-		log.Warnf("Failed to stop monitoring for hosts %v. Continuing with cleanup.", hostsToRemove)
-		errs = multierror.Append(errs, err)
+		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
 
 	if err := r.clearProjectAuthenticationSettings(ctx, conn, s, processNames, log); err != nil {
-		log.Warnf("Failed to clear project authentication settings. Continuing with cleanup.")
-		errs = multierror.Append(errs, err)
+		errs = multierror.Append(errs, xerrors.Errorf("failed to clear project authentication settings. Continuing with cleanup: %w", err))
 	}
 
 	r.resourceWatcher.RemoveDependentWatchedResources(s.ObjectKey())

@@ -1606,14 +1606,12 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 
 	logDiffOfProcessNames(processNames, r.getHealthyProcessNames(), log.With("ctx", "cleanOpsManagerState"))
 	if err := om.WaitForReadyState(conn, r.getHealthyProcessNames(), false, log); err != nil {
-		log.Warn("Failed to wait for ready state. Continuing with cleanup.")
-		errs = multierror.Append(errs, err)
+		errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
 	}
 
 	if sc.Spec.Backup != nil && sc.Spec.Backup.AutoTerminateOnDeletion {
 		if err := backup.StopBackupIfEnabled(conn, conn, sc.Name, backup.ShardedClusterType, log); err != nil {
-			log.Warn("Failed to stop backup. Continuing with cleanup.")
-			errs = multierror.Append(errs, err)
+			errs = multierror.Append(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
 		}
 	}
 
@@ -1622,13 +1620,11 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 
 	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
-		log.Warnf("Failed to stop monitoring for hosts %v. Continuing with cleanup.", hostsToRemove)
-		errs = multierror.Append(errs, err)
+		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
 
 	if err := r.commonController.clearProjectAuthenticationSettings(ctx, conn, sc, processNames, log); err != nil {
-		log.Warn("Failed to clear project authentication settings. Continuing with cleanup.")
-		errs = multierror.Append(errs, err)
+		errs = multierror.Append(errs, xerrors.Errorf("failed to clear project authentication settings. Continuing with cleanup: %w", err))
 	}
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
