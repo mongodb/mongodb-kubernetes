@@ -1,5 +1,6 @@
 # Wait for search index to be ready (checking through mongos)
-# For sharded clusters, the index needs to sync data from all shards which can take longer
+# For sharded clusters with external MongoDB, the index needs to sync data from all shards
+# which can take longer than a simple replica set.
 
 echo "Waiting for search index to be ready..."
 
@@ -15,8 +16,8 @@ mongosh "${MDB_CONNECTION_STRING}" --quiet --eval '
   if (result.ok && result.cursor && result.cursor.firstBatch && result.cursor.firstBatch.length > 0) {
     const idx = result.cursor.firstBatch[0];
     // Check both status field and queryable field
-    const status = idx.status || "READY";
-    const queryable = idx.queryable !== undefined ? idx.queryable : true;
+    const status = idx.status || "UNKNOWN";
+    const queryable = idx.queryable !== undefined ? idx.queryable : false;
     print(JSON.stringify({ status: status, queryable: queryable }));
   } else {
     print(JSON.stringify({ status: "NO_INDEX", queryable: false }));
@@ -43,4 +44,3 @@ EOF
 
   sleep ${sleep_time}
 done
-

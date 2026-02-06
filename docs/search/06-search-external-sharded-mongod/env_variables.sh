@@ -23,6 +23,10 @@ export MDB_MONGODS_PER_SHARD=1
 export MDB_MONGOS_COUNT=1
 export MDB_CONFIG_SERVER_COUNT=2
 
+# Number of mongot replicas per shard (default: 1)
+# When > 1, multiple mongot pods are deployed per shard for high availability
+export MDB_MONGOT_REPLICAS=1
+
 # OM/CM's project name to be used to manage mongodb sharded cluster
 export OPS_MANAGER_PROJECT_NAME="<arbitrary project name>"
 
@@ -63,3 +67,8 @@ export MDB_SEARCH_TLS_SECRET_NAME="${MDB_SEARCH_RESOURCE_NAME}-search-tls"
 
 # Connection string for mongos (sharded cluster entry point) with TLS
 export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca.crt"
+
+# Envoy proxy configuration
+# Envoy acts as an L7 proxy between mongod and mongot for SNI-based routing
+export ENVOY_IMAGE="envoyproxy/envoy:v1.31-latest"
+export ENVOY_PROXY_PORT="27029"

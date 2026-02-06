@@ -10,8 +10,13 @@
 #
 # Note: TLS certificates must be created before running this script.
 # See 06_0304_generate_tls_certificates.sh
+#
+# IMPORTANT: Search configuration (mongotHost, searchIndexManagementHostAndPort) will be
+# added AFTER the MongoDBSearch resource and Envoy proxy are deployed. This is because
+# the search config needs to point to Envoy proxy endpoints which don't exist yet.
 
-# Create the MongoDB Sharded Cluster
+# Create the MongoDB Sharded Cluster WITHOUT search configuration
+# Search config will be added later via 06_0326_update_mongodb_search_config.sh
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1
 kind: MongoDB
@@ -55,4 +60,5 @@ spec:
                 memory: 512Mi
 EOF
 
-echo "MongoDB Sharded Cluster '${MDB_EXTERNAL_CLUSTER_NAME}' created"
+echo "MongoDB Sharded Cluster '${MDB_EXTERNAL_CLUSTER_NAME}' created (without search config)"
+echo "Search configuration will be added after Envoy proxy and MongoDBSearch are deployed"

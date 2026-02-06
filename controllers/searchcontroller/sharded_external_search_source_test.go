@@ -472,3 +472,20 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		assert.Equal(t, "fallback-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
 	})
 }
+
+func TestShardedExternalSearchSource_GetExternalLBEndpointForShard(t *testing.T) {
+	// External LB endpoint is not applicable for external MongoDB sources
+	// since the external cluster already has its own routing through mongos.
+	// This method always returns empty string.
+	spec := &searchv1.ExternalMongoDBSource{
+		Sharded: newExternalShardedConfig([]string{"mongos:27017"}, []searchv1.ExternalShardConfig{
+			{ShardName: "shard-0", Hosts: []string{"host0:27017"}},
+			{ShardName: "shard-1", Hosts: []string{"host1:27017"}},
+		}),
+	}
+	src := newShardedExternalSearchSource(spec)
+
+	assert.Equal(t, "", src.GetExternalLBEndpointForShard("shard-0"))
+	assert.Equal(t, "", src.GetExternalLBEndpointForShard("shard-1"))
+	assert.Equal(t, "", src.GetExternalLBEndpointForShard("non-existent"))
+}
