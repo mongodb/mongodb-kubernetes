@@ -42,6 +42,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.search import movies_search_helper
+from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
@@ -205,16 +206,55 @@ def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
 # ============================================================================
 
 
+def get_connection_string(mdb: MongoDB, user_name: str, user_password: str) -> str:
+    """Get connection string for sharded cluster (connects to mongos)."""
+    return (
+        f"mongodb://{user_name}:{user_password}@"
+        f"{mdb.name}-mongos-0.{mdb.name}-svc.{mdb.namespace}.svc.cluster.local:27017/"
+        f"?authSource=admin"
+    )
+
+
+def get_admin_sample_movies_helper(mdb: MongoDB) -> SampleMoviesSearchHelper:
+    """Get SampleMoviesSearchHelper with admin credentials."""
+    return movies_search_helper.SampleMoviesSearchHelper(
+        SearchTester(
+            get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD),
+            use_ssl=True,
+            ca_path=get_issuer_ca_filepath(),
+        )
+    )
+
+
+def get_user_sample_movies_helper(mdb: MongoDB) -> SampleMoviesSearchHelper:
+    """Get SampleMoviesSearchHelper with regular user credentials."""
+    return movies_search_helper.SampleMoviesSearchHelper(
+        SearchTester(
+            get_connection_string(mdb, USER_NAME, USER_PASSWORD),
+            use_ssl=True,
+            ca_path=get_issuer_ca_filepath(),
+        )
+    )
+
+
 def get_admin_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
-    """Get SearchTester with admin credentials."""
+    """Get SearchTester with admin credentials (for direct pymongo operations)."""
     ca_path = get_issuer_ca_filepath() if use_ssl else None
-    return SearchTester.for_sharded(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path)
+    return SearchTester(
+        get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD),
+        use_ssl=use_ssl,
+        ca_path=ca_path,
+    )
 
 
 def get_user_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
-    """Get SearchTester with regular user credentials."""
+    """Get SearchTester with regular user credentials (for direct pymongo operations)."""
     ca_path = get_issuer_ca_filepath() if use_ssl else None
-    return SearchTester.for_sharded(mdb, USER_NAME, USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path)
+    return SearchTester(
+        get_connection_string(mdb, USER_NAME, USER_PASSWORD),
+        use_ssl=use_ssl,
+        ca_path=ca_path,
+    )
 
 
 MONGODB_TOOLS_POD_NAME = "mongodb-tools-pod"
@@ -670,7 +710,7 @@ def create_envoy_certificates(namespace: str, issuer: str):
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_001_install_operator(namespace: str, operator_installation_config: dict[str, str]):
+def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     """Test that the operator is installed and running."""
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
     operator.assert_is_running()
@@ -678,7 +718,7 @@ def test_001_install_operator(namespace: str, operator_installation_config: dict
 
 @mark.e2e_search_sharded_enterprise_external_lb
 @skip_if_cloud_manager
-def test_002_create_ops_manager(namespace: str):
+def test_create_ops_manager(namespace: str):
     """Test OpsManager deployment (skipped for Cloud Manager)."""
     ops_manager = get_ops_manager(namespace)
     ops_manager.update()
@@ -687,7 +727,7 @@ def test_002_create_ops_manager(namespace: str):
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_003_install_tls_certificates(namespace: str, mdb: MongoDB, issuer: str):
+def test_install_tls_certificates(namespace: str, mdb: MongoDB, issuer: str):
     """Install TLS certificates for sharded cluster."""
     # Note: secret_prefix must include trailing hyphen to match the operator's expected format
     # Operator generates: {certsSecretPrefix}-{resource_name}-{shard_idx}-cert
@@ -711,14 +751,14 @@ def test_003_install_tls_certificates(namespace: str, mdb: MongoDB, issuer: str)
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_004_create_sharded_cluster(mdb: MongoDB):
+def test_create_sharded_cluster(mdb: MongoDB):
     """Test sharded cluster deployment."""
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_005_create_users(
+def test_create_users(
     namespace: str,
     admin_user: MongoDBUser,
     user: MongoDBUser,
@@ -752,19 +792,19 @@ def test_005_create_users(
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_006_deploy_envoy_certificates(namespace: str, issuer: str):
+def test_deploy_envoy_certificates(namespace: str, issuer: str):
     """Create TLS certificates for Envoy proxy."""
     create_envoy_certificates(namespace, issuer)
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_007_deploy_envoy_proxy(namespace: str):
+def test_deploy_envoy_proxy(namespace: str):
     """Deploy Envoy proxy for L7 load balancing."""
     deploy_envoy_proxy(namespace)
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_008_verify_envoy_deployment(namespace: str):
+def test_verify_envoy_deployment(namespace: str):
     """Verify Envoy proxy deployment and configuration."""
     # Verify Envoy ConfigMap exists
     config = read_configmap(namespace, "envoy-config")
@@ -790,7 +830,7 @@ def test_008_verify_envoy_deployment(namespace: str):
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_009_create_search_tls_certificate(namespace: str, issuer: str):
+def test_create_search_tls_certificate(namespace: str, issuer: str):
     """Create TLS certificate for MongoDBSearch resource."""
     # Create TLS certificate for the Search resource
     # The Search resource expects a secret named mdb-sh-search-cert
@@ -804,20 +844,27 @@ def test_009_create_search_tls_certificate(namespace: str, issuer: str):
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_010_create_search_resource(mdbs: MongoDBSearch):
+def test_create_search_resource(mdbs: MongoDBSearch):
     """Test MongoDBSearch resource deployment with sharded external LB config."""
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_011_wait_for_sharded_cluster_ready(mdb: MongoDB):
+def test_wait_for_sharded_cluster_ready(mdb: MongoDB):
     """Wait for sharded cluster to be ready after Search CR deployment."""
     mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_012_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
+def test_wait_for_agents_ready(mdb: MongoDB):
+    """Wait for agents to be ready after Search CR deployment."""
+    mdb.get_om_tester().wait_agents_ready()
+    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@mark.e2e_search_sharded_enterprise_external_lb
+def test_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
     """
     Verify that per-shard mongot Services are created.
 
@@ -844,7 +891,7 @@ def test_012_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_013_verify_per_shard_statefulsets(namespace: str, mdbs: MongoDBSearch):
+def test_verify_per_shard_statefulsets(namespace: str, mdbs: MongoDBSearch):
     """
     Verify that per-shard mongot StatefulSets are created.
 
@@ -887,7 +934,7 @@ def test_013_verify_per_shard_statefulsets(namespace: str, mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_014_verify_mongod_parameters_per_shard(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
+def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     """
     Verify that each shard's mongod has the correct search parameters.
 
@@ -913,7 +960,6 @@ def test_014_verify_mongod_parameters_per_shard(namespace: str, mdb: MongoDB, md
 
                 set_parameter = mongod_config.get("setParameter", {})
                 mongot_host = set_parameter.get("mongotHost", "")
-                search_mgmt_host = set_parameter.get("searchIndexManagementHostAndPort", "")
 
                 # For external LB mode with Envoy, endpoint should point to proxy service on port 27029
                 expected_proxy_service = f"{mdbs.name}-mongot-{shard_name}-proxy-svc"
@@ -938,7 +984,7 @@ def test_014_verify_mongod_parameters_per_shard(namespace: str, mdb: MongoDB, md
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_015_verify_mongos_search_config(namespace: str, mdb: MongoDB):
+def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
     """
     Verify that mongos has the correct search parameters configured.
 
@@ -969,33 +1015,19 @@ def test_015_verify_mongos_search_config(namespace: str, mdb: MongoDB):
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_016_deploy_tools_pod(namespace: str):
+def test_search_deploy_tools_pod(namespace: str):
     """Deploy mongodb-tools pod for running queries."""
     deploy_mongodb_tools_pod(namespace)
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_017_restore_sample_database(namespace: str, mdb: MongoDB, issuer_ca_filepath: str):
-    """Restore sample_mflix database to the sharded cluster.
-
-    Uses mongorestore from inside the tools pod since the MongoDB cluster
-    is only accessible via Kubernetes internal DNS.
-    """
-    search_tester = get_admin_search_tester(mdb, use_ssl=True)
-
-    mongorestore_from_pod(
-        namespace=namespace,
-        archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
-        connection_string=search_tester.cnx_string,
-        ns_include="sample_mflix.*",
-        use_ssl=True,
-        ca_path="/etc/ssl/ca/ca-pem",  # CA cert is mounted from configmap (key is ca-pem)
-    )
-    logger.info("✓ Sample database restored")
+def test_search_restore_sample_database(mdb: MongoDB):
+    """Restore sample_mflix database to the sharded cluster."""
+    get_admin_sample_movies_helper(mdb).restore_sample_database()
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_018_shard_collections(mdb: MongoDB):
+def test_search_shard_collections(mdb: MongoDB):
     """Shard the movies and embedded_movies collections.
 
     Uses SearchTester with direct pymongo connection. This works locally with kubefwd
@@ -1044,74 +1076,22 @@ def test_018_shard_collections(mdb: MongoDB):
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_019_create_search_index(mdb: MongoDB):
-    """Create text search index on movies collection.
-
-    Uses SearchTester with direct pymongo connection. This works locally with kubefwd
-    because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
-    """
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
-    search_tester.create_search_index("sample_mflix", "movies")
-    logger.info("✓ Text search index created")
+def test_search_create_search_index(mdb: MongoDB):
+    """Create text search index on movies collection."""
+    get_user_sample_movies_helper(mdb).create_search_index()
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_020_wait_for_search_index_ready(mdb: MongoDB):
-    """Wait for search index to be ready.
-
-    Uses SearchTester with direct pymongo connection. This works locally with kubefwd
-    because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
-    """
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
-    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
-    logger.info("✓ Search index is ready")
+def test_search_assert_search_query(mdb: MongoDB):
+    """Execute text search query through mongos and verify results."""
+    get_user_sample_movies_helper(mdb).assert_search_query(retry_timeout=60)
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_021_execute_text_search_query(mdb: MongoDB):
-    """Execute text search query through mongos and verify results.
-
-    Uses SearchTester with direct pymongo connection. This works locally with kubefwd
-    because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
-    """
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
-
-    def execute_search():
-        try:
-            # Execute search query using pymongo aggregation
-            results = list(
-                search_tester.client["sample_mflix"]["movies"].aggregate(
-                    [
-                        {"$search": {"index": "default", "text": {"query": "star wars", "path": "title"}}},
-                        {"$limit": 10},
-                        {"$project": {"_id": 0, "title": 1, "score": {"$meta": "searchScore"}}},
-                    ]
-                )
-            )
-
-            result_count = len(results)
-            logger.info(f"Search returned {result_count} results")
-            for r in results:
-                logger.debug(f"  - {r.get('title')} (score: {r.get('score')})")
-
-            if result_count > 0:
-                return True, f"Search returned {result_count} results"
-            return False, "Search returned no results"
-        except pymongo.errors.PyMongoError as e:
-            return False, f"Error: {e}"
-
-    run_periodically(execute_search, timeout=60, sleep_time=5, msg="search query to succeed")
-    logger.info("✓ Text search query executed successfully through mongos")
-
-
-@mark.e2e_search_sharded_enterprise_external_lb
-def test_022_verify_search_results_from_all_shards(mdb: MongoDB):
+def test_search_verify_results_from_all_shards(mdb: MongoDB):
     """
     Verify that search results through mongos contain documents from all shards.
     This is the definitive test that mongos is correctly aggregating search results.
-
-    Uses SearchTester with direct pymongo connection. This works locally with kubefwd
-    because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
     """
     search_tester = get_user_search_tester(mdb, use_ssl=True)
     movies_collection = search_tester.client["sample_mflix"]["movies"]
@@ -1148,7 +1128,7 @@ def test_022_verify_search_results_from_all_shards(mdb: MongoDB):
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_023_verify_search_resource_status(mdbs: MongoDBSearch):
+def test_verify_search_resource_status(mdbs: MongoDBSearch):
     """Verify the MongoDBSearch resource is in Running phase with correct status."""
     mdbs.load()
 
