@@ -3,6 +3,11 @@
 
 echo "Waiting for search index to be ready..."
 
+# Mandatory 10-minute wait for initial sync across all shards
+echo "Waiting 10 minutes for initial index sync across all shards..."
+sleep 600
+echo "Initial wait complete, now polling for index readiness..."
+
 max_attempts=120
 sleep_time=10
 

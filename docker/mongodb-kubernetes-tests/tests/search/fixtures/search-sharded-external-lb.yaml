@@ -25,3 +25,4 @@ spec:
             endpoint: mdb-sh-mongot-mdb-sh-0-proxy-svc.NAMESPACE.svc.cluster.local:27029
           - shardName: mdb-sh-1
             endpoint: mdb-sh-mongot-mdb-sh-1-proxy-svc.NAMESPACE.svc.cluster.local:27029
+

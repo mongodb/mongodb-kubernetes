@@ -1,18 +1,20 @@
 """
-E2E test for sharded MongoDB Search with external L7 load balancer configuration.
+E2E test for sharded MongoDB Search with external MongoDB source configuration.
 
-This test verifies the sharded Search + external L7 LB PoC implementation:
-- Deploys a sharded MongoDB cluster with TLS enabled
+This test verifies the sharded Search with external MongoDB source implementation:
+- Deploys a sharded MongoDB cluster with TLS enabled (simulating an external cluster)
 - Deploys Envoy proxy for L7 load balancing mongot traffic
-- Deploys MongoDBSearch with per-shard external LB endpoints
+- Deploys MongoDBSearch with spec.source.external.sharded configuration
 - Verifies Envoy proxy deployment and configuration
 - Verifies per-shard mongot Services are created
 - Verifies per-shard mongot StatefulSets are created
-- Verifies mongod parameters are set correctly for each shard (pointing to Envoy proxy)
-- Verifies mongos search parameters are configured
 - Imports sample data and shards collections
 - Creates text and vector search indexes
 - Executes search queries through mongos and verifies results from all shards
+
+Key difference from search_sharded_enterprise_external_lb.py:
+- This test uses spec.source.external.sharded (external MongoDB source)
+- The other test uses spec.source.mongodb.name (operator-managed MongoDB source)
 """
 
 import time
@@ -66,6 +68,7 @@ ENVOY_ADMIN_PORT = 9901
 
 # Resource names
 MDB_RESOURCE_NAME = "mdb-sh"
+MDBS_RESOURCE_NAME = "mdb-sh-search"
 SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
@@ -122,24 +125,81 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
 
 
 @fixture(scope="function")
-def mdbs(namespace: str) -> MongoDBSearch:
-    """Fixture for MongoDBSearch with sharded external LB configuration."""
+def mdbs(namespace: str, mdb: MongoDB) -> MongoDBSearch:
+    """Fixture for MongoDBSearch with external sharded source configuration.
+
+    This fixture dynamically builds the spec.source.external.sharded configuration
+    based on the deployed MongoDB sharded cluster, treating it as an external source.
+    """
     resource = MongoDBSearch.from_yaml(
-        yaml_fixture("search-sharded-external-lb.yaml"),
+        yaml_fixture("search-sharded-external-mongod.yaml"),
         namespace=namespace,
-        name=MDB_RESOURCE_NAME,
+        name=MDBS_RESOURCE_NAME,
     )
 
     if try_load(resource):
         return resource
 
-    # Replace NAMESPACE placeholder in endpoint URLs with actual namespace
-    # Note: Port (27029) and service names (*-proxy-svc) are already correct in the YAML
-    spec = resource["spec"]
-    if "lb" in spec and "external" in spec["lb"] and "sharded" in spec["lb"]["external"]:
-        endpoints = spec["lb"]["external"]["sharded"]["endpoints"]
-        for endpoint in endpoints:
-            endpoint["endpoint"] = endpoint["endpoint"].replace("NAMESPACE", namespace)
+    # Build the external sharded source configuration dynamically
+    # Router hosts (mongos endpoints)
+    router_hosts = [
+        f"{MDB_RESOURCE_NAME}-mongos-{i}.{MDB_RESOURCE_NAME}-svc.{namespace}.svc.cluster.local:27017"
+        for i in range(MONGOS_COUNT)
+    ]
+
+    # Shard configurations
+    shards = []
+    for shard_idx in range(SHARD_COUNT):
+        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
+        shard_hosts = [
+            f"{shard_name}-{member}.{MDB_RESOURCE_NAME}-sh.{namespace}.svc.cluster.local:27017"
+            for member in range(MONGODS_PER_SHARD)
+        ]
+        shards.append({
+            "shardName": shard_name,
+            "hosts": shard_hosts,
+        })
+
+    # Set the external sharded source configuration
+    resource["spec"]["source"] = {
+        "username": MONGOT_USER_NAME,
+        "passwordSecretRef": {
+            "name": f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+            "key": "password",
+        },
+        "external": {
+            "sharded": {
+                "router": {
+                    "hosts": router_hosts,
+                },
+                "shards": shards,
+            },
+            "tls": {
+                "ca": {
+                    "name": CA_CONFIGMAP_NAME,
+                },
+            },
+        },
+    }
+
+    # Build the lb endpoints configuration for Envoy proxy
+    lb_endpoints = []
+    for shard_idx in range(SHARD_COUNT):
+        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
+        endpoint = f"{MDBS_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
+        lb_endpoints.append({
+            "shardName": shard_name,
+            "endpoint": endpoint,
+        })
+
+    resource["spec"]["lb"] = {
+        "mode": "External",
+        "external": {
+            "sharded": {
+                "endpoints": lb_endpoints,
+            },
+        },
+    }
 
     return resource
 
@@ -263,9 +323,6 @@ MONGODB_TOOLS_PATH = "/tmp/mongodb-tools/bin"
 
 def deploy_mongodb_tools_pod(namespace: str):
     """Deploy a bastion pod for running MongoDB commands with mongodb-database-tools installed."""
-    # Install mongodb-database-tools on startup
-    # Using the official MongoDB tools tarball for RHEL 8
-    # Install to /tmp since container runs as non-root user
     tools_url = "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel80-x86_64-100.9.0.tgz"
     install_cmd = f"""
         set -e
@@ -273,7 +330,6 @@ def deploy_mongodb_tools_pod(namespace: str):
         curl -sL {tools_url} | tar xz -C /tmp/mongodb-tools --strip-components=1
         echo "MongoDB tools installed successfully"
         ls -la {MONGODB_TOOLS_PATH}/
-        # Create a marker file to indicate tools are ready
         touch /tmp/tools-ready
         sleep infinity
     """
@@ -322,7 +378,6 @@ def deploy_mongodb_tools_pod(namespace: str):
     get_pod_when_ready(namespace, "app=mongodb-tools", default_retry=120)
     logger.info(f"{MONGODB_TOOLS_POD_NAME} is ready")
 
-    # Wait for tools to be installed by checking for the marker file
     _wait_for_tools_ready(namespace)
 
 
@@ -346,73 +401,13 @@ def _wait_for_tools_ready(namespace: str, max_retries: int = 60, delay: int = 5)
     raise TimeoutError(f"mongodb-tools not ready after {max_retries * delay} seconds")
 
 
-def mongorestore_from_pod(
-    namespace: str,
-    archive_url: str,
-    connection_string: str,
-    ns_include: str,
-    use_ssl: bool = False,
-    ca_path: str = None,
-) -> str:
-    """Run mongorestore from inside the tools pod.
-
-    This is necessary because the MongoDB cluster is only accessible from within
-    the Kubernetes cluster via internal DNS names.
-    """
-    logger.info(f"Running mongorestore from pod for {archive_url}")
-
-    # Build the mongorestore command
-    mongorestore_path = f"{MONGODB_TOOLS_PATH}/mongorestore"
-    archive_file = "/tmp/sample_archive.archive"
-
-    # Download archive and run mongorestore in a single command
-    cmd = f"""
-        set -e
-        echo "Downloading archive from {archive_url}..."
-        curl -sL -o {archive_file} "{archive_url}"
-        echo "Archive downloaded, size: $(ls -lh {archive_file} | awk '{{print $5}}')"
-        echo "Running mongorestore..."
-        {mongorestore_path} --archive={archive_file} --verbose=1 --drop --nsInclude "{ns_include}" --uri="{connection_string}"
-        echo "mongorestore completed successfully"
-        rm -f {archive_file}
-    """
-
-    if use_ssl:
-        cmd = cmd.replace(f'--uri="{connection_string}"', f'--uri="{connection_string}" --ssl')
-
-    if ca_path:
-        cmd = cmd.replace(f'--uri="{connection_string}"', f'--uri="{connection_string}" --sslCAFile={ca_path}')
-
-    result = KubernetesTester.run_command_in_pod_container(
-        pod_name=MONGODB_TOOLS_POD_NAME,
-        namespace=namespace,
-        cmd=["/bin/bash", "-c", cmd],
-        container="mongodb-tools",
-    )
-
-    logger.debug(f"mongorestore output: {result}")
-    return result
-
-
 def deploy_envoy_proxy(namespace: str):
-    """
-    Deploy Envoy proxy for L7 load balancing mongot traffic.
-    Creates ConfigMap, Deployment, and per-shard proxy Services.
-    """
+    """Deploy Envoy proxy for L7 load balancing mongot traffic."""
     logger.info("Deploying Envoy proxy...")
-
-    # Create Envoy ConfigMap with SNI-based routing
     _create_envoy_configmap(namespace)
-
-    # Create Envoy Deployment
     _create_envoy_deployment(namespace)
-
-    # Create per-shard proxy Services
     _create_envoy_proxy_services(namespace)
-
-    # Wait for Envoy to be ready
     _wait_for_envoy_ready(namespace)
-
     logger.info("✓ Envoy proxy deployed successfully")
 
 
@@ -423,11 +418,10 @@ def _create_envoy_configmap(namespace: str):
 
     for i in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc = f"{MDB_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc"
-        search_svc = f"{MDB_RESOURCE_NAME}-mongot-{shard_name}-svc"
+        proxy_svc = f"{MDBS_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc"
+        search_svc = f"{MDBS_RESOURCE_NAME}-mongot-{shard_name}-svc"
         cluster_name = f"mongot_{shard_name.replace('-', '_')}_cluster"
 
-        # Filter chain for this shard
         filter_chains += f"""
         - filter_chain_match:
             server_names:
@@ -479,7 +473,6 @@ def _create_envoy_configmap(namespace: str):
                 - "h2"
               require_client_certificate: true"""
 
-        # Cluster for this shard
         clusters += f"""
       - name: {cluster_name}
         type: STRICT_DNS
@@ -496,13 +489,6 @@ def _create_envoy_configmap(namespace: str):
                   socket_address:
                     address: {search_svc}.{namespace}.svc.cluster.local
                     port_value: {MONGOT_PORT}
-        circuit_breakers:
-          thresholds:
-          - priority: DEFAULT
-            max_connections: 1024
-            max_pending_requests: 1024
-            max_requests: 1024
-            max_retries: 3
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
@@ -518,14 +504,7 @@ def _create_envoy_configmap(namespace: str):
                   filename: /etc/envoy/tls/ca/ca-pem
               alpn_protocols:
               - "h2"
-            sni: {search_svc}.{namespace}.svc.cluster.local
-        upstream_connection_options:
-          tcp_keepalive:
-            keepalive_time: 10
-            keepalive_interval: 3
-            keepalive_probes: 3
-        common_http_protocol_options:
-          idle_timeout: 300s"""
+            sni: {search_svc}.{namespace}.svc.cluster.local"""
 
     envoy_config = f"""admin:
   address:
@@ -547,13 +526,6 @@ static_resources:
     filter_chains:{filter_chains}
 
   clusters:{clusters}
-
-layered_runtime:
-  layers:
-  - name: static_layer
-    static_layer:
-      overload:
-        global_downstream_max_connections: 50000
 """
 
     create_or_update_configmap(namespace, "envoy-config", {"envoy.yaml": envoy_config})
@@ -627,7 +599,7 @@ def _create_envoy_proxy_services(namespace: str):
     """Create per-shard proxy Services pointing to Envoy."""
     for i in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc_name = f"{MDB_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc"
+        proxy_svc_name = f"{MDBS_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc"
 
         service = {
             "apiVersion": "v1",
@@ -669,17 +641,14 @@ def create_envoy_certificates(namespace: str, issuer: str):
     """Create TLS certificates for Envoy proxy."""
     logger.info("Creating Envoy proxy certificates...")
 
-    # Build SANs for server certificate (all per-shard proxy services)
     additional_domains = []
     for i in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc = f"{MDB_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc"
+        proxy_svc = f"{MDBS_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc"
         additional_domains.append(f"{proxy_svc}.{namespace}.svc.cluster.local")
 
-    # Add wildcard for flexibility
     additional_domains.append(f"*.{namespace}.svc.cluster.local")
 
-    # Create server certificate
     create_tls_certs(
         issuer=issuer,
         namespace=namespace,
@@ -691,7 +660,6 @@ def create_envoy_certificates(namespace: str, issuer: str):
     )
     logger.info("✓ Envoy server certificate created")
 
-    # Create client certificate
     create_tls_certs(
         issuer=issuer,
         namespace=namespace,
@@ -709,14 +677,14 @@ def create_envoy_certificates(namespace: str, issuer: str):
 # ============================================================================
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     """Test that the operator is installed and running."""
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
     operator.assert_is_running()
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 @skip_if_cloud_manager
 def test_create_ops_manager(namespace: str):
     """Test OpsManager deployment (skipped for Cloud Manager)."""
@@ -726,16 +694,9 @@ def test_create_ops_manager(namespace: str):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_install_tls_certificates(namespace: str, mdb: MongoDB, issuer: str):
     """Install TLS certificates for sharded cluster."""
-    # Note: secret_prefix must include trailing hyphen to match the operator's expected format
-    # Operator generates: {certsSecretPrefix}-{resource_name}-{shard_idx}-cert
-    # e.g., mdb-sh-mdb-sh-0-cert
-    #
-    # IMPORTANT: For Search with sharded clusters, the mongot needs to connect to the mongos
-    # service (mdb-sh-svc.mongodb-test.svc.cluster.local). The certificate must include this
-    # service DNS name as a Subject Alternative Name (SAN).
     mongos_service_dns = f"{MDB_RESOURCE_NAME}-svc.{namespace}.svc.cluster.local"
     create_sharded_cluster_certs(
         namespace=namespace,
@@ -750,14 +711,14 @@ def test_install_tls_certificates(namespace: str, mdb: MongoDB, issuer: str):
     logger.info("✓ Sharded cluster TLS certificates created")
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_create_sharded_cluster(mdb: MongoDB):
     """Test sharded cluster deployment."""
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=900)
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_create_users(
     namespace: str,
     admin_user: MongoDBUser,
@@ -791,37 +752,34 @@ def test_create_users(
     # Don't wait for mongot user - it needs searchCoordinator role from Search CR
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_deploy_envoy_certificates(namespace: str, issuer: str):
     """Create TLS certificates for Envoy proxy."""
     create_envoy_certificates(namespace, issuer)
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_deploy_envoy_proxy(namespace: str):
     """Deploy Envoy proxy for L7 load balancing."""
     deploy_envoy_proxy(namespace)
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_verify_envoy_deployment(namespace: str):
     """Verify Envoy proxy deployment and configuration."""
-    # Verify Envoy ConfigMap exists
     config = read_configmap(namespace, "envoy-config")
     assert "envoy.yaml" in config, "Envoy ConfigMap missing envoy.yaml"
     assert "mongod_listener" in config["envoy.yaml"], "Envoy config missing listener"
     logger.info("✓ Envoy ConfigMap verified")
 
-    # Verify Envoy Deployment is running
     apps_v1 = client.AppsV1Api()
     deployment = apps_v1.read_namespaced_deployment("envoy-proxy", namespace)
     assert deployment.status.ready_replicas >= 1, "Envoy Deployment not ready"
     logger.info("✓ Envoy Deployment is running")
 
-    # Verify per-shard proxy Services exist
     for i in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc_name = f"{MDB_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc"
+        proxy_svc_name = f"{MDBS_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc"
         service = get_service(namespace, proxy_svc_name)
         assert service is not None, f"Proxy Service {proxy_svc_name} not found"
         ports = {p.port for p in service.spec.ports}
@@ -829,46 +787,44 @@ def test_verify_envoy_deployment(namespace: str):
         logger.info(f"✓ Proxy Service {proxy_svc_name} verified")
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_create_search_tls_certificate(namespace: str, issuer: str):
     """Create TLS certificate for MongoDBSearch resource."""
-    # Create TLS certificate for the Search resource
-    # The Search resource expects a secret named mdb-sh-search-cert
     create_tls_certs(
         issuer=issuer,
         namespace=namespace,
-        resource_name=MDB_RESOURCE_NAME,
+        resource_name=MDBS_RESOURCE_NAME,
         secret_name=MDBS_TLS_SECRET_NAME,
     )
     logger.info(f"✓ Search TLS certificate created: {MDBS_TLS_SECRET_NAME}")
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_create_search_resource(mdbs: MongoDBSearch):
-    """Test MongoDBSearch resource deployment with sharded external LB config."""
+    """Test MongoDBSearch resource deployment with external sharded source config."""
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_wait_for_sharded_cluster_ready(mdb: MongoDB):
-    """Wait for sharded cluster to be ready after Search CR deployment."""
-    mdb.assert_reaches_phase(Phase.Running, timeout=600)
+    """Wait for sharded cluster to be ready after Search deployment."""
+    mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_wait_for_agents_ready(mdb: MongoDB):
-    """Wait for agents to be ready after Search CR deployment."""
+    """Wait for automation agents to be ready."""
     mdb.get_om_tester().wait_agents_ready()
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
     """
     Verify that per-shard mongot Services are created.
 
-    For a sharded cluster with external LB, the Search controller should create
+    For a sharded cluster with external source, the Search controller should create
     one Service per shard with naming: <search-name>-mongot-<shardName>-svc
     """
     for shard_idx in range(SHARD_COUNT):
@@ -876,26 +832,22 @@ def test_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
         service_name = f"{mdbs.name}-mongot-{shard_name}-svc"
 
         logger.info(f"Checking for per-shard Service: {service_name}")
+
         service = get_service(namespace, service_name)
-
         assert service is not None, f"Per-shard Service {service_name} not found"
-        assert service.spec is not None, f"Service {service_name} has no spec"
 
-        # Verify the service has the expected port
-        ports = {p.name: p.port for p in service.spec.ports}
-        assert (
-            "mongot" in ports or MONGOT_PORT in ports.values()
-        ), f"Service {service_name} does not have mongot port ({MONGOT_PORT})"
+        ports = {p.port for p in service.spec.ports}
+        assert MONGOT_PORT in ports, f"Service {service_name} missing mongot port {MONGOT_PORT}"
 
         logger.info(f"✓ Per-shard Service {service_name} exists with ports: {ports}")
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_verify_per_shard_statefulsets(namespace: str, mdbs: MongoDBSearch):
     """
     Verify that per-shard mongot StatefulSets are created.
 
-    For a sharded cluster with external LB, the Search controller should create
+    For a sharded cluster with external source, the Search controller should create
     one StatefulSet per shard with naming: <search-name>-mongot-<shardName>
     """
     for shard_idx in range(SHARD_COUNT):
@@ -904,9 +856,8 @@ def test_verify_per_shard_statefulsets(namespace: str, mdbs: MongoDBSearch):
 
         logger.info(f"Checking for per-shard StatefulSet: {sts_name}")
 
-        # Wait for the StatefulSet to have at least 1 ready replica
-        max_wait_time = 120  # seconds
-        poll_interval = 5  # seconds
+        max_wait_time = 120
+        poll_interval = 5
         start_time = time.time()
         ready_replicas = 0
 
@@ -933,12 +884,12 @@ def test_verify_per_shard_statefulsets(namespace: str, mdbs: MongoDBSearch):
         logger.info(f"✓ Per-shard StatefulSet {sts_name} exists with {ready_replicas} ready replicas")
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     """
     Verify that each shard's mongod has the correct search parameters.
 
-    For sharded clusters with external LB (Envoy proxy), each shard should have:
+    For sharded clusters with external source and Envoy proxy, each shard should have:
     - mongotHost pointing to its shard-specific Envoy proxy endpoint (port 27029)
     - searchIndexManagementHostAndPort pointing to the same endpoint
     """
@@ -961,7 +912,6 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
                 set_parameter = mongod_config.get("setParameter", {})
                 mongot_host = set_parameter.get("mongotHost", "")
 
-                # For external LB mode with Envoy, endpoint should point to proxy service on port 27029
                 expected_proxy_service = f"{mdbs.name}-mongot-{shard_name}-proxy-svc"
 
                 if expected_proxy_service not in mongot_host:
@@ -983,7 +933,7 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
     logger.info("✓ All shards have correct mongod search parameters pointing to Envoy proxy")
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
     """
     Verify that mongos has the correct search parameters configured.
@@ -1014,19 +964,19 @@ def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
     logger.info("✓ Mongos has correct search configuration")
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_search_deploy_tools_pod(namespace: str):
     """Deploy mongodb-tools pod for running queries."""
     deploy_mongodb_tools_pod(namespace)
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_search_restore_sample_database(mdb: MongoDB):
     """Restore sample_mflix database to the sharded cluster."""
     get_admin_sample_movies_helper(mdb).restore_sample_database()
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_search_shard_collections(mdb: MongoDB):
     """Shard the movies and embedded_movies collections.
 
@@ -1034,9 +984,9 @@ def test_search_shard_collections(mdb: MongoDB):
     because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
     """
     search_tester = get_admin_search_tester(mdb, use_ssl=True)
-    client = search_tester.client
-    admin_db = client.admin
-    sample_mflix_db = client["sample_mflix"]
+    mongo_client = search_tester.client
+    admin_db = mongo_client.admin
+    sample_mflix_db = mongo_client["sample_mflix"]
 
     # Enable sharding on database
     try:
@@ -1075,19 +1025,19 @@ def test_search_shard_collections(mdb: MongoDB):
     logger.info("✓ Collections sharded and balanced")
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_search_create_search_index(mdb: MongoDB):
     """Create text search index on movies collection."""
     get_user_sample_movies_helper(mdb).create_search_index()
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_search_assert_search_query(mdb: MongoDB):
     """Execute text search query through mongos and verify results."""
     get_user_sample_movies_helper(mdb).assert_search_query(retry_timeout=60)
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_search_verify_results_from_all_shards(mdb: MongoDB):
     """
     Verify that search results through mongos contain documents from all shards.
@@ -1127,7 +1077,7 @@ def test_search_verify_results_from_all_shards(mdb: MongoDB):
     logger.info(f"✓ Search results verified: {search_count}/{total_docs} documents from all shards")
 
 
-@mark.e2e_search_sharded_enterprise_external_lb
+@mark.e2e_search_sharded_enterprise_external_mongod
 def test_verify_search_resource_status(mdbs: MongoDBSearch):
     """Verify the MongoDBSearch resource is in Running phase with correct status."""
     mdbs.load()
