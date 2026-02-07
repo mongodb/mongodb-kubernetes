@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -823,60 +824,62 @@ func TestReplicaSetAgentVersionMapping(t *testing.T) {
 }
 
 func TestHandlePVCResize(t *testing.T) {
-	statefulSet := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "example-sts",
-			Namespace: "default",
-		},
-		Spec: appsv1.StatefulSetSpec{
-			Replicas: ptr.To(int32(3)),
-			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "data-pvc",
-					},
-					Spec: corev1.PersistentVolumeClaimSpec{
-						Resources: corev1.VolumeResourceRequirements{
-							Requests: corev1.ResourceList{
-								corev1.ResourceStorage: resource.MustParse("1Gi"),
+	synctest.Run(func() {
+		statefulSet := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "example-sts",
+				Namespace: "default",
+			},
+			Spec: appsv1.StatefulSetSpec{
+				Replicas: ptr.To(int32(3)),
+				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "data-pvc",
+						},
+						Spec: corev1.PersistentVolumeClaimSpec{
+							Resources: corev1.VolumeResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceStorage: resource.MustParse("1Gi"),
+								},
 							},
 						},
 					},
 				},
 			},
-		},
-	}
+		}
 
-	p := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "data-pvc-example-sts-0",
-			Namespace: "default",
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{Resources: corev1.VolumeResourceRequirements{Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")}}},
-		Status: corev1.PersistentVolumeClaimStatus{
-			Capacity: corev1.ResourceList{
-				corev1.ResourceStorage: resource.MustParse("1Gi"),
+		p := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "data-pvc-example-sts-0",
+				Namespace: "default",
 			},
-		},
-	}
+			Spec: corev1.PersistentVolumeClaimSpec{Resources: corev1.VolumeResourceRequirements{Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")}}},
+			Status: corev1.PersistentVolumeClaimStatus{
+				Capacity: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+		}
 
-	ctx := context.TODO()
-	logger := zap.NewExample().Sugar()
-	reconciledResource := DefaultReplicaSetBuilder().SetName("temple").Build()
+		ctx := context.TODO()
+		logger := zap.NewExample().Sugar()
+		reconciledResource := DefaultReplicaSetBuilder().SetName("temple").Build()
 
-	memberClient, _ := setupClients(t, ctx, p, statefulSet, reconciledResource)
+		memberClient, _ := setupClients(t, ctx, p, statefulSet, reconciledResource)
 
-	// *** "PVC Phase: No Action" ***
-	testPhaseNoActionRequired(t, ctx, memberClient, statefulSet, logger)
+		// *** "PVC Phase: No Action" ***
+		testPhaseNoActionRequired(t, ctx, memberClient, statefulSet, logger)
 
-	// *** "PVC Phase: No Action, Storage Increase Detected" ***
-	testPVCResizeStarted(t, ctx, memberClient, reconciledResource, statefulSet, logger)
+		// *** "PVC Phase: No Action, Storage Increase Detected" ***
+		testPVCResizeStarted(t, ctx, memberClient, reconciledResource, statefulSet, logger)
 
-	// *** "PVC Phase: PVCResize, Still Resizing" ***
-	testPVCStillResizing(t, ctx, memberClient, reconciledResource, statefulSet, logger)
+		// *** "PVC Phase: PVCResize, Still Resizing" ***
+		testPVCStillResizing(t, ctx, memberClient, reconciledResource, statefulSet, logger)
 
-	// *** "PVC Phase: PVCResize, Finished Resizing ***
-	testPVCFinishedResizing(t, ctx, memberClient, p, reconciledResource, statefulSet, logger)
+		// *** "PVC Phase: PVCResize, Finished Resizing ***
+		testPVCFinishedResizing(t, ctx, memberClient, p, reconciledResource, statefulSet, logger)
+	})
 }
 
 // ===== Test for state and vault annotations handling in replicaset controller =====
