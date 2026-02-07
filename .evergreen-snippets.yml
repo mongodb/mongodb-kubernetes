@@ -123,6 +123,12 @@ tasks:
       - func: test_code_snippets
       - func: archive_snippets_output
 
+  - name: test_kind_search_sharded_enterprise_external_lb_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
   - name: test_kind_search_external_sharded_snippets.sh
     tags: [ "code_snippets", "patch-run" ]
     commands:
@@ -144,6 +150,7 @@ task_groups:
       - test_kind_search_community_snippets.sh
       - test_kind_search_enterprise_snippets.sh
       - test_kind_search_external_mongod_snippets.sh
+      - test_kind_search_sharded_enterprise_external_lb_snippets.sh
       - test_kind_search_external_sharded_snippets.sh
 
 buildvariants:
