@@ -1,4 +1,4 @@
-FROM --platform=${BUILDPLATFORM} registry.access.redhat.com/ubi8/ubi-minimal AS tools_downloader
+FROM --platform=${BUILDPLATFORM} registry.access.redhat.com/ubi9/ubi-minimal AS tools_downloader
 
 ARG mongodb_tools_url
 ARG mongodb_tools_version_s390x
@@ -7,7 +7,7 @@ ARG mongodb_tools_version_amd64
 ARG mongodb_tools_version_arm64
 
 RUN microdnf -y update --nodocs \
-  && microdnf -y install --nodocs tar gzip curl \
+  && microdnf -y install --nodocs tar gzip \
   && microdnf clean all
 
 RUN case ${TARGETPLATFORM} in \
@@ -53,7 +53,7 @@ COPY ./docker/mongodb-kubernetes-init-database/content/agent-launcher.sh /data/s
 
 COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/licenses/
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal
+FROM registry.access.redhat.com/ubi9/ubi-minimal
 
 # Copy the extracted tools from the downloader stage (tools are already extracted there)
 COPY --from=tools_downloader /tools/ /tools/
