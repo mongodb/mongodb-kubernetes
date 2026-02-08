@@ -2883,6 +2883,10 @@ func (r *ShardedClusterReconcileHelper) statefulsetLabels() map[string]string {
 	return merge.StringToStringMap(r.sc.Labels, r.sc.GetOwnerLabels())
 }
 
+func (r *ShardedClusterReconcileHelper) DesiredShardsConfiguration() map[int]*mdbv1.ShardedClusterComponentSpec {
+	return r.desiredShardsConfiguration
+}
+
 func (r *ShardedClusterReconcileHelper) ShardsMemberClustersMap() map[int][]multicluster.MemberCluster {
 	return r.shardsMemberClustersMap
 }
