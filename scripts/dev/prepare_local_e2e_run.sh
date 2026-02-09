@@ -67,7 +67,7 @@ cp -rf helm_chart docker/mongodb-kubernetes-tests/helm_chart
 
 # shellcheck disable=SC2154
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
-  prepare_multi_cluster_e2e_run 2>&1 | prepend "prepare_multi_cluster_e2e_run"
+  go run "${PROJECT_DIR}/scripts/dev/prepare_multi_cluster.go" 2>&1 | prepend "prepare_multi_cluster_e2e_run"
   run_multi_cluster_kube_config_creator 2>&1 | prepend "run_multi_cluster_kube_config_creator"
 fi
 
