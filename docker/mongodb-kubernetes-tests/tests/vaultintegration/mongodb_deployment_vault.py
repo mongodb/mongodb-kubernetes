@@ -175,6 +175,7 @@ def mongodb_user(namespace: str) -> MongoDBUser:
 
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
     resource["spec"]["mongodbResourceRef"]["namespace"] = namespace
+    
     try_load(resource)
     return resource
 
@@ -501,4 +502,5 @@ def test_create_mongodb_user(mongodb_user: MongoDBUser, vault_name: str, vault_n
         f"secret/mongodbenterprise/database/{namespace}/{PASSWORD_SECRET_NAME}",
     )
 
+    mongodb_user.update()
     mongodb_user.assert_reaches_phase(Phase.Updated, timeout=100)
