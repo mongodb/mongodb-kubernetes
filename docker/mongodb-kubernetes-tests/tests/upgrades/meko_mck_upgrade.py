@@ -99,10 +99,7 @@ def test_install_latest_official_operator(official_meko_operator: Operator, name
 
 @mark.e2e_meko_mck_upgrade
 def test_install_replicaset(replica_set: MongoDB):
-    if is_multi_cluster():
-        replica_set.update()
-    else:
-        replica_set.create()
+    replica_set.update()
     replica_set.assert_reaches_phase(phase=Phase.Running, timeout=1000 if is_multi_cluster() else 600)
 
 

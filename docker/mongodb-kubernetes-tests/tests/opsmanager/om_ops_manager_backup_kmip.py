@@ -155,6 +155,7 @@ class TestOpsManagerCreation:
     def test_mdbs_created(self, mdb_latest: MongoDB, ops_manager: MongoDBOpsManager):
         # Once MDB is created, the OpsManager will be redeployed which may cause HTTP errors.
         # This is required to mount new secrets for KMIP. Having said that, we also need longer timeout.
+        mdb_latest.update()
         mdb_latest.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
