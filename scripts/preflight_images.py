@@ -15,7 +15,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Tuple
 
 import requests
-from evergreen.release.agent_matrix import get_supported_version_for_image
+
+from scripts.evergreen.release.agent_matrix import get_supported_version_for_image
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=LOGLEVEL)

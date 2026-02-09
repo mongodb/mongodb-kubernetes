@@ -14,9 +14,7 @@ else
   exit 1
 fi
 
-# Include scripts/ in PYTHONPATH to allow imports like 'from evergreen.release.agent_matrix'
-# without conflicting with the installed evergreen.py package
-export PYTHONPATH="${PROJECT_DIR}/scripts:${PROJECT_DIR}"
+export PYTHONPATH="${PROJECT_DIR}"
 
 required_version="${PYTHON_VERSION}"
 if [[ -z "${required_version:-}" ]]; then
