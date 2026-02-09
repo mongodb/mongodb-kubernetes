@@ -59,7 +59,8 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user_tl
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @mark.e2e_sharded_cluster_ldap

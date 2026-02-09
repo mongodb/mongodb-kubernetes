@@ -63,7 +63,8 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: L
         password=ldap_mongodb_user.password,
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @mark.e2e_replica_set_ldap_group_dn
@@ -78,6 +79,7 @@ def test_replica_set(
 
 @mark.e2e_replica_set_ldap_group_dn
 def test_ldap_user_mongodb_reaches_updated_phase(ldap_user_mongodb: MongoDBUser):
+    ldap_user_mongodb.update()
     ldap_user_mongodb.assert_reaches_phase(Phase.Updated, timeout=150)
 
 

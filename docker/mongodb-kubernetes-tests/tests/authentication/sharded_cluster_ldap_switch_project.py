@@ -59,7 +59,8 @@ def ldap_user_mongodb(sharded_cluster: MongoDB, namespace: str, ldap_mongodb_use
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @pytest.fixture(scope="function")
@@ -116,6 +117,7 @@ class TestShardedClusterLDAPProjectSwitch(KubernetesTester):
 
     # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_new_mdb_users_are_created(self, ldap_user_mongodb: MongoDBUser):
+    #     ldap_user_mongodb.update()
     #     ldap_user_mongodb.assert_reaches_phase(Phase.Updated)
 
     def test_ops_manager_state_correctly_updated_in_initial_cluster(self, testhelper: SwitchProjectHelper):

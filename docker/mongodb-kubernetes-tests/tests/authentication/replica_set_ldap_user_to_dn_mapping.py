@@ -54,7 +54,8 @@ def ldap_user_mongodb(
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @mark.e2e_replica_set_ldap_user_to_dn_mapping
@@ -65,6 +66,7 @@ def test_replica_set(replica_set: MongoDB):
 
 @mark.e2e_replica_set_ldap_user_to_dn_mapping
 def test_create_ldap_user(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
+    ldap_user_mongodb.update()
     ldap_user_mongodb.assert_reaches_phase(Phase.Updated)
 
     ac = replica_set.get_automation_config_tester()

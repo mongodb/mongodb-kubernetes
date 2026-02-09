@@ -87,7 +87,8 @@ def user_ldap(replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDA
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @fixture(scope="module")
@@ -114,7 +115,8 @@ def user_scram(replica_set: MongoDB, namespace: str) -> MongoDBUser:
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @mark.e2e_replica_set_ldap
@@ -125,6 +127,7 @@ def test_replica_set(replica_set: MongoDB, ldap_mongodb_users: List[LDAPUser]):
 
 @mark.e2e_replica_set_ldap
 def test_create_ldap_user(replica_set: MongoDB, user_ldap: MongoDBUser):
+    user_ldap.update()
     user_ldap.assert_reaches_phase(Phase.Updated)
 
     ac = replica_set.get_automation_config_tester()
@@ -146,6 +149,7 @@ def test_new_mdb_users_are_created_and_can_authenticate(replica_set: MongoDB, us
 
 @mark.e2e_replica_set_ldap
 def test_create_scram_user(replica_set: MongoDB, user_scram: MongoDBUser):
+    user_scram.update()
     user_scram.assert_reaches_phase(Phase.Updated)
 
     ac = replica_set.get_automation_config_tester()
@@ -218,11 +222,13 @@ def user_x509(replica_set: MongoDB, namespace: str) -> MongoDBUser:
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @mark.e2e_replica_set_ldap
 def test_x509_user_created(replica_set: MongoDB, user_x509: MongoDBUser):
+    user_x509.update()
     user_x509.assert_reaches_phase(Phase.Updated)
 
     expected_roles = {

@@ -88,7 +88,8 @@ def user_ldap(replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDA
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @pytest.fixture(scope="function")
@@ -109,6 +110,7 @@ class TestReplicaSetLDAPProjectSwitch(KubernetesTester):
 
     # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_create_ldap_user(self, user_ldap: MongoDBUser):
+    #     user_ldap.update()
     #     user_ldap.assert_reaches_phase(Phase.Updated)
 
     def test_ops_manager_state_correctly_updated_in_initial_replica_set(self, testhelper: SwitchProjectHelper):
