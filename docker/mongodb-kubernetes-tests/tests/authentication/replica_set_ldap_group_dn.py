@@ -1,4 +1,4 @@
-from kubetester import create_secret, find_fixture
+from kubetester import create_secret, find_fixture, try_load
 from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, generic_user
@@ -48,7 +48,8 @@ def replica_set(
         "automationUserName": "mms-automation-agent",
         "automationLdapGroupDN": "cn=agents,ou=groups,dc=example,dc=org",
     }
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -71,6 +72,7 @@ def test_replica_set(
     ldap_mongodb_agent_user: LDAPUser,
     ldap_user_mongodb: MongoDBUser,
 ):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 

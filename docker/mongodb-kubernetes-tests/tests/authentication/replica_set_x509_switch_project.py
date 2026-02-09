@@ -17,11 +17,9 @@ def replica_set(namespace: str, server_certs: str, agent_certs: str, issuer_ca_c
         load_fixture("replica-set-x509-to-scram-256.yaml"), name=MDB_RESOURCE_NAME, namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="function")

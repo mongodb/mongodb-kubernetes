@@ -1,7 +1,7 @@
 import tempfile
 from typing import List
 
-from kubetester import create_secret, find_fixture
+from kubetester import create_secret, find_fixture, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_x509_user_cert
 from kubetester.kubetester import KubernetesTester
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
@@ -65,7 +65,8 @@ def replica_set(
         },
     }
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -118,6 +119,7 @@ def user_scram(replica_set: MongoDB, namespace: str) -> MongoDBUser:
 
 @mark.e2e_replica_set_ldap
 def test_replica_set(replica_set: MongoDB, ldap_mongodb_users: List[LDAPUser]):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 

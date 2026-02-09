@@ -1,5 +1,6 @@
 import pytest
 from kubernetes.client import V1ConfigMap
+from kubetester import try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
@@ -10,7 +11,8 @@ from kubetester.phase import Phase
 def mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("standalone.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_standalone_recovery
@@ -23,6 +25,7 @@ class TestStandaloneRecoversBadOmConfiguration(KubernetesTester):
     """
 
     def test_standalone_reaches_failed_state(self, mdb: MongoDB):
+        mdb.update()
         config_map = V1ConfigMap(data={"baseUrl": "http://foo.bar"})
         self.clients("corev1").patch_namespaced_config_map("my-project", self.get_namespace(), config_map)
 

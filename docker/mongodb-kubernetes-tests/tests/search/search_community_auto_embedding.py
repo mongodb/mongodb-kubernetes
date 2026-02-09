@@ -38,9 +38,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 
@@ -50,10 +48,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
         yaml_fixture("search-minimal.yaml"),
         namespace=namespace,
     )
-
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 

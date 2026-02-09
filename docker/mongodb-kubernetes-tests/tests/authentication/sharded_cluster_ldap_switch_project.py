@@ -26,9 +26,6 @@ def sharded_cluster(namespace: str, openldap_tls: OpenLDAP, issuer_ca_configmap:
         find_fixture("ldap/ldap-sharded-cluster.yaml"), name=MDB_RESOURCE_NAME, namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     KubernetesTester.create_secret(namespace, bind_query_password_secret, {"password": openldap_tls.admin_password})
 
     resource["spec"]["security"]["authentication"]["ldap"] = {
@@ -40,7 +37,8 @@ def sharded_cluster(namespace: str, openldap_tls: OpenLDAP, issuer_ca_configmap:
     resource["spec"]["security"]["authentication"]["agents"] = {"mode": "SCRAM"}
     resource["spec"]["security"]["authentication"]["modes"] = ["LDAP", "SCRAM"]
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="function")

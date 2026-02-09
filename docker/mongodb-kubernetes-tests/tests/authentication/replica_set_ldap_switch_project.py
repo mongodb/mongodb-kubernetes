@@ -32,9 +32,6 @@ def replica_set(
         find_fixture("ldap/ldap-replica-set.yaml"), name=MDB_RESOURCE_NAME, namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     secret_name = "bind-query-password"
     create_secret(namespace, secret_name, {"password": openldap.admin_password})
     ac_secret_name = "automation-config-password"
@@ -69,7 +66,8 @@ def replica_set(
         },
     }
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="function")

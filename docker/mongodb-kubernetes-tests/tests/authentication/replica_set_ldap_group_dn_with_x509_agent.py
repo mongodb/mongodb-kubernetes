@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import create_secret, find_fixture, kubetester
+from kubetester import create_secret, find_fixture, kubetester, try_load
 from kubetester.certs import ISSUER_CA_NAME, create_x509_agent_tls_certs, create_x509_mongodb_tls_certs
 from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
@@ -58,7 +58,8 @@ def replica_set(
         "mode": "X509",
         "automationLdapGroupDN": f"cn=mms-automation-agent,ou={namespace},o=cluster.local-agent,dc=example,dc=org",
     }
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -82,6 +83,7 @@ def server_certs(issuer: str, namespace: str):
 
 @mark.e2e_replica_set_ldap_group_dn_with_x509_agent
 def test_replica_set(replica_set: MongoDB, ldap_mongodb_x509_agent_user: LDAPUser, namespace: str):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 

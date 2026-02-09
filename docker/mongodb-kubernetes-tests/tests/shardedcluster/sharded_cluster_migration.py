@@ -27,15 +27,13 @@ def mdb(namespace, custom_mdb_version: str):
         name=MDB_RESOURCE_NAME,
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
+    try_load(resource)
     return resource
 
 

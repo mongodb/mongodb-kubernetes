@@ -75,7 +75,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -98,7 +98,8 @@ def mdb_latest(
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -142,6 +143,7 @@ class TestOpsManagerCreation:
         kmip.status().assert_is_running()
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.backup_status().assert_reaches_phase(Phase.Pending)

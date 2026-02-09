@@ -40,9 +40,6 @@ def server_certs(issuer: str, namespace: str):
 def sc(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("test-tls-base-sc-require-ssl-custom-ca.yaml"), namespace=namespace)
 
-    if try_load(resource):
-        return resource
-
     resource.set_architecture_annotation()
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
 
@@ -54,7 +51,8 @@ def sc(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
             configsrv_members_array=[1, 1, 1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_sharded_cluster_tls_require_custom_ca
@@ -65,6 +63,7 @@ def test_install_operator(operator: Operator):
 @pytest.mark.e2e_sharded_cluster_tls_require_custom_ca
 class TestClusterWithTLSCreation:
     def test_sharded_cluster_running(self, sc: MongoDB):
+        sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
     @skip_if_local

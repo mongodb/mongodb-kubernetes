@@ -69,9 +69,6 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_tls_s3.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
@@ -93,6 +90,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
+    try_load(resource)
     return resource
 
 

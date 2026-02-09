@@ -1,7 +1,7 @@
 import time
 
 import pytest
-from kubetester import kubetester
+from kubetester import kubetester, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
@@ -52,12 +52,14 @@ def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_
         namespace=namespace,
     )
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
 class TestEnableX509ForShardedCluster(KubernetesTester):
     def test_create_resource(self, sharded_cluster: MongoDB):
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
 
     def test_ops_manager_state_updated_correctly(self):

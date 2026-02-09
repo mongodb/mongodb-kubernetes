@@ -3,6 +3,7 @@ from typing import Dict
 
 import kubernetes
 import pytest
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb_multi import MongoDBMulti
@@ -21,8 +22,8 @@ def mongodb_multi(central_cluster_client: kubernetes.client.ApiClient, namespace
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi-dr.yaml"), "multi-replica-set", namespace)
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    # return resource.load()
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="module")
@@ -44,6 +45,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_dr
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
 

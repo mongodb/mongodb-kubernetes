@@ -18,10 +18,8 @@ def mco_replica_set(namespace: str) -> MongoDBCommunity:
         name="mco-replica-set",
     )
 
-    if try_load(resource):
-        return resource
-
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -29,10 +27,8 @@ def meko_replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-basic.yaml"), namespace=namespace, name="meko-replica-set")
     resource.set_version(custom_mdb_version)
 
-    if try_load(resource):
-        return resource
-
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_community_and_meko_replicaset_scale
@@ -47,11 +43,13 @@ def test_install_secret(namespace: str):
 
 @mark.e2e_community_and_meko_replicaset_scale
 def test_replicaset_running(mco_replica_set: MongoDBCommunity):
+    mco_replica_set.update()
     mco_replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_community_and_meko_replicaset_scale
 def test_meko_replicaset_running(meko_replica_set: MongoDB):
+    meko_replica_set.update()
     meko_replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 

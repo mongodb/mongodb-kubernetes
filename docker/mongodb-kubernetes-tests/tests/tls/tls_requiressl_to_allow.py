@@ -1,3 +1,4 @@
+from kubetester import try_load
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
@@ -32,7 +33,8 @@ def tls_replica_set(
     # no TLS to start with
     resource["spec"]["security"] = {}
 
-    yield resource.create()
+    try_load(resource)
+    yield resource
 
     resource.delete()
 
@@ -44,6 +46,7 @@ def test_install_operator(operator: Operator):
 
 @mark.e2e_replica_set_tls_require_to_allow
 def test_replica_set_creation(tls_replica_set: MongoDB):
+    tls_replica_set.update()
     tls_replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
 
