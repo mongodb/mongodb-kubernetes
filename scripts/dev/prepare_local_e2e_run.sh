@@ -47,8 +47,13 @@ fi
 echo "Ensuring namespace ${NAMESPACE}"
 ensure_namespace "${NAMESPACE}" 2>&1 | prepend "ensure_namespace"
 
-echo "Deleting ~/.docker/.config.json and re-creating it"
-rm ~/.docker/config.json || true
+# Start independent make install and delete om project in background
+(make install 2>&1 | prepend "make install") &
+pid_install=$!
+(scripts/dev/delete_om_projects.sh 2>&1 | prepend "delete_om_projects") &
+pid_om=$!
+
+echo "Configuring container auth (skips login if credentials still valid)"
 scripts/dev/configure_container_auth.sh 2>&1 | prepend "configure_docker_auth"
 
 echo "Configuring operator"
@@ -66,9 +71,10 @@ if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
   run_multi_cluster_kube_config_creator 2>&1 | prepend "run_multi_cluster_kube_config_creator"
 fi
 
-make install 2>&1 | prepend "make install"
+# Wait for background operations before deploy step (which needs CRDs from make install)
+wait "${pid_install}" || exit $?
+wait "${pid_om}" || exit $?
 test -f "docker/mongodb-kubernetes-tests/.test_identifiers" && rm "docker/mongodb-kubernetes-tests/.test_identifiers"
-scripts/dev/delete_om_projects.sh 2>&1 | prepend "delete_om_projects"
 
 (
   if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
