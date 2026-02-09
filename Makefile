@@ -337,11 +337,19 @@ undeploy:
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
 
 # Generate manifests e.g. CRD etc.
-manifests: controller-gen
+# Uses a sentinel file so Make skips regeneration when api/ sources are unchanged. (the step takes a few second)
+CRD_SENTINEL := .generated/crd.sentinel
+API_SOURCES := $(shell find api -name "*.go")
+
+manifests: $(CRD_SENTINEL)
+
+$(CRD_SENTINEL): $(API_SOURCES) | controller-gen
+	@echo "API sources changed. Regenerating CRDs..."
+	@mkdir -p .generated
 	export PATH="$(PATH)"; export GOROOT=$(GOROOT); $(CONTROLLER_GEN) $(CRD_OPTIONS) paths=./... output:crd:artifacts:config=config/crd/bases
-	# copy the CRDs to the public folder
 	cp config/crd/bases/* helm_chart/crds/
 	cat "helm_chart/crds/"* > public/crds.yaml
+	@touch $(CRD_SENTINEL)
 
 
 # Run go fmt against code
