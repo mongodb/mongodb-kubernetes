@@ -29,7 +29,8 @@ on_exit() {
 trap on_exit EXIT
 if [[ "${RESET:-"true"}" == "true" ]]; then
   echo "Running reset script..."
-  go run "${PROJECT_DIR}/scripts/dev/reset.go" 2>&1 | prepend "reset"
+  go build -o "${PROJECT_DIR}/bin/reset" "${PROJECT_DIR}/scripts/dev/reset.go"
+  "${PROJECT_DIR}/bin/reset" 2>&1 | prepend "reset"
 fi
 
 current_context=$(kubectl config current-context)
@@ -67,7 +68,8 @@ cp -rf helm_chart docker/mongodb-kubernetes-tests/helm_chart
 
 # shellcheck disable=SC2154
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
-  go run "${PROJECT_DIR}/scripts/dev/prepare_multi_cluster.go" 2>&1 | prepend "prepare_multi_cluster_e2e_run"
+  go build -o "${PROJECT_DIR}/bin/prepare_multi_cluster" "${PROJECT_DIR}/scripts/dev/prepare_multi_cluster.go"
+  "${PROJECT_DIR}/bin/prepare_multi_cluster" 2>&1 | prepend "prepare_multi_cluster_e2e_run"
   run_multi_cluster_kube_config_creator 2>&1 | prepend "run_multi_cluster_kube_config_creator"
 fi
 
