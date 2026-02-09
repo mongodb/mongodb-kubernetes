@@ -8,12 +8,19 @@ source scripts/funcs/kubernetes
 
 # Configuration of the resources for Ops Manager
 title "Creating admin secret for the new Ops Manager instance"
-kubectl --namespace "${NAMESPACE}" delete secrets ops-manager-admin-secret --ignore-not-found
-kubectl --namespace "${NAMESPACE}" create secret generic ops-manager-admin-secret  \
-        --from-literal=Username="jane.doe@example.com" \
-        --from-literal=Password="Passw0rd." \
-        --from-literal=FirstName="Jane" \
-        --from-literal=LastName="Doe" -n "${NAMESPACE}"
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ops-manager-admin-secret
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  Username: "jane.doe@example.com"
+  Password: "Passw0rd."
+  FirstName: "Jane"
+  LastName: "Doe"
+EOF
 
 # Configuration of the resources for MongoDB
 title "Creating project and credentials Kubernetes object..."
