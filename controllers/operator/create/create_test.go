@@ -102,8 +102,9 @@ func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
@@ -141,8 +142,9 @@ func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
@@ -481,8 +483,9 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 				sts, err := construct.OpsManagerStatefulSet(ctx, memberCluster.SecretClient, testOm, memberCluster, zap.S())
 				assert.NoError(t, err)
 
-				err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+				mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 				assert.NoError(t, err)
+				assert.NotNil(t, mutatedSts)
 
 				expectedService, ok := tc.expectedServices[memberCluster.Name]
 				svc, err := memberCluster.Client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.ExternalSvcName()))
@@ -516,8 +519,9 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	_, err = fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.Error(t, err, "No external service should have been created")
@@ -560,8 +564,9 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	mutatedSts, err := OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 
 	externalService, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.NoError(t, err, "An External service should have been created")
@@ -842,7 +847,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 	mdb.Spec.ExternalAccessConfiguration = &externalAccessConfiguration
 
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
+	_, err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	// we only test a subset of fields from service spec, which are the most relevant for external services
@@ -865,7 +870,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 
 	// disable external access -> remove external services
 	mdb.Spec.ExternalAccessConfiguration = nil
-	err = DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
+	_, err = DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	for _, expectedService := range expectedServices {
@@ -935,15 +940,17 @@ func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
 func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, mdb)
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster.Name), log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster.Name), log)
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 }
 
 func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	mongosSpec := createMongosSpec(mdb)
 	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName), log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName), log)
 	assert.NoError(t, err)
+	assert.NotNil(t, mutatedSts)
 }
 
 func TestResizePVCsStorage(t *testing.T) {
