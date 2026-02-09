@@ -34,9 +34,7 @@ def tls_replica_set(
     resource["spec"]["security"] = {}
 
     try_load(resource)
-    yield resource
-
-    resource.delete()
+    return resource
 
 
 @mark.e2e_replica_set_tls_require_to_allow

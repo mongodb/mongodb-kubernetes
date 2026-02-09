@@ -29,8 +29,7 @@ def replica_set(
     }
 
     try_load(resource)
-    yield resource
-    resource.delete()
+    return resource
 
 
 @fixture(scope="module")
@@ -50,8 +49,7 @@ def ldap_user_mongodb(
     )
 
     try_load(user)
-    yield user
-    user.delete()
+    return user
 
 
 @mark.e2e_replica_set_update_roles_no_privileges

@@ -1,4 +1,5 @@
 import pytest
+from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
@@ -18,10 +19,11 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str, custom_mdb_version: str) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("test-tls-base-rs-require-ssl-upgrade.yaml"), namespace=namespace)
-    res.set_version(ensure_ent_version(custom_mdb_version))
-    res["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap}}
-    return res.create()
+    resource = MongoDB.from_yaml(load_fixture("test-tls-base-rs-require-ssl-upgrade.yaml"), namespace=namespace)
+    resource.set_version(ensure_ent_version(custom_mdb_version))
+    resource["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap}}
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
@@ -31,6 +33,7 @@ def test_install_operator(operator: Operator):
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
 def test_replica_set_running(mdb: MongoDB):
+    mdb.update()
     mdb.assert_reaches_phase(Phase.Running)
 
 

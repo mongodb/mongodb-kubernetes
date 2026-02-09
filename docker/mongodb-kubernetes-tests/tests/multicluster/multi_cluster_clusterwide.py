@@ -223,6 +223,7 @@ def test_create_mongodb_multi_unmanaged(unmanaged_mongodb_multi: MongoDBMulti):
     """
     For an unmanaged resource, the status should not be updated!
     """
+    unmanaged_mongodb_multi.update()
     for i in range(10):
         time.sleep(5)
 
