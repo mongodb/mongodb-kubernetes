@@ -179,6 +179,9 @@ def ops_manager(
         "tls": {"ca": issuer_ca_configmap, "secretRef": {"prefix": appdb_certs}}
     }
 
+    # Disable validation only for backup tests using minio
+    resource["spec"]["configuration"]["brs.s3.validation.testing"] = "disabled"
+
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
