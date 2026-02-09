@@ -1910,10 +1910,16 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 	}
 	currentClusterSpecs := map[string]int{}
 	scalingFirstTime := false
+
 	// iterate over all clusters to scale even unhealthy ones
 	// currentClusterSpecs map is maintained for scaling therefore we need to update it here
+	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range r.getAllMemberClusters() {
 		scaler := scalers.GetAppDBScaler(opsManager, memberCluster.Name, r.getMemberClusterIndex(memberCluster.Name), r.memberClusters)
+		if scaler.ScalingFirstTime() {
+			scalingFirstTime = true
+		}
+
 		replicasThisReconciliation := scale.ReplicasThisReconciliation(scaler)
 		currentClusterSpecs[memberCluster.Name] = replicasThisReconciliation
 
@@ -1935,36 +1941,33 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 			return workflow.Failed(xerrors.Errorf("can't construct AppDB Statefulset: %w", err))
 		}
 
-		if workflowStatus := r.deployStatefulSetInMemberCluster(ctx, opsManager, appDbSts, memberCluster.Name, log); !workflowStatus.IsOK() {
-			return workflowStatus
+		mutatedSts, deployStatus := r.deployStatefulSetInMemberCluster(ctx, opsManager, appDbSts, memberCluster.Name, log)
+		if !deployStatus.IsOK() {
+			return deployStatus
 		}
 
-		// we want to deploy all stateful sets the first time we're deploying stateful sets
-		if scaler.ScalingFirstTime() {
-			scalingFirstTime = true
-			continue
-		}
+		expectedGeneration := mutatedSts.GetGeneration()
+		statefulsetStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), expectedGeneration, memberCluster.Client)
 
-		if workflowStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
-			return workflowStatus
-		}
-
-		if err := statefulset.ResetUpdateStrategy(ctx, opsManager.GetVersionedImplForMemberCluster(r.getMemberClusterIndex(memberCluster.Name)), memberCluster.Client); err != nil {
-			return workflow.Failed(xerrors.Errorf("can't reset AppDB StatefulSet UpdateStrategyType: %w", err))
-		}
-	}
-
-	// if this is the first time deployment, then we need to wait for all stateful sets to become ready after deploying all of them
-	if scalingFirstTime {
-		for _, memberCluster := range r.GetHealthyMemberClusters() {
-			if workflowStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
-				return workflowStatus
-			}
-
+		if statefulsetStatus.IsOK() {
 			if err := statefulset.ResetUpdateStrategy(ctx, opsManager.GetVersionedImplForMemberCluster(r.getMemberClusterIndex(memberCluster.Name)), memberCluster.Client); err != nil {
 				return workflow.Failed(xerrors.Errorf("can't reset AppDB StatefulSet UpdateStrategyType: %w", err))
 			}
 		}
+
+		// if not scaling for the first time we want to deploy statefulsets one by one
+		if !scalingFirstTime {
+			if !statefulsetStatus.IsOK() {
+				return statefulsetStatus
+			}
+		}
+
+		workflowStatus = workflowStatus.Merge(statefulsetStatus)
+	}
+
+	// wait for all statefulsets to become ready
+	if !workflowStatus.IsOK() {
+		return workflowStatus
 	}
 
 	for k, v := range currentClusterSpecs {
@@ -2026,24 +2029,25 @@ func (r *ReconcileAppDbReplicaSet) createServices(ctx context.Context, opsManage
 }
 
 // deployStatefulSetInMemberCluster updates the StatefulSet spec and returns its status (if it's ready or not)
-func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, memberClusterName string, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, memberClusterName string, log *zap.SugaredLogger) (*appsv1.StatefulSet, workflow.Status) {
 	workflowStatus := create.HandlePVCResize(ctx, r.getMemberCluster(memberClusterName).Client, &appDbSts, log)
 	if !workflowStatus.IsOK() {
-		return workflowStatus
+		return nil, workflowStatus
 	}
 
 	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
 		if _, err := r.updateStatus(ctx, opsManager, workflow.Pending(""), log, workflowStatus.StatusOptions()...); err != nil {
-			return workflow.Failed(xerrors.Errorf("error updating status: %w", err))
+			return nil, workflow.Failed(xerrors.Errorf("error updating status: %w", err))
 		}
 	}
 
 	serviceSelectorLabel := opsManager.Spec.AppDB.HeadlessServiceSelectorAppLabel(r.getMemberCluster(memberClusterName).Index)
-	if err := create.AppDBInKubernetes(ctx, r.getMemberCluster(memberClusterName).Client, opsManager, appDbSts, serviceSelectorLabel, log); err != nil {
-		return workflow.Failed(err)
+	mutatedSts, err := create.AppDBInKubernetes(ctx, r.getMemberCluster(memberClusterName).Client, opsManager, appDbSts, serviceSelectorLabel, log)
+	if err != nil {
+		return nil, workflow.Failed(xerrors.Errorf("failed to create AppDB StatefulSet in cluster %s: %w", memberClusterName, err))
 	}
 
-	return workflow.OK()
+	return mutatedSts, workflow.OK()
 }
 
 func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalState(ctx context.Context, manager *omv1.MongoDBOpsManager, targetConfigVersion int, log *zap.SugaredLogger) workflow.Status {
