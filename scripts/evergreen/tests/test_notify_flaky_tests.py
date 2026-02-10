@@ -143,7 +143,7 @@ class TestHoneycombQueries:
     def test_get_task_avg_duration_minutes_handles_error(self, mock_query, monkeypatch):
         from requests.exceptions import RequestException
 
-        from scripts.evergreen.tests.notify_flaky_tests import get_task_avg_duration_minutes
+        from scripts.evergreen.notify_flaky_tests import get_task_avg_duration_minutes
 
         mock_query.side_effect = RequestException("API error")
         monkeypatch.setenv("HONEYCOMB_API_KEY", "test")
@@ -153,7 +153,7 @@ class TestHoneycombQueries:
 
     @patch("scripts.evergreen.tests.notify_flaky_tests.create_and_run_query")
     def test_get_task_avg_duration_minutes_calculates_correctly(self, mock_query):
-        from scripts.evergreen.tests.notify_flaky_tests import get_task_avg_duration_minutes
+        from scripts.evergreen.notify_flaky_tests import get_task_avg_duration_minutes
 
         # Mock response: task with 120000ms total over 2 executions = 60000ms avg = 1 minute
         mock_query.return_value = {
@@ -175,7 +175,7 @@ class TestHoneycombQueries:
 
     @patch("scripts.evergreen.tests.notify_flaky_tests.create_and_run_query")
     def test_get_task_avg_duration_minutes_empty_for_no_tasks(self, mock_query):
-        from scripts.evergreen.tests.notify_flaky_tests import get_task_avg_duration_minutes
+        from scripts.evergreen.notify_flaky_tests import get_task_avg_duration_minutes
 
         result = get_task_avg_duration_minutes({"X-Honeycomb-Team": "test"}, [])
         assert result == {}
@@ -185,7 +185,7 @@ class TestHoneycombQueries:
 class TestSlackNotification:
     @patch("scripts.evergreen.tests.notify_flaky_tests.requests.post")
     def test_send_slack_notification_success(self, mock_post, monkeypatch):
-        from scripts.evergreen.tests.notify_flaky_tests import send_slack_notification
+        from scripts.evergreen.notify_flaky_tests import send_slack_notification
 
         monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://test-webhook")
         mock_post.return_value.raise_for_status = MagicMock()
@@ -194,7 +194,7 @@ class TestSlackNotification:
         mock_post.assert_called_once()
 
     def test_send_slack_notification_missing_url(self, monkeypatch):
-        from scripts.evergreen.tests.notify_flaky_tests import send_slack_notification
+        from scripts.evergreen.notify_flaky_tests import send_slack_notification
 
         monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
         with pytest.raises(RuntimeError, match="SLACK_WEBHOOK_URL"):
