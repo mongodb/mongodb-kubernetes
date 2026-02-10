@@ -6,7 +6,6 @@ import pytest
 
 from scripts.evergreen.tests.notify_flaky_tests import (
     FlakyTest,
-    abbreviate_variant,
     format_slack_message,
     format_test_name,
     get_honeycomb_headers,
@@ -41,23 +40,6 @@ class TestFormatTestName:
         name = "very/long/path/to/test_file.py::TestVeryLongClassName::test_very_long_method_name"
         result = format_test_name(name, max_length=40)
         assert result == "test_very_long_method_name"
-
-
-class TestAbbreviateVariant:
-    def test_removes_e2e_prefix(self):
-        assert abbreviate_variant("e2e_om70_kind_ubi") == "om70"
-
-    def test_removes_kind_ubi_suffix(self):
-        assert abbreviate_variant("e2e_static_om70_kind_ubi") == "static-om70"
-
-    def test_removes_kind_suffix(self):
-        assert abbreviate_variant("e2e_multi_cluster_kind") == "multi-cluster"
-
-    def test_removes_cloudqa_suffix(self):
-        assert abbreviate_variant("e2e_mdb_kind_ubi_cloudqa") == "mdb"
-
-    def test_converts_underscores_to_hyphens(self):
-        assert abbreviate_variant("e2e_multi_cluster_om_appdb") == "multi-cluster-om-appdb"
 
 
 class TestFormatSlackMessage:

@@ -348,22 +348,6 @@ def format_test_name(full_name: str, max_length: int = 60) -> str:
     return full_name[:max_length] + "..."
 
 
-def abbreviate_variant(variant: str) -> str:
-    """Abbreviate build variant name for readability.
-
-    e.g., 'e2e_static_om70_kind_ubi' -> 'static-om70'
-          'e2e_multi_cluster_kind' -> 'multi-cluster'
-    """
-    # Remove common prefixes
-    short = variant.replace("e2e_", "").replace("_kind_ubi", "").replace("_kind", "")
-    short = short.replace("_cloudqa", "")
-
-    # Convert underscores to hyphens for readability
-    short = short.replace("_", "-")
-
-    return short
-
-
 def format_slack_message(flaky_tests: list[FlakyTest]) -> dict:
     """Format flaky test results as Slack Block Kit message."""
     if not flaky_tests:
@@ -425,9 +409,7 @@ def format_slack_message(flaky_tests: list[FlakyTest]) -> dict:
         # Build variant info string
         variant_str = ""
         if test.failing_variants:
-            # Abbreviate variant names for readability
-            short_variants = [abbreviate_variant(v) for v in test.failing_variants]
-            variant_str = f"\nFailing on: {', '.join(sorted(short_variants))}"
+            variant_str = f"\nFailing on: {', '.join(sorted(test.failing_variants))}"
 
         # Build metadata string with duration
         duration_str = f" · {avg_duration_min:.0f} min avg" if avg_duration_min > 0 else ""
