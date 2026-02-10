@@ -12,10 +12,6 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-#############################################################################
-# FILES TO UPDATE - Add new files here when needed
-#############################################################################
-
 # go.mod files use full version with "go X.XX.X" format
 GO_MOD_FILES=(
     "docker/mongodb-kubernetes-tests/public/tools/multicluster/go.mod"
@@ -46,10 +42,6 @@ DEV_SCRIPT_FILES=(
     "scripts/dev/contexts/root-context"
     "scripts/dev/contexts/evg-private-context"
 )
-
-#############################################################################
-# SCRIPT LOGIC
-#############################################################################
 
 update_files() {
     local pattern="$1"
