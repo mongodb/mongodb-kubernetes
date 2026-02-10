@@ -123,7 +123,7 @@ e2e-telepresence: build-and-push-test-image
 
 # clean all kubernetes cluster resources and OM state
 reset: reset-mco
-	go run scripts/dev/reset.go
+	go build -o bin/reset ./scripts/dev/reset/ && bin/reset
 
 reset-mco: ## Cleans up e2e test env
 	kubectl delete mdbc,all,secrets -l e2e-test=true || true
