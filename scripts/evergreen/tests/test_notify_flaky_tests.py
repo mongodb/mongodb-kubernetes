@@ -139,7 +139,7 @@ class TestFlakyTestDataclass:
 
 
 class TestHoneycombQueries:
-    @patch("scripts.evergreen.tests.notify_flaky_tests.create_and_run_query")
+    @patch("scripts.evergreen.notify_flaky_tests.create_and_run_query")
     def test_get_task_avg_duration_minutes_handles_error(self, mock_query, monkeypatch):
         from requests.exceptions import RequestException
 
@@ -151,7 +151,7 @@ class TestHoneycombQueries:
         result = get_task_avg_duration_minutes({"X-Honeycomb-Team": "test"}, ["task1"])
         assert result == {}
 
-    @patch("scripts.evergreen.tests.notify_flaky_tests.create_and_run_query")
+    @patch("scripts.evergreen.notify_flaky_tests.create_and_run_query")
     def test_get_task_avg_duration_minutes_calculates_correctly(self, mock_query):
         from scripts.evergreen.notify_flaky_tests import get_task_avg_duration_minutes
 
@@ -173,7 +173,7 @@ class TestHoneycombQueries:
         result = get_task_avg_duration_minutes({"X-Honeycomb-Team": "test"}, ["test_task"])
         assert result == {"test_task": 1.0}  # 1 minute
 
-    @patch("scripts.evergreen.tests.notify_flaky_tests.create_and_run_query")
+    @patch("scripts.evergreen.notify_flaky_tests.create_and_run_query")
     def test_get_task_avg_duration_minutes_empty_for_no_tasks(self, mock_query):
         from scripts.evergreen.notify_flaky_tests import get_task_avg_duration_minutes
 
@@ -183,7 +183,7 @@ class TestHoneycombQueries:
 
 
 class TestSlackNotification:
-    @patch("scripts.evergreen.tests.notify_flaky_tests.requests.post")
+    @patch("scripts.evergreen.notify_flaky_tests.requests.post")
     def test_send_slack_notification_success(self, mock_post, monkeypatch):
         from scripts.evergreen.notify_flaky_tests import send_slack_notification
 
