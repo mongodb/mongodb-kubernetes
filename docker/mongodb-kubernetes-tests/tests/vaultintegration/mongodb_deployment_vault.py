@@ -175,7 +175,7 @@ def mongodb_user(namespace: str) -> MongoDBUser:
 
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
     resource["spec"]["mongodbResourceRef"]["namespace"] = namespace
-    
+
     try_load(resource)
     return resource
 

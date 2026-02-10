@@ -1,10 +1,9 @@
 from typing import Optional
 
 import pymongo
-from kubetester import create_or_update_secret, read_secret
+from kubetester import create_or_update_secret, read_secret, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_tls_certs
-from kubetester import try_load
 from kubetester.kmip import KMIPDeployment
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
