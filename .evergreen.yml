@@ -659,7 +659,7 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: scripts/dev/run_python.sh
           args:
-            - scripts/evergreen/tests/notify_flaky_tests.py
+            - scripts/evergreen/notify_flaky_tests.py
           include_expansions_in_env:
             - HONEYCOMB_API_KEY
             - SLACK_WEBHOOK_URL

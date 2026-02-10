@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scripts.evergreen.tests.notify_flaky_tests import (
+from scripts.evergreen.notify_flaky_tests import (
     FlakyTest,
     format_slack_message,
     format_test_name,
