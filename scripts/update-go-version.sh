@@ -53,7 +53,8 @@ update_files() {
         local filepath="${ROOT_DIR}/${file}"
         if [[ -f "${filepath}" ]]; then
             # Use a temporary file for cross-platform compatibility
-            local tmpfile=$(mktemp)
+            local tmpfile
+            tmpfile=$(mktemp)
             sed "s|${pattern}|${new_value}|g" "${filepath}" > "${tmpfile}"
             mv "${tmpfile}" "${filepath}"
             echo "Updated: ${file}"
