@@ -175,9 +175,6 @@ buildvariants:
     run_on:
       - rhel90-large
     allowed_requesters: [ "patch", "github_tag" ]
-    depends_on:
-      - name: "*"
-        variant: release_images
     expansions:
       preflight_submit: true
     tasks:
