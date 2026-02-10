@@ -648,6 +648,22 @@ tasks:
       - func: python_venv
       - func: notify_master_failures
 
+  # Weekly flaky test report - queries Honeycomb and sends summary to Slack
+  - name: notify_flaky_tests_weekly
+    tags: [ "notification" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: scripts/dev/run_python.sh
+          args:
+            - scripts/evergreen/notify_flaky_tests.py
+          include_expansions_in_env:
+            - HONEYCOMB_API_KEY
+            - SLACK_WEBHOOK_URL
+
 task_groups:
   - name: unit_task_group
     max_hosts: -1
@@ -2024,3 +2040,12 @@ buildvariants:
       - ubuntu2404-small
     tasks:
       - name: notify_master_build_status
+
+  # Weekly flaky test report - runs every Monday at 9 AM UTC
+  - name: flaky_test_report
+    display_name: "Flaky Test Weekly Report"
+    cron: "0 9 * * 1"
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: notify_flaky_tests_weekly
