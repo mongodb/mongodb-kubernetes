@@ -50,8 +50,12 @@ update_files() {
     local files=("$@")
 
     for file in "${files[@]}"; do
-        if [[ -f "${ROOT_DIR}/${file}" ]]; then
-            sed -i '' "s|${pattern}|${new_value}|g" "${ROOT_DIR}/${file}"
+        local filepath="${ROOT_DIR}/${file}"
+        if [[ -f "${filepath}" ]]; then
+            # Use a temporary file for cross-platform compatibility
+            local tmpfile=$(mktemp)
+            sed "s|${pattern}|${new_value}|g" "${filepath}" > "${tmpfile}"
+            mv "${tmpfile}" "${filepath}"
             echo "Updated: ${file}"
         fi
     done
