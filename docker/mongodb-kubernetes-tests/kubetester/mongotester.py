@@ -477,8 +477,6 @@ class ReplicaSetTester(MongoTester):
             # backward compatibility with docstring tests
             namespace = KubernetesTester.get_namespace()
 
-        self.replicas_count = replicas_count
-
         self.cnx_string = build_mongodb_connection_uri(
             mdb_resource_name,
             namespace,
@@ -491,35 +489,6 @@ class ReplicaSetTester(MongoTester):
         )
 
         super().__init__(self.cnx_string, ssl, ca_path)
-
-    def assert_connectivity(
-        self,
-        wait_for=60,
-        check_every=5,
-        with_srv=False,
-        attempts: int = 5,
-        write_concern: pymongo.WriteConcern = None,
-        opts: Optional[List[Dict[str, str]]] = None,
-    ):
-        """For replica sets in addition to is_master() we need to make sure all replicas are up"""
-        super().assert_connectivity(attempts=attempts, write_concern=write_concern, opts=opts)
-
-        if self.replicas_count == 1:
-            # On 1 member replica-set, the last member is considered primary and secondaries will be `set()`
-            assert self.client.is_primary
-            assert len(self.client.secondaries) == 0
-            return
-
-        check_times = wait_for // check_every
-
-        while (
-            self.client.primary is None or len(self.client.secondaries) < self.replicas_count - 1
-        ) and check_times >= 0:
-            time.sleep(check_every)
-            check_times -= 1
-
-        assert self.client.primary is not None
-        assert len(self.client.secondaries) == self.replicas_count - 1
 
 
 class MultiReplicaSetTester(MongoTester):
@@ -710,7 +679,10 @@ class MongoDBBackgroundTester(BackgroundHealthChecker):
         health_function_params=None,
     ):
         if health_function_params is None:
-            health_function_params = {"attempts": 1}
+            health_function_params = {
+                "attempts": 1,
+                "write_concern": pymongo.WriteConcern(w="majority"),
+            }
         super().__init__(
             health_function=mongo_tester.assert_connectivity,
             wait_sec=wait_sec,

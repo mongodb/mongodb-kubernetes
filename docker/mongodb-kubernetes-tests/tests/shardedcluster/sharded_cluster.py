@@ -132,9 +132,9 @@ class TestShardedClusterUpdate:
                     hosts.append(hostname)
 
             logger.debug(f"Checking for connectivity of hosts: {hosts}")
-            primary, secondaries = KubernetesTester.wait_for_rs_is_ready(hosts)
-            assert primary is not None
-            assert len(secondaries) == 2
+            client = KubernetesTester.get_populated_mongo_client(hosts=hosts)
+            assert client.primary is not None
+            assert len(client.secondaries) == 2
 
     def test_monitoring_versions(self, sc: MongoDB):
         """Verifies that monitoring agent is configured for each process in the deployment"""

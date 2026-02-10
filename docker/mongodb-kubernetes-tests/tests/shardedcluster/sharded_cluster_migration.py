@@ -49,14 +49,7 @@ def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
     # Architecture migration (static ↔ non-static) requires restarting many components, which can cause
     # extended unavailability. This shouldn't happen after fixes in CLOUDP-286686 and CLOUDP-375105, but it happens
     # again please refer to those tickets for understanding of the issue.
-    return MongoDBBackgroundTester(
-        mongo_tester,
-        allowed_sequential_failures=1,
-        health_function_params={
-            "attempts": 1,
-            "write_concern": pymongo.WriteConcern(w="majority"),
-        },
-    )
+    return MongoDBBackgroundTester(mongo_tester)
 
 
 @pytest.mark.e2e_sharded_cluster_migration

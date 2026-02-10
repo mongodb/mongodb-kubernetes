@@ -89,8 +89,7 @@ def some_mdb(ops_manager: MongoDBOpsManager, custom_mdb_version: str) -> MongoDB
 
 @fixture(scope="module")
 def some_mdb_health_checker(some_mdb: MongoDB) -> MongoDBBackgroundTester:
-    # TODO increasing allowed_sequential_failures to 5 to remove flakiness until CLOUDP-56877 is solved
-    return MongoDBBackgroundTester(some_mdb.tester(), allowed_sequential_failures=5)
+    return MongoDBBackgroundTester(some_mdb.tester())
 
 
 # The first stage of the Operator upgrade test. Create Ops Manager with backup enabled,
