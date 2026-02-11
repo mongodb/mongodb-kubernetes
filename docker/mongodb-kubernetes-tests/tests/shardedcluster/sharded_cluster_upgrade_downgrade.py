@@ -45,19 +45,7 @@ def mongod_tester(sc: MongoDB) -> MongoTester:
 
 @fixture(scope="module")
 def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
-    # CLOUDP-375105: During sharded cluster version changes, config server rolling restarts
-    # cause ~2 minutes of unavailability. All 3 config server nodes restart in succession,
-    # causing mongos routers to lose connectivity. With health checks every 3 seconds,
-    # we need to tolerate consecutive failures while investigating if operator can better coordinate
-    # primary elections during rolling restarts for static deployments.
-    return MongoDBBackgroundTester(
-        mongod_tester,
-        allowed_sequential_failures=7,
-        health_function_params={
-            "attempts": 1,
-            "write_concern": pymongo.WriteConcern(w="majority"),
-        },
-    )
+    return MongoDBBackgroundTester(mongod_tester)
 
 
 @mark.e2e_sharded_cluster_upgrade_downgrade

@@ -20,7 +20,6 @@ def mongodb_multi(
     member_cluster_names: list[str],
     custom_mdb_prev_version: str,
 ) -> MongoDBMulti:
-
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDBM_RESOURCE, namespace)
     resource.set_version(ensure_ent_version(custom_mdb_prev_version))
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
@@ -32,14 +31,7 @@ def mongodb_multi(
 
 @pytest.fixture(scope="module")
 def mdb_health_checker(mongodb_multi: MongoDBMulti) -> MongoDBBackgroundTester:
-    return MongoDBBackgroundTester(
-        mongodb_multi.tester(),
-        allowed_sequential_failures=1,
-        health_function_params={
-            "attempts": 1,
-            "write_concern": pymongo.WriteConcern(w="majority"),
-        },
-    )
+    return MongoDBBackgroundTester(mongodb_multi.tester())
 
 
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
