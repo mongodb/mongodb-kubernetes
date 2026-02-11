@@ -91,10 +91,10 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         "Should connect to one of the mongods and check the replica set was correctly configured."
         hosts = ["rs001-pv-{}.rs001-pv-svc.{}.svc.cluster.local:27017".format(i, self.namespace) for i in range(3)]
 
-        primary, secondaries = self.wait_for_rs_is_ready(hosts)
+        client = self.get_populated_mongo_client(hosts=hosts)
 
-        assert primary is not None
-        assert len(secondaries) == 2
+        assert client.primary is not None
+        assert len(client.secondaries) == 2
 
 
 @pytest.mark.e2e_replica_set_pv

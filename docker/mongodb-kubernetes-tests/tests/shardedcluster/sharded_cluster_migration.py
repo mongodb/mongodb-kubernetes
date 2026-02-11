@@ -1,10 +1,9 @@
 import pymongo
 import pytest
-from kubernetes import client
 from kubetester import try_load
 from kubetester.kubetester import assert_statefulset_architecture, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.kubetester import get_default_architecture, is_multi_cluster, skip_if_multi_cluster
+from kubetester.kubetester import get_default_architecture, is_multi_cluster
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from kubetester.operator import Operator
@@ -47,19 +46,10 @@ def mongo_tester(mdb: MongoDB):
 
 @fixture(scope="module")
 def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
-    # CLOUDP-375105: Architecture migration (static ↔ non-static) requires restarting many
-    # components, causing extended unavailability. Previous value of 1 was too strict for
-    # complex migration operations. Setting to 5 as a conservative increase while investigating
-    # root causes. Note: This test is skipped for multi-cluster (see @skip_if_multi_cluster
-    # decorator with CLOUDP-286686 reference).
-    return MongoDBBackgroundTester(
-        mongo_tester,
-        allowed_sequential_failures=5,
-        health_function_params={
-            "attempts": 1,
-            "write_concern": pymongo.WriteConcern(w="majority"),
-        },
-    )
+    # Architecture migration (static ↔ non-static) requires restarting many components, which can cause
+    # extended unavailability. This shouldn't happen after fixes in CLOUDP-286686 and CLOUDP-375105, but it happens
+    # again please refer to those tickets for understanding of the issue.
+    return MongoDBBackgroundTester(mongo_tester)
 
 
 @pytest.mark.e2e_sharded_cluster_migration
@@ -88,8 +78,8 @@ class TestShardedClusterMigrationStatic:
         mdb.load()
         assert mdb["metadata"]["annotations"]["mongodb.com/v1.architecture"] == target_architecture
 
-        mdb.assert_abandons_phase(Phase.Running, timeout=1200)
-        mdb.assert_reaches_phase(Phase.Running, timeout=1200)
+        mdb.assert_abandons_phase(Phase.Running, timeout=200)
+        mdb.assert_reaches_phase(Phase.Running, timeout=1600)
 
         # Read StatefulSet after successful reconciliation
         for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(mdb.name, mdb.namespace):
@@ -109,7 +99,5 @@ class TestShardedClusterMigrationStatic:
             config_sts = cluster_member_client.read_namespaced_stateful_set(config_sts_name, mdb.namespace)
             assert_statefulset_architecture(config_sts, target_architecture)
 
-    @skip_if_multi_cluster()  # Currently we are experiencing more than single failure during migration. More info
-    # in the ticket -> https://jira.mongodb.org/browse/CLOUDP-286686
     def test_mdb_healthy_throughout_change_version(self, mdb_health_checker):
         mdb_health_checker.assert_healthiness()

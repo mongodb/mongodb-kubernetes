@@ -19,14 +19,7 @@ def mongod_tester():
 
 @fixture(scope="module")
 def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
-    return MongoDBBackgroundTester(
-        mongod_tester,
-        allowed_sequential_failures=2,
-        health_function_params={
-            "attempts": 1,
-            "write_concern": pymongo.WriteConcern(w="majority"),
-        },
-    )
+    return MongoDBBackgroundTester(mongod_tester)
 
 
 @fixture

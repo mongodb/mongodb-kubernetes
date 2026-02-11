@@ -98,6 +98,7 @@ functions:
   python_venv: &python_venv
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       command: scripts/dev/recreate_python_venv.sh
@@ -816,3 +817,16 @@ functions:
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
           GH_TOKEN: ${GH_TOKEN}
         binary: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/promote_kubectl_plugin.py
+
+  # Notify Slack channel about master build failures
+  notify_master_failures:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - EVERGREEN_USER
+          - EVERGREEN_API_KEY
+          - SLACK_WEBHOOK_URL
+          - version_id
+        binary: scripts/dev/run_python.sh scripts/evergreen/notify_master_failures.py
