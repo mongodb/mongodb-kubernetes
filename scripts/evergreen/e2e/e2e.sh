@@ -185,6 +185,33 @@ fi
 
 dump_cluster_information
 
+# Generate comprehensive test summary (fail silently if script fails)
+generate_test_summary() {
+  echo "Generating test summary..."
+
+  # Determine test status
+  local test_status="FAILED"
+  if [[ "${TEST_RESULTS}" -eq 0 ]]; then
+    test_status="PASSED"
+  fi
+
+  # Run the test summary generator (fail silently to not break the pipeline)
+  # The output file name starts without special prefix to be clear but still accessible
+  if python3 scripts/evergreen/e2e/test_summary/generate_test_summary.py \
+    logs \
+    --output "logs/test-summary.html" \
+    --test-name "${task_name:-${TEST_NAME:-unknown}}" \
+    --variant "${build_variant:-unknown}" \
+    --status "${test_status}" 2>&1 | tee logs/summary_generation.log; then
+    echo "✅ Test summary generated: logs/test-summary.html"
+  else
+    echo "⚠️  Warning: Failed to generate test summary (continuing anyway)"
+  fi
+}
+
+# Generate test summary (will fail silently if there's an error)
+generate_test_summary || true
+
 # We only have static clusters in OpenShift; otherwise, there's no need to mark and clean them up here.
 if [[ "${KUBE_ENVIRONMENT_NAME}" == *openshift* ]]; then
   cleanup_openshift_cluster
