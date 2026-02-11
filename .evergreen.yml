@@ -265,7 +265,7 @@ github_pr_aliases:
 # Allows to see evergreen checks in GitHub commits
 # https://github.com/mongodb/mongodb-kubernetes/commits/master/
 github_checks_aliases:
-  - variant: ".*"
+  - variant_tags: [ "staging" ]
     task: ".*"
 
 # Triggered on git tag
