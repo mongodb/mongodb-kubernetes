@@ -15,7 +15,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Tuple
 
 import requests
-from evergreen.release.agent_matrix import get_supported_version_for_image
+
+from scripts.evergreen.release.agent_matrix import get_supported_version_for_image
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=LOGLEVEL)
@@ -137,7 +138,7 @@ def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
                 [
                     "--submit",
                     f"--pyxis-api-token={get_api_token()}",
-                    f"--certification-project-id={args_for_image(image)['rh_cert_project_id']}",
+                    f"--certification-component-id={args_for_image(image)['rh_cert_project_id']}",
                 ]
             )
         preflight_command.append("--docker-config=./temp-authfile.json")

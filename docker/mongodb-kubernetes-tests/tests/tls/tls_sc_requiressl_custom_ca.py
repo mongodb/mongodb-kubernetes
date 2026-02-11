@@ -74,7 +74,7 @@ class TestClusterWithTLSCreation:
         tester.assert_connectivity()
 
     @skip_if_local
-    def test_mongos_are_not_reachable_with_no_ssl(self, sc: MongoDB):
+    def test_mongos_are_not_reachable_without_ssl(self, sc: MongoDB):
         service_names = get_mongos_service_names(sc)
         tester = sc.tester(use_ssl=False, service_names=service_names)
         tester.assert_no_connection()
@@ -82,7 +82,7 @@ class TestClusterWithTLSCreation:
 
 @pytest.mark.e2e_sharded_cluster_tls_require_custom_ca
 class TestCertificateIsRenewed:
-    def test_mdb_reconciles_succesfully(self, sc: MongoDB, namespace: str):
+    def test_mdb_reconciles_successfully(self, sc: MongoDB, namespace: str):
         cert = Certificate(name=f"{MDB_RESOURCE_NAME}-0-cert", namespace=namespace).load()
         cert["spec"]["dnsNames"].append("foo")
         cert.update()
@@ -95,7 +95,7 @@ class TestCertificateIsRenewed:
         tester.assert_connectivity()
 
     @skip_if_local
-    def test_mongos_are_not_reachable_with_no_ssl(
+    def test_mongos_are_not_reachable_without_ssl(
         self,
         sc: MongoDB,
     ):

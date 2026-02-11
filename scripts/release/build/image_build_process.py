@@ -133,7 +133,7 @@ class DockerImageBuilder(ImageBuilder):
         except FileNotFoundError:
             raise Exception("docker is not installed on the system.")
 
-    def _build_cache(self, tags: list[str]) -> tuple[list[Any], dict[str, str]]:
+    def _build_cache(self, tags: list[str]) -> tuple[list[Any], Optional[dict[str, str]]]:
         """
         Build cache configuration for the given tags.
 
@@ -141,12 +141,12 @@ class DockerImageBuilder(ImageBuilder):
         storage. Local or other registry builds skip caching to avoid authentication failures.
 
         :param tags: List of image tags
-        :return: Tuple of (cache_from_refs, cache_to_refs)
+        :return: Tuple of (cache_from_refs, cache_to_refs) where cache_to_refs may be None
         """
         # Filter tags to only include ECR ones (containing ".dkr.ecr.")
         ecr_tags = [tag for tag in tags if ".dkr.ecr." in tag]
         if not ecr_tags:
-            return [], {}
+            return [], None
 
         primary_tag = ecr_tags[0]
         # Extract the repository URL without tag
