@@ -178,24 +178,24 @@ func main() {
 }
 
 type config struct {
-	clusterType            string
-	memberClusters         []string
-	centralCluster         string
-	namespace              string
-	kubeconfigPath         string
-	omBaseURL              string
-	omUser                 string
-	omAPIKey               string
-	omOrgID                string
-	multiClusterNoMesh     string
-	multiClusterConfigDir  string
-	kubeconfigCreatorPath  string
-	projectDir             string
-	testPodCluster         string
-	localOperator          string
-	local                  string
-	taskID                 string
-	applyMTLS              bool
+	clusterType           string
+	memberClusters        []string
+	centralCluster        string
+	namespace             string
+	kubeconfigPath        string
+	omBaseURL             string
+	omUser                string
+	omAPIKey              string
+	omOrgID               string
+	multiClusterNoMesh    string
+	multiClusterConfigDir string
+	kubeconfigCreatorPath string
+	projectDir            string
+	testPodCluster        string
+	localOperator         string
+	local                 string
+	taskID                string
+	applyMTLS             bool
 }
 
 func loadConfig() config {
@@ -204,24 +204,24 @@ func loadConfig() config {
 	applyMTLS := localVal == "" && noMesh != "true"
 
 	cfg := config{
-		clusterType:            os.Getenv("CLUSTER_TYPE"),                          // nolint:forbidigo
-		memberClusters:         strings.Fields(os.Getenv("MEMBER_CLUSTERS")),       // nolint:forbidigo
-		centralCluster:         os.Getenv("CENTRAL_CLUSTER"),                       // nolint:forbidigo
-		namespace:              os.Getenv("NAMESPACE"),                             // nolint:forbidigo
-		kubeconfigPath:         os.Getenv("KUBECONFIG"),                            // nolint:forbidigo
-		omBaseURL:              os.Getenv("OM_BASE_URL"),                           // nolint:forbidigo
-		omUser:                 os.Getenv("OM_USER"),                               // nolint:forbidigo
-		omAPIKey:               os.Getenv("OM_API_KEY"),                            // nolint:forbidigo
-		omOrgID:                os.Getenv("OM_ORGID"),                              // nolint:forbidigo
-		multiClusterNoMesh:     noMesh,
-		multiClusterConfigDir:  os.Getenv("MULTI_CLUSTER_CONFIG_DIR"),              // nolint:forbidigo
-		kubeconfigCreatorPath:  os.Getenv("MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH"), // nolint:forbidigo
-		projectDir:             os.Getenv("PROJECT_DIR"),                           // nolint:forbidigo
-		testPodCluster:         os.Getenv("test_pod_cluster"),                      // nolint:forbidigo
-		localOperator:          os.Getenv("LOCAL_OPERATOR"),                        // nolint:forbidigo
-		local:                  localVal,
-		taskID:                 os.Getenv("task_id"),                              // nolint:forbidigo
-		applyMTLS:              applyMTLS,
+		clusterType:           os.Getenv("CLUSTER_TYPE"),                    // nolint:forbidigo
+		memberClusters:        strings.Fields(os.Getenv("MEMBER_CLUSTERS")), // nolint:forbidigo
+		centralCluster:        os.Getenv("CENTRAL_CLUSTER"),                 // nolint:forbidigo
+		namespace:             os.Getenv("NAMESPACE"),                       // nolint:forbidigo
+		kubeconfigPath:        os.Getenv("KUBECONFIG"),                      // nolint:forbidigo
+		omBaseURL:             os.Getenv("OM_BASE_URL"),                     // nolint:forbidigo
+		omUser:                os.Getenv("OM_USER"),                         // nolint:forbidigo
+		omAPIKey:              os.Getenv("OM_API_KEY"),                      // nolint:forbidigo
+		omOrgID:               os.Getenv("OM_ORGID"),                        // nolint:forbidigo
+		multiClusterNoMesh:    noMesh,
+		multiClusterConfigDir: os.Getenv("MULTI_CLUSTER_CONFIG_DIR"),               // nolint:forbidigo
+		kubeconfigCreatorPath: os.Getenv("MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH"), // nolint:forbidigo
+		projectDir:            os.Getenv("PROJECT_DIR"),                            // nolint:forbidigo
+		testPodCluster:        os.Getenv("test_pod_cluster"),                       // nolint:forbidigo
+		localOperator:         os.Getenv("LOCAL_OPERATOR"),                         // nolint:forbidigo
+		local:                 localVal,
+		taskID:                os.Getenv("task_id"), // nolint:forbidigo
+		applyMTLS:             applyMTLS,
 	}
 
 	if cfg.omUser == "" {
