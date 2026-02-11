@@ -108,6 +108,17 @@ class TestCanEnableScramSha256:
         kubetester.wait_processes_ready()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
+        # CLOUDP-68873 workaround: Auth transitions in sharded clusters can cause
+        # a race condition where agents coordinate the 5-process auth update
+        # (2 config servers, 2 mongods, 1 mongos). In static container architecture,
+        # agents are ~11% slower which creates a wider window for deadlocks where
+        # processes wait for each other to be "healthy and done". This results in
+        # ~5.2% failure rate on static vs 0.18% on non-static.
+        # Adding a delay before the auth transition ensures all processes are fully
+        # stable and reduces the chance of coordination deadlocks.
+        logger.info("Waiting 30s before auth transition to ensure process stability (CLOUDP-68873 workaround)")
+        time.sleep(30)
+
         sharded_cluster.load()
         sharded_cluster["spec"]["security"]["authentication"]["enabled"] = True
         sharded_cluster["spec"]["security"]["authentication"]["modes"] = [
@@ -118,6 +129,8 @@ class TestCanEnableScramSha256:
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
     def test_assert_connectivity(self, ca_path: str):
+        # Additional delay after auth transition to ensure deployment is fully reachable
+        time.sleep(20)
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity(attempts=25)
 
     def test_ops_manager_state_updated_correctly(self):
