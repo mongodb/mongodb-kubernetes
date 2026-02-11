@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.16.0/.schema/devbox.schema.json",
+  "packages": [
+    "git@latest",
+    "python@3.13",
+    "go@1.24.12",
+    "openldap@latest",
+    "cyrus_sasl@latest",
+    "pkg-config@latest",
+    "kubernetes-helm@latest",
+    "chart-testing@latest",
+    "shellcheck@latest"
+  ],
+  "env": {
+    "DEVBOX_SKIP_VENV_CONFIG": "1",
+    "PROJECT_DIR": "${HOME}/mongodb/mongodb-kubernetes"
+  },
+  "shell": {
+    "init_hook": [
+      "# Go Toolchain Control",
+      "export GOTOOLCHAIN=auto",
+      "export NIX_GOROOT=$(go env GOROOT)",
+      "export PATH=$NIX_GOROOT/bin:$PATH",
+      "unset GOROOT",
+      "export GOWORK=off",
+
+      "# Python Environment Setup",
+      "if [ ! -d .venv ]; then python -m venv .venv; fi",
+      "source .venv/bin/activate",
+
+      "# C-Library Linking for python-ldap",
+      "export CPATH=\"$OPENLDAP_PATH/include:$CYRUS_SASL_PATH/include:$CPATH\"",
+      "export LIBRARY_PATH=\"$OPENLDAP_PATH/lib:$CYRUS_SASL_PATH/lib:$LIBRARY_PATH\"",
+      "if [ ! -d .venv ]; then python -m venv .venv; fi",
+      "source .venv/bin/activate",
+
+      "# Python venv setup reminder",
+      "echo 'To (re)install Python Virtual env: pip install -r requirements.txt'"
+    ]
+  }
+}
