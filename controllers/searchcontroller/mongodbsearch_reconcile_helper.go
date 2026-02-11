@@ -249,7 +249,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			},
 		))
 
-		if err := r.createOrUpdateShardStatefulSet(ctx,
+		mutatedSts, err := r.createOrUpdateShardStatefulSet(ctx,
 			shardLog,
 			shardName,
 			CreateShardSearchStatefulSetFunc(r.mdbSearch, shardedSource, shardIdx, searchImage),
@@ -258,12 +258,13 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			ingressTlsStsModification,
 			egressTlsStsModification,
 			embeddingConfigStsModification,
-		); err != nil {
+		)
+		if err != nil {
 			return workflow.Failed(err)
 		}
 
-		stsName := r.mdbSearch.ShardMongotStatefulSetNamespacedName(shardName)
-		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, stsName.Name, r.client); !statefulSetStatus.IsOK() {
+		expectedGeneration := mutatedSts.GetGeneration()
+		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, mutatedSts.Name, expectedGeneration, r.client); !statefulSetStatus.IsOK() {
 			return statefulSetStatus
 		}
 	}
@@ -406,7 +407,7 @@ func (r *MongoDBSearchReconcileHelper) ensureShardMongotConfig(ctx context.Conte
 	return hashBytes(configData), nil
 }
 
-func (r *MongoDBSearchReconcileHelper) createOrUpdateShardStatefulSet(ctx context.Context, log *zap.SugaredLogger, shardName string, modifications ...statefulset.Modification) error {
+func (r *MongoDBSearchReconcileHelper) createOrUpdateShardStatefulSet(ctx context.Context, log *zap.SugaredLogger, shardName string, modifications ...statefulset.Modification) (*appsv1.StatefulSet, error) {
 	stsName := r.mdbSearch.ShardMongotStatefulSetNamespacedName(shardName)
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, sts, func() error {
@@ -414,12 +415,12 @@ func (r *MongoDBSearchReconcileHelper) createOrUpdateShardStatefulSet(ctx contex
 		return controllerutil.SetOwnerReference(r.mdbSearch, sts, r.client.Scheme())
 	})
 	if err != nil {
-		return xerrors.Errorf("error creating/updating shard search statefulset %v: %w", stsName, err)
+		return nil, xerrors.Errorf("error creating/updating shard search statefulset %v: %w", stsName, err)
 	}
 
 	log.Debugf("Shard search statefulset %s CreateOrUpdate result: %s", stsName, op)
 
-	return nil
+	return sts, nil
 }
 
 // buildShardSearchHeadlessService builds a headless Service for a specific shard's mongot.
