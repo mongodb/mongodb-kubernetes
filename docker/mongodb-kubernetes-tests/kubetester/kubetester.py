@@ -1348,22 +1348,8 @@ class KubernetesTester(object):
 
         return yield_existing_csrs(csr_names, timeout)
 
-    # TODO eventually replace all usages of this function with "ReplicaSetTester(mdb_resource, 3).assert_connectivity()"
     @staticmethod
-    def wait_for_rs_is_ready(hosts, wait_for=60, check_every=5, ssl=False):
-        "Connects to a given replicaset and wait a while for a primary and secondaries."
-        client = KubernetesTester.check_hosts_are_ready(hosts, ssl)
-
-        check_times = wait_for / check_every
-
-        while (client.primary is None or len(client.secondaries) < len(hosts) - 1) and check_times >= 0:
-            time.sleep(check_every)
-            check_times -= 1
-
-        return client.primary, client.secondaries
-
-    @staticmethod
-    def check_hosts_are_ready(hosts, ssl=False):
+    def get_populated_mongo_client(hosts: list[str], ssl: bool = False) -> pymongo.MongoClient:
         mongodburi = KubernetesTester.build_mongodb_uri_for_rs(hosts)
         options = {}
         if ssl:

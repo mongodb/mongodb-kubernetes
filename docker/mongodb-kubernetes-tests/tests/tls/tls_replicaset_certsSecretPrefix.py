@@ -44,7 +44,7 @@ def test_replica_set_running(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_certs_secret_prefix
 @skip_if_local()
-def test_mdb_is_not_reachable_with_no_ssl(mdb: MongoDB):
+def test_mdb_is_not_reachable_without_ssl(mdb: MongoDB):
     mdb.tester(use_ssl=False).assert_no_connection()
 
 

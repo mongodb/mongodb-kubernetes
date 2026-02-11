@@ -35,7 +35,7 @@ def test_replica_set_running(mdb: MongoDB):
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
-def test_mdb_is_reachable_with_no_ssl(mdb: MongoDB):
+def test_mdb_is_reachable_without_ssl(mdb: MongoDB):
     mdb.tester(use_ssl=False).assert_connectivity()
 
 
@@ -57,7 +57,7 @@ def test_require_TLS(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
 @skip_if_local()
-def test_mdb_is_not_reachable_with_no_ssl():
+def test_mdb_is_not_reachable_without_ssl():
     ReplicaSetTester(MDB_RESOURCE, 3).assert_no_connection()
 
 
