@@ -1425,6 +1425,7 @@ buildvariants:
   - name: e2e_om60_kind_ubi
     display_name: e2e_om60_kind_ubi
     tags: [ "manual_patch", "e2e_test_suite" ]
+    allowed_requesters: ["patch"] # only on demand
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om6_dependency
@@ -1437,6 +1438,7 @@ buildvariants:
   - name: e2e_static_om60_kind_ubi
     display_name: e2e_static_om60_kind_ubi
     tags: [ "manual_patch", "e2e_test_suite", "static" ]
+    allowed_requesters: ["patch"] # only on demand
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
