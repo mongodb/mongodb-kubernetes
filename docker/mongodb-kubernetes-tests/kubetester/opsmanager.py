@@ -944,7 +944,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         raise Exception(f"member cluster {member_cluster_name} not found in AppDB cluster spec items")
 
     def app_db_password_secret_name(self) -> str:
-        return self.app_db_name() + "-om-user-password"
+        return self.app_db_name() + "-om-password"
 
     def backup_daemon_sts_name(self, member_cluster_name: Optional[str] = None) -> str:
         return self.om_sts_name(member_cluster_name) + "-backup-daemon"

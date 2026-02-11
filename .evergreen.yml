@@ -244,6 +244,18 @@ patch_aliases:
   - alias: "pr_patch"
     variant_tags: [ "pr_patch" ]
     task: ".*"
+  - alias: "static"
+    description: "Run all static container variants"
+    variant_tags: [ "static" ]
+    task: ".*"
+  - alias: "om7"
+    description: "Run OM7 variants (static and non-static)"
+    variant_tags: [ "om7" ]
+    task: ".*"
+  - alias: "race"
+    description: "Run race detector variants"
+    variant_tags: [ "race" ]
+    task: ".*"
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
@@ -627,6 +639,30 @@ tasks:
             - scripts/dev/release/backup_csv_images.py
             - scripts/dev/release/1.2.0.clusterserviceversion.yaml
             - --verbose
+
+  # Notify Slack about build failures
+  # On patches: stdout only. On mainline: stdout + Slack
+  - name: notify_master_build_status
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: notify_master_failures
+
+  # Weekly flaky test report - queries Honeycomb and sends summary to Slack
+  - name: notify_flaky_tests_weekly
+    tags: [ "notification" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: scripts/dev/run_python.sh
+          args:
+            - scripts/evergreen/notify_flaky_tests.py
+          include_expansions_in_env:
+            - HONEYCOMB_API_KEY
+            - SLACK_WEBHOOK_URL
 
 task_groups:
   - name: unit_task_group
@@ -1231,6 +1267,7 @@ task_groups:
     tasks:
       - e2e_search_enterprise_tls
       - e2e_search_enterprise_x509_cluster_auth
+      - e2e_om_ops_manager_backup_object_lock
     <<: *teardown_group
 
   # Tests features only supported on OM70 and OM80, its only upgrade test as we test upgrading from 6 to 7 or 7 to 8
@@ -1411,7 +1448,7 @@ buildvariants:
 
   - name: e2e_om70_kind_ubi
     display_name: e2e_om70_kind_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "patch" ]
+    tags: [ "staging", "e2e_test_suite", "patch", "om7" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om7_dependency
@@ -1423,7 +1460,7 @@ buildvariants:
 
   - name: e2e_static_om70_kind_ubi
     display_name: e2e_static_om70_kind_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static", "om7" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1459,7 +1496,7 @@ buildvariants:
 
   - name: e2e_operator_race_ubi_with_telemetry
     display_name: e2e_operator_race_ubi_with_telemetry
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "staging", "e2e_test_suite", "race" ]
     run_on:
       - ubuntu2404-xlarge
     <<: *base_om7_dependency_with_race
@@ -1891,7 +1928,7 @@ buildvariants:
 
   - name: build_om70_images
     display_name: build_om70_images
-    tags: [ "pr_patch", "staging" ]
+    tags: [ "staging", "om7" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1986,3 +2023,31 @@ buildvariants:
     patchable: false  # Only run on commit builds
     tasks:
       - name: release_om_and_agents
+
+  # Notification task - runs after all staging tasks complete to report build status.
+  # Only runs on commit builds (not patches) because of Evergreen bug DEVPROD-27436:
+  # depends_on with patch_optional:true generates phantom dependencies for tasks that
+  # don't exist in the patch, causing the task to hang indefinitely.
+  # Reference: https://github.com/10gen/ops-manager-kubernetes/pull/4038 (working example)
+  - name: notify_master_build_status
+    display_name: notify_master_build_status
+    # Only runs on commit builds (not patches) because of Evergreen bug DEVPROD-27436:
+    # depends_on with name:"*" creates phantom dependencies for tasks with patchable:false
+    allowed_requesters: [ "commit" ]
+    depends_on:
+      - name: "*"
+        variant: ".staging"
+        status: "*"
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: notify_master_build_status
+
+  # Weekly flaky test report - runs every Monday at 9 AM UTC
+  - name: flaky_test_report
+    display_name: "Flaky Test Weekly Report"
+    cron: "0 9 * * 1"
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: notify_flaky_tests_weekly
