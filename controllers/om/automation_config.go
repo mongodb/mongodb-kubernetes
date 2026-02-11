@@ -269,7 +269,7 @@ type Auth struct {
 	Disabled bool           `json:"disabled"`
 	// AuthoritativeSet indicates if the MongoDBUsers should be synced with the current list of Users
 	AuthoritativeSet bool `json:"authoritativeSet"`
-	// AutoAuthMechanisms is a list of auth mechanisms the Automation Agent is able to use
+	// AutoAuthMechanisms is a list of auth mechanisms the Automation Agent is able to use.
 	AutoAuthMechanisms []string `json:"autoAuthMechanisms,omitempty"`
 
 	// AutoAuthMechanism is the currently active agent authentication mechanism. This is a read only

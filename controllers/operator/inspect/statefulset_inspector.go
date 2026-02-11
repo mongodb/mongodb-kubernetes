@@ -4,10 +4,9 @@ import (
 	"fmt"
 
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	appsv1 "k8s.io/api/apps/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 )
@@ -21,6 +20,7 @@ type StatefulSetState struct {
 	wanted             int32
 	generation         int64
 	observedGeneration int64
+	expectedGeneration int64
 	updateStrategyType appsv1.StatefulSetUpdateStrategyType
 }
 
@@ -29,7 +29,7 @@ func (s StatefulSetState) GetResourcesNotReadyStatus() []status.ResourceNotReady
 	if s.IsReady() {
 		return []status.ResourceNotReady{}
 	}
-	zap.S().Debugf("StatefulSet %s (wanted: %d, ready: %d, updated: %d, generation: %d, observedGeneration: %d)", s.statefulSetKey.Name, s.wanted, s.ready, s.updated, s.generation, s.observedGeneration)
+	zap.S().Debugf("StatefulSet %s (wanted: %d, ready: %d, updated: %d, generation: %d, observedGeneration: %d, expectedGeneration: %d)", s.statefulSetKey.Name, s.wanted, s.ready, s.updated, s.generation, s.observedGeneration, s.expectedGeneration)
 	msg := fmt.Sprintf("Not all the Pods are ready (wanted: %d, updated: %d, ready: %d, current: %d)", s.wanted, s.updated, s.ready, s.current)
 	return []status.ResourceNotReady{{
 		Kind:    status.StatefulsetKind,
@@ -50,11 +50,12 @@ func (s StatefulSetState) IsReady() bool {
 	isReady := s.updated == s.ready &&
 		s.ready == s.wanted &&
 		s.observedGeneration == s.generation &&
+		s.observedGeneration == s.expectedGeneration &&
 		s.current == s.wanted
 	return isReady || s.updateStrategyType == appsv1.OnDeleteStatefulSetStrategyType
 }
 
-func StatefulSet(set appsv1.StatefulSet) StatefulSetState {
+func StatefulSet(set appsv1.StatefulSet, expectedGeneration int64) StatefulSetState {
 	state := StatefulSetState{
 		statefulSetKey:     types.NamespacedName{Namespace: set.Namespace, Name: set.Name},
 		updated:            set.Status.UpdatedReplicas,
@@ -63,6 +64,7 @@ func StatefulSet(set appsv1.StatefulSet) StatefulSetState {
 		wanted:             *set.Spec.Replicas,
 		observedGeneration: set.Status.ObservedGeneration,
 		generation:         set.Generation,
+		expectedGeneration: expectedGeneration,
 		updateStrategyType: set.Spec.UpdateStrategy.Type,
 	}
 	return state

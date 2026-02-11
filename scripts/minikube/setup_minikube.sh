@@ -47,25 +47,31 @@ download_minikube() {
 # Start or restart the local registry container
 start_local_registry() {
   echo "Starting local container registry on port 5000..."
-  # Clean up any existing registry first (stop + rm to handle all states)
-  sudo podman stop registry 2>/dev/null || true
+
+  # Clean up existing registry
   sudo podman rm -f registry 2>/dev/null || true
 
-  if ! sudo podman run -d -p 127.0.0.1:5000:5000 --replace --name registry --restart=always docker.io/library/registry:2; then
-    echo "❌ Failed to start local registry"
+  # Start registry with --network=host (bypasses podman port forwarding issues on ppc64le)
+  # REGISTRY_HTTP_ADDR=localhost:5000 ensures server and client use same protocol resolution
+  if ! sudo podman run -d --network=host --name registry --restart=always \
+       -e REGISTRY_HTTP_ADDR=localhost:5000 \
+       docker.io/library/registry:2; then
+    echo "❌ Failed to start registry container"
     return 1
   fi
 
-  # Wait for registry to be ready
+  # Wait for registry to be ready (30 seconds max)
   echo "Waiting for registry to be ready..."
-  for _ in {1..30}; do
-    if curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
+  for _ in {1..15}; do
+    if curl -s --max-time 2 http://localhost:5000/v2/_catalog >/dev/null 2>&1; then
       echo "✅ Registry is ready"
       return 0
     fi
-    sleep 1
+    sleep 2
   done
-  echo "❌ Registry failed to become ready"
+
+  echo "❌ Registry failed to start"
+  sudo podman logs registry 2>&1 | tail -10 || true
   return 1
 }
 
@@ -74,8 +80,8 @@ setup_local_registry_and_custom_image() {
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo ">>> Setting up local registry and custom kicbase image for ppc64le..."
 
-    # Check if local registry is running (use 127.0.0.1 to avoid IPv6 fallback delay)
-    if curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
+    # Check if local registry is running (use localhost to support both IPv4 and IPv6)
+    if curl -s --connect-timeout 5 --max-time 10 http://localhost:5000/v2/_catalog >/dev/null 2>&1; then
       echo "✅ Local registry already running"
     else
       start_local_registry || exit 1
@@ -86,13 +92,13 @@ setup_local_registry_and_custom_image() {
     sudo mkdir -p /root/.config/containers
     sudo tee /root/.config/containers/registries.conf << 'EOF' >/dev/null
 [[registry]]
-location = "127.0.0.1:5000"
+location = "localhost:5000"
 insecure = true
 EOF
     echo "✅ Registry configuration created"
 
-    custom_image_tag="127.0.0.1:5000/kicbase:v0.0.48"
-    if curl -s --max-time 5 http://127.0.0.1:5000/v2/kicbase/tags/list | grep -q "v0.0.48"; then
+    custom_image_tag="localhost:5000/kicbase:v0.0.48"
+    if curl -s --connect-timeout 5 --max-time 10 http://localhost:5000/v2/kicbase/tags/list | grep -q "v0.0.48"; then
       echo "Custom kicbase image already exists in local registry"
       return 0
     fi
@@ -117,8 +123,8 @@ EOF
       return 1
     }
 
-    # Ensure registry is still running before push (use 127.0.0.1 to avoid IPv6 issues)
-    if ! curl -s --max-time 5 http://127.0.0.1:5000/v2/_catalog >/dev/null 2>&1; then
+    # Ensure registry is still running before push (use localhost to support both IPv4 and IPv6)
+    if ! curl -s --connect-timeout 5 --max-time 10 http://localhost:5000/v2/_catalog >/dev/null 2>&1; then
       echo "Registry not responding, restarting..."
       start_local_registry || return 1
     fi
@@ -168,8 +174,8 @@ start_minikube_cluster() {
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo "Using custom kicbase image for ppc64le with crictl..."
 
-    start_args+=("--base-image=127.0.0.1:5000/kicbase:v0.0.48")
-    start_args+=("--insecure-registry=127.0.0.1:5000")
+    start_args+=("--base-image=localhost:5000/kicbase:v0.0.48")
+    start_args+=("--insecure-registry=localhost:5000")
   fi
 
   echo "Starting minikube with args: ${start_args[*]}"
