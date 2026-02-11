@@ -1,13 +1,14 @@
-import os
-import tempfile
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import kubetester
-import requests
 from kubetester.helm import process_run_and_check
 from kubetester.mongotester import MongoTester
 from pymongo.operations import SearchIndexModel
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
+
+if TYPE_CHECKING:
+    from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -77,19 +78,40 @@ class SearchTester(MongoTester):
         )
         return cls(conn_str, use_ssl=use_ssl, ca_path=ca_path)
 
-    def mongorestore_from_url(self, archive_url: str, ns_include: str, mongodb_tools_dir: str = ""):
-        logger.debug(f"running mongorestore from {archive_url}")
-        with tempfile.NamedTemporaryFile(delete=False) as sample_file:
-            resp = requests.get(archive_url)
-            size = sample_file.write(resp.content)
-            logger.debug(f"Downloaded sample file from {archive_url} to {sample_file.name} (size: {size})")
-            mongorestore_path = os.path.join(mongodb_tools_dir, "mongorestore")
-            mongorestore_cmd = f"{mongorestore_path} --archive={sample_file.name} --verbose=1 --drop --nsInclude {ns_include} --uri={self.cnx_string}"
-            if self.default_opts.get("tls", False):
-                mongorestore_cmd += " --ssl"
-            if ca_path := self.default_opts.get("tlsCAFile"):
-                mongorestore_cmd += " --sslCAFile=" + ca_path
-            process_run_and_check(mongorestore_cmd.split(), capture_output=True)
+    def mongorestore_from_url(self, archive_url: str, ns_include: str, tools_pod: "ToolsPod"):
+        """Run mongorestore from a URL using the tools pod.
+
+        Args:
+            archive_url: URL to download the archive from
+            ns_include: Namespace include pattern for mongorestore
+            tools_pod: ToolsPod instance to run the command in
+        """
+        logger.debug(f"running mongorestore from {archive_url} via tools pod")
+        archive_path = "/tmp/sample.archive"
+
+        # Download the archive directly in the pod using curl
+        tools_pod.run_command(["curl", "-o", archive_path, "-L", archive_url])
+
+        # Build mongorestore command
+        mongorestore_cmd = [
+            "mongorestore",
+            f"--archive={archive_path}",
+            "--verbose=1",
+            "--drop",
+            "--nsInclude",
+            ns_include,
+            f"--uri={self.cnx_string}",
+        ]
+
+        if self.default_opts.get("tls", False):
+            mongorestore_cmd.append("--ssl")
+        if ca_path := self.default_opts.get("tlsCAFile"):
+            # Copy CA cert to pod and use it
+            pod_ca_path = "/tmp/ca.crt"
+            tools_pod.copy_file_to_pod(ca_path, pod_ca_path)
+            mongorestore_cmd.append(f"--sslCAFile={pod_ca_path}")
+
+        tools_pod.run_command(mongorestore_cmd)
 
     def create_search_index(self, database_name: str, collection_name: str):
         database = self.client[database_name]
