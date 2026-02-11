@@ -118,7 +118,16 @@ class TestCanEnableScramSha256:
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
     def test_assert_connectivity(self, ca_path: str):
-        ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity(attempts=25)
+        # Alternative 2: Poll for deployment readiness before connectivity check
+        # This addresses CLOUDP-68873 by verifying hosts are truly reachable via
+        # the Ops Manager API (checking typeName != "NO_DATA") before attempting
+        # to connect. This is more targeted than fixed sleep - it waits only as
+        # long as needed for the deployment to stabilize after auth transition.
+        tester = ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path)
+        # Wait for all hosts to be reporting data (not "NO_DATA")
+        tester.assert_deployment_reachable(attempts=30)
+        # Then verify connectivity
+        tester.assert_connectivity(attempts=25)
 
     def test_ops_manager_state_updated_correctly(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
