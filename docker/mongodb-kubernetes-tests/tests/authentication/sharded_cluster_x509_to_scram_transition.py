@@ -117,7 +117,17 @@ class TestCanEnableScramSha256:
         sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
+        # Alternative 3: Wait for processes to reach goal version after auth transition
+        # This addresses CLOUDP-68873 by ensuring all 5 processes (2 config servers,
+        # 2 mongods, 1 mongos) have completed their auth transition coordination.
+        # The race condition occurs when agents report goal state prematurely.
+        logger.info("Waiting for all processes to reach goal version after auth transition...")
+        kubetester.wait_processes_ready()
+        logger.info("All processes confirmed at goal version, proceeding with connectivity test")
+
     def test_assert_connectivity(self, ca_path: str):
+        # Standard connectivity check - the wait_processes_ready in previous test
+        # should have ensured deployment stability
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity(attempts=25)
 
     def test_ops_manager_state_updated_correctly(self):
