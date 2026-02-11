@@ -60,6 +60,15 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
+  - repo: local
+    hooks:
+      - id: validate-go-version
+        name: validate-go-version
+        entry: scripts/dev/update_go_version.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
