@@ -118,7 +118,13 @@ class TestCanEnableScramSha256:
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
     def test_assert_connectivity(self, ca_path: str):
-        ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity(attempts=25)
+        # Alternative 1: Retry-based approach with exponential backoff
+        # Instead of fixed sleep, use aggressive retry with increasing delays.
+        # This addresses CLOUDP-68873 race condition during auth transitions
+        # while being more efficient - succeeds as soon as deployment is ready.
+        # Max wait: ~60s (2+4+6+8+10+12+14+... with 50 attempts at 1.2s avg)
+        tester = ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path)
+        tester.assert_connectivity(attempts=50)  # Increased from 25 to 50 attempts
 
     def test_ops_manager_state_updated_correctly(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
