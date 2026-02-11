@@ -242,6 +242,9 @@ const (
 	DefaultAppDbPasswordKey            = "password"
 	AppDbConnectionStringKey           = "connectionString"
 	AppDbProjectIdKey                  = "projectId"
+	// Immutable backups were introduced in 8.0.19
+	// This variable is used for validating the OM version when an s3 store with object lock is configured
+	MinimumVersionImmutableBackup = "8.0.19"
 
 	// Below is a list of non-persistent PV and PVCs for OpsManager
 	OpsManagerPvcNameData       = "data"

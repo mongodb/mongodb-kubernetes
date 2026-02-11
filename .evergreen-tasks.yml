@@ -865,6 +865,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_om_ops_manager_backup_object_lock
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_om_ops_manager_queryable_backup
     tags: [ "patch-run" ]
     commands:

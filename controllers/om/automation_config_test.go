@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cast"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/utils/ptr"
 
@@ -456,6 +457,41 @@ func TestMergoDeleteWorksInNestedMapsWithFieldsNotReturnedByAutomationConfig(t *
 
 	assert.NotContains(t, user, "db") // specify value to delete, it does not remain in final map
 	assert.Contains(t, user, "user")  // value untouched remains
+}
+
+func TestMergoDeleteWorksForAuthAutoUserAndAutoPwd(t *testing.T) {
+	// Create a deployment with auth.autoUser and auth.autoPwd set
+	deployment := Deployment{
+		"auth": map[string]interface{}{
+			"autoUser": "mms-automation-agent",
+			"autoPwd":  "some-password",
+			"disabled": true,
+			"key":      "test-key",
+		},
+	}
+
+	ac, err := BuildAutomationConfigFromDeployment(deployment)
+	require.NoError(t, err)
+
+	// Verify initial state
+	assert.Equal(t, "mms-automation-agent", ac.Auth.AutoUser)
+	assert.Equal(t, "some-password", ac.Auth.AutoPwd)
+
+	// Set to MergoDelete
+	ac.Auth.AutoUser = util.MergoDelete
+	ac.Auth.AutoPwd = util.MergoDelete
+
+	// Apply the changes
+	err = ac.Apply()
+	require.NoError(t, err)
+
+	// Check the deployment - autoUser and autoPwd should be deleted
+	authMap := ac.Deployment["auth"].(map[string]interface{})
+	assert.NotContains(t, authMap, "autoUser", "autoUser should be deleted from auth map")
+	assert.NotContains(t, authMap, "autoPwd", "autoPwd should be deleted from auth map")
+	// Other fields should remain
+	assert.Contains(t, authMap, "disabled")
+	assert.Contains(t, authMap, "key")
 }
 
 func TestDeletionOfMiddleElements(t *testing.T) {
