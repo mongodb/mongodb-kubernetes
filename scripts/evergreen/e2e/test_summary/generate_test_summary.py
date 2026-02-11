@@ -948,17 +948,21 @@ class TestSummaryGenerator:
             return 'other'
 
     def _embed_log_tails(self, tail_lines: int = 500, max_total_bytes: int = 20 * 1024 * 1024):
-        """Embed the last N lines of log/describe/config files for inline viewing.
+        """Embed file content for inline viewing in the modal.
 
-        Skips resource dumps (z_*.txt) and large YAML files — those are structural,
-        not the kind of thing you read line by line.
+        For log files: embeds the last N lines (most recent activity).
+        For structured files (YAML, JSON, conf, txt dumps): embeds from the beginning
+        since these are not append-only streams.
         """
         self.data['log_tails'] = {}
         total_bytes = 0
 
-        viewable_extensions = {'.log', '.txt', '.json', '.conf'}
-        skip_patterns = ['_z_', 'events_detailed.yaml', 'events.txt',
-                         'test-summary', '0_diagnostics']
+        viewable_extensions = {'.log', '.txt', '.json', '.conf', '.yaml', '.xml'}
+        skip_patterns = ['test-summary']
+
+        # Structured files should be read from the beginning, not tailed
+        head_extensions = {'.yaml', '.json', '.conf', '.xml'}
+        head_suffixes = {'_describe.txt', '_diagnostics.txt'}
 
         for file_path in sorted(self.logs_dir.iterdir()):
             if not file_path.is_file():
@@ -974,9 +978,20 @@ class TestSummaryGenerator:
                 with open(file_path, 'r', errors='replace') as f:
                     lines = f.readlines()
 
-                tail = lines[-tail_lines:]
-                content = ''.join(tail)
-                truncated = len(lines) > tail_lines
+                # Structured files: read from beginning (head)
+                # Log files: read from end (tail)
+                use_head = (file_path.suffix in head_extensions
+                            or '_z_' in file_path.name
+                            or any(file_path.name.endswith(s) for s in head_suffixes))
+
+                if use_head:
+                    shown = lines[:tail_lines]
+                    truncated = len(lines) > tail_lines
+                else:
+                    shown = lines[-tail_lines:]
+                    truncated = len(lines) > tail_lines
+
+                content = ''.join(shown)
 
                 # Cap total embedded size
                 content_bytes = len(content.encode('utf-8', errors='replace'))
@@ -988,8 +1003,9 @@ class TestSummaryGenerator:
                 self.data['log_tails'][file_path.name] = {
                     'content': content,
                     'total_lines': len(lines),
-                    'shown_lines': len(tail),
+                    'shown_lines': len(shown),
                     'truncated': truncated,
+                    'mode': 'head' if use_head else 'tail',
                 }
             except Exception as e:
                 print(f"  Warning: Could not read {file_path.name}: {e}", file=sys.stderr)
@@ -1087,6 +1103,104 @@ def _render_timeline_entry(idx: int, entry: Dict) -> str:
     </div>"""
 
 
+def _render_cluster_resources(data: Dict, log_tails: Dict) -> str:
+    """Render cluster resource dump files as clickable links grouped by category.
+
+    Shows all z_ dump files, events, diagnostics, and other structural files
+    organized by cluster/namespace so the user can quickly access any resource.
+    """
+    by_cluster = data['artifacts'].get('by_cluster', {})
+    if not by_cluster:
+        return ''
+
+    # Resource file categories - label and matching patterns
+    resource_categories = [
+        ('ConfigMaps', 'z_configmaps'),
+        ('Services', 'z_services'),
+        ('PVCs', 'z_persistent_volume_claims'),
+        ('Secrets', 'z_secret_'),
+        ('Deployments YAML', 'z_deployments.txt'),
+        ('Deployments Describe', 'z_deployments_describe'),
+        ('StatefulSets', 'z_statefulsets'),
+        ('Roles', 'z_roles.txt'),
+        ('RoleBindings', 'z_rolebindings'),
+        ('ClusterRoles', 'z_clusterroles.txt'),
+        ('ClusterRoleBindings', 'z_clusterrolebindings'),
+        ('ServiceAccounts', 'z_service_accounts'),
+        ('Webhooks', 'z_validatingwebhook'),
+        ('CRDs', 'z_mongodb_crds'),
+        ('Nodes', 'z_nodes_detailed'),
+        ('Events (YAML)', 'events_detailed.yaml'),
+        ('Events (text)', 'events.txt'),
+        ('Diagnostics', '0_diagnostics'),
+        ('Metrics', 'metrics_'),
+    ]
+
+    html = "<h3 style='margin-top: 20px;'>Cluster Resources</h3>"
+
+    for cluster in sorted(by_cluster.keys()):
+        namespaces = by_cluster[cluster]
+        for ns in sorted(namespaces.keys()):
+            files = namespaces[ns]
+            label = f"{cluster}/{ns}" if cluster != 'default' else ns
+
+            # Collect resource files by category
+            categorized = []
+            uncategorized = []
+            seen = set()
+
+            for cat_label, pattern in resource_categories:
+                matching = [f for f in files
+                            if pattern in f['name']
+                            and f['name'] not in seen]
+                if matching:
+                    categorized.append((cat_label, matching))
+                    seen.update(f['name'] for f in matching)
+
+            # Remaining z_ or structural files not categorized
+            for f in files:
+                if f['name'] not in seen and (
+                    '_z_' in f['name']
+                    or f['type'] in ('events', 'diagnostics', 'config', 'health')
+                ):
+                    uncategorized.append(f)
+                    seen.add(f['name'])
+
+            if not categorized and not uncategorized:
+                continue
+
+            html += f"<div class='cluster-resources-group'>"
+            html += f"<h4 class='resource-name' style='margin: 12px 0 6px 0;'>{escape(label)}</h4>"
+            html += "<div class='cluster-resources-grid'>"
+
+            for cat_label, cat_files in categorized:
+                for f in cat_files:
+                    fname = f['name']
+                    # Short display name: strip the namespace prefix
+                    short = fname.split('_z_')[-1] if '_z_' in fname else fname.split('_')[-1] if '_' in fname else fname
+                    # For secrets, show the secret name
+                    if 'z_secret_' in fname:
+                        short = fname.split('z_secret_')[-1]
+                    display_label = f"{cat_label}: {short}" if 'z_secret_' in fname else cat_label if len(cat_files) == 1 else f"{cat_label}: {short}"
+
+                    if fname in log_tails:
+                        html += f"<code class='file-tag-link' onclick=\"openLogModal('{escape(fname)}')\" title='{escape(fname)}'>{escape(display_label)}</code>"
+                    else:
+                        html += f"<code class='file-tag' title='{escape(fname)}'>{escape(display_label)}</code>"
+
+            for f in uncategorized:
+                fname = f['name']
+                short = fname.split('_')[-1] if '_' in fname else fname
+                if fname in log_tails:
+                    html += f"<code class='file-tag-link' onclick=\"openLogModal('{escape(fname)}')\" title='{escape(fname)}'>{escape(short)}</code>"
+                else:
+                    html += f"<code class='file-tag' title='{escape(fname)}'>{escape(short)}</code>"
+
+            html += "</div></div>"
+
+    return html
+
+
 def _render_artifacts_by_cluster(data: Dict) -> str:
     """Render artifacts as a compact cluster summary table.
 
@@ -1105,9 +1219,6 @@ def _render_artifacts_by_cluster(data: Dict) -> str:
         for ns in sorted(namespaces.keys()):
             files = namespaces[ns]
             label = f"{cluster}/{ns}" if cluster != 'default' else ns
-            if cluster == 'default':
-                # Skip generated files and non-namespaced misc
-                continue
 
             by_type = defaultdict(lambda: {'count': 0, 'size': 0})
             for f in files:
@@ -1269,19 +1380,48 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
     # StatefulSets
     resource_html += f"<h3 style='margin-top: 20px;'>StatefulSets ({len(data['resources']['statefulsets'])})</h3>"
     if data['resources']['statefulsets']:
-        resource_html += "<table><tr><th>#</th><th>Name</th><th>Cluster</th><th>Replicas</th><th>Owner</th></tr>"
+        resource_html += "<table><tr><th>#</th><th>Name</th><th>Cluster</th><th>Replicas</th><th>Owner</th><th>YAML</th></tr>"
         for idx, sts in enumerate(data['resources']['statefulsets'][:50], 1):
             readiness_class = 'healthy' if sts['ready_replicas'] == sts['desired_replicas'] else 'unhealthy'
+            yaml_file = sts.get('files', {}).get('yaml', '')
             resource_html += f"<tr class='{readiness_class}'>"
             resource_html += f"<td class='row-number'>{idx}</td>"
             resource_html += f"<td class='resource-name'>{escape(sts['name'])}</td>"
             resource_html += f"<td>{escape(sts['cluster'])}</td>"
             resource_html += f"<td>{sts['ready_replicas']}/{sts['desired_replicas']}</td>"
             resource_html += f"<td class='resource-name'>{escape(sts.get('owner_ref', '-') or '-')}</td>"
+            if yaml_file and yaml_file in log_tails:
+                resource_html += f"<td><code class='file-tag-link' onclick=\"openLogModal('{escape(yaml_file)}')\">view</code></td>"
+            else:
+                resource_html += "<td>-</td>"
             resource_html += "</tr>"
         resource_html += "</table>"
     else:
         resource_html += "<p>No StatefulSets found</p>"
+
+    # Deployments
+    resource_html += f"<h3 style='margin-top: 20px;'>Deployments ({len(data['resources']['deployments'])})</h3>"
+    if data['resources']['deployments']:
+        resource_html += "<table><tr><th>#</th><th>Name</th><th>Cluster</th><th>Replicas</th><th>YAML</th></tr>"
+        for idx, deploy in enumerate(data['resources']['deployments'][:50], 1):
+            readiness_class = 'healthy' if deploy['ready_replicas'] == deploy['desired_replicas'] else 'unhealthy'
+            yaml_file = deploy.get('files', {}).get('yaml', '')
+            resource_html += f"<tr class='{readiness_class}'>"
+            resource_html += f"<td class='row-number'>{idx}</td>"
+            resource_html += f"<td class='resource-name'>{escape(deploy['name'])}</td>"
+            resource_html += f"<td>{escape(deploy['cluster'])}</td>"
+            resource_html += f"<td>{deploy['ready_replicas']}/{deploy['desired_replicas']}</td>"
+            if yaml_file and yaml_file in log_tails:
+                resource_html += f"<td><code class='file-tag-link' onclick=\"openLogModal('{escape(yaml_file)}')\">view</code></td>"
+            else:
+                resource_html += "<td>-</td>"
+            resource_html += "</tr>"
+        resource_html += "</table>"
+    else:
+        resource_html += "<p>No Deployments found</p>"
+
+    # Cluster Resources - clickable links to all z_ dump files and other useful files
+    resource_html += _render_cluster_resources(data, log_tails)
 
     resource_html += "</div>"
 
@@ -1610,6 +1750,19 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
         }}
         .empty-cell {{
             color: #dee2e6;
+        }}
+        .cluster-resources-grid {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 12px;
+        }}
+        .cluster-resources-group {{
+            border-bottom: 1px solid #e9ecef;
+            padding-bottom: 8px;
+        }}
+        .cluster-resources-group:last-child {{
+            border-bottom: none;
         }}
         .log-modal {{
             position: fixed;
@@ -2019,7 +2172,8 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
             title.title = filename;
 
             if (entry.truncated) {{
-                info.textContent = 'last ' + entry.shown_lines + ' of ' + entry.total_lines + ' lines';
+                const dir = entry.mode === 'head' ? 'first' : 'last';
+                info.textContent = dir + ' ' + entry.shown_lines + ' of ' + entry.total_lines + ' lines';
             }} else {{
                 info.textContent = entry.total_lines + ' lines';
             }}
@@ -2028,8 +2182,10 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
 
-            // Scroll to bottom (most recent logs)
-            requestAnimationFrame(() => {{ body.scrollTop = body.scrollHeight; }});
+            // Logs: scroll to bottom (most recent). Structured files: scroll to top.
+            requestAnimationFrame(() => {{
+                body.scrollTop = entry.mode === 'head' ? 0 : body.scrollHeight;
+            }});
         }}
 
         function closeLogModal() {{
