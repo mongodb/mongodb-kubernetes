@@ -26,7 +26,8 @@ const (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	cfg := loadConfig()
 
@@ -81,6 +82,9 @@ func main() {
 	})
 
 	// Phase 3: Create RBAC + secrets (parallel, no deps between clusters)
+	// Note: Manual WaitGroup used here because operations are heterogeneous
+	// (RBAC across all clusters, plus individual secrets in specific clusters).
+	// This differs from Phase 2/4 which use runParallel for homogeneous operations.
 	fmt.Println("Phase 3: Creating RBAC, kubeconfig secret, project config, and credentials")
 	var phase3wg sync.WaitGroup
 
@@ -195,8 +199,8 @@ type config struct {
 }
 
 func loadConfig() config {
-	localVal := os.Getenv("local")                             // nolint:forbidigo
-	noMesh := os.Getenv("MULTI_CLUSTER_NO_MESH")              // nolint:forbidigo
+	localVal := os.Getenv("local")               // nolint:forbidigo
+	noMesh := os.Getenv("MULTI_CLUSTER_NO_MESH") // nolint:forbidigo
 	applyMTLS := localVal == "" && noMesh != "true"
 
 	cfg := config{
@@ -662,8 +666,10 @@ func findExistingTokenSecret(ctx context.Context, client *kubernetes.Clientset, 
 	}
 
 	for _, s := range secrets.Items {
-		if strings.Contains(s.Name, serviceAccountName) && s.Type == corev1.SecretTypeServiceAccountToken {
-			return s.Name, nil
+		if s.Type == corev1.SecretTypeServiceAccountToken {
+			if saName, ok := s.Annotations["kubernetes.io/service-account.name"]; ok && saName == serviceAccountName {
+				return s.Name, nil
+			}
 		}
 	}
 	return "", nil
