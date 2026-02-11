@@ -9,7 +9,7 @@ spec:
   mongodsPerShardCount: 1
   mongosCount: 1
   configServerCount: 1
-  version: 8.0.0-ent
+  version: 8.2.0-ent
   opsManager:
     configMapRef:
       name: my-project
@@ -38,4 +38,3 @@ spec:
               requests:
                 cpu: "0.5"
                 memory: 512Mi
-

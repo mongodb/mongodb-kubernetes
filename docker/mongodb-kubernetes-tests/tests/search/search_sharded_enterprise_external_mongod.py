@@ -108,7 +108,17 @@ def sharded_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
 
 @fixture(scope="function")
 def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
-    """Fixture for sharded MongoDB cluster with TLS enabled."""
+    """Fixture for sharded MongoDB cluster with TLS enabled and search configuration.
+
+    For the "external MongoDB source" simulation scenario, the MongoDB sharded cluster
+    needs to be created WITH search configuration from the beginning (pointing to Envoy
+    proxy endpoints that will be deployed later). This is different from the internal
+    MongoDB source scenario where the operator automatically applies search configuration.
+
+    The search configuration includes:
+    - shardOverrides: Each shard points to its own Envoy proxy service
+    - mongos: Points to the first shard's Envoy proxy service for search routing
+    """
     resource = MongoDB.from_yaml(
         yaml_fixture("enterprise-sharded-cluster-sample-mflix.yaml"),
         name=MDB_RESOURCE_NAME,
@@ -120,6 +130,49 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
 
     # Configure OpsManager/CloudManager connection
     resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
+
+    # Build shardOverrides configuration with search parameters for each shard
+    # Each shard needs to point to its own Envoy proxy service
+    shard_overrides = []
+    for shard_idx in range(SHARD_COUNT):
+        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
+        # Envoy proxy service name follows the pattern: <search-name>-mongot-<shard-name>-proxy-svc
+        proxy_host = f"{MDBS_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
+
+        shard_overrides.append({
+            "shardNames": [shard_name],
+            "additionalMongodConfig": {
+                "setParameter": {
+                    "mongotHost": proxy_host,
+                    "searchIndexManagementHostAndPort": proxy_host,
+                    "skipAuthenticationToSearchIndexManagementServer": False,
+                    "skipAuthenticationToMongot": False,
+                    "searchTLSMode": "requireTLS",
+                    "useGrpcForSearch": True,
+                }
+            }
+        })
+
+    resource["spec"]["shardOverrides"] = shard_overrides
+
+    # Configure mongos with search parameters pointing to first shard's Envoy proxy
+    first_shard_name = f"{MDB_RESOURCE_NAME}-0"
+    mongos_proxy_host = f"{MDBS_RESOURCE_NAME}-mongot-{first_shard_name}-proxy-svc.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
+
+    # Initialize mongos spec if not present
+    if "mongos" not in resource["spec"]:
+        resource["spec"]["mongos"] = {}
+
+    resource["spec"]["mongos"]["additionalMongodConfig"] = {
+        "setParameter": {
+            "mongotHost": mongos_proxy_host,
+            "searchIndexManagementHostAndPort": mongos_proxy_host,
+            "skipAuthenticationToSearchIndexManagementServer": False,
+            "skipAuthenticationToMongot": False,
+            "searchTLSMode": "requireTLS",
+            "useGrpcForSearch": True,
+        }
+    }
 
     return resource
 
@@ -984,16 +1037,17 @@ def test_search_shard_collections(mdb: MongoDB):
     because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
     """
     search_tester = get_admin_search_tester(mdb, use_ssl=True)
-    mongo_client = search_tester.client
-    admin_db = mongo_client.admin
-    sample_mflix_db = mongo_client["sample_mflix"]
+    client = search_tester.client
+    admin_db = client.admin
+    sample_mflix_db = client["sample_mflix"]
 
     # Enable sharding on database
     try:
         admin_db.command("enableSharding", "sample_mflix")
         logger.info("✓ Sharding enabled on sample_mflix database")
     except pymongo.errors.OperationFailure as e:
-        if "already enabled" in str(e) or e.code == 23:  # AlreadyInitialized
+        if "already enabled" in str(
+            e) or e.code == 23 or e.code == 59:  # AlreadyInitialized or CommandNotFound (MongoDB 8.0+)
             logger.info("Sharding already enabled on sample_mflix")
         else:
             raise
