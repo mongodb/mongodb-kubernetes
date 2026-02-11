@@ -21,12 +21,18 @@ import (
 )
 
 const (
-	serviceAccountName = "operator-tests-multi-cluster-service-account"
-	tokenSecretSuffix  = "-token-secret"
+	serviceAccountName       = "operator-tests-multi-cluster-service-account"
+	tokenSecretSuffix        = "-token-secret"
+	projectConfigMapName     = "my-project"
+	credentialsSecretName    = "my-credentials"
+	kubeconfigSecretName     = "test-pod-kubeconfig"
+	multiClusterSecretName   = "test-pod-multi-cluster-config"
+	imageRegistriesSecret    = "image-registries-secret"
+	kubernetesServiceName    = "kubernetes"
 )
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	cfg := loadConfig()
@@ -82,9 +88,8 @@ func main() {
 	})
 
 	// Phase 3: Create RBAC + secrets (parallel, no deps between clusters)
-	// Note: Manual WaitGroup used here because operations are heterogeneous
-	// (RBAC across all clusters, plus individual secrets in specific clusters).
-	// This differs from Phase 2/4 which use runParallel for homogeneous operations.
+	// Manual WaitGroup here since we're running different operations across different clusters,
+	// unlike Phase 2/4 where every cluster does the same thing.
 	fmt.Println("Phase 3: Creating RBAC, kubeconfig secret, project config, and credentials")
 	var phase3wg sync.WaitGroup
 
@@ -143,7 +148,7 @@ func main() {
 		tokensMu.Unlock()
 	})
 
-	// Phase 5: Aggregate tokens → create multi-cluster config secret
+	// Phase 5: Aggregate tokens, create multi-cluster config secret
 	fmt.Println("Phase 5: Creating multi-cluster config secret")
 	createMultiClusterConfigSecret(ctx, clients[cfg.testPodCluster], cfg, tokens, collectErrorFor(cfg.testPodCluster))
 
@@ -317,7 +322,7 @@ func overrideKindKubeconfig(ctx context.Context, cfg config, clients map[string]
 		wg.Add(1)
 		go func(c string) {
 			defer wg.Done()
-			svc, err := clients[c].CoreV1().Services("default").Get(ctx, "kubernetes", metav1.GetOptions{})
+			svc, err := clients[c].CoreV1().Services("default").Get(ctx, kubernetesServiceName, metav1.GetOptions{})
 			if err != nil {
 				collectError(err, fmt.Sprintf("failed to get kubernetes service in cluster %s", c))
 				return
@@ -451,7 +456,7 @@ func ensureServiceAccount(ctx context.Context, client *kubernetes.Clientset, clu
 			Namespace: namespace,
 		},
 		ImagePullSecrets: []corev1.LocalObjectReference{
-			{Name: "image-registries-secret"},
+			{Name: imageRegistriesSecret},
 		},
 	}
 
@@ -509,8 +514,7 @@ func ensureClusterRoleBinding(ctx context.Context, client *kubernetes.Clientset,
 		return
 	}
 
-	// Update if needed
-	existing.RoleRef = crb.RoleRef
+	// Not updating RoleRef here, it is immutable on ClusterRoleBindings.
 	existing.Subjects = crb.Subjects
 	_, err = client.RbacV1().ClusterRoleBindings().Update(ctx, existing, metav1.UpdateOptions{})
 	collectError(err, fmt.Sprintf("failed to update CRB in %s", cluster))
@@ -518,7 +522,7 @@ func ensureClusterRoleBinding(ctx context.Context, client *kubernetes.Clientset,
 
 // Phase 3: Create kubeconfig secret for test pod
 func createKubeconfigSecret(ctx context.Context, client *kubernetes.Clientset, cluster, namespace, kubeconfigPath string, collectError func(error, string)) {
-	secretName := "test-pod-kubeconfig"
+	secretName := kubeconfigSecretName
 
 	// Delete existing
 	_ = client.CoreV1().Secrets(namespace).Delete(ctx, secretName, metav1.DeleteOptions{})
@@ -550,7 +554,7 @@ func createKubeconfigSecret(ctx context.Context, client *kubernetes.Clientset, c
 func createProjectConfigMap(ctx context.Context, client *kubernetes.Clientset, cluster, namespace string, cfg config, collectError func(error, string)) {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-project",
+			Name:      projectConfigMapName,
 			Namespace: namespace,
 		},
 		Data: map[string]string{
@@ -560,7 +564,7 @@ func createProjectConfigMap(ctx context.Context, client *kubernetes.Clientset, c
 		},
 	}
 
-	existing, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, "my-project", metav1.GetOptions{})
+	existing, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, projectConfigMapName, metav1.GetOptions{})
 	if kerrors.IsNotFound(err) {
 		_, err = client.CoreV1().ConfigMaps(namespace).Create(ctx, cm, metav1.CreateOptions{})
 		if err != nil && !kerrors.IsAlreadyExists(err) {
@@ -582,7 +586,7 @@ func createProjectConfigMap(ctx context.Context, client *kubernetes.Clientset, c
 func createCredentialsSecret(ctx context.Context, client *kubernetes.Clientset, cluster, namespace string, cfg config, collectError func(error, string)) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-credentials",
+			Name:      credentialsSecretName,
 			Namespace: namespace,
 		},
 		Type: corev1.SecretTypeOpaque,
@@ -592,7 +596,7 @@ func createCredentialsSecret(ctx context.Context, client *kubernetes.Clientset, 
 		},
 	}
 
-	existing, err := client.CoreV1().Secrets(namespace).Get(ctx, "my-credentials", metav1.GetOptions{})
+	existing, err := client.CoreV1().Secrets(namespace).Get(ctx, credentialsSecretName, metav1.GetOptions{})
 	if kerrors.IsNotFound(err) {
 		_, err = client.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
 		if err != nil && !kerrors.IsAlreadyExists(err) {
@@ -677,7 +681,7 @@ func findExistingTokenSecret(ctx context.Context, client *kubernetes.Clientset, 
 
 // Phase 5: Create multi-cluster config secret
 func createMultiClusterConfigSecret(ctx context.Context, client *kubernetes.Clientset, cfg config, tokens map[string]string, collectError func(error, string)) {
-	secretName := "test-pod-multi-cluster-config"
+	secretName := multiClusterSecretName
 
 	// Delete existing
 	_ = client.CoreV1().Secrets(cfg.namespace).Delete(ctx, secretName, metav1.DeleteOptions{})
@@ -728,7 +732,7 @@ func extractConfigFiles(ctx context.Context, client *kubernetes.Clientset, cfg c
 		return
 	}
 
-	secretName := "test-pod-multi-cluster-config"
+	secretName := multiClusterSecretName
 	secret, err := client.CoreV1().Secrets(cfg.namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		collectError(err, "failed to get multi-cluster config secret for extraction")
@@ -760,10 +764,7 @@ func writeConfigFile(dir, name string, data []byte, collectError func(error, str
 		return
 	}
 
-	// The secret data from Kubernetes is already raw bytes (not base64-encoded)
-	// since we're reading from the typed API which auto-decodes.
-	// However, the shell script was doing: kubectl get secret ... -o jsonpath=".data.X" | base64 -d
-	// The typed API already returns decoded data, so we write directly.
+	// The typed API returns already-decoded data, no base64 step needed.
 	filePath := filepath.Join(dir, name)
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		collectError(err, fmt.Sprintf("failed to write config file %s", filePath))
