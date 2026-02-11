@@ -211,7 +211,7 @@ class MongoTester:
                 opts.append({"serverSelectionTimeoutMs": "30000"})
             else:
                 opts = [{"serverSelectionTimeoutMs": "30000"}]
-            self.assert_connectivity(opts=opts)
+            self.assert_connectivity(opts=opts, attempts=1)
             fail()
         except ServerSelectionTimeoutError:
             pass
@@ -476,6 +476,8 @@ class ReplicaSetTester(MongoTester):
         if namespace is None:
             # backward compatibility with docstring tests
             namespace = KubernetesTester.get_namespace()
+
+        self.replicas_count = replicas_count
 
         self.cnx_string = build_mongodb_connection_uri(
             mdb_resource_name,
