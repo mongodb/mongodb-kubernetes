@@ -146,9 +146,6 @@ class MultiClusterOMClusterWideTestHelper:
             self.s3_bucket_oplog,
         )
 
-        if try_load(resource):
-            return resource
-
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
         resource["spec"]["version"] = get_custom_om_version()
         resource["spec"]["topology"] = "MultiCluster"
@@ -182,6 +179,7 @@ class MultiClusterOMClusterWideTestHelper:
             },
         }
 
+        try_load(resource)
         return resource
 
 

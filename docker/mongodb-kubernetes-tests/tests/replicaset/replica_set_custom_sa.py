@@ -1,4 +1,4 @@
-from kubetester import create_service_account, delete_service_account
+from kubetester import create_service_account, delete_service_account, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -18,13 +18,15 @@ def replica_set(namespace: str, custom_mdb_version: str, create_custom_sa: str) 
     resource["spec"]["podSpec"] = {"podTemplate": {"spec": {"serviceAccountName": "test-sa"}}}
     resource["spec"]["statefulSet"] = {"spec": {"serviceName": "rs-svc"}}
     resource.set_version(custom_mdb_version)
-    yield resource.create()
+    try_load(resource)
+    yield resource
     # teardown, delete the custom service-account
     delete_service_account(namespace=namespace, name="test-sa")
 
 
 @mark.e2e_replica_set_custom_sa
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 

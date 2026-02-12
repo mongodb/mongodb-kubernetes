@@ -28,11 +28,6 @@ def test_load_build_info_development():
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-init-database/Dockerfile",
             ),
-            "init-appdb": ImageInfo(
-                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb",
-                platforms=["linux/amd64"],
-                dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
-            ),
             "init-ops-manager": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
                 platforms=["linux/amd64"],
@@ -134,11 +129,6 @@ def test_load_build_info_patch():
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-init-database/Dockerfile",
-            ),
-            "init-appdb": ImageInfo(
-                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb",
-                platforms=["linux/amd64"],
-                dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
             ),
             "init-ops-manager": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
@@ -244,13 +234,6 @@ def test_load_build_info_staging():
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-database",
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-init-database/Dockerfile",
-                latest_tag=True,
-                sign=True,
-            ),
-            "init-appdb": ImageInfo(
-                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-appdb",
-                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
-                dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
                 latest_tag=True,
                 sign=True,
             ),
@@ -372,14 +355,6 @@ def test_load_build_info_release():
                 repository="quay.io/mongodb/mongodb-kubernetes-init-database",
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-init-database/Dockerfile",
-                skip_if_exists=True,
-                olm_tag=True,
-                sign=True,
-            ),
-            "init-appdb": ImageInfo(
-                repository="quay.io/mongodb/mongodb-kubernetes-init-appdb",
-                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
-                dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
                 skip_if_exists=True,
                 olm_tag=True,
                 sign=True,

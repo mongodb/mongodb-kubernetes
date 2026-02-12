@@ -53,6 +53,7 @@ func (m *MonitoringAgentConfig) EnableX509Authentication(monitoringAgentSubject,
 func (m *MonitoringAgentConfig) DisableX509Authentication() {
 	m.MonitoringAgentTemplate.SSLPemKeyFile = util.MergoDelete
 	m.UnsetAgentUsername()
+	m.UnsetAgentPassword()
 }
 
 func (m *MonitoringAgentConfig) EnableLdapAuthentication(monitoringAgentSubject string, monitoringAgentPwd string) {

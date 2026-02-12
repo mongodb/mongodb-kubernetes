@@ -1,9 +1,8 @@
-import time
-
 import pytest
 from kubernetes import client
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from tests.constants import LEGACY_OPERATOR_NAME, OPERATOR_NAME
@@ -92,10 +91,10 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         "Should connect to one of the mongods and check the replica set was correctly configured."
         hosts = ["rs001-pv-{}.rs001-pv-svc.{}.svc.cluster.local:27017".format(i, self.namespace) for i in range(3)]
 
-        primary, secondaries = self.wait_for_rs_is_ready(hosts)
+        client = self.get_populated_mongo_client(hosts=hosts)
 
-        assert primary is not None
-        assert len(secondaries) == 2
+        assert client.primary is not None
+        assert len(client.secondaries) == 2
 
 
 @pytest.mark.e2e_replica_set_pv
@@ -113,10 +112,16 @@ class TestReplicaSetPersistentVolumeDelete(KubernetesTester):
 
     def test_replica_set_sts_doesnt_exist(self):
         """The StatefulSet must be removed by Kubernetes as soon as the MongoDB resource is removed.
-        Note, that this may lag sometimes (caching or whatever?) and it's more safe to wait a bit"""
-        time.sleep(15)
-        with pytest.raises(client.rest.ApiException):
-            self.appsv1.read_namespaced_stateful_set("rs001-pv", self.namespace)
+        Note, that this may lag sometimes (caching or whatever?) so we poll until it's gone."""
+
+        def sts_is_deleted():
+            try:
+                self.appsv1.read_namespaced_stateful_set("rs001-pv", self.namespace)
+                return False
+            except client.rest.ApiException:
+                return True
+
+        run_periodically(sts_is_deleted, timeout=60, msg="StatefulSet to be deleted")
 
     def test_service_does_not_exist(self):
         "Services should not exist"

@@ -23,9 +23,6 @@ logger = test_logger.get_test_logger(__name__)
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace)
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
 
@@ -37,6 +34,7 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
             configsrv_members_array=[1, 1, 1],
         )
 
+    try_load(resource)
     return resource
 
 
@@ -132,9 +130,9 @@ class TestShardedClusterUpdate:
                     hosts.append(hostname)
 
             logger.debug(f"Checking for connectivity of hosts: {hosts}")
-            primary, secondaries = KubernetesTester.wait_for_rs_is_ready(hosts)
-            assert primary is not None
-            assert len(secondaries) == 2
+            client = KubernetesTester.get_populated_mongo_client(hosts=hosts)
+            assert client.primary is not None
+            assert len(client.secondaries) == 2
 
     def test_monitoring_versions(self, sc: MongoDB):
         """Verifies that monitoring agent is configured for each process in the deployment"""

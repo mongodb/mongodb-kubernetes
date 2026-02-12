@@ -47,9 +47,6 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
@@ -57,7 +54,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -88,6 +85,7 @@ def service_exists(service_name: str, namespace: str, api_client: Optional[kuber
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         """creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required."""
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -132,8 +130,7 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.assert_appdb_monitoring_group_was_created()
 
-        # TODO uncomment when CLOUDP-70468 is fixed and AppDB supports scram-sha-256
-        # making sure the s3 config pushed to OM references the appdb
+        # TODO for multicluster appdb, the connection string uses the per-pod service, not the headless
         # appdb_replica_set = ops_manager.get_appdb_resource()
         # appdb_password = KubernetesTester.read_secret(
         #     ops_manager.namespace, ops_manager.app_db_password_secret_name()

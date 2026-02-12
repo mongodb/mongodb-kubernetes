@@ -1,6 +1,6 @@
 from typing import Optional
 
-from kubetester import delete_pod, delete_statefulset, get_pod_when_ready
+from kubetester import delete_pod, delete_statefulset, get_pod_when_ready, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_static_containers
@@ -30,7 +30,8 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -41,13 +42,14 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     ).configure(ops_manager, "my-replica-set")
     resource.set_version(custom_mdb_version)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
 @skip_if_static_containers
 @mark.e2e_om_ops_manager_enable_local_mode_running_om
 def test_create_om(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
@@ -109,4 +111,5 @@ def test_new_binaries_are_present(ops_manager: MongoDBOpsManager, namespace: str
 @skip_if_static_containers
 @mark.e2e_om_ops_manager_enable_local_mode_running_om
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)

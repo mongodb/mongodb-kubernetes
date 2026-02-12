@@ -1,6 +1,7 @@
 import tempfile
 
 import pytest
+from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, create_x509_user_cert
 from kubetester.kubetester import KubernetesTester
@@ -17,9 +18,10 @@ USER_PASSWORD = "my-password"
 
 @pytest.fixture(scope="module")
 def replica_set(namespace: str, issuer_ca_configmap: str, server_certs: str) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("replica-set-tls-scram-sha-256.yaml"), namespace=namespace)
-    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.create()
+    resource = MongoDB.from_yaml(load_fixture("replica-set-tls-scram-sha-256.yaml"), namespace=namespace)
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="module")
@@ -30,6 +32,7 @@ def server_certs(issuer: str, namespace: str):
 @pytest.mark.e2e_replica_set_scram_sha_and_x509
 class TestReplicaSetCreation(KubernetesTester):
     def test_replica_set_running(self, replica_set: MongoDB):
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
     def test_replica_set_connectivity(self, replica_set: MongoDB, ca_path: str):

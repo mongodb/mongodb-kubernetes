@@ -45,21 +45,20 @@ download_kind() {
 }
 
 download_kubectl() {
-  kubectl_version=$(curl --retry 5 -Ls https://dl.k8s.io/release/stable.txt)
-  echo "Downloading kubectl ${kubectl_version}..."
-  kubectl_version=$(echo "${kubectl_version}" | tail -n1 | tr -d '\n')
+  # Use pinned version (KUBECTL_VERSION from root-context)
+  # Falls back to fetching stable.txt if KUBECTL_VERSION is not set
+  local version="${KUBECTL_VERSION:-}"
+  if [[ -z "${version}" ]]; then
+    version=$(curl_with_retry -Ls https://dl.k8s.io/release/stable.txt | tail -n1 | tr -d '\n')
+  fi
 
-  curl --retry 5 -LOs "https://dl.k8s.io/release/${kubectl_version}/bin/linux/${ARCH}/kubectl"
-  chmod +x kubectl
+  download_kubectl_binary "${version}" "${ARCH}"
   sudo mv kubectl /usr/local/bin/kubectl
 }
 
 download_helm() {
-  echo "Downloading helm..."
-  curl -s -o helm.tar.gz -L "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}tar.gz"
-  tar -xf helm.tar.gz 2>/dev/null
-  sudo mv linux-"${ARCH}"helm /usr/local/bin/helm
-  rm helm.tar.gz
+  download_helm_binary "${HELM_VERSION}" "${ARCH}"
+  sudo mv linux-"${ARCH}"/helm /usr/local/bin/helm
   rm -rf linux-"${ARCH}/"
 }
 

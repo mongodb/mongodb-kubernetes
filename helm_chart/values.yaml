@@ -22,7 +22,7 @@ operator:
   deployment_name: mongodb-kubernetes-operator
 
   # Version of mongodb-kubernetes-operator
-  version: 1.6.1
+  version: 1.7.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -113,6 +113,13 @@ operator:
     #  - ValidatingWebhookConfigurations will be managed by the operator.
     registerConfiguration: true
 
+    # name: Custom name for the ValidatingWebhookConfiguration resource.
+    # Default (when not set): "mdbpolicy.mongodb.com"
+    # Use this to allow multiple operator instances on the same cluster.
+    # Example:
+    #   name: "mdbpolicy.my-namespace.mongodb.com"
+    name: ''
+
   telemetry:
     collection:
       clusters: {}
@@ -129,11 +136,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.6.1
+  version: 1.7.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.6.1
+  version: 1.7.0
 
 ## Ops Manager
 opsManager:
@@ -141,12 +148,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.6.1
-
-## Application Database
-initAppDb:
-  name: mongodb-kubernetes-init-appdb
-  version: 1.6.1
+  version: 1.7.0
 
 agent:
   name: mongodb-agent
@@ -177,7 +179,6 @@ registry:
   initDatabase: quay.io/mongodb
   initOpsManager: quay.io/mongodb
   opsManager: quay.io/mongodb
-  initAppDb: quay.io/mongodb
   agent: quay.io/mongodb
 
   # This is only used by the MongoDBCommunity resource reconciler - START

@@ -23,11 +23,18 @@ operator:
     #  - ValidatingWebhookConfigurations will be managed by the operator (requires cluster permissions)
     registerConfiguration: true
 
+    # name: Custom name for the ValidatingWebhookConfiguration resource.
+    # Default (when not set): "mdbpolicy.mongodb.com"
+    # Use this to allow multiple operator instances on the same cluster.
+    # Example:
+    #   name: "mdbpolicy.my-namespace.mongodb.com"
+    name: ''
+
   # Versions listed here are used to populate RELATED_IMAGE_ env variables in the operator deployment.
   # Environment variables prefixed with RELATED_IMAGE_ are used by operator-sdk to generate relatedImages section
   # with sha256 digests pinning for the certified operator bundle with disconnected environment feature enabled.
   # https://docs.openshift.com/container-platform/4.14/operators/operator_sdk/osdk-generating-csvs.html#olm-enabling-operator-for-restricted-network_osdk-generating-csvs
-  version: 1.6.1
+  version: 1.7.0
 relatedImages:
   opsManager:
   - 6.0.26
@@ -134,7 +141,7 @@ relatedImages:
   - 108.0.6.8796-1
   - 108.0.7.8810-1
   - 12.0.35.7911-1
-  - 13.46.0.10171-1
+  - 13.47.0.10239-1
   mongodbLegacyAppDb:
   - 4.2.11-ent
   - 4.2.2-ent

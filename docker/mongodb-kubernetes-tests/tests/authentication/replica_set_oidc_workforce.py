@@ -16,8 +16,6 @@ MDB_RESOURCE = "oidc-replica-set"
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("oidc/replica-set-workforce.yaml"), namespace=namespace)
-    if try_load(resource):
-        return resource
 
     oidc_provider_configs = resource.get_oidc_provider_configs()
 
@@ -27,27 +25,29 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
     resource.set_oidc_provider_configs(oidc_provider_configs)
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
 def oidc_user(namespace) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(load_fixture("oidc/oidc-user.yaml"), namespace=namespace)
-    if try_load(resource):
-        return resource
 
     resource["spec"]["username"] = f"OIDC-test-user/{oidc.get_cognito_workload_user_id()}"
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_replica_set_oidc_workforce
 class TestCreateOIDCReplicaset(KubernetesTester):
 
     def test_create_replicaset(self, replica_set: MongoDB):
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
     def test_create_user(self, oidc_user: MongoDBUser):
+        oidc_user.update()
         oidc_user.assert_reaches_phase(Phase.Updated, timeout=400)
 
     def test_ops_manager_state_updated_correctly(self, replica_set: MongoDB):

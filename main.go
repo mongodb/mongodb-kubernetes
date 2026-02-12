@@ -133,7 +133,6 @@ func main() {
 	forceEnterprise := env.ReadBoolOrDefault(architectures.MdbAssumeEnterpriseImage, false)
 	initDatabaseNonStaticImageVersion := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
 	databaseNonStaticImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
-	initAppdbVersion := env.ReadOrDefault(construct.InitAppdbVersionEnv, "latest")
 	initOpsManagerImageVersion := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
 	// Namespace where the operator is installed
 	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
@@ -266,7 +265,7 @@ func main() {
 		}
 	}
 	if slices.Contains(crds, mongoDBOpsManagerCRDPlural) {
-		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
+		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseNonStaticImageVersion, initOpsManagerImageVersion); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -374,14 +373,18 @@ func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.
 	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).
+		WithValidator(&mdbv1.MongoDBValidator{}).
+		Complete()
 }
 
-func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
-	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
+func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string) error {
+	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).
+		WithValidator(&omv1.MongoDBOpsManagerValidator{}).
+		Complete()
 }
 
 func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
@@ -392,7 +395,9 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
+		WithValidator(&mdbmultiv1.MongoDBMultiClusterValidator{}).
+		Complete()
 }
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
@@ -556,8 +561,8 @@ func getOperatorEnv() util.OperatorEnvironment {
 		operatorEnvOnce.Do(func() {
 			golog.Printf("Configured environment %s, not recognized. Must be one of %v", operatorEnv, operatorEnvironments)
 			golog.Printf("Using default environment, %s, instead", util.OperatorEnvironmentDev)
-			operatorEnv = util.OperatorEnvironmentDev
 		})
+		operatorEnv = util.OperatorEnvironmentDev
 	}
 	return operatorEnv
 }

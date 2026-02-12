@@ -27,15 +27,13 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
         yaml_fixture("om_ops_manager_pod_spec.yaml"), namespace=namespace
     )
 
-    if try_load(om):
-        return om
-
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
+    try_load(om)
     return om
 
 
