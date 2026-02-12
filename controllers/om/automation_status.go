@@ -101,6 +101,11 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 			for _, move := range p.Plan {
 				if isAuthenticationTransitionMove(move) {
 					authTransitionsInProgress[p.Name] = move
+					log.Debugw("Detected auth transition move in process plan",
+						"process", p.Name,
+						"move", move,
+						"goalVersion", as.GoalVersion,
+						"lastGoalVersionAchieved", p.LastGoalVersionAchieved)
 					break
 				}
 			}
