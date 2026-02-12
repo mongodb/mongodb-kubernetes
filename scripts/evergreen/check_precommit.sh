@@ -14,9 +14,6 @@ if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
   source "${PROJECT_DIR}/venv/bin/activate"
 fi
 
-# Add local bin to PATH (pip installs scripts there)
-export PATH="${HOME}/.local/bin:${PATH}"
-
 # Ensure pre-commit is installed
 if ! command -v pre-commit &>/dev/null; then
   echo "pre-commit not found, installing..."
@@ -27,9 +24,6 @@ title "Running pre-commit checks"
 
 # Set EVERGREEN_MODE to signal we're in CI
 export EVERGREEN_MODE=true
-
-# Enable synctest experiment for testing/synctest package support
-export GOEXPERIMENT=synctest
 
 # Store the current state of the index and working directory
 initial_index_state=$(git diff --name-only --cached --diff-filter=AM)

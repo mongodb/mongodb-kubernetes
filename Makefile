@@ -170,18 +170,14 @@ build-and-push-mco-test-image: aws_login
 	fi
 
 # builds all app images in parallel
-# note that we cannot build both appdb and database init images in parallel as they change the same docker file
-build-and-push-images: build-and-push-operator-image appdb-init-image om-init-image database operator-image database-init-image
+build-and-push-images: build-and-push-operator-image om-init-image database operator-image database-init-image
 	@ $(MAKE) agent-image
 
 # builds all init images
-build-and-push-init-images: appdb-init-image om-init-image database-init-image
+build-and-push-init-images: om-init-image database-init-image
 
 database-init-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-database
-
-appdb-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-appdb
 
 # Not setting a parallel-factor will default to 0 which will lead to using all CPUs, that can cause docker to die.
 # Here we are defaulting to 6, a higher value might work for you.
@@ -345,14 +341,12 @@ manifests: controller-gen
 
 
 # Run go fmt against code
-# GOEXPERIMENT=synctest is needed to parse files that import testing/synctest
 fmt:
-	GOEXPERIMENT=synctest go fmt ./...
+	go fmt ./...
 
 # Run go vet against code
-# GOEXPERIMENT=synctest is needed to parse files that import testing/synctest
 vet:
-	GOEXPERIMENT=synctest go vet ./...
+	go vet ./...
 
 # Generate code
 generate: controller-gen
