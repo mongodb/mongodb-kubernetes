@@ -16,9 +16,11 @@ contexts_dir="scripts/dev/contexts"
 context="${1:-}"
 additional_override="${2:-}"
 
+mkdir -p "${destination_envs_dir}"
+
 local_kind_message="Press Ctrl-t to toggle between local or evergreen kind clusters"
 local_kind_file="${destination_envs_dir}/.local_kind"
-[[ -f "${local_kind_file}" ]] || echo "false" > "${local_kind_file}"
+[[ -f "${local_kind_file}" ]] || echo "evergreen" > "${local_kind_file}"
 
 
 if [[ "${context}" == "" ]]; then
@@ -50,8 +52,6 @@ context_file="${contexts_dir}/${context}"
 local_development_default_file="${contexts_dir}/local-defaults-context"
 override_context_file="${contexts_dir}/private-context-override"
 additional_override_file="${contexts_dir}/${additional_override}"
-
-mkdir -p "${destination_envs_dir}"
 
 if [[ ! -f "${context_file}" ]]; then
 	fatal "Cannot switch context: File ${context_file} does not exist."
