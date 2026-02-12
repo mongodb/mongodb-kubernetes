@@ -1,4 +1,5 @@
 import kubernetes
+from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -31,11 +32,13 @@ def mongodb_multi(
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_multi_cluster_replica_set_ignore_unknown_users
 def test_replica_set(multi_cluster_operator: Operator, mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 

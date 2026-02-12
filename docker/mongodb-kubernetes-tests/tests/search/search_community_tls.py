@@ -38,9 +38,6 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version("8.2.0")
 
     # Add TLS configuration
@@ -50,6 +47,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         "caCertificateSecretRef": {"name": TLS_SECRET_NAME},
     }
 
+    try_load(resource)
     return resource
 
 
@@ -60,15 +58,13 @@ def mdbs(namespace: str) -> MongoDBSearch:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     # Add TLS configuration to MongoDBSearch
     if "spec" not in resource:
         resource["spec"] = {}
 
     resource["spec"]["security"] = {"tls": {"enabled": True, "certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
 
+    try_load(resource)
     return resource
 
 

@@ -77,11 +77,9 @@ def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str, cust
 
 @fixture(scope="module")
 def unmanaged_mdb(ops_manager: MongoDBOpsManager, unmanaged_namespace: str) -> MongoDB:
-    rs = generic_replicaset(unmanaged_namespace, "5.0.0", "unmanaged-mdb", ops_manager).create()
-
-    yield rs
-
-    rs.delete()
+    resource = generic_replicaset(unmanaged_namespace, "5.0.0", "unmanaged-mdb", ops_manager)
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_operator_clusterwide
@@ -218,6 +216,7 @@ def test_resources_on_unmanaged_namespaces_stay_cold(unmanaged_mdb: MongoDB):
     """
     For an unmanaged resource, the status should not be updated!
     """
+    unmanaged_mdb.update()
     for i in range(10):
         time.sleep(5)
 

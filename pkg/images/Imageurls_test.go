@@ -39,23 +39,6 @@ func TestContainerImage(t *testing.T) {
 	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "12.0.4.7554-1"))
 	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "2.0.0-b20220912000000"))
 
-	// env var has input already, so it is replaced
-	t.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-kubernetes-init-appdb:12.0.4.7554-1")
-	imageUrls = LoadImageUrlsFromEnv()
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-appdb:10.2.25.6008-1", ContainerImage(imageUrls, util.InitAppdbImageUrlEnv, "10.2.25.6008-1"))
-
-	// env var has input already, but there is related image with this input
-	t.Setenv(fmt.Sprintf("RELATED_IMAGE_%s_12_0_4_7554_1", util.InitAppdbImageUrlEnv), "quay.io/mongodb/mongodb-kubernetes-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c")
-	imageUrls = LoadImageUrlsFromEnv()
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c", ContainerImage(imageUrls, util.InitAppdbImageUrlEnv, "12.0.4.7554-1"))
-
-	t.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-kubernetes-init-appdb@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd")
-	imageUrls = LoadImageUrlsFromEnv()
-	// env var has input already as digest, but there is related image with this input
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c", ContainerImage(imageUrls, util.InitAppdbImageUrlEnv, "12.0.4.7554-1"))
-	// env var has input already as digest, there is no related image with this input, so we use input instead of digest
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-appdb:1.2.3", ContainerImage(imageUrls, util.InitAppdbImageUrlEnv, "1.2.3"))
-
 	t.Setenv(util.OpsManagerImageUrl, "quay.io:3000/mongodb/mongodb-kubernetes")
 	imageUrls = LoadImageUrlsFromEnv()
 	assert.Equal(t, "quay.io:3000/mongodb/mongodb-kubernetes:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))

@@ -6,7 +6,7 @@
 #
 # Ref: https://cryptography.io/en/latest/installation/#building-cryptography-on-linux
 #
-FROM public.ecr.aws/docker/library/golang:1.24 as builder
+FROM public.ecr.aws/docker/library/golang:1.25 as builder
 
 ENV GO111MODULE=on
 ENV GOPATH ""

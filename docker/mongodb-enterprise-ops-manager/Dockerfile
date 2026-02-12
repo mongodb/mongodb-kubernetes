@@ -1,6 +1,6 @@
 # Build compilable stuff
 
-FROM --platform=${BUILDPLATFORM} public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
+FROM --platform=${BUILDPLATFORM} public.ecr.aws/docker/library/golang:1.25 AS readiness_builder
 
 COPY go.sum go.mod /go/src/github.com/mongodb/mongodb-kubernetes/
 

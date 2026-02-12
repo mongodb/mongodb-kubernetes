@@ -21,10 +21,14 @@ process_licenses() {
         return 1
     fi
 
-    PATH=$(go env GOPATH)/bin:${PATH} GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv 2> licenses_stderr  || true
-
-
-    cat licenses_stderr
+    # Let Go find the real path of the toolchain specified by go.mod
+    REAL_GOROOT=$(GOTOOLCHAIN=auto go env GOROOT)
+    # Run the command with TOOLCHAIN'S bin folder at the front of the PATH
+    # This ensures that when go-licenses calls 'go', it gets the one in go.mod
+    PATH="${REAL_GOROOT}/bin:$(go env GOPATH)/bin:${PATH}" \
+    GOTOOLCHAIN=local GOROOT="${REAL_GOROOT}" \
+    GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" \
+    go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv
 
     # Filter and sort the licenses report
     # Use LC_ALL=C to ensure consistent ASCII sorting across macOS and Linux
@@ -36,9 +40,7 @@ process_licenses() {
     cd "${REPO_DIR}" || exit
 }
 
-process_licenses "${REPO_DIR}" &
-process_licenses "${REPO_DIR}/cmd/kubectl-mongodb" &
-
-wait
+process_licenses "${REPO_DIR}"
+process_licenses "${REPO_DIR}/cmd/kubectl-mongodb"
 
 echo "License processing complete for all modules."

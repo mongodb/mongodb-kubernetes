@@ -60,11 +60,6 @@ def args_for_image(image: str) -> Dict[str, str]:
             rh_cert_project_id="643daaa56da4ecc48795693a",
         ),
         image_config(
-            image="init-appdb",
-            rh_cert_project_id="6809ec113193c2e55779b8dc",
-            name_suffix="",
-        ),
-        image_config(
             image="init-database",
             rh_cert_project_id="680a22928e2dc72376f34990",
             name_suffix="",
