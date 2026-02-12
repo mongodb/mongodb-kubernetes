@@ -60,6 +60,7 @@ COPY --from=tools_downloader /tools/ /tools/
 
 COPY --from=base /data/readinessprobe /probes/readinessprobe
 COPY --from=base /data/probe.sh /probes/probe.sh
+COPY --from=base /data/version-upgrade-hook /probes/version-upgrade-hook
 COPY --from=base /data/scripts/ /scripts/
 COPY --from=base /data/licenses /licenses/
 
