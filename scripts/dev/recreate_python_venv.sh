@@ -104,7 +104,7 @@ ensure_required_python() {
 cd "${PROJECT_DIR}"
 if [[ -d "venv" ]]; then
   echo "Removing existing venv..." >&2
-  rm -rf "venv"
+  rm -rf "venv/*"
   echo "Existing venv removed" >&2
 else
   echo "No existing venv found" >&2

@@ -1,0 +1,92 @@
+{
+    "name": "MCK",
+    "dockerComposeFile":
+    [
+        "compose.yml",
+        "compose.user.yml",
+        "compose.generated.yml"
+    ],
+
+    "service": "devcontainer",
+    "workspaceFolder": "/workspace",
+
+    "features": {
+        "ghcr.io/devcontainers/features/go:1": {
+            "version": "1.25"
+        },
+        // Local feature: installs pyenv + build deps into the image layer.
+        // Docker seeds the 'mck-devcontainer-pyenv' named volume from these
+        // image contents on first start; the on-create script then creates the venv.
+        "./features/pyenv": {
+            "pythonVersion": "3.13.7"
+        },
+        "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+            "version": "latest",
+            "helm": "latest",
+            "minikube": "none"
+        },
+        // Reuse host Docker for building images and running kind clusters
+        "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+        // AWS CLI for logging-in to ECR
+        "ghcr.io/devcontainers/features/aws-cli:1": {},
+        "ghcr.io/devcontainers-extra/features/jira-cli:1": {},
+        "ghcr.io/devcontainers-extra/features/shellcheck:1": {},
+        "ghcr.io/eitsupi/devcontainer-features/jq-likes:2": {
+            "jqVersion": "latest",
+            "yqVersion": "latest"
+        },
+        // fzf — used by scripts/dev/switch_context.sh
+        "ghcr.io/devcontainers-extra/features/fzf:1": {},
+        "ghcr.io/mpriscella/features/kind:1": {},
+        "ghcr.io/mpriscella/features/helm-chart-testing:1": {},
+        // Git pre-commit hooks
+        "ghcr.io/devcontainers-extra/features/pre-commit:2": {}
+    },
+
+    // --- Lifecycle Commands ---
+    "initializeCommand": "bash .devcontainer/scripts/initialize.sh",
+    "onCreateCommand": "bash .devcontainer/scripts/on-create.sh",
+    "postAttachCommand": "bash .devcontainer/scripts/post-attach.sh",
+
+    // Disable all auto port forwarding by default
+    "otherPortsAttributes": {
+        "onAutoForward": "ignore"
+    },
+
+    // --- VS Code Customizations (container-specific only) ---
+    // General editor/linter settings live in .vscode/settings.json.
+    // Only container-specific overrides belong here.
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "-AmazonWebServices.aws-toolkit-vscode", // the AWS CLI feature includes this, but we don't need it
+                "golang.go",
+                "ms-python.python",
+                "ms-python.debugpy",
+                "ms-python.black-formatter",
+                "ms-python.isort",
+                "ms-python.flake8",
+                "ms-python.mypy-type-checker",
+                "ms-azuretools.vscode-docker",
+                "ms-kubernetes-tools.vscode-kubernetes-tools",
+                "redhat.vscode-yaml",
+                "editorconfig.editorconfig",
+                "timonwong.shellcheck"
+            ],
+            "settings": {
+                "vs-kubernetes.kubeconfig": "/home/vscode/.operator-dev/evg-host.kubeconfig",
+                "chat.experimental.useSkillAdherencePrompt": true,
+                "chat.tools.terminal.autoApprove": {
+                    "/^python -m dev_tools.evergreen.high_level_api/": true
+                }
+            }
+        }
+    },
+
+    // --- Resource Recommendations ---
+    "hostRequirements": {
+        "cpus": 2,
+        "memory": "6gb",
+        "storage": "32gb"
+    }
+}

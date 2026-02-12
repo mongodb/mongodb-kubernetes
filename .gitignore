@@ -10,8 +10,15 @@ docker/mongodb-enterprise-ops-manager/scripts/mmsconfiguration
 docker/mongodb-kubernetes-tests/public
 
 my-*
-.vscode
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
 .env
+/.devcontainer/.envs/
+/.devcontainer/compose.generated.yml
+/.devcontainer/compose.user.yml
+/.devcontainer/scripts/*/*.user.sh
 data
 cache
 **/__pycache__

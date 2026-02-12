@@ -1,0 +1,48 @@
+services:
+  devcontainer:
+    build: .
+    volumes:
+      # Workspace
+      - ..:/workspace:cached
+
+      # Unique per devcontainer instance to avoid conflicts
+      - generated-contexts:/workspace/.generated
+      - venv:/workspace/venv
+
+      # Named volumes for persistent caches, shared across all devcontainer instances
+      - gomodcache:/go/pkg/mod
+      - gocache:/home/vscode/.cache/go-build
+      - pipcache:/home/vscode/.cache/pip
+      - helmcache:/home/vscode/.cache/helm
+      - pyenv:/home/vscode/.pyenv
+
+      # Bind mounts for Evergreen auth files
+      - ${HOME}/.evergreen.yml:/home/vscode/.evergreen.yml:cached
+      - ${HOME}/.kanopy:${HOME}/.kanopy:cached
+
+    # Environment variables
+    env_file:
+      # AWS credentials from aws-vault
+      - .envs/aws-vault.env
+
+    # Additional host configuration
+    extra_hosts:
+      # Ensure host.docker.internal resolves on Linux Docker
+      - "host.docker.internal:host-gateway"
+
+    command: sleep infinity
+
+# Named volumes declaration
+volumes:
+  generated-contexts:
+  venv:
+  gomodcache:
+    name: mck-devcontainer-gomodcache
+  gocache:
+    name: mck-devcontainer-gocache
+  pipcache:
+    name: mck-devcontainer-pipcache
+  helmcache:
+    name: mck-devcontainer-helmcache
+  pyenv:
+    name: mck-devcontainer-pyenv
