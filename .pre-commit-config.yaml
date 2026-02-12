@@ -132,7 +132,8 @@ repos:
           )
 
   - repo: https://github.com/golangci/golangci-lint
-    rev: v1.62.2
+    rev: v2.0.2
     hooks:
       - id: golangci-lint
         args: [--timeout=10m]
+        language_version: '1.25.7'
