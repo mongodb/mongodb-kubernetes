@@ -25,25 +25,11 @@ docker_run_local_registry "kind-registry" "5000"
 
 cluster_prefix=""
 
-# Parse command line arguments
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --local)
-      cluster_prefix=${LOCAL_CLUSTERS_PREFIX}
-      shift
-      ;;
-    *)
-      echo "Unknown option: $1"
-      exit 1
-      ;;
-  esac
-done
-
-CLUSTER_1="${cluster_prefix}e2e-cluster-1"
-CLUSTER_2="${cluster_prefix}e2e-cluster-2"
-CLUSTER_3="${cluster_prefix}e2e-cluster-3"
-CLUSTER_CENTRAL="${cluster_prefix}e2e-operator"
-CLUSTER_SINGLE="${cluster_prefix}kind"
+CLUSTER_1="e2e-cluster-1"
+CLUSTER_2="e2e-cluster-2"
+CLUSTER_3="e2e-cluster-3"
+CLUSTER_CENTRAL="e2e-operator"
+CLUSTER_SINGLE="kind"
 
 CTX_CLUSTER_1="kind-${CLUSTER_1}"
 CTX_CLUSTER_2="kind-${CLUSTER_2}"

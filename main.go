@@ -520,7 +520,7 @@ func loadEnvFromLocalFileForDevelopment() {
 
 	envFile := ".generated/context.operator.env"
 	if _, err := os.Stat(envFile); err == nil {
-		if err := godotenv.Load(envFile); err != nil {
+		if err := godotenv.Overload(envFile); err != nil {
 			log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
 		} else {
 			log.Infof("Loaded environment variables from file %s", envFile)
@@ -549,6 +549,7 @@ func printEnvVariables() {
 		"OTEL_TRACE_ID",
 		"OTEL_PARENT_ID",
 		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"KUBECONFIG",
 	}
 
 	// Only env variables with one of these prefixes will be printed
