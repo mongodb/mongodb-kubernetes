@@ -49,6 +49,10 @@
         }
       }
     },
+    "cyrus_sasl.dev": {
+      "resolved": "github:NixOS/nixpkgs/c05d2232d2feaa4c7a07f1168606917402868195?narHash=sha256-RYEMTlGCVc67pxVxjOlGd8w6fpF7Bur7gKL88FB0WTs%3D#cyrus_sasl.dev",
+      "source": "nixpkg"
+    },
     "cyrus_sasl@latest": {
       "last_modified": "2026-02-03T17:56:14Z",
       "resolved": "github:NixOS/nixpkgs/41965737c1797c1d83cfb0b644ed0840a6220bd1#cyrus_sasl",
@@ -336,6 +340,10 @@
           "store_path": "/nix/store/n4np4p37d3k0nw0h4v9vvyrk8hj0qly0-kubernetes-helm-3.19.1"
         }
       }
+    },
+    "openldap.dev": {
+      "resolved": "github:NixOS/nixpkgs/c05d2232d2feaa4c7a07f1168606917402868195?narHash=sha256-RYEMTlGCVc67pxVxjOlGd8w6fpF7Bur7gKL88FB0WTs%3D#openldap.dev",
+      "source": "nixpkg"
     },
     "openldap@latest": {
       "last_modified": "2026-02-04T01:49:30Z",
