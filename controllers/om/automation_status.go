@@ -91,6 +91,17 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 		if !stringutil.Contains(relevantProcesses, p.Name) {
 			continue
 		}
+
+		// INVESTIGATION: Log ALL moves in the plan to discover what transition moves exist
+		if len(p.Plan) > 0 {
+			log.Infow("INVESTIGATION: Process plan details",
+				"process", p.Name,
+				"goalVersion", as.GoalVersion,
+				"lastGoalVersionAchieved", p.LastGoalVersionAchieved,
+				"planMoves", p.Plan,
+				"planLength", len(p.Plan))
+		}
+
 		if p.LastGoalVersionAchieved == as.GoalVersion {
 			goalsAchievedMap[p.Name] = p.LastGoalVersionAchieved
 
@@ -99,6 +110,12 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 			// it means authentication transition is likely in progress.
 			// The plan contains non-completed move names from the API.
 			for _, move := range p.Plan {
+				// INVESTIGATION: Log each move we're checking
+				log.Infow("INVESTIGATION: Checking move for auth transition",
+					"process", p.Name,
+					"move", move,
+					"isAuthMove", isAuthenticationTransitionMove(move))
+
 				if isAuthenticationTransitionMove(move) {
 					authTransitionsInProgress[p.Name] = move
 					break
@@ -117,6 +134,13 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 	sort.Strings(goalsAchievedMsgList)
 
 	// Check if any authentication transitions are in progress
+	// INVESTIGATION: Always log the auth transition check result
+	log.Infow("INVESTIGATION: Auth transition check completed",
+		"authTransitionsFound", len(authTransitionsInProgress),
+		"totalProcessesChecked", len(relevantProcesses),
+		"goalsAchieved", len(goalsAchievedMap),
+		"goalsNotAchieved", len(goalsNotAchievedMap))
+
 	if len(authTransitionsInProgress) > 0 {
 		var authTransitionMsgList []string
 		for processName, step := range authTransitionsInProgress {
