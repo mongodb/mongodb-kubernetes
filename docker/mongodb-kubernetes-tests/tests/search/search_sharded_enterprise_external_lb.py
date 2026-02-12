@@ -41,6 +41,7 @@ from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
@@ -201,6 +202,12 @@ def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
     return resource
 
 
+@fixture(scope="module")
+def tools_pod(namespace: str) -> mongodb_tools_pod.ToolsPod:
+    """Fixture for MongoDB tools pod used for running mongorestore."""
+    return mongodb_tools_pod.get_tools_pod(namespace)
+
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -255,143 +262,6 @@ def get_user_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
         use_ssl=use_ssl,
         ca_path=ca_path,
     )
-
-
-MONGODB_TOOLS_POD_NAME = "mongodb-tools-pod"
-MONGODB_TOOLS_PATH = "/tmp/mongodb-tools/bin"
-
-
-def deploy_mongodb_tools_pod(namespace: str):
-    """Deploy a bastion pod for running MongoDB commands with mongodb-database-tools installed."""
-    # Install mongodb-database-tools on startup
-    # Using the official MongoDB tools tarball for RHEL 8
-    # Install to /tmp since container runs as non-root user
-    tools_url = "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel80-x86_64-100.9.0.tgz"
-    install_cmd = f"""
-        set -e
-        mkdir -p /tmp/mongodb-tools
-        curl -sL {tools_url} | tar xz -C /tmp/mongodb-tools --strip-components=1
-        echo "MongoDB tools installed successfully"
-        ls -la {MONGODB_TOOLS_PATH}/
-        # Create a marker file to indicate tools are ready
-        touch /tmp/tools-ready
-        sleep infinity
-    """
-
-    pod_body = {
-        "apiVersion": "v1",
-        "kind": "Pod",
-        "metadata": {
-            "name": MONGODB_TOOLS_POD_NAME,
-            "labels": {"app": "mongodb-tools"},
-        },
-        "spec": {
-            "containers": [
-                {
-                    "name": "mongodb-tools",
-                    "image": "mongodb/mongodb-community-server:8.0-ubi8",
-                    "command": ["/bin/bash", "-c"],
-                    "args": [install_cmd],
-                    "volumeMounts": [
-                        {
-                            "name": "ca-cert",
-                            "mountPath": "/etc/ssl/ca",
-                            "readOnly": True,
-                        }
-                    ],
-                }
-            ],
-            "volumes": [
-                {
-                    "name": "ca-cert",
-                    "configMap": {
-                        "name": CA_CONFIGMAP_NAME,
-                    },
-                }
-            ],
-            "restartPolicy": "Never",
-        },
-    }
-
-    try:
-        KubernetesTester.create_pod(namespace, pod_body)
-        logger.info(f"Created {MONGODB_TOOLS_POD_NAME} in namespace {namespace}")
-    except Exception as e:
-        logger.info(f"Pod may already exist: {e}")
-
-    get_pod_when_ready(namespace, "app=mongodb-tools", default_retry=120)
-    logger.info(f"{MONGODB_TOOLS_POD_NAME} is ready")
-
-    # Wait for tools to be installed by checking for the marker file
-    _wait_for_tools_ready(namespace)
-
-
-def _wait_for_tools_ready(namespace: str, max_retries: int = 60, delay: int = 5):
-    """Wait for mongodb-tools to be installed in the pod."""
-    logger.info("Waiting for mongodb-tools to be installed...")
-    for i in range(max_retries):
-        try:
-            result = KubernetesTester.run_command_in_pod_container(
-                pod_name=MONGODB_TOOLS_POD_NAME,
-                namespace=namespace,
-                cmd=["/bin/bash", "-c", "test -f /tmp/tools-ready && echo 'ready'"],
-                container="mongodb-tools",
-            )
-            if "ready" in result:
-                logger.info("✓ mongodb-tools are installed and ready")
-                return
-        except Exception as e:
-            logger.debug(f"Tools not ready yet (attempt {i + 1}/{max_retries}): {e}")
-        time.sleep(delay)
-    raise TimeoutError(f"mongodb-tools not ready after {max_retries * delay} seconds")
-
-
-def mongorestore_from_pod(
-    namespace: str,
-    archive_url: str,
-    connection_string: str,
-    ns_include: str,
-    use_ssl: bool = False,
-    ca_path: str = None,
-) -> str:
-    """Run mongorestore from inside the tools pod.
-
-    This is necessary because the MongoDB cluster is only accessible from within
-    the Kubernetes cluster via internal DNS names.
-    """
-    logger.info(f"Running mongorestore from pod for {archive_url}")
-
-    # Build the mongorestore command
-    mongorestore_path = f"{MONGODB_TOOLS_PATH}/mongorestore"
-    archive_file = "/tmp/sample_archive.archive"
-
-    # Download archive and run mongorestore in a single command
-    cmd = f"""
-        set -e
-        echo "Downloading archive from {archive_url}..."
-        curl -sL -o {archive_file} "{archive_url}"
-        echo "Archive downloaded, size: $(ls -lh {archive_file} | awk '{{print $5}}')"
-        echo "Running mongorestore..."
-        {mongorestore_path} --archive={archive_file} --verbose=1 --drop --nsInclude "{ns_include}" --uri="{connection_string}"
-        echo "mongorestore completed successfully"
-        rm -f {archive_file}
-    """
-
-    if use_ssl:
-        cmd = cmd.replace(f'--uri="{connection_string}"', f'--uri="{connection_string}" --ssl')
-
-    if ca_path:
-        cmd = cmd.replace(f'--uri="{connection_string}"', f'--uri="{connection_string}" --sslCAFile={ca_path}')
-
-    result = KubernetesTester.run_command_in_pod_container(
-        pod_name=MONGODB_TOOLS_POD_NAME,
-        namespace=namespace,
-        cmd=["/bin/bash", "-c", cmd],
-        container="mongodb-tools",
-    )
-
-    logger.debug(f"mongorestore output: {result}")
-    return result
 
 
 def deploy_envoy_proxy(namespace: str):
@@ -1015,15 +885,26 @@ def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_search_deploy_tools_pod(namespace: str):
+def test_016_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
     """Deploy mongodb-tools pod for running queries."""
-    deploy_mongodb_tools_pod(namespace)
+    # The tools_pod fixture handles deployment and waiting for readiness
+    logger.info(f"✓ Tools pod {tools_pod.pod_name} is ready")
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_search_restore_sample_database(mdb: MongoDB):
-    """Restore sample_mflix database to the sharded cluster."""
-    get_admin_sample_movies_helper(mdb).restore_sample_database()
+def test_017_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.ToolsPod):
+    """Restore sample_mflix database to the sharded cluster.
+
+    Uses mongorestore from inside the tools pod since the MongoDB cluster
+    is only accessible via Kubernetes internal DNS.
+    """
+    search_tester = get_admin_search_tester(mdb, use_ssl=True)
+    search_tester.mongorestore_from_url(
+        archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
+        ns_include="sample_mflix.*",
+        tools_pod=tools_pod,
+    )
+    logger.info("✓ Sample database restored")
 
 
 @mark.e2e_search_sharded_enterprise_external_lb

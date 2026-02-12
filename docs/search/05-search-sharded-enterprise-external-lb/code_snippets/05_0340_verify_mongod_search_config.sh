@@ -11,7 +11,7 @@ for i in $(seq 0 $((MDB_SHARD_COUNT - 1))); do
   echo "Pod: ${pod_name}"
 
   # Get the mongod configuration
-  config=$(kubectl exec --context "${K8S_CTX}" -n "${MDB_NS}" ${pod_name} -- cat /data/automation-mongod.conf 2>/dev/null || echo "Failed to get config")
+  config=$(kubectl exec --context "${K8S_CTX}" -n "${MDB_NS}" "${pod_name}" -- cat /data/automation-mongod.conf 2>/dev/null || echo "Failed to get config")
 
   # Extract and display search-related parameters
   echo "Search parameters:"
@@ -40,7 +40,7 @@ for i in $(seq 0 $((MDB_SHARD_COUNT - 1))); do
   # Show mongot StatefulSet replicas
   sts_name="${MDB_RESOURCE_NAME}-mongot-${shard_name}"
   echo "Mongot StatefulSet replicas:"
-  kubectl --context "${K8S_CTX}" -n "${MDB_NS}" get sts/${sts_name} -o jsonpath='{.spec.replicas}' 2>/dev/null && echo "" || echo "  StatefulSet not found"
+  kubectl --context "${K8S_CTX}" -n "${MDB_NS}" get sts/"${sts_name}" -o jsonpath='{.spec.replicas}' 2>/dev/null && echo "" || echo "  StatefulSet not found"
 done
 
 echo; echo "Verification complete"

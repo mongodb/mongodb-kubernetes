@@ -10,21 +10,6 @@ source "${project_dir}/scripts/code_snippets/sample_test_runner.sh"
 
 cd "${script_dir}"
 
-## Source environment variables
-## First source the base env_variables.sh
-#source "${script_dir}/env_variables.sh"
-#
-## Then source flavor-specific overrides if CODE_SNIPPETS_FLAVOR is set
-#CODE_SNIPPETS_FLAVOR="${CODE_SNIPPETS_FLAVOR:-}"
-#if [[ -n "${CODE_SNIPPETS_FLAVOR}" ]]; then
-#  flavor_env_file="${script_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh"
-#  if [[ -f "${flavor_env_file}" ]]; then
-#    echo "Sourcing env variables for ${CODE_SNIPPETS_FLAVOR} flavor"
-#    export PROJECT_DIR="${project_dir}"
-#    source "${flavor_env_file}"
-#  fi
-#fi
-
 prepare_snippets
 
 run 05_0040_validate_env.sh
@@ -67,7 +52,10 @@ run_for_output 05_0350_import_sample_data.sh
 run 05_0355_create_search_index_on_shards.sh
 run 05_0356_create_vector_search_index.sh
 run_for_output 05_0360_wait_for_search_index_ready.sh
-run_for_output 05_0361_wait_for_vector_search_index_ready.sh
+
+# List search indexes to verify they are ready
+run_for_output 05_0362_list_search_index.sh
+run_for_output 05_0363_list_vector_search_index.sh
 
 # Execute search queries through mongos and verify results
 run_for_output 05_0365_execute_search_query_via_mongos.sh
