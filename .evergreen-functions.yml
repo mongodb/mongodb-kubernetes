@@ -260,7 +260,7 @@ functions:
         - ${workdir}/bin
       binary: scripts/dev/setup_evg_host.sh
 
-  setup_chart_testing_cli: &setup_chart_testing_cli
+  setup_chart_testing_cli:
     command: subprocess.exec
     type: setup
     params:
@@ -271,21 +271,55 @@ functions:
 
   lint_repo:
     - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        add_to_path:
-          - ${workdir}/bin
-        command: scripts/evergreen/setup_yq.sh
-    - *setup_chart_testing_cli
-    - command: subprocess.exec
       type: test
       params:
         add_to_path:
           - ${workdir}/bin
           - ${workdir}/venv/bin
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/check_precommit.sh
+        binary: devbox run scripts/evergreen/check_precommit.sh
+
+  download_devbox: &download_devbox
+    command: shell.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      shell: bash
+      env:
+        DEVBOX_USE_VERSION: 0.16.0
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      script: |
+        curl -fsSL https://get.jetify.com/devbox | FORCE=1 bash
+
+  setup_devbox: &setup_devbox
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      command: devbox install
+
+  setup_devbox_install_pip_dependencies: &setup_devbox_install_pip_dependencies
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      command: devbox run pip install -r requirements.txt
+
+  setup_devbox_context: &setup_devbox_context
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      <<: *e2e_include_expansions_in_env
+      add_to_path:
+        - ${workdir}/bin
+      command: devbox run scripts/dev/switch_context.sh root-context
+
+  setup_building_host_with_devbox:
+    - *download_devbox
+    - *setup_devbox
+    - *setup_devbox_install_pip_dependencies
+    - *setup_devbox_context
 
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:

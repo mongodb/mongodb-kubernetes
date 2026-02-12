@@ -9,15 +9,21 @@
     "cyrus_sasl@latest",
     "cyrus_sasl.dev",
     "pkg-config@latest",
-    "kubernetes-helm@latest",
     "chart-testing@latest",
-    "shellcheck@latest"
+    "shellcheck@latest",
+    "pre-commit@latest",
+    "yq@latest",
+    "fzf@latest",
+    "awscli@latest",
+    "kind@0.31.0",
+    "kubectl@1.35.0",
+    "kubernetes-helm@3.19.1"
   ],
   "env": {
     "DEVBOX_SKIP_VENV_CONFIG": "1",
-    "PROJECT_DIR": "${HOME}/mongodb/mongodb-kubernetes",
-    "GOTOOLCHAIN": "auto",
-    "GOWORK": "off"
+    "PROJECT_DIR":             "${HOME}/mongodb/mongodb-kubernetes",
+    "GOTOOLCHAIN":             "auto",
+    "GOWORK":                  "off"
   },
   "shell": {
     "init_hook": [
@@ -49,8 +55,8 @@
       "export LDFLAGS=\"-L$OPENLDAP_LIB_ROOT/lib -L$SASL_LIB_ROOT/lib\"",
       "",
       "# Python Environment Setup",
-      "if [ ! -d .venv ]; then python -m venv .venv; fi",
-      "source .venv/bin/activate",
+      "if [ ! -d \"$VENV_DIR\" ]; then python -m venv \"$VENV_DIR\"; fi",
+      ". \"$VENV_DIR\"/bin/activate",
       "",
       "# Verification Checks",
       "echo '--- Environment Ready ---'",
@@ -60,4 +66,3 @@
     ]
   }
 }
-
