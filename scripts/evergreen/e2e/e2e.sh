@@ -196,14 +196,14 @@ generate_test_summary() {
   fi
 
   # Run the test summary generator (fail silently to not break the pipeline)
-  # The output file name starts without special prefix to be clear but still accessible
+  # The output file name starts with '!' to appear at top of file list in Evergreen
   if python3 scripts/evergreen/e2e/test_summary/generate_test_summary.py \
     logs \
-    --output "logs/test-summary.html" \
+    --output "logs/!test-summary.html" \
     --test-name "${task_name:-${TEST_NAME:-unknown}}" \
     --variant "${build_variant:-unknown}" \
     --status "${test_status}" 2>&1 | tee logs/summary_generation.log; then
-    echo "✅ Test summary generated: logs/test-summary.html"
+    echo "✅ Test summary generated: logs/!test-summary.html"
   else
     echo "⚠️  Warning: Failed to generate test summary (continuing anyway)"
   fi
