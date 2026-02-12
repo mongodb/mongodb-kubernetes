@@ -23,8 +23,6 @@ docker_cleanup 2>&1| prepend "docker_cleanup"
 docker_create_kind_network
 docker_run_local_registry "kind-registry" "5000"
 
-cluster_prefix=""
-
 CLUSTER_1="e2e-cluster-1"
 CLUSTER_2="e2e-cluster-2"
 CLUSTER_3="e2e-cluster-3"
