@@ -443,13 +443,12 @@ functions:
         aws_secret: ${enterprise_aws_secret_access_key}
         local_files_include_filter:
           - src/github.com/mongodb/mongodb-kubernetes/logs/*
-        local_files_exclude_filter:
-          - src/github.com/mongodb/mongodb-kubernetes/logs/*.html
         remote_file: logs/${task_id}/${execution}/
         bucket: operator-e2e-artifacts
         permissions: private
         visibility: signed
         content_type: text/plain
+        skip_existing: true  # Don't overwrite HTML files already uploaded with correct content type
     - command: attach.xunit_results
       params:
         continue_on_err: true
