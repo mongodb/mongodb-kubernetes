@@ -141,6 +141,18 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 // isAuthenticationTransitionMove returns true if the given move is related to authentication transitions
 func isAuthenticationTransitionMove(move string) bool {
 	authMoves := map[string]struct{}{
+		// Auth mode transitions
+		"UpgradeAuthModeFromAuthOffToAuthTransition":   {},
+		"UpgradeAuthModeFromAuthTransitionToAuthOn":    {},
+		"DowngradeAuthModeFromAuthOnToAuthTransition":  {},
+		"DowngradeAuthModeFromAuthTransitionToAuthOff": {},
+
+		// Credential creation/verification
+		"EnsureAutomationCredentials":        {},
+		"EnsureShardedAutomationCredentials": {},
+		"WaitHasCorrectAutomationCredentials": {},
+
+		// Legacy moves (kept for backward compatibility)
 		"UpdateAuth":     {},
 		"WaitAuthUpdate": {},
 	}
