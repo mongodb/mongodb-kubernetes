@@ -15,49 +15,14 @@
   ],
   "env": {
     "DEVBOX_SKIP_VENV_CONFIG": "1",
-    "PROJECT_DIR": "${HOME}/mongodb/mongodb-kubernetes",
-    "GOTOOLCHAIN": "auto",
-    "GOWORK": "off"
+    "PROJECT_DIR": "$DEVBOX_PROJECT_ROOT",
+    "GOTOOLCHAIN": "auto"
   },
   "shell": {
     "init_hook": [
-      "# Go Toolchain Control",
-      "export NIX_GOROOT=$(GOTOOLCHAIN=auto go env GOROOT 2>/dev/null)",
-      "if [ -n \"$NIX_GOROOT\" ]; then export PATH=\"$NIX_GOROOT/bin:$PATH\"; fi",
-      "",
-      "# Dynamic OpenLDAP Discovery",
-      "LDAP_BIN=$(command -v ldapsearch 2>/dev/null)",
-      "if [ -n \"$LDAP_BIN\" ]; then",
-      "  export OPENLDAP_LIB_ROOT=$(dirname $(dirname $(readlink -f \"$LDAP_BIN\")))",
-      "  LDAP_V=$(echo \"$OPENLDAP_LIB_ROOT\" | sed 's/.*openldap-//')",
-      "  export OPENLDAP_DEV_ROOT=$(ls -d /nix/store/*openldap-\"$LDAP_V\"-dev 2>/dev/null | head -n 1)",
-      "fi",
-      "",
-      "# Dynamic Cyrus-SASL Discovery",
-      "SASL_BIN_PATH=$(readlink -f $(command -v saslpasswd2))",
-      "SASL_BIN_ROOT=$(dirname $(dirname \"$SASL_BIN_PATH\"))",
-      "SASL_V=$(echo \"$SASL_BIN_ROOT\" | sed 's/.*cyrus-sasl-//; s/-bin$//')",
-      "",
-      "export SASL_DEV_ROOT=$(ls -d /nix/store/*cyrus-sasl-\"$SASL_V\"-dev 2>/dev/null | head -n 1)",
-      "export SASL_LIB_ROOT=$(ls -d /nix/store/*cyrus-sasl-\"$SASL_V\" 2>/dev/null | grep -v -- \"-bin\" | grep -v -- \"-dev\" | head -n 1)",
-      "export SASL_LIB_ROOT=${SASL_LIB_ROOT:-$SASL_BIN_ROOT}",
-      "",
-      "# Set Compiler & Linker Flags (with SASL subdirectory fix)",
-      "export CPATH=\"$OPENLDAP_DEV_ROOT/include:$SASL_DEV_ROOT/include:$SASL_DEV_ROOT/include/sasl:$CPATH\"",
-      "export LIBRARY_PATH=\"$OPENLDAP_LIB_ROOT/lib:$SASL_LIB_ROOT/lib:$LIBRARY_PATH\"",
-      "export CPPFLAGS=\"-I$OPENLDAP_DEV_ROOT/include -I$SASL_DEV_ROOT/include -I$SASL_DEV_ROOT/include/sasl\"",
-      "export LDFLAGS=\"-L$OPENLDAP_LIB_ROOT/lib -L$SASL_LIB_ROOT/lib\"",
-      "",
-      "# Python Environment Setup",
-      "if [ ! -d .venv ]; then python -m venv .venv; fi",
-      "source .venv/bin/activate",
-      "",
-      "# Verification Checks",
+      ". ./init.shell",
       "echo '--- Environment Ready ---'",
-      "if [ -f \"$OPENLDAP_DEV_ROOT/include/ldap.h\" ]; then echo '✅ OpenLDAP headers found'; else echo '❌ OpenLDAP headers NOT found'; fi",
-      "if [ -f \"$SASL_DEV_ROOT/include/sasl/sasl.h\" ]; then echo '✅ Cyrus-SASL headers found'; else echo '❌ Cyrus-SASL headers NOT found'; fi",
       "echo 'To (re)install Python deps: pip install -r requirements.txt'"
     ]
   }
 }
-
