@@ -42,15 +42,11 @@ variables:
 
   - &base_no_om_image_dependency
     depends_on:
-      - name: build_om_images
-        variant: build_om70_images
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
       - name: build_database_image_ubi
-        variant: init_test_run
-      - name: build_init_om_images_ubi
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
@@ -875,7 +871,6 @@ task_groups:
     tasks:
       - e2e_operator_upgrade_replica_set
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
-      - e2e_operator_upgrade_ops_manager
       - e2e_operator_proxy
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
@@ -903,7 +898,6 @@ task_groups:
     tasks:
       - e2e_operator_upgrade_replica_set
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
-      - e2e_operator_upgrade_ops_manager
       - e2e_operator_proxy
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
@@ -1113,8 +1107,8 @@ task_groups:
     <<: *teardown_group
 
 
-  # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
-  # including the cluster-wide resources changing. Uses Cloud-qa. TODO why Cloud-qa? those are OM tests
+  # This task group runs on Kind clusters and includes ALL Ops Manager tests
+  # including the cluster-wide resources changing and operator upgrade tests.
   - name: e2e_ops_manager_kind_only_task_group
     max_hosts: -1
     <<: *setup_group
@@ -1157,6 +1151,7 @@ task_groups:
       - e2e_om_feature_controls
       - e2e_vault_setup_om
       - e2e_vault_setup_om_backup
+      - e2e_operator_upgrade_ops_manager
     <<: *teardown_group
 
   - name: e2e_static_ops_manager_kind_only_task_group
@@ -1193,6 +1188,7 @@ task_groups:
       - e2e_om_feature_controls
       - e2e_vault_setup_om
       - e2e_vault_setup_om_backup
+      - e2e_operator_upgrade_ops_manager
     #   Deactivated tests
     #    - e2e_om_localmode_multiple_pv
     #    - e2e_om_localmode
