@@ -11,7 +11,7 @@ echo "Creating Envoy proxy certificates..."
 
 # Create temp directory for certificate generation
 TEMP_DIR=$(mktemp -d)
-cd "${TEMP_DIR}"
+cd "${TEMP_DIR}" || exit
 
 # Extract CA certificate from ConfigMap
 kubectl get configmap "${MDB_TLS_CA_CONFIGMAP}" -n "${MDB_NS}" --context "${K8S_CTX}" \
@@ -139,8 +139,7 @@ kubectl create secret generic envoy-client-cert-pem \
 echo "  ✓ Secrets created: envoy-server-cert-pem, envoy-client-cert-pem"
 
 # Cleanup
-cd -
+cd - || exit
 rm -rf "${TEMP_DIR}"
 
 echo "✓ Envoy certificates created successfully"
-
