@@ -8,12 +8,44 @@ import json
 from pathlib import Path
 from html import escape
 from typing import Dict, Any
+from datetime import datetime, timezone
 from collections import defaultdict
 
 # Load CSS and JS assets once from sibling files
 _ASSETS_DIR = Path(__file__).parent
 _CSS = (_ASSETS_DIR / 'dashboard.css').read_text()
 _JS = (_ASSETS_DIR / 'dashboard.js').read_text()
+
+
+def _format_age(timestamp_str: str, reference: datetime = None) -> str:
+    """Format a creation timestamp as a human-readable age like k9s.
+
+    Returns strings like '18s', '3m', '25m', '2h', '1d', '45d'.
+    """
+    if not timestamp_str:
+        return ''
+    try:
+        ts = str(timestamp_str).replace('Z', '+00:00')
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        ref = reference or datetime.now(timezone.utc)
+        delta = ref - dt
+        seconds = int(delta.total_seconds())
+        if seconds < 0:
+            return '0s'
+        if seconds < 60:
+            return f'{seconds}s'
+        minutes = seconds // 60
+        if minutes < 60:
+            return f'{minutes}m'
+        hours = seconds // 3600
+        if hours < 24:
+            return f'{hours}h'
+        days = seconds // 86400
+        return f'{days}d'
+    except (ValueError, TypeError):
+        return str(timestamp_str)[:19]
 
 
 def _format_size(size_bytes: int) -> str:
@@ -81,101 +113,282 @@ def _render_timeline_entry(idx: int, entry: Dict) -> str:
     </div>"""
 
 
-def _render_cluster_resources(data: Dict, log_tails: Dict) -> str:
-    """Render cluster resource dump files as clickable links grouped by category.
-
-    Shows all z_ dump files, events, diagnostics, and other structural files
-    organized by cluster/namespace so the user can quickly access any resource.
-    """
-    by_cluster = data['artifacts'].get('by_cluster', {})
-    if not by_cluster:
+def _render_diagnostics(data: Dict, log_tails: Dict) -> str:
+    """Render diagnostics section above tabs."""
+    diagnostics = data.get('diagnostics', {})
+    if not diagnostics:
         return ''
 
-    # Resource file categories - label and matching patterns
-    resource_categories = [
-        ('ConfigMaps', 'z_configmaps'),
-        ('Services', 'z_services'),
-        ('PVCs', 'z_persistent_volume_claims'),
-        ('Secrets', 'z_secret_'),
-        ('Deployments YAML', 'z_deployments.txt'),
-        ('Deployments Describe', 'z_deployments_describe'),
-        ('StatefulSets', 'z_statefulsets'),
-        ('Roles', 'z_roles.txt'),
-        ('RoleBindings', 'z_rolebindings'),
-        ('ClusterRoles', 'z_clusterroles.txt'),
-        ('ClusterRoleBindings', 'z_clusterrolebindings'),
-        ('ServiceAccounts', 'z_service_accounts'),
-        ('Webhooks', 'z_validatingwebhook'),
-        ('CRDs', 'z_mongodb_crds'),
-        ('Nodes', 'z_nodes_detailed'),
-        ('Events (YAML)', 'events_detailed.yaml'),
-        ('Events (text)', 'events.txt'),
-        ('Diagnostics', '0_diagnostics'),
-        ('Metrics', 'metrics_'),
+    html = "<div class='diagnostics-section'>"
+    html += "<h3>Diagnostics</h3>"
+    html += "<div class='diag-links'>"
+    for label in sorted(diagnostics.keys()):
+        diag = diagnostics[label]
+        fname = diag['file']
+        # Show cluster name only (hide namespace)
+        display = diag['cluster']
+        if fname in log_tails:
+            html += f"<code class='diag-link' onclick=\"openLogModal('{escape(fname)}')\" title='{escape(fname)}'>{escape(display)}</code>"
+        else:
+            html += f"<code class='file-tag' title='{escape(fname)}'>{escape(display)}</code>"
+    html += "</div></div>"
+    return html
+
+
+def _render_pods_enhanced(pods: list, log_tails: Dict) -> str:
+    """Render enhanced pod table with describe button."""
+    if not pods:
+        return "<p>No pods found</p>"
+
+    html = "<table><tr><th>#</th><th>Name</th><th>Cluster</th><th>Phase</th><th>Ready</th><th>Restarts</th><th>Logs</th><th>Agent</th><th>Describe</th></tr>"
+    for idx, pod in enumerate(pods[:50], 1):
+        phase_class = 'healthy' if pod['phase'] == 'Running' else 'unhealthy'
+        log_count = len(pod['files'].get('logs', []))
+        agent_count = len(pod['files'].get('agent_logs', []))
+
+        html += f"<tr class='{phase_class}' onclick='togglePodFiles(\"pod-files-{idx}\")' style='cursor: pointer;'>"
+        html += f"<td class='row-number'>{idx}</td>"
+        html += f"<td class='resource-name'>{escape(pod['name'])}</td>"
+        html += f"<td>{escape(pod['cluster'])}</td>"
+        html += f"<td><span class='badge badge-{phase_class}'>{escape(pod['phase'])}</span></td>"
+        html += f"<td>{escape(pod['ready'])}</td>"
+        html += f"<td>{pod['restarts']}</td>"
+        html += f"<td>{log_count}</td>"
+        html += f"<td>{agent_count}</td>"
+
+        # Describe button
+        describe_file = pod['files'].get('describe')
+        if describe_file and describe_file in log_tails:
+            html += f"<td><span class='describe-btn' onclick=\"event.stopPropagation(); openLogModal('{escape(describe_file)}')\">describe</span></td>"
+        else:
+            html += "<td>-</td>"
+        html += "</tr>"
+
+        # Expandable file details row
+        all_files = (pod['files'].get('logs', []) + pod['files'].get('agent_logs', [])
+                     + pod['files'].get('config', []))
+        if pod['files'].get('describe'):
+            all_files.append(pod['files']['describe'])
+        if pod['files'].get('health'):
+            all_files.append(pod['files']['health'])
+        html += f"<tr id='pod-files-{idx}' class='pod-files-row' style='display: none;'>"
+        html += f"<td colspan='9'><div class='pod-files-detail'>"
+        if all_files:
+            for f in sorted(all_files):
+                file_label = f.split('_')[-1] if '_' in f else f
+                if f in log_tails:
+                    html += f"<code class='file-tag-link' onclick=\"event.stopPropagation(); openLogModal('{escape(f)}')\">{escape(file_label)}</code> "
+                else:
+                    html += f"<code class='file-tag'>{escape(file_label)}</code> "
+        else:
+            html += "<span class='truncation-note'>No files found for this pod</span>"
+        html += "</div></td></tr>"
+    html += "</table>"
+    if len(pods) > 50:
+        html += f"<p class='truncation-note'>Showing first 50 of {len(pods)} pods.</p>"
+    return html
+
+
+def _render_statefulsets_enhanced(statefulsets: list, log_tails: Dict) -> str:
+    """Render enhanced StatefulSet table."""
+    if not statefulsets:
+        return "<p>No StatefulSets found</p>"
+
+    html = "<table><tr><th>#</th><th>Name</th><th>Cluster</th><th>Replicas</th><th>Owner</th><th>YAML</th></tr>"
+    for idx, sts in enumerate(statefulsets[:50], 1):
+        readiness_class = 'healthy' if sts['ready_replicas'] == sts['desired_replicas'] else 'unhealthy'
+        yaml_file = sts.get('files', {}).get('yaml', '')
+        html += f"<tr class='{readiness_class}'>"
+        html += f"<td class='row-number'>{idx}</td>"
+        html += f"<td class='resource-name'>{escape(sts['name'])}</td>"
+        html += f"<td>{escape(sts['cluster'])}</td>"
+        html += f"<td>{sts['ready_replicas']}/{sts['desired_replicas']}</td>"
+        html += f"<td class='resource-name'>{escape(sts.get('owner_ref', '-') or '-')}</td>"
+        if yaml_file and yaml_file in log_tails:
+            html += f"<td><code class='file-tag-link' onclick=\"openLogModal('{escape(yaml_file)}')\">view</code></td>"
+        else:
+            html += "<td>-</td>"
+        html += "</tr>"
+    html += "</table>"
+    return html
+
+
+def _render_deployments_enhanced(deployments: list, log_tails: Dict) -> str:
+    """Render enhanced Deployment table."""
+    if not deployments:
+        return "<p>No Deployments found</p>"
+
+    html = "<table><tr><th>#</th><th>Name</th><th>Cluster</th><th>Replicas</th><th>YAML</th></tr>"
+    for idx, deploy in enumerate(deployments[:50], 1):
+        readiness_class = 'healthy' if deploy['ready_replicas'] == deploy['desired_replicas'] else 'unhealthy'
+        yaml_file = deploy.get('files', {}).get('yaml', '')
+        html += f"<tr class='{readiness_class}'>"
+        html += f"<td class='row-number'>{idx}</td>"
+        html += f"<td class='resource-name'>{escape(deploy['name'])}</td>"
+        html += f"<td>{escape(deploy['cluster'])}</td>"
+        html += f"<td>{deploy['ready_replicas']}/{deploy['desired_replicas']}</td>"
+        if yaml_file and yaml_file in log_tails:
+            html += f"<td><code class='file-tag-link' onclick=\"openLogModal('{escape(yaml_file)}')\">view</code></td>"
+        else:
+            html += "<td>-</td>"
+        html += "</tr>"
+    html += "</table>"
+    return html
+
+
+def _render_generic_table(items: list, source_files: list, log_tails: Dict, multi_cluster: bool) -> str:
+    """Render a generic resource table for any resource type."""
+    if not items and not source_files:
+        return "<p>No resources found</p>"
+
+    # If no parsed items but source_files exist, show view buttons
+    if not items:
+        html = "<div style='display: flex; flex-wrap: wrap; gap: 6px;'>"
+        for sf in source_files:
+            fname = sf['name']
+            label = sf['cluster'] + '/' + sf['namespace'] if multi_cluster else sf['namespace']
+            if fname in log_tails:
+                html += f"<code class='file-tag-link' onclick=\"openLogModal('{escape(fname)}')\" title='{escape(fname)}'>View ({escape(label)})</code>"
+            else:
+                html += f"<code class='file-tag' title='{escape(fname)}'>{escape(label)}</code>"
+        html += "</div>"
+        return html
+
+    # Group items by cluster
+    by_cluster = defaultdict(list)
+    for item in items:
+        by_cluster[item.get('cluster', 'default')].append(item)
+
+    html = ''
+    for cluster in sorted(by_cluster.keys()):
+        cluster_items = by_cluster[cluster]
+        if multi_cluster:
+            html += f"<div class='cluster-header'>{escape(cluster)}</div>"
+
+        html += "<table><tr><th>#</th><th>Name</th><th>Namespace</th>"
+        if cluster_items and cluster_items[0].get('kind'):
+            html += "<th>Kind</th>"
+        html += "<th>Age</th><th>Source</th></tr>"
+
+        for idx, item in enumerate(cluster_items[:100], 1):
+            html += "<tr>"
+            html += f"<td class='row-number'>{idx}</td>"
+            html += f"<td class='resource-name'>{escape(item.get('name', ''))}</td>"
+            html += f"<td>{escape(item.get('namespace', ''))}</td>"
+            if item.get('kind'):
+                html += f"<td>{escape(item.get('kind', ''))}</td>"
+            created = item.get('created', '')
+            age = _format_age(created)
+            html += f"<td title='{escape(str(created))}'>{escape(age)}</td>"
+            source_file = item.get('source_file', '')
+            if source_file and source_file in log_tails:
+                html += f"<td><code class='file-tag-link' onclick=\"openLogModal('{escape(source_file)}')\">view</code></td>"
+            else:
+                html += "<td>-</td>"
+            html += "</tr>"
+
+        if len(cluster_items) > 100:
+            html += f"<tr><td colspan='6' class='truncation-note'>Showing first 100 of {len(cluster_items)} items.</td></tr>"
+        html += "</table>"
+
+    return html
+
+
+def _render_secrets_table(items: list, log_tails: Dict, multi_cluster: bool) -> str:
+    """Render secrets table (name + view link)."""
+    if not items:
+        return "<p>No secrets found</p>"
+
+    by_cluster = defaultdict(list)
+    for item in items:
+        by_cluster[item.get('cluster', 'default')].append(item)
+
+    html = ''
+    for cluster in sorted(by_cluster.keys()):
+        cluster_items = by_cluster[cluster]
+        if multi_cluster:
+            html += f"<div class='cluster-header'>{escape(cluster)}</div>"
+
+        html += "<table><tr><th>#</th><th>Secret Name</th><th>Namespace</th><th>View</th></tr>"
+        for idx, item in enumerate(cluster_items[:100], 1):
+            html += "<tr>"
+            html += f"<td class='row-number'>{idx}</td>"
+            html += f"<td class='resource-name'>{escape(item.get('name', ''))}</td>"
+            html += f"<td>{escape(item.get('namespace', ''))}</td>"
+            source_file = item.get('source_file', '')
+            if source_file and source_file in log_tails:
+                html += f"<td><code class='file-tag-link' onclick=\"openLogModal('{escape(source_file)}')\">view</code></td>"
+            else:
+                html += "<td>-</td>"
+            html += "</tr>"
+        html += "</table>"
+
+    return html
+
+
+def _render_resource_tabs(data: Dict, log_tails: Dict) -> str:
+    """Render the tabbed resource browser."""
+    generic = data['resources'].get('generic', {})
+    if not generic:
+        return ''
+
+    multi_cluster = data['topology']['type'] == 'multi-cluster'
+
+    # Priority ordering for tabs
+    priority_order = [
+        'pods', 'statefulsets', 'deployments', 'services', 'configmaps',
+        'secrets', 'persistent_volume_claims',
     ]
 
-    html = "<h3 style='margin-top: 20px;'>Cluster Resources</h3>"
+    # Build ordered slug list
+    all_slugs = list(generic.keys())
+    ordered_slugs = []
+    for slug in priority_order:
+        if slug in all_slugs:
+            ordered_slugs.append(slug)
+    # Add remaining slugs alphabetically
+    for slug in sorted(all_slugs):
+        if slug not in ordered_slugs:
+            ordered_slugs.append(slug)
 
-    for cluster in sorted(by_cluster.keys()):
-        namespaces = by_cluster[cluster]
-        for ns in sorted(namespaces.keys()):
-            files = namespaces[ns]
-            label = f"{cluster}/{ns}" if cluster != 'default' else ns
+    if not ordered_slugs:
+        return ''
 
-            # Collect resource files by category
-            categorized = []
-            uncategorized = []
-            seen = set()
+    # Tab bar
+    html = "<h2>Resource Browser</h2>"
+    html += "<div class='resource-tabs'>"
+    html += "<div class='tab-bar'>"
+    default_tab = 'pods' if 'pods' in ordered_slugs else ordered_slugs[0]
+    for i, slug in enumerate(ordered_slugs):
+        info = generic[slug]
+        count = len(info['items'])
+        active = ' active' if slug == default_tab else ''
+        display = escape(info['display_name'])
+        html += f"<button class='tab-btn{active}' data-slug='{escape(slug)}' onclick=\"switchTab('{escape(slug)}')\">"
+        html += f"{display}<span class='tab-count'>{count}</span></button>"
+    html += "</div>"
 
-            for cat_label, pattern in resource_categories:
-                matching = [f for f in files
-                            if pattern in f['name']
-                            and f['name'] not in seen]
-                if matching:
-                    categorized.append((cat_label, matching))
-                    seen.update(f['name'] for f in matching)
+    # Tab panels
+    for i, slug in enumerate(ordered_slugs):
+        info = generic[slug]
+        active = ' active' if slug == default_tab else ''
+        html += f"<div id='tab-{escape(slug)}' class='tab-panel{active}'>"
 
-            # Remaining z_ or structural files not categorized
-            for f in files:
-                if f['name'] not in seen and (
-                    '_z_' in f['name']
-                    or f['type'] in ('events', 'diagnostics', 'config', 'health')
-                ):
-                    uncategorized.append(f)
-                    seen.add(f['name'])
+        # Enhanced renderers for pods/statefulsets/deployments
+        if slug == 'pods' and data['resources']['pods']:
+            html += _render_pods_enhanced(data['resources']['pods'], log_tails)
+        elif slug == 'statefulsets' and data['resources']['statefulsets']:
+            html += _render_statefulsets_enhanced(data['resources']['statefulsets'], log_tails)
+        elif slug == 'deployments' and data['resources']['deployments']:
+            html += _render_deployments_enhanced(data['resources']['deployments'], log_tails)
+        elif slug == 'secrets':
+            html += _render_secrets_table(info['items'], log_tails, multi_cluster)
+        else:
+            html += _render_generic_table(info['items'], info['source_files'], log_tails, multi_cluster)
 
-            if not categorized and not uncategorized:
-                continue
+        html += "</div>"
 
-            html += f"<div class='cluster-resources-group'>"
-            html += f"<h4 class='resource-name' style='margin: 12px 0 6px 0;'>{escape(label)}</h4>"
-            html += "<div class='cluster-resources-grid'>"
-
-            for cat_label, cat_files in categorized:
-                for f in cat_files:
-                    fname = f['name']
-                    # Short display name: strip the namespace prefix
-                    short = fname.split('_z_')[-1] if '_z_' in fname else fname.split('_')[-1] if '_' in fname else fname
-                    # For secrets, show the secret name
-                    if 'z_secret_' in fname:
-                        short = fname.split('z_secret_')[-1]
-                    display_label = f"{cat_label}: {short}" if 'z_secret_' in fname else cat_label if len(cat_files) == 1 else f"{cat_label}: {short}"
-
-                    if fname in log_tails:
-                        html += f"<code class='file-tag-link' onclick=\"openLogModal('{escape(fname)}')\" title='{escape(fname)}'>{escape(display_label)}</code>"
-                    else:
-                        html += f"<code class='file-tag' title='{escape(fname)}'>{escape(display_label)}</code>"
-
-            for f in uncategorized:
-                fname = f['name']
-                short = fname.split('_')[-1] if '_' in fname else fname
-                if fname in log_tails:
-                    html += f"<code class='file-tag-link' onclick=\"openLogModal('{escape(fname)}')\" title='{escape(fname)}'>{escape(short)}</code>"
-                else:
-                    html += f"<code class='file-tag' title='{escape(fname)}'>{escape(short)}</code>"
-
-            html += "</div></div>"
-
+    html += "</div>"
     return html
 
 
@@ -282,101 +495,10 @@ def _render_failed_tests(data: Dict) -> str:
 
 
 def _render_resource_inventory(data: Dict, log_tails: Dict) -> str:
-    """Render resource inventory: pods, statefulsets, deployments, cluster resources."""
-    html = "<h2>Resource Inventory</h2>"
-    html += f"<div class='section'><h3>Pods ({len(data['resources']['pods'])})</h3>"
-    if data['resources']['pods']:
-        html += "<table><tr><th>#</th><th>Name</th><th>Cluster</th><th>Phase</th><th>Ready</th><th>Restarts</th><th>Logs</th><th>Agent</th></tr>"
-        for idx, pod in enumerate(data['resources']['pods'][:50], 1):
-            phase_class = 'healthy' if pod['phase'] == 'Running' else 'unhealthy'
-            log_count = len(pod['files'].get('logs', []))
-            agent_count = len(pod['files'].get('agent_logs', []))
-            has_describe = '1' if pod['files'].get('describe') else '-'
-            has_health = '1' if pod['files'].get('health') else '-'
-            html += f"<tr class='{phase_class}' onclick='togglePodFiles(\"pod-files-{idx}\")' style='cursor: pointer;'>"
-            html += f"<td class='row-number'>{idx}</td>"
-            html += f"<td class='resource-name'>{escape(pod['name'])}</td>"
-            html += f"<td>{escape(pod['cluster'])}</td>"
-            html += f"<td><span class='badge badge-{phase_class}'>{escape(pod['phase'])}</span></td>"
-            html += f"<td>{escape(pod['ready'])}</td>"
-            html += f"<td>{pod['restarts']}</td>"
-            html += f"<td>{log_count}</td>"
-            html += f"<td>{agent_count}</td>"
-            html += "</tr>"
-            # Expandable file details row
-            all_files = (pod['files'].get('logs', []) + pod['files'].get('agent_logs', [])
-                         + pod['files'].get('config', []))
-            if pod['files'].get('describe'):
-                all_files.append(pod['files']['describe'])
-            if pod['files'].get('health'):
-                all_files.append(pod['files']['health'])
-            html += f"<tr id='pod-files-{idx}' class='pod-files-row' style='display: none;'>"
-            html += f"<td colspan='8'><div class='pod-files-detail'>"
-            if all_files:
-                for f in sorted(all_files):
-                    file_label = f.split('_')[-1] if '_' in f else f
-                    # Make viewable files clickable
-                    if f in log_tails:
-                        html += f"<code class='file-tag-link' onclick=\"event.stopPropagation(); openLogModal('{escape(f)}')\">{escape(file_label)}</code> "
-                    else:
-                        html += f"<code class='file-tag'>{escape(file_label)}</code> "
-            else:
-                html += "<span class='truncation-note'>No files found for this pod</span>"
-            html += "</div></td></tr>"
-        html += "</table>"
-        if len(data['resources']['pods']) > 50:
-            html += f"<p class='truncation-note'>Showing first 50 of {len(data['resources']['pods'])} pods.</p>"
-    else:
-        html += "<p>No pods found</p>"
-
-    # StatefulSets
-    html += f"<h3 style='margin-top: 20px;'>StatefulSets ({len(data['resources']['statefulsets'])})</h3>"
-    if data['resources']['statefulsets']:
-        html += "<table><tr><th>#</th><th>Name</th><th>Cluster</th><th>Replicas</th><th>Owner</th><th>YAML</th></tr>"
-        for idx, sts in enumerate(data['resources']['statefulsets'][:50], 1):
-            readiness_class = 'healthy' if sts['ready_replicas'] == sts['desired_replicas'] else 'unhealthy'
-            yaml_file = sts.get('files', {}).get('yaml', '')
-            html += f"<tr class='{readiness_class}'>"
-            html += f"<td class='row-number'>{idx}</td>"
-            html += f"<td class='resource-name'>{escape(sts['name'])}</td>"
-            html += f"<td>{escape(sts['cluster'])}</td>"
-            html += f"<td>{sts['ready_replicas']}/{sts['desired_replicas']}</td>"
-            html += f"<td class='resource-name'>{escape(sts.get('owner_ref', '-') or '-')}</td>"
-            if yaml_file and yaml_file in log_tails:
-                html += f"<td><code class='file-tag-link' onclick=\"openLogModal('{escape(yaml_file)}')\">view</code></td>"
-            else:
-                html += "<td>-</td>"
-            html += "</tr>"
-        html += "</table>"
-    else:
-        html += "<p>No StatefulSets found</p>"
-
-    # Deployments
-    html += f"<h3 style='margin-top: 20px;'>Deployments ({len(data['resources']['deployments'])})</h3>"
-    if data['resources']['deployments']:
-        html += "<table><tr><th>#</th><th>Name</th><th>Cluster</th><th>Replicas</th><th>YAML</th></tr>"
-        for idx, deploy in enumerate(data['resources']['deployments'][:50], 1):
-            readiness_class = 'healthy' if deploy['ready_replicas'] == deploy['desired_replicas'] else 'unhealthy'
-            yaml_file = deploy.get('files', {}).get('yaml', '')
-            html += f"<tr class='{readiness_class}'>"
-            html += f"<td class='row-number'>{idx}</td>"
-            html += f"<td class='resource-name'>{escape(deploy['name'])}</td>"
-            html += f"<td>{escape(deploy['cluster'])}</td>"
-            html += f"<td>{deploy['ready_replicas']}/{deploy['desired_replicas']}</td>"
-            if yaml_file and yaml_file in log_tails:
-                html += f"<td><code class='file-tag-link' onclick=\"openLogModal('{escape(yaml_file)}')\">view</code></td>"
-            else:
-                html += "<td>-</td>"
-            html += "</tr>"
-        html += "</table>"
-    else:
-        html += "<p>No Deployments found</p>"
-
-    # Cluster Resources - clickable links to all z_ dump files and other useful files
-    html += _render_cluster_resources(data, log_tails)
-
-    html += "</div>"
-    return html
+    """Render resource inventory as diagnostics section + tabbed resource browser."""
+    diagnostics_html = _render_diagnostics(data, log_tails)
+    tabs_html = _render_resource_tabs(data, log_tails)
+    return diagnostics_html + tabs_html
 
 
 def _render_error_catalog(data: Dict) -> str:
@@ -502,9 +624,9 @@ def generate_html(data: Dict[str, Any], test_name: str, variant: str, status: st
 
         {failed_tests_html}
 
-        {error_catalog_html}
-
         {resource_html}
+
+        {error_catalog_html}
 
         <h2 class="collapsible" onclick="toggleCollapse(this)">Timeline ({len(data['timeline'])} events)</h2>
         <div class="collapsible-content section">

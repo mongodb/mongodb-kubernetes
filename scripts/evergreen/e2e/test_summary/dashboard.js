@@ -125,8 +125,36 @@ function closeLogModal() {
     document.body.style.overflow = '';
 }
 
+// Tab switching
+function switchTab(slug) {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    const btn = document.querySelector('.tab-btn[data-slug="' + slug + '"]');
+    const panel = document.getElementById('tab-' + slug);
+    if (btn) btn.classList.add('active');
+    if (panel) panel.classList.add('active');
+}
+
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeLogModal();
+
+    // Tab navigation with [ and ] — only when modal is closed
+    const modal = document.getElementById('log-modal');
+    if (modal && modal.style.display !== 'none') return;
+
+    if (e.key === '[' || e.key === ']') {
+        const tabs = Array.from(document.querySelectorAll('.tab-btn'));
+        if (tabs.length === 0) return;
+        const activeIdx = tabs.findIndex(t => t.classList.contains('active'));
+        let next;
+        if (e.key === ']') {
+            next = activeIdx < tabs.length - 1 ? activeIdx + 1 : 0;
+        } else {
+            next = activeIdx > 0 ? activeIdx - 1 : tabs.length - 1;
+        }
+        const slug = tabs[next].getAttribute('data-slug');
+        if (slug) switchTab(slug);
+    }
 });
 
 // Auto-collapse long sections on load

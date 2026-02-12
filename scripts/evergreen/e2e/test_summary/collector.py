@@ -35,8 +35,10 @@ class TestSummaryGenerator:
                 'configmaps': [],
                 'pvcs': [],
                 'custom_resources': {},
+                'generic': {},  # slug -> {display_name, items: [...], source_files: [...]}
             },
             'resource_graph': {'edges': []},
+            'diagnostics': {},  # cluster_label -> {file, cluster, namespace}
             'errors': [],
             'error_patterns': [],
             'timeline': [],
@@ -196,7 +198,8 @@ class TestSummaryGenerator:
         self._parse_pods()
         self._parse_statefulsets()
         self._parse_deployments()
-        # Additional resource types can be added here
+        self._parse_generic_resources()
+        self._parse_diagnostics()
 
     def _parse_pods(self):
         """Parse pod information from z_pods.txt files."""
@@ -547,6 +550,146 @@ class TestSummaryGenerator:
         except Exception as e:
             print(f"Warning: Failed to extract Deployment info: {e}", file=sys.stderr)
             return None
+
+    @staticmethod
+    def _extract_resource_slug(filename: str) -> Optional[str]:
+        """Extract the resource slug from a z_* filename.
+
+        Split on '_z_', take the right side, strip extension.
+        secret_ files -> 'secrets', *-pod-describe -> None (skip), else as-is.
+        """
+        if '_z_' not in filename:
+            return None
+        right = filename.split('_z_', 1)[1]
+        # Strip .txt / .log extension
+        right = re.sub(r'\.(txt|log)$', '', right)
+        if right.startswith('secret_'):
+            return 'secrets'
+        if '-pod-describe' in right:
+            return None
+        return right
+
+    @staticmethod
+    def _slug_to_display_name(slug: str) -> str:
+        """Convert a resource slug to a human-readable display name."""
+        acronyms = {'pvcs', 'crds', 'olm'}
+        words = slug.split('_')
+        parts = []
+        for w in words:
+            if w.lower() in acronyms:
+                parts.append(w.upper())
+            else:
+                parts.append(w.capitalize())
+        return ' '.join(parts)
+
+    def _parse_generic_resources(self):
+        """Parse all z_* files into a generic resource map keyed by slug."""
+        if yaml is None:
+            print("Warning: Skipping generic resource parsing (PyYAML not available)", file=sys.stderr)
+            return
+
+        z_files = sorted(self.logs_dir.glob("*_z_*"))
+        # Group files by slug
+        slug_files = defaultdict(list)
+        for f in z_files:
+            if not f.is_file():
+                continue
+            slug = self._extract_resource_slug(f.name)
+            if slug is None:
+                continue
+            slug_files[slug].append(f)
+
+        for slug, files in slug_files.items():
+            display_name = self._slug_to_display_name(slug)
+            items = []
+            source_files = []
+
+            for f in files:
+                cluster, namespace = self._extract_cluster_namespace(f.name)
+                source_files.append({
+                    'name': f.name,
+                    'cluster': cluster,
+                    'namespace': namespace,
+                })
+
+                if slug == 'secrets':
+                    # Secret files: extract name from filename, don't YAML-parse
+                    right = f.name.split('_z_secret_', 1)
+                    if len(right) == 2:
+                        secret_name = re.sub(r'\.(txt|log)$', '', right[1])
+                    else:
+                        secret_name = f.name
+                    items.append({
+                        'name': secret_name,
+                        'namespace': namespace,
+                        'cluster': cluster,
+                        'kind': 'Secret',
+                        'source_file': f.name,
+                    })
+                    continue
+
+                # Try YAML parse
+                try:
+                    with open(f, 'r') as fh:
+                        content = fh.read()
+
+                    # Skip header lines (e.g. "----\nPods\n----")
+                    lines = content.split('\n')
+                    yaml_start = 0
+                    for i, line in enumerate(lines):
+                        if line.strip().startswith(('apiVersion:', 'items:', 'kind:')):
+                            yaml_start = i
+                            break
+
+                    yaml_content = '\n'.join(lines[yaml_start:])
+                    data = yaml.safe_load(yaml_content)
+
+                    if isinstance(data, dict) and 'items' in data:
+                        for item in (data['items'] or []):
+                            if not isinstance(item, dict):
+                                continue
+                            metadata = item.get('metadata', {})
+                            items.append({
+                                'name': metadata.get('name', 'unknown'),
+                                'namespace': metadata.get('namespace', namespace),
+                                'cluster': cluster,
+                                'kind': item.get('kind', ''),
+                                'api_version': item.get('apiVersion', ''),
+                                'created': metadata.get('creationTimestamp', ''),
+                                'source_file': f.name,
+                            })
+                    elif isinstance(data, dict) and 'metadata' in data:
+                        metadata = data.get('metadata', {})
+                        items.append({
+                            'name': metadata.get('name', 'unknown'),
+                            'namespace': metadata.get('namespace', namespace),
+                            'cluster': cluster,
+                            'kind': data.get('kind', ''),
+                            'api_version': data.get('apiVersion', ''),
+                            'created': metadata.get('creationTimestamp', ''),
+                            'source_file': f.name,
+                        })
+                    # else: raw/describe file — no items, but source_files still tracked
+                except Exception as e:
+                    print(f"Warning: Could not parse {f.name}: {e}", file=sys.stderr)
+
+            self.data['resources']['generic'][slug] = {
+                'display_name': display_name,
+                'items': items,
+                'source_files': source_files,
+            }
+
+    def _parse_diagnostics(self):
+        """Parse diagnostics files and store references."""
+        diag_files = sorted(self.logs_dir.glob("*0_diagnostics.txt"))
+        for f in diag_files:
+            cluster, namespace = self._extract_cluster_namespace(f.name)
+            label = f"{cluster}/{namespace}" if cluster != 'default' else namespace
+            self.data['diagnostics'][label] = {
+                'file': f.name,
+                'cluster': cluster,
+                'namespace': namespace,
+            }
 
     def _extract_cluster_namespace(self, filename: str) -> Tuple[str, str]:
         """Extract cluster and namespace from filename.
