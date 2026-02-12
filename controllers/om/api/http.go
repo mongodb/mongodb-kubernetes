@@ -158,17 +158,6 @@ func OptionCAValidate(ca string) func(client *Client) error {
 	}
 }
 
-// OptionRetryConfig configures the retry behavior of the HTTP client.
-// This is useful for testing to avoid waiting for retries.
-func OptionRetryConfig(retryWaitMin, retryWaitMax time.Duration, retryMax int) func(client *Client) error {
-	return func(client *Client) error {
-		client.RetryWaitMin = retryWaitMin
-		client.RetryWaitMax = retryWaitMax
-		client.RetryMax = retryMax
-		return nil
-	}
-}
-
 // Request executes an HTTP request, given a series of parameters, over this *Client object.
 // It handles Digest when needed and json marshaling of the `v` struct.
 func (client *Client) Request(method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
