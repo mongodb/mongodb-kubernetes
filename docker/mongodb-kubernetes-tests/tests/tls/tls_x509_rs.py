@@ -39,7 +39,7 @@ class TestReplicaSetWithNoTLSCreation(KubernetesTester):
         mdb.assert_reaches_phase(Phase.Running, timeout=1200)
 
     @skip_if_local
-    def test_mdb_is_reachable_with_no_ssl(self):
+    def test_mdb_is_reachable_without_ssl(self):
         tester = ReplicaSetTester(MDB_RESOURCE, 3)
         tester.assert_no_connection()
 

@@ -40,7 +40,7 @@ def test_replica_set_running(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_require
 @skip_if_local()
-def test_mdb_is_reachable_with_no_ssl(mdb: MongoDB):
+def test_mdb_is_not_reachable_without_ssl(mdb: MongoDB):
     mdb.tester(use_ssl=False).assert_no_connection()
 
 
@@ -60,7 +60,7 @@ def test_scale_up_replica_set(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_require
 @skip_if_local()
-def test_mdb_scaled_up_is_not_reachable_with_no_ssl(mdb: MongoDB):
+def test_mdb_scaled_up_is_not_reachable_without_ssl(mdb: MongoDB):
     mdb.tester(use_ssl=False).assert_no_connection()
 
 
@@ -80,7 +80,7 @@ def test_scale_down_replica_set(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_require
 @skip_if_local()
-def test_mdb_scaled_down_is_reachable_with_no_ssl(mdb: MongoDB):
+def test_mdb_scaled_down_is_not_reachable_without_ssl(mdb: MongoDB):
     mdb.tester(use_ssl=False).assert_no_connection()
 
 
@@ -103,7 +103,7 @@ def test_change_certificate_and_wait_for_running(mdb: MongoDB, namespace: str):
 
 @pytest.mark.e2e_replica_set_tls_require
 @skip_if_local()
-def test_mdb_renewed_is_reachable_with_no_ssl(mdb: MongoDB):
+def test_mdb_renewed_is_not_reachable_without_ssl(mdb: MongoDB):
     mdb.tester(use_ssl=False).assert_no_connection()
 
 

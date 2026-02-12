@@ -152,5 +152,5 @@ class TestShardedClusterGeoSharding:
         }
         for shard_idx, cluster_idx in cluster_primary_member_mapping.items():
             shard_primary_hostname = sc.shard_hostname(shard_idx, 0, cluster_idx)
-            client = KubernetesTester.check_hosts_are_ready(hosts=[shard_primary_hostname])
+            client = KubernetesTester.get_populated_mongo_client(hosts=[shard_primary_hostname])
             assert client.is_primary

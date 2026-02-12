@@ -133,7 +133,7 @@ def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
                 [
                     "--submit",
                     f"--pyxis-api-token={get_api_token()}",
-                    f"--certification-project-id={args_for_image(image)['rh_cert_project_id']}",
+                    f"--certification-component-id={args_for_image(image)['rh_cert_project_id']}",
                 ]
             )
         preflight_command.append("--docker-config=./temp-authfile.json")
