@@ -1,4 +1,5 @@
 import pytest
+from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_agent_tls_certs, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
@@ -16,9 +17,10 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("replica-set.yaml"), namespace=namespace)
-    res["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap}}
-    return res.create()
+    resource = MongoDB.from_yaml(load_fixture("replica-set.yaml"), namespace=namespace)
+    resource["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap}}
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="module")
@@ -33,6 +35,7 @@ def test_install_operator(operator: Operator):
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_rs
 def test_mdb_running(mdb: MongoDB):
+    mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=400)
 
 

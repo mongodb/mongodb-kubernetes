@@ -1,3 +1,4 @@
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
@@ -12,11 +13,13 @@ def replica_set(namespace: str) -> MongoDB:
         namespace=namespace,
     )
     resource["spec"]["persistent"] = True
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_replica_set_mongod_options
 def test_replica_set_created(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running)
 
 

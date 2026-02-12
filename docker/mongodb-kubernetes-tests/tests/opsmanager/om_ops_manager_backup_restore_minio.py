@@ -144,9 +144,6 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     # these values come from the tenant creation in minio.
     create_or_update_secret(
         namespace,
@@ -188,6 +185,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
+    try_load(resource)
     return resource
 
 

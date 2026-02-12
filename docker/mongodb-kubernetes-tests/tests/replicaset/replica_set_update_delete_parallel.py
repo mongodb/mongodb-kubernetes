@@ -8,6 +8,7 @@ K8s CR and dependent resources removal.
 
 from time import sleep
 
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
@@ -19,13 +20,13 @@ from pytest import fixture, mark
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-single.yaml"), "my-replica-set", namespace)
     resource.set_version(custom_mdb_version)
-    resource.create()
-
+    try_load(resource)
     return resource
 
 
 @mark.e2e_replica_set_update_delete_parallel
 def test_reaches_running_phase(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running)
     replica_set.get_automation_config_tester().assert_replica_sets_size(1)
 

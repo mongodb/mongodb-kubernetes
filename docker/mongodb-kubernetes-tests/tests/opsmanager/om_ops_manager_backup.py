@@ -160,7 +160,8 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -172,7 +173,8 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     ).configure(ops_manager, "s3metadata")
 
     resource.set_version(custom_mdb_version)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -183,7 +185,8 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
     resource.set_version(custom_mdb_version)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -201,7 +204,8 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -225,7 +229,8 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_om_ops_manager_backup
@@ -376,11 +381,15 @@ class TestBackupDatabasesAdded:
         blockstore_replica_set: MongoDB,
     ):
         """Creates mongodb databases all at once"""
+        oplog_replica_set.update()
+        s3_replica_set.update()
+        blockstore_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         s3_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_oplog_user_created(self, oplog_user: MongoDBUser):
+        oplog_user.update()
         oplog_user.assert_reaches_phase(Phase.Updated)
 
     def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
@@ -475,6 +484,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_blockstore_user_was_added_to_om(self, blockstore_user: MongoDBUser):
+        blockstore_user.update()
         blockstore_user.assert_reaches_phase(Phase.Updated)
 
     def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
@@ -701,7 +711,8 @@ class TestAssignmentLabels:
         resource["spec"]["backup"] = {}
         resource["spec"]["backup"]["assignmentLabels"] = ["test"]
         resource.configure_backup(mode="enabled")
-        return resource.update()
+        try_load(resource)
+        return resource
 
     @fixture(scope="class")
     def mdb_assignment_labels_om_tester(self, ops_manager: MongoDBOpsManager, project_name: str) -> OMTester:
@@ -721,6 +732,7 @@ class TestAssignmentLabels:
     def test_mdb_assignment_labels_created(self, mdb_assignment_labels: MongoDB):
         # In order to configure backup on the project level, the labels
         # on both Backup Daemons and project need to match. Otherwise, this will fail.
+        mdb_assignment_labels.update()
         mdb_assignment_labels.assert_reaches_phase(Phase.Running, ignore_errors=True)
 
     def test_assignment_labels_in_om(self, mdb_assignment_labels_om_tester: OMTester):

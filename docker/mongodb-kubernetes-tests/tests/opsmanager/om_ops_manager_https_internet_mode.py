@@ -1,6 +1,7 @@
 import time
 from typing import Optional
 
+from kubetester import try_load
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
@@ -56,7 +57,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
-    om.update()
+    try_load(om)
     return om
 
 
@@ -67,7 +68,8 @@ def replicaset0(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_prev_
     )
     resource["spec"]["version"] = custom_mdb_prev_version
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -77,11 +79,13 @@ def replicaset1(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     )
     resource["spec"]["version"] = custom_mdb_version
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_om_ops_manager_https_enabled_internet_mode
 def test_enable_https_on_opsmanager(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     assert ops_manager.om_status().get_url().startswith("https://")
@@ -115,8 +119,10 @@ def test_project_is_configured_with_custom_ca(
 def test_mongodb_replicaset_over_https_ops_manager(replicaset0: MongoDB, replicaset1: MongoDB):
     """Both replicasets get to running state and are reachable."""
 
+    replicaset0.update()
     replicaset0.assert_reaches_phase(Phase.Running, timeout=360)
     replicaset0.assert_connectivity()
 
+    replicaset1.update()
     replicaset1.assert_reaches_phase(Phase.Running, timeout=360)
     replicaset1.assert_connectivity()
