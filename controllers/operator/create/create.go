@@ -167,15 +167,18 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, sleepDuration time.Duration, log *zap.SugaredLogger) bool {
 	// After deleting the statefulset it can take seconds to be reflected in kubernetes.
 	// In case it is still not reflected
+	deletedIsStatefulset := false
 	for i := 0; i < 3; i++ {
 		time.Sleep(sleepDuration)
 		_, stsErr := memberClient.GetStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
 		if apiErrors.IsNotFound(stsErr) {
-			return true
+			deletedIsStatefulset = true
+			break
+		} else {
+			log.Info("Statefulset still exists, attempting again")
 		}
-		log.Info("Statefulset still exists, attempting again")
 	}
-	return false
+	return deletedIsStatefulset
 }
 
 func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet) (bool, error) {
