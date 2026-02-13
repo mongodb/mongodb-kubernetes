@@ -100,15 +100,6 @@ func Configure(ctx context.Context, client kubernetesClient.Client, conn om.Conn
 		return om.WaitForReadyState(conn, opts.ProcessNames, false, log)
 	}
 
-	// we need to make sure the desired authentication mechanism for the agent exists. If the desired agent
-	// authentication mechanism does not exist in auth.deploymentAuthMechanisms, it is an invalid config
-	if err := ensureDeploymentsMechanismsExist(conn, opts, log); err != nil {
-		return xerrors.Errorf("error ensuring deployment mechanisms: %w", err)
-	}
-	if err := waitForReadyStateIfNeeded(); err != nil {
-		return err
-	}
-
 	// we make sure that the AuthoritativeSet options in the AC is correct
 	if err := ensureAuthoritativeSetIsConfigured(conn, opts.AuthoritativeSet, log); err != nil {
 		return xerrors.Errorf("error ensuring that authoritative set is configured: %w", err)
@@ -117,10 +108,25 @@ func Configure(ctx context.Context, client kubernetesClient.Client, conn om.Conn
 		return err
 	}
 
-	// once we have made sure that the deployment authentication mechanism array contains the desired auth mechanism
-	// we can then configure the agent authentication.
+	// Enable agent authentication first. This atomically:
+	// 1. Creates the automation agent user with credentials
+	// 2. Adds the mechanism to DeploymentAuthMechanisms
+	// 3. Sets AutoAuthMechanisms
+	// 4. Enables auth (sets Disabled = false)
+	// This prevents CLOUDP-68873 deadlock where agent sees mechanism in DeploymentAuthMechanisms
+	// but auth is still disabled or AutoAuthMechanisms is empty.
 	if err := enableAgentAuthentication(ctx, client, conn, opts, log); err != nil {
 		return xerrors.Errorf("error enabling agent authentication: %w", err)
+	}
+	if err := waitForReadyStateIfNeeded(); err != nil {
+		return err
+	}
+
+	// Ensure any additional deployment mechanisms exist (e.g., when multiple mechanisms are configured).
+	// This is typically a no-op for single-mechanism configurations since enableAgentAuthentication
+	// already added the agent's mechanism to DeploymentAuthMechanisms.
+	if err := ensureDeploymentsMechanismsExist(conn, opts, log); err != nil {
+		return xerrors.Errorf("error ensuring deployment mechanisms: %w", err)
 	}
 	if err := waitForReadyStateIfNeeded(); err != nil {
 		return err

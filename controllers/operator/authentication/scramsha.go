@@ -36,6 +36,13 @@ func (s *automationConfigScramSha) EnableAgentAuthentication(ctx context.Context
 		auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 
+		// Add the mechanism to DeploymentAuthMechanisms atomically with enabling auth.
+		// This prevents CLOUDP-68873 deadlock where agent sees mechanism in DeploymentAuthMechanisms
+		// but auth is still disabled or AutoAuthMechanisms is empty.
+		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName)) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
+		}
+
 		// We can only have a single agent authentication mechanism specified at a given time
 		auth.AutoAuthMechanisms = []string{string(s.MechanismName)}
 		return nil

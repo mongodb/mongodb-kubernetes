@@ -38,6 +38,14 @@ func (x *connectionX509) EnableAgentAuthentication(_ context.Context, _ kubernet
 
 		auth.AutoUser = opts.AutomationSubject
 		auth.LdapGroupDN = opts.AutoLdapGroupDN
+
+		// Add the mechanism to DeploymentAuthMechanisms atomically with enabling auth.
+		// This prevents CLOUDP-68873 deadlock where agent sees mechanism in DeploymentAuthMechanisms
+		// but auth is still disabled or AutoAuthMechanisms is empty.
+		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509)) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
+		}
+
 		auth.AutoAuthMechanisms = []string{string(MongoDBX509)}
 
 		return nil
