@@ -1,0 +1,20 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-sh-search
+spec:
+  logLevel: DEBUG
+  # The source configuration is dynamically built by the test fixture
+  # to use spec.source.external.sharded with the actual MongoDB endpoints.
+  # This is a placeholder that will be overwritten by the mdbs fixture.
+  source:
+    replicas: 1
+  security:
+    tls:
+      certificateKeySecretRef:
+        name: mdb-sh-search-cert
+      ca:
+        name: mdb-sh-ca
+  # The lb configuration is dynamically built by the test fixture
+  # to point to the Envoy proxy services.
+
