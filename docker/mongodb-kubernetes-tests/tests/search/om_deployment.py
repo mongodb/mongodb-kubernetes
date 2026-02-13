@@ -18,13 +18,11 @@ def get_ops_manager(namespace: str) -> Optional[MongoDBOpsManager]:
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(get_custom_om_version())
     resource.set_appdb_version(get_custom_appdb_version())
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
+    try_load(resource)
     return resource

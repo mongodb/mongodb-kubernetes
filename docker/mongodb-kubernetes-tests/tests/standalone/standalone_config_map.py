@@ -1,6 +1,7 @@
 import pytest
 from kubernetes import client
 from kubernetes.client import V1ConfigMap
+from kubetester import try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -11,7 +12,8 @@ from pytest import fixture
 @fixture(scope="module")
 def standalone(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("standalone.yaml"), namespace=namespace)
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -27,6 +29,7 @@ class TestStandaloneListensConfigMap:
     group_id = ""
 
     def test_create_standalone(self, standalone: MongoDB):
+        standalone.update()
         standalone.assert_reaches_phase(Phase.Running, timeout=150)
 
     def test_patch_config_map(self, standalone: MongoDB, new_project_name: str):

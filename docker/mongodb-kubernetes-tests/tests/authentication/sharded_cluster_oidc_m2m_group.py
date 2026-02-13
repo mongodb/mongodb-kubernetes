@@ -17,8 +17,6 @@ MDB_RESOURCE = "oidc-sharded-cluster-replica-set"
 @fixture(scope="module")
 def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("oidc/sharded-cluster-replica-set.yaml"), namespace=namespace)
-    if try_load(resource):
-        return resource
 
     oidc_provider_configs = resource.get_oidc_provider_configs()
 
@@ -36,13 +34,15 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
             configsrv_members_array=[1, 1, 1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestCreateOIDCShardedCluster(KubernetesTester):
 
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
     def test_assert_connectivity(self, sharded_cluster: MongoDB):

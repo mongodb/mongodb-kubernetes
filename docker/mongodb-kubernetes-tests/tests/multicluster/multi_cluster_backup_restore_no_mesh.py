@@ -151,7 +151,8 @@ def oplog_replica_set(
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -180,7 +181,8 @@ def blockstore_replica_set(
 
     resource.set_version(custom_mdb_version)
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -204,7 +206,8 @@ def blockstore_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -234,7 +237,8 @@ def oplog_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -379,10 +383,13 @@ class TestBackupDatabasesAdded:
         blockstore_replica_set: MongoDB,
     ):
         """Creates mongodb databases all at once"""
+        oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
+        blockstore_replica_set.update()
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_oplog_user_created(self, oplog_user: MongoDBUser):
+        oplog_user.update()
         oplog_user.assert_reaches_phase(Phase.Updated)
 
     def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
@@ -572,7 +579,8 @@ class TestBackupForMongodb:
             api_client=central_cluster_client,
         )
 
-        return resource.update()
+        try_load(resource)
+        return resource
 
     @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_setup_om_connection(
@@ -619,6 +627,7 @@ class TestBackupForMongodb:
 
     @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
+        mongodb_multi_one.update()
         # we might fail connection in the beginning since we set a custom dns in coredns
         mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=1500)
 

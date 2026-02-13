@@ -44,9 +44,6 @@ def ops_manager(
         yaml_fixture("om_ops_manager_upgrade.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.allow_mdb_rc_versions()
     resource.set_version(custom_om_prev_version)
     resource.set_appdb_version(ensure_ent_version(custom_mdb_prev_version))

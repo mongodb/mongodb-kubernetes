@@ -8,7 +8,7 @@ This is a companion test for docs/investigation/pod-is-killed-while-agent-restor
 
 from typing import Dict, Optional
 
-from kubetester import create_or_update_secret, get_default_storage_class
+from kubetester import create_or_update_secret, get_default_storage_class, try_load
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -114,7 +114,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -129,7 +129,8 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
 
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -140,7 +141,8 @@ def s3_replica_set(ops_manager, namespace) -> MongoDB:
         name=S3_RS_NAME,
     ).configure(ops_manager, "s3metadata")
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -151,7 +153,8 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
     resource.set_version(custom_mdb_version)
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -169,7 +172,8 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -193,7 +197,8 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_om_ops_manager_backup_manual
@@ -207,6 +212,7 @@ class TestOpsManagerCreation:
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         """creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
+        ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
             msg_regexp="The MongoDB object .+ doesn't exist",
@@ -323,7 +329,8 @@ class TestBackupForMongodb:
         ]
 
         resource.configure_backup(mode="disabled")
-        return resource.create()
+        try_load(resource)
+        return resource
 
     @fixture(scope="class")
     def mdb_non_fixed(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
@@ -355,10 +362,13 @@ class TestBackupForMongodb:
         ]
 
         resource.configure_backup(mode="disabled")
-        return resource.create()
+        try_load(resource)
+        return resource
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_non_fixed: MongoDB):
+        mdb_latest.update()
         mdb_latest.assert_reaches_phase(Phase.Running)
+        mdb_non_fixed.update()
         mdb_non_fixed.assert_reaches_phase(Phase.Running)
 
     def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_non_fixed: MongoDB):

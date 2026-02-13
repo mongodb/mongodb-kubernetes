@@ -15,7 +15,7 @@ from typing import Callable, Dict, List
 import pymongo
 import yaml
 from kubernetes.client.rest import ApiException
-from kubetester import find_fixture, wait_until
+from kubetester import find_fixture, try_load, wait_until
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_utils_replicaset import generic_replicaset
 from kubetester.mongotester import upload_random_data
@@ -68,14 +68,15 @@ def create_writing_tasks(client: pymongo.MongoClient, prefix: str, task_sizes: L
 
 @fixture(scope="module")
 def replica_set(namespace: str) -> MongoDB:
-    rs = generic_replicaset(namespace, version="4.4.2")
-
-    rs["spec"]["persistent"] = True
-    return rs.create()
+    resource = generic_replicaset(namespace, version="4.4.2")
+    resource["spec"]["persistent"] = True
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_replication_state_awareness
 def test_replicaset_reaches_running_state(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
