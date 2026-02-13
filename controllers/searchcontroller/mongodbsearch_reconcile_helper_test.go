@@ -844,7 +844,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 					},
 				},
 			},
-			shardName:     "test-mdb-2",
+			shardName:     "test-mdb-2", // Not in endpoint map
 			clusterDomain: "cluster.local",
 			expectedHost:  "test-search-mongot-test-mdb-2-svc.test-ns.svc.cluster.local:27028",
 			useExternalLB: true,
@@ -973,6 +973,126 @@ func TestMongoDBSearch_LBHelperMethods(t *testing.T) {
 	}
 }
 
+func TestCreateShardMongotConfig(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+			Mode: searchv1.LBModeUnmanaged,
+			External: &searchv1.ExternalLBConfig{
+				Sharded: &searchv1.ShardedExternalLBConfig{
+					Endpoints: []searchv1.ShardEndpoint{
+						{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
+						{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
+					},
+				},
+			},
+		}
+	})
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"my-cluster-0", "my-cluster-1"},
+		hostSeeds: map[int][]string{
+			0: {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
+			1: {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
+		},
+	}
+
+	config := mongot.Config{}
+	createShardMongotConfig(search, shardedSource, 0)(&config)
+
+	assert.Equal(t, []string{"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"}, config.SyncSource.ReplicaSet.HostAndPort)
+	assert.Equal(t, search.SourceUsername(), config.SyncSource.ReplicaSet.Username)
+
+	config2 := mongot.Config{}
+	createShardMongotConfig(search, shardedSource, 1)(&config2)
+
+	assert.Equal(t, []string{"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"}, config2.SyncSource.ReplicaSet.HostAndPort)
+}
+
+func TestShardedMongotConfigWithTLS(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+			Mode: searchv1.LBModeUnmanaged,
+			External: &searchv1.ExternalLBConfig{
+				Sharded: &searchv1.ShardedExternalLBConfig{
+					Endpoints: []searchv1.ShardEndpoint{
+						{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
+						{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
+					},
+				},
+			},
+		}
+	})
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"my-cluster-0", "my-cluster-1"},
+		hostSeeds: map[int][]string{
+			0: {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
+			1: {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
+		},
+		tlsConfig: &TLSSourceConfig{
+			CAFileName: "ca-pem",
+		},
+	}
+
+	config := mongot.Config{}
+	createShardMongotConfig(search, shardedSource, 0)(&config)
+
+	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
+	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should initially be false")
+	assert.NotNil(t, config.SyncSource.Router)
+	assert.NotNil(t, config.SyncSource.Router.TLS)
+	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should initially be false")
+
+	// Simulate what ensureEgressTlsConfig does when TLS is enabled
+	tlsSourceConfig := shardedSource.TLSConfig()
+	assert.NotNil(t, tlsSourceConfig, "TLS config should not be nil")
+
+	// Apply the TLS modification (simulating ensureEgressTlsConfig behavior)
+	config.SyncSource.ReplicaSet.TLS = ptr.To(true)
+	config.SyncSource.CertificateAuthorityFile = ptr.To("/mongodb-automation/ca/" + tlsSourceConfig.CAFileName)
+	if config.SyncSource.Router != nil {
+		config.SyncSource.Router.TLS = ptr.To(true)
+	}
+
+	assert.True(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be enabled")
+	assert.NotNil(t, config.SyncSource.CertificateAuthorityFile)
+	assert.Equal(t, "/mongodb-automation/ca/ca-pem", *config.SyncSource.CertificateAuthorityFile)
+	assert.True(t, *config.SyncSource.Router.TLS, "Router TLS should be enabled for sharded clusters")
+}
+
+func TestShardedMongotConfigWithoutTLS(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+			Mode: searchv1.LBModeUnmanaged,
+			External: &searchv1.ExternalLBConfig{
+				Sharded: &searchv1.ShardedExternalLBConfig{
+					Endpoints: []searchv1.ShardEndpoint{
+						{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
+					},
+				},
+			},
+		}
+	})
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"my-cluster-0"},
+		hostSeeds: map[int][]string{
+			0: {"my-cluster-0-0.svc:27017"},
+		},
+		tlsConfig: nil, // No TLS
+	}
+
+	config := mongot.Config{}
+	createShardMongotConfig(search, shardedSource, 0)(&config)
+
+	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
+	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be false when source has no TLS")
+	assert.NotNil(t, config.SyncSource.Router)
+	assert.NotNil(t, config.SyncSource.Router.TLS)
+	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should be false when source has no TLS")
+	assert.Nil(t, config.SyncSource.CertificateAuthorityFile)
+}
+
 // mockShardedSource is a mock implementation of ShardedSearchSourceDBResource for testing
 type mockShardedSource struct {
 	shardNames []string
@@ -1017,127 +1137,6 @@ func (m *mockShardedSource) TLSConfig() *TLSSourceConfig {
 	return m.tlsConfig
 }
 
-// TestCreateShardMongotConfig tests the createShardMongotConfig function
-func TestCreateShardMongotConfig(t *testing.T) {
-	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-			Mode: searchv1.LBModeUnmanaged,
-			External: &searchv1.ExternalLBConfig{
-				Sharded: &searchv1.ShardedExternalLBConfig{
-					Endpoints: []searchv1.ShardEndpoint{
-						{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
-						{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
-					},
-				},
-			},
-		}
-	})
-
-	shardedSource := &mockShardedSource{
-		shardNames: []string{"my-cluster-0", "my-cluster-1"},
-		hostSeeds: map[int][]string{
-			0: {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
-			1: {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
-		},
-	}
-
-	config := mongot.Config{}
-	createShardMongotConfig(search, shardedSource, 0)(&config)
-
-	assert.Equal(t, []string{"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"}, config.SyncSource.ReplicaSet.HostAndPort)
-	assert.Equal(t, search.SourceUsername(), config.SyncSource.ReplicaSet.Username)
-
-	config2 := mongot.Config{}
-	createShardMongotConfig(search, shardedSource, 1)(&config2)
-
-	assert.Equal(t, []string{"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"}, config2.SyncSource.ReplicaSet.HostAndPort)
-}
-
-// TestShardedMongotConfigWithTLS tests TLS configuration for sharded clusters
-func TestShardedMongotConfigWithTLS(t *testing.T) {
-	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-			Mode: searchv1.LBModeUnmanaged,
-			External: &searchv1.ExternalLBConfig{
-				Sharded: &searchv1.ShardedExternalLBConfig{
-					Endpoints: []searchv1.ShardEndpoint{
-						{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
-						{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
-					},
-				},
-			},
-		}
-	})
-
-	shardedSource := &mockShardedSource{
-		shardNames: []string{"my-cluster-0", "my-cluster-1"},
-		hostSeeds: map[int][]string{
-			0: {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
-			1: {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
-		},
-		tlsConfig: &TLSSourceConfig{
-			CAFileName: "ca-pem",
-		},
-	}
-
-	config := mongot.Config{}
-	createShardMongotConfig(search, shardedSource, 0)(&config)
-
-	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
-	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should initially be false")
-	assert.NotNil(t, config.SyncSource.Router)
-	assert.NotNil(t, config.SyncSource.Router.TLS)
-	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should initially be false")
-
-	tlsSourceConfig := shardedSource.TLSConfig()
-	assert.NotNil(t, tlsSourceConfig, "TLS config should not be nil")
-
-	config.SyncSource.ReplicaSet.TLS = ptr.To(true)
-	config.SyncSource.CertificateAuthorityFile = ptr.To("/mongodb-automation/ca/" + tlsSourceConfig.CAFileName)
-	if config.SyncSource.Router != nil {
-		config.SyncSource.Router.TLS = ptr.To(true)
-	}
-
-	assert.True(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be enabled")
-	assert.NotNil(t, config.SyncSource.CertificateAuthorityFile)
-	assert.Equal(t, "/mongodb-automation/ca/ca-pem", *config.SyncSource.CertificateAuthorityFile)
-	assert.True(t, *config.SyncSource.Router.TLS, "Router TLS should be enabled for sharded clusters")
-}
-
-// TestShardedMongotConfigWithoutTLS tests TLS remains disabled when source has no TLS
-func TestShardedMongotConfigWithoutTLS(t *testing.T) {
-	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-			Mode: searchv1.LBModeUnmanaged,
-			External: &searchv1.ExternalLBConfig{
-				Sharded: &searchv1.ShardedExternalLBConfig{
-					Endpoints: []searchv1.ShardEndpoint{
-						{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
-					},
-				},
-			},
-		}
-	})
-
-	shardedSource := &mockShardedSource{
-		shardNames: []string{"my-cluster-0"},
-		hostSeeds: map[int][]string{
-			0: {"my-cluster-0-0.svc:27017"},
-		},
-		tlsConfig: nil,
-	}
-
-	config := mongot.Config{}
-	createShardMongotConfig(search, shardedSource, 0)(&config)
-
-	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
-	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be false when source has no TLS")
-	assert.NotNil(t, config.SyncSource.Router)
-	assert.NotNil(t, config.SyncSource.Router.TLS)
-	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should be false when source has no TLS")
-	assert.Nil(t, config.SyncSource.CertificateAuthorityFile)
-}
-
 func TestBuildShardSearchHeadlessService(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test")
 	shardName := "my-cluster-0"
@@ -1149,8 +1148,10 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 	assert.Equal(t, corev1.ClusterIPNone, svc.Spec.ClusterIP)
 	assert.Equal(t, corev1.ServiceTypeClusterIP, svc.Spec.Type)
 
+	// Check selector points to the shard StatefulSet
 	assert.Equal(t, "test-search-mongot-my-cluster-0", svc.Spec.Selector["app"])
 
+	// Check ports
 	var grpcPort, healthPort *corev1.ServicePort
 	for i := range svc.Spec.Ports {
 		switch svc.Spec.Ports[i].Name {
@@ -1450,7 +1451,6 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 	}
 }
 
-
 func TestGetMongosConfigParametersForSharded(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -1480,7 +1480,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			expectedHost: "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
 		},
 		{
-			name: "External LB endpoint for first shard",
+			name: "External LB endpoint - uses first shard's endpoint",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1539,6 +1539,11 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			searchIndexHost, ok := setParameter["searchIndexManagementHostAndPort"].(string)
 			require.True(t, ok, "searchIndexManagementHostAndPort should be a string")
 			assert.Equal(t, tc.expectedHost, searchIndexHost)
+
+			// useGrpcForSearch must always be true for mongos
+			useGrpc, ok := setParameter["useGrpcForSearch"].(bool)
+			require.True(t, ok, "useGrpcForSearch should be a bool")
+			assert.True(t, useGrpc, "useGrpcForSearch must be true for mongos")
 		})
 	}
 }

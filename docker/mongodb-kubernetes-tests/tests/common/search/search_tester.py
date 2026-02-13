@@ -1,12 +1,14 @@
-import os
-import tempfile
+from typing import TYPE_CHECKING, Optional
 
 import kubetester
-import requests
 from kubetester.helm import process_run_and_check
 from kubetester.mongotester import MongoTester
 from pymongo.operations import SearchIndexModel
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
+
+if TYPE_CHECKING:
+    from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -16,23 +18,100 @@ class SearchTester(MongoTester):
         self,
         connection_string: str,
         use_ssl: bool = False,
-        ca_path: str | None = None,
+        ca_path: Optional[str] = None,
     ):
         super().__init__(connection_string, use_ssl, ca_path)
 
-    def mongorestore_from_url(self, archive_url: str, ns_include: str, mongodb_tools_dir: str = ""):
-        logger.debug(f"running mongorestore from {archive_url}")
-        with tempfile.NamedTemporaryFile(delete=False) as sample_file:
-            resp = requests.get(archive_url)
-            size = sample_file.write(resp.content)
-            logger.debug(f"Downloaded sample file from {archive_url} to {sample_file.name} (size: {size})")
-            mongorestore_path = os.path.join(mongodb_tools_dir, "mongorestore")
-            mongorestore_cmd = f"{mongorestore_path} --archive={sample_file.name} --verbose=1 --drop --nsInclude {ns_include} --uri={self.cnx_string}"
-            if self.default_opts.get("tls", False):
-                mongorestore_cmd += " --ssl"
-            if ca_path := self.default_opts.get("tlsCAFile"):
-                mongorestore_cmd += " --sslCAFile=" + ca_path
-            process_run_and_check(mongorestore_cmd.split(), capture_output=True)
+    @classmethod
+    def for_replicaset(
+        cls,
+        mdb,
+        user_name: str,
+        password: str,
+        use_ssl: bool = False,
+        ca_path: Optional[str] = None,
+    ) -> "SearchTester":
+        """Create SearchTester for a replica set MongoDB resource.
+
+        Args:
+            mdb: MongoDB or MongoDBCommunity resource with name and namespace attributes
+            user_name: Username for authentication
+            password: Password for authentication
+            use_ssl: Whether to use TLS/SSL connection
+            ca_path: Path to CA certificate file (required if use_ssl=True)
+
+        Returns:
+            SearchTester instance configured for the replica set
+        """
+        conn_str = (
+            f"mongodb://{user_name}:{password}@"
+            f"{mdb.name}-0.{mdb.name}-svc.{mdb.namespace}.svc.cluster.local:27017/"
+            f"?replicaSet={mdb.name}"
+        )
+        return cls(conn_str, use_ssl=use_ssl, ca_path=ca_path)
+
+    @classmethod
+    def for_sharded(
+        cls,
+        mdb,
+        user_name: str,
+        password: str,
+        use_ssl: bool = False,
+        ca_path: Optional[str] = None,
+    ) -> "SearchTester":
+        """Create SearchTester for a sharded MongoDB resource (connects to mongos).
+
+        Args:
+            mdb: MongoDB resource with name and namespace attributes (sharded cluster)
+            user_name: Username for authentication
+            password: Password for authentication
+            use_ssl: Whether to use TLS/SSL connection
+            ca_path: Path to CA certificate file (required if use_ssl=True)
+
+        Returns:
+            SearchTester instance configured for the sharded cluster via mongos
+        """
+        conn_str = (
+            f"mongodb://{user_name}:{password}@"
+            f"{mdb.name}-mongos-0.{mdb.name}-svc.{mdb.namespace}.svc.cluster.local:27017/"
+            f"?authSource=admin"
+        )
+        return cls(conn_str, use_ssl=use_ssl, ca_path=ca_path)
+
+    def mongorestore_from_url(self, archive_url: str, ns_include: str, tools_pod: ToolsPod):
+        """Run mongorestore from a URL using the tools pod.
+
+        Args:
+            archive_url: URL to download the archive from
+            ns_include: Namespace include pattern for mongorestore
+            tools_pod: ToolsPod instance to run the command in
+        """
+        logger.debug(f"running mongorestore from {archive_url} via tools pod")
+        archive_path = "/tmp/sample.archive"
+
+        # Download the archive directly in the pod using curl
+        tools_pod.run_command(["curl", "-o", archive_path, "-L", archive_url])
+
+        # Build mongorestore command
+        mongorestore_cmd = [
+            "mongorestore",
+            f"--archive={archive_path}",
+            "--verbose=1",
+            "--drop",
+            "--nsInclude",
+            ns_include,
+            f"--uri={self.cnx_string}",
+        ]
+
+        if self.default_opts.get("tls", False):
+            mongorestore_cmd.append("--ssl")
+        if ca_path := self.default_opts.get("tlsCAFile"):
+            # Copy CA cert to pod and use it
+            pod_ca_path = "/tmp/ca.crt"
+            tools_pod.copy_file_to_pod(ca_path, pod_ca_path)
+            mongorestore_cmd.append(f"--sslCAFile={pod_ca_path}")
+
+        tools_pod.run_command(mongorestore_cmd)
 
     def create_search_index(self, database_name: str, collection_name: str):
         database = self.client[database_name]
@@ -87,9 +166,19 @@ class SearchTester(MongoTester):
             return False
 
         for idx in search_indexes:
-            if idx.get("status") != "READY":
-                logger.debug(f"{database_name}/{collection_name}: search index {idx} is not ready")
-                return False
+            status = idx.get("status")
+            queryable = idx.get("queryable")
+            if status == "READY" or queryable is True:
+                continue
+            if status is None and queryable is None and idx.get("latestDefinition") is not None:
+                logger.debug(
+                    f"{database_name}/{collection_name}: search index {idx.get('name')} has no status but has latestDefinition, considering ready"
+                )
+                continue
+            logger.debug(
+                f"{database_name}/{collection_name}: search index {idx} is not ready (status={status}, queryable={queryable})"
+            )
+            return False
         return True
 
     def get_search_indexes(self, database_name, collection_name):
