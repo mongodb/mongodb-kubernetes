@@ -824,7 +824,7 @@ func TestReplicaSetAgentVersionMapping(t *testing.T) {
 }
 
 func TestHandlePVCResize(t *testing.T) {
-	synctest.Run(func() {
+	synctest.Test(t, func(t *testing.T) {
 		statefulSet := &appsv1.StatefulSet{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "example-sts",

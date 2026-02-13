@@ -173,7 +173,7 @@ func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t 
 }
 
 func TestReconcilePVCResizeMultiCluster(t *testing.T) {
-	synctest.Run(func() {
+	synctest.Test(t, func(t *testing.T) {
 		ctx := context.Background()
 
 		configuration := common.StatefulSetConfiguration{

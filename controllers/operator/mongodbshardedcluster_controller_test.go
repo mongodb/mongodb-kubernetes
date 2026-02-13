@@ -330,7 +330,7 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 }
 
 func TestReconcilePVCResizeShardedCluster(t *testing.T) {
-	synctest.Run(func() {
+	synctest.Test(t, func(t *testing.T) {
 		ctx := context.Background()
 		// First creation
 		sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
