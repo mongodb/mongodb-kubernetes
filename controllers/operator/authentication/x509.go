@@ -30,12 +30,10 @@ func (x *connectionX509) EnableAgentAuthentication(_ context.Context, _ kubernet
 		auth.AuthoritativeSet = opts.AuthoritativeSet
 		auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
-		// When X509 is in DeploymentAuthMechanisms, Ops Manager requires ClientCertificateMode to be REQUIRE.
-		// Set this atomically with adding the mechanism to prevent validation errors.
 		ac.AgentSSL = &om.AgentSSL{
 			AutoPEMKeyFilePath:    opts.AutoPEMKeyFilePath,
 			CAFilePath:            opts.CAFilePath,
-			ClientCertificateMode: util.RequireClientCertificates,
+			ClientCertificateMode: opts.ClientCertificates,
 		}
 
 		auth.AutoUser = opts.AutomationSubject
