@@ -26,7 +26,7 @@ RUN if [ -f "/tools/mongodb_tools.tgz" ]; then \
       && rm /tools/mongodb_tools.tgz; \
     fi
 
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.25 AS readiness_builder
 
 WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
 
@@ -60,6 +60,7 @@ COPY --from=tools_downloader /tools/ /tools/
 
 COPY --from=base /data/readinessprobe /probes/readinessprobe
 COPY --from=base /data/probe.sh /probes/probe.sh
+COPY --from=base /data/version-upgrade-hook /probes/version-upgrade-hook
 COPY --from=base /data/scripts/ /scripts/
 COPY --from=base /data/licenses /licenses/
 

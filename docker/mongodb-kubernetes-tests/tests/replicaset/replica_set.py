@@ -34,9 +34,6 @@ def _get_group_id(envs) -> str:
 def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), "my-replica-set", namespace)
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(custom_mdb_version)
     resource["spec"]["clusterDomain"] = cluster_domain
 
@@ -82,7 +79,7 @@ def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) ->
         }
 
     setup_log_rotate_for_agents(resource)
-    resource.update()
+    try_load(resource)
 
     return resource
 
@@ -104,6 +101,7 @@ class TestReplicaSetCreation(KubernetesTester):
         config_version.version = config["version"]
 
     def test_mdb_created(self, replica_set: MongoDB):
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
     def test_replica_set_sts_exists(self):

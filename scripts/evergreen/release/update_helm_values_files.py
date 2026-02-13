@@ -24,7 +24,6 @@ RELEASE_JSON_TO_HELM_KEY = {
     "mongodbOperator": "operator",
     "initDatabaseVersion": "initDatabase",
     "initOpsManagerVersion": "initOpsManager",
-    "initAppDbVersion": "initAppDb",
     "databaseImageVersion": "database",
     "agentVersion": "agent",
     "readinessProbeVersion": "readinessProbe",

@@ -158,13 +158,11 @@ spec:
     {{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}
     {{- $agentImageRepository := "MDB_AGENT_IMAGE_REPOSITORY" -}}
     {{- $initOpsManagerImageRepositoryEnv := "INIT_OPS_MANAGER_IMAGE_REPOSITORY" -}}
-    {{- $initAppDbImageRepositoryEnv := "INIT_APPDB_IMAGE_REPOSITORY" -}}
     {{- $agentImageEnv := "AGENT_IMAGE" -}}
     {{- $mongodbImageEnv := "MONGODB_IMAGE" -}}
     {{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") -}}
     {{- $databaseVersion := print .Values.database.version (.Values.build | default "") -}}
     {{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") -}}
-    {{- $initAppDbVersion := print .Values.initAppDb.version (.Values.build | default "") -}}
     {{- $agentVersion := .Values.agent.version }}
             - name: IMAGE_PULL_POLICY
               value: {{ .Values.registry.pullPolicy }}
@@ -184,11 +182,6 @@ spec:
               value: {{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}
             - name: INIT_OPS_MANAGER_VERSION
               value: {{ $initOpsManagerVersion | quote }}
-            # AppDB
-            - name: {{ $initAppDbImageRepositoryEnv }}
-              value: {{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}
-            - name: INIT_APPDB_VERSION
-              value: {{ $initAppDbVersion | quote }}
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: {{ .Values.registry.pullPolicy }}
             - name: {{ $agentImageEnv }}
@@ -250,8 +243,6 @@ spec:
               value: "{{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}:{{ $initDatabaseVersion }}"
             - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $initOpsManagerVersion | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}:{{ $initOpsManagerVersion }}"
-            - name: RELATED_IMAGE_{{ $initAppDbImageRepositoryEnv }}_{{ $initAppDbVersion | replace "." "_" | replace "-" "_" }}
-              value: "{{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}:{{ $initAppDbVersion }}"
       {{- range $version := .Values.relatedImages.agent }}
             - name: RELATED_IMAGE_{{ $agentImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ $version }}"

@@ -49,9 +49,6 @@ def sc(namespace: str, issuer_ca_configmap: str, custom_mdb_version: str, all_ce
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     resource["spec"]["security"] = {
         "tls": {
             "enabled": True,
@@ -71,7 +68,8 @@ def sc(namespace: str, issuer_ca_configmap: str, custom_mdb_version: str, all_ce
             configsrv_members_array=[1, 1, 1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
@@ -81,6 +79,7 @@ def test_install_operator(operator: Operator):
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_sharded_cluster_with_prefix_gets_to_running_state(sc: MongoDB):
+    sc.update()
     sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

@@ -1,4 +1,5 @@
 import pytest
+from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_agent_tls_certs, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
@@ -23,9 +24,10 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 @pytest.fixture(scope="module")
 def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("test-x509-rs.yaml"), namespace=namespace)
-    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.create()
+    resource = MongoDB.from_yaml(load_fixture("test-x509-rs.yaml"), namespace=namespace)
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_tls_x509_rs
@@ -36,10 +38,11 @@ def test_install_operator(operator: Operator):
 @pytest.mark.e2e_tls_x509_rs
 class TestReplicaSetWithNoTLSCreation(KubernetesTester):
     def test_gets_to_running_state(self, mdb: MongoDB):
+        mdb.update()
         mdb.assert_reaches_phase(Phase.Running, timeout=1200)
 
     @skip_if_local
-    def test_mdb_is_reachable_with_no_ssl(self):
+    def test_mdb_is_reachable_without_ssl(self):
         tester = ReplicaSetTester(MDB_RESOURCE, 3)
         tester.assert_no_connection()
 

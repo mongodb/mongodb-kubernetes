@@ -60,6 +60,15 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
+  - repo: local
+    hooks:
+      - id: validate-go-version
+        name: validate-go-version
+        entry: scripts/dev/update_go_version.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -97,7 +106,6 @@ repos:
     rev: 24.10.0
     hooks:
       - id: black
-        language_version: python3
 
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
@@ -109,7 +117,7 @@ repos:
     rev: v0.10.0
     hooks:
       - id: shellcheck
-        args: [-e, SC2154, -e, SC1091, -e, SC1090, -e, SC2148, -o, require-variable-braces, -P, scripts]
+        args: [-e, SC2154, -e, SC2153, -e, SC1091, -e, SC1090, -e, SC2148, -o, require-variable-braces, -P, scripts]
         exclude: |
           (?x)^(
             vendor/.*|
@@ -123,7 +131,8 @@ repos:
           )
 
   - repo: https://github.com/golangci/golangci-lint
-    rev: v1.62.2
+    rev: v2.0.2
     hooks:
       - id: golangci-lint
         args: [--timeout=10m]
+        language_version: 1.25.7

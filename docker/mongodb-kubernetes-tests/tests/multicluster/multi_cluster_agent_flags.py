@@ -1,7 +1,7 @@
 from typing import List
 
 import kubernetes
-from kubetester import client
+from kubetester import client, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
@@ -29,11 +29,13 @@ def mongodb_multi(
     resource["spec"]["agent"]["logLevel"] = "DEBUG"
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_multi_cluster_agent_flags
 def test_create_mongodb_multi(multi_cluster_operator: Operator, mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 

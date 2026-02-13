@@ -18,10 +18,8 @@ def sharded_cluster(namespace: str) -> MongoDB:
         load_fixture("sharded-cluster-scram-sha-256.yaml"), name=MDB_RESOURCE_NAME, namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="function")
