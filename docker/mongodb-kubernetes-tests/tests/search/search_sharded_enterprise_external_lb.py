@@ -729,6 +729,8 @@ def test_010a_verify_per_shard_tls_secrets(namespace: str, mdbs: MongoDBSearch):
     Checks for:
     1. Source secrets (from cert-manager): {prefix}-{shardName}-search-cert
     2. Operator-managed secrets: {shardName}-search-certificate-key
+       Note: The operator creates secrets with hash-based keys (e.g., "abc123...pem")
+       not a literal "certificate-key" key.
     """
     logger.info("Verifying per-shard TLS secrets...")
 
@@ -746,13 +748,17 @@ def test_010a_verify_per_shard_tls_secrets(namespace: str, mdbs: MongoDBSearch):
             raise AssertionError(f"Source secret {source_secret_name} not found: {e}")
 
         # Verify operator-managed secret (created by Search controller)
+        # The operator creates a secret with a hash-based key like "abc123def456...pem"
+        # (SHA256 hash of the certificate content + ".pem" extension)
         operator_secret_name = f"{shard_name}-search-certificate-key"
 
         def check_operator_secret():
             try:
                 operator_secret = read_secret(namespace, operator_secret_name)
-                has_cert_key = "certificate-key" in operator_secret
-                return has_cert_key, f"Operator secret {operator_secret_name}: certificate-key={has_cert_key}"
+                # The operator uses hash-based filenames ending in .pem
+                pem_keys = [k for k in operator_secret.keys() if k.endswith(".pem")]
+                has_pem = len(pem_keys) > 0
+                return has_pem, f"Operator secret {operator_secret_name}: pem_keys={pem_keys}"
             except Exception as e:
                 return False, f"Operator secret {operator_secret_name} not found: {e}"
 
