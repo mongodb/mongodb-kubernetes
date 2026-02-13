@@ -1281,7 +1281,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Con
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		errs = multierror.Append(errs, err)
-	}else{
+	} else {
 		for _, item := range clusterSpecList {
 			clusterName := item.ClusterName
 			clusterClient := r.memberClusterClientsMap[clusterName]
