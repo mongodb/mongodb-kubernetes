@@ -1,11 +1,19 @@
 # Build compilable stuff
 
-FROM public.ecr.aws/docker/library/golang:1.25 AS readiness_builder
-COPY . /go/src/github.com/mongodb/mongodb-kubernetes
+FROM --platform=${BUILDPLATFORM} public.ecr.aws/docker/library/golang:1.25 AS readiness_builder
+
+COPY go.sum go.mod /go/src/github.com/mongodb/mongodb-kubernetes/
+
+WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes
+RUN go mod download
+
+COPY ./docker/mongodb-kubernetes-init-ops-manager /go/src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-init-ops-manager
 WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes
 
-RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/mmsconfiguration ./docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/edit_mms_configuration.go
-RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/backup-daemon-readiness-probe ./docker/mongodb-kubernetes-init-ops-manager/backupdaemon_readinessprobe/backupdaemon_readiness.go
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -buildvcs=false -o /data/scripts/mmsconfiguration ./docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -buildvcs=false -o /data/scripts/backup-daemon-readiness-probe ./docker/mongodb-kubernetes-init-ops-manager/backupdaemon_readinessprobe/
 
 # Move binaries and scripts
 FROM scratch AS base
@@ -20,17 +28,6 @@ COPY ./docker/mongodb-kubernetes-init-ops-manager/scripts/backup-daemon-liveness
 COPY ./docker/mongodb-kubernetes-init-ops-manager/LICENSE /data/licenses/mongodb-enterprise-ops-manager
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
-
-ARG version
-ARG om_download_url
-
-LABEL name="MongoDB Enterprise Ops Manager" \
-  maintainer="support@mongodb.com" \
-  vendor="MongoDB" \
-  version=${version} \
-  release="1" \
-  summary="MongoDB Enterprise Ops Manager Image" \
-  description="MongoDB Enterprise Ops Manager"
 
 ENV MMS_HOME=/mongodb-ops-manager
 ENV MMS_PROP_FILE=${MMS_HOME}/conf/conf-mms.properties
@@ -70,10 +67,33 @@ RUN microdnf install --disableplugin=subscription-manager -y \
 COPY --from=base /data/licenses /licenses/
 COPY --from=base /data/scripts /opt/scripts
 
+ARG version
+ARG om_download_url
+
+LABEL name="MongoDB Enterprise Ops Manager" \
+  maintainer="support@mongodb.com" \
+  vendor="MongoDB" \
+  version=${version} \
+  release="1" \
+  summary="MongoDB Enterprise Ops Manager Image" \
+  description="MongoDB Enterprise Ops Manager"
+
 RUN curl --fail -L -o ops_manager.tar.gz ${om_download_url} \
   && tar -xzf ops_manager.tar.gz \
   && rm ops_manager.tar.gz \
   && mv mongodb-mms* "${MMS_HOME}"
+
+ARG TARGETPLATFORM
+ARG jdk_arm_download_url
+RUN if [[ ${TARGETPLATFORM} == "linux/arm64" ]]; then \
+  curl --fail -L -o jdk.tar.gz ${jdk_arm_download_url} \
+    && tar -xzf jdk.tar.gz \
+    && rm jdk.tar.gz \
+    && rm -rf "${MMS_HOME}/jdk" \
+    && mkdir -p "${MMS_HOME}/jdk" \
+    && mv jdk*/* "${MMS_HOME}/jdk" \
+    && rm -rf jdk*; \
+  fi
 
 # permissions
 RUN chmod -R 0777 "${MMS_LOG_DIR}" \

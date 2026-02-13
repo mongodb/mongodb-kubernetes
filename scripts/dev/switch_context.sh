@@ -16,6 +16,13 @@ contexts_dir="scripts/dev/contexts"
 context="${1:-}"
 additional_override="${2:-}"
 
+mkdir -p "${destination_envs_dir}"
+
+local_kind_message="Press Ctrl-t to toggle between local or evergreen kind clusters"
+local_kind_file="${destination_envs_dir}/.local_kind"
+[[ -f "${local_kind_file}" ]] || echo "evergreen" > "${local_kind_file}"
+
+
 if [[ "${context}" == "" ]]; then
   # shellcheck disable=SC2012
   contexts=$(ls -1 "${contexts_dir}")
@@ -23,8 +30,18 @@ if [[ "${context}" == "" ]]; then
     current_context=$(cat "${destination_envs_dir}/.current_context")
     contexts=$(printf "${current_context}\n%s" "${contexts}")
   fi
-  context="$(fzf --sort <<< "${contexts}")"
+
+  local_kind_cmd="current=\$(cat '${local_kind_file}'); if [[ \"\${current}\" == \"evergreen\" ]]; then echo 'local' > '${local_kind_file}'; else echo 'evergreen' > '${local_kind_file}'; fi"
+
+  context="$(fzf --sort \
+    --bind "ctrl-t:execute(${local_kind_cmd})+reload(echo '${contexts}')+transform-header(echo '${local_kind_message} (current: '\$(cat '${local_kind_file}')')')" \
+    --header "${local_kind_message} (current: $(cat "${local_kind_file}"))" \
+    <<< "${contexts}")"
+
 fi
+
+echo "Cluster location: $(cat "${local_kind_file}")"
+
 
 if [[ "${additional_override}" != *"private-context-"* && -n "${additional_override}" ]]; then
   # shellcheck disable=SC2010
@@ -35,8 +52,6 @@ context_file="${contexts_dir}/${context}"
 local_development_default_file="${contexts_dir}/local-defaults-context"
 override_context_file="${contexts_dir}/private-context-override"
 additional_override_file="${contexts_dir}/${additional_override}"
-
-mkdir -p "${destination_envs_dir}"
 
 if [[ ! -f "${context_file}" ]]; then
 	fatal "Cannot switch context: File ${context_file} does not exist."
@@ -64,6 +79,11 @@ else
   elif [ -f "${override_context_file}" ]; then
       echo "Using override file: ${override_context_file}. If you do not want to use one, remove the file or its contents."
       base_command+=" && source ${override_context_file}"
+  fi
+
+  if [[ $(cat "${local_kind_file}") == "local" ]]; then
+    echo "Using local kind cluster, setting default KUBECONFIG to ~/.kube/config"
+    base_command+=" && export KUBECONFIG=~/.kube/config"
   fi
   # Execute the command in a clean environment and capture exported variables
   # Let's use our PATH as a base to have utilities available.

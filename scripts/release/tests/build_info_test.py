@@ -239,7 +239,7 @@ def test_load_build_info_staging():
             ),
             "init-ops-manager": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager",
-                platforms=["linux/amd64"],
+                platforms=["linux/amd64", "linux/arm64"],
                 dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
                 latest_tag=True,
                 sign=True,
@@ -304,7 +304,7 @@ def test_load_build_info_staging():
             ),
             "ops-manager": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi",
-                platforms=["linux/amd64"],
+                platforms=["linux/amd64", "linux/arm64"],
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
                 sign=True,
                 skip_if_exists=True,
