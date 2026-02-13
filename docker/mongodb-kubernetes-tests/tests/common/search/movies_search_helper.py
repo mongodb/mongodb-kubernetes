@@ -3,6 +3,7 @@ from kubetester import kubetester
 from tests import test_logger
 from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod
 from tests.common.search.search_tester import SearchTester
+from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod
 
 logger = test_logger.get_test_logger(__name__)
 
