@@ -43,6 +43,12 @@ DEV_SCRIPT_FILES=(
     "scripts/dev/contexts/evg-private-context"
 )
 
+# Hook version
+DEV_SCRIPT_FILES=(
+    ".pre-commit-config.yaml"
+)
+
+
 update_files() {
     local pattern="$1"
     local new_value="$2"
@@ -78,6 +84,7 @@ update_files "^go .*" "go ${FULL_VERSION}" "${GO_MOD_FILES[@]}"
 update_files "^golang .*" "golang ${FULL_VERSION}" "${TOOL_VERSION_FILES[@]}"
 update_files "golang:[0-9.]*" "golang:${MINOR_VERSION}" "${DOCKERFILE_FILES[@]}"
 update_files "/opt/golang/go[0-9.]*" "/opt/golang/go${MINOR_VERSION}" "${DEV_SCRIPT_FILES[@]}"
+update_files "language_version:.*" "language_version: ${FULL_VERSION}" "${DEV_SCRIPT_FILES[@]}"
 
 echo ""
 echo "Done. Run 'git diff' to review changes."

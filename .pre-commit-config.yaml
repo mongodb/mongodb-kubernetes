@@ -106,7 +106,6 @@ repos:
     rev: 24.10.0
     hooks:
       - id: black
-        language_version: python3
 
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
@@ -135,5 +134,5 @@ repos:
     rev: v2.0.2
     hooks:
       - id: golangci-lint
-        language: system
         args: [--timeout=10m]
+        language_version: 1.25.7
