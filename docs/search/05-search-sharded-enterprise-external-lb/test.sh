@@ -38,7 +38,7 @@ run 05_0320_create_mongodb_search_resource.sh
 run 05_0325_wait_for_search_resource.sh
 run 05_0330_wait_for_sharded_cluster_ready.sh
 run_for_output 05_0335_show_running_pods.sh
-#run_for_output 05_0340_verify_mongod_search_config.sh
+run_for_output 05_0340_verify_mongod_search_config.sh
 
 # Create tools pod for running MongoDB commands
 run 05_0342_run_mongodb_tools_pod.sh
