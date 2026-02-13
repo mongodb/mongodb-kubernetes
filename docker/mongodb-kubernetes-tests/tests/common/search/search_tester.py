@@ -1,14 +1,10 @@
-from typing import TYPE_CHECKING, Optional
+from typing import Optional, Self
 
 import kubetester
-from kubetester.helm import process_run_and_check
 from kubetester.mongotester import MongoTester
 from pymongo.operations import SearchIndexModel
 from tests import test_logger
-from tests.common.mongodb_tools_pod import mongodb_tools_pod
-
-if TYPE_CHECKING:
-    from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod
+from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -30,7 +26,7 @@ class SearchTester(MongoTester):
         password: str,
         use_ssl: bool = False,
         ca_path: Optional[str] = None,
-    ) -> "SearchTester":
+    ) -> Self:
         """Create SearchTester for a replica set MongoDB resource.
 
         Args:
@@ -58,7 +54,7 @@ class SearchTester(MongoTester):
         password: str,
         use_ssl: bool = False,
         ca_path: Optional[str] = None,
-    ) -> "SearchTester":
+    ) -> Self:
         """Create SearchTester for a sharded MongoDB resource (connects to mongos).
 
         Args:
