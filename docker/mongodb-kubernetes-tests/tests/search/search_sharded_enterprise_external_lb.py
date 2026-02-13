@@ -141,10 +141,10 @@ def mdbs(namespace: str) -> MongoDBSearch:
 
     # Replace NAMESPACE placeholder in endpoint template URL with actual namespace
     spec = resource["spec"]
-    if "lb" in spec and "external" in spec["lb"] and "sharded" in spec["lb"]["external"]:
-        sharded_config = spec["lb"]["external"]["sharded"]
-        if "endpoint" in sharded_config:
-            sharded_config["endpoint"] = sharded_config["endpoint"].replace("NAMESPACE", namespace)
+    if "lb" in spec and "external" in spec["lb"]:
+        external_config = spec["lb"]["external"]
+        if "endpoint" in external_config:
+            external_config["endpoint"] = external_config["endpoint"].replace("NAMESPACE", namespace)
 
     return resource
 
