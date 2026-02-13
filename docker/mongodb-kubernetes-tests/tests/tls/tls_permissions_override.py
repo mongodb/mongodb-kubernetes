@@ -1,4 +1,4 @@
-from kubetester import find_fixture
+from kubetester import find_fixture, try_load
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
@@ -33,7 +33,8 @@ def replica_set(issuer_ca_configmap: str, namespace: str, certs_secret_prefix) -
         }
     }
     resource.configure_custom_tls(issuer_ca_configmap, certs_secret_prefix)
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_replica_set_tls_override
@@ -46,6 +47,7 @@ def test_replica_set(replica_set: MongoDB, namespace: str):
 
     certs = get_rs_cert_names(replica_set["metadata"]["name"], namespace, with_agent_certs=False)
 
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 

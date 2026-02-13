@@ -2,7 +2,7 @@ from typing import Optional
 
 from kubernetes import client
 from kubernetes.client import V1ConfigMap
-from kubetester import create_secret, delete_secret, get_statefulset, read_secret
+from kubetester import create_secret, delete_secret, get_statefulset, read_secret, try_load
 from kubetester.certs import Certificate
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -27,8 +27,7 @@ def replica_set(
 ) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), MDB_RESOURCE, namespace)
     resource.set_version(custom_mdb_version)
-    resource.create()
-
+    try_load(resource)
     return resource
 
 
@@ -44,8 +43,8 @@ def ops_manager(
     }
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
-
-    return om.create()
+    try_load(om)
+    return om
 
 
 @mark.e2e_vault_setup_tls
@@ -304,11 +303,13 @@ def test_enable_vault_role_for_database_pod(
 
 @mark.e2e_vault_setup_tls
 def test_om_created(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_vault_setup_tls
 def test_mdb_created(replica_set: MongoDB, namespace: str):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=500, ignore_errors=True)
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)

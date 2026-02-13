@@ -35,7 +35,6 @@ const (
 	appDBServiceAccount    = "mongodb-kubernetes-appdb"
 	InitAppDbContainerName = "mongodb-kubernetes-init-appdb"
 	// AppDB environment variable names
-	InitAppdbVersionEnv          = "INIT_APPDB_VERSION"
 	podNamespaceEnv              = "POD_NAMESPACE"
 	automationConfigMapEnv       = "AUTOMATION_CONFIG_MAP"
 	headlessAgentEnv             = "HEADLESS_AGENT"
@@ -143,7 +142,7 @@ func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplat
 	)
 }
 
-// buildAppDBInitContainer builds the container specification for mongodb-enterprise-init-appdb image.
+// buildAppDBInitContainer builds the container specification for mongodb-kubernetes-init-database image (used for AppDB).
 func buildAppDBInitContainer(initContainerImageURL string, volumeMounts []corev1.VolumeMount) container.Modification {
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 

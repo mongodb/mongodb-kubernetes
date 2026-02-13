@@ -1,7 +1,7 @@
 from typing import List
 
 import kubernetes
-from kubetester import create_secret, read_secret
+from kubetester import create_secret, read_secret, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
@@ -74,7 +74,8 @@ def mongodb_multi(
         },
     }
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -89,7 +90,8 @@ def mongodb_user(central_cluster_client: kubernetes.client.ApiClient, namespace:
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
     resource["spec"]["mongodbResourceRef"]["namespace"] = namespace
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_multi_cluster_tls_with_scram
@@ -103,7 +105,7 @@ def test_deploy_mongodb_multi_with_tls(
     namespace: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
-
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
@@ -131,6 +133,7 @@ def test_create_mongodb_user(
         data={"password": USER_PASSWORD},
         api_client=central_cluster_client,
     )
+    mongodb_user.update()
     mongodb_user.assert_reaches_phase(Phase.Updated, timeout=100)
 
 

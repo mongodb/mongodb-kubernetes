@@ -26,9 +26,6 @@ def sharded_cluster(namespace: str, openldap_tls: OpenLDAP, issuer_ca_configmap:
         find_fixture("ldap/ldap-sharded-cluster.yaml"), name=MDB_RESOURCE_NAME, namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     KubernetesTester.create_secret(namespace, bind_query_password_secret, {"password": openldap_tls.admin_password})
 
     resource["spec"]["security"]["authentication"]["ldap"] = {
@@ -40,7 +37,8 @@ def sharded_cluster(namespace: str, openldap_tls: OpenLDAP, issuer_ca_configmap:
     resource["spec"]["security"]["authentication"]["agents"] = {"mode": "SCRAM"}
     resource["spec"]["security"]["authentication"]["modes"] = ["LDAP", "SCRAM"]
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="function")
@@ -61,7 +59,8 @@ def ldap_user_mongodb(sharded_cluster: MongoDB, namespace: str, ldap_mongodb_use
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @pytest.fixture(scope="function")
@@ -118,6 +117,7 @@ class TestShardedClusterLDAPProjectSwitch(KubernetesTester):
 
     # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_new_mdb_users_are_created(self, ldap_user_mongodb: MongoDBUser):
+    #     ldap_user_mongodb.update()
     #     ldap_user_mongodb.assert_reaches_phase(Phase.Updated)
 
     def test_ops_manager_state_correctly_updated_in_initial_cluster(self, testhelper: SwitchProjectHelper):

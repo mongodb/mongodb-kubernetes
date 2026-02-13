@@ -1,4 +1,4 @@
-FROM public.ecr.aws/docker/library/golang:1.24
+FROM public.ecr.aws/docker/library/golang:1.25
 
 RUN go install github.com/go-delve/delve/cmd/dlv@latest
 RUN apt-get update && apt-get install -y procps

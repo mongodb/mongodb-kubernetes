@@ -56,13 +56,10 @@ def replica_set(
         resource["spec"]["persistent"] = False
         resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [1, 1, 1])
 
-        if try_load(resource):
-            return resource
-
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
         resource.set_architecture_annotation()
 
-        resource.update()
+        try_load(resource)
         return resource
     else:
         resource = MongoDB.from_yaml(
@@ -88,9 +85,8 @@ def replica_set(
             "modes": ["SCRAM"],
         }
 
-        if try_load(resource):
-            return resource
-        return resource.create()
+        try_load(resource)
+        return resource
 
 
 # Installs the latest officially released version of MEKO, from Quay
@@ -103,6 +99,7 @@ def test_install_latest_official_operator(official_meko_operator: Operator, name
 
 @mark.e2e_meko_mck_upgrade
 def test_install_replicaset(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(phase=Phase.Running, timeout=1000 if is_multi_cluster() else 600)
 
 

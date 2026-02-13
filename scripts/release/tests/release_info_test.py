@@ -23,12 +23,6 @@ def test_create_release_info_json():
                 "tag": "1.6.0",
                 "digest": "sha256:ce10a711a6e6a31d20deecbe0ef15b5f82c2ca24d495fb832f5199ac327ee8ec",
             },
-            "init-appdb": {
-                "repoURL": "quay.io/mongodb/mongodb-kubernetes-init-appdb",
-                "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
-                "tag": "1.6.0",
-                "digest": "sha256:b0b66397056636052756157628c164d480f540d919a615d057192d553a7e892c",
-            },
             "init-ops-manager": {
                 "repoURL": "quay.io/mongodb/mongodb-kubernetes-init-ops-manager",
                 "platforms": ["linux/amd64"],

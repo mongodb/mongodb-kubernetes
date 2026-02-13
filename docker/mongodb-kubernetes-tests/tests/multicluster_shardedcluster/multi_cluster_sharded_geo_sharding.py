@@ -25,11 +25,8 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
         find_fixture("sharded-cluster-multi-cluster.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_architecture_annotation()
-
+    try_load(resource)
     return resource
 
 

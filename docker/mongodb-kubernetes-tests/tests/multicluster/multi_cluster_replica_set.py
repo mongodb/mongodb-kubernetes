@@ -4,7 +4,7 @@ import kubernetes
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import delete_statefulset, get_statefulset, wait_until
+from kubetester import delete_statefulset, get_statefulset, try_load, wait_until
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
@@ -48,7 +48,7 @@ def mongodb_multi(
 
     resource.set_architecture_annotation()
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -69,6 +69,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=2000)
 
 

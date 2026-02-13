@@ -35,9 +35,6 @@ def ops_manager(
 ) -> MongoDBOpsManager:
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(_fixture("om_https_enabled.yaml"), namespace=namespace)
 
-    if try_load(om):
-        return om
-
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
     om.allow_mdb_rc_versions()
@@ -45,6 +42,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
+    try_load(om)
     return om
 
 

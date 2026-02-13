@@ -29,9 +29,6 @@ def ops_manager(
         yaml_fixture("multicluster_appdb_om.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource["spec"]["version"] = custom_version
 
@@ -50,6 +47,7 @@ def ops_manager(
         },
     }
 
+    try_load(resource)
     return resource
 
 

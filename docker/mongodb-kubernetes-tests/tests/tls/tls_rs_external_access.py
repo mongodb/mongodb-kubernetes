@@ -1,4 +1,5 @@
 import pytest
+from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
@@ -48,7 +49,8 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str, custom_mdb_
     res = MongoDB.from_yaml(load_fixture("test-tls-base-rs-external-access.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     res.set_version(custom_mdb_version)
-    return res.update()
+    try_load(res)
+    return res
 
 
 @pytest.fixture(scope="module")
@@ -58,7 +60,8 @@ def mdb_multiple_horizons(namespace: str, server_certs_multiple_horizons: str, i
         namespace=namespace,
     )
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.create()
+    try_load(res)
+    return res
 
 
 @pytest.mark.e2e_tls_rs_external_access
@@ -69,6 +72,7 @@ def test_install_operator(operator: Operator):
 @pytest.mark.e2e_tls_rs_external_access
 class TestReplicaSetWithExternalAccess(KubernetesTester):
     def test_replica_set_running(self, mdb: MongoDB):
+        mdb.update()
         mdb.assert_reaches_phase(Phase.Running, timeout=240)
 
     @skip_if_local
@@ -150,6 +154,7 @@ class TestReplicaSetWithNoTLSDeletion(KubernetesTester):
 @pytest.mark.e2e_tls_rs_external_access
 class TestReplicaSetWithMultipleHorizons(KubernetesTester):
     def test_replica_set_running(self, mdb_multiple_horizons: MongoDB):
+        mdb_multiple_horizons.update()
         mdb_multiple_horizons.assert_reaches_phase(Phase.Running, timeout=240)
 
     def test_automation_config_is_right(self):
