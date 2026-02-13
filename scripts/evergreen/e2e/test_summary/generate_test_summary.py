@@ -15,20 +15,12 @@ from renderer import generate_html
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description='Generate comprehensive HTML test summary with embedded JSON'
-    )
-    parser.add_argument('logs_dir', nargs='?', default='logs',
-                        help='Directory containing test artifacts')
-    parser.add_argument('--output', '-o', default='logs/test-summary.html',
-                        help='Output HTML file path')
-    parser.add_argument('--test-name', default='[TEST_NAME]',
-                        help='Test name')
-    parser.add_argument('--variant', default='[VARIANT]',
-                        help='Test variant')
-    parser.add_argument('--status', default='[STATUS]',
-                        choices=['PASSED', 'FAILED', '[STATUS]'],
-                        help='Test status')
+    parser = argparse.ArgumentParser(description="Generate comprehensive HTML test summary with embedded JSON")
+    parser.add_argument("logs_dir", nargs="?", default="logs", help="Directory containing test artifacts")
+    parser.add_argument("--output", "-o", default="logs/test-summary.html", help="Output HTML file path")
+    parser.add_argument("--test-name", default="[TEST_NAME]", help="Test name")
+    parser.add_argument("--variant", default="[VARIANT]", help="Test variant")
+    parser.add_argument("--status", default="[STATUS]", choices=["PASSED", "FAILED", "[STATUS]"], help="Test status")
 
     args = parser.parse_args()
 
@@ -44,8 +36,8 @@ def main():
     data = generator.generate()
 
     # Update metadata with command-line args
-    data['meta']['test_type'] = args.test_name
-    data['meta']['variant'] = args.variant
+    data["meta"]["test_type"] = args.test_name
+    data["meta"]["variant"] = args.variant
 
     # Generate HTML
     print("Generating HTML output...", file=sys.stderr)
