@@ -33,6 +33,14 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(_ context.Context, _ kuber
 
 		auth.AutoUser = opts.AutomationSubject
 		auth.LdapGroupDN = opts.AutoLdapGroupDN
+
+		// Add the mechanism to DeploymentAuthMechanisms atomically with enabling auth.
+		// This prevents CLOUDP-68873 deadlock where agent sees mechanism in DeploymentAuthMechanisms
+		// but auth is still disabled or AutoAuthMechanisms is empty.
+		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain)) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain))
+		}
+
 		auth.AutoAuthMechanisms = []string{string(LDAPPlain)}
 		return nil
 	}, log)
