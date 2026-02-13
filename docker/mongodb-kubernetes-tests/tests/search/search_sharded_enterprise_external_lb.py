@@ -28,6 +28,7 @@ from kubetester import (
     get_service,
     get_statefulset,
     read_configmap,
+    read_secret,
     try_load,
 )
 from kubetester.certs import create_sharded_cluster_certs, create_tls_certs
@@ -72,7 +73,9 @@ MONGOS_COUNT = 1
 CONFIG_SERVER_COUNT = 1
 
 # TLS configuration
-MDBS_TLS_SECRET_NAME = "mdb-sh-search-cert"
+# Per-shard TLS: each shard gets its own certificate with naming pattern:
+# {prefix}-{shardName}-search-cert (e.g., certs-mdb-sh-0-search-cert)
+MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = "mdb-sh-ca"
 
 
@@ -123,7 +126,10 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
 
 @fixture(scope="function")
 def mdbs(namespace: str) -> MongoDBSearch:
-    """Fixture for MongoDBSearch with sharded external LB configuration."""
+    """Fixture for MongoDBSearch with sharded external LB configuration.
+
+    Uses per-shard TLS with certsSecretPrefix and endpoint template with {shardName} placeholder.
+    """
     resource = MongoDBSearch.from_yaml(
         yaml_fixture("search-sharded-external-lb.yaml"),
         namespace=namespace,
@@ -133,13 +139,12 @@ def mdbs(namespace: str) -> MongoDBSearch:
     if try_load(resource):
         return resource
 
-    # Replace NAMESPACE placeholder in endpoint URLs with actual namespace
-    # Note: Port (27029) and service names (*-proxy-svc) are already correct in the YAML
+    # Replace NAMESPACE placeholder in endpoint template URL with actual namespace
     spec = resource["spec"]
     if "lb" in spec and "external" in spec["lb"] and "sharded" in spec["lb"]["external"]:
-        endpoints = spec["lb"]["external"]["sharded"]["endpoints"]
-        for endpoint in endpoints:
-            endpoint["endpoint"] = endpoint["endpoint"].replace("NAMESPACE", namespace)
+        sharded_config = spec["lb"]["external"]["sharded"]
+        if "endpoint" in sharded_config:
+            sharded_config["endpoint"] = sharded_config["endpoint"].replace("NAMESPACE", namespace)
 
     return resource
 
@@ -534,6 +539,44 @@ def create_envoy_certificates(namespace: str, issuer: str):
     logger.info("✓ Envoy client certificate created")
 
 
+def create_per_shard_search_tls_certs(namespace: str, issuer: str, prefix: str):
+    """
+    Create per-shard TLS certificates for MongoDBSearch resource.
+
+    For each shard, creates a certificate with DNS names for:
+    - The mongot service: {search-name}-mongot-{shardName}-svc.{namespace}.svc.cluster.local
+    - The proxy service: {search-name}-mongot-{shardName}-proxy-svc.{namespace}.svc.cluster.local
+
+    Secret naming pattern: {prefix}-{shardName}-search-cert
+    e.g., certs-mdb-sh-0-search-cert, certs-mdb-sh-1-search-cert
+    """
+    logger.info(f"Creating per-shard Search TLS certificates with prefix '{prefix}'...")
+
+    for shard_idx in range(SHARD_COUNT):
+        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
+        secret_name = f"{prefix}-{shard_name}-search-cert"
+
+        # DNS names for this shard's mongot
+        mongot_svc = f"{MDB_RESOURCE_NAME}-mongot-{shard_name}-svc"
+        proxy_svc = f"{MDB_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc"
+
+        additional_domains = [
+            f"{mongot_svc}.{namespace}.svc.cluster.local",
+            f"{proxy_svc}.{namespace}.svc.cluster.local",
+        ]
+
+        create_tls_certs(
+            issuer=issuer,
+            namespace=namespace,
+            resource_name=f"{MDB_RESOURCE_NAME}-mongot-{shard_name}",
+            secret_name=secret_name,
+            additional_domains=additional_domains,
+        )
+        logger.info(f"✓ Per-shard Search TLS certificate created: {secret_name}")
+
+    logger.info(f"✓ All {SHARD_COUNT} per-shard Search TLS certificates created")
+
+
 # ============================================================================
 # Test Functions
 # ============================================================================
@@ -661,16 +704,15 @@ def test_008_verify_envoy_deployment(namespace: str):
 
 @mark.e2e_search_sharded_enterprise_external_lb
 def test_009_create_search_tls_certificate(namespace: str, issuer: str):
-    """Create TLS certificate for MongoDBSearch resource."""
-    # Create TLS certificate for the Search resource
-    # The Search resource expects a secret named mdb-sh-search-cert
-    create_tls_certs(
-        issuer=issuer,
-        namespace=namespace,
-        resource_name=MDB_RESOURCE_NAME,
-        secret_name=MDBS_TLS_SECRET_NAME,
-    )
-    logger.info(f"✓ Search TLS certificate created: {MDBS_TLS_SECRET_NAME}")
+    """Create per-shard TLS certificates for MongoDBSearch resource.
+
+    Creates one certificate per shard with naming pattern:
+    {prefix}-{shardName}-search-cert (e.g., certs-mdb-sh-0-search-cert)
+
+    The operator will create operator-managed secrets:
+    {shardName}-search-certificate-key (e.g., mdb-sh-0-search-certificate-key)
+    """
+    create_per_shard_search_tls_certs(namespace, issuer, MDBS_TLS_CERT_PREFIX)
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
@@ -678,6 +720,48 @@ def test_010_create_search_resource(mdbs: MongoDBSearch):
     """Test MongoDBSearch resource deployment with sharded external LB config."""
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_search_sharded_enterprise_external_lb
+def test_010a_verify_per_shard_tls_secrets(namespace: str, mdbs: MongoDBSearch):
+    """Verify that per-shard TLS secrets are created by the operator.
+
+    Checks for:
+    1. Source secrets (from cert-manager): {prefix}-{shardName}-search-cert
+    2. Operator-managed secrets: {shardName}-search-certificate-key
+    """
+    logger.info("Verifying per-shard TLS secrets...")
+
+    for shard_idx in range(SHARD_COUNT):
+        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
+
+        # Verify source secret (created by cert-manager in test_009)
+        source_secret_name = f"{MDBS_TLS_CERT_PREFIX}-{shard_name}-search-cert"
+        try:
+            source_secret = read_secret(namespace, source_secret_name)
+            assert "tls.crt" in source_secret, f"Source secret {source_secret_name} missing tls.crt"
+            assert "tls.key" in source_secret, f"Source secret {source_secret_name} missing tls.key"
+            logger.info(f"✓ Source secret verified: {source_secret_name}")
+        except Exception as e:
+            raise AssertionError(f"Source secret {source_secret_name} not found: {e}")
+
+        # Verify operator-managed secret (created by Search controller)
+        operator_secret_name = f"{shard_name}-search-certificate-key"
+
+        def check_operator_secret():
+            try:
+                operator_secret = read_secret(namespace, operator_secret_name)
+                has_cert_key = "certificate-key" in operator_secret
+                return has_cert_key, f"Operator secret {operator_secret_name}: certificate-key={has_cert_key}"
+            except Exception as e:
+                return False, f"Operator secret {operator_secret_name} not found: {e}"
+
+        run_periodically(
+            check_operator_secret, timeout=120, sleep_time=5, msg=f"operator secret {operator_secret_name}"
+        )
+        logger.info(f"✓ Operator secret verified: {operator_secret_name}")
+
+    logger.info(f"✓ All {SHARD_COUNT} per-shard TLS secrets verified")
 
 
 @mark.e2e_search_sharded_enterprise_external_lb

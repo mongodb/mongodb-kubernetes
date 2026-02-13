@@ -10,18 +10,16 @@ spec:
     replicas: 2
   security:
     tls:
-      certificateKeySecretRef:
-        name: mdb-sh-search-cert
+      # Per-shard TLS: each shard gets its own certificate
+      # Secret naming pattern: {prefix}-{shardName}-search-cert
+      # e.g., certs-mdb-sh-0-search-cert, certs-mdb-sh-1-search-cert
+      certsSecretPrefix: certs
       ca:
         name: mdb-sh-ca
   lb:
     mode: External
     external:
       sharded:
-        endpoints:
-          # These endpoints point to the Envoy proxy services on port 27029.
-          # NAMESPACE placeholder is replaced with actual namespace by the test fixture.
-          - shardName: mdb-sh-0
-            endpoint: mdb-sh-mongot-mdb-sh-0-proxy-svc.NAMESPACE.svc.cluster.local:27029
-          - shardName: mdb-sh-1
-            endpoint: mdb-sh-mongot-mdb-sh-1-proxy-svc.NAMESPACE.svc.cluster.local:27029
+        # Endpoint template with {shardName} placeholder
+        # NAMESPACE placeholder is replaced with actual namespace by the test fixture
+        endpoint: mdb-sh-mongot-{shardName}-proxy-svc.NAMESPACE.svc.cluster.local:27029
