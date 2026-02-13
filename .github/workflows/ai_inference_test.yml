@@ -1,0 +1,26 @@
+name: AI Inference Test
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  test-ai-inference:
+    name: Test AI Inference Action
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      models: read
+    steps:
+      - name: Run AI Inference
+        id: inference
+        uses: actions/ai-inference@v2
+        with:
+          token: ${{ secrets.AI_INFERENCE_TOKEN }}
+          endpoint: ${{ secrets.AI_INFERENCE_ENDPOINT }}
+          model: 'gpt-4.1'
+          prompt: 'Say "Hello, World!" and nothing else.'
+
+      - name: Print Response
+        run: echo "${{ steps.inference.outputs.response }}"
+
