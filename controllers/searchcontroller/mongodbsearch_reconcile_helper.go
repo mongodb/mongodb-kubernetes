@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -213,9 +214,24 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		}
 	}
 
-	ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx)
-	if err != nil {
-		return workflow.Failed(err)
+	// Validate per-shard TLS secrets exist before proceeding (for per-shard TLS mode)
+	shardNames := shardedSource.GetShardNames()
+	if status := r.validatePerShardTLSSecrets(ctx, log, shardNames); !status.IsOK() {
+		return status
+	}
+
+	// Determine TLS mode: shared (all shards use same cert) or per-shard (each shard has its own cert)
+	isSharedTLS := r.mdbSearch.IsSharedTLSCertificate()
+
+	// For shared TLS mode, process the shared certificate once before the loop
+	var sharedIngressTlsMongotModification mongot.Modification
+	var sharedIngressTlsStsModification statefulset.Modification
+	if isSharedTLS || r.mdbSearch.Spec.Security.TLS == nil {
+		var err error
+		sharedIngressTlsMongotModification, sharedIngressTlsStsModification, err = r.ensureIngressTlsConfig(ctx)
+		if err != nil {
+			return workflow.Failed(err)
+		}
 	}
 
 	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
@@ -228,13 +244,28 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 	image, imageVersion := r.searchImageAndVersion()
 	searchImage := fmt.Sprintf("%s:%s", image, imageVersion)
 
-	shardNames := shardedSource.GetShardNames()
 	for shardIdx, shardName := range shardNames {
 		shardLog := log.With("shard", shardName, "shardIdx", shardIdx)
 		shardLog.Infof("Reconciling mongot for shard %s", shardName)
 
 		if err := r.ensureShardSearchService(ctx, shardName); err != nil {
 			return workflow.Failed(err)
+		}
+
+		// Determine ingress TLS modifications for this shard
+		var ingressTlsMongotModification mongot.Modification
+		var ingressTlsStsModification statefulset.Modification
+		if isSharedTLS || r.mdbSearch.Spec.Security.TLS == nil {
+			// Shared mode or no TLS: use the shared modifications
+			ingressTlsMongotModification = sharedIngressTlsMongotModification
+			ingressTlsStsModification = sharedIngressTlsStsModification
+		} else {
+			// Per-shard mode: process this shard's certificate
+			var err error
+			ingressTlsMongotModification, ingressTlsStsModification, err = r.ensureIngressTlsConfigForShard(ctx, shardName)
+			if err != nil {
+				return workflow.Failed(err)
+			}
 		}
 
 		shardMongotConfig := createShardMongotConfig(r.mdbSearch, shardedSource, shardIdx)
@@ -289,6 +320,36 @@ func (r *MongoDBSearchReconcileHelper) ensureSourceKeyfile(ctx context.Context, 
 		)),
 		CreateKeyfileModificationFunc(r.db.KeyfileSecretName()),
 	), nil
+}
+
+// validatePerShardTLSSecrets validates that all per-shard TLS source secrets exist.
+// Returns workflow.OK() if TLS is not configured, in shared mode, or all secrets exist.
+// Returns workflow.Pending if any secret is missing (expected to be created).
+// Returns workflow.Failed on other errors.
+func (r *MongoDBSearchReconcileHelper) validatePerShardTLSSecrets(ctx context.Context, log *zap.SugaredLogger, shardNames []string) workflow.Status {
+	if r.mdbSearch.Spec.Security.TLS == nil {
+		return workflow.OK()
+	}
+
+	// Shared mode: single secret for all shards, validated by ensureIngressTlsConfig
+	if r.mdbSearch.IsSharedTLSCertificate() {
+		return workflow.OK()
+	}
+
+	// Per-shard mode: validate each shard's source secret exists
+	for _, shardName := range shardNames {
+		secretNsName := r.mdbSearch.TLSSecretNamespacedNameForShard(shardName)
+		tlsSecret := &corev1.Secret{}
+		err := r.client.Get(ctx, secretNsName, tlsSecret)
+		if apierrors.IsNotFound(err) {
+			log.Infof("Waiting for per-shard TLS secret %s to be created", secretNsName)
+			return workflow.Pending("Waiting for TLS secret %s for shard %s to be created", secretNsName.Name, shardName)
+		} else if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to get TLS secret %s for shard %s: %w", secretNsName.Name, shardName, err))
+		}
+	}
+
+	return workflow.OK()
 }
 
 func (r *MongoDBSearchReconcileHelper) searchImageAndVersion() (string, string) {
@@ -662,6 +723,65 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	return mongotModification, statefulsetModification, nil
 }
 
+// perShardTLSResource wraps MongoDBSearch to provide per-shard TLS secret names.
+// It implements the tls.TLSConfigurableResource interface for use with tls.EnsureTLSSecret.
+type perShardTLSResource struct {
+	*searchv1.MongoDBSearch
+	shardName string
+}
+
+// TLSSecretNamespacedName returns the per-shard source secret name.
+func (p *perShardTLSResource) TLSSecretNamespacedName() types.NamespacedName {
+	return p.MongoDBSearch.TLSSecretNamespacedNameForShard(p.shardName)
+}
+
+// TLSOperatorSecretNamespacedName returns the per-shard operator-managed secret name.
+func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
+	return p.MongoDBSearch.TLSOperatorSecretNamespacedNameForShard(p.shardName)
+}
+
+// ensureIngressTlsConfigForShard processes TLS configuration for a specific shard.
+// It reads the per-shard source secret and creates the per-shard operator-managed secret.
+// Returns mongot and statefulset modifications specific to this shard.
+func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfigForShard(ctx context.Context, shardName string) (mongot.Modification, statefulset.Modification, error) {
+	if r.mdbSearch.Spec.Security.TLS == nil {
+		return mongot.NOOP(), statefulset.NOOP(), nil
+	}
+
+	// Create a per-shard TLS resource adapter
+	perShardResource := &perShardTLSResource{
+		MongoDBSearch: r.mdbSearch,
+		shardName:     shardName,
+	}
+
+	certFileName, err := tls.EnsureTLSSecret(ctx, r.client, perShardResource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mongotModification := func(config *mongot.Config) {
+		certPath := tls.OperatorSecretMountPath + certFileName
+		config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeTLS
+		config.Server.Grpc.TLS.CertificateKeyFile = ptr.To(certPath)
+		if config.Server.Wireproto != nil {
+			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
+			config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
+		}
+	}
+
+	tlsSecret := perShardResource.TLSOperatorSecretNamespacedName()
+	tlsVolume := statefulset.CreateVolumeFromSecret("tls", tlsSecret.Name)
+	tlsVolumeMount := statefulset.CreateVolumeMount("tls", tls.OperatorSecretMountPath, statefulset.WithReadOnly(true))
+	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+		podtemplatespec.WithVolume(tlsVolume),
+		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
+			container.WithVolumeMounts([]corev1.VolumeMount{tlsVolumeMount}),
+		)),
+	))
+
+	return mongotModification, statefulsetModification, nil
+}
+
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification) {
 	tlsSourceConfig := r.db.TLSConfig()
 	if tlsSourceConfig == nil {
@@ -843,9 +963,8 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 	// Determine the mongot endpoint for this shard
 	var mongotEndpoint string
 	if search.IsShardedExternalLB() {
-		// Use the external LB endpoint for this shard
-		endpointMap := search.GetShardEndpointMap()
-		if endpoint, ok := endpointMap[shardName]; ok {
+		// Use the external LB endpoint for this shard (supports both template and legacy formats)
+		if endpoint := search.GetEndpointForShard(shardName); endpoint != "" {
 			mongotEndpoint = endpoint
 		} else {
 			// Fallback to internal service if no external endpoint configured
@@ -909,9 +1028,8 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, shardNa
 	if len(shardNames) > 0 {
 		firstShardName := shardNames[0]
 		if search.IsShardedExternalLB() {
-			// Use the external LB endpoint for the first shard
-			endpointMap := search.GetShardEndpointMap()
-			if endpoint, ok := endpointMap[firstShardName]; ok {
+			// Use the external LB endpoint for the first shard (supports both template and legacy formats)
+			if endpoint := search.GetEndpointForShard(firstShardName); endpoint != "" {
 				mongotEndpoint = endpoint
 			} else {
 				// Fallback to internal service if no external endpoint configured

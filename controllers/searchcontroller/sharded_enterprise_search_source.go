@@ -138,8 +138,8 @@ func (r *ShardedEnterpriseSearchSource) GetExternalLBEndpointForShard(shardName 
 	if r.search == nil || !r.search.IsShardedExternalLB() {
 		return ""
 	}
-	endpointMap := r.search.GetShardEndpointMap()
-	return endpointMap[shardName]
+	// Use GetEndpointForShard which handles both template and legacy formats
+	return r.search.GetEndpointForShard(shardName)
 }
 
 func (r *ShardedEnterpriseSearchSource) GetMongoDB() *mdbv1.MongoDB {
