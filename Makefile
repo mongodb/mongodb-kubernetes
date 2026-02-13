@@ -57,10 +57,10 @@ prerequisites:
 	@ scripts/dev/install.sh
 
 precommit:
-	@ source scripts/dev/set_env_context.sh && pre-commit run --all-files
+	@ source scripts/dev/set_env_context.sh && .githooks/pre-commit run --all-files
 
 precommit-full:
-	@ source scripts/dev/set_env_context.sh && MDB_UPDATE_LICENSES=true MDB_REGENERATE_RBAC=true pre-commit run --all-files
+	@ source scripts/dev/set_env_context.sh && MDB_UPDATE_LICENSES=true MDB_REGENERATE_RBAC=true .githooks/pre-commit run --all-files
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
