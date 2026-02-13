@@ -41,6 +41,13 @@ from scripts.python.evergreen_api import get_evergreen_api
 # Terminal statuses that indicate a patch/version has completed
 COMPLETED_STATUSES = {"succeeded", "failed"}
 
+# Tasks to exclude when checking for build completion (notification/reporting tasks)
+# These tasks run at the end and shouldn't block success notifications
+NOTIFICATION_TASKS = [
+    "notify_master_build_status",
+    "notify_flaky_tests_weekly",
+]
+
 # Global counter for API calls
 _api_call_count = 0
 
@@ -119,12 +126,19 @@ def get_build_tasks(api: EvergreenApi, build_variant_status: BuildVariantStatus)
     return [TaskInfo(task=task, build_variant=build_variant_status.build_variant) for task in tasks]
 
 
-def get_failed_and_running_tasks(api: EvergreenApi, version_id: str) -> tuple[list[TaskInfo], list[TaskInfo]]:
+def get_failed_and_running_tasks(
+    api: EvergreenApi, version_id: str, exclude_tasks: list[str] | None = None
+) -> tuple[list[TaskInfo], list[TaskInfo]]:
     """Get failed and running tasks across all build variants for a version.
 
     Optimized: Uses concurrent requests and skips successful builds.
+    Args:
+        api: Evergreen API client
+        version_id: Version ID to query
+        exclude_tasks: List of task display names to exclude from results (e.g., notification tasks)
     Returns: (failed_tasks, running_tasks)
     """
+    exclude_tasks = exclude_tasks or []
     version_info = get_version_info(api, version_id)
     failed_tasks: list[TaskInfo] = []
     running_tasks: list[TaskInfo] = []
@@ -133,8 +147,8 @@ def get_failed_and_running_tasks(api: EvergreenApi, version_id: str) -> tuple[li
 
     def fetch_build_tasks(build_variant_status: BuildVariantStatus) -> tuple[list[TaskInfo], list[TaskInfo]]:
         tasks = get_build_tasks(api, build_variant_status)
-        failures = [task for task in tasks if task.is_failed]
-        pending = [task for task in tasks if task.is_running]
+        failures = [task for task in tasks if task.is_failed and task.display_name not in exclude_tasks]
+        pending = [task for task in tasks if task.is_running and task.display_name not in exclude_tasks]
         return failures, pending
 
     with ThreadPoolExecutor(max_workers=10) as executor:
@@ -327,7 +341,7 @@ def main() -> None:
     print(f"Current status: {version_info.status}", file=sys.stderr)
 
     try:
-        failed_tasks, running_tasks = get_failed_and_running_tasks(api, version_id)
+        failed_tasks, running_tasks = get_failed_and_running_tasks(api, version_id, NOTIFICATION_TASKS)
     except Exception as e:
         print(f"Error fetching tasks: {e}", file=sys.stderr)
         sys.exit(1)
