@@ -48,7 +48,6 @@ DEV_SCRIPT_FILES=(
     ".pre-commit-config.yaml"
 )
 
-
 update_files() {
     local pattern="$1"
     local new_value="$2"
