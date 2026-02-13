@@ -322,6 +322,7 @@ class TestSummaryGenerator:
                 'ready': self._calculate_ready_status(containers),
                 'restarts': sum(c['restarts'] for c in containers),
                 'owner_ref': owner_ref,
+                'created': metadata.get('creationTimestamp', ''),
                 'containers': containers,
                 'conditions': conditions,
                 'files': related_files,
@@ -472,6 +473,7 @@ class TestSummaryGenerator:
                 'current_replicas': status.get('currentReplicas', 0),
                 'ready_replicas': status.get('readyReplicas', 0),
                 'owner_ref': owner_ref,
+                'created': metadata.get('creationTimestamp', ''),
                 'selector': spec.get('selector', {}),
                 'files': {'yaml': source_file},
             }
@@ -545,6 +547,7 @@ class TestSummaryGenerator:
                 'desired_replicas': spec.get('replicas', 0),
                 'current_replicas': status.get('replicas', 0),
                 'ready_replicas': status.get('readyReplicas', 0),
+                'created': metadata.get('creationTimestamp', ''),
                 'files': {'yaml': source_file},
             }
         except Exception as e:

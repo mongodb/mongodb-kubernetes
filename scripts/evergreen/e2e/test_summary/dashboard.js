@@ -86,6 +86,21 @@ function downloadJSON() {
 // Log viewer modal
 const _logTails = JSON.parse(document.getElementById('log-tails-data').textContent);
 
+function _escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function _highlightLogLine(escapedLine) {
+    return escapedLine
+        .replace(/\b(ERROR|FATAL|PANIC)\b/g, '<span class="log-error">$1</span>')
+        .replace(/\b(WARN|WARNING)\b/g, '<span class="log-warn">$1</span>')
+        .replace(/\b(INFO)\b/g, '<span class="log-info">$1</span>')
+        .replace(/\b(DEBUG|TRACE)\b/g, '<span class="log-debug">$1</span>')
+        .replace(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s<]*)/g, '<span class="log-timestamp">$1</span>');
+}
+
 function openLogModal(filename) {
     const entry = _logTails[filename];
     if (!entry) {
@@ -110,7 +125,20 @@ function openLogModal(filename) {
         info.textContent = entry.total_lines + ' lines';
     }
 
-    body.textContent = entry.content;
+    // Build line-numbered, syntax-highlighted content
+    const lines = entry.content.split('\n');
+    const startNum = (entry.truncated && entry.mode === 'tail')
+        ? entry.total_lines - entry.shown_lines + 1
+        : 1;
+
+    const htmlLines = lines.map((line, i) => {
+        const num = startNum + i;
+        const escaped = _escapeHtml(line);
+        const highlighted = _highlightLogLine(escaped);
+        return '<span class="log-line"><span class="line-num">' + num + '</span><span class="line-content">' + highlighted + '</span></span>';
+    });
+
+    body.innerHTML = htmlLines.join('');
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 

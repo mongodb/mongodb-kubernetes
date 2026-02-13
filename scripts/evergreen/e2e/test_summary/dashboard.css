@@ -11,22 +11,24 @@ h2 { color: #444; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; margin
 h3 { color: #555; }
 .metadata {
     background: #f8f9fa;
-    padding: 20px;
+    padding: 10px 16px;
     border-radius: 6px;
-    margin-bottom: 30px;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 15px;
+    margin-bottom: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    align-items: center;
 }
-.metadata-item { display: flex; flex-direction: column; }
-.metadata-label { font-size: 0.85em; color: #666; margin-bottom: 4px; }
-.metadata-value { font-weight: 600; font-size: 1.1em; color: #333; }
+.metadata-item { display: flex; align-items: center; gap: 6px; }
+.metadata-label { font-size: 0.8em; color: #666; }
+.metadata-value { font-weight: 600; font-size: 0.95em; color: #333; }
 .status-badge {
     display: inline-block;
-    padding: 6px 16px;
+    padding: 3px 10px;
     border-radius: 4px;
     color: white;
     font-weight: bold;
+    font-size: 0.9em;
     background: var(--status-color);
 }
 .section {
@@ -621,3 +623,63 @@ code {
     color: #6c757d;
     margin-top: 6px;
 }
+/* Container sub-table */
+.container-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 12px 0;
+    background: #fff;
+    font-size: 0.9em;
+}
+.container-table th {
+    background: #e2e6ea;
+    padding: 6px 10px;
+    font-size: 0.85em;
+    color: #495057;
+}
+.container-table td {
+    padding: 5px 10px;
+    border-bottom: 1px solid #eee;
+}
+.state-running {
+    background: #d4edda;
+    color: #155724;
+}
+.state-waiting {
+    background: #fff3cd;
+    color: #856404;
+}
+.state-terminated {
+    background: #f8d7da;
+    color: #721c24;
+}
+.ready-yes { color: #28a745; font-weight: bold; }
+.ready-no { color: #dc3545; font-weight: bold; }
+.exit-code {
+    font-family: monospace;
+    color: #dc3545;
+    font-weight: 600;
+}
+/* Log viewer line numbers and syntax highlighting */
+.log-line {
+    display: flex;
+    padding: 1px 0;
+}
+.line-num {
+    min-width: 50px;
+    text-align: right;
+    color: #555;
+    padding-right: 12px;
+    border-right: 1px solid #333;
+    user-select: none;
+    flex-shrink: 0;
+}
+.line-content {
+    padding-left: 12px;
+    white-space: pre-wrap;
+}
+.log-error { color: #f44; font-weight: bold; }
+.log-warn { color: #fa0; }
+.log-info { color: #4af; }
+.log-debug { color: #666; }
+.log-timestamp { color: #777; }
