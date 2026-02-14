@@ -63,7 +63,11 @@ export MDB_TLS_SELF_SIGNED_ISSUER="selfsigned-bootstrap-issuer"
 export MDB_TLS_CA_CERT_NAME="my-selfsigned-ca"
 export MDB_TLS_CA_SECRET_NAME="root-secret"
 export MDB_TLS_CA_ISSUER="my-ca-issuer"
-export MDB_SEARCH_TLS_SECRET_NAME="${MDB_SEARCH_RESOURCE_NAME}-search-tls"
+
+# Per-shard TLS configuration for MongoDBSearch
+# Each shard gets its own certificate following the pattern: {prefix}-{shardName}-search-cert
+# e.g., certs-external-mdb-sh-0-search-cert, certs-external-mdb-sh-1-search-cert
+export MDB_SEARCH_TLS_CERT_PREFIX="${MDB_TLS_CERT_SECRET_PREFIX}"
 
 # Connection string for mongos (sharded cluster entry point) with TLS
 export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca.crt"

@@ -75,8 +75,9 @@ spec:
           name: ${MDB_TLS_CA_SECRET_NAME}
   security:
     tls:
-      certificateKeySecretRef:
-        name: ${MDB_SEARCH_TLS_SECRET_NAME}
+      # Per-shard TLS: each shard gets its own certificate with naming pattern:
+      # {prefix}-{shardName}-search-cert (e.g., certs-external-mdb-sh-0-search-cert)
+      certsSecretPrefix: ${MDB_SEARCH_TLS_CERT_PREFIX}
   lb:
     mode: External
     external:

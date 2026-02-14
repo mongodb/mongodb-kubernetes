@@ -126,25 +126,26 @@ $(render_dns_list "${shard_dns_names[@]}")
 EOF_MANIFEST
 done
 
-# Build DNS names for per-shard mongot services
-search_dns_names=()
+# Create per-shard certificates for MongoDBSearch (mongot)
+# Each shard gets its own certificate following the pattern: {prefix}-{shardName}-search-cert
+# This enables per-shard TLS where each mongot StatefulSet uses its own unique certificate
 for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
   shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
-  search_dns_names+=("${MDB_SEARCH_RESOURCE_NAME}-mongot-${shard_name}-svc.${MDB_NS}.svc.cluster.local")
-  search_dns_names+=("*.${MDB_SEARCH_RESOURCE_NAME}-mongot-${shard_name}-svc.${MDB_NS}.svc.cluster.local")
-done
-# Also add the main search service
-search_dns_names+=("${MDB_SEARCH_RESOURCE_NAME}-search-svc.${MDB_NS}.svc.cluster.local")
 
-# Create certificate for MongoDBSearch (mongot)
-kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF_MANIFEST
+  # Build DNS names for this shard's mongot services
+  shard_search_dns_names=(
+    "${MDB_SEARCH_RESOURCE_NAME}-mongot-${shard_name}-svc.${MDB_NS}.svc.cluster.local"
+    "*.${MDB_SEARCH_RESOURCE_NAME}-mongot-${shard_name}-svc.${MDB_NS}.svc.cluster.local"
+  )
+
+  kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF_MANIFEST
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: ${MDB_SEARCH_RESOURCE_NAME}-search-tls
+  name: ${shard_name}-search-tls
   namespace: ${MDB_NS}
 spec:
-  secretName: ${MDB_SEARCH_TLS_SECRET_NAME}
+  secretName: ${MDB_SEARCH_TLS_CERT_PREFIX}-${shard_name}-search-cert
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
@@ -156,8 +157,9 @@ spec:
     - server auth
     - client auth
   dnsNames:
-$(render_dns_list "${search_dns_names[@]}")
+$(render_dns_list "${shard_search_dns_names[@]}")
 EOF_MANIFEST
+done
 
 # Wait for all certificates to be ready
 kubectl --context "${K8S_CTX}" -n "${MDB_NS}" wait --for=condition=Ready \
@@ -165,10 +167,12 @@ kubectl --context "${K8S_CTX}" -n "${MDB_NS}" wait --for=condition=Ready \
 kubectl --context "${K8S_CTX}" -n "${MDB_NS}" wait --for=condition=Ready \
   certificate "${MDB_EXTERNAL_CLUSTER_NAME}-config-tls" --timeout=300s
 for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
+  # Wait for shard mongod TLS certificate
   kubectl --context "${K8S_CTX}" -n "${MDB_NS}" wait --for=condition=Ready \
     certificate "${MDB_EXTERNAL_CLUSTER_NAME}-${shard}-tls" --timeout=300s
+  # Wait for per-shard search TLS certificate
+  kubectl --context "${K8S_CTX}" -n "${MDB_NS}" wait --for=condition=Ready \
+    certificate "${MDB_EXTERNAL_CLUSTER_NAME}-${shard}-search-tls" --timeout=300s
 done
-kubectl --context "${K8S_CTX}" -n "${MDB_NS}" wait --for=condition=Ready \
-  certificate "${MDB_SEARCH_RESOURCE_NAME}-search-tls" --timeout=300s
 
-echo "TLS certificates created for sharded cluster and MongoDBSearch"
+echo "TLS certificates created for sharded cluster and MongoDBSearch (per-shard)"

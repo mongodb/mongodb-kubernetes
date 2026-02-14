@@ -11,10 +11,8 @@ spec:
     replicas: 1
   security:
     tls:
-      certificateKeySecretRef:
-        name: mdb-sh-search-cert
-      ca:
-        name: mdb-sh-ca
+      # Per-shard TLS: each shard gets its own certificate with naming pattern:
+      # {prefix}-{shardName}-search-cert (e.g., certs-mdb-sh-0-search-cert)
+      certsSecretPrefix: certs
   # The lb configuration is dynamically built by the test fixture
   # to point to the Envoy proxy services.
-
