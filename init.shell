@@ -1,0 +1,26 @@
+export NIX_GOROOT="$(GOTOOLCHAIN=auto go env GOROOT 2>/dev/null)"
+export PATH="$NIX_GOROOT/bin:$PATH"
+
+export LDAP_BIN="$(command -v ldapsearch 2>/dev/null)"
+export OPENLDAP_LIB_ROOT="$(dirname $(dirname $(readlink -f "$LDAP_BIN")))"
+export LDAP_V="$(echo "$OPENLDAP_LIB_ROOT" | sed 's/.*openldap-//')"
+export OPENLDAP_DEV_ROOT="$(ls -d /nix/store/*openldap-"$LDAP_V"-dev 2>/dev/null | head -n 1)"
+
+export SASL_BIN_PATH="$(readlink -f $(command -v saslpasswd2))"
+export SASL_BIN_ROOT="$(dirname $(dirname "$SASL_BIN_PATH"))"
+export SASL_V="$(echo "$SASL_BIN_ROOT" | sed 's/.*cyrus-sasl-//; s/-bin$//')"
+
+export SASL_DEV_ROOT="$(ls -d /nix/store/*cyrus-sasl-"$SASL_V"-dev 2>/dev/null | head -n 1)"
+export SASL_LIB_ROOT_TMP="$(ls -d /nix/store/*cyrus-sasl-"$SASL_V" 2>/dev/null | grep -v -- "-bin" | grep -v -- "-dev" | head -n 1)"
+export SASL_LIB_ROOT="$(test -n "$SASL_LIB_ROOT_TMP" && echo "$SASL_LIB_ROOT_TMP" || echo "$SASL_BIN_ROOT")"
+
+export CPATH="$OPENLDAP_DEV_ROOT/include:$SASL_DEV_ROOT/include:$SASL_DEV_ROOT/include/sasl:$CPATH"
+export LIBRARY_PATH="$OPENLDAP_LIB_ROOT/lib:$SASL_LIB_ROOT/lib:$LIBRARY_PATH"
+export CPPFLAGS="-I$OPENLDAP_DEV_ROOT/include -I$SASL_DEV_ROOT/include -I$SASL_DEV_ROOT/include/sasl"
+export LDFLAGS="-L$OPENLDAP_LIB_ROOT/lib -L$SASL_LIB_ROOT/lib"
+
+[ -f "$OPENLDAP_DEV_ROOT/include/ldap.h" ] && echo '✅ OpenLDAP headers found' || echo '❌ OpenLDAP headers NOT found'
+[ -f "$SASL_DEV_ROOT/include/sasl/sasl.h" ] && echo '✅ Cyrus-SASL headers found' || echo '❌ Cyrus-SASL headers NOT found'
+
+[ ! -d .venv ] && python -m venv .venv
+[ -n "$FISH_VERSION" ] && source .venv/bin/activate.fish || . .venv/bin/activate

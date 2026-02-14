@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.16.0/.schema/devbox.schema.json",
+  "packages": [
+    "git@latest",
+    "python@3.13",
+    "go@1.24.12",
+    "openldap@latest",
+    "openldap.dev",
+    "cyrus_sasl@latest",
+    "cyrus_sasl.dev",
+    "pkg-config@latest",
+    "kubernetes-helm@latest",
+    "chart-testing@latest",
+    "shellcheck@latest"
+  ],
+  "env": {
+    "DEVBOX_SKIP_VENV_CONFIG": "1",
+    "PROJECT_DIR": "$DEVBOX_PROJECT_ROOT",
+    "GOTOOLCHAIN": "auto"
+  },
+  "shell": {
+    "init_hook": [
+      ". ./init.shell",
+      "echo '--- Environment Ready ---'",
+      "echo 'To (re)install Python deps: pip install -r requirements.txt'"
+    ]
+  }
+}
