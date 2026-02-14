@@ -91,12 +91,17 @@ spec:
                       external L7 load balancer
                     properties:
                       endpoint:
-                        description: Endpoint is a single LB endpoint for ReplicaSet
-                          or shared sharded LB (host:port)
+                        description: |-
+                          Endpoint is the LB endpoint for ReplicaSet or a template for sharded clusters.
+                          For sharded clusters, use {shardName} as a placeholder that will be substituted
+                          with the actual shard name. Example: "lb-{shardName}.example.com:27028"
                         type: string
                       sharded:
-                        description: Sharded contains per-shard LB endpoint configuration
-                          for sharded clusters
+                        description: |-
+                          DEPRECATED: Use Endpoint with {shardName} template instead.
+                          Sharded contains per-shard LB endpoint configuration for sharded clusters.
+                          If both Endpoint (with template) and Sharded.Endpoints are specified,
+                          Endpoint template takes precedence.
                         properties:
                           endpoints:
                             description: Endpoints is a list of per-shard LB endpoints
@@ -276,6 +281,7 @@ spec:
                           CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
                           The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
                           This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
+                          If both CertificateKeySecret.Name and CertsSecretPrefix are specified, CertificateKeySecret.Name takes precedence.
                         properties:
                           name:
                             default: ""
@@ -288,8 +294,12 @@ spec:
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
-                    required:
-                    - certificateKeySecretRef
+                      certsSecretPrefix:
+                        description: |-
+                          CertsSecretPrefix is a prefix used to derive the TLS secret name.
+                          When set, the operator will look for a secret named "{prefix}-{resourceName}-search-cert".
+                          If CertificateKeySecret.Name is also specified, it takes precedence over this field.
+                        type: string
                     type: object
                 type: object
               source:
