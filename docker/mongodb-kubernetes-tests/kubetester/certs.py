@@ -13,12 +13,13 @@ import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import create_secret, delete_secret, kubetester, random_k8s_name, read_secret
 from kubetester.kubetester import KubernetesTester
 from kubetester.phase import Phase
 from opentelemetry import trace
-from tests import test_logger
 from tests.vaultintegration import store_secret_in_vault, vault_namespace_name, vault_sts_name
+
+from kubetester import create_secret, delete_secret, kubetester, random_k8s_name, read_secret
+from tests import test_logger
 
 TRACER = trace.get_tracer("evergreen-agent")
 logger = test_logger.get_test_logger(__name__)
@@ -487,6 +488,7 @@ def create_sharded_cluster_certs(
     shard_distribution: Optional[List[int]] = None,
     mongos_distribution: Optional[List[int]] = None,
     config_srv_distribution: Optional[List[int]] = None,
+    mongos_service_dns_names: Optional[List[str]] = None,
 ):
     cert_generation_func = create_mongodb_tls_certs
     if x509_certs:
@@ -573,9 +575,8 @@ def create_sharded_cluster_certs(
             secret_backend=secret_backend,
         )
 
-    additional_domains_for_mongos = None
+    additional_domains_for_mongos = []
     if additional_domains is not None:
-        additional_domains_for_mongos = []
         for domain in additional_domains:
             if mongos_distribution is None:
                 for pod_idx in range(mongos):
@@ -584,6 +585,10 @@ def create_sharded_cluster_certs(
                 for cluster_idx, pod_count in enumerate(mongos_distribution):
                     for pod_idx in range(pod_count or 0):
                         additional_domains_for_mongos.append(f"{resource_name}-mongos-{cluster_idx}-{pod_idx}.{domain}")
+
+    # Add service DNS names directly (e.g., for mongot to connect to mongos service)
+    if mongos_service_dns_names is not None:
+        additional_domains_for_mongos.extend(mongos_service_dns_names)
 
     secret_name = f"{resource_name}-mongos-cert"
     if secret_prefix is not None:
@@ -596,7 +601,7 @@ def create_sharded_cluster_certs(
         service_name=resource_name + "-svc",
         replicas=mongos,
         replicas_cluster_distribution=mongos_distribution,
-        additional_domains=additional_domains_for_mongos,
+        additional_domains=additional_domains_for_mongos if additional_domains_for_mongos else None,
         secret_backend=secret_backend,
     )
 
