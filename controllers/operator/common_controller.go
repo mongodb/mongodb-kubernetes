@@ -838,6 +838,35 @@ func isPrometheusSupported(conn om.Connection) bool {
 	return err == nil && omVersion.GTE(semver.MustParse("5.9.0"))
 }
 
+// isBackupHostnameOverrideSupported checks if the OM version supports the
+// -backupOverrideLocalHost agent flag (CLOUDP-260397). The flag was backported
+// to specific agent versions per OM release line:
+//   - OM 7.x: 7.0.13+ (agent 107.0.13.8683-1)
+//   - OM 8.x: 8.0.4+  (agent 108.0.4.8770-1)
+//   - Cloud Manager: always supported (agent 13.26.0+)
+//   - OM 6.x and below: not supported
+func isBackupHostnameOverrideSupported(conn om.Connection) bool {
+	if conn.OpsManagerVersion().IsCloudManager() {
+		return true
+	}
+
+	omVersion, err := conn.OpsManagerVersion().Semver()
+	if err != nil {
+		return false
+	}
+
+	switch omVersion.Major {
+	case 7:
+		return omVersion.GTE(semver.MustParse("7.0.13"))
+	case 8:
+		return omVersion.GTE(semver.MustParse("8.0.4"))
+	default:
+		// OM 6.x and below: flag not available.
+		// OM 9.x+: assume supported.
+		return omVersion.Major >= 9
+	}
+}
+
 // UpdatePrometheus configures Prometheus on the Deployment for this resource.
 func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection, prometheus *mdbcv1.Prometheus, sClient secrets.SecretClient, namespace string, certName string, log *zap.SugaredLogger) error {
 	if prometheus == nil {
