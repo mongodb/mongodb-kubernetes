@@ -99,8 +99,7 @@ class CustomObject:
     def create(self) -> CustomObject:
         """Creates this object in Kubernetes."""
         obj = self.api.create_namespaced_custom_object(
-            self.group, self.version, self.namespace, self.plural, self.backing_obj,
-            field_validation="Strict"
+            self.group, self.version, self.namespace, self.plural, self.backing_obj, field_validation="Strict"
         )
 
         self.backing_obj = obj
@@ -122,7 +121,7 @@ class CustomObject:
             self.plural,
             self.name,
             self.backing_obj,
-            field_validation="Strict"
+            field_validation="Strict",
         )
         self.backing_obj = obj
 
