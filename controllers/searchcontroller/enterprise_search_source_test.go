@@ -291,7 +291,6 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 	}
 }
 
-// Helper to create a sharded cluster MongoDB resource
 func newShardedClusterMongoDB(name, namespace string, shardCount int, version string) *mdbv1.MongoDB {
 	return &mdbv1.MongoDB{
 		ObjectMeta: metav1.ObjectMeta{
@@ -310,7 +309,6 @@ func newShardedClusterMongoDB(name, namespace string, shardCount int, version st
 	}
 }
 
-// Helper to create a MongoDBSearch with sharded external LB config
 func newShardedExternalLBSearch(name, namespace, mdbName string, endpoints []searchv1.ShardEndpoint) *searchv1.MongoDBSearch {
 	return &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{

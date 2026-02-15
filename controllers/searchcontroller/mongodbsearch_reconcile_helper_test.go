@@ -973,8 +973,6 @@ func TestMongoDBSearch_LBHelperMethods(t *testing.T) {
 	}
 }
 
-// TestCreateShardMongotConfig tests the createShardMongotConfig function
-// which creates mongot configuration for a specific shard.
 func TestCreateShardMongotConfig(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
@@ -990,7 +988,6 @@ func TestCreateShardMongotConfig(t *testing.T) {
 		}
 	})
 
-	// Create a mock sharded source
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0", "my-cluster-1"},
 		hostSeeds: map[int][]string{
@@ -999,23 +996,18 @@ func TestCreateShardMongotConfig(t *testing.T) {
 		},
 	}
 
-	// Test shard 0
 	config := mongot.Config{}
 	createShardMongotConfig(search, shardedSource, 0)(&config)
 
 	assert.Equal(t, []string{"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"}, config.SyncSource.ReplicaSet.HostAndPort)
 	assert.Equal(t, search.SourceUsername(), config.SyncSource.ReplicaSet.Username)
 
-	// Test shard 1
 	config2 := mongot.Config{}
 	createShardMongotConfig(search, shardedSource, 1)(&config2)
 
 	assert.Equal(t, []string{"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"}, config2.SyncSource.ReplicaSet.HostAndPort)
 }
 
-// TestShardedMongotConfigWithTLS tests that TLS is correctly configured for sharded clusters
-// when the MongoDB source has TLS enabled. This verifies that both ReplicaSet and Router
-// TLS settings are properly set.
 func TestShardedMongotConfigWithTLS(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
@@ -1031,7 +1023,6 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 		}
 	})
 
-	// Create a mock sharded source with TLS enabled
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0", "my-cluster-1"},
 		hostSeeds: map[int][]string{
@@ -1043,11 +1034,9 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 		},
 	}
 
-	// Create initial config with createShardMongotConfig (TLS defaults to false)
 	config := mongot.Config{}
 	createShardMongotConfig(search, shardedSource, 0)(&config)
 
-	// Verify initial state - TLS should be false
 	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should initially be false")
 	assert.NotNil(t, config.SyncSource.Router)
@@ -1055,7 +1044,6 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should initially be false")
 
 	// Simulate what ensureEgressTlsConfig does when TLS is enabled
-	// This is the modification that should enable TLS for both ReplicaSet and Router
 	tlsSourceConfig := shardedSource.TLSConfig()
 	assert.NotNil(t, tlsSourceConfig, "TLS config should not be nil")
 
@@ -1066,15 +1054,12 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 		config.SyncSource.Router.TLS = ptr.To(true)
 	}
 
-	// Verify TLS is now enabled for both ReplicaSet and Router
 	assert.True(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be enabled")
 	assert.NotNil(t, config.SyncSource.CertificateAuthorityFile)
 	assert.Equal(t, "/mongodb-automation/ca/ca-pem", *config.SyncSource.CertificateAuthorityFile)
 	assert.True(t, *config.SyncSource.Router.TLS, "Router TLS should be enabled for sharded clusters")
 }
 
-// TestShardedMongotConfigWithoutTLS tests that TLS remains disabled when the MongoDB source
-// does not have TLS enabled.
 func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
@@ -1089,7 +1074,6 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 		}
 	})
 
-	// Create a mock sharded source without TLS
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0"},
 		hostSeeds: map[int][]string{
@@ -1098,18 +1082,14 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 		tlsConfig: nil, // No TLS
 	}
 
-	// Create config
 	config := mongot.Config{}
 	createShardMongotConfig(search, shardedSource, 0)(&config)
 
-	// Verify TLS is disabled
 	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be false when source has no TLS")
 	assert.NotNil(t, config.SyncSource.Router)
 	assert.NotNil(t, config.SyncSource.Router.TLS)
 	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should be false when source has no TLS")
-
-	// Verify no CA file is set
 	assert.Nil(t, config.SyncSource.CertificateAuthorityFile)
 }
 
@@ -1157,7 +1137,6 @@ func (m *mockShardedSource) TLSConfig() *TLSSourceConfig {
 	return m.tlsConfig
 }
 
-// TestBuildShardSearchHeadlessService tests the buildShardSearchHeadlessService function
 func TestBuildShardSearchHeadlessService(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test")
 	shardName := "my-cluster-0"
@@ -1569,7 +1548,6 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 	}
 }
 
-// TestEndpointTemplateSubstitution tests the {shardName} template placeholder substitution
 func TestEndpointTemplateSubstitution(t *testing.T) {
 	testCases := []struct {
 		name             string
@@ -1618,7 +1596,6 @@ func TestEndpointTemplateSubstitution(t *testing.T) {
 	}
 }
 
-// TestTLSSecretPrefixNaming tests the TLS secret name resolution with prefix
 func TestTLSSecretPrefixNaming(t *testing.T) {
 	testCases := []struct {
 		name               string
@@ -1677,7 +1654,6 @@ func TestTLSSecretPrefixNaming(t *testing.T) {
 	}
 }
 
-// TestBackwardCompatibilityLegacyShardedEndpoints tests that legacy per-shard endpoints still work
 func TestBackwardCompatibilityLegacyShardedEndpoints(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
@@ -1703,7 +1679,6 @@ func TestBackwardCompatibilityLegacyShardedEndpoints(t *testing.T) {
 	assert.Equal(t, "", search.GetEndpointForShard("my-cluster-2")) // Not configured
 }
 
-// TestTemplateTakesPrecedenceOverLegacy tests that template format takes precedence when both are specified
 func TestTemplateTakesPrecedenceOverLegacy(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
@@ -1728,7 +1703,6 @@ func TestTemplateTakesPrecedenceOverLegacy(t *testing.T) {
 	assert.NotEqual(t, "lb-0.legacy.com:27028", endpoint)
 }
 
-// TestReplicaSetExternalLBNotAffectedByTemplate tests that ReplicaSet detection excludes templates
 func TestReplicaSetExternalLBNotAffectedByTemplate(t *testing.T) {
 	testCases := []struct {
 		name                    string
@@ -1771,7 +1745,6 @@ func TestReplicaSetExternalLBNotAffectedByTemplate(t *testing.T) {
 	}
 }
 
-// TestValidateEndpointTemplate tests endpoint template validation
 func TestValidateEndpointTemplate(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -1827,7 +1800,6 @@ func TestValidateEndpointTemplate(t *testing.T) {
 	}
 }
 
-// TestValidateTLSConfig tests TLS configuration validation
 func TestValidateTLSConfig(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -1886,7 +1858,6 @@ func TestValidateTLSConfig(t *testing.T) {
 	}
 }
 
-// TestValidateShardEndpointsForClusterWithTemplate tests that template format skips per-shard validation
 func TestValidateShardEndpointsForClusterWithTemplate(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -1958,7 +1929,6 @@ func TestValidateShardEndpointsForClusterWithTemplate(t *testing.T) {
 	}
 }
 
-// TestIsTLSConfigured tests the IsTLSConfigured helper method
 func TestIsTLSConfigured(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -2034,7 +2004,6 @@ func TestIsTLSConfigured(t *testing.T) {
 	}
 }
 
-// TestIsSharedTLSCertificate tests the IsSharedTLSCertificate method
 func TestIsSharedTLSCertificate(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -2103,7 +2072,6 @@ func TestIsSharedTLSCertificate(t *testing.T) {
 	}
 }
 
-// TestTLSSecretNamespacedNameForShard tests the per-shard TLS source secret naming
 func TestTLSSecretNamespacedNameForShard(t *testing.T) {
 	testCases := []struct {
 		name               string
@@ -2159,7 +2127,6 @@ func TestTLSSecretNamespacedNameForShard(t *testing.T) {
 	}
 }
 
-// TestTLSOperatorSecretNamespacedNameForShard tests the per-shard operator-managed secret naming
 func TestTLSOperatorSecretNamespacedNameForShard(t *testing.T) {
 	testCases := []struct {
 		name               string
@@ -2198,7 +2165,6 @@ func TestTLSOperatorSecretNamespacedNameForShard(t *testing.T) {
 	}
 }
 
-// TestPerShardTLSResourceAdapter tests the perShardTLSResource adapter struct
 func TestPerShardTLSResourceAdapter(t *testing.T) {
 	testCases := []struct {
 		name                       string
@@ -2254,7 +2220,6 @@ func TestPerShardTLSResourceAdapter(t *testing.T) {
 	}
 }
 
-// TestValidatePerShardTLSSecrets tests the validatePerShardTLSSecrets function
 func TestValidatePerShardTLSSecrets(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -2390,7 +2355,6 @@ func TestValidatePerShardTLSSecrets(t *testing.T) {
 	}
 }
 
-// TestValidatePerShardTLSSecretsAllExist tests that validation passes when all per-shard secrets exist
 func TestValidatePerShardTLSSecretsAllExist(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
 		s.Spec.Security = searchv1.Security{
