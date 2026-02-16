@@ -67,6 +67,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -139,6 +140,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		log.Errorf("error preparing resource for reconciliation: %s", err)
 		return reconcileResult, err
 	}
+
+	// Start span after fetching resource to enable trace context extraction from annotations
+	ctx, span := telemetry.StartReconcileSpanWithAnnotations(ctx, "MongoDBMultiCluster", request.Namespace, request.Name, mrs.GetAnnotations())
+	defer telemetry.EndReconcileSpan(span, e)
 
 	if !architectures.IsRunningStaticArchitecture(mrs.Annotations) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), true)

@@ -6,6 +6,8 @@ from typing import Dict, Optional
 
 import yaml
 from kubernetes import client
+from opentelemetry import trace
+from opentelemetry.trace import format_trace_id, format_span_id
 
 
 class CustomObject:
@@ -98,6 +100,9 @@ class CustomObject:
 
     def create(self) -> CustomObject:
         """Creates this object in Kubernetes."""
+        # Inject trace context into annotations for end-to-end tracing
+        self._inject_trace_context()
+
         obj = self.api.create_namespaced_custom_object(
             self.group, self.version, self.namespace, self.plural, self.backing_obj
         )
@@ -107,6 +112,31 @@ class CustomObject:
 
         self._register_updated()
         return self
+
+    def _inject_trace_context(self) -> None:
+        """Injects W3C traceparent annotation into the resource for distributed tracing.
+
+        This enables the Go operator to create reconcile spans as children of the
+        e2e test spans, providing end-to-end trace visibility.
+        """
+        span = trace.get_current_span()
+        if not span.is_recording():
+            return
+
+        ctx = span.get_span_context()
+        if not ctx.is_valid:
+            return
+
+        # Format as W3C traceparent: version-trace_id-span_id-flags
+        traceparent = f"00-{format_trace_id(ctx.trace_id)}-{format_span_id(ctx.span_id)}-01"
+
+        # Ensure metadata and annotations exist
+        if "metadata" not in self.backing_obj:
+            self.backing_obj["metadata"] = {}
+        if "annotations" not in self.backing_obj["metadata"]:
+            self.backing_obj["metadata"]["annotations"] = {}
+
+        self.backing_obj["metadata"]["annotations"]["traceparent"] = traceparent
 
     def update(self) -> CustomObject:
         """Updates the object in Kubernetes. Deleting keys is done by setting them to None"""

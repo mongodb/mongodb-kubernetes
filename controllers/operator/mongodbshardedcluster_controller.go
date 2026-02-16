@@ -68,6 +68,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault/vaultwatcher"
 )
@@ -815,6 +816,10 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		}
 		return reconcileResult, err
 	}
+
+	// Start span after fetching resource to enable trace context extraction from annotations
+	ctx, span := telemetry.StartReconcileSpanWithAnnotations(ctx, "MongoDbShardedCluster", request.Namespace, request.Name, sc.GetAnnotations())
+	defer telemetry.EndReconcileSpan(span, e)
 
 	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, sc, r.memberClustersMap, r.omConnectionFactory, log)
 	if err != nil {

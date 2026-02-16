@@ -46,6 +46,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault/vaultwatcher"
 )
@@ -155,6 +156,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		}
 		return reconcileResult, err
 	}
+
+	// Start span after fetching resource to enable trace context extraction from annotations
+	ctx, span := telemetry.StartReconcileSpanWithAnnotations(ctx, "MongoDbStandalone", request.Namespace, request.Name, s.GetAnnotations())
+	defer telemetry.EndReconcileSpan(span, e)
 
 	if !architectures.IsRunningStaticArchitecture(s.Annotations) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)

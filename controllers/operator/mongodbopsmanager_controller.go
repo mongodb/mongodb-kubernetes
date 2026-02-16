@@ -65,6 +65,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/identifiable"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault/vaultwatcher"
 )
@@ -396,6 +397,10 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	if reconcileResult, err := r.readOpsManagerResource(ctx, request, opsManager, log); err != nil {
 		return reconcileResult, err
 	}
+
+	// Start span after fetching resource to enable trace context extraction from annotations
+	ctx, span := telemetry.StartReconcileSpanWithAnnotations(ctx, "MongoDBOpsManager", request.Namespace, request.Name, opsManager.GetAnnotations())
+	defer telemetry.EndReconcileSpan(span, e)
 
 	log.Info("-> OpsManager.Reconcile")
 	log.Infow("OpsManager.Spec", "spec", opsManager.Spec)

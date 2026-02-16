@@ -35,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -165,6 +166,10 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		log.Warnf("error getting user %s", err)
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
+
+	// Start span after fetching resource to enable trace context extraction from annotations
+	ctx, span := telemetry.StartReconcileSpanWithAnnotations(ctx, "MongoDBUser", request.Namespace, request.Name, user.GetAnnotations())
+	defer telemetry.EndReconcileSpan(span, e)
 
 	log.Infow("MongoDBUser.Spec", "spec", user.Spec)
 	var mdb project.Reader
