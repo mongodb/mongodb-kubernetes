@@ -62,6 +62,14 @@
       "echo '--- Environment Ready ---'",
       "if [ -f \"$OPENLDAP_DEV_ROOT/include/ldap.h\" ]; then echo '✅ OpenLDAP headers found'; else echo '❌ OpenLDAP headers NOT found'; fi",
       "if [ -f \"$SASL_DEV_ROOT/include/sasl/sasl.h\" ]; then echo '✅ Cyrus-SASL headers found'; else echo '❌ Cyrus-SASL headers NOT found'; fi",
+      "",
+      "# S3 Nix Cache Status",
+      "if grep -q 'mck-nix-cache' /etc/nix/nix.custom.conf 2>/dev/null; then",
+      "  echo '✅ S3 Nix cache configured'",
+      "else",
+      "  echo '💡 S3 Nix cache not configured (optional): ./scripts/devbox/configure-nix-cache.sh'",
+      "fi",
+      "",
       "echo 'To (re)install Python deps: pip install -r requirements.txt'"
     ]
   }
