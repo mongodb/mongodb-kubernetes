@@ -144,6 +144,9 @@ class CustomObject:
 
     def patch(self) -> CustomObject:
         """Patch the object in Kubernetes. Deleting keys is done by setting them to None"""
+        # Inject trace context into annotations for end-to-end tracing
+        self._inject_trace_context()
+
         obj = self.api.patch_namespaced_custom_object(
             self.group,
             self.version,
