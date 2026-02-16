@@ -70,23 +70,57 @@ class TestEnableX509ForShardedCluster(KubernetesTester):
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
 def test_enable_scram_and_x509(sharded_cluster: MongoDB):
+    # Fix for CLOUDP-68873: Enable both X509 and SCRAM deployment mechanisms,
+    # and switch agent to SCRAM. This allows SCRAM credentials to be configured
+    # while X509 is still available as a fallback.
     sharded_cluster.load()
     sharded_cluster["spec"]["security"]["authentication"]["modes"] = ["X509", "SCRAM"]
+    sharded_cluster["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
     sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
-def test_x509_is_still_configured():
+def test_x509_and_scram_configured():
     tester = AutomationConfigTester(KubernetesTester.get_automation_config())
     tester.assert_authentication_mechanism_enabled("MONGODB-X509")
-    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", active_auth_mechanism=False)
+    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
+
+
+@pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
+class TestCanEnableScramSha256:
+    @TRACER.start_as_current_span("test_can_enable_scram_sha_256")
+    def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB, ca_path: str):
+        # Fix for CLOUDP-68873: Now that agent is using SCRAM (from previous step),
+        # we can safely remove X509 from deployment mechanisms.
+        # Agent is already authenticated with SCRAM, so removing X509 is safe.
+        kubetester.wait_processes_ready()
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
+
+        sharded_cluster.load()
+        # Remove X509 from deployment mechanisms (agent is already using SCRAM)
+        sharded_cluster["spec"]["security"]["authentication"]["modes"] = [
+            "SCRAM",
+        ]
+        # DON'T set agents.mode here - it's already SCRAM from previous step
+        sharded_cluster.update()
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
+
+    def test_assert_connectivity(self, ca_path: str):
+        ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity(attempts=25)
+
+    def test_ops_manager_state_updated_correctly(self):
+        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+        tester.assert_authentication_mechanism_disabled("MONGODB-X509")
+        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
+        tester.assert_authentication_enabled()
 
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
 class TestShardedClusterDisableAuthentication(KubernetesTester):
     def test_disable_auth(self, sharded_cluster: MongoDB):
+        # Now that we've successfully transitioned to SCRAM, we can safely disable auth
         kubetester.wait_processes_ready()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
         sharded_cluster.load()
@@ -99,34 +133,8 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
 
     def test_ops_manager_state_updated_correctly(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-        tester.assert_authentication_mechanism_disabled("MONGODB-X509")
+        tester.assert_authentication_mechanism_disabled("SCRAM-SHA-256")
         tester.assert_authentication_disabled()
-
-
-@pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
-class TestCanEnableScramSha256:
-    @TRACER.start_as_current_span("test_can_enable_scram_sha_256")
-    def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB, ca_path: str):
-        kubetester.wait_processes_ready()
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
-
-        sharded_cluster.load()
-        sharded_cluster["spec"]["security"]["authentication"]["enabled"] = True
-        sharded_cluster["spec"]["security"]["authentication"]["modes"] = [
-            "SCRAM",
-        ]
-        sharded_cluster["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
-        sharded_cluster.update()
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
-
-    def test_assert_connectivity(self, ca_path: str):
-        ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity(attempts=25)
-
-    def test_ops_manager_state_updated_correctly(self):
-        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-        tester.assert_authentication_mechanism_disabled("MONGODB-X509")
-        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
-        tester.assert_authentication_enabled()
 
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition

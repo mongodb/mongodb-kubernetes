@@ -62,48 +62,37 @@ class TestEnableX509ForReplicaSet(KubernetesTester):
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
 def test_enable_scram_and_x509(replica_set: MongoDB):
+    # Fix for CLOUDP-68873: Enable both X509 and SCRAM deployment mechanisms,
+    # and switch agent to SCRAM. This allows SCRAM credentials to be configured
+    # while X509 is still available as a fallback.
     replica_set.load()
     replica_set["spec"]["security"]["authentication"]["modes"] = ["X509", "SCRAM"]
+    replica_set["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
-def test_x509_is_still_configured(replica_set: MongoDB):
+def test_x509_and_scram_configured(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=300)
     tester = AutomationConfigTester(KubernetesTester.get_automation_config())
     tester.assert_authentication_mechanism_enabled("MONGODB-X509")
     tester.assert_authoritative_set(True)
-    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", active_auth_mechanism=False)
+    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
     tester.assert_expected_users(0)
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
-class TestReplicaSetDisableAuthentication(KubernetesTester):
-    def test_disable_auth(self, replica_set: MongoDB):
-        replica_set.load()
-        replica_set["spec"]["security"]["authentication"]["enabled"] = False
-        replica_set.update()
-        replica_set.assert_reaches_phase(Phase.Running, timeout=900)
-
-    def test_assert_connectivity(self, replica_set: MongoDB, ca_path: str):
-        replica_set.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()
-
-    def test_ops_manager_state_updated_correctly(self):
-        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-        tester.assert_authentication_mechanism_disabled("MONGODB-X509")
-        tester.assert_authentication_mechanism_disabled("SCRAM-SHA-256")
-        tester.assert_authentication_disabled()
-
-
-@pytest.mark.e2e_replica_set_x509_to_scram_transition
 class TestCanEnableScramSha256:
     def test_can_enable_scram_sha_256(self, replica_set: MongoDB):
+        # Fix for CLOUDP-68873: Now that agent is using SCRAM (from previous step),
+        # we can safely remove X509 from deployment mechanisms.
+        # Agent is already authenticated with SCRAM, so removing X509 is safe.
         replica_set.load()
-        replica_set["spec"]["security"]["authentication"]["enabled"] = True
+        # Remove X509 from deployment mechanisms (agent is already using SCRAM)
         replica_set["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
-        replica_set["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
+        # DON'T set agents.mode here - it's already SCRAM from previous step
         replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -117,6 +106,24 @@ class TestCanEnableScramSha256:
         tester.assert_expected_users(0)
         tester.assert_authentication_enabled()
         tester.assert_authoritative_set(True)
+
+
+@pytest.mark.e2e_replica_set_x509_to_scram_transition
+class TestReplicaSetDisableAuthentication(KubernetesTester):
+    def test_disable_auth(self, replica_set: MongoDB):
+        # Now that we've successfully transitioned to SCRAM, we can safely disable auth
+        replica_set.load()
+        replica_set["spec"]["security"]["authentication"]["enabled"] = False
+        replica_set.update()
+        replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+
+    def test_assert_connectivity(self, replica_set: MongoDB, ca_path: str):
+        replica_set.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()
+
+    def test_ops_manager_state_updated_correctly(self):
+        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+        tester.assert_authentication_mechanism_disabled("SCRAM-SHA-256")
+        tester.assert_authentication_disabled()
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
