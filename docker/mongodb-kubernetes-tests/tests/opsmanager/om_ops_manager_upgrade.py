@@ -367,7 +367,7 @@ class TestMongoDbsVersionUpgrade:
 class TestAppDBScramShaUpdated:
     def test_appdb_reconcile(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
-        ops_manager["spec"]["applicationDatabase"]["logLevel"] = "DEBUG"
+        ops_manager["spec"]["applicationDatabase"]["agent"] = {"logLevel": "DEBUG"}
         ops_manager.update()
 
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)

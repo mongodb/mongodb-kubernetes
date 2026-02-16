@@ -30,10 +30,9 @@ spec:
     version: 4.4.20-ent
     members: 3
     security:
+      certsSecretPrefix: appdb
       tls:
         ca: issuer-ca
-        secretRef:
-          prefix: appdb
 
   # adding this just to avoid wizard when opening OM UI
   configuration:
