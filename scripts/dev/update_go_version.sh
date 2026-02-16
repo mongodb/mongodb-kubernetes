@@ -28,7 +28,6 @@ DOCKERFILE_FILES=(
     "docker/delve-sidecar/Dockerfile"
     "docker/mongodb-community-tests/Dockerfile"
     "docker/mongodb-enterprise-ops-manager/Dockerfile"
-    "docker/mongodb-kubernetes-init-appdb/Dockerfile"
     "docker/mongodb-kubernetes-init-database/Dockerfile"
     "docker/mongodb-kubernetes-init-ops-manager/Dockerfile"
     "docker/mongodb-kubernetes-operator/Dockerfile"
