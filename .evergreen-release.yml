@@ -13,18 +13,6 @@ tasks:
         vars:
           image_name: operator
 
-  # Releases init images to Quay
-  - name: release_init_appdb
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_login
-      - func: pipeline
-        vars:
-          image_name: init-appdb
-
   - name: release_init_database
     tags: [ "image_release" ]
     allowed_requesters: [ "patch", "github_tag" ]
@@ -150,7 +138,6 @@ buildvariants:
     max_hosts: -1
     tasks:
       - name: release_operator
-      - name: release_init_appdb
       - name: release_init_database
       - name: release_init_ops_manager
       - name: release_database
