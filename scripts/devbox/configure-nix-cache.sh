@@ -169,53 +169,6 @@ elif [[ "${OS_TYPE}" == "Linux" ]]; then
     fi
 fi
 
-# --- Clean stale entries from the binary cache metadata DB ---
-#
-# Nix caches substituter metadata in a sqlite DB. If a previous cache
-# (e.g., mongodb-ako-nix-cache) was configured, its entries linger and
-# can cause warnings or misbehavior. Clean them up.
-
-clean_stale_cache_db() {
-    local db_path="$1"
-    local label="$2"
-
-    if [[ ! -f "${db_path}" ]]; then
-        return
-    fi
-
-    if ! command -v sqlite3 &>/dev/null; then
-        return
-    fi
-
-    local stale_count
-    stale_count=$(sqlite3 "${db_path}" \
-        "SELECT COUNT(*) FROM BinaryCaches WHERE url NOT LIKE '%${MCK_NIX_CACHE_BUCKET}%' AND url NOT LIKE '%cache.nixos.org%' AND url NOT LIKE '%install.determinate%' AND url NOT LIKE '%flakehub%';" 2>/dev/null || echo "0")
-
-    if [[ "${stale_count}" -gt 0 ]]; then
-        echo "  Cleaning ${stale_count} stale cache entries from ${label} DB..."
-        sqlite3 "${db_path}" "
-            DELETE FROM NARs WHERE cache IN (
-                SELECT id FROM BinaryCaches
-                WHERE url NOT LIKE '%${MCK_NIX_CACHE_BUCKET}%'
-                  AND url NOT LIKE '%cache.nixos.org%'
-                  AND url NOT LIKE '%install.determinate%'
-                  AND url NOT LIKE '%flakehub%'
-            );
-            DELETE FROM BinaryCaches
-            WHERE url NOT LIKE '%${MCK_NIX_CACHE_BUCKET}%'
-              AND url NOT LIKE '%cache.nixos.org%'
-              AND url NOT LIKE '%install.determinate%'
-              AND url NOT LIKE '%flakehub%';
-        " 2>/dev/null || true
-    fi
-}
-
-echo ""
-echo "Cleaning stale binary cache metadata..."
-clean_stale_cache_db "/var/root/.cache/nix/binary-cache-v7.sqlite" "daemon"
-clean_stale_cache_db "${HOME}/.cache/nix/binary-cache-v7.sqlite" "user"
-echo "  Done."
-
 echo ""
 echo "=== Nix S3 cache configured ==="
 echo ""

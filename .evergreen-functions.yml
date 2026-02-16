@@ -291,6 +291,20 @@ functions:
       script: |
         curl -fsSL https://get.jetify.com/devbox | FORCE=1 bash
 
+  # Configures AWS credentials for the Nix daemon and sets up the S3 binary
+  # cache as a Nix substituter. Must run AFTER download_devbox (which installs
+  # Nix) and BEFORE setup_devbox (which runs devbox install).
+  setup_nix_s3_cache: &setup_nix_s3_cache
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      include_expansions_in_env:
+        - mms_eng_test_aws_access_key
+        - mms_eng_test_aws_secret
+        - mms_eng_test_aws_region
+      binary: scripts/devbox/setup-nix-s3-cache.sh
+
   setup_devbox: &setup_devbox
     command: subprocess.exec
     type: setup
@@ -317,6 +331,7 @@ functions:
 
   setup_building_host_with_devbox:
     - *download_devbox
+    - *setup_nix_s3_cache
     - *setup_devbox
     - *setup_devbox_install_pip_dependencies
     - *setup_devbox_context

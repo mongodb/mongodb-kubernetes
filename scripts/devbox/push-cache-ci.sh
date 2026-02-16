@@ -5,7 +5,7 @@
 # Intended to run as an Evergreen task on master merges (not on every patch).
 #
 # This task:
-#   1. Sets up devbox (via setup-ci-cache.sh)
+#   1. Expects devbox to be installed (via setup_building_host_with_devbox)
 #   2. Signs and pushes all store paths to S3
 #
 # The private signing key must be passed via MCK_NIX_CACHE_PRIV_KEY env var.
