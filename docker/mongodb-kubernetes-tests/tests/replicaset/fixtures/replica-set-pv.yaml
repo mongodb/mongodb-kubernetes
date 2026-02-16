@@ -17,4 +17,3 @@ spec:
     persistence:
       single:
         storage: 2G
-        storageClass: gp2

@@ -308,7 +308,7 @@ class KubernetesTester(object):
         cls,
         namespace: str,
         body: Dict,
-        storage_class_name: str = "gp2",
+        storage_class_name: str = None,
         api_client: Optional[kubernetes.client.ApiClient] = None,
     ):
         if storage_class_name is not None:
@@ -1320,21 +1320,6 @@ class KubernetesTester(object):
         sc = sv1.read_storage_class(name)
         sc.metadata.annotations["storageclass.kubernetes.io/is-default-class"] = "false"
         sv1.patch_storage_class(name, sc)
-
-    @staticmethod
-    def make_default_gp2_storage_class():
-        """
-        gp2 is an aws-ebs storage class, make sure to only use that on aws based tests
-        """
-        classes = KubernetesTester.list_storage_class()
-
-        for sc in classes:
-            if sc.metadata.name == "gp2":
-                # The required class already exist, no need to create it.
-                return
-
-        KubernetesTester.create_storage_class("gp2")
-        KubernetesTester.storage_class_make_not_default("standard")
 
     @staticmethod
     def yield_existing_csrs(csr_names, timeout=300):

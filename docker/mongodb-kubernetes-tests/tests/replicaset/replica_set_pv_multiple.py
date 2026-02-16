@@ -9,21 +9,6 @@ from kubetester.phase import Phase
 
 
 @pytest.mark.e2e_replica_set_pv_multiple
-class TestCreateStorageClass(KubernetesTester):
-    """
-    description: |
-      Creates a gp2 storage class if it does not exist already.
-      This is required as it seems that this storage class exists in
-      Kops and Openshift, but not on kind. This type of StorageClass is
-      based on the rancher.io/local-path provider, so it only works
-      on Kind.
-    """
-
-    def test_setup_gp2_storage_class(self):
-        KubernetesTester.make_default_gp2_storage_class()
-
-
-@pytest.mark.e2e_replica_set_pv_multiple
 class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
 
     RESOURCE_NAME = "rs001-pv-multiple"
@@ -66,7 +51,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
             "data",
             "data-{}-{}".format(self.RESOURCE_NAME, idx),
             "2Gi",
-            "gp2",
+            default_sc,
             self.custom_labels,
         )
 
