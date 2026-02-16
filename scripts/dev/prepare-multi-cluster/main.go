@@ -15,7 +15,10 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -59,13 +62,15 @@ func main() {
 
 	// Pre-create clients for all clusters
 	clients := make(map[string]*kubernetes.Clientset)
+	dynamicClients := make(map[string]dynamic.Interface)
 	for _, cluster := range allClusters {
-		client, err := initKubeClient(cluster)
+		client, dynClient, err := initKubeClient(cluster)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to create client for %s: %v\n", cluster, err)
 			os.Exit(1)
 		}
 		clients[cluster] = client
+		dynamicClients[cluster] = dynClient
 	}
 
 	// Phase 1: KIND kubeconfig overrides
@@ -83,7 +88,7 @@ func main() {
 		ensureNamespace(ctx, clients[cluster], cluster, cfg.namespace, cfg.taskID, collectError)
 		labelNamespaceIstio(ctx, clients[cluster], cluster, cfg.namespace, collectError)
 		if cfg.applyMTLS {
-			applyPeerAuthentication(cluster, cfg.namespace)
+			applyPeerAuthentication(ctx, dynamicClients[cluster], cluster, cfg.namespace, collectError)
 		}
 	})
 
@@ -250,7 +255,7 @@ func loadConfig() config {
 	return cfg
 }
 
-func initKubeClient(contextName string) (*kubernetes.Clientset, error) {
+func initKubeClient(contextName string) (*kubernetes.Clientset, dynamic.Interface, error) {
 	kubeconfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(),
 		&clientcmd.ConfigOverrides{CurrentContext: contextName},
@@ -258,15 +263,20 @@ func initKubeClient(contextName string) (*kubernetes.Clientset, error) {
 
 	restConfig, err := kubeconfig.ClientConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get client config for context %s: %v", contextName, err)
+		return nil, nil, fmt.Errorf("failed to get client config for context %s: %v", contextName, err)
 	}
 
 	client, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client for context %s: %v", contextName, err)
+		return nil, nil, fmt.Errorf("failed to create client for context %s: %v", contextName, err)
 	}
 
-	return client, nil
+	dynamicClient, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create dynamic client for context %s: %v", contextName, err)
+	}
+
+	return client, dynamicClient, nil
 }
 
 func uniqueClusters(central string, members []string) []string {
@@ -427,25 +437,48 @@ func labelNamespaceIstio(ctx context.Context, client *kubernetes.Clientset, clus
 	}
 }
 
-// applyPeerAuthentication uses kubectl to apply the PeerAuthentication resource
-// since it's a custom resource not available in the typed client.
-func applyPeerAuthentication(cluster, namespace string) {
-	manifest := fmt.Sprintf(`apiVersion: security.istio.io/v1beta1
-kind: PeerAuthentication
-metadata:
-  name: "default"
-  namespace: "%s"
-spec:
-  mtls:
-    mode: STRICT`, namespace)
-
-	cmd := exec.Command("kubectl", "--context", cluster, "-n", namespace, "apply", "-f", "-")
-	cmd.Stdin = strings.NewReader(manifest)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to apply PeerAuthentication in %s: %v\n", cluster, err)
+// applyPeerAuthentication ensures a PeerAuthentication resource exists with STRICT mTLS
+// using the dynamic client, since PeerAuthentication is an Istio CRD with no typed Go client.
+func applyPeerAuthentication(ctx context.Context, dynClient dynamic.Interface, cluster, namespace string, collectError func(error, string)) {
+	peerAuthGVR := schema.GroupVersionResource{
+		Group:    "security.istio.io",
+		Version:  "v1beta1",
+		Resource: "peerauthentications",
 	}
+
+	desired := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "security.istio.io/v1beta1",
+			"kind":       "PeerAuthentication",
+			"metadata": map[string]interface{}{
+				"name":      "default",
+				"namespace": namespace,
+			},
+			"spec": map[string]interface{}{
+				"mtls": map[string]interface{}{
+					"mode": "STRICT",
+				},
+			},
+		},
+	}
+
+	existing, err := dynClient.Resource(peerAuthGVR).Namespace(namespace).Get(ctx, "default", metav1.GetOptions{})
+	if kerrors.IsNotFound(err) {
+		_, err = dynClient.Resource(peerAuthGVR).Namespace(namespace).Create(ctx, desired, metav1.CreateOptions{})
+		if err != nil && !kerrors.IsAlreadyExists(err) {
+			collectError(err, fmt.Sprintf("failed to create PeerAuthentication in %s", cluster))
+		}
+		return
+	}
+	if err != nil {
+		collectError(err, fmt.Sprintf("failed to get PeerAuthentication in %s", cluster))
+		return
+	}
+
+	// Update spec to ensure STRICT mTLS
+	existing.Object["spec"] = desired.Object["spec"]
+	_, err = dynClient.Resource(peerAuthGVR).Namespace(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	collectError(err, fmt.Sprintf("failed to update PeerAuthentication in %s", cluster))
 }
 
 // Phase 3: Create ServiceAccount
