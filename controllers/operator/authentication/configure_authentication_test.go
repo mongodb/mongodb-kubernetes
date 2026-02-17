@@ -266,10 +266,9 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 
 // TestConfigureX509ToScramTransition tests the full X509→SCRAM transition (3 steps):
 // Step 1: Start with X509 only
-// Step 2: Add SCRAM alongside X509, switch agent to SCRAM
-//         (X509 remains in AutoAuthMechanisms as fallback since it's still a deployment mechanism)
+// Step 2: Add SCRAM alongside X509 as deployment mechanisms, switch agent to SCRAM
+//         (AutoAuthMechanisms is overwritten to just SCRAM — OpsManager rejects X509+SCRAM combo)
 // Step 3: Remove X509 from deployment mechanisms (SCRAM only)
-//         (X509 is now removed from AutoAuthMechanisms)
 func TestConfigureX509ToScramTransition(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
@@ -318,11 +317,10 @@ func TestConfigureX509ToScramTransition(t *testing.T) {
 	ac, err = conn.ReadAutomationConfig()
 	require.NoError(t, err)
 
-	// Both agent mechanisms should be present: SCRAM for new auth, X509 as fallback
-	// X509 remains because it's still a deployment mechanism
-	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "SCRAM-SHA-256", "SCRAM should be in agent mechanisms")
-	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "MONGODB-X509", "X509 should remain as fallback during transition")
-	assert.Len(t, ac.Auth.AutoAuthMechanisms, 2, "Both mechanisms should be present during transition")
+	// Agent mechanism should be SCRAM only (OpsManager rejects X509+SCRAM in AutoAuthMechanisms)
+	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "SCRAM-SHA-256", "SCRAM should be the agent mechanism")
+	assert.NotContains(t, ac.Auth.AutoAuthMechanisms, "MONGODB-X509", "X509 must not be in agent mechanisms (OpsManager rejects this)")
+	assert.Len(t, ac.Auth.AutoAuthMechanisms, 1, "Only SCRAM in agent mechanisms")
 
 	// AutoUser must be the SCRAM username, not the X509 subject
 	assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser, "AutoUser should be SCRAM agent name after transition")
@@ -349,7 +347,7 @@ func TestConfigureX509ToScramTransition(t *testing.T) {
 	ac, err = conn.ReadAutomationConfig()
 	require.NoError(t, err)
 
-	// Now X509 should be fully removed from both agent and deployment mechanisms
+	// X509 should be removed from deployment mechanisms too
 	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "SCRAM-SHA-256", "SCRAM should be the agent mechanism")
 	assert.NotContains(t, ac.Auth.AutoAuthMechanisms, "MONGODB-X509", "X509 should be removed from agent mechanisms")
 	assert.Len(t, ac.Auth.AutoAuthMechanisms, 1, "Only SCRAM should remain")
@@ -362,10 +360,10 @@ func TestConfigureX509ToScramTransition(t *testing.T) {
 	assert.False(t, ac.Auth.Disabled, "Auth should be enabled")
 }
 
-// TestScramAppendsMechanismDuringTransition verifies that EnableAgentAuthentication
-// appends the SCRAM mechanism to AutoAuthMechanisms rather than overwriting,
-// preserving the old mechanism as a fallback during transitions.
-func TestScramAppendsMechanismDuringTransition(t *testing.T) {
+// TestScramOverwritesAgentMechanism verifies that EnableAgentAuthentication
+// overwrites AutoAuthMechanisms with only the SCRAM mechanism (OpsManager rejects
+// MONGODB-X509 + SCRAM-SHA-256 in AutoAuthMechanisms).
+func TestScramOverwritesAgentMechanism(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient()
 	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
@@ -390,10 +388,10 @@ func TestScramAppendsMechanismDuringTransition(t *testing.T) {
 	ac, err := conn.ReadAutomationConfig()
 	require.NoError(t, err)
 
-	// SCRAM should be ADDED to the existing mechanisms, not replace them
-	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "SCRAM-SHA-256", "SCRAM should be added")
-	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "MONGODB-X509", "X509 should still be present as fallback")
-	assert.Len(t, ac.Auth.AutoAuthMechanisms, 2, "Both mechanisms should be present during transition")
+	// SCRAM should REPLACE X509 (OpsManager rejects the combination)
+	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "SCRAM-SHA-256", "SCRAM should be set")
+	assert.NotContains(t, ac.Auth.AutoAuthMechanisms, "MONGODB-X509", "X509 should be replaced")
+	assert.Len(t, ac.Auth.AutoAuthMechanisms, 1, "Only SCRAM should be present")
 
 	// AutoUser should be set to SCRAM agent name
 	assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser, "AutoUser should be SCRAM agent name")

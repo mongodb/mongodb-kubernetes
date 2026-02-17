@@ -259,22 +259,7 @@ func removeUnsupportedAgentMechanisms(conn om.Connection, opts Options, log *zap
 
 	log.Infow("configuring agent authentication mechanisms", "enabled", opts.AgentMechanism, "disabling", unsupportedMechanisms)
 	for _, mechanism := range unsupportedMechanisms {
-		// Check both IsAgentAuthenticationConfigured and whether the mechanism is still
-		// present in AutoAuthMechanisms. During mechanism transitions (e.g., X509→SCRAM),
-		// the old mechanism may linger in AutoAuthMechanisms even though
-		// IsAgentAuthenticationConfigured returns false (because AutoUser was changed
-		// for the new mechanism).
-		needsDisable := mechanism.IsAgentAuthenticationConfigured(ac, opts)
-		if !needsDisable {
-			for _, m := range ac.Auth.AutoAuthMechanisms {
-				if MechanismName(m) == mechanism.GetName() {
-					needsDisable = true
-					break
-				}
-			}
-		}
-
-		if needsDisable {
+		if mechanism.IsAgentAuthenticationConfigured(ac, opts) {
 			log.Infof("disabling authentication mechanism %s", mechanism.GetName())
 			if err := mechanism.DisableAgentAuthentication(conn, log); err != nil {
 				return xerrors.Errorf("error disabling agent authentication: %w", err)

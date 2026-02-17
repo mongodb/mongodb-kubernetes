@@ -36,14 +36,10 @@ func (s *automationConfigScramSha) EnableAgentAuthentication(ctx context.Context
 		auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 
-		// Append the SCRAM mechanism to AutoAuthMechanisms rather than overwriting.
-		// During mechanism transitions (e.g., X509→SCRAM), this preserves the old
-		// mechanism as a fallback so the agent can still authenticate while bootstrapping
-		// the new SCRAM credentials. The old mechanism is removed later by
-		// removeUnsupportedAgentMechanisms().
-		if !stringutil.Contains(auth.AutoAuthMechanisms, string(s.MechanismName)) {
-			auth.AutoAuthMechanisms = append(auth.AutoAuthMechanisms, string(s.MechanismName))
-		}
+		// We can only have a single agent authentication mechanism specified at a given time
+		// (OpsManager rejects combinations like MONGODB-X509 + SCRAM-SHA-256 in AutoAuthMechanisms;
+		// the only valid multi-mechanism combination is SCRAM-SHA-1 + SCRAM-SHA-256).
+		auth.AutoAuthMechanisms = []string{string(s.MechanismName)}
 		return nil
 	}, log)
 }
