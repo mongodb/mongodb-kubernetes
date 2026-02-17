@@ -2,6 +2,7 @@ package searchcontroller
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -149,8 +150,18 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 	)
 }
 
+func jvmFlags(mdbSearch *searchv1.MongoDBSearch) string {
+	if len(mdbSearch.Spec.JVMFlags) == 0 {
+		return ""
+	}
+
+	flags := strings.Join(mdbSearch.Spec.JVMFlags, " ")
+	return fmt.Sprintf(`--jvm-flags "%s"`, flags)
+}
+
 func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+	jvmFlags := jvmFlags(mdbSearch)
 	return container.Apply(
 		container.WithName(MongotContainerName),
 		container.WithImage(searchImage),
@@ -162,7 +173,7 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 		container.WithCommand([]string{"sh"}),
 		container.WithArgs([]string{
 			"-c",
-			"/mongot-community/mongot --config /mongot/config.yml",
+			fmt.Sprintf("/mongot-community/mongot --config /mongot/config.yml %s", jvmFlags),
 		}),
 		prependCommand(sensitiveFilePermissionsWorkaround(MongotSourceUserPasswordPath, TempSourceUserPasswordPath, "0600")),
 		containerSecurityContext,
