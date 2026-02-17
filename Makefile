@@ -369,7 +369,7 @@ controller-gen:
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.18.0)
 
 # Download kustomize locally if necessary
-KUSTOMIZE = $(shell pwd)/bin/kustomize
+KUSTOMIZE ?= $(shell which kustomize 2>/dev/null || echo $(shell pwd)/bin/kustomize)
 kustomize:
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.4)
 
