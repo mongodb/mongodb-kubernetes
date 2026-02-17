@@ -203,8 +203,7 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 			ac.Auth.AutoUser = util.MergoDelete
 			ac.Auth.AutoPwd = util.MergoDelete
 		} else {
-			// Preserve AutoUser and AutoPwd so agents can re-authenticate when auth is re-enabled.
-			ac.Auth.AutoUser = util.AutomationAgentName
+			ac.Auth.AutoUser =  opts.AutoUser
 		}
 		ac.Auth.AutoAuthMechanisms = []string{}
 		ac.Auth.DeploymentAuthMechanisms = []string{}
