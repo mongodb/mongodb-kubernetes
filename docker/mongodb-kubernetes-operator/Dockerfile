@@ -47,9 +47,11 @@ ADD docker/mongodb-kubernetes-operator/licenses /data/licenses/
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
 # Building an UBI-based image: https://red.ht/3n6b9y0
+# Make update non-fatal due to transient UBI repository sync issues
 RUN microdnf update \
     --disableplugin=subscription-manager \
     --disablerepo=* --enablerepo=ubi-9-appstream-rpms --enablerepo=ubi-9-baseos-rpms -y \
+    || true \
     && rm -rf /var/cache/yum
 RUN microdnf install -y glibc-langpack-en
 
