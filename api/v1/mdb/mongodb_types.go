@@ -1018,6 +1018,15 @@ type AgentAuthentication struct {
 	ClientCertificateSecretRefWrap common.ClientCertificateSecretRefWrapper `json:"clientCertificateSecretRef,omitempty"`
 }
 
+// GetAutomationUserName returns the configured automation agent username,
+// or the default value if not specified
+func (a *AgentAuthentication) GetAutomationUserName() string {
+	if a == nil || a.AutomationUserName == "" {
+		return util.AutomationAgentUserName
+	}
+	return a.AutomationUserName
+}
+
 // IsX509Enabled determines if X509 is to be enabled at the project level
 // it does not necessarily mean that the agents are using X509 authentication
 func (a *Authentication) IsX509Enabled() bool {

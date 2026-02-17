@@ -544,11 +544,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		clientCerts = util.RequireClientCertificates
 	}
 
-	scramAgentUserName := util.AutomationAgentUserName
-	// only use the default name if there is not already a configured username
-	if ac.Auth.AutoUser != "" && ac.Auth.AutoUser != scramAgentUserName {
-		scramAgentUserName = ac.Auth.AutoUser
-	}
+	scramAgentUserName := ar.GetSecurity().Authentication.Agents.GetAutomationUserName()
 
 	authOpts := authentication.Options{
 		Mechanisms:         mdbv1.ConvertAuthModesToStrings(ar.GetSecurity().Authentication.Modes),
@@ -617,7 +613,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 
 			authOpts.AutoPwd = autoConfigPassword
 			userOpts := authentication.UserOptions{}
-			agentName := ar.GetSecurity().Authentication.Agents.AutomationUserName
+			agentName := ar.GetSecurity().Authentication.Agents.GetAutomationUserName()
 			userOpts.AutomationSubject = agentName
 			authOpts.UserOptions = userOpts
 		}
