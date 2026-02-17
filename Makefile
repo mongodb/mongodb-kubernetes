@@ -121,10 +121,10 @@ build-and-push-images: build-and-push-operator-image om-init-image database oper
 build-and-push-init-images: om-init-image database-init-image
 
 database:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py database -b patch -v $(USER)
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py database -b patch -v "$(USER)-dev"
 
 database-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-database -b patch -v $(USER)
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-database -b patch -v "$(USER)-dev"
 
 # Not setting a parallel-factor will default to 0 which will lead to using all CPUs, that can cause docker to die.
 # Here we are defaulting to 6, a higher value might work for you.
@@ -135,25 +135,25 @@ agent-image-slow:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py --parallel-factor 1 agent -b patch -v current
 
 operator-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator -b patch -v $(USER)
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator -b patch -v "$(USER)-dev"
 
 om-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-ops-manager -b patch -v $(USER)
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-ops-manager -b patch -v "$(USER)-dev"
 
 om-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py ops-manager -b patch -v 8.0.19
 
 test-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py meko-tests -b patch -v $(USER)
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py meko-tests -b patch -v "$(USER)-dev"
 
 mco-test-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py mco-test -b patch -v $(USER)
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py mco-test -b patch -v "$(USER)-dev"
 
 readiness_probe: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py readiness-probe -b patch -v $(USER)
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py readiness-probe -b patch -v "$(USER)-dev"
 
 upgrade_hook: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py upgrade-hook -b patch -v $(USER)
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py upgrade-hook -b patch -v "$(USER)-dev"
 
 configure-operator:
 	@ scripts/dev/configure_operator.sh
