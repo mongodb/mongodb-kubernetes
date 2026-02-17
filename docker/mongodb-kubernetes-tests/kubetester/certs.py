@@ -614,6 +614,47 @@ def create_sharded_cluster_certs(
         )
 
 
+def create_mongodb_sharded_tls_certs(
+    issuer: str,
+    namespace: str,
+    resource_name: str,
+    bundle_secret_name: str,
+    shards: int,
+    mongod_per_shard: int,
+    config_servers: int,
+    mongos: int,
+    secret_backend: Optional[str] = None,
+    vault_subpath: Optional[str] = None,
+) -> str:
+    """
+    Create a single TLS cert for a sharded cluster with hostnames for mongos, shards, and config servers.
+    Useful when one cert must cover all components (e.g. Prometheus scraping).
+    Hostname patterns align with create_sharded_cluster_certs.
+    """
+    hostnames: List[str] = []
+
+    for idx in range(mongos):
+        hostnames.append(f"{resource_name}-mongos-{idx}.{resource_name}-svc.{namespace}.svc.cluster.local")
+
+    for shard_idx in range(shards):
+        for pod_idx in range(mongod_per_shard):
+            hostnames.append(f"{resource_name}-{shard_idx}-{pod_idx}.{resource_name}-sh.{namespace}.svc.cluster.local")
+
+    for idx in range(config_servers):
+        hostnames.append(f"{resource_name}-config-{idx}.{resource_name}-cs.{namespace}.svc.cluster.local")
+
+    return create_mongodb_tls_certs(
+        issuer=issuer,
+        namespace=namespace,
+        resource_name=resource_name,
+        bundle_secret_name=bundle_secret_name,
+        replicas=len(hostnames),
+        process_hostnames=hostnames,
+        secret_backend=secret_backend,
+        vault_subpath=vault_subpath,
+    )
+
+
 def create_x509_agent_tls_certs(issuer: str, namespace: str, name: str, secret_backend: Optional[str] = None) -> str:
     spec = get_agent_x509_subject(namespace)
     return generate_cert(

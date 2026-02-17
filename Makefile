@@ -202,7 +202,10 @@ configure-operator:
 deploy-and-configure-operator: deploy-operator configure-operator
 
 cert:
-	@ openssl req  -nodes -new -x509  -keyout ca-tls.key -out ca-tls.crt -extensions v3_ca -days 3650
+	@ openssl req -nodes -new -x509 -keyout ca-tls.key -out ca-tls.crt -days 3650 \
+		-addext "basicConstraints=critical,CA:TRUE" \
+		-addext "keyUsage=critical,keyCertSign,cRLSign" \
+		-addext "subjectKeyIdentifier=hash"
 	@ mv ca-tls.key ca-tls.crt docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/
 	@ cat docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/ca-tls.crt \
 	docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/mongodb-download.crt \
