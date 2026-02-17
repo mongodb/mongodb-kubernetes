@@ -65,7 +65,7 @@ func (s *automationConfigScramSha) EnableDeploymentAuthentication(conn om.Connec
 	}, log)
 }
 
-func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool {
 	if ac.Auth.Disabled {
 		return false
 	}
@@ -74,7 +74,7 @@ func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.Automa
 		return false
 	}
 
-	if ac.Auth.AutoUser != util.AutomationAgentName || (ac.Auth.AutoPwd == "" || ac.Auth.AutoPwd == util.MergoDelete) {
+	if ac.Auth.AutoUser != opts.AutoUser || (ac.Auth.AutoPwd == "" || ac.Auth.AutoPwd == util.MergoDelete) {
 		return false
 	}
 
@@ -101,7 +101,12 @@ func configureScramAgentUsers(ctx context.Context, client kubernetesClient.Clien
 	}
 	auth := ac.Auth
 	if auth.AutoUser == "" {
-		auth.AutoUser = authOpts.AutoUser
+		// Use configured username from authOpts, defaulting to util.AutomationAgentName if not set
+		autoUser := authOpts.AutoUser
+		if autoUser == "" {
+			autoUser = util.AutomationAgentName
+		}
+		auth.AutoUser = autoUser
 	}
 	auth.AutoPwd = agentPassword
 
