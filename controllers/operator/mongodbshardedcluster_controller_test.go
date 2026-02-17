@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -329,98 +330,100 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 }
 
 func TestReconcilePVCResizeShardedCluster(t *testing.T) {
-	ctx := context.Background()
-	// First creation
-	sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
-	persistence := common.Persistence{
-		SingleConfig: &common.PersistenceConfig{
-			Storage: "1Gi",
-		},
-	}
-	sc.Spec.Persistent = util.BooleanRef(true)
-	sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
-	sc.Spec.ShardPodSpec.Persistence = &persistence
-	reconciler, _, c, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil)
-	assert.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		// First creation
+		sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
+		persistence := common.Persistence{
+			SingleConfig: &common.PersistenceConfig{
+				Storage: "1Gi",
+			},
+		}
+		sc.Spec.Persistent = util.BooleanRef(true)
+		sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
+		sc.Spec.ShardPodSpec.Persistence = &persistence
+		reconciler, _, c, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil)
+		assert.NoError(t, err)
 
-	// first, we create the shardedCluster with sts and pvc,
-	// no resize happening, even after running reconcile multiple times
-	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
-	testNoResize(t, c, ctx, sc)
+		// first, we create the shardedCluster with sts and pvc,
+		// no resize happening, even after running reconcile multiple times
+		checkReconcileSuccessful(ctx, t, reconciler, sc, c)
+		testNoResize(t, c, ctx, sc)
 
-	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
-	testNoResize(t, c, ctx, sc)
+		checkReconcileSuccessful(ctx, t, reconciler, sc, c)
+		testNoResize(t, c, ctx, sc)
 
-	createdConfigPVCs, createdSharded0PVCs, createdSharded1PVCs := getPVCs(t, c, ctx, sc)
+		createdConfigPVCs, createdSharded0PVCs, createdSharded1PVCs := getPVCs(t, c, ctx, sc)
 
-	newSize := "2Gi"
-	// increasing the storage now and start a new reconciliation
-	persistence.SingleConfig.Storage = newSize
+		newSize := "2Gi"
+		// increasing the storage now and start a new reconciliation
+		persistence.SingleConfig.Storage = newSize
 
-	sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
-	sc.Spec.ShardPodSpec.Persistence = &persistence
-	err = c.Update(ctx, sc)
-	assert.NoError(t, err)
+		sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
+		sc.Spec.ShardPodSpec.Persistence = &persistence
+		err = c.Update(ctx, sc)
+		assert.NoError(t, err)
 
-	_, e := reconciler.Reconcile(ctx, requestFromObject(sc))
-	assert.NoError(t, e)
+		_, e := reconciler.Reconcile(ctx, requestFromObject(sc))
+		assert.NoError(t, e)
 
-	// its only one sts in the pvc status, since we haven't started the next one yet
-	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: test.SCBuilderDefaultName + "-config"}})
+		// its only one sts in the pvc status, since we haven't started the next one yet
+		testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: test.SCBuilderDefaultName + "-config"}})
 
-	testPVCSizeHasIncreased(t, c, ctx, newSize, test.SCBuilderDefaultName+"-config")
+		testPVCSizeHasIncreased(t, c, ctx, newSize, test.SCBuilderDefaultName+"-config")
 
-	// Running the same resize makes no difference, we are still resizing
-	_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
-	assert.NoError(t, e)
+		// Running the same resize makes no difference, we are still resizing
+		_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
+		assert.NoError(t, e)
 
-	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: test.SCBuilderDefaultName + "-config"}})
+		testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: test.SCBuilderDefaultName + "-config"}})
 
-	for _, claim := range createdConfigPVCs {
-		setPVCWithUpdatedResource(ctx, t, c, &claim)
-	}
+		for _, claim := range createdConfigPVCs {
+			setPVCWithUpdatedResource(ctx, t, c, &claim)
+		}
 
-	// Running reconcile again should go into orphan
-	_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
-	assert.NoError(t, e)
+		// Running reconcile again should go into orphan
+		_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
+		assert.NoError(t, e)
 
-	// the second pvc is now getting resized
-	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-config"},
-		{Phase: pvc.PhasePVCResize, StatefulsetName: sc.Name + "-0"},
+		// the second pvc is now getting resized
+		testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
+			{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-config"},
+			{Phase: pvc.PhasePVCResize, StatefulsetName: sc.Name + "-0"},
+		})
+		testPVCSizeHasIncreased(t, c, ctx, newSize, sc.Name+"-0")
+		testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-config")
+
+		for _, claim := range createdSharded0PVCs {
+			setPVCWithUpdatedResource(ctx, t, c, &claim)
+		}
+
+		// Running reconcile again second pvcState should go into orphan, third one should start
+		_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
+		assert.NoError(t, e)
+
+		testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
+			{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-config"},
+			{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-0"},
+			{Phase: pvc.PhasePVCResize, StatefulsetName: sc.Name + "-1"},
+		})
+		testPVCSizeHasIncreased(t, c, ctx, newSize, sc.Name+"-1")
+		testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-0")
+
+		for _, claim := range createdSharded1PVCs {
+			setPVCWithUpdatedResource(ctx, t, c, &claim)
+		}
+
+		// We move from resize → orphaned and in the final call in the reconciling to running and
+		// remove the PVCs.
+		_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
+		assert.NoError(t, err)
+
+		// We are now in the running phase, since all statefulsets have finished resizing; therefore,
+		// no pvc phase is shown anymore
+		testMDBStatus(t, c, ctx, sc, status.PhaseRunning, nil)
+		testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-1")
 	})
-	testPVCSizeHasIncreased(t, c, ctx, newSize, sc.Name+"-0")
-	testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-config")
-
-	for _, claim := range createdSharded0PVCs {
-		setPVCWithUpdatedResource(ctx, t, c, &claim)
-	}
-
-	// Running reconcile again second pvcState should go into orphan, third one should start
-	_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
-	assert.NoError(t, e)
-
-	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-config"},
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-0"},
-		{Phase: pvc.PhasePVCResize, StatefulsetName: sc.Name + "-1"},
-	})
-	testPVCSizeHasIncreased(t, c, ctx, newSize, sc.Name+"-1")
-	testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-0")
-
-	for _, claim := range createdSharded1PVCs {
-		setPVCWithUpdatedResource(ctx, t, c, &claim)
-	}
-
-	// We move from resize → orphaned and in the final call in the reconciling to running and
-	// remove the PVCs.
-	_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
-	assert.NoError(t, err)
-
-	// We are now in the running phase, since all statefulsets have finished resizing; therefore,
-	// no pvc phase is shown anymore
-	testMDBStatus(t, c, ctx, sc, status.PhaseRunning, nil)
-	testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-1")
 }
 
 func testStatefulsetHasAnnotationAndCorrectSize(t *testing.T, c client.Client, ctx context.Context, namespace, stsName string) {
