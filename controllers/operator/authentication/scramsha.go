@@ -36,8 +36,14 @@ func (s *automationConfigScramSha) EnableAgentAuthentication(ctx context.Context
 		auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 
-		// We can only have a single agent authentication mechanism specified at a given time
-		auth.AutoAuthMechanisms = []string{string(s.MechanismName)}
+		// Append the SCRAM mechanism to AutoAuthMechanisms rather than overwriting.
+		// During mechanism transitions (e.g., X509→SCRAM), this preserves the old
+		// mechanism as a fallback so the agent can still authenticate while bootstrapping
+		// the new SCRAM credentials. The old mechanism is removed later by
+		// removeUnsupportedAgentMechanisms().
+		if !stringutil.Contains(auth.AutoAuthMechanisms, string(s.MechanismName)) {
+			auth.AutoAuthMechanisms = append(auth.AutoAuthMechanisms, string(s.MechanismName))
+		}
 		return nil
 	}, log)
 }
@@ -93,15 +99,22 @@ func (s *automationConfigScramSha) IsDeploymentAuthenticationEnabled(ac *om.Auto
 	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
 }
 
-// configureScramAgentUsers makes sure that the given automation config always has the correct SCRAM-SHA users
+// configureScramAgentUsers makes sure that the given automation config always has the correct SCRAM-SHA users.
+// During X509→SCRAM transitions, AutoUser holds the X509 certificate subject (e.g. "CN=...,OU=...,O=...,C=...")
+// which is not a valid SCRAM username. We detect this and replace it with the standard SCRAM agent name.
+// Custom SCRAM agent names set via OpsManager are preserved.
 func configureScramAgentUsers(ctx context.Context, client kubernetesClient.Client, ac *om.AutomationConfig, authOpts Options) error {
 	agentPassword, err := ac.EnsurePassword(ctx, client, authOpts.MongoDBResource)
 	if err != nil {
 		return err
 	}
 	auth := ac.Auth
-	if auth.AutoUser == "" {
-		auth.AutoUser = authOpts.AutoUser
+
+	// Replace AutoUser when it's empty, deleted, or an X509 certificate subject.
+	// This handles fresh SCRAM setup and X509→SCRAM transitions while preserving
+	// custom SCRAM agent names set via OpsManager.
+	if auth.AutoUser == "" || auth.AutoUser == util.MergoDelete || isValidX509Subject(auth.AutoUser) {
+		auth.AutoUser = util.AutomationAgentName
 	}
 	auth.AutoPwd = agentPassword
 

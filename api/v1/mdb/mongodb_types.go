@@ -836,6 +836,30 @@ func (s *Security) GetAgentMechanism(currentMechanism string) string {
 	}
 
 	if currentMechanism == "MONGODB-X509" {
+		// If the user has explicitly set agents.mode to a non-X509 mechanism AND
+		// that mechanism is in the modes list, allow the transition in a single
+		// reconciliation. Without this, X509→SCRAM transitions require multiple
+		// reconciliations with an intermediate state where the agent has no mechanism,
+		// causing a race condition (CLOUDP-68873).
+		agentMode := auth.Agents.Mode
+		if agentMode != "" && agentMode != util.X509 {
+			for _, mode := range s.Authentication.Modes {
+				if string(mode) == agentMode {
+					return agentMode
+				}
+			}
+		}
+		// If X509 is no longer in the desired modes, transition to the only available mode
+		x509InModes := false
+		for _, mode := range s.Authentication.Modes {
+			if string(mode) == util.X509 {
+				x509InModes = true
+				break
+			}
+		}
+		if !x509InModes && len(s.Authentication.Modes) == 1 {
+			return string(s.Authentication.Modes[0])
+		}
 		return util.X509
 	}
 

@@ -49,7 +49,7 @@ func TestGetAgentAuthentication(t *testing.T) {
 
 	sec.Authentication.Enabled = true
 	sec.Authentication.Modes = append(sec.Authentication.Modes, util.X509)
-	assert.Equal(t, util.X509, sec.GetAgentMechanism("MONGODB-X509"), "if x509 was enabled before, it needs to stay as is")
+	assert.Equal(t, util.X509, sec.GetAgentMechanism("MONGODB-X509"), "if x509 is the only mode, stay as X509 even if agents.mode=SCRAM (SCRAM not in modes)")
 
 	sec.Authentication.Modes = append(sec.Authentication.Modes, util.SCRAM)
 	assert.Equal(t, util.SCRAM, sec.GetAgentMechanism("SCRAM-SHA-256"), "if scram was enabled, scram will be chosen")
@@ -59,6 +59,69 @@ func TestGetAgentAuthentication(t *testing.T) {
 
 	sec.Authentication.Agents.Mode = "X509"
 	assert.Equal(t, util.X509, sec.GetAgentMechanism("SCRAM-SHA-256"), "transitioning from SCRAM -> X509 is allowed")
+}
+
+func TestGetAgentMechanism_X509ToScramTransition(t *testing.T) {
+	tests := []struct {
+		name             string
+		modes            []AuthMode
+		agentMode        string
+		currentMechanism string
+		expected         string
+	}{
+		{
+			name:             "X509→SCRAM: both modes present, agents.mode=SCRAM allows single-reconciliation transition",
+			modes:            []AuthMode{util.X509, util.SCRAM},
+			agentMode:        "SCRAM",
+			currentMechanism: "MONGODB-X509",
+			expected:         "SCRAM",
+		},
+		{
+			name:             "X509→SCRAM: only X509 in modes, agents.mode=SCRAM does NOT transition (SCRAM not in modes)",
+			modes:            []AuthMode{util.X509},
+			agentMode:        "SCRAM",
+			currentMechanism: "MONGODB-X509",
+			expected:         util.X509,
+		},
+		{
+			name:             "X509 removed from modes, only SCRAM left: transition to SCRAM",
+			modes:            []AuthMode{"SCRAM"},
+			agentMode:        "",
+			currentMechanism: "MONGODB-X509",
+			expected:         "SCRAM",
+		},
+		{
+			name:             "X509 still the only mode: stay on X509",
+			modes:            []AuthMode{util.X509},
+			agentMode:        "",
+			currentMechanism: "MONGODB-X509",
+			expected:         util.X509,
+		},
+		{
+			name:             "Both modes, agents.mode=X509: stay on X509",
+			modes:            []AuthMode{util.X509, util.SCRAM},
+			agentMode:        "X509",
+			currentMechanism: "MONGODB-X509",
+			expected:         util.X509,
+		},
+		{
+			name:             "Non-X509 current mechanism: uses normal path",
+			modes:            []AuthMode{util.SCRAM},
+			agentMode:        "SCRAM",
+			currentMechanism: "SCRAM-SHA-256",
+			expected:         "SCRAM",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sec := newSecurity()
+			sec.Authentication = newAuthentication()
+			sec.Authentication.Enabled = true
+			sec.Authentication.Modes = tt.modes
+			sec.Authentication.Agents.Mode = tt.agentMode
+			assert.Equal(t, tt.expected, sec.GetAgentMechanism(tt.currentMechanism))
+		})
+	}
 }
 
 func TestGetAuthenticationIsEnabledMethods(t *testing.T) {

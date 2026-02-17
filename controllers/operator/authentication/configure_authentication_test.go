@@ -264,6 +264,141 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 	assert.Contains(t, mechanismList, mongoDBX509Mechanism)
 }
 
+// TestConfigureX509ToScramTransition tests the full X509→SCRAM transition (3 steps):
+// Step 1: Start with X509 only
+// Step 2: Add SCRAM alongside X509, switch agent to SCRAM
+//         (X509 remains in AutoAuthMechanisms as fallback since it's still a deployment mechanism)
+// Step 3: Remove X509 from deployment mechanisms (SCRAM only)
+//         (X509 is now removed from AutoAuthMechanisms)
+func TestConfigureX509ToScramTransition(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
+	dep := om.NewDeployment()
+	conn := om.NewMockedOmConnection(dep)
+
+	// Step 1: Configure X509 first
+	x509Opts := Options{
+		AuthoritativeSet:   true,
+		ProcessNames:       []string{"process-1", "process-2", "process-3"},
+		Mechanisms:         []string{"X509"},
+		AgentMechanism:     "X509",
+		ClientCertificates: util.RequireClientCertificates,
+		UserOptions: UserOptions{
+			AutomationSubject: validSubject("automation"),
+		},
+		MongoDBResource: mongoDBResource,
+	}
+
+	err := Configure(ctx, kubeClient, conn, x509Opts, false, zap.S())
+	require.NoError(t, err)
+
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
+	assertAuthenticationEnabled(t, ac.Auth)
+	assertAuthenticationMechanism(t, ac.Auth, "MONGODB-X509")
+	assert.True(t, isValidX509Subject(ac.Auth.AutoUser), "AutoUser should be X509 subject after X509 setup")
+
+	// Step 2: Add SCRAM alongside X509, switch agent to SCRAM
+	scramOpts := Options{
+		AuthoritativeSet: true,
+		ProcessNames:     []string{"process-1", "process-2", "process-3"},
+		Mechanisms:       []string{"X509", "SCRAM"},
+		AgentMechanism:   "SCRAM",
+		UserOptions: UserOptions{
+			AutomationSubject: validSubject("automation"),
+		},
+		MongoDBResource: mongoDBResource,
+	}
+
+	err = Configure(ctx, kubeClient, conn, scramOpts, false, zap.S())
+	require.NoError(t, err)
+
+	ac, err = conn.ReadAutomationConfig()
+	require.NoError(t, err)
+
+	// Both agent mechanisms should be present: SCRAM for new auth, X509 as fallback
+	// X509 remains because it's still a deployment mechanism
+	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "SCRAM-SHA-256", "SCRAM should be in agent mechanisms")
+	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "MONGODB-X509", "X509 should remain as fallback during transition")
+	assert.Len(t, ac.Auth.AutoAuthMechanisms, 2, "Both mechanisms should be present during transition")
+
+	// AutoUser must be the SCRAM username, not the X509 subject
+	assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser, "AutoUser should be SCRAM agent name after transition")
+
+	// Both deployment mechanisms should be enabled
+	assert.Len(t, ac.Auth.DeploymentAuthMechanisms, 2, "Both deployment mechanisms should be enabled")
+	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
+	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "MONGODB-X509")
+
+	assert.False(t, ac.Auth.Disabled, "Auth should be enabled")
+
+	// Step 3: Remove X509 from deployment mechanisms (SCRAM only)
+	scramOnlyOpts := Options{
+		AuthoritativeSet: true,
+		ProcessNames:     []string{"process-1", "process-2", "process-3"},
+		Mechanisms:       []string{"SCRAM"},
+		AgentMechanism:   "SCRAM",
+		MongoDBResource:  mongoDBResource,
+	}
+
+	err = Configure(ctx, kubeClient, conn, scramOnlyOpts, false, zap.S())
+	require.NoError(t, err)
+
+	ac, err = conn.ReadAutomationConfig()
+	require.NoError(t, err)
+
+	// Now X509 should be fully removed from both agent and deployment mechanisms
+	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "SCRAM-SHA-256", "SCRAM should be the agent mechanism")
+	assert.NotContains(t, ac.Auth.AutoAuthMechanisms, "MONGODB-X509", "X509 should be removed from agent mechanisms")
+	assert.Len(t, ac.Auth.AutoAuthMechanisms, 1, "Only SCRAM should remain")
+
+	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
+	assert.NotContains(t, ac.Auth.DeploymentAuthMechanisms, "MONGODB-X509", "X509 should be removed from deployment mechanisms")
+	assert.Len(t, ac.Auth.DeploymentAuthMechanisms, 1, "Only SCRAM deployment mechanism should remain")
+
+	assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser)
+	assert.False(t, ac.Auth.Disabled, "Auth should be enabled")
+}
+
+// TestScramAppendsMechanismDuringTransition verifies that EnableAgentAuthentication
+// appends the SCRAM mechanism to AutoAuthMechanisms rather than overwriting,
+// preserving the old mechanism as a fallback during transitions.
+func TestScramAppendsMechanismDuringTransition(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
+	dep := om.NewDeployment()
+	conn := om.NewMockedOmConnection(dep)
+
+	// Pre-configure X509 in AutoAuthMechanisms (simulates existing X509 agent auth)
+	_ = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		ac.Auth.AutoAuthMechanisms = []string{"MONGODB-X509"}
+		ac.Auth.AutoUser = validSubject("automation")
+		ac.Auth.Disabled = false
+		return nil
+	}, zap.S())
+
+	scramMechanism := &automationConfigScramSha{MechanismName: ScramSha256}
+	err := scramMechanism.EnableAgentAuthentication(ctx, kubeClient, conn, Options{
+		MongoDBResource: mongoDBResource,
+	}, zap.S())
+	require.NoError(t, err)
+
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
+
+	// SCRAM should be ADDED to the existing mechanisms, not replace them
+	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "SCRAM-SHA-256", "SCRAM should be added")
+	assert.Contains(t, ac.Auth.AutoAuthMechanisms, "MONGODB-X509", "X509 should still be present as fallback")
+	assert.Len(t, ac.Auth.AutoAuthMechanisms, 2, "Both mechanisms should be present during transition")
+
+	// AutoUser should be set to SCRAM agent name
+	assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser, "AutoUser should be SCRAM agent name")
+}
+
 func assertAuthenticationEnabled(t *testing.T, auth *om.Auth) {
 	assertAuthenticationEnabledWithUsers(t, auth, 0)
 }
