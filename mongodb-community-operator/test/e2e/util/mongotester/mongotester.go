@@ -313,12 +313,16 @@ func (m *Tester) WaitForRotatedCertificate(mdb mdbv1.MongoDBCommunity, initialCe
 func (m *Tester) EnsureMongodConfig(selector string, expected interface{}) func(*testing.T) {
 	return func(t *testing.T) {
 		connectivityOpts := defaults()
+		// Port changes with arbiters can take 5-7 minutes to fully propagate to mongod,
+		// especially when status reports "Running" before config is actually applied.
+		// Use extended timeout to handle this race condition between status and config propagation.
+		configCheckTimeout := 180 * time.Second
 		// Use a fresh context for this operation instead of m.ctx which may have an expired deadline
 		// from the parent test context, especially after port changes with arbiters that take longer
-		ctx, cancel := context.WithTimeout(context.Background(), connectivityOpts.TimeoutTime)
+		ctx, cancel := context.WithTimeout(context.Background(), configCheckTimeout)
 		defer cancel()
 
-		err := wait.PollUntilContextTimeout(ctx, connectivityOpts.IntervalTime, connectivityOpts.TimeoutTime, false, func(ctx context.Context) (done bool, err error) {
+		err := wait.PollUntilContextTimeout(ctx, connectivityOpts.IntervalTime, configCheckTimeout, false, func(ctx context.Context) (done bool, err error) {
 			opts, err := m.getCommandLineOptions()
 			assert.NoError(t, err)
 
