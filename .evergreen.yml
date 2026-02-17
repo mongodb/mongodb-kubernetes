@@ -304,6 +304,14 @@ tasks:
     commands:
       - func: lint_repo
 
+  # Push devbox Nix store paths to S3 binary cache so future CI runs can pull
+  # pre-built packages instead of building from source or fetching from cache.nixos.org.
+  # Runs only on commit builds (not patches) to avoid unnecessary pushes.
+  - name: push_devbox_cache
+    tags: [ "unit_tests" ]
+    commands:
+      - func: push_devbox_cache
+
   # Runs on every merge - detects release.json changes and releases appropriate images
   - name: release_om_and_agents
     allowed_requesters: [ "patch" , "commit"]
@@ -677,6 +685,7 @@ task_groups:
       - unit_tests_python
       - unit_tests_helm
       - sbom_tests
+      - push_devbox_cache
     teardown_task:
       - command: attach.xunit_results
         params:

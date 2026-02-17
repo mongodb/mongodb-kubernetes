@@ -10,10 +10,7 @@
 #   3. Optionally configures the S3 binary cache
 #
 # Usage:
-#   ./scripts/devbox/install-devbox.sh [--with-cache]
-#
-# Options:
-#   --with-cache   Also configure the S3 Nix binary cache after installation
+#   ./scripts/devbox/install-devbox.sh
 #
 # Supported platforms:
 #   - macOS (aarch64, x86_64) - Apple Silicon and Intel
@@ -23,11 +20,6 @@ set -Eeou pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/nix-cache.env"
-
-WITH_CACHE=false
-if [[ "${1:-}" == "--with-cache" ]]; then
-    WITH_CACHE=true
-fi
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -122,13 +114,6 @@ if [[ ${ERRORS} -gt 0 ]]; then
     exit 1
 fi
 
-# --- Optional: Configure S3 cache ---
-
-if [[ "${WITH_CACHE}" == "true" ]]; then
-    echo "Configuring S3 Nix binary cache..."
-    "${SCRIPT_DIR}/configure-nix-cache.sh"
-fi
-
 echo ""
 echo "=== Installation complete ==="
 echo ""
@@ -136,5 +121,5 @@ echo "Quick start:"
 echo "  cd $(pwd)"
 echo "  devbox shell"
 echo ""
-echo "To also configure the S3 cache:"
+echo "To configure the S3 Nix cache:"
 echo "  ./scripts/devbox/configure-nix-cache.sh"

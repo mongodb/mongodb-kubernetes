@@ -124,6 +124,7 @@ echo ""
 # The secret-key parameter also signs during copy if not already signed.
 echo "  Uploading to s3://${MCK_NIX_CACHE_BUCKET}..."
 
+# shellcheck disable=SC2086 # STORE_PATHS must be word-split into individual paths
 nix copy \
     --to "${MCK_NIX_CACHE_S3_URI}&secret-key=${PRIV_KEY_FILE}" \
     ${STORE_PATHS} \

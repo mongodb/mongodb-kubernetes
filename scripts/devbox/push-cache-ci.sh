@@ -30,6 +30,15 @@ set -Eeou pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/nix-cache.env"
 
+# --- Ensure Nix is on PATH ---
+# When running in a CI subprocess.exec, Nix may not be on PATH yet.
+if ! command -v nix &>/dev/null; then
+    if [[ -f "/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh" ]]; then
+        # shellcheck disable=SC1091
+        . "/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh"
+    fi
+fi
+
 echo "============================================"
 echo "  MCK Nix Cache Push (CI)"
 echo "============================================"
@@ -38,23 +47,6 @@ echo ""
 # Navigate to project root
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
-
-# --- Check if devbox.json changed (optional optimization) ---
-
-# On Evergreen, we can check if devbox.json or devbox.lock changed in the
-# current commit. If not, we can skip the push.
-if command -v git &>/dev/null; then
-    CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
-    if [[ -n "${CHANGED_FILES}" ]]; then
-        if ! echo "${CHANGED_FILES}" | grep -qE 'devbox\.(json|lock)'; then
-            echo "No changes to devbox.json or devbox.lock - skipping cache push."
-            echo "(Force push by setting FORCE_CACHE_PUSH=true)"
-            if [[ "${FORCE_CACHE_PUSH:-false}" != "true" ]]; then
-                exit 0
-            fi
-        fi
-    fi
-fi
 
 # --- Ensure devbox is installed and packages are present ---
 

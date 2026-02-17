@@ -279,21 +279,19 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: devbox run scripts/evergreen/check_precommit.sh
 
-  download_devbox: &download_devbox
-    command: shell.exec
+  # Installs Nix and the Devbox CLI. Idempotent — skips if already present.
+  install_devbox: &install_devbox
+    command: subprocess.exec
     type: setup
     retry_on_failure: true
     params:
-      shell: bash
-      env:
-        DEVBOX_USE_VERSION: 0.16.0
       working_dir: src/github.com/mongodb/mongodb-kubernetes
-      script: |
-        curl -fsSL https://get.jetify.com/devbox | FORCE=1 bash
+      binary: scripts/devbox/install-devbox.sh
 
-  # Configures AWS credentials for the Nix daemon and sets up the S3 binary
-  # cache as a Nix substituter. Must run AFTER download_devbox (which installs
-  # Nix) and BEFORE setup_devbox (which runs devbox install).
+  # Configures AWS credentials and the S3 Nix binary cache substituter.
+  # Must run AFTER install_devbox (Nix present) and BEFORE setup_devbox
+  # (devbox install). On CI, writes ~/.aws/credentials from Evergreen
+  # expansions. On macOS, also copies them to /var/root/.aws/ for the daemon.
   setup_nix_s3_cache: &setup_nix_s3_cache
     command: subprocess.exec
     type: setup
@@ -303,7 +301,7 @@ functions:
         - mms_eng_test_aws_access_key
         - mms_eng_test_aws_secret
         - mms_eng_test_aws_region
-      binary: scripts/devbox/setup-nix-s3-cache.sh
+      binary: scripts/devbox/configure-nix-cache.sh
 
   setup_devbox: &setup_devbox
     command: subprocess.exec
@@ -330,11 +328,26 @@ functions:
       command: devbox run scripts/dev/switch_context.sh root-context
 
   setup_building_host_with_devbox:
-    - *download_devbox
+    - *install_devbox
     - *setup_nix_s3_cache
     - *setup_devbox
     - *setup_devbox_install_pip_dependencies
     - *setup_devbox_context
+
+  # Signs and pushes devbox Nix store paths to the S3 binary cache.
+  # Must run AFTER setup_building_host_with_devbox so packages are in /nix/store.
+  # Requires the MCK_NIX_CACHE_PRIV_KEY expansion (Nix signing private key).
+  push_devbox_cache: &push_devbox_cache
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      include_expansions_in_env:
+        - mms_eng_test_aws_access_key
+        - mms_eng_test_aws_secret
+        - mms_eng_test_aws_region
+        - MCK_NIX_CACHE_PRIV_KEY
+      binary: scripts/devbox/push-cache-ci.sh
 
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
