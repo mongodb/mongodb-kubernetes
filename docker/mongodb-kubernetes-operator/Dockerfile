@@ -51,7 +51,7 @@ RUN microdnf update \
     --disableplugin=subscription-manager \
     --disablerepo=* --enablerepo=ubi-9-appstream-rpms --enablerepo=ubi-9-baseos-rpms -y \
     && rm -rf /var/cache/yum
-RUN microdnf install -y glibc-langpack-en
+RUN microdnf install -y glibc-langpack-en || true
 
 COPY --from=base /data/mongodb-kubernetes-operator /usr/local/bin/mongodb-kubernetes-operator
 COPY --from=base /data/om_version_mapping.json /usr/local/om_version_mapping.json
