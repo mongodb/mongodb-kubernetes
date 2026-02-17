@@ -16,18 +16,7 @@ usage:
 	@ echo "  switch:                         switch current dev context, e.g 'make switch context=kops'. Note, that it switches"
 	@ echo "                                  kubectl context as well and sets the current namespace to the one configured as the default"
 	@ echo "                                  one"
-	@ echo "  operator:                       build and push Operator image, deploy it to the Kubernetes cluster"
-	@ echo "                                  Use the 'debug' flag to build and deploy the Operator in debug mode - you need"
-	@ echo "                                  to ensure the 30042 port on the K8s node is open"
-	@ echo "                                  Use the 'watch_namespace' flag to specify a namespace to watch or leave empty to watch project namespace."
 	@ echo "  database:                       build and push Database image"
-	@ echo "  full:                           ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
-	@ echo "                                  resources, build-push-deploy operator, push-deploy database, create secrets, "
-	@ echo "                                  config map, resources etc"
-	@ echo "  appdb:                          build and push AppDB image. Specify 'OM_VERSION' in format '4.2.1' to provide the already released Ops Manager"
-	@ echo "                                  version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
-	@ echo "                                  if Ops Manager is not released yet and you want to have some git branch as the source "
-	@ echo "                                  parameters in ~/operator-dev/om"
 	@ echo "  reset:                          cleans all Operator related state from Kubernetes and Ops Manager. Pass the 'light=true'"
 	@ echo "                                  to perform a \"light\" cleanup - delete only Mongodb resources"
 	@ echo "  e2e:                            runs the e2e test, e.g. 'make e2e test=e2e_sharded_cluster_pv'. The Operator is redeployed before"
@@ -57,30 +46,6 @@ switch:
 
 switcht:
 	@ scripts/dev/switch_context_by_test.sh $(test)
-
-# builds the Operator binary file and docker image and pushes it to the remote registry if using a remote registry. Deploys it to
-# k8s cluster
-operator: configure-operator build-and-push-operator-image
-	@ $(MAKE) deploy-operator
-
-# build-push, (todo) restart database
-database: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py database
-
-readiness_probe: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py readiness-probe
-
-upgrade_hook: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py upgrade-hook
-
-# ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
-# push-deploy database, create secrets, config map, resources etc
-full: build-and-push-images
-	@ $(MAKE) deploy-and-configure-operator
-
-# build-push appdb image
-appdb: aws_login
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py --include appdb
 
 # runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
 # The e2e test image is built and pushed together with all main ones (operator, database, init containers)
@@ -155,8 +120,11 @@ build-and-push-images: build-and-push-operator-image om-init-image database oper
 # builds all init images
 build-and-push-init-images: om-init-image database-init-image
 
+database:
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py database -b patch -v $(USER)
+
 database-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-database -b patch -v dev
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-database -b patch -v $(USER)
 
 # Not setting a parallel-factor will default to 0 which will lead to using all CPUs, that can cause docker to die.
 # Here we are defaulting to 6, a higher value might work for you.
@@ -167,24 +135,28 @@ agent-image-slow:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py --parallel-factor 1 agent -b patch -v current
 
 operator-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator -b patch -v dev
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator -b patch -v $(USER)
 
 om-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-ops-manager -b patch -v dev
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-ops-manager -b patch -v $(USER)
 
 om-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py ops-manager -b patch -v 8.0.19
 
 test-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py meko-tests -b patch -v dev
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py meko-tests -b patch -v $(USER)
 
 mco-test-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py mco-test -b patch -v dev
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py mco-test -b patch -v $(USER)
+
+readiness_probe: aws_login
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py readiness-probe -b patch -v $(USER)
+
+upgrade_hook: aws_login
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py upgrade-hook -b patch -v $(USER)
 
 configure-operator:
 	@ scripts/dev/configure_operator.sh
-
-deploy-and-configure-operator: deploy-operator configure-operator
 
 cert:
 	@ openssl req  -nodes -new -x509  -keyout ca-tls.key -out ca-tls.crt -extensions v3_ca -days 3650
