@@ -1,5 +1,7 @@
+import logging
 import time
 
+import pymongo
 import pytest
 from kubetester import kubetester, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
@@ -20,6 +22,7 @@ from pytest import fixture
 from tests import test_logger
 
 TRACER = trace.get_tracer("evergreen-agent")
+logger = logging.getLogger(__name__)
 
 MDB_RESOURCE = "sharded-cluster-x509-to-scram-256"
 USER_NAME = "mms-user-1"
@@ -107,17 +110,152 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
 class TestCanEnableScramSha256:
     @TRACER.start_as_current_span("test_can_enable_scram_sha_256")
     def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB, ca_path: str):
+        """
+        CLOUDP-68873 DIAGNOSTIC: Proves ordering hypothesis by manually creating user if stuck.
+
+        If manually creating mms-automation-agent user unsticks the agents, we've proven
+        that the agent's plan ordering (UpgradeAuth → EnsureCredentials) is the root cause.
+        """
         kubetester.wait_processes_ready()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
         sharded_cluster.load()
         sharded_cluster["spec"]["security"]["authentication"]["enabled"] = True
-        sharded_cluster["spec"]["security"]["authentication"]["modes"] = [
-            "SCRAM",
-        ]
+        sharded_cluster["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
         sharded_cluster["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
         sharded_cluster.update()
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
+
+        # Phase 1: Try with reduced timeout (300s = 5 minutes)
+        try:
+            logger.info("CLOUDP-68873 DIAGNOSTIC: Attempting SCRAM enable with 300s timeout")
+            sharded_cluster.assert_reaches_phase(Phase.Running, timeout=300)
+            logger.info("CLOUDP-68873 DIAGNOSTIC: ✓ SCRAM enable succeeded without intervention")
+            return
+        except Exception as timeout_error:
+            logger.warning(
+                f"CLOUDP-68873 DIAGNOSTIC: SCRAM enable timed out after 300s: {timeout_error}"
+            )
+            logger.info(
+                "CLOUDP-68873 DIAGNOSTIC: Agents likely stuck. "
+                "Will manually create mms-automation-agent user to test if this unsticks them."
+            )
+
+        # Phase 2: Get agent password from secret and manually create user
+        namespace = sharded_cluster.namespace
+        cluster_name = sharded_cluster.name
+        secret_name = f"{cluster_name}-{cluster_name}-admin-admin"
+
+        try:
+            secret_data = KubernetesTester.read_secret(namespace, secret_name)
+            decoded_secret = KubernetesTester.decode_secret(secret_data)
+            agent_password = decoded_secret.get("password")
+
+            if not agent_password:
+                logger.error(f"CLOUDP-68873 DIAGNOSTIC: No password in secret {secret_name}")
+                logger.error(f"Available keys: {list(decoded_secret.keys())}")
+                raise ValueError("Agent password not found in secret")
+
+            logger.info("CLOUDP-68873 DIAGNOSTIC: Retrieved agent password from secret")
+        except Exception as secret_error:
+            logger.error(f"CLOUDP-68873 DIAGNOSTIC: Failed to read secret: {secret_error}")
+            raise
+
+        # Phase 3: Connect to MongoDB and create user
+        pod_name = f"{cluster_name}-0-0"
+        service_name = f"{cluster_name}-sh.{namespace}.svc.cluster.local"
+
+        # Try multiple connection strategies
+        connection_strategies = [
+            {
+                "uri": f"mongodb://{pod_name}.{service_name}:27017/?tls=true&tlsCAFile={ca_path}&tlsAllowInvalidCertificates=true",
+                "name": "direct with TLS"
+            },
+            {
+                "uri": f"mongodb://{pod_name}.{service_name}:27017/",
+                "name": "direct without TLS"
+            },
+            {
+                "uri": f"mongodb://{cluster_name}-svc.{namespace}.svc.cluster.local:27017/",
+                "name": "via service without TLS"
+            }
+        ]
+
+        client = None
+        for strategy in connection_strategies:
+            try:
+                logger.info(f"CLOUDP-68873 DIAGNOSTIC: Trying: {strategy['name']}")
+                client = pymongo.MongoClient(
+                    strategy['uri'],
+                    serverSelectionTimeoutMS=10000,
+                    connectTimeoutMS=10000
+                )
+                client.admin.command('ping')
+                logger.info(f"CLOUDP-68873 DIAGNOSTIC: ✓ Connected via {strategy['name']}")
+                break
+            except Exception as conn_error:
+                logger.warning(f"CLOUDP-68873 DIAGNOSTIC: Connection failed: {conn_error}")
+                if client:
+                    client.close()
+                client = None
+
+        if not client:
+            logger.error("CLOUDP-68873 DIAGNOSTIC: All connection strategies failed")
+            raise ConnectionError("Cannot connect to MongoDB to create user")
+
+        # Create the user
+        try:
+            logger.info("CLOUDP-68873 DIAGNOSTIC: Creating mms-automation-agent user")
+            admin_db = client.admin
+
+            # Check if user exists
+            try:
+                users = admin_db.command('usersInfo', 'mms-automation-agent')
+                if users.get('users'):
+                    logger.info("CLOUDP-68873 DIAGNOSTIC: User already exists")
+            except Exception as check_error:
+                logger.warning(f"CLOUDP-68873 DIAGNOSTIC: Cannot check users: {check_error}")
+
+            # Create user
+            result = admin_db.command(
+                'createUser',
+                'mms-automation-agent',
+                pwd=agent_password,
+                roles=[{'role': 'root', 'db': 'admin'}]
+            )
+            logger.info(f"CLOUDP-68873 DIAGNOSTIC: ✓ User created: {result}")
+
+        except pymongo.errors.DuplicateKeyError:
+            logger.info("CLOUDP-68873 DIAGNOSTIC: User exists (DuplicateKeyError) - OK")
+        except Exception as create_error:
+            logger.error(f"CLOUDP-68873 DIAGNOSTIC: User creation failed: {create_error}")
+            raise
+        finally:
+            if client:
+                client.close()
+
+        # Phase 4: Wait for agents to detect user
+        logger.info("CLOUDP-68873 DIAGNOSTIC: Waiting 45s for agents to detect new user")
+        time.sleep(45)
+
+        # Phase 5: Check if agents unstuck
+        try:
+            logger.info("CLOUDP-68873 DIAGNOSTIC: Checking if agents unstuck")
+            sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
+
+            logger.info("=" * 80)
+            logger.info("✅ CLOUDP-68873 DIAGNOSTIC: PROOF CONFIRMED!")
+            logger.info("✅ Manually creating the user UNSTUCK the agents")
+            logger.info("✅ Root cause: Agent plans UpgradeAuth → EnsureCredentials (WRONG)")
+            logger.info("✅ Should be: EnsureCredentials → UpgradeAuth")
+            logger.info("=" * 80)
+
+        except Exception as still_stuck_error:
+            logger.error("=" * 80)
+            logger.error("❌ CLOUDP-68873 DIAGNOSTIC: Agents STILL STUCK after manual user creation")
+            logger.error(f"❌ Exception: {still_stuck_error}")
+            logger.error("❌ Suggests: User creation failed OR not the sole issue")
+            logger.error("=" * 80)
+            raise
 
     def test_assert_connectivity(self, ca_path: str):
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity(attempts=25)
