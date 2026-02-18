@@ -8,6 +8,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 )
 
 func newEnterpriseSearchSource(version string, topology string, resourceType mdbv1.ResourceType, authModes []string, internalClusterAuth string) EnterpriseResourceSearchSource {
@@ -281,6 +284,184 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			if c.expectError {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), c.expectedErrMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func newShardedClusterMongoDB(name, namespace string, shardCount int, version string) *mdbv1.MongoDB {
+	return &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				Version:      version,
+				ResourceType: mdbv1.ShardedCluster,
+			},
+			MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{
+				ShardCount: shardCount,
+			},
+		},
+	}
+}
+
+func newShardedExternalLBSearch(name, namespace, mdbName string, endpoints []searchv1.ShardEndpoint) *searchv1.MongoDBSearch {
+	return &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{
+					Name: mdbName,
+				},
+				Replicas: 1,
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Mode: searchv1.LBModeUnmanaged,
+				External: &searchv1.ExternalLBConfig{
+					Sharded: &searchv1.ShardedExternalLBConfig{
+						Endpoints: endpoints,
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
+	tests := []struct {
+		name           string
+		shardCount     int
+		mdbName        string
+		expectedShards []string
+	}{
+		{
+			name:           "Single shard",
+			shardCount:     1,
+			mdbName:        "my-cluster",
+			expectedShards: []string{"my-cluster-0"},
+		},
+		{
+			name:           "Three shards",
+			shardCount:     3,
+			mdbName:        "my-cluster",
+			expectedShards: []string{"my-cluster-0", "my-cluster-1", "my-cluster-2"},
+		},
+		{
+			name:           "Five shards",
+			shardCount:     5,
+			mdbName:        "test-sharded",
+			expectedShards: []string{"test-sharded-0", "test-sharded-1", "test-sharded-2", "test-sharded-3", "test-sharded-4"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := newShardedClusterMongoDB(tc.mdbName, "test-ns", tc.shardCount, "8.2.0")
+			search := newShardedExternalLBSearch("test-search", "test-ns", tc.mdbName, nil)
+			src := NewShardedEnterpriseSearchSource(mdb, search)
+
+			shardNames := src.GetShardNames()
+			assert.Equal(t, tc.expectedShards, shardNames)
+		})
+	}
+}
+
+func TestShardedEnterpriseSearchSource_GetExternalLBEndpointForShard(t *testing.T) {
+	endpoints := []searchv1.ShardEndpoint{
+		{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
+		{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
+		{ShardName: "my-cluster-2", Endpoint: "lb2.example.com:27028"},
+	}
+
+	mdb := newShardedClusterMongoDB("my-cluster", "test-ns", 3, "8.2.0")
+	search := newShardedExternalLBSearch("test-search", "test-ns", "my-cluster", endpoints)
+	src := NewShardedEnterpriseSearchSource(mdb, search)
+
+	tests := []struct {
+		shardName        string
+		expectedEndpoint string
+	}{
+		{"my-cluster-0", "lb0.example.com:27028"},
+		{"my-cluster-1", "lb1.example.com:27028"},
+		{"my-cluster-2", "lb2.example.com:27028"},
+		{"my-cluster-3", ""}, // Not in endpoint map
+		{"unknown-shard", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.shardName, func(t *testing.T) {
+			endpoint := src.GetExternalLBEndpointForShard(tc.shardName)
+			assert.Equal(t, tc.expectedEndpoint, endpoint)
+		})
+	}
+}
+
+func TestShardedEnterpriseSearchSource_Validate(t *testing.T) {
+	tests := []struct {
+		name           string
+		shardCount     int
+		endpoints      []searchv1.ShardEndpoint
+		expectError    bool
+		expectedErrMsg string
+	}{
+		{
+			name:       "Valid - all shards have endpoints",
+			shardCount: 2,
+			endpoints: []searchv1.ShardEndpoint{
+				{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
+				{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
+			},
+			expectError: false,
+		},
+		{
+			name:       "Invalid - missing endpoint for shard",
+			shardCount: 3,
+			endpoints: []searchv1.ShardEndpoint{
+				{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
+				{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
+				// Missing my-cluster-2
+			},
+			expectError:    true,
+			expectedErrMsg: "missing LB endpoints for shards",
+		},
+		{
+			name:       "Empty endpoints - treated as non-sharded LB (no validation error)",
+			shardCount: 2,
+			endpoints:  []searchv1.ShardEndpoint{},
+			// When endpoints is empty, IsShardedExternalLB() returns false,
+			// so the shard endpoint validation is skipped
+			expectError: false,
+		},
+		{
+			name:       "Valid - extra endpoints are ignored",
+			shardCount: 2,
+			endpoints: []searchv1.ShardEndpoint{
+				{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
+				{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
+				{ShardName: "my-cluster-2", Endpoint: "lb2.example.com:27028"}, // Extra
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := newShardedClusterMongoDB("my-cluster", "test-ns", tc.shardCount, "8.2.0")
+			search := newShardedExternalLBSearch("test-search", "test-ns", "my-cluster", tc.endpoints)
+			src := NewShardedEnterpriseSearchSource(mdb, search)
+
+			err := src.Validate()
+
+			if tc.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedErrMsg)
 			} else {
 				assert.NoError(t, err)
 			}
