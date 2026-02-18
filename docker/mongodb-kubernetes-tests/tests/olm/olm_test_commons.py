@@ -114,7 +114,7 @@ def get_pod_condition_env_var(pod):
 
 
 def get_release_json_path() -> str:
-    # when running in pod, release.json will be available in /release.json (it's copied there in Dockerfile)
+    # when running in pod, release.json will be available in current working dir (it's copied there in Dockerfile)
     if os.path.exists("release.json"):
         return "release.json"
     else:
