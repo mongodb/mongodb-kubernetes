@@ -143,17 +143,18 @@ class TestCanEnableScramSha256:
         # Phase 2: Get agent password from secret and manually create user
         namespace = sharded_cluster.namespace
         cluster_name = sharded_cluster.name
-        secret_name = f"{cluster_name}-{cluster_name}-admin-admin"
+        secret_name = f"{cluster_name}-agent-auth-secret"
+        secret_key = "automation-agent-password"
 
         try:
             secret_data = KubernetesTester.read_secret(namespace, secret_name)
             decoded_secret = KubernetesTester.decode_secret(secret_data)
-            agent_password = decoded_secret.get("password")
+            agent_password = decoded_secret.get(secret_key)
 
             if not agent_password:
-                logger.error(f"CLOUDP-68873 DIAGNOSTIC: No password in secret {secret_name}")
+                logger.error(f"CLOUDP-68873 DIAGNOSTIC: No '{secret_key}' key in secret {secret_name}")
                 logger.error(f"Available keys: {list(decoded_secret.keys())}")
-                raise ValueError("Agent password not found in secret")
+                raise ValueError(f"Agent password key '{secret_key}' not found in secret")
 
             logger.info("CLOUDP-68873 DIAGNOSTIC: Retrieved agent password from secret")
         except Exception as secret_error:
