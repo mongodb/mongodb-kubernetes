@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	k8swait "k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -380,6 +381,18 @@ func AutomationConfigVersionHasTheExpectedVersion(ctx context.Context, mdb *mdbv
 	return func(t *testing.T) {
 		currentAc := getAutomationConfig(ctx, t, mdb)
 		assert.Equal(t, expectedVersion, currentAc.Version)
+	}
+}
+
+// WaitForAutomationConfigVersion waits for the automation config to reach the expected version with retries.
+// This is useful for scenarios like port changes where the config update takes time to propagate.
+func WaitForAutomationConfigVersion(ctx context.Context, mdb *mdbv1.MongoDBCommunity, expectedVersion int, timeout time.Duration) func(t *testing.T) {
+	return func(t *testing.T) {
+		err := k8swait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, false, func(ctx context.Context) (done bool, err error) {
+			currentAc := getAutomationConfig(ctx, t, mdb)
+			return currentAc.Version == expectedVersion, nil
+		})
+		assert.NoError(t, err, "Timed out waiting for automation config version %d", expectedVersion)
 	}
 }
 
