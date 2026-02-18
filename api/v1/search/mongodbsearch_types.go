@@ -180,12 +180,53 @@ type MongoDBSource struct {
 }
 
 type ExternalMongoDBSource struct {
+	// HostAndPorts is the list of mongod host:port seeds for replica set sources.
+	// Mutually exclusive with Sharded.
+	// +optional
 	HostAndPorts []string `json:"hostAndPorts,omitempty"`
+	// Sharded contains configuration for external sharded MongoDB clusters.
+	// Mutually exclusive with HostAndPorts.
+	// +optional
+	Sharded *ExternalShardedConfig `json:"sharded,omitempty"`
 	// mongod keyfile used to connect to the external MongoDB deployment
+	// +optional
 	KeyFileSecretKeyRef *userv1.SecretKeyRef `json:"keyfileSecretRef,omitempty"`
 	// TLS configuration for the external MongoDB deployment
 	// +optional
 	TLS *ExternalMongodTLS `json:"tls,omitempty"`
+}
+
+// ExternalShardedConfig contains configuration for external sharded MongoDB clusters
+type ExternalShardedConfig struct {
+	// Router contains the mongos router configuration
+	// +kubebuilder:validation:Required
+	Router ExternalRouterConfig `json:"router"`
+	// Shards is the list of shard configurations
+	// +kubebuilder:validation:MinItems=1
+	Shards []ExternalShardConfig `json:"shards"`
+}
+
+// ExternalRouterConfig contains configuration for mongos routers in an external sharded cluster
+type ExternalRouterConfig struct {
+	// Hosts is the list of mongos router endpoints (host:port)
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	Hosts []string `json:"hosts"`
+	// TLS configuration specific to the router. If not specified, falls back to the top-level external.tls config.
+	// +optional
+	TLS *ExternalMongodTLS `json:"tls,omitempty"`
+}
+
+// ExternalShardConfig contains configuration for a single shard in an external sharded cluster
+type ExternalShardConfig struct {
+	// ShardName is the logical shard name (e.g., "shard-0").
+	// This name is used to match with lb.external.sharded.endpoints[].shardName
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ShardName string `json:"shardName"`
+	// Hosts is the list of mongod host:port seeds for this shard's replica set
+	// +kubebuilder:validation:MinItems=1
+	Hosts []string `json:"hosts"`
 }
 
 type ExternalMongodTLS struct {
@@ -411,6 +452,12 @@ func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
 
 func (s *MongoDBSearch) IsExternalMongoDBSource() bool {
 	return s.Spec.Source != nil && s.Spec.Source.ExternalMongoDBSource != nil
+}
+
+// IsExternalShardedSource returns true if the source is an external sharded MongoDB cluster
+func (s *MongoDBSearch) IsExternalShardedSource() bool {
+	return s.IsExternalMongoDBSource() &&
+		s.Spec.Source.ExternalMongoDBSource.Sharded != nil
 }
 
 func (s *MongoDBSearch) GetLogLevel() mdb.LogLevel {

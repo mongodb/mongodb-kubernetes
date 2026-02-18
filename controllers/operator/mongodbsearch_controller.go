@@ -111,7 +111,18 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 	// If everything fails just error out and the controller will retry reconciliation.
 
 	if search.IsExternalMongoDBSource() {
-		return searchcontroller.NewExternalSearchSource(search.Namespace, search.Spec.Source.ExternalMongoDBSource), nil
+		externalSpec := search.Spec.Source.ExternalMongoDBSource
+
+		// Sharded external source
+		if search.IsExternalShardedSource() {
+			return searchcontroller.NewShardedExternalSearchSource(
+				search.Namespace,
+				externalSpec,
+			), nil
+		}
+
+		// Replica set external source (existing behavior)
+		return searchcontroller.NewExternalSearchSource(search.Namespace, externalSpec), nil
 	}
 
 	sourceMongoDBResourceRef := search.GetMongoDBResourceRef()

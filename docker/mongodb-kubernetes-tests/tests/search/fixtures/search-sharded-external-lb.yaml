@@ -19,7 +19,6 @@ spec:
   lb:
     mode: Unmanaged
     external:
-      sharded:
-        # Endpoint template with {shardName} placeholder
-        # NAMESPACE placeholder is replaced with actual namespace by the test fixture
-        endpoint: mdb-sh-mongot-{shardName}-proxy-svc.NAMESPACE.svc.cluster.local:27029
+      # Endpoint template with {shardName} placeholder
+      # NAMESPACE placeholder is replaced with actual namespace by the test fixture
+      endpoint: "mdb-sh-mongot-{shardName}-proxy-svc.NAMESPACE.svc.cluster.local:27029"
