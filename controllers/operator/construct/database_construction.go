@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"strconv"
 
@@ -676,13 +675,11 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		if mdb.GetSecurity().Authentication != nil &&
 			mdb.GetSecurity().Authentication.Agents.AgentCertificatePath != "" {
 			customPath := mdb.GetSecurity().Authentication.Agents.AgentCertificatePath
-			// Extract the filename from the custom path to use as subPath
-			// The secret must have a key matching this filename
-			filename := filepath.Base(customPath)
+			// Use the agent cert hash as the subPath (this is the actual key in the secret)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				MountPath: customPath,
 				Name:      agentSecretVolume.Name,
-				SubPath:   filename,
+				SubPath:   databaseOpts.AgentCertHash,
 				ReadOnly:  true,
 			})
 		}
