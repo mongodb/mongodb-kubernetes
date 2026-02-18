@@ -33,7 +33,15 @@ type EmbeddingConfig struct {
 
 type ConfigSyncSource struct {
 	ReplicaSet               ConfigReplicaSet `json:"replicaSet"`
+	Router                   *ConfigRouter    `json:"router,omitempty"`
 	CertificateAuthorityFile *string          `json:"caFile,omitempty"`
+}
+
+type ConfigRouter struct {
+	HostAndPort  string `json:"hostAndPort"`
+	Username     string `json:"username"`
+	PasswordFile string `json:"passwordFile"`
+	TLS          *bool  `json:"tls,omitempty"`
 }
 
 type ConfigReplicaSet struct {
