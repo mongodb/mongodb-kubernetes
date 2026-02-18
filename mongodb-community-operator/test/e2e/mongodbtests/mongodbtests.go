@@ -388,11 +388,14 @@ func AutomationConfigVersionHasTheExpectedVersion(ctx context.Context, mdb *mdbv
 // This is useful for scenarios like port changes where the config update takes time to propagate.
 func WaitForAutomationConfigVersion(ctx context.Context, mdb *mdbv1.MongoDBCommunity, expectedVersion int, timeout time.Duration) func(t *testing.T) {
 	return func(t *testing.T) {
+		var lastVersion int
 		err := k8swait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, false, func(ctx context.Context) (done bool, err error) {
 			currentAc := getAutomationConfig(ctx, t, mdb)
+			lastVersion = currentAc.Version
+			t.Logf("Current AC version: %d, waiting for: %d", lastVersion, expectedVersion)
 			return currentAc.Version == expectedVersion, nil
 		})
-		assert.NoError(t, err, "Timed out waiting for automation config version %d", expectedVersion)
+		assert.NoError(t, err, "Timed out waiting for automation config version %d (last seen: %d)", expectedVersion, lastVersion)
 	}
 }
 
