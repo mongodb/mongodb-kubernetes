@@ -818,6 +818,9 @@ func (r *ReconcileCommonController) agentCertHashAndPath(ctx context.Context, lo
 	var agentCertPath string
 	if security != nil && security.Authentication != nil {
 		agentCertPath = security.Authentication.Agents.GetAgentCertificatePath(agentCertHash)
+	} else {
+		// When security is nil, use the default path generation
+		agentCertPath = (&mdbv1.AgentAuthentication{}).GetAgentCertificatePath(agentCertHash)
 	}
 
 	return agentCertHash, agentCertPath

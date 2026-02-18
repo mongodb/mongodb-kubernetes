@@ -203,7 +203,7 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 			ac.Auth.AutoUser = util.MergoDelete
 			ac.Auth.AutoPwd = util.MergoDelete
 		} else {
-			ac.Auth.AutoUser =  opts.AutoUser
+			ac.Auth.AutoUser = opts.AutoUser
 		}
 		ac.Auth.AutoAuthMechanisms = []string{}
 		ac.Auth.DeploymentAuthMechanisms = []string{}

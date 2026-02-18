@@ -193,7 +193,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.GetName())
-	agentCertHash, agentCertPath := r.agentCertHashAndPath(ctx, log, mrs.Namespace, agentCertSecretName, "")
+	agentCertHash, agentCertPath := r.agentCertHashAndPath(ctx, log, mrs.Namespace, agentCertSecretName, "", mrs.GetSecurity())
 
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
@@ -1281,7 +1281,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Con
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		errs = multierror.Append(errs, err)
-	}else{
+	} else {
 		for _, item := range clusterSpecList {
 			clusterName := item.ClusterName
 			clusterClient := r.memberClusterClientsMap[clusterName]
