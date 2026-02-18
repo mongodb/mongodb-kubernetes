@@ -721,7 +721,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 		container.WithCommand([]string{"/usr/local/bin/agent-launcher-shim.sh"}),
@@ -793,7 +793,7 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 	)}
@@ -909,15 +909,14 @@ func defaultAgentParameters() mdbv1.StartupParameters {
 	return map[string]string{"logFile": path.Join(util.PvcMountPathLogs, "automation-agent.log")}
 }
 
-func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMongodConfig *mdbv1.AdditionalMongodConfig) []corev1.EnvVar {
+func logConfigurationToEnvVars(agentConfig *mdbv1.AgentConfig, additionalMongodConfig *mdbv1.AdditionalMongodConfig) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
-	envVars = append(envVars, getAutomationLogEnvVars(parameters)...)
+	envVars = append(envVars, getAutomationLogEnvVars(agentConfig.StartupParameters)...)
 	envVars = append(envVars, getAuditLogEnvVar(additionalMongodConfig))
 
-	// the following are hardcoded log files where we don't support changing the names
 	envVars = append(envVars, corev1.EnvVar{Name: LogFileMongoDBEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb.log")})
-	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log")})
-	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: path.Join(util.PvcMountPathLogs, "backup-agent.log")})
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: agentConfig.MonitoringAgent.GetLogFilePath()})
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: agentConfig.BackupAgent.GetLogFilePath()})
 
 	return envVars
 }
