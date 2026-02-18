@@ -1,0 +1,24 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-sh
+spec:
+  logLevel: DEBUG
+  source:
+    mongodb:
+      name: mdb-sh
+    replicas: 2
+  security:
+    tls:
+      # Per-shard TLS: each shard gets its own certificate
+      # Secret naming pattern: {prefix}-{shardName}-search-cert
+      # e.g., certs-mdb-sh-0-search-cert, certs-mdb-sh-1-search-cert
+      certsSecretPrefix: certs
+      ca:
+        name: mdb-sh-ca
+  lb:
+    mode: Unmanaged
+    external:
+      # Endpoint template with {shardName} placeholder
+      # NAMESPACE placeholder is replaced with actual namespace by the test fixture
+      endpoint: "mdb-sh-mongot-{shardName}-proxy-svc.NAMESPACE.svc.cluster.local:27029"
