@@ -16,12 +16,14 @@ MDB_RESOURCE = "replica-set-x509-to-scram-256"
 USER_NAME = "mms-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
+CUSTOM_AGENT_CERT_PATH = "/etc/mongodb-mms/agent.pem"
 
 
 @fixture(scope="module")
 def replica_set(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("replica-set-x509-to-scram-256.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    res["spec"]["security"]["authentication"]["agents"]["agentCertificatePath"] = CUSTOM_AGENT_CERT_PATH
     try_load(res)
     return res
 
@@ -33,7 +35,24 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def agent_certs(issuer: str, namespace: str) -> str:
-    return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
+    """Create agent certificates with custom key name for custom path testing."""
+    secret_name = create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
+
+    # Add a key with the filename from the custom path (agent.pem)
+    from kubernetes import client
+    v1 = client.CoreV1Api()
+
+    # Read the existing secret
+    secret = v1.read_namespaced_secret(name=secret_name, namespace=namespace)
+
+    # Add the custom key name matching the filename from CUSTOM_AGENT_CERT_PATH
+    # The secret already has the cert under "mms-automation-agent-pem",
+    # we duplicate it under "agent.pem" for the custom mount
+    if "mms-automation-agent-pem" in secret.data:
+        secret.data["agent.pem"] = secret.data["mms-automation-agent-pem"]
+        v1.patch_namespaced_secret(name=secret_name, namespace=namespace, body=secret)
+
+    return secret_name
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
@@ -48,6 +67,20 @@ class TestEnableX509ForReplicaSet(KubernetesTester):
         tester.assert_authoritative_set(True)
         tester.assert_authentication_enabled()
         tester.assert_expected_users(0)
+
+    def test_custom_agent_cert_path_in_automation_config(self):
+        """Verify the automation config uses the custom agent certificate path."""
+        ac = KubernetesTester.get_automation_config()
+
+        # Check that the agentSSL section has the custom path
+        assert "agentSSL" in ac, "agentSSL section missing from automation config"
+        assert "autoPEMKeyFilePath" in ac["agentSSL"], "autoPEMKeyFilePath missing from agentSSL"
+
+        actual_path = ac["agentSSL"]["autoPEMKeyFilePath"]
+        assert actual_path == CUSTOM_AGENT_CERT_PATH, (
+            f"Expected agent cert path to be {CUSTOM_AGENT_CERT_PATH}, "
+            f"but got {actual_path}"
+        )
 
     def test_deployment_is_reachable(self, replica_set: MongoDB):
         tester = replica_set.tester()
