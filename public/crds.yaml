@@ -177,6 +177,12 @@ spec:
                 properties:
                   backupAgent:
                     properties:
+                      logFilePath:
+                        description: |-
+                          LogFilePath configures the log file path for the backup agent.
+                          Default: /var/log/mongodb-mms-automation/backup-agent.log
+                        pattern: ^/.*
+                        type: string
                       logRotate:
                         description: LogRotate configures log rotation for the BackupAgent
                           processes
@@ -318,8 +324,14 @@ spec:
                     type: object
                   monitoringAgent:
                     properties:
+                      logFilePath:
+                        description: |-
+                          LogFilePath configures the log file path for the monitoring agent.
+                          Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                        pattern: ^/.*
+                        type: string
                       logRotate:
-                        description: LogRotate configures log rotation for the BackupAgent
+                        description: LogRotate configures log rotation for the MonitoringAgent
                           processes
                         properties:
                           sizeThresholdMB:
@@ -518,6 +530,12 @@ spec:
                     properties:
                       backupAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath configures the log file path for the backup agent.
+                              Default: /var/log/mongodb-mms-automation/backup-agent.log
+                            pattern: ^/.*
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
                               BackupAgent processes
@@ -661,9 +679,15 @@ spec:
                         type: object
                       monitoringAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath configures the log file path for the monitoring agent.
+                              Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                            pattern: ^/.*
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
-                              BackupAgent processes
+                              MonitoringAgent processes
                             properties:
                               sizeThresholdMB:
                                 description: |-
@@ -1006,6 +1030,12 @@ spec:
                     properties:
                       backupAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath configures the log file path for the backup agent.
+                              Default: /var/log/mongodb-mms-automation/backup-agent.log
+                            pattern: ^/.*
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
                               BackupAgent processes
@@ -1149,9 +1179,15 @@ spec:
                         type: object
                       monitoringAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath configures the log file path for the monitoring agent.
+                              Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                            pattern: ^/.*
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
-                              BackupAgent processes
+                              MonitoringAgent processes
                             properties:
                               sizeThresholdMB:
                                 description: |-
@@ -1824,6 +1860,12 @@ spec:
                     properties:
                       backupAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath configures the log file path for the backup agent.
+                              Default: /var/log/mongodb-mms-automation/backup-agent.log
+                            pattern: ^/.*
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
                               BackupAgent processes
@@ -1967,9 +2009,15 @@ spec:
                         type: object
                       monitoringAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath configures the log file path for the monitoring agent.
+                              Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                            pattern: ^/.*
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
-                              BackupAgent processes
+                              MonitoringAgent processes
                             properties:
                               sizeThresholdMB:
                                 description: |-
@@ -2171,6 +2219,12 @@ spec:
                       properties:
                         backupAgent:
                           properties:
+                            logFilePath:
+                              description: |-
+                                LogFilePath configures the log file path for the backup agent.
+                                Default: /var/log/mongodb-mms-automation/backup-agent.log
+                              pattern: ^/.*
+                              type: string
                             logRotate:
                               description: LogRotate configures log rotation for the
                                 BackupAgent processes
@@ -2316,9 +2370,15 @@ spec:
                           type: object
                         monitoringAgent:
                           properties:
+                            logFilePath:
+                              description: |-
+                                LogFilePath configures the log file path for the monitoring agent.
+                                Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                              pattern: ^/.*
+                              type: string
                             logRotate:
                               description: LogRotate configures log rotation for the
-                                BackupAgent processes
+                                MonitoringAgent processes
                               properties:
                                 sizeThresholdMB:
                                   description: |-
@@ -2919,6 +2979,12 @@ spec:
                 properties:
                   backupAgent:
                     properties:
+                      logFilePath:
+                        description: |-
+                          LogFilePath configures the log file path for the backup agent.
+                          Default: /var/log/mongodb-mms-automation/backup-agent.log
+                        pattern: ^/.*
+                        type: string
                       logRotate:
                         description: LogRotate configures log rotation for the BackupAgent
                           processes
@@ -3060,8 +3126,14 @@ spec:
                     type: object
                   monitoringAgent:
                     properties:
+                      logFilePath:
+                        description: |-
+                          LogFilePath configures the log file path for the monitoring agent.
+                          Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                        pattern: ^/.*
+                        type: string
                       logRotate:
-                        description: LogRotate configures log rotation for the BackupAgent
+                        description: LogRotate configures log rotation for the MonitoringAgent
                           processes
                         properties:
                           sizeThresholdMB:
@@ -4694,6 +4766,12 @@ spec:
                     properties:
                       backupAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath configures the log file path for the backup agent.
+                              Default: /var/log/mongodb-mms-automation/backup-agent.log
+                            pattern: ^/.*
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
                               BackupAgent processes
@@ -4837,9 +4915,15 @@ spec:
                         type: object
                       monitoringAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath configures the log file path for the monitoring agent.
+                              Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                            pattern: ^/.*
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
-                              BackupAgent processes
+                              MonitoringAgent processes
                             properties:
                               sizeThresholdMB:
                                 description: |-

@@ -220,6 +220,9 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 		"a":       "1",
 		"logFile": "/var/log/mongodb-mms-automation/log.file",
 	}
+	agentConfig := &mdbv1.AgentConfig{
+		StartupParameters: parameters,
+	}
 	additionalMongodConfig := mdbv1.NewEmptyAdditionalMongodConfig()
 	additionalMongodConfig.AddOption("auditLog", map[string]interface{}{
 		"destination": "file",
@@ -227,7 +230,7 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 		"path":        "/var/log/mongodb-mms-automation/audit.log",
 	})
 
-	envVars := logConfigurationToEnvVars(parameters, additionalMongodConfig)
+	envVars := logConfigurationToEnvVars(agentConfig, additionalMongodConfig)
 	assert.Len(t, envVars, 7)
 
 	logFileAutomationAgentEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "log.file")}
@@ -245,7 +248,7 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 	numberOfLogFilesInEnvVars := 7
 
 	t.Run("automation log is changed and audit log is changed", func(t *testing.T) {
-		envVars := logConfigurationToEnvVars(parameters, additionalMongodConfig)
+		envVars := logConfigurationToEnvVars(agentConfig, additionalMongodConfig)
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseEnvVar)
@@ -257,7 +260,7 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 	})
 
 	t.Run("automation log is changed and audit log is default", func(t *testing.T) {
-		envVars := logConfigurationToEnvVars(parameters, additionalMongodConfig)
+		envVars := logConfigurationToEnvVars(agentConfig, additionalMongodConfig)
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseEnvVar)
@@ -269,7 +272,10 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 	})
 
 	t.Run("automation log is default and audit log is changed", func(t *testing.T) {
-		envVars = logConfigurationToEnvVars(map[string]string{}, additionalMongodConfig)
+		defaultAgentConfig := &mdbv1.AgentConfig{
+			StartupParameters: map[string]string{},
+		}
+		envVars = logConfigurationToEnvVars(defaultAgentConfig, additionalMongodConfig)
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentDefaultEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseDefaultEnvVar)
@@ -281,7 +287,10 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 	})
 
 	t.Run("all log files are default", func(t *testing.T) {
-		envVars = logConfigurationToEnvVars(map[string]string{"other": "value"}, mdbv1.NewEmptyAdditionalMongodConfig().AddOption("other", "value"))
+		defaultAgentConfig := &mdbv1.AgentConfig{
+			StartupParameters: map[string]string{"other": "value"},
+		}
+		envVars = logConfigurationToEnvVars(defaultAgentConfig, mdbv1.NewEmptyAdditionalMongodConfig().AddOption("other", "value"))
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentDefaultEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseDefaultEnvVar)
@@ -290,6 +299,23 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 		assert.Contains(t, envVars, logFileMongoDBEnvVar)
 		assert.Contains(t, envVars, logFileAgentMonitoringEnvVar)
 		assert.Contains(t, envVars, logFileAgentBackupEnvVar)
+	})
+
+	t.Run("custom monitoring and backup agent log paths", func(t *testing.T) {
+		customAgentConfig := &mdbv1.AgentConfig{
+			StartupParameters: parameters,
+			MonitoringAgent: mdbv1.MonitoringAgent{
+				LogFilePath: "/custom/path/monitoring-agent.log",
+			},
+			BackupAgent: mdbv1.BackupAgent{
+				LogFilePath: "/custom/path/backup-agent.log",
+			},
+		}
+		envVars := logConfigurationToEnvVars(customAgentConfig, additionalMongodConfig)
+		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
+		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: "/custom/path/monitoring-agent.log"})
+		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: "/custom/path/backup-agent.log"})
+		assert.Contains(t, envVars, logFileMongoDBEnvVar)
 	})
 }
 
