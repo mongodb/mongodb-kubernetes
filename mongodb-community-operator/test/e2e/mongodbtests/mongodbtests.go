@@ -156,8 +156,9 @@ func ServiceHasOwnerReference(ctx context.Context, mdb *mdbv1.MongoDBCommunity, 
 func ServiceUsesCorrectPort(ctx context.Context, mdb *mdbv1.MongoDBCommunity, expectedPort int32) func(t *testing.T) {
 	return func(t *testing.T) {
 		// Service port cleanup may lag behind pod state changes during port changes.
-		// Poll until the service has exactly the expected port.
-		timeout := 60 * time.Second
+		// Port changes happen one process at a time, each requiring a full reconciliation cycle.
+		// With multiple pods + arbiters, this can take several minutes to complete.
+		timeout := 5 * time.Minute
 		pollInterval := 5 * time.Second
 		serviceNamespacedName := types.NamespacedName{Name: mdb.ServiceName(), Namespace: mdb.Namespace}
 
