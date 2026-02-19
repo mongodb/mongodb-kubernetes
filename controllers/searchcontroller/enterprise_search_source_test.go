@@ -309,7 +309,14 @@ func newShardedClusterMongoDB(name, namespace string, shardCount int, version st
 	}
 }
 
-func newShardedExternalLBSearch(name, namespace, mdbName string, endpoints []searchv1.ShardEndpoint) *searchv1.MongoDBSearch {
+func newShardedUnmanagedLBSearch(name, namespace, mdbName string, endpointTemplate string) *searchv1.MongoDBSearch {
+	var lb *searchv1.LoadBalancerConfig
+	if endpointTemplate != "" {
+		lb = &searchv1.LoadBalancerConfig{
+			Mode:     searchv1.LBModeUnmanaged,
+			Endpoint: endpointTemplate,
+		}
+	}
 	return &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -322,14 +329,7 @@ func newShardedExternalLBSearch(name, namespace, mdbName string, endpoints []sea
 					Name: mdbName,
 				},
 			},
-			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Mode: searchv1.LBModeUnmanaged,
-				External: &searchv1.ExternalLBConfig{
-					Sharded: &searchv1.ShardedExternalLBConfig{
-						Endpoints: endpoints,
-					},
-				},
-			},
+			LoadBalancer: lb,
 		},
 	}
 }
@@ -364,7 +364,7 @@ func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			mdb := newShardedClusterMongoDB(tc.mdbName, "test-ns", tc.shardCount, "8.2.0")
-			search := newShardedExternalLBSearch("test-search", "test-ns", tc.mdbName, nil)
+			search := newShardedUnmanagedLBSearch("test-search", "test-ns", tc.mdbName, "")
 			src := NewShardedEnterpriseSearchSource(mdb, search)
 
 			shardNames := src.GetShardNames()
@@ -373,88 +373,64 @@ func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
 	}
 }
 
-func TestShardedEnterpriseSearchSource_GetExternalLBEndpointForShard(t *testing.T) {
-	endpoints := []searchv1.ShardEndpoint{
-		{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
-		{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
-		{ShardName: "my-cluster-2", Endpoint: "lb2.example.com:27028"},
-	}
-
+func TestShardedEnterpriseSearchSource_GetUnmanagedLBEndpointForShard(t *testing.T) {
 	mdb := newShardedClusterMongoDB("my-cluster", "test-ns", 3, "8.2.0")
-	search := newShardedExternalLBSearch("test-search", "test-ns", "my-cluster", endpoints)
+	search := newShardedUnmanagedLBSearch("test-search", "test-ns", "my-cluster", "lb-{shardName}.example.com:27028")
 	src := NewShardedEnterpriseSearchSource(mdb, search)
 
 	tests := []struct {
 		shardName        string
 		expectedEndpoint string
 	}{
-		{"my-cluster-0", "lb0.example.com:27028"},
-		{"my-cluster-1", "lb1.example.com:27028"},
-		{"my-cluster-2", "lb2.example.com:27028"},
-		{"my-cluster-3", ""}, // Not in endpoint map
-		{"unknown-shard", ""},
+		{"my-cluster-0", "lb-my-cluster-0.example.com:27028"},
+		{"my-cluster-1", "lb-my-cluster-1.example.com:27028"},
+		{"my-cluster-2", "lb-my-cluster-2.example.com:27028"},
+		{"my-cluster-99", "lb-my-cluster-99.example.com:27028"}, // Template covers all shard names
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.shardName, func(t *testing.T) {
-			endpoint := src.GetExternalLBEndpointForShard(tc.shardName)
+			endpoint := src.GetUnmanagedLBEndpointForShard(tc.shardName)
 			assert.Equal(t, tc.expectedEndpoint, endpoint)
 		})
 	}
 }
 
+func TestShardedEnterpriseSearchSource_GetUnmanagedLBEndpointForShard_NoLB(t *testing.T) {
+	mdb := newShardedClusterMongoDB("my-cluster", "test-ns", 2, "8.2.0")
+	search := newShardedUnmanagedLBSearch("test-search", "test-ns", "my-cluster", "")
+	src := NewShardedEnterpriseSearchSource(mdb, search)
+
+	assert.Equal(t, "", src.GetUnmanagedLBEndpointForShard("my-cluster-0"))
+	assert.Equal(t, "", src.GetUnmanagedLBEndpointForShard("my-cluster-1"))
+}
+
 func TestShardedEnterpriseSearchSource_Validate(t *testing.T) {
 	tests := []struct {
-		name           string
-		shardCount     int
-		endpoints      []searchv1.ShardEndpoint
-		expectError    bool
-		expectedErrMsg string
+		name             string
+		shardCount       int
+		endpointTemplate string
+		expectError      bool
+		expectedErrMsg   string
 	}{
 		{
-			name:       "Valid - all shards have endpoints",
-			shardCount: 2,
-			endpoints: []searchv1.ShardEndpoint{
-				{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
-				{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
-			},
-			expectError: false,
+			name:             "Valid - template covers all shards",
+			shardCount:       2,
+			endpointTemplate: "lb-{shardName}.example.com:27028",
+			expectError:      false,
 		},
 		{
-			name:       "Invalid - missing endpoint for shard",
-			shardCount: 3,
-			endpoints: []searchv1.ShardEndpoint{
-				{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
-				{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
-				// Missing my-cluster-2
-			},
-			expectError:    true,
-			expectedErrMsg: "missing LB endpoints for shards",
-		},
-		{
-			name:       "Empty endpoints - treated as non-sharded LB (no validation error)",
-			shardCount: 2,
-			endpoints:  []searchv1.ShardEndpoint{},
-			// When endpoints is empty, IsShardedExternalLB() returns false,
-			// so the shard endpoint validation is skipped
-			expectError: false,
-		},
-		{
-			name:       "Valid - extra endpoints are ignored",
-			shardCount: 2,
-			endpoints: []searchv1.ShardEndpoint{
-				{ShardName: "my-cluster-0", Endpoint: "lb0.example.com:27028"},
-				{ShardName: "my-cluster-1", Endpoint: "lb1.example.com:27028"},
-				{ShardName: "my-cluster-2", Endpoint: "lb2.example.com:27028"}, // Extra
-			},
-			expectError: false,
+			name:             "Valid - no LB configured",
+			shardCount:       2,
+			endpointTemplate: "",
+			expectError:      false,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			mdb := newShardedClusterMongoDB("my-cluster", "test-ns", tc.shardCount, "8.2.0")
-			search := newShardedExternalLBSearch("test-search", "test-ns", "my-cluster", tc.endpoints)
+			search := newShardedUnmanagedLBSearch("test-search", "test-ns", "my-cluster", tc.endpointTemplate)
 			src := NewShardedEnterpriseSearchSource(mdb, search)
 
 			err := src.Validate()

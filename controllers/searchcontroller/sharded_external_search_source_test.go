@@ -473,8 +473,8 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 	})
 }
 
-func TestShardedExternalSearchSource_GetExternalLBEndpointForShard(t *testing.T) {
-	// External LB endpoint is not applicable for external MongoDB sources
+func TestShardedExternalSearchSource_GetUnmanagedLBEndpointForShard(t *testing.T) {
+	// Unmanaged LB endpoint is not applicable for external MongoDB sources
 	// since the external cluster already has its own routing through mongos.
 	// This method always returns empty string.
 	spec := &searchv1.ExternalMongoDBSource{
@@ -485,7 +485,7 @@ func TestShardedExternalSearchSource_GetExternalLBEndpointForShard(t *testing.T)
 	}
 	src := newShardedExternalSearchSource(spec)
 
-	assert.Equal(t, "", src.GetExternalLBEndpointForShard("shard-0"))
-	assert.Equal(t, "", src.GetExternalLBEndpointForShard("shard-1"))
-	assert.Equal(t, "", src.GetExternalLBEndpointForShard("non-existent"))
+	assert.Equal(t, "", src.GetUnmanagedLBEndpointForShard("shard-0"))
+	assert.Equal(t, "", src.GetUnmanagedLBEndpointForShard("shard-1"))
+	assert.Equal(t, "", src.GetUnmanagedLBEndpointForShard("non-existent"))
 }

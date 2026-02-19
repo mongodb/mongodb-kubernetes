@@ -123,22 +123,13 @@ func (r *ShardedEnterpriseSearchSource) Validate() error {
 		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled")
 	}
 
-	// Validate that all shards have LB endpoints configured
-	if r.search != nil && r.search.IsShardedExternalLB() {
-		shardNames := r.GetShardNames()
-		if err := r.search.ValidateShardEndpointsForCluster(shardNames); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
-func (r *ShardedEnterpriseSearchSource) GetExternalLBEndpointForShard(shardName string) string {
-	if r.search == nil || !r.search.IsShardedExternalLB() {
+func (r *ShardedEnterpriseSearchSource) GetUnmanagedLBEndpointForShard(shardName string) string {
+	if r.search == nil || !r.search.IsShardedUnmanagedLB() {
 		return ""
 	}
-	// Use GetEndpointForShard which handles both template and legacy formats
 	return r.search.GetEndpointForShard(shardName)
 }
 

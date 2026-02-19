@@ -998,13 +998,12 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 
 // applySearchOverridesForShards applies search configuration overrides for each shard and mongos in the sharded cluster.
 // This configures:
-// 1. Per-shard mongod search parameters (only when external LB is configured)
+// 1. Per-shard mongod search parameters (only when unmanaged LB is configured)
 // 2. Mongos search parameters (always, when a MongoDBSearch resource exists)
 //
-// For sharded clusters with external LB (spec.lb.mode == Unmanaged):
-//   - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
-//   - We map shardName -> endpoint and configure each mongod shard
-//     to use its shard-local external LB endpoint for Search gRPC.
+// For sharded clusters with unmanaged LB (spec.lb.mode == Unmanaged):
+//   - spec.lb.endpoint contains a template with {shardName} placeholder
+//   - Each shard resolves its endpoint by substituting {shardName} with the actual shard name
 //
 // For mongos (always configured when MongoDBSearch exists):
 // - mongotHost: host:port of the first shard's mongot server
@@ -1028,8 +1027,8 @@ func (r *ShardedClusterReconcileHelper) applySearchOverridesForShards(ctx contex
 		shardNames[shardIdx] = sc.ShardRsName(shardIdx)
 	}
 
-	// Apply per-shard search configuration only when external LB is configured
-	if search.IsShardedExternalLB() {
+	// Apply per-shard search configuration only when unmanaged LB is configured
+	if search.IsShardedUnmanagedLB() {
 		// Create a sharded search source to validate the configuration
 		shardedSource := searchcontroller.NewShardedEnterpriseSearchSource(sc, search)
 		if err := shardedSource.Validate(); err != nil {
@@ -1037,7 +1036,7 @@ func (r *ShardedClusterReconcileHelper) applySearchOverridesForShards(ctx contex
 			return
 		}
 
-		log.Infof("Applying per-shard search overrides (external LB mode)")
+		log.Infof("Applying per-shard search overrides (unmanaged LB mode)")
 
 		// Apply search configuration to each shard
 		for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
