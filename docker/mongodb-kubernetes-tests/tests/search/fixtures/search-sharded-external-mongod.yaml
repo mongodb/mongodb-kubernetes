@@ -7,8 +7,7 @@ spec:
   # The source configuration is dynamically built by the test fixture
   # to use spec.source.external.sharded with the actual MongoDB endpoints.
   # This is a placeholder that will be overwritten by the mdbs fixture.
-  source:
-    replicas: 1
+  source: {}
   security:
     tls:
       # Per-shard TLS: each shard gets its own certificate with naming pattern:

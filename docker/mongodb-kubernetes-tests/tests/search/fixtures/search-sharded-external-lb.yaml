@@ -3,11 +3,11 @@ kind: MongoDBSearch
 metadata:
   name: mdb-sh
 spec:
+  replicas: 2
   logLevel: DEBUG
   source:
     mongodb:
       name: mdb-sh
-    replicas: 2
   security:
     tls:
       # Per-shard TLS: each shard gets its own certificate

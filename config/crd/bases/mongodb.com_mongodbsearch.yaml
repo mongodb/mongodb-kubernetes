@@ -210,6 +210,16 @@ spec:
                     minimum: 0
                     type: integer
                 type: object
+              replicas:
+                default: 1
+                description: |-
+                  Replicas is the number of mongot pods to deploy.
+                  For ReplicaSet source: this many mongot pods total.
+                  For Sharded source: this many mongot pods per shard.
+                  When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.external.endpoint)
+                  is required to distribute traffic across mongot instances.
+                minimum: 1
+                type: integer
               resourceRequirements:
                 description: Configure resource requests and limits for the MongoDB
                   Search pods.
@@ -442,16 +452,6 @@ spec:
                     required:
                     - name
                     type: object
-                  replicas:
-                    default: 1
-                    description: |-
-                      Replicas is the number of mongot pods to deploy.
-                      For ReplicaSet source: this many mongot pods total.
-                      For Sharded source: this many mongot pods per shard.
-                      When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.external.endpoint)
-                      is required to distribute traffic across mongot instances.
-                    minimum: 1
-                    type: integer
                   username:
                     type: string
                 type: object

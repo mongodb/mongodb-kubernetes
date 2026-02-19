@@ -654,7 +654,7 @@ func TestMongoDBSearchReconcileHelper_ValidateAutoEmbeddingConfig(t *testing.T) 
 			name: "No auto embedding configured - should pass",
 			mdbSearch: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
 				s.Spec.AutoEmbedding = nil
-				s.Spec.Source.Replicas = 3
+				s.Spec.Replicas = 3
 			}),
 			expectError: false,
 		},
@@ -666,7 +666,7 @@ func TestMongoDBSearchReconcileHelper_ValidateAutoEmbeddingConfig(t *testing.T) 
 						Name: "api-key-secret",
 					},
 				}
-				s.Spec.Source.Replicas = 1
+				s.Spec.Replicas = 1
 			}),
 			expectError: false,
 		},
@@ -678,7 +678,7 @@ func TestMongoDBSearchReconcileHelper_ValidateAutoEmbeddingConfig(t *testing.T) 
 						Name: "api-key-secret",
 					},
 				}
-				s.Spec.Source.Replicas = 0
+				s.Spec.Replicas = 0
 			}),
 			expectError: false,
 		},
@@ -690,7 +690,7 @@ func TestMongoDBSearchReconcileHelper_ValidateAutoEmbeddingConfig(t *testing.T) 
 						Name: "api-key-secret",
 					},
 				}
-				s.Spec.Source.Replicas = 2
+				s.Spec.Replicas = 2
 			}),
 			expectError: true,
 			errContains: "auto embeddings are not supported with multiple mongot replicas (2)",
@@ -704,7 +704,7 @@ func TestMongoDBSearchReconcileHelper_ValidateAutoEmbeddingConfig(t *testing.T) 
 					},
 					ProviderEndpoint: "https://api.openai.com/v1/embeddings",
 				}
-				s.Spec.Source.Replicas = 3
+				s.Spec.Replicas = 3
 			}),
 			expectError: true,
 			errContains: "auto embeddings are not supported with multiple mongot replicas (3)",
@@ -923,9 +923,8 @@ func TestMongoDBSearch_LBHelperMethods(t *testing.T) {
 			name: "External mode with sharded endpoints",
 			search: &searchv1.MongoDBSearch{
 				Spec: searchv1.MongoDBSearchSpec{
-					Source: &searchv1.MongoDBSource{
-						Replicas: 1,
-					},
+					Replicas: 1,
+					Source:   &searchv1.MongoDBSource{},
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Mode: searchv1.LBModeUnmanaged,
 						External: &searchv1.ExternalLBConfig{
@@ -951,9 +950,7 @@ func TestMongoDBSearch_LBHelperMethods(t *testing.T) {
 			name: "Custom replicas",
 			search: &searchv1.MongoDBSearch{
 				Spec: searchv1.MongoDBSearchSpec{
-					Source: &searchv1.MongoDBSource{
-						Replicas: 3,
-					},
+					Replicas: 3,
 				},
 			},
 			expectExternalLB:    false,
@@ -1226,9 +1223,7 @@ func TestMongoDBSearch_ReplicaSetExternalLBHelperMethods(t *testing.T) {
 			name: "Multiple replicas with external LB",
 			search: &searchv1.MongoDBSearch{
 				Spec: searchv1.MongoDBSearchSpec{
-					Source: &searchv1.MongoDBSource{
-						Replicas: 3,
-					},
+					Replicas: 3,
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Mode: searchv1.LBModeUnmanaged,
 						External: &searchv1.ExternalLBConfig{
@@ -1245,9 +1240,7 @@ func TestMongoDBSearch_ReplicaSetExternalLBHelperMethods(t *testing.T) {
 			name: "Multiple replicas without external LB",
 			search: &searchv1.MongoDBSearch{
 				Spec: searchv1.MongoDBSearchSpec{
-					Source: &searchv1.MongoDBSource{
-						Replicas: 2,
-					},
+					Replicas: 2,
 				},
 			},
 			expectReplicaSetLB:        false,
@@ -1308,9 +1301,7 @@ func TestGetMongodConfigParameters_ExternalLBEndpoint(t *testing.T) {
 					Namespace: "test-ns",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
-					Source: &searchv1.MongoDBSource{
-						Replicas: 3,
-					},
+					Replicas: 3,
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Mode: searchv1.LBModeUnmanaged,
 						External: &searchv1.ExternalLBConfig{
@@ -1372,11 +1363,11 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					Namespace: "test",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
+					Replicas: 3,
 					Source: &searchv1.MongoDBSource{
 						MongoDBResourceRef: &userv1.MongoDBResourceRef{
 							Name: "test-mongodb",
 						},
-						Replicas: 3,
 					},
 				},
 			},
@@ -1390,11 +1381,11 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					Namespace: "test",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
+					Replicas: 3,
 					Source: &searchv1.MongoDBSource{
 						MongoDBResourceRef: &userv1.MongoDBResourceRef{
 							Name: "test-mongodb",
 						},
-						Replicas: 3,
 					},
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Mode: searchv1.LBModeUnmanaged,
@@ -1414,11 +1405,11 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					Namespace: "test",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
+					Replicas: 2,
 					Source: &searchv1.MongoDBSource{
 						MongoDBResourceRef: &userv1.MongoDBResourceRef{
 							Name: "test-mongodb",
 						},
-						Replicas: 2,
 					},
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Mode: searchv1.LBModeManaged,

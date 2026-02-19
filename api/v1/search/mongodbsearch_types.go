@@ -55,6 +55,15 @@ type MongoDBSearchSpec struct {
 	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
+	// Replicas is the number of mongot pods to deploy.
+	// For ReplicaSet source: this many mongot pods total.
+	// For Sharded source: this many mongot pods per shard.
+	// When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.external.endpoint)
+	// is required to distribute traffic across mongot instances.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=1
+	Replicas int `json:"replicas,omitempty"`
 	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
 	// which aren't exposed as fields in the MongoDBSearch.spec.
 	// +optional
@@ -168,15 +177,6 @@ type MongoDBSource struct {
 	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
 	// +optional
 	Username *string `json:"username,omitempty"`
-	// Replicas is the number of mongot pods to deploy.
-	// For ReplicaSet source: this many mongot pods total.
-	// For Sharded source: this many mongot pods per shard.
-	// When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.external.endpoint)
-	// is required to distribute traffic across mongot instances.
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=1
-	Replicas int `json:"replicas,omitempty"`
 }
 
 type ExternalMongoDBSource struct {
@@ -565,8 +565,8 @@ func (s *MongoDBSearch) GetShardEndpointMap() map[string]string {
 }
 
 func (s *MongoDBSearch) GetReplicas() int {
-	if s.Spec.Source != nil && s.Spec.Source.Replicas > 0 {
-		return s.Spec.Source.Replicas
+	if s.Spec.Replicas > 0 {
+		return s.Spec.Replicas
 	}
 	return 1
 }

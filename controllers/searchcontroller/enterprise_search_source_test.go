@@ -316,11 +316,11 @@ func newShardedExternalLBSearch(name, namespace, mdbName string, endpoints []sea
 			Namespace: namespace,
 		},
 		Spec: searchv1.MongoDBSearchSpec{
+			Replicas: 1,
 			Source: &searchv1.MongoDBSource{
 				MongoDBResourceRef: &userv1.MongoDBResourceRef{
 					Name: mdbName,
 				},
-				Replicas: 1,
 			},
 			LoadBalancer: &searchv1.LoadBalancerConfig{
 				Mode: searchv1.LBModeUnmanaged,
