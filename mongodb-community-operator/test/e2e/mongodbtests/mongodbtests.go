@@ -155,14 +155,25 @@ func ServiceHasOwnerReference(ctx context.Context, mdb *mdbv1.MongoDBCommunity, 
 
 func ServiceUsesCorrectPort(ctx context.Context, mdb *mdbv1.MongoDBCommunity, expectedPort int32) func(t *testing.T) {
 	return func(t *testing.T) {
+		// Service port cleanup may lag behind pod state changes during port changes.
+		// Poll until the service has exactly the expected port.
+		timeout := 60 * time.Second
+		pollInterval := 5 * time.Second
 		serviceNamespacedName := types.NamespacedName{Name: mdb.ServiceName(), Namespace: mdb.Namespace}
-		svc := corev1.Service{}
-		err := e2eutil.TestClient.Get(ctx, serviceNamespacedName, &svc)
-		if err != nil {
-			t.Fatal(err)
-		}
-		assert.Len(t, svc.Spec.Ports, 1)
-		assert.Equal(t, svc.Spec.Ports[0].Port, expectedPort)
+
+		err := k8swait.PollUntilContextTimeout(ctx, pollInterval, timeout, false, func(ctx context.Context) (bool, error) {
+			svc := corev1.Service{}
+			if err := e2eutil.TestClient.Get(ctx, serviceNamespacedName, &svc); err != nil {
+				return false, err
+			}
+			// Check if service has exactly 1 port with the expected value
+			if len(svc.Spec.Ports) == 1 && svc.Spec.Ports[0].Port == expectedPort {
+				return true, nil
+			}
+			t.Logf("Service has %d ports, waiting for single port %d", len(svc.Spec.Ports), expectedPort)
+			return false, nil
+		})
+		assert.NoError(t, err, "Timed out waiting for service to have single port %d", expectedPort)
 	}
 }
 
