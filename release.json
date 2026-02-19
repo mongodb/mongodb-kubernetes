@@ -238,8 +238,8 @@
             "tools_version": "100.14.0"
           },
           "8.0.20": {
-            "agent_version": "108.0.19.8943-1",
-            "tools_version": "100.14.0"
+            "agent_version": "108.0.20.8953-1",
+            "tools_version": "100.14.1"
           }
         }
       },
