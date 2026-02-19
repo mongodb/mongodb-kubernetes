@@ -3,6 +3,7 @@ package construct
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 
 	"go.uber.org/zap"
 
@@ -82,8 +83,6 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 	caName := fmt.Sprintf("%s-ca", databaseOpts.Name)
 	if tlsConfig != nil && tlsConfig.CA != "" {
 		caName = tlsConfig.CA
-	} else {
-		c.logger.Debugf("No CA name has been supplied, defaulting to: %s", caName)
 	}
 
 	// This two functions modify the volumes to be optional (the absence of the referenced
@@ -92,7 +91,6 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 	optionalConfigMapFunc := func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
 
 	secretMountPath := util.TLSCertMountPath
-	configmapMountPath := util.TLSCaMountPath
 	volumeSecretName := fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 
 	if !vault.IsVaultSecretBackend() {
@@ -105,13 +103,28 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 		volumes = append(volumes, secretVolume)
 	}
 
+	if tlsConfig == nil || tlsConfig.CA == "" {
+		c.logger.Debugf("No CA name has been supplied, defaulting to: %s", caName)
+	}
 	caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)
+	volumes = append(volumes, caVolume)
+
 	volumeMounts = append(volumeMounts, corev1.VolumeMount{
-		MountPath: configmapMountPath,
+		MountPath: util.TLSCaMountPath,
 		Name:      caVolume.Name,
 		ReadOnly:  true,
 	})
-	volumes = append(volumes, caVolume)
+
+	if tlsConfig != nil && tlsConfig.CAFilePath != "" {
+		customPath := tlsConfig.CAFilePath
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			MountPath: customPath,
+			Name:      caVolume.Name,
+			SubPath:   filepath.Base(customPath),
+			ReadOnly:  true,
+		})
+	}
+
 	return volumes, volumeMounts
 }
 

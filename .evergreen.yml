@@ -740,6 +740,8 @@ task_groups:
       - e2e_sharded_cluster_mongod_options_and_log_rotation
       - e2e_tls_rs_external_access
       - e2e_replica_set_tls_require
+      - e2e_replica_set_tls_require_custom_ca_configmap
+      - e2e_replica_set_tls_require_custom_ca_path
       - e2e_replica_set_tls_certs_secret_prefix
       - e2e_disable_tls_and_scale
       - e2e_replica_set_tls_require_and_disable
