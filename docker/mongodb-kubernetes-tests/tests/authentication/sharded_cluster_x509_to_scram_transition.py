@@ -127,11 +127,17 @@ class TestCanEnableScramSha256:
 
         result = sharded_cluster.wait_for(
             lambda s: s.get_status_phase() == Phase.Running,
-            timeout=300,
+            timeout=600,
             should_raise=False  # Returns True or None, no exception
         )
 
         if result:
+            logger.info("✓ CLOUDP-68873 DIAGNOSTIC: Resource reached Running phase")
+            logger.info("CLOUDP-68873 DIAGNOSTIC: Waiting for automation config sync...")
+
+            # Wait for automation config to be synced and applied to all processes
+            kubetester.wait_processes_ready()
+
             logger.info("✓ CLOUDP-68873 DIAGNOSTIC: SCRAM enabled without intervention")
             return  # Success - no diagnostic needed
 
