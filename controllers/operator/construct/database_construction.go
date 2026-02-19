@@ -661,12 +661,28 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 
 	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
 		agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
+
+		// Always mount the full secret at the standard location for operator use
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: util.AgentCertMountPath,
 			Name:      agentSecretVolume.Name,
 			ReadOnly:  true,
 		})
 		volumesToAdd = append(volumesToAdd, agentSecretVolume)
+
+		// If a custom agent certificate path is specified (for VM-to-K8s migration),
+		// create an additional mount at that specific path using subPath
+		if mdb.GetSecurity().Authentication != nil &&
+			mdb.GetSecurity().Authentication.Agents.AgentCertificatePath != "" {
+			customPath := mdb.GetSecurity().Authentication.Agents.AgentCertificatePath
+			// Use the agent cert hash as the subPath (this is the actual key in the secret)
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: customPath,
+				Name:      agentSecretVolume.Name,
+				SubPath:   databaseOpts.AgentCertHash,
+				ReadOnly:  true,
+			})
+		}
 	}
 
 	// add volume for x509 cert used in internal cluster authentication

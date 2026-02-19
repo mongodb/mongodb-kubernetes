@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"path/filepath"
 	"reflect"
 
 	"github.com/blang/semver"
@@ -811,12 +810,17 @@ func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, 
 }
 
 // agentCertHashAndPath returns a hash of an agent certificate along with file path
-// to the said certificate. File path also contains the hash.
-func (r *ReconcileCommonController) agentCertHashAndPath(ctx context.Context, log *zap.SugaredLogger, namespace, agentCertSecretName string, appdbSecretPath string) (string, string) {
+// to the said certificate. If a custom path is configured in security.authentication.agents.agentCertificatePath,
+// it will be used. Otherwise, the file path will be automatically generated based on the certificate hash.
+func (r *ReconcileCommonController) agentCertHashAndPath(ctx context.Context, log *zap.SugaredLogger, namespace, agentCertSecretName string, appdbSecretPath string, security *mdbv1.Security) (string, string) {
 	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, namespace, agentCertSecretName, appdbSecretPath, log)
-	agentCertPath := ""
-	if agentCertHash != "" {
-		agentCertPath = filepath.Join(util.AgentCertMountPath, agentCertHash)
+
+	var agentCertPath string
+	if security != nil && security.Authentication != nil {
+		agentCertPath = security.Authentication.Agents.GetAgentCertificatePath(agentCertHash)
+	} else {
+		// When security is nil, use the default path generation
+		agentCertPath = (&mdbv1.AgentAuthentication{}).GetAgentCertificatePath(agentCertHash)
 	}
 
 	return agentCertHash, agentCertPath

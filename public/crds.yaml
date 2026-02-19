@@ -1515,6 +1515,13 @@ spec:
                         description: Agents contains authentication configuration
                           properties for the agents
                         properties:
+                          agentCertificatePath:
+                            description: |-
+                              AgentCertificatePath allows specifying a custom path for the agent certificate file.
+                              If not specified, the operator will automatically generate a path
+                              based on the certificate hash (e.g., /var/lib/automation/config/agent-certs/<hash>).
+                            pattern: ^/.*
+                            type: string
                           automationLdapGroupDN:
                             type: string
                           automationPasswordSecretRef:
@@ -3526,6 +3533,13 @@ spec:
                         description: Agents contains authentication configuration
                           properties for the agents
                         properties:
+                          agentCertificatePath:
+                            description: |-
+                              AgentCertificatePath allows specifying a custom path for the agent certificate file.
+                              If not specified, the operator will automatically generate a path
+                              based on the certificate hash (e.g., /var/lib/automation/config/agent-certs/<hash>).
+                            pattern: ^/.*
+                            type: string
                           automationLdapGroupDN:
                             type: string
                           automationPasswordSecretRef:
@@ -5330,6 +5344,13 @@ spec:
                             description: Agents contains authentication configuration
                               properties for the agents
                             properties:
+                              agentCertificatePath:
+                                description: |-
+                                  AgentCertificatePath allows specifying a custom path for the agent certificate file.
+                                  If not specified, the operator will automatically generate a path
+                                  based on the certificate hash (e.g., /var/lib/automation/config/agent-certs/<hash>).
+                                pattern: ^/.*
+                                type: string
                               automationLdapGroupDN:
                                 type: string
                               automationPasswordSecretRef:

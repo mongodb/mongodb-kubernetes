@@ -7,20 +7,19 @@
 .generated/
 vendor/
 pkg/client/
-docker/mongodb-kubernetes-tests
 scripts/
 samples/
 .multi_cluster_local_test_files/
 
 # Python-related ignore patterns
-__pycache__/
-*.pyc
+__pycache__/*
+**/*.pyc
 *.pyo
 *.pyd
 *.toml
 
 # Virtual environment and dependency files
-venv/
+venv/*
 .env
 
 # Ignore temporary and system files
@@ -53,7 +52,6 @@ tools.go
 # Kubernetes and operator-related artifacts
 deploy/
 config/manifests/
-public/
 
 # Documentation files
 docs/
