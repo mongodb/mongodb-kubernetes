@@ -2,7 +2,6 @@ package search
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
@@ -22,9 +21,7 @@ func (s *MongoDBSearch) ValidateSpec() error {
 func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 	validators := []func(*MongoDBSearch) v1.ValidationResult{
 		validateLBConfig,
-		validateExternalLBConfig,
-		validateShardedExternalLBEndpoints,
-		validateReplicasForExternalLB,
+		validateUnmanagedLBConfig,
 		validateEndpointTemplate,
 		validateTLSConfig,
 	}
@@ -59,71 +56,16 @@ func validateLBConfig(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// validateExternalLBConfig validates the external LB configuration
-func validateExternalLBConfig(s *MongoDBSearch) v1.ValidationResult {
+// validateUnmanagedLBConfig validates that an endpoint is specified when mode is Unmanaged
+func validateUnmanagedLBConfig(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Mode != LBModeUnmanaged {
 		return v1.ValidationSuccess()
 	}
 
-	// External config should be present when mode is Unmanaged
-	if s.Spec.LoadBalancer.External == nil {
-		return v1.ValidationError("spec.lb.external must be specified when spec.lb.mode is 'Unmanaged'")
+	if s.Spec.LoadBalancer.Endpoint == "" {
+		return v1.ValidationError("spec.lb.endpoint must be specified when spec.lb.mode is 'Unmanaged'")
 	}
 
-	// Either endpoint or sharded.endpoints must be specified
-	hasEndpoint := s.Spec.LoadBalancer.External.Endpoint != ""
-	hasShardedEndpoints := s.Spec.LoadBalancer.External.Sharded != nil &&
-		len(s.Spec.LoadBalancer.External.Sharded.Endpoints) > 0
-
-	if !hasEndpoint && !hasShardedEndpoints {
-		return v1.ValidationError("spec.lb.external must have either 'endpoint' or 'sharded.endpoints' specified")
-	}
-
-	return v1.ValidationSuccess()
-}
-
-// validateShardedExternalLBEndpoints validates the per-shard LB endpoints (legacy format)
-func validateShardedExternalLBEndpoints(s *MongoDBSearch) v1.ValidationResult {
-	if !s.IsShardedExternalLB() {
-		return v1.ValidationSuccess()
-	}
-
-	// Skip validation for template format - it's validated by validateEndpointTemplate
-	if s.HasEndpointTemplate() {
-		return v1.ValidationSuccess()
-	}
-
-	// Legacy format validation
-	if s.Spec.LoadBalancer.External.Sharded == nil {
-		return v1.ValidationSuccess()
-	}
-
-	seenShardNames := make(map[string]bool)
-	for i, endpoint := range s.Spec.LoadBalancer.External.Sharded.Endpoints {
-		// ShardName must not be empty
-		if endpoint.ShardName == "" {
-			return v1.ValidationError("spec.lb.external.sharded.endpoints[%d].shardName must not be empty", i)
-		}
-
-		// Endpoint must not be empty
-		if endpoint.Endpoint == "" {
-			return v1.ValidationError("spec.lb.external.sharded.endpoints[%d].endpoint must not be empty for shard '%s'", i, endpoint.ShardName)
-		}
-
-		// ShardName must be unique
-		if seenShardNames[endpoint.ShardName] {
-			return v1.ValidationError("spec.lb.external.sharded.endpoints contains duplicate shardName '%s'", endpoint.ShardName)
-		}
-		seenShardNames[endpoint.ShardName] = true
-	}
-
-	return v1.ValidationSuccess()
-}
-
-// validateReplicasForExternalLB validates replicas configuration for sharded external LB.
-// Multiple replicas per shard are supported when external LB endpoints are configured.
-func validateReplicasForExternalLB(s *MongoDBSearch) v1.ValidationResult {
-	// No validation needed - multiple replicas are supported with external LB
 	return v1.ValidationSuccess()
 }
 
@@ -133,17 +75,17 @@ func validateEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationSuccess()
 	}
 
-	endpoint := s.Spec.LoadBalancer.External.Endpoint
+	endpoint := s.Spec.LoadBalancer.Endpoint
 
 	// Template must contain exactly one {shardName} placeholder
 	count := strings.Count(endpoint, ShardNamePlaceholder)
 	if count != 1 {
-		return v1.ValidationError("spec.lb.external.endpoint template must contain exactly one %s placeholder, found %d", ShardNamePlaceholder, count)
+		return v1.ValidationError("spec.lb.endpoint template must contain exactly one %s placeholder, found %d", ShardNamePlaceholder, count)
 	}
 
 	// Template should have some content before or after the placeholder
 	if endpoint == ShardNamePlaceholder {
-		return v1.ValidationError("spec.lb.external.endpoint template must contain more than just the %s placeholder", ShardNamePlaceholder)
+		return v1.ValidationError("spec.lb.endpoint template must contain more than just the %s placeholder", ShardNamePlaceholder)
 	}
 
 	return v1.ValidationSuccess()
@@ -162,33 +104,4 @@ func validateTLSConfig(s *MongoDBSearch) v1.ValidationResult {
 	// No validation error needed as we always have a valid fallback
 
 	return v1.ValidationSuccess()
-}
-
-// ValidateShardEndpointsForCluster validates that all shards in the cluster have corresponding LB endpoints
-// This is called during reconciliation when we know the actual shard names from the MongoDB resource
-func (s *MongoDBSearch) ValidateShardEndpointsForCluster(shardNames []string) error {
-	if !s.IsShardedExternalLB() {
-		return nil
-	}
-
-	// Template format automatically handles all shards - no validation needed
-	if s.HasEndpointTemplate() {
-		return nil
-	}
-
-	// Legacy format: validate that all shards have endpoints
-	endpointMap := s.GetShardEndpointMap()
-
-	var missingShards []string
-	for _, shardName := range shardNames {
-		if _, ok := endpointMap[shardName]; !ok {
-			missingShards = append(missingShards, shardName)
-		}
-	}
-
-	if len(missingShards) > 0 {
-		return fmt.Errorf("missing LB endpoints for shards: %v. Configure spec.lb.external.sharded.endpoints for each shard or use endpoint template with %s", missingShards, ShardNamePlaceholder)
-	}
-
-	return nil
 }
