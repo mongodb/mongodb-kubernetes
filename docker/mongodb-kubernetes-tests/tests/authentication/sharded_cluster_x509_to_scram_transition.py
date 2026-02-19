@@ -1,5 +1,6 @@
 import logging
 import time
+from base64 import b64decode
 
 import pymongo
 import pytest
@@ -147,14 +148,19 @@ class TestCanEnableScramSha256:
         secret_key = "automation-agent-password"
 
         try:
-            secret_data = KubernetesTester.read_secret(namespace, secret_name)
-            decoded_secret = KubernetesTester.decode_secret(secret_data)
-            agent_password = decoded_secret.get(secret_key)
+            # Read secret directly from Kubernetes API
+            # Agent password is keyfile data (binary), can't use UTF-8 decode helper
+            corev1 = KubernetesTester.clients("corev1")
+            secret = corev1.read_namespaced_secret(secret_name, namespace)
 
-            if not agent_password:
+            if secret_key not in secret.data:
                 logger.error(f"CLOUDP-68873 DIAGNOSTIC: No '{secret_key}' key in secret {secret_name}")
-                logger.error(f"Available keys: {list(decoded_secret.keys())}")
+                logger.error(f"Available keys: {list(secret.data.keys())}")
                 raise ValueError(f"Agent password key '{secret_key}' not found in secret")
+
+            # Base64 decode and use latin-1 to preserve all bytes
+            # Keyfile passwords are binary data, not UTF-8 text
+            agent_password = b64decode(secret.data[secret_key]).decode('latin-1')
 
             logger.info("CLOUDP-68873 DIAGNOSTIC: Retrieved agent password from secret")
         except Exception as secret_error:
