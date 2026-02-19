@@ -35,24 +35,7 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def agent_certs(issuer: str, namespace: str) -> str:
-    """Create agent certificates with custom key name for custom path testing."""
-    secret_name = create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
-
-    # Add a key with the filename from the custom path (agent.pem)
-    from kubernetes import client
-    v1 = client.CoreV1Api()
-
-    # Read the existing secret
-    secret = v1.read_namespaced_secret(name=secret_name, namespace=namespace)
-
-    # Add the custom key name matching the filename from CUSTOM_AGENT_CERT_PATH
-    # The secret already has the cert under "mms-automation-agent-pem",
-    # we duplicate it under "agent.pem" for the custom mount
-    if "mms-automation-agent-pem" in secret.data:
-        secret.data["agent.pem"] = secret.data["mms-automation-agent-pem"]
-        v1.patch_namespaced_secret(name=secret_name, namespace=namespace, body=secret)
-
-    return secret_name
+    return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
@@ -72,15 +55,44 @@ class TestEnableX509ForReplicaSet(KubernetesTester):
         """Verify the automation config uses the custom agent certificate path."""
         ac = KubernetesTester.get_automation_config()
 
-        # Check that the agentSSL section has the custom path
-        assert "agentSSL" in ac, "agentSSL section missing from automation config"
-        assert "autoPEMKeyFilePath" in ac["agentSSL"], "autoPEMKeyFilePath missing from agentSSL"
+        assert "tls" in ac, "agentSSL section missing from automation config"
+        assert "autoPEMKeyFilePath" in ac["tls"], "autoPEMKeyFilePath missing from agentSSL"
 
-        actual_path = ac["agentSSL"]["autoPEMKeyFilePath"]
+        actual_path = ac["tls"]["autoPEMKeyFilePath"]
         assert actual_path == CUSTOM_AGENT_CERT_PATH, (
             f"Expected agent cert path to be {CUSTOM_AGENT_CERT_PATH}, "
             f"but got {actual_path}"
         )
+
+    def test_custom_agent_cert_path_volume_mount(self, replica_set: MongoDB):
+        """Verify the StatefulSet has the correct volume mount for the custom agent cert path."""
+        from kubernetes import client
+        apps_v1 = client.AppsV1Api()
+
+        # Get the StatefulSet
+        sts = apps_v1.read_namespaced_stateful_set(
+            name=replica_set["metadata"]["name"],
+            namespace=replica_set["metadata"]["namespace"]
+        )
+
+        custom_mount = None
+
+        for container in sts.spec.template.spec.containers:
+            for mount in container.volume_mounts:
+                if mount.mount_path == CUSTOM_AGENT_CERT_PATH:
+                    custom_mount = mount
+                    break
+            if custom_mount:
+                break
+
+        assert custom_mount is not None, (
+            f"Volume mount for {CUSTOM_AGENT_CERT_PATH} not found in any container. "
+            f"Containers: {[c.name for c in sts.spec.template.spec.containers]}"
+        )
+
+        # SubPath should be set (either hash-based or static key name)
+        assert custom_mount.sub_path is not None and custom_mount.sub_path != "", (
+            f"SubPath should be set for custom agent cert mount at {CUSTOM_AGENT_CERT_PATH} ")
 
     def test_deployment_is_reachable(self, replica_set: MongoDB):
         tester = replica_set.tester()
