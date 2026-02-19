@@ -111,158 +111,125 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
 class TestCanEnableScramSha256:
     @TRACER.start_as_current_span("test_can_enable_scram_sha_256")
     def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB, ca_path: str):
-        """
-        CLOUDP-68873 DIAGNOSTIC: Proves ordering hypothesis by manually creating user if stuck.
-
-        If manually creating mms-automation-agent user unsticks the agents, we've proven
-        that the agent's plan ordering (UpgradeAuth → EnsureCredentials) is the root cause.
-        """
+        """CLOUDP-68873 DIAGNOSTIC: Proves agent ordering hypothesis"""
         kubetester.wait_processes_ready()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
+        # Setup: Enable SCRAM authentication
         sharded_cluster.load()
         sharded_cluster["spec"]["security"]["authentication"]["enabled"] = True
         sharded_cluster["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
         sharded_cluster["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
         sharded_cluster.update()
 
-        # Phase 1: Try with reduced timeout (300s = 5 minutes)
-        try:
-            logger.info("CLOUDP-68873 DIAGNOSTIC: Attempting SCRAM enable with 300s timeout")
-            sharded_cluster.assert_reaches_phase(Phase.Running, timeout=300)
-            logger.info("CLOUDP-68873 DIAGNOSTIC: ✓ SCRAM enable succeeded without intervention")
-            return
-        except Exception as timeout_error:
-            logger.warning(
-                f"CLOUDP-68873 DIAGNOSTIC: SCRAM enable timed out after 300s: {timeout_error}"
-            )
-            logger.info(
-                "CLOUDP-68873 DIAGNOSTIC: Agents likely stuck. "
-                "Will manually create mms-automation-agent user to test if this unsticks them."
-            )
+        # Phase 1: Wait for SCRAM enable (300s timeout, no exception)
+        logger.info("CLOUDP-68873 DIAGNOSTIC: Phase 1 - Waiting for SCRAM enable (300s)")
 
-        # Phase 2: Get agent password from secret and manually create user
+        result = sharded_cluster.wait_for(
+            lambda s: s.get_status_phase() == Phase.Running,
+            timeout=300,
+            should_raise=False  # Returns True or None, no exception
+        )
+
+        if result:
+            logger.info("✓ CLOUDP-68873 DIAGNOSTIC: SCRAM enabled without intervention")
+            return  # Success - no diagnostic needed
+
+        # Phase 2: Timeout reached - manually create user
+        logger.info("CLOUDP-68873 DIAGNOSTIC: Phase 2 - Timeout reached, creating user manually")
+
         namespace = sharded_cluster.namespace
         cluster_name = sharded_cluster.name
-        secret_name = f"{cluster_name}-agent-auth-secret"
-        secret_key = "automation-agent-password"
 
+        # Phase 2a: Read agent password from secret
         try:
-            # Read secret directly from Kubernetes API
-            # Agent password is keyfile data (binary), can't use UTF-8 decode helper
+            secret_name = f"{cluster_name}-agent-auth-secret"
             corev1 = KubernetesTester.clients("corev1")
             secret = corev1.read_namespaced_secret(secret_name, namespace)
 
-            if secret_key not in secret.data:
-                logger.error(f"CLOUDP-68873 DIAGNOSTIC: No '{secret_key}' key in secret {secret_name}")
+            if "automation-agent-password" not in secret.data:
+                logger.error(f"Key 'automation-agent-password' not found in secret {secret_name}")
                 logger.error(f"Available keys: {list(secret.data.keys())}")
-                raise ValueError(f"Agent password key '{secret_key}' not found in secret")
+                raise ValueError("Agent password key not found in secret")
 
-            # Base64 decode and use latin-1 to preserve all bytes
-            # Keyfile passwords are binary data, not UTF-8 text
-            agent_password = b64decode(secret.data[secret_key]).decode('latin-1')
+            agent_password = b64decode(secret.data["automation-agent-password"]).decode('latin-1')
+            logger.info("✓ Retrieved agent password from secret")
 
-            logger.info("CLOUDP-68873 DIAGNOSTIC: Retrieved agent password from secret")
         except Exception as secret_error:
-            logger.error(f"CLOUDP-68873 DIAGNOSTIC: Failed to read secret: {secret_error}")
-            raise
+            logger.error(f"Failed to read agent password: {secret_error}")
+            raise  # Re-raise - this is an actual error, not control flow
 
-        # Phase 3: Connect to MongoDB and create user
-        pod_name = f"{cluster_name}-0-0"
-        service_name = f"{cluster_name}-sh.{namespace}.svc.cluster.local"
-
-        # Try multiple connection strategies
+        # Phase 2b: Connect to MongoDB (try multiple strategies)
         connection_strategies = [
-            {
-                "uri": f"mongodb://{pod_name}.{service_name}:27017/?tls=true&tlsCAFile={ca_path}&tlsAllowInvalidCertificates=true",
-                "name": "direct with TLS"
-            },
-            {
-                "uri": f"mongodb://{pod_name}.{service_name}:27017/",
-                "name": "direct without TLS"
-            },
-            {
-                "uri": f"mongodb://{cluster_name}-svc.{namespace}.svc.cluster.local:27017/",
-                "name": "via service without TLS"
-            }
+            {"uri": f"mongodb://{cluster_name}-0-0.{cluster_name}-sh.{namespace}.svc.cluster.local:27017/",
+             "name": "direct to shard 0"},
+            {"uri": f"mongodb://{cluster_name}-svc.{namespace}.svc.cluster.local:27017/",
+             "name": "via service"}
         ]
 
         client = None
         for strategy in connection_strategies:
             try:
-                logger.info(f"CLOUDP-68873 DIAGNOSTIC: Trying: {strategy['name']}")
-                client = pymongo.MongoClient(
-                    strategy['uri'],
-                    serverSelectionTimeoutMS=10000,
-                    connectTimeoutMS=10000
-                )
+                logger.info(f"Trying connection: {strategy['name']}")
+                client = pymongo.MongoClient(strategy['uri'], serverSelectionTimeoutMS=10000)
                 client.admin.command('ping')
-                logger.info(f"CLOUDP-68873 DIAGNOSTIC: ✓ Connected via {strategy['name']}")
+                logger.info(f"✓ Connected via {strategy['name']}")
                 break
             except Exception as conn_error:
-                logger.warning(f"CLOUDP-68873 DIAGNOSTIC: Connection failed: {conn_error}")
+                logger.warning(f"Connection failed: {conn_error}")
                 if client:
                     client.close()
                 client = None
 
         if not client:
-            logger.error("CLOUDP-68873 DIAGNOSTIC: All connection strategies failed")
-            raise ConnectionError("Cannot connect to MongoDB to create user")
+            logger.error("All connection strategies failed")
+            raise ConnectionError("Cannot connect to MongoDB")
 
-        # Create the user
+        # Phase 2c: Create user
         try:
-            logger.info("CLOUDP-68873 DIAGNOSTIC: Creating mms-automation-agent user")
             admin_db = client.admin
-
-            # Check if user exists
-            try:
-                users = admin_db.command('usersInfo', 'mms-automation-agent')
-                if users.get('users'):
-                    logger.info("CLOUDP-68873 DIAGNOSTIC: User already exists")
-            except Exception as check_error:
-                logger.warning(f"CLOUDP-68873 DIAGNOSTIC: Cannot check users: {check_error}")
-
-            # Create user
-            result = admin_db.command(
+            admin_db.command(
                 'createUser',
                 'mms-automation-agent',
                 pwd=agent_password,
                 roles=[{'role': 'root', 'db': 'admin'}]
             )
-            logger.info(f"CLOUDP-68873 DIAGNOSTIC: ✓ User created: {result}")
+            logger.info("✓ User created successfully")
 
         except pymongo.errors.DuplicateKeyError:
-            logger.info("CLOUDP-68873 DIAGNOSTIC: User exists (DuplicateKeyError) - OK")
+            logger.info("User already exists (DuplicateKeyError) - OK")
+
         except Exception as create_error:
-            logger.error(f"CLOUDP-68873 DIAGNOSTIC: User creation failed: {create_error}")
+            logger.error(f"User creation failed: {create_error}")
             raise
+
         finally:
             if client:
                 client.close()
 
-        # Phase 4: Wait for agents to detect user
-        logger.info("CLOUDP-68873 DIAGNOSTIC: Waiting 45s for agents to detect new user")
+        logger.info("✓ CLOUDP-68873 DIAGNOSTIC: User created, waiting 45s for agent detection")
         time.sleep(45)
 
-        # Phase 5: Check if agents unstuck
-        try:
-            logger.info("CLOUDP-68873 DIAGNOSTIC: Checking if agents unstuck")
-            sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
+        # Phase 3: Check if agents unstuck
+        logger.info("CLOUDP-68873 DIAGNOSTIC: Phase 3 - Checking if agents unstuck")
 
-            logger.info("=" * 80)
-            logger.info("✅ CLOUDP-68873 DIAGNOSTIC: PROOF CONFIRMED!")
-            logger.info("✅ Manually creating the user UNSTUCK the agents")
-            logger.info("✅ Root cause: Agent plans UpgradeAuth → EnsureCredentials (WRONG)")
-            logger.info("✅ Should be: EnsureCredentials → UpgradeAuth")
-            logger.info("=" * 80)
+        result = sharded_cluster.wait_for(
+            lambda s: s.get_status_phase() == Phase.Running,
+            timeout=600,
+            should_raise=False
+        )
 
-        except Exception as still_stuck_error:
+        if result:
+            logger.info("=" * 80)
+            logger.info("✅ PROOF CONFIRMED: Manual user creation UNSTUCK the agents")
+            logger.info("✅ Root cause: Agent ordering (UpgradeAuth before EnsureCredentials)")
+            logger.info("=" * 80)
+        else:
             logger.error("=" * 80)
-            logger.error("❌ CLOUDP-68873 DIAGNOSTIC: Agents STILL STUCK after manual user creation")
-            logger.error(f"❌ Exception: {still_stuck_error}")
-            logger.error("❌ Suggests: User creation failed OR not the sole issue")
+            logger.error("❌ Agents STILL STUCK after manual user creation")
+            logger.error("❌ Suggests user creation failed OR not the sole issue")
             logger.error("=" * 80)
-            raise
+            raise AssertionError("Diagnostic failed: Agents still stuck after manual user creation")
 
     def test_assert_connectivity(self, ca_path: str):
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity(attempts=25)
