@@ -78,6 +78,7 @@ func TestReplicaSetMongodPortChangeWithArbiters(t *testing.T) {
 	t.Run("Stateful Set becomes ready", mongodbtests.StatefulSetBecomesReady(ctx, &mdb))
 	t.Run("Arbiters Stateful Set becomes ready", mongodbtests.ArbitersStatefulSetBecomesReady(ctx, &mdb))
 	t.Run("Wait for mongod to apply new port config", tester.EnsureMongodConfig("net.port", int32(40333)))
+	t.Run("Wait for all AC processes to have new port", mongodbtests.WaitForAllProcessesToHavePort(ctx, &mdb, 40333))
 	t.Run("Service has the correct port", mongodbtests.ServiceUsesCorrectPort(ctx, &mdb, int32(40333)))
 	t.Run("Connectivity tests", connectivityTests)
 }

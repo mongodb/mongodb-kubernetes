@@ -153,12 +153,39 @@ func ServiceHasOwnerReference(ctx context.Context, mdb *mdbv1.MongoDBCommunity, 
 	}
 }
 
+// WaitForAllProcessesToHavePort waits until all processes in the automation config have the expected port.
+// This is necessary because port changes happen one process at a time through multiple reconciliation cycles.
+func WaitForAllProcessesToHavePort(ctx context.Context, mdb *mdbv1.MongoDBCommunity, expectedPort int) func(t *testing.T) {
+	return func(t *testing.T) {
+		timeout := 10 * time.Minute
+		pollInterval := 10 * time.Second
+
+		err := k8swait.PollUntilContextTimeout(ctx, pollInterval, timeout, false, func(ctx context.Context) (bool, error) {
+			currentAc := getAutomationConfig(ctx, t, mdb)
+
+			allAtExpectedPort := true
+			for _, process := range currentAc.Processes {
+				port := process.GetPort()
+				if port != expectedPort {
+					t.Logf("Process %s has port %d, waiting for %d", process.Name, port, expectedPort)
+					allAtExpectedPort = false
+				}
+			}
+
+			if allAtExpectedPort {
+				t.Logf("All %d processes have port %d", len(currentAc.Processes), expectedPort)
+			}
+			return allAtExpectedPort, nil
+		})
+		assert.NoError(t, err, "Timed out waiting for all processes to have port %d", expectedPort)
+	}
+}
+
 func ServiceUsesCorrectPort(ctx context.Context, mdb *mdbv1.MongoDBCommunity, expectedPort int32) func(t *testing.T) {
 	return func(t *testing.T) {
-		// Service port cleanup may lag behind pod state changes during port changes.
-		// Port changes happen one process at a time, each requiring a full reconciliation cycle.
-		// With multiple pods + arbiters, this can take several minutes to complete.
-		timeout := 5 * time.Minute
+		// After all AC processes have the new port, the service should be updated
+		// within 1-2 reconciliation cycles (30-60 seconds typically).
+		timeout := 2 * time.Minute
 		pollInterval := 5 * time.Second
 		serviceNamespacedName := types.NamespacedName{Name: mdb.ServiceName(), Namespace: mdb.Namespace}
 
@@ -167,7 +194,6 @@ func ServiceUsesCorrectPort(ctx context.Context, mdb *mdbv1.MongoDBCommunity, ex
 			if err := e2eutil.TestClient.Get(ctx, serviceNamespacedName, &svc); err != nil {
 				return false, err
 			}
-			// Check if service has exactly 1 port with the expected value
 			if len(svc.Spec.Ports) == 1 && svc.Spec.Ports[0].Port == expectedPort {
 				return true, nil
 			}
