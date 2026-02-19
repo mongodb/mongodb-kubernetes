@@ -516,6 +516,16 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_tls_require_custom_ca_configmap
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_require_custom_ca_path
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_replica_set_tls_require_and_disable
     tags: [ "patch-run" ]
     commands:

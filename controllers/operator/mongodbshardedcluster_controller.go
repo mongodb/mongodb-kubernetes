@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"fmt"
+	"path"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -1044,18 +1046,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflowStatus
 	}
 
-	// Ensures that all sharded cluster certificates are either of Opaque type (old design)
-	// or are all of kubernetes.io/tls type
-	// and save the value for future use
-	allCertsType, err := getCertTypeForAllShardedClusterCertificates(certSecretTypesForSTS)
-	if err != nil {
-		return workflow.Failed(err)
-	}
-
-	caFilePath := util.CAFilePathInContainer
-	if allCertsType == corev1.SecretTypeTLS {
-		caFilePath = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
-	}
+	caFilePath := sc.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, "ca-pem"))
 
 	if workflowStatus := controlledfeature.EnsureFeatureControls(*sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
 		return workflowStatus
@@ -1178,27 +1169,6 @@ func getInternalAuthSecretNames(sc *mdbv1.MongoDB) func() []string {
 		}
 		return secretNames
 	}
-}
-
-// getCertTypeForAllShardedClusterCertificates checks whether all certificates secret are of the same type and returns it.
-func getCertTypeForAllShardedClusterCertificates(certTypes map[string]bool) (corev1.SecretType, error) {
-	if len(certTypes) == 0 {
-		return corev1.SecretTypeTLS, nil
-	}
-	valueSlice := make([]bool, 0, len(certTypes))
-	for _, v := range certTypes {
-		valueSlice = append(valueSlice, v)
-	}
-	curTypeIsTLS := valueSlice[0]
-	for i := 1; i < len(valueSlice); i++ {
-		if valueSlice[i] != curTypeIsTLS {
-			return corev1.SecretTypeOpaque, xerrors.Errorf("TLS Certificates for Sharded cluster must all be of the same type - either kubernetes.io/tls or secrets containing a concatenated pem file")
-		}
-	}
-	if curTypeIsTLS {
-		return corev1.SecretTypeTLS, nil
-	}
-	return corev1.SecretTypeOpaque, nil
 }
 
 // anyStatefulSetNeedsToPublishStateToOM checks to see if any stateful set
