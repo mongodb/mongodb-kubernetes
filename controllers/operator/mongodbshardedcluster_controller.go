@@ -850,7 +850,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	r.logAllScalers(log)
 
 	// Apply search overrides for shards if a MongoDBSearch resource is configured
-	// This implements the sharded internal + external L7 LB (BYO per-shard LB) PoC
+	// This implements the sharded internal + unmanaged L7 LB (BYO per-shard LB)
 	r.applySearchOverridesForShards(ctx, log)
 
 	// After processing normal validations, we check for conflicting scale-up and scale-down operations within the same

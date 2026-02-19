@@ -100,7 +100,7 @@ type LBMode string
 const (
 	// LBModeManaged indicates operator-managed Envoy load balancer
 	LBModeManaged LBMode = "Managed"
-	// LBModeUnmanaged indicates user-provided external L7 load balancer (BYO LB)
+	// LBModeUnmanaged indicates user-provided L7 load balancer (BYO LB)
 	LBModeUnmanaged LBMode = "Unmanaged"
 )
 

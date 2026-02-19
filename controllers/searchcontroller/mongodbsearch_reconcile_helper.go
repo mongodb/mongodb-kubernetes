@@ -530,7 +530,6 @@ func buildShardSearchHeadlessService(search *searchv1.MongoDBSearch, shardName s
 }
 
 // createShardMongotConfig creates the mongot configuration for a specific shard.
-// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
 // Each shard's mongot connects to its own shard's mongod hosts.
 func createShardMongotConfig(search *searchv1.MongoDBSearch, shardedSource ShardedSearchSourceDBResource, shardIdx int) mongot.Modification {
 	return func(config *mongot.Config) {
@@ -978,7 +977,7 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 }
 
 func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
-	// If unmanaged LB is configured for replica set, use the external endpoint
+	// If unmanaged LB is configured for replica set, use the unmanaged LB endpoint
 	if search.IsReplicaSetUnmanagedLB() {
 		return search.GetReplicaSetUnmanagedLBEndpoint()
 	}
@@ -1004,7 +1003,7 @@ func shardMongotHostAndPort(search *searchv1.MongoDBSearch, shardName string, cl
 // - searchIndexManagementHostAndPort: host:port for create/update/drop search indexes (same as mongotHost)
 // - useGrpcForSearch: tells mongos to talk to mongot over the MongoDB gRPC protocol (must be true)
 //
-// For sharded clusters with external LB, we use the first shard's external endpoint as the mongos endpoint.
+// For sharded clusters with unmanaged LB, we use the first shard's endpoint as the mongos endpoint.
 // This is because mongos needs a single endpoint to route search queries.
 func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, shardNames []string, clusterDomain string) map[string]any {
 	searchTLSMode := automationconfig.TLSModeDisabled
@@ -1083,7 +1082,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 	if _, ok := r.db.(ShardedSearchSourceDBResource); ok {
 		if !r.mdbSearch.IsShardedUnmanagedLB() {
 			return xerrors.Errorf(
-				"multiple mongot replicas (%d) require external load balancer configuration; "+
+				"multiple mongot replicas (%d) require unmanaged load balancer configuration; "+
 					"please configure spec.lb.mode=Unmanaged with spec.lb.endpoint for sharded clusters",
 				r.mdbSearch.GetReplicas(),
 			)
@@ -1094,7 +1093,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 	// For replica sets, check if replica set unmanaged LB is configured
 	if !r.mdbSearch.IsReplicaSetUnmanagedLB() {
 		return xerrors.Errorf(
-			"multiple mongot replicas (%d) require external load balancer configuration; "+
+			"multiple mongot replicas (%d) require unmanaged load balancer configuration; "+
 				"please configure spec.lb.mode=Unmanaged with spec.lb.endpoint",
 			r.mdbSearch.GetReplicas(),
 		)

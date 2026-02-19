@@ -16,7 +16,7 @@ import (
 )
 
 // ShardedEnterpriseSearchSource implements SearchSourceDBResource for sharded MongoDB clusters.
-// It provides per-shard host seeds and external LB endpoint mapping.
+// It provides per-shard host seeds and unmanaged LB endpoint mapping.
 type ShardedEnterpriseSearchSource struct {
 	*mdbv1.MongoDB
 	search *searchv1.MongoDBSearch

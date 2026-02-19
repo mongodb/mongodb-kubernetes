@@ -735,10 +735,10 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 		shardName     string
 		clusterDomain string
 		expectedHost  string
-		useExternalLB bool
+		useUnmanagedLB bool
 	}{
 		{
-			name: "Internal service endpoint (no external LB)",
+			name: "Internal service endpoint (no unmanaged LB)",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -755,7 +755,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 			shardName:     "test-mdb-0",
 			clusterDomain: "cluster.local",
 			expectedHost:  "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
-			useExternalLB: false,
+			useUnmanagedLB: false,
 		},
 		{
 			name: "Unmanaged LB endpoint for shard via template",
@@ -779,7 +779,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 			shardName:     "test-mdb-0",
 			clusterDomain: "cluster.local",
 			expectedHost:  "lb-test-mdb-0.example.com:27028",
-			useExternalLB: true,
+			useUnmanagedLB: true,
 		},
 		{
 			name: "Unmanaged LB endpoint for second shard via template",
@@ -803,7 +803,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 			shardName:     "test-mdb-1",
 			clusterDomain: "cluster.local",
 			expectedHost:  "lb-test-mdb-1.example.com:27028",
-			useExternalLB: true,
+			useUnmanagedLB: true,
 		},
 	}
 
@@ -1165,14 +1165,14 @@ func TestMongoDBSearch_ReplicaSetUnmanagedLBHelperMethods(t *testing.T) {
 	}
 }
 
-func TestGetMongodConfigParameters_ExternalLBEndpoint(t *testing.T) {
+func TestGetMongodConfigParameters_UnmanagedLBEndpoint(t *testing.T) {
 	tests := []struct {
 		name         string
 		search       *searchv1.MongoDBSearch
 		expectedHost string
 	}{
 		{
-			name: "No external LB - uses internal service",
+			name: "No unmanaged LB - uses internal service",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1183,7 +1183,7 @@ func TestGetMongodConfigParameters_ExternalLBEndpoint(t *testing.T) {
 			expectedHost: "test-search-search-svc.test-ns.svc.cluster.local:27028",
 		},
 		{
-			name: "Unmanaged LB configured - uses external endpoint",
+			name: "Unmanaged LB configured - uses unmanaged endpoint",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1274,7 +1274,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "multiple mongot replicas (3) require external load balancer configuration; please configure spec.lb.mode=Unmanaged with spec.lb.endpoint",
+			expectedError: "multiple mongot replicas (3) require unmanaged load balancer configuration; please configure spec.lb.mode=Unmanaged with spec.lb.endpoint",
 		},
 		{
 			name: "Multiple replicas with unmanaged LB - valid",
@@ -1317,7 +1317,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "multiple mongot replicas (2) require external load balancer configuration; please configure spec.lb.mode=Unmanaged with spec.lb.endpoint",
+			expectedError: "multiple mongot replicas (2) require unmanaged load balancer configuration; please configure spec.lb.mode=Unmanaged with spec.lb.endpoint",
 		},
 	}
 
@@ -1352,7 +1352,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 		expectedHost  string
 	}{
 		{
-			name: "Internal service endpoint (no external LB)",
+			name: "Internal service endpoint (no unmanaged LB)",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
