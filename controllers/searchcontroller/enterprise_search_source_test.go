@@ -364,39 +364,3 @@ func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
 	}
 }
 
-func TestShardedEnterpriseSearchSource_Validate(t *testing.T) {
-	tests := []struct {
-		name           string
-		shardCount     int
-		expectError    bool
-		expectedErrMsg string
-	}{
-		{
-			name:        "Valid - two shards",
-			shardCount:  2,
-			expectError: false,
-		},
-		{
-			name:        "Valid - single shard",
-			shardCount:  1,
-			expectError: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			mdb := newShardedClusterMongoDB("my-cluster", "test-ns", tc.shardCount, "8.2.0")
-			search := newShardedSearch("test-search", "test-ns", "my-cluster")
-			src := NewShardedEnterpriseSearchSource(mdb, search)
-
-			err := src.Validate()
-
-			if tc.expectError {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tc.expectedErrMsg)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}

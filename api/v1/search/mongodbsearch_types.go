@@ -370,7 +370,7 @@ func (s *MongoDBSearch) IsExternalMongoDBSource() bool {
 	return s.Spec.Source != nil && s.Spec.Source.ExternalMongoDBSource != nil
 }
 
-// IsExternalShardedSource returns true if the source is an external sharded MongoDB cluster
+// IsExternalSourceSharded returns true if the source is an external sharded MongoDB cluster
 func (s *MongoDBSearch) IsExternalSourceSharded() bool {
 	return s.IsExternalMongoDBSource() &&
 		s.Spec.Source.ExternalMongoDBSource.Sharded != nil
@@ -403,26 +403,14 @@ func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 	return s.Spec.Prometheus
 }
 
-func (s *MongoDBSearch) ShardMongotStatefulSetName(shardName string) string {
-	return fmt.Sprintf("%s-mongot-%s", s.Name, shardName)
+func (s *MongoDBSearch) MongotStatefulSetNamespacedNameForShard(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s", s.Name, shardName), Namespace: s.Namespace}
 }
 
-func (s *MongoDBSearch) ShardMongotStatefulSetNamespacedName(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: s.ShardMongotStatefulSetName(shardName), Namespace: s.Namespace}
+func (s *MongoDBSearch) MongotServiceNamespacedNameForShard(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s-svc", s.Name, shardName), Namespace: s.Namespace}
 }
 
-func (s *MongoDBSearch) ShardMongotServiceName(shardName string) string {
-	return fmt.Sprintf("%s-mongot-%s-svc", s.Name, shardName)
-}
-
-func (s *MongoDBSearch) ShardMongotServiceNamespacedName(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: s.ShardMongotServiceName(shardName), Namespace: s.Namespace}
-}
-
-func (s *MongoDBSearch) ShardMongotConfigMapName(shardName string) string {
-	return fmt.Sprintf("%s-mongot-%s-config", s.Name, shardName)
-}
-
-func (s *MongoDBSearch) ShardMongotConfigMapNamespacedName(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: s.ShardMongotConfigMapName(shardName), Namespace: s.Namespace}
+func (s *MongoDBSearch) MongotConfigMapNamespacedNameForShard(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s-config", s.Name, shardName), Namespace: s.Namespace}
 }

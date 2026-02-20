@@ -4258,7 +4258,7 @@ spec:
                         description: |-
                           CertsSecretPrefix is a prefix used to derive the TLS secret name.
                           When set, the operator will look for a secret named "{prefix}-{resourceName}-search-cert".
-                          If CertificateKeySecret.Name is also specified, it takes precedence over this field.
+                          If CertificateKeySecret.Name is also specified, that takes precedence over this field.
                         type: string
                     type: object
                 type: object

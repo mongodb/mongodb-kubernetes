@@ -193,7 +193,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 
 // reconcileSharded deploys one mongot StatefulSet, Service, and ConfigMap per shard.
 func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log *zap.SugaredLogger, shardedSource ShardedSearchSourceDBResource, version string) workflow.Status {
-	log.Infof("Reconciling sharded MongoDBSearch with %d shards", shardedSource.GetShardCount())
+	log.Infof("Reconciling MongoDBSearch for sharded source deployment with %d shards", shardedSource.GetShardCount())
 
 	keyfileStsModification := statefulset.NOOP()
 	if r.mdbSearch.IsWireprotoEnabled() {
@@ -210,20 +210,6 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 	shardNames := shardedSource.GetShardNames()
 	if status := r.validatePerShardTLSSecrets(ctx, log, shardNames); !status.IsOK() {
 		return status
-	}
-
-	// Determine TLS mode: shared (all shards use same cert) or per-shard (each shard has its own cert)
-	isSharedTLS := r.mdbSearch.IsSharedTLSCertificate()
-
-	// For shared TLS mode, process the shared certificate once before the loop
-	var sharedIngressTlsMongotModification mongot.Modification
-	var sharedIngressTlsStsModification statefulset.Modification
-	if isSharedTLS || r.mdbSearch.Spec.Security.TLS == nil {
-		var err error
-		sharedIngressTlsMongotModification, sharedIngressTlsStsModification, err = r.ensureIngressTlsConfig(ctx)
-		if err != nil {
-			return workflow.Failed(err)
-		}
 	}
 
 	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
@@ -244,20 +230,9 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			return workflow.Failed(err)
 		}
 
-		// Determine ingress TLS modifications for this shard
-		var ingressTlsMongotModification mongot.Modification
-		var ingressTlsStsModification statefulset.Modification
-		if isSharedTLS || r.mdbSearch.Spec.Security.TLS == nil {
-			// Shared mode or no TLS: use the shared modifications
-			ingressTlsMongotModification = sharedIngressTlsMongotModification
-			ingressTlsStsModification = sharedIngressTlsStsModification
-		} else {
-			// Per-shard mode: process this shard's certificate
-			var err error
-			ingressTlsMongotModification, ingressTlsStsModification, err = r.ensureIngressTlsConfigForShard(ctx, shardName)
-			if err != nil {
-				return workflow.Failed(err)
-			}
+		ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfigForShard(ctx, shardName)
+		if err != nil {
+			return workflow.Failed(err)
 		}
 
 		shardMongotConfig := createShardMongotConfig(r.mdbSearch, shardedSource, shardIdx)
@@ -320,11 +295,6 @@ func (r *MongoDBSearchReconcileHelper) ensureSourceKeyfile(ctx context.Context, 
 // Returns workflow.Failed on other errors.
 func (r *MongoDBSearchReconcileHelper) validatePerShardTLSSecrets(ctx context.Context, log *zap.SugaredLogger, shardNames []string) workflow.Status {
 	if r.mdbSearch.Spec.Security.TLS == nil {
-		return workflow.OK()
-	}
-
-	// Shared mode: single secret for all shards, validated by ensureIngressTlsConfig
-	if r.mdbSearch.IsSharedTLSCertificate() {
 		return workflow.OK()
 	}
 
@@ -415,7 +385,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureShardSearchService(ctx context.Context, shardName string) error {
-	svcName := r.mdbSearch.ShardMongotServiceNamespacedName(shardName)
+	svcName := r.mdbSearch.MongotServiceNamespacedNameForShard(shardName)
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName.Name, Namespace: svcName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, svc, func() error {
 		resourceVersion := svc.ResourceVersion
@@ -440,7 +410,7 @@ func (r *MongoDBSearchReconcileHelper) ensureShardMongotConfig(ctx context.Conte
 		return "", err
 	}
 
-	cmName := r.mdbSearch.ShardMongotConfigMapNamespacedName(shardName)
+	cmName := r.mdbSearch.MongotConfigMapNamespacedNameForShard(shardName)
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName.Name, Namespace: cmName.Namespace}, Data: map[string]string{}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, cm, func() error {
 		resourceVersion := cm.ResourceVersion
@@ -461,7 +431,7 @@ func (r *MongoDBSearchReconcileHelper) ensureShardMongotConfig(ctx context.Conte
 }
 
 func (r *MongoDBSearchReconcileHelper) createOrUpdateShardStatefulSet(ctx context.Context, log *zap.SugaredLogger, shardName string, modifications ...statefulset.Modification) (*appsv1.StatefulSet, error) {
-	stsName := r.mdbSearch.ShardMongotStatefulSetNamespacedName(shardName)
+	stsName := r.mdbSearch.MongotStatefulSetNamespacedNameForShard(shardName)
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, sts, func() error {
 		statefulset.Apply(modifications...)(sts)
@@ -478,8 +448,8 @@ func (r *MongoDBSearchReconcileHelper) createOrUpdateShardStatefulSet(ctx contex
 
 // buildShardSearchHeadlessService builds a headless Service for a specific shard's mongot.
 func buildShardSearchHeadlessService(search *searchv1.MongoDBSearch, shardName string) corev1.Service {
-	svcName := search.ShardMongotServiceNamespacedName(shardName)
-	stsName := search.ShardMongotStatefulSetName(shardName)
+	svcName := search.MongotServiceNamespacedNameForShard(shardName)
+	stsName := search.MongotStatefulSetNamespacedNameForShard(shardName).Name
 
 	labels := map[string]string{
 		"app":   svcName.Name,
@@ -967,7 +937,7 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 
 // shardMongotHostAndPort returns the internal service endpoint for a shard's mongot deployment
 func shardMongotHostAndPort(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
-	svcName := search.ShardMongotServiceNamespacedName(shardName)
+	svcName := search.MongotServiceNamespacedNameForShard(shardName)
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
 }

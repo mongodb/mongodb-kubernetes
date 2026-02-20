@@ -849,9 +849,9 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	r.logAllScalers(log)
 
-	// Apply search overrides for shards if a MongoDBSearch resource is configured
+	// Apply search parameters for shards if a MongoDBSearch resource is configured
 	// This implements the sharded internal + unmanaged L7 LB (BYO per-shard LB)
-	r.applySearchOverridesForShards(ctx, log)
+	r.applySearchParametersForShards(ctx, log)
 
 	// After processing normal validations, we check for conflicting scale-up and scale-down operations within the same
 	// reconciliation cycle. If both scaling directions are detected, we block the reconciliation.
@@ -996,11 +996,11 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 	}
 }
 
-// applySearchOverridesForShards applies search configuration overrides for each shard and mongos in the sharded cluster.
+// applySearchParametersForShards applies search parameters for each shard and mongos in the sharded cluster.
 // This configures:
 // 1. Per-shard mongod search parameters pointing to the shard-local mongot service
 // 2. Mongos search parameters pointing to the first shard's mongot service
-func (r *ShardedClusterReconcileHelper) applySearchOverridesForShards(ctx context.Context, log *zap.SugaredLogger) {
+func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx context.Context, log *zap.SugaredLogger) {
 	sc := r.sc
 
 	search := r.lookupCorrespondingSearchResource(ctx, log)
@@ -1009,7 +1009,7 @@ func (r *ShardedClusterReconcileHelper) applySearchOverridesForShards(ctx contex
 		return
 	}
 
-	log.Infof("Applying search overrides from MongoDBSearch %s", search.NamespacedName())
+	log.Infof("Applying search parameters from MongoDBSearch %s", search.NamespacedName())
 
 	// Collect shard names
 	shardNames := make([]string, sc.Spec.ShardCount)
@@ -2310,7 +2310,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificate
 	for _, memberCluster := range r.mongosMemberClusters {
 		hostnames, podNames := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))
 		for i := range hostnames {
-			// Use desiredMongosConfiguration which includes search overrides applied in applySearchOverridesForShards
+			// Use desiredMongosConfiguration which includes search parameters applied in applySearchParametersForShards
 			process := om.NewMongosProcess(podNames[i], hostnames[i], r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, r.desiredMongosConfiguration.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
