@@ -1,9 +1,7 @@
 import subprocess
 
 import pytest
-from pymongo import MongoClient
-from pymongo.errors import OperationFailure
-from kubetester import kubetester, try_load, read_secret
+from kubetester import kubetester, read_secret, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
@@ -18,6 +16,8 @@ from kubetester.mongotester import ShardedClusterTester
 from kubetester.omtester import get_sc_cert_names
 from kubetester.phase import Phase
 from opentelemetry import trace
+from pymongo import MongoClient
+from pymongo.errors import OperationFailure
 from pytest import fixture
 from tests import test_logger
 
@@ -113,15 +113,25 @@ db.createUser({{
 """
 
     cmd = [
-        "kubectl", "exec", "-n", namespace, config_pod,
-        "-c", "mongodb-enterprise-database", "--",
-        "env", "HOME=/tmp", "/usr/bin/mongosh",
+        "kubectl",
+        "exec",
+        "-n",
+        namespace,
+        config_pod,
+        "-c",
+        "mongodb-enterprise-database",
+        "--",
+        "env",
+        "HOME=/tmp",
+        "/usr/bin/mongosh",
         "--tls",
-        "--tlsCAFile", "/mongodb-automation/tls/ca/ca-pem",
+        "--tlsCAFile",
+        "/mongodb-automation/tls/ca/ca-pem",
         "--tlsAllowInvalidHostnames",
         "--norc",
         "mongodb://localhost:27017/admin",
-        "--eval", create_user_js,
+        "--eval",
+        create_user_js,
     ]
 
     try:
