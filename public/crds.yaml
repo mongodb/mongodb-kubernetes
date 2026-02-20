@@ -4241,6 +4241,7 @@ spec:
                           CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
                           The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
                           This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
+                          If both CertificateKeySecret.Name and CertsSecretPrefix are specified, CertificateKeySecret.Name takes precedence.
                         properties:
                           name:
                             default: ""
@@ -4253,8 +4254,12 @@ spec:
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
-                    required:
-                    - certificateKeySecretRef
+                      certsSecretPrefix:
+                        description: |-
+                          CertsSecretPrefix is a prefix used to derive the TLS secret name.
+                          When set, the operator will look for a secret named "{prefix}-{resourceName}-search-cert".
+                          If CertificateKeySecret.Name is also specified, it takes precedence over this field.
+                        type: string
                     type: object
                 type: object
               source:
@@ -4264,6 +4269,9 @@ spec:
                   external:
                     properties:
                       hostAndPorts:
+                        description: |-
+                          HostAndPorts is the list of mongod host:port seeds for replica set sources.
+                          Mutually exclusive with Sharded.
                         items:
                           type: string
                         type: array
@@ -4277,6 +4285,76 @@ spec:
                             type: string
                         required:
                         - name
+                        type: object
+                      sharded:
+                        description: |-
+                          Sharded contains configuration for external sharded MongoDB clusters.
+                          Mutually exclusive with HostAndPorts.
+                        properties:
+                          router:
+                            description: Router contains the mongos router configuration
+                            properties:
+                              hosts:
+                                description: Hosts is the list of mongos router endpoints
+                                  (host:port)
+                                items:
+                                  type: string
+                                minItems: 1
+                                type: array
+                              tls:
+                                description: TLS configuration specific to the router.
+                                  If not specified, falls back to the top-level external.tls
+                                  config.
+                                properties:
+                                  ca:
+                                    description: |-
+                                      CA is a reference to a Secret containing the CA certificate that issued mongod's TLS certificate.
+                                      The CA certificate is expected to be PEM encoded and available at the "ca.crt" key.
+                                    properties:
+                                      name:
+                                        default: ""
+                                        description: |-
+                                          Name of the referent.
+                                          This field is effectively required, but due to backwards compatibility is
+                                          allowed to be empty. Instances of this type with an empty value here are
+                                          almost certainly wrong.
+                                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                        type: string
+                                    type: object
+                                    x-kubernetes-map-type: atomic
+                                required:
+                                - ca
+                                type: object
+                            required:
+                            - hosts
+                            type: object
+                          shards:
+                            description: Shards is the list of shard configurations
+                            items:
+                              description: ExternalShardConfig contains configuration
+                                for a single shard in an external sharded cluster
+                              properties:
+                                hosts:
+                                  description: Hosts is the list of mongod host:port
+                                    seeds for this shard's replica set
+                                  items:
+                                    type: string
+                                  minItems: 1
+                                  type: array
+                                shardName:
+                                  description: ShardName is the logical shard name
+                                    (e.g., "shard-0").
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - hosts
+                              - shardName
+                              type: object
+                            minItems: 1
+                            type: array
+                        required:
+                        - router
+                        - shards
                         type: object
                       tls:
                         description: TLS configuration for the external MongoDB deployment
