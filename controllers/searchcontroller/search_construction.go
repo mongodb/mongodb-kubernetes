@@ -52,7 +52,7 @@ type ShardedSearchSourceDBResource interface {
 	GetShardCount() int
 	GetShardNames() []string
 	HostSeedsForShard(shardIdx int) []string
-	GetExternalLBEndpointForShard(shardName string) string
+	GetUnmanagedLBEndpointForShard(shardName string) string
 	MongosHostAndPort() string
 }
 

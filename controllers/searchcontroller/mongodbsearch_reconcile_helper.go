@@ -530,7 +530,6 @@ func buildShardSearchHeadlessService(search *searchv1.MongoDBSearch, shardName s
 }
 
 // createShardMongotConfig creates the mongot configuration for a specific shard.
-// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
 // Each shard's mongot connects to its own shard's mongod hosts.
 func createShardMongotConfig(search *searchv1.MongoDBSearch, shardedSource ShardedSearchSourceDBResource, shardIdx int) mongot.Modification {
 	return func(config *mongot.Config) {
@@ -947,13 +946,9 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 }
 
 // GetMongodConfigParametersForShard returns the mongod configuration parameters for a specific shard
-// in a sharded cluster with external L7 LB.
-//
-// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
-// - spec.lb.mode == External
-// - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
-// We map shardName -> endpoint and configure each mongod shard
-// to use its shard-local external LB endpoint for Search gRPC.
+// in a sharded cluster. When unmanaged LB mode is enabled (spec.lb.mode == Unmanaged with an endpoint
+// template), each shard uses the resolved endpoint from the template. Otherwise, the operator-internal
+// mongot host is used.
 func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) map[string]any {
 	searchTLSMode := automationconfig.TLSModeDisabled
 	if search.Spec.Security.TLS != nil {
@@ -962,14 +957,8 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 
 	// Determine the mongot endpoint for this shard
 	var mongotEndpoint string
-	if search.IsShardedExternalLB() {
-		// Use the external LB endpoint for this shard (supports both template and legacy formats)
-		if endpoint := search.GetEndpointForShard(shardName); endpoint != "" {
-			mongotEndpoint = endpoint
-		} else {
-			// Fallback to internal service if no external endpoint configured
-			mongotEndpoint = shardMongotHostAndPort(search, shardName, clusterDomain)
-		}
+	if search.IsShardedUnmanagedLB() {
+		mongotEndpoint = search.GetEndpointForShard(shardName)
 	} else {
 		// Use the internal shard-local mongot service
 		mongotEndpoint = shardMongotHostAndPort(search, shardName, clusterDomain)
@@ -988,9 +977,9 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 }
 
 func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
-	// If external LB is configured for replica set, use the external endpoint
-	if search.IsReplicaSetExternalLB() {
-		return search.GetReplicaSetExternalLBEndpoint()
+	// If unmanaged LB is configured for replica set, use the unmanaged LB endpoint
+	if search.IsReplicaSetUnmanagedLB() {
+		return search.GetReplicaSetUnmanagedLBEndpoint()
 	}
 
 	// Otherwise, use the internal service endpoint
@@ -1014,7 +1003,7 @@ func shardMongotHostAndPort(search *searchv1.MongoDBSearch, shardName string, cl
 // - searchIndexManagementHostAndPort: host:port for create/update/drop search indexes (same as mongotHost)
 // - useGrpcForSearch: tells mongos to talk to mongot over the MongoDB gRPC protocol (must be true)
 //
-// For sharded clusters with external LB, we use the first shard's external endpoint as the mongos endpoint.
+// For sharded clusters with unmanaged LB, we use the first shard's endpoint as the mongos endpoint.
 // This is because mongos needs a single endpoint to route search queries.
 func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, shardNames []string, clusterDomain string) map[string]any {
 	searchTLSMode := automationconfig.TLSModeDisabled
@@ -1027,14 +1016,8 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, shardNa
 	var mongotEndpoint string
 	if len(shardNames) > 0 {
 		firstShardName := shardNames[0]
-		if search.IsShardedExternalLB() {
-			// Use the external LB endpoint for the first shard (supports both template and legacy formats)
-			if endpoint := search.GetEndpointForShard(firstShardName); endpoint != "" {
-				mongotEndpoint = endpoint
-			} else {
-				// Fallback to internal service if no external endpoint configured
-				mongotEndpoint = shardMongotHostAndPort(search, firstShardName, clusterDomain)
-			}
+		if search.IsShardedUnmanagedLB() {
+			mongotEndpoint = search.GetEndpointForShard(firstShardName)
 		} else {
 			// Use the internal shard-local mongot service for the first shard
 			mongotEndpoint = shardMongotHostAndPort(search, firstShardName, clusterDomain)
@@ -1095,23 +1078,23 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 		return nil
 	}
 
-	// For sharded clusters, check if sharded external LB is configured
+	// For sharded clusters, check if sharded unmanaged LB is configured
 	if _, ok := r.db.(ShardedSearchSourceDBResource); ok {
-		if !r.mdbSearch.IsShardedExternalLB() {
+		if !r.mdbSearch.IsShardedUnmanagedLB() {
 			return xerrors.Errorf(
-				"multiple mongot replicas (%d) require external load balancer configuration; "+
-					"please configure spec.lb.mode=Unmanaged with spec.lb.external.sharded.endpoints for sharded clusters",
+				"multiple mongot replicas (%d) require unmanaged load balancer configuration; "+
+					"please configure spec.lb.mode=Unmanaged with spec.lb.endpoint for sharded clusters",
 				r.mdbSearch.GetReplicas(),
 			)
 		}
 		return nil
 	}
 
-	// For replica sets, check if replica set external LB is configured
-	if !r.mdbSearch.IsReplicaSetExternalLB() {
+	// For replica sets, check if replica set unmanaged LB is configured
+	if !r.mdbSearch.IsReplicaSetUnmanagedLB() {
 		return xerrors.Errorf(
-			"multiple mongot replicas (%d) require external load balancer configuration; "+
-				"please configure spec.lb.mode=Unmanaged with spec.lb.external.endpoint",
+			"multiple mongot replicas (%d) require unmanaged load balancer configuration; "+
+				"please configure spec.lb.mode=Unmanaged with spec.lb.endpoint",
 			r.mdbSearch.GetReplicas(),
 		)
 	}

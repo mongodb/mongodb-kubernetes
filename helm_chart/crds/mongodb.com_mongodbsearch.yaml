@@ -82,53 +82,15 @@ spec:
                 description: LoadBalancer configures how mongod/mongos connect to
                   mongot (Managed vs Unmanaged/BYO LB).
                 properties:
+                  endpoint:
+                    description: |-
+                      Endpoint is the LB endpoint for ReplicaSet, or a template for sharded clusters.
+                      For sharded clusters, use {shardName} as a placeholder substituted with the actual shard name.
+                      Example: "lb-{shardName}.example.com:27028"
+                    type: string
                   envoy:
                     description: Envoy contains configuration for operator-managed
                       Envoy load balancer
-                    type: object
-                  external:
-                    description: External contains configuration for user-provided
-                      external L7 load balancer
-                    properties:
-                      endpoint:
-                        description: |-
-                          Endpoint is the LB endpoint for ReplicaSet or a template for sharded clusters.
-                          For sharded clusters, use {shardName} as a placeholder that will be substituted
-                          with the actual shard name. Example: "lb-{shardName}.example.com:27028"
-                        type: string
-                      sharded:
-                        description: |-
-                          DEPRECATED: Use Endpoint with {shardName} template instead.
-                          Sharded contains per-shard LB endpoint configuration for sharded clusters.
-                          If both Endpoint (with template) and Sharded.Endpoints are specified,
-                          Endpoint template takes precedence.
-                        properties:
-                          endpoints:
-                            description: Endpoints is a list of per-shard LB endpoints
-                            items:
-                              description: ShardEndpoint maps a shard name to its
-                                external LB endpoint
-                              properties:
-                                endpoint:
-                                  description: |-
-                                    Endpoint is the external LB host:port for this shard's mongot pool
-                                    The hostname is typically used as SNI by the external LB to route to the correct shard-local mongot
-                                  minLength: 1
-                                  type: string
-                                shardName:
-                                  description: ShardName is the logical shard name
-                                    (e.g., "my-cluster-0")
-                                  minLength: 1
-                                  type: string
-                              required:
-                              - endpoint
-                              - shardName
-                              type: object
-                            minItems: 1
-                            type: array
-                        required:
-                        - endpoints
-                        type: object
                     type: object
                   mode:
                     description: 'Mode specifies the load balancer mode: Managed (operator-managed)
@@ -210,6 +172,16 @@ spec:
                     minimum: 0
                     type: integer
                 type: object
+              replicas:
+                default: 1
+                description: |-
+                  Replicas is the number of mongot pods to deploy.
+                  For ReplicaSet source: this many mongot pods total.
+                  For Sharded source: this many mongot pods per shard.
+                  When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.endpoint)
+                  is required to distribute traffic across mongot instances.
+                minimum: 1
+                type: integer
               resourceRequirements:
                 description: Configure resource requests and limits for the MongoDB
                   Search pods.
@@ -382,9 +354,8 @@ spec:
                                   minItems: 1
                                   type: array
                                 shardName:
-                                  description: |-
-                                    ShardName is the logical shard name (e.g., "shard-0").
-                                    This name is used to match with lb.external.sharded.endpoints[].shardName
+                                  description: ShardName is the logical shard name
+                                    (e.g., "shard-0").
                                   minLength: 1
                                   type: string
                               required:
@@ -442,16 +413,6 @@ spec:
                     required:
                     - name
                     type: object
-                  replicas:
-                    default: 1
-                    description: |-
-                      Replicas is the number of mongot pods to deploy.
-                      For ReplicaSet source: this many mongot pods total.
-                      For Sharded source: this many mongot pods per shard.
-                      When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.external.endpoint)
-                      is required to distribute traffic across mongot instances.
-                    minimum: 1
-                    type: integer
                   username:
                     type: string
                 type: object

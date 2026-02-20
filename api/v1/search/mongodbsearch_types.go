@@ -55,6 +55,15 @@ type MongoDBSearchSpec struct {
 	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
+	// Replicas is the number of mongot pods to deploy.
+	// For ReplicaSet source: this many mongot pods total.
+	// For Sharded source: this many mongot pods per shard.
+	// When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.endpoint)
+	// is required to distribute traffic across mongot instances.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=1
+	Replicas int `json:"replicas,omitempty"`
 	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
 	// which aren't exposed as fields in the MongoDBSearch.spec.
 	// +optional
@@ -91,7 +100,7 @@ type LBMode string
 const (
 	// LBModeManaged indicates operator-managed Envoy load balancer
 	LBModeManaged LBMode = "Managed"
-	// LBModeUnmanaged indicates user-provided external L7 load balancer (BYO LB)
+	// LBModeUnmanaged indicates user-provided L7 load balancer (BYO LB)
 	LBModeUnmanaged LBMode = "Unmanaged"
 )
 
@@ -100,55 +109,20 @@ type LoadBalancerConfig struct {
 	// Mode specifies the load balancer mode: Managed (operator-managed) or Unmanaged (BYO L7 LB)
 	// +kubebuilder:validation:Required
 	Mode LBMode `json:"mode"`
+	// Endpoint is the LB endpoint for ReplicaSet, or a template for sharded clusters.
+	// For sharded clusters, use {shardName} as a placeholder substituted with the actual shard name.
+	// Example: "lb-{shardName}.example.com:27028"
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
 	// Envoy contains configuration for operator-managed Envoy load balancer
 	// +optional
 	Envoy *EnvoyConfig `json:"envoy,omitempty"`
-	// External contains configuration for user-provided external L7 load balancer
-	// +optional
-	External *ExternalLBConfig `json:"external,omitempty"`
 }
 
 // EnvoyConfig contains configuration for operator-managed Envoy load balancer
 // Placeholder for future Envoy configuration options
 type EnvoyConfig struct {
 	// Placeholder for future Envoy configuration
-}
-
-// ExternalLBConfig contains configuration for user-provided external L7 load balancer
-type ExternalLBConfig struct {
-	// Endpoint is the LB endpoint for ReplicaSet or a template for sharded clusters.
-	// For sharded clusters, use {shardName} as a placeholder that will be substituted
-	// with the actual shard name. Example: "lb-{shardName}.example.com:27028"
-	// TODO move it to spec.lb
-	// +optional
-	Endpoint string `json:"endpoint,omitempty"`
-	// DEPRECATED: Use Endpoint with {shardName} template instead.
-	// Sharded contains per-shard LB endpoint configuration for sharded clusters.
-	// If both Endpoint (with template) and Sharded.Endpoints are specified,
-	// Endpoint template takes precedence.
-	// +optional
-	Sharded *ShardedExternalLBConfig `json:"sharded,omitempty"`
-}
-
-// ShardedExternalLBConfig contains per-shard LB endpoint configuration
-// TODO remove it
-type ShardedExternalLBConfig struct {
-	// Endpoints is a list of per-shard LB endpoints
-	// +kubebuilder:validation:MinItems=1
-	Endpoints []ShardEndpoint `json:"endpoints"`
-}
-
-// ShardEndpoint maps a shard name to its external LB endpoint
-type ShardEndpoint struct {
-	// ShardName is the logical shard name (e.g., "my-cluster-0")
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinLength=1
-	ShardName string `json:"shardName"`
-	// Endpoint is the external LB host:port for this shard's mongot pool
-	// The hostname is typically used as SNI by the external LB to route to the correct shard-local mongot
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinLength=1
-	Endpoint string `json:"endpoint"`
 }
 
 type EmbeddingConfig struct {
@@ -168,15 +142,6 @@ type MongoDBSource struct {
 	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
 	// +optional
 	Username *string `json:"username,omitempty"`
-	// Replicas is the number of mongot pods to deploy.
-	// For ReplicaSet source: this many mongot pods total.
-	// For Sharded source: this many mongot pods per shard.
-	// When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.external.endpoint)
-	// is required to distribute traffic across mongot instances.
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=1
-	Replicas int `json:"replicas,omitempty"`
 }
 
 type ExternalMongoDBSource struct {
@@ -220,7 +185,6 @@ type ExternalRouterConfig struct {
 // ExternalShardConfig contains configuration for a single shard in an external sharded cluster
 type ExternalShardConfig struct {
 	// ShardName is the logical shard name (e.g., "shard-0").
-	// This name is used to match with lb.external.sharded.endpoints[].shardName
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	ShardName string `json:"shardName"`
@@ -487,86 +451,51 @@ func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 	return s.Spec.Prometheus
 }
 
-func (s *MongoDBSearch) IsExternalLBMode() bool {
+func (s *MongoDBSearch) IsLBModeUnmanaged() bool {
 	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Mode == LBModeUnmanaged
 }
 
-// IsReplicaSetExternalLB returns true if this is a ReplicaSet external LB configuration.
+// IsReplicaSetUnmanagedLB returns true if this is a ReplicaSet unmanaged LB configuration.
 // An endpoint with a template placeholder ({shardName}) is NOT considered a ReplicaSet endpoint.
-func (s *MongoDBSearch) IsReplicaSetExternalLB() bool {
-	return s.IsExternalLBMode() &&
-		s.Spec.LoadBalancer.External != nil &&
-		s.Spec.LoadBalancer.External.Endpoint != "" &&
+func (s *MongoDBSearch) IsReplicaSetUnmanagedLB() bool {
+	return s.IsLBModeUnmanaged() &&
+		s.Spec.LoadBalancer.Endpoint != "" &&
 		!s.HasEndpointTemplate()
 }
 
-func (s *MongoDBSearch) GetReplicaSetExternalLBEndpoint() string {
-	if !s.IsReplicaSetExternalLB() {
+func (s *MongoDBSearch) GetReplicaSetUnmanagedLBEndpoint() string {
+	if !s.IsReplicaSetUnmanagedLB() {
 		return ""
 	}
-	return s.Spec.LoadBalancer.External.Endpoint
+	return s.Spec.LoadBalancer.Endpoint
 }
 
 // HasEndpointTemplate returns true if the endpoint contains the {shardName} template placeholder
 func (s *MongoDBSearch) HasEndpointTemplate() bool {
-	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.External == nil {
+	if s.Spec.LoadBalancer == nil {
 		return false
 	}
-	return strings.Contains(s.Spec.LoadBalancer.External.Endpoint, ShardNamePlaceholder)
+	return strings.Contains(s.Spec.LoadBalancer.Endpoint, ShardNamePlaceholder)
 }
 
-// IsShardedExternalLB returns true if this is a sharded external LB configuration.
-// This can be either via endpoint template or legacy per-shard endpoints array.
-func (s *MongoDBSearch) IsShardedExternalLB() bool {
-	if !s.IsExternalLBMode() || s.Spec.LoadBalancer.External == nil {
-		return false
-	}
-	// Template format takes precedence
-	if s.HasEndpointTemplate() {
-		return true
-	}
-	// Legacy format: explicit per-shard endpoints
-	return s.Spec.LoadBalancer.External.Sharded != nil &&
-		len(s.Spec.LoadBalancer.External.Sharded.Endpoints) > 0
+// IsShardedUnmanagedLB returns true if this is a sharded unmanaged LB configuration
+// identified by the presence of the {shardName} template placeholder in the endpoint.
+func (s *MongoDBSearch) IsShardedUnmanagedLB() bool {
+	return s.IsLBModeUnmanaged() && s.HasEndpointTemplate()
 }
 
-// GetEndpointForShard returns the endpoint for a specific shard.
-// If using template format, substitutes {shardName} with the actual shard name.
-// If using legacy format, looks up the shard in the endpoints array.
+// GetEndpointForShard returns the endpoint for a specific shard by substituting
+// the {shardName} placeholder in the endpoint template.
 func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
-	if !s.IsShardedExternalLB() {
+	if !s.IsShardedUnmanagedLB() {
 		return ""
 	}
-	// Template format takes precedence
-	if s.HasEndpointTemplate() {
-		return strings.ReplaceAll(s.Spec.LoadBalancer.External.Endpoint, ShardNamePlaceholder, shardName)
-	}
-	// Legacy format: look up in endpoints array
-	for _, e := range s.Spec.LoadBalancer.External.Sharded.Endpoints {
-		if e.ShardName == shardName {
-			return e.Endpoint
-		}
-	}
-	return ""
-}
-
-func (s *MongoDBSearch) GetShardEndpointMap() map[string]string {
-	result := make(map[string]string)
-	if !s.IsShardedExternalLB() {
-		return result
-	}
-	// Note: This only works for legacy format. For template format, use GetEndpointForShard()
-	if s.Spec.LoadBalancer.External.Sharded != nil {
-		for _, e := range s.Spec.LoadBalancer.External.Sharded.Endpoints {
-			result[e.ShardName] = e.Endpoint
-		}
-	}
-	return result
+	return strings.ReplaceAll(s.Spec.LoadBalancer.Endpoint, ShardNamePlaceholder, shardName)
 }
 
 func (s *MongoDBSearch) GetReplicas() int {
-	if s.Spec.Source != nil && s.Spec.Source.Replicas > 0 {
-		return s.Spec.Source.Replicas
+	if s.Spec.Replicas > 0 {
+		return s.Spec.Replicas
 	}
 	return 1
 }
