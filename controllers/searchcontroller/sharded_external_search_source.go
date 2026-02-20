@@ -116,4 +116,3 @@ func (r *ShardedExternalSearchSource) MongosHostAndPort() string {
 	}
 	return r.spec.Sharded.Router.Hosts[0]
 }
-
