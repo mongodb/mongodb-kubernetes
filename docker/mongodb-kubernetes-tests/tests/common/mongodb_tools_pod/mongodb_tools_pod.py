@@ -18,6 +18,7 @@ class ToolsPod:
     def __init__(self, namespace: str):
         self.namespace = namespace
         self.pod_name = TOOLS_POD_NAME
+        config.load_incluster_config()
         self.core_v1 = client.CoreV1Api()
 
     def run_command(self, cmd: list[str]):
