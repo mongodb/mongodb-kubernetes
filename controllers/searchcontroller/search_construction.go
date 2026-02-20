@@ -53,6 +53,7 @@ type SearchSourceShardedDeployment interface {
 	GetShardCount() int
 	GetShardNames() []string
 	HostSeedsForShard(shardIdx int) []string
+	GetUnmanagedLBEndpointForShard(shardName string) string
 	MongosHostAndPort() string
 }
 
@@ -111,7 +112,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		statefulset.WithLabels(labels),
 		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
-		statefulset.WithReplicas(1),
+		statefulset.WithReplicas(mdbSearch.GetReplicas()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
 		dataVolumeClaim,
 		statefulset.WithPodSpecTemplate(
