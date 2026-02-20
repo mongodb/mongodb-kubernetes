@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
@@ -53,7 +54,7 @@ func NewReplicaSetMemberFromInterface(i interface{}) ReplicaSetMember {
 	return i.(map[string]interface{})
 }
 
-func NewReplicaSet(name, version string) ReplicaSet {
+func NewReplicaSet(name, overrideName, version string) ReplicaSet {
 	ans := ReplicaSet{}
 	ans["members"] = make([]ReplicaSetMember, 0)
 
@@ -66,7 +67,11 @@ func NewReplicaSet(name, version string) ReplicaSet {
 		protocolVersion = "1"
 	}
 
-	initDefaultRs(ans, name, protocolVersion)
+	if overrideName == "" {
+		initDefaultRs(ans, name, protocolVersion)
+	} else {
+		initDefaultRs(ans, overrideName, protocolVersion)
+	}
 
 	return ans
 }
@@ -176,7 +181,7 @@ func (r ReplicaSet) addMember(process Process, id string, options automationconf
 	rsMember := ReplicaSetMember{}
 	rsMember["_id"] = id
 	if id == "" {
-		rsMember["_id"] = lastIndex + 1
+		rsMember["_id"] = lastIndex + 51
 	}
 	rsMember["host"] = process.Name()
 
@@ -187,13 +192,14 @@ func (r ReplicaSet) addMember(process Process, id string, options automationconf
 }
 
 // mergeFrom merges "operatorRs" into "OM" one
-func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet) []string {
+func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet, externalMembers []string) []string {
 	initDefaultRs(r, operatorRs.Name(), operatorRs.protocolVersion())
 
 	// technically we use "operatorMap" as the target map which will be used to update the members
 	// for the 'r' object
 	omMap := buildMapOfRsNodes(r)
 	operatorMap := buildMapOfRsNodes(operatorRs)
+	externalSet := merge.StringsToSet(externalMembers)
 
 	// merge overlapping members into the operatorMap (overriding the 'host',
 	// 'horizons' and '_id' fields only)
@@ -210,6 +216,10 @@ func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet) []string {
 			} else {
 				delete(currentValue, "horizons")
 			}
+			operatorMap[k] = currentValue
+		}
+		if _, ok := externalSet[k]; ok {
+			// this is an external member, just copy it as is
 			operatorMap[k] = currentValue
 		}
 	}

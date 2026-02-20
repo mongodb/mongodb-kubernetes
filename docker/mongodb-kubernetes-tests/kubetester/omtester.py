@@ -106,7 +106,21 @@ class OMTester(object):
 
     def ensure_group_id(self):
         if self.context.project_id is None:
-            self.context.project_id = self.find_group_id()
+            try:
+                self.context.project_id = self.find_group_id()
+            except Exception as e:
+                print(f"Failed to find group id for group name {self.context.group_name} with error {e}")
+                self.ensure_new_group_and_agent_api_key()
+
+    def ensure_new_group_and_agent_api_key(self):
+        if self.context.agent_api_key is None or self.context.project_id is None:
+            res = self.api_create_group()
+            self.context.project_id = res["id"]
+            self.context.agent_api_key = res["agentApiKey"]
+
+    def ensure_agent_api_key(self):
+        if self.context.agent_api_key is None:
+            self.context.agent_api_key = self.api_create_agent_api_key()
 
     def get_project_events(self):
         return self.om_request("get", f"/groups/{self.context.project_id}/events")
@@ -467,7 +481,11 @@ class OMTester(object):
 
     def api_get_group_in_organization(self, org_id: str, group_name: str) -> str:
         encoded_group_name = urllib.parse.quote_plus(group_name)
-        json = self.om_request("get", f"/orgs/{org_id}/groups?name={encoded_group_name}").json()
+        try:
+            json = self.om_request("get", f"/orgs/{org_id}/groups?name={encoded_group_name}").json()
+        except Exception as e:
+            print(f"Failed to get group in organization {org_id} with name {group_name}")
+            return ""
         if len(json["results"]) == 0:
             return ""
         if len(json["results"]) > 1:
@@ -481,7 +499,7 @@ class OMTester(object):
         return self.om_request("get", f"/groups/{self.context.project_id}/hosts").json()
 
     def get_automation_config_tester(self, **kwargs) -> AutomationConfigTester:
-        json = self.om_request("get", f"/groups/{self.context.project_id}/automationConfig").json()
+        json = self.api_get_automation_config()
         return AutomationConfigTester(json, **kwargs)
 
     def get_backup_config(self) -> List:
@@ -683,6 +701,23 @@ class OMTester(object):
 
     def api_get_automation_status(self) -> dict[str, str]:
         return self.om_request("get", f"/groups/{self.context.project_id}/automationStatus").json()
+
+    def api_create_agent_api_key(self, description: str = "agent api key created by OMTester") -> str:
+        return self.om_request("post", f"/groups/{self.context.project_id}/agentapikeys", json_object={"desc": description}).json()["key"]
+
+    def api_create_group(self):
+        body = {
+            "name": self.context.group_name,
+            "orgId": self.context.org_id,
+        }
+        return self.om_request("post", "/groups", json_object=body).json()
+
+    def api_get_automation_config(self):
+        return self.om_request("get", f"/groups/{self.context.project_id}/automationConfig").json()
+
+    def api_put_automation_config(self, config: dict):
+        self.om_request("put", f"/groups/{self.context.project_id}/automationConfig", json_object=config)
+
 
     def wait_agents_ready(self, timeout: Optional[int] = 600):
         """Waits until all the agents reached the goal automation config version."""

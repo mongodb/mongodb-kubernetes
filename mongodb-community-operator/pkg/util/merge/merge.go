@@ -51,6 +51,14 @@ func StringToBoolMap(map1, map2 map[string]bool) map[string]bool {
 	return mergedMap
 }
 
+func StringsToSet(slice []string) map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, s := range slice {
+		set[s] = struct{}{}
+	}
+	return set
+}
+
 // Containers merges two slices of containers merging each item by container name.
 func Containers(defaultContainers, overrideContainers []corev1.Container) []corev1.Container {
 	mergedContainerMap := map[string]corev1.Container{}

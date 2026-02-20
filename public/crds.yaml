@@ -963,6 +963,10 @@ spec:
                         x-kubernetes-preserve-unknown-fields: true
                     type: object
                 type: object
+              externalMembers:
+                items:
+                  type: string
+                type: array
               featureCompatibilityVersion:
                 type: string
               logLevel:
@@ -1504,6 +1508,8 @@ spec:
                 - passwordSecretRef
                 - username
                 type: object
+              replicaSetNameOverride:
+                type: string
               security:
                 properties:
                   authentication:
@@ -3447,6 +3453,10 @@ spec:
                         x-kubernetes-preserve-unknown-fields: true
                     type: object
                 type: object
+              externalMembers:
+                items:
+                  type: string
+                type: array
               featureCompatibilityVersion:
                 type: string
               logLevel:
@@ -3515,6 +3525,8 @@ spec:
                 - passwordSecretRef
                 - username
                 type: object
+              replicaSetNameOverride:
+                type: string
               security:
                 properties:
                   authentication:
