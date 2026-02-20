@@ -24,8 +24,8 @@
     },
     {
       "7": {
-        "opsManagerVersion": "7.0.22",
-        "agentVersion": "107.0.22.8828-1"
+        "opsManagerVersion": "7.0.23",
+        "agentVersion": "107.0.23.8833-1"
       }
     },
     {
@@ -52,6 +52,7 @@
         "7.0.20",
         "7.0.21",
         "7.0.22",
+        "7.0.23",
         "8.0.0",
         "8.0.1",
         "8.0.2",
@@ -237,8 +238,13 @@
             "agent_version": "108.0.19.8941-1",
             "tools_version": "100.14.0"
           },
+<<<<<<< CLOUDP-382466_om_image_version_bump
           "8.0.20": {
             "agent_version": "108.0.20.8953-1",
+=======
+          "7.0.23": {
+            "agent_version": "107.0.23.8833-1",
+>>>>>>> master
             "tools_version": "100.14.1"
           }
         }
