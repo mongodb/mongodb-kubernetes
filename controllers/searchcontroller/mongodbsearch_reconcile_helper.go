@@ -121,6 +121,14 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
+	if err := r.ValidateMultipleReplicasConfig(); err != nil {
+		return workflow.Failed(err)
+	}
+
+	if err := r.ValidateAutoEmbeddingConfig(); err != nil {
+		return workflow.Failed(err)
+	}
+
 	if shardedSource, ok := r.db.(ShardedSearchSourceDBResource); ok {
 		return r.reconcileSharded(ctx, log, shardedSource, version)
 	}
@@ -912,14 +920,23 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 }
 
 // GetMongodConfigParametersForShard returns the mongod configuration parameters for a specific shard
-// in a sharded cluster, using the operator-internal mongot service endpoint.
+// in a sharded cluster. When unmanaged LB mode is enabled (spec.lb.mode == Unmanaged with an endpoint
+// template), each shard uses the resolved endpoint from the template. Otherwise, the operator-internal
+// mongot host is used.
 func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) map[string]any {
 	searchTLSMode := automationconfig.TLSModeDisabled
 	if search.Spec.Security.TLS != nil {
 		searchTLSMode = automationconfig.TLSModeRequired
 	}
 
-	mongotEndpoint := shardMongotHostAndPort(search, shardName, clusterDomain)
+	// Determine the mongot endpoint for this shard
+	var mongotEndpoint string
+	if search.IsShardedUnmanagedLB() {
+		mongotEndpoint = search.GetEndpointForShard(shardName)
+	} else {
+		// Use the internal shard-local mongot service
+		mongotEndpoint = shardMongotHostAndPort(search, shardName, clusterDomain)
+	}
 
 	return map[string]any{
 		"setParameter": map[string]any{
@@ -934,6 +951,12 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 }
 
 func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
+	// If unmanaged LB is configured for replica set, use the unmanaged LB endpoint
+	if search.IsReplicaSetUnmanagedLB() {
+		return search.GetReplicaSetUnmanagedLBEndpoint()
+	}
+
+	// Otherwise, use the internal service endpoint
 	svcName := search.SearchServiceNamespacedName()
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
@@ -963,10 +986,16 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, shardNa
 	}
 
 	// Determine the mongot endpoint for mongos
-	// For sharded clusters, mongos uses the first shard's internal mongot service endpoint
+	// For sharded clusters, mongos uses the first shard's mongot endpoint
 	var mongotEndpoint string
 	if len(shardNames) > 0 {
-		mongotEndpoint = shardMongotHostAndPort(search, shardNames[0], clusterDomain)
+		firstShardName := shardNames[0]
+		if search.IsShardedUnmanagedLB() {
+			mongotEndpoint = search.GetEndpointForShard(firstShardName)
+		} else {
+			// Use the internal shard-local mongot service for the first shard
+			mongotEndpoint = shardMongotHostAndPort(search, firstShardName, clusterDomain)
+		}
 	}
 
 	return map[string]any{
@@ -1011,6 +1040,56 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.Contains(version, unsupportedSearchVersion) {
 		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
+	}
+
+	return nil
+}
+
+// ValidateMultipleReplicasConfig validates that when multiple mongot replicas are configured,
+// an external load balancer endpoint is also configured to distribute traffic across the replicas.
+func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
+	if !r.mdbSearch.HasMultipleReplicas() {
+		return nil
+	}
+
+	// For sharded clusters, check if sharded unmanaged LB is configured
+	if _, ok := r.db.(ShardedSearchSourceDBResource); ok {
+		if !r.mdbSearch.IsShardedUnmanagedLB() {
+			return xerrors.Errorf(
+				"multiple mongot replicas (%d) require unmanaged load balancer configuration; "+
+					"please configure spec.lb.mode=Unmanaged with spec.lb.endpoint for sharded clusters",
+				r.mdbSearch.GetReplicas(),
+			)
+		}
+		return nil
+	}
+
+	// For replica sets, check if replica set unmanaged LB is configured
+	if !r.mdbSearch.IsReplicaSetUnmanagedLB() {
+		return xerrors.Errorf(
+			"multiple mongot replicas (%d) require unmanaged load balancer configuration; "+
+				"please configure spec.lb.mode=Unmanaged with spec.lb.endpoint",
+			r.mdbSearch.GetReplicas(),
+		)
+	}
+
+	return nil
+}
+
+// ValidateAutoEmbeddingConfig validates that auto embeddings are not configured with multiple mongot replicas.
+// Auto embeddings require the IsAutoEmbeddingViewWriter flag to be set to true for exactly one mongot instance.
+// When multiple replicas are configured, all mongot instances would have this flag set to true, causing conflicts.
+func (r *MongoDBSearchReconcileHelper) ValidateAutoEmbeddingConfig() error {
+	if r.mdbSearch.Spec.AutoEmbedding == nil {
+		return nil
+	}
+
+	if r.mdbSearch.HasMultipleReplicas() {
+		return xerrors.Errorf(
+			"auto embeddings are not supported with multiple mongot replicas (%d); "+
+				"please set spec.source.replicas to 1 or remove spec.autoEmbedding",
+			r.mdbSearch.GetReplicas(),
+		)
 	}
 
 	return nil

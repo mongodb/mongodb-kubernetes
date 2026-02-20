@@ -116,3 +116,10 @@ func (r *ShardedExternalSearchSource) MongosHostAndPort() string {
 	}
 	return r.spec.Sharded.Router.Hosts[0]
 }
+
+// GetUnmanagedLBEndpointForShard returns an empty string for external sharded sources
+// since unmanaged LB configuration is not applicable - the external MongoDB cluster
+// already has its own load balancing/routing through mongos.
+func (r *ShardedExternalSearchSource) GetUnmanagedLBEndpointForShard(shardName string) string {
+	return ""
+}
