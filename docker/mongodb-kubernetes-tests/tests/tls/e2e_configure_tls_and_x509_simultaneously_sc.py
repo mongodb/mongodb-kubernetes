@@ -10,6 +10,7 @@ from kubetester.phase import Phase
 from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_mongos_service_names
 
 MDB_RESOURCE = "test-ssl-with-x509-sc"
+CERT_SECRET_PREFIX = "prefix"
 
 
 @pytest.fixture(scope="module")
@@ -29,6 +30,7 @@ def server_certs(issuer: str, namespace: str):
         mongod_per_shard=3,
         config_servers=3,
         mongos=2,
+        secret_prefix=f"{CERT_SECRET_PREFIX}-",
         shard_distribution=shard_distribution,
         mongos_distribution=mongos_distribution,
         config_srv_distribution=config_srv_distribution,
@@ -36,11 +38,10 @@ def server_certs(issuer: str, namespace: str):
 
 
 @pytest.fixture(scope="module")
-def sc(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
+def sc(namespace: str, server_certs: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace, name=MDB_RESOURCE)
 
     resource.set_architecture_annotation()
-    resource["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap}}
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(
@@ -56,7 +57,7 @@ def sc(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
 
 @pytest.fixture(scope="module")
 def agent_certs(issuer: str, namespace: str) -> str:
-    return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
+    return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE, secret_prefix=CERT_SECRET_PREFIX)
 
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
@@ -78,10 +79,28 @@ def test_connectivity_without_ssl(sc: MongoDB):
 
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
-def test_enable_x509(sc: MongoDB, agent_certs: str):
+def test_enable_tls(sc: MongoDB, issuer_ca_configmap: str):
     sc["spec"]["security"] = {
-        "authentication": {"enabled": True},
+        "certsSecretPrefix": CERT_SECRET_PREFIX,
+        "tls": {"ca": issuer_ca_configmap},
+    }
+    sc.update()
+    sc.assert_reaches_phase(Phase.Running, timeout=1200)
+
+
+@pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
+def test_connectivity_with_ssl(sc: MongoDB, ca_path: str):
+    service_names = get_mongos_service_names(sc)
+    tester = sc.tester(use_ssl=True, ca_path=ca_path, service_names=service_names)
+    tester.assert_connectivity()
+
+
+@pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
+def test_enable_x509(sc: MongoDB, agent_certs: str):
+    sc["spec"]["security"]["authentication"] = {
+        "agents": {"mode": "X509"},
+        "enabled": True,
         "modes": ["X509"],
     }
-
+    sc.update()
     sc.assert_reaches_phase(Phase.Running, timeout=1200)

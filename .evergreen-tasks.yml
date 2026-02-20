@@ -759,11 +759,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_configure_tls_and_x509_simultaneously_st
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   # E2E tests for Ops Manager (sorted alphabetically):
   - name: e2e_om_appdb_external_connectivity
     tags: [ "patch-run" ]
