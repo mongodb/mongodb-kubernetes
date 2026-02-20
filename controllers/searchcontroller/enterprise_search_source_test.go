@@ -363,4 +363,3 @@ func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
 		})
 	}
 }
-

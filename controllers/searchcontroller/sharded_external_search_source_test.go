@@ -472,4 +472,3 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		assert.Equal(t, "fallback-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
 	})
 }
-

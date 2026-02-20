@@ -298,6 +298,10 @@ func (r *MongoDBSearchReconcileHelper) validatePerShardTLSSecrets(ctx context.Co
 		return workflow.OK()
 	}
 
+	if r.mdbSearch.CertificateKeySecretName() {
+		return workflow.Failed(xerrors.New("spec.security.tls.certificateKeySecretRef is not supported for sharded clusters, use spec.security.tls.certsSecretPrefix instead"))
+	}
+
 	// Per-shard mode: validate each shard's source secret exists
 	for _, shardName := range shardNames {
 		secretNsName := r.mdbSearch.TLSSecretNamespacedNameForShard(shardName)

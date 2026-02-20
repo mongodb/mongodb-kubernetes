@@ -643,7 +643,6 @@ func TestValidateSearchResource(t *testing.T) {
 	}
 }
 
-
 func TestGetMongodConfigParametersForShard(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{
@@ -672,7 +671,6 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028", searchIndexHost)
 }
-
 
 func TestCreateShardMongotConfig(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test")
@@ -831,9 +829,6 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 	assert.Equal(t, int32(8080), healthPort.Port)
 }
 
-
-
-
 func TestGetMongosConfigParametersForSharded(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -900,7 +895,6 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 	}
 }
 
-
 func TestTLSSecretPrefixNaming(t *testing.T) {
 	testCases := []struct {
 		name               string
@@ -958,9 +952,6 @@ func TestTLSSecretPrefixNaming(t *testing.T) {
 		})
 	}
 }
-
-
-
 
 func TestIsTLSConfigured(t *testing.T) {
 	testCases := []struct {
@@ -1033,74 +1024,6 @@ func TestIsTLSConfigured(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", tc.setup)
 			assert.Equal(t, tc.expectedResult, search.IsTLSConfigured())
-		})
-	}
-}
-
-func TestIsSharedTLSCertificate(t *testing.T) {
-	testCases := []struct {
-		name           string
-		setup          func(*searchv1.MongoDBSearch)
-		expectedResult bool
-	}{
-		{
-			name: "shared mode - explicit secret name set",
-			setup: func(s *searchv1.MongoDBSearch) {
-				s.Spec.Security = searchv1.Security{
-					TLS: &searchv1.TLS{
-						CertificateKeySecret: corev1.LocalObjectReference{Name: "my-shared-secret"},
-					},
-				}
-			},
-			expectedResult: true,
-		},
-		{
-			name: "shared mode - both name and prefix set",
-			setup: func(s *searchv1.MongoDBSearch) {
-				s.Spec.Security = searchv1.Security{
-					TLS: &searchv1.TLS{
-						CertificateKeySecret: corev1.LocalObjectReference{Name: "my-shared-secret"},
-						CertsSecretPrefix:    "my-prefix",
-					},
-				}
-			},
-			expectedResult: true,
-		},
-		{
-			name: "per-shard mode - only prefix set",
-			setup: func(s *searchv1.MongoDBSearch) {
-				s.Spec.Security = searchv1.Security{
-					TLS: &searchv1.TLS{
-						CertsSecretPrefix: "my-prefix",
-					},
-				}
-			},
-			expectedResult: false,
-		},
-		{
-			name: "per-shard mode - neither name nor prefix set",
-			setup: func(s *searchv1.MongoDBSearch) {
-				s.Spec.Security = searchv1.Security{
-					TLS: &searchv1.TLS{},
-				}
-			},
-			expectedResult: false,
-		},
-		{
-			name: "no TLS configured",
-			setup: func(s *searchv1.MongoDBSearch) {
-				s.Spec.Security = searchv1.Security{
-					TLS: nil,
-				}
-			},
-			expectedResult: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			search := newTestMongoDBSearch("test-search", "default", tc.setup)
-			assert.Equal(t, tc.expectedResult, search.IsSharedTLSCertificate())
 		})
 	}
 }
@@ -1253,6 +1176,36 @@ func TestPerShardTLSResourceAdapter(t *testing.T) {
 	}
 }
 
+func TestReconcileSharded_CertificateKeySecretRefRejected(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Security = searchv1.Security{
+			TLS: &searchv1.TLS{
+				CertificateKeySecret: corev1.LocalObjectReference{Name: "shared-cert"},
+			},
+		}
+	})
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"shard-0", "shard-1"},
+	}
+
+	helper := NewMongoDBSearchReconcileHelper(
+		newTestFakeClient(search),
+		search,
+		shardedSource,
+		newTestOperatorSearchConfig(),
+	)
+
+	result := helper.reconcileSharded(t.Context(), zap.S(), shardedSource, "8.0.0")
+
+	assert.False(t, result.IsOK())
+	assert.Equal(t, status.PhaseFailed, result.Phase())
+
+	msgOpt, exists := status.GetOption(result.StatusOptions(), status.MessageOption{})
+	require.True(t, exists)
+	assert.Contains(t, msgOpt.(status.MessageOption).Message, "spec.security.tls.certificateKeySecretRef is not supported for sharded clusters")
+}
+
 func TestValidatePerShardTLSSecrets(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -1266,19 +1219,6 @@ func TestValidatePerShardTLSSecrets(t *testing.T) {
 			name: "TLS not configured - returns OK",
 			setup: func(s *searchv1.MongoDBSearch) {
 				s.Spec.Security = searchv1.Security{TLS: nil}
-			},
-			shardNames:    []string{"shard-0", "shard-1"},
-			expectedOK:    true,
-			expectedPhase: "",
-		},
-		{
-			name: "shared mode - returns OK without checking per-shard secrets",
-			setup: func(s *searchv1.MongoDBSearch) {
-				s.Spec.Security = searchv1.Security{
-					TLS: &searchv1.TLS{
-						CertificateKeySecret: corev1.LocalObjectReference{Name: "shared-secret"},
-					},
-				}
 			},
 			shardNames:    []string{"shard-0", "shard-1"},
 			expectedOK:    true,
