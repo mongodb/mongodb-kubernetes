@@ -69,6 +69,10 @@ type Options struct {
 	AutoLdapGroupDN string
 
 	MongoDBResource types.NamespacedName
+
+	DownloadBase string
+
+	KeyfilePath string
 }
 
 func Redact(o Options) Options {
@@ -208,7 +212,7 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		}
 		ac.Auth.AutoAuthMechanisms = []string{}
 		ac.Auth.DeploymentAuthMechanisms = []string{}
-		ac.Auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
+		ac.Auth.KeyFile = opts.KeyfilePath
 		ac.Auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 		ac.Auth.AuthoritativeSet = opts.AuthoritativeSet
 		ac.AgentSSL.ClientCertificateMode = util.OptionalClientCertficates
