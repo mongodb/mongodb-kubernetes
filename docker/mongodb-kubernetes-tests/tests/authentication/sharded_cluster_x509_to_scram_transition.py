@@ -60,7 +60,7 @@ def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_
 
 def _create_automation_agent_user(namespace: str, resource_name: str, ca_path: str):
     """
-    CLOUDP-383102 workaround: Pre-create the automation agent user before enabling SCRAM.
+    CLOUDP-383102 workaround: create the automation agent user.
 
     When transitioning from disabled-auth → SCRAM-only, the keyfile on disk from the
     previous auth phase blocks the localhost exception for external connections. This
@@ -72,10 +72,8 @@ def _create_automation_agent_user(namespace: str, resource_name: str, ca_path: s
     Uses pymongo to check if user exists (works from anywhere), uses kubectl exec
     to create the user (requires localhost exception inside the container).
     """
-    # Get the automation agent password from the K8s secret
     password = read_secret(namespace, f"{resource_name}-agent-auth-secret")["automation-agent-password"]
 
-    # Use short hostname (works with kubefwdc /etc/hosts)
     config_server_host = f"{resource_name}-config-0.{resource_name}-cs:27017"
 
     # First, check if the user already exists by trying to authenticate via pymongo
