@@ -177,7 +177,6 @@ def test_credentials_can_connect_to_db_with_srv(replica_set: MongoDB, standard_s
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_update_user_with_connection_string_secret(scram_user: MongoDBUser):
-    scram_user.load()
     scram_user["spec"]["connectionStringSecretName"] = CONNECTION_STRING_SECRET_NAME
     scram_user.update()
 

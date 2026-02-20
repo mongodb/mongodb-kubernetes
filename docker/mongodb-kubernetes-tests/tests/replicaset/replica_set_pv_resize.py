@@ -54,7 +54,6 @@ def test_replica_set_reaches_running_phase(replica_set: MongoDB):
 @mark.e2e_replica_set_pv_resize
 def test_replica_set_resize_pvc_state_changes(replica_set: MongoDB):
     # Update the resource
-    replica_set.load()
     replica_set["spec"]["podSpec"]["persistence"]["multiple"]["data"]["storage"] = RESIZED_STORAGE_SIZE
     replica_set["spec"]["podSpec"]["persistence"]["multiple"]["journal"]["storage"] = RESIZED_STORAGE_SIZE
     replica_set.update()

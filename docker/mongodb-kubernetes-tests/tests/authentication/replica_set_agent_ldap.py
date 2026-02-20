@@ -101,7 +101,6 @@ def test_deployment_is_reachable_with_ldap_agent(replica_set: MongoDB):
 
 @mark.e2e_replica_set_ldap_agent_auth
 def test_scale_replica_test(replica_set: MongoDB):
-    replica_set.reload()
     replica_set["spec"]["members"] = 5
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
@@ -122,7 +121,6 @@ def test_new_ldap_users_can_authenticate_after_scaling(replica_set: MongoDB, lda
 
 @mark.e2e_replica_set_ldap_agent_auth
 def test_disable_agent_auth(replica_set: MongoDB):
-    replica_set.reload()
     replica_set["spec"]["security"]["authentication"]["enabled"] = False
     replica_set["spec"]["security"]["authentication"]["agents"]["enabled"] = False
     replica_set.update()
@@ -159,7 +157,6 @@ def test_replica_set_connectivity_with_SCRAM_auth(replica_set: MongoDB):
 
 @mark.e2e_replica_set_ldap_agent_auth
 def test_change_version_to_latest(replica_set: MongoDB, custom_mdb_version: str):
-    replica_set.reload()
     replica_set.set_version(ensure_ent_version(custom_mdb_version))
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)

@@ -276,7 +276,6 @@ def test_change_ldap_servers(
         ac_secret_name,
         {"automationConfigPassword": secondary_ldap_mongodb_agent_user.password},
     )
-    replica_set.load()
     replica_set["spec"]["security"]["authentication"]["ldap"]["servers"] = [secondary_openldap.servers]
     replica_set["spec"]["security"]["authentication"]["ldap"]["bindQueryPasswordSecretRef"] = {"name": secret_name}
     replica_set["spec"]["security"]["authentication"]["agents"] = {
@@ -294,7 +293,6 @@ def test_change_ldap_servers(
 
 @mark.e2e_replica_set_ldap
 def test_replica_set_ldap_settings_are_updated(replica_set: MongoDB, ldap_mongodb_users: List[LDAPUser]):
-    replica_set.reload()
     replica_set["spec"]["security"]["authentication"]["ldap"]["timeoutMS"] = 12345
     replica_set["spec"]["security"]["authentication"]["ldap"]["userCacheInvalidationInterval"] = 60
     replica_set.update()

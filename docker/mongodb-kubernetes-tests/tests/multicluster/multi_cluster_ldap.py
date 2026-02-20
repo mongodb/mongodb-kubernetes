@@ -218,10 +218,8 @@ def test_turn_tls_on_CLOUDP_229222(mongodb_multi: MongoDBMulti):
 
     wait_until(wait_for_ac_pushed, timeout=500)
 
-    resource = mongodb_multi.load()
-
-    resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
-    resource.update()
+    mongodb_multi["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
+    mongodb_multi.update()
 
 
 @skip_if_static_containers
@@ -240,13 +238,10 @@ def test_restore_mongodb_multi_ldap_configuration(mongodb_multi: MongoDBMulti):
     """
     This function restores the initial desired security configuration to carry on with the next tests normally.
     """
-    resource = mongodb_multi.load()
-
-    resource["spec"]["security"]["authentication"]["modes"] = ["LDAP"]
-    resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
-    resource["spec"]["security"]["authentication"]["agents"]["mode"] = "LDAP"
-
-    resource.update()
+    mongodb_multi["spec"]["security"]["authentication"]["modes"] = ["LDAP"]
+    mongodb_multi["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
+    mongodb_multi["spec"]["security"]["authentication"]["agents"]["mode"] = "LDAP"
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 
@@ -302,7 +297,6 @@ def test_deployment_is_reachable_with_ldap_agent(mongodb_multi: MongoDBMulti):
 @skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti, member_cluster_names):
-    mongodb_multi.reload()
     mongodb_multi["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
@@ -325,7 +319,6 @@ def test_new_ldap_user_can_authenticate_after_scaling(
 @skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_disable_agent_auth(mongodb_multi: MongoDBMulti):
-    mongodb_multi.reload()
     mongodb_multi["spec"]["security"]["authentication"]["enabled"] = False
     mongodb_multi["spec"]["security"]["authentication"]["agents"]["enabled"] = False
     mongodb_multi.update()

@@ -50,7 +50,6 @@ def test_authoritative_set_false(mongodb_multi: MongoDBMulti):
 
 @mark.e2e_multi_cluster_replica_set_ignore_unknown_users
 def test_set_ignore_unknown_users_false(mongodb_multi: MongoDBMulti):
-    mongodb_multi.load()
     mongodb_multi["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = False
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)

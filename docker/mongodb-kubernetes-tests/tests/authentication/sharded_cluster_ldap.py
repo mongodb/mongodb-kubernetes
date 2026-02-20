@@ -107,9 +107,8 @@ def test_sharded_cluster_turn_tls_on_CLOUDP_229222(sharded_cluster: MongoDB):
 
     wait_until(wait_for_ac_pushed, timeout=800)
 
-    resource = sharded_cluster.load()
-    resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
-    resource.update()
+    sharded_cluster["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
+    sharded_cluster.update()
 
 
 @mark.e2e_sharded_cluster_ldap

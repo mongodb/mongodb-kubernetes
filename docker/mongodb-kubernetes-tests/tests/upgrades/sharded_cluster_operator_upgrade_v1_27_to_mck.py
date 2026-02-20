@@ -105,7 +105,6 @@ class TestShardedClusterDeployment:
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=350)
 
     def test_scale_up_sharded_cluster(self, sharded_cluster: MongoDB):
-        sharded_cluster.load()
         sharded_cluster["spec"]["mongodsPerShardCount"] = 3
         sharded_cluster["spec"]["configServerCount"] = 3
         sharded_cluster.update()
@@ -139,7 +138,6 @@ class TestOperatorUpgrade:
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity()
 
     def test_scale_down_sharded_cluster(self, sharded_cluster: MongoDB, namespace: str):
-        sharded_cluster.load()
         # Scale down both by 1
         sharded_cluster["spec"]["mongodsPerShardCount"] = 2
         sharded_cluster["spec"]["configServerCount"] = 2
@@ -170,7 +168,6 @@ class TestOperatorDowngrade:
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity()
 
     def test_scale_up_sharded_cluster(self, sharded_cluster: MongoDB):
-        sharded_cluster.load()
         sharded_cluster["spec"]["mongodsPerShardCount"] = 3
         sharded_cluster["spec"]["configServerCount"] = 3
         sharded_cluster.update()

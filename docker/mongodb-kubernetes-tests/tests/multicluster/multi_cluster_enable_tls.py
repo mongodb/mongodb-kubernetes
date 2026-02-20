@@ -77,7 +77,6 @@ def test_enabled_tls_mongodb_multi(
     multi_cluster_issuer_ca_configmap: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    mongodb_multi.load()
     mongodb_multi["spec"]["security"] = {
         "certsSecretPrefix": CERT_SECRET_PREFIX,
         "tls": {

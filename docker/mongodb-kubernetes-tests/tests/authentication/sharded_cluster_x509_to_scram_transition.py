@@ -70,7 +70,6 @@ class TestEnableX509ForShardedCluster(KubernetesTester):
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
 def test_enable_scram_and_x509(sharded_cluster: MongoDB):
-    sharded_cluster.load()
     sharded_cluster["spec"]["security"]["authentication"]["modes"] = ["X509", "SCRAM"]
     sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)
@@ -89,7 +88,6 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
     def test_disable_auth(self, sharded_cluster: MongoDB):
         kubetester.wait_processes_ready()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
-        sharded_cluster.load()
         sharded_cluster["spec"]["security"]["authentication"]["enabled"] = False
         sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1500)
@@ -110,7 +108,6 @@ class TestCanEnableScramSha256:
         kubetester.wait_processes_ready()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
-        sharded_cluster.load()
         sharded_cluster["spec"]["security"]["authentication"]["enabled"] = True
         sharded_cluster["spec"]["security"]["authentication"]["modes"] = [
             "SCRAM",

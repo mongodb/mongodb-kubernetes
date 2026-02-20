@@ -131,8 +131,6 @@ def test_mongodb_multi_member_options_ac(mongodb_multi: MongoDBMulti):
 
 @pytest.mark.e2e_multi_cluster_replica_set_member_options
 def test_mongodb_multi_update_member_options(mongodb_multi: MongoDBMulti):
-    mongodb_multi.load()
-
     mongodb_multi["spec"]["clusterSpecList"][0]["memberConfig"][0] = {
         "votes": 1,
         "priority": "1.3",
@@ -160,8 +158,6 @@ def test_mongodb_multi_update_member_options(mongodb_multi: MongoDBMulti):
 
 @pytest.mark.e2e_multi_cluster_replica_set_member_options
 def test_mongodb_multi_set_member_votes_to_0(mongodb_multi: MongoDBMulti):
-    mongodb_multi.load()
-
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["votes"] = 0
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["priority"] = "0.0"
     mongodb_multi.update()
@@ -177,8 +173,6 @@ def test_mongodb_multi_set_member_votes_to_0(mongodb_multi: MongoDBMulti):
 
 @pytest.mark.e2e_multi_cluster_replica_set_member_options
 def test_mongodb_multi_set_invalid_votes_and_priority(mongodb_multi: MongoDBMulti):
-    mongodb_multi.load()
-
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["votes"] = 0
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["priority"] = "0.7"
     mongodb_multi.update()
@@ -190,7 +184,6 @@ def test_mongodb_multi_set_invalid_votes_and_priority(mongodb_multi: MongoDBMult
 
 @pytest.mark.e2e_multi_cluster_replica_set_member_options
 def test_mongodb_multi_set_recover_valid_member_options(mongodb_multi: MongoDBMulti):
-    mongodb_multi.load()
     # A member with priority 0.0 could still be a voting member. It cannot become primary and cannot trigger elections.
     # https://www.mongodb.com/docs/v5.0/core/replica-set-priority-0-member/#priority-0-replica-set-members
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["votes"] = 1
@@ -201,8 +194,6 @@ def test_mongodb_multi_set_recover_valid_member_options(mongodb_multi: MongoDBMu
 
 @pytest.mark.e2e_multi_cluster_replica_set_member_options
 def test_mongodb_multi_set_only_one_vote_per_member(mongodb_multi: MongoDBMulti):
-    mongodb_multi.load()
-
     mongodb_multi["spec"]["clusterSpecList"][2]["memberConfig"][1]["votes"] = 3
     mongodb_multi["spec"]["clusterSpecList"][2]["memberConfig"][1]["priority"] = "0.1"
     mongodb_multi.update()

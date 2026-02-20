@@ -181,7 +181,6 @@ def test_replica_sets_reaches_running_phase(replica_set: MongoDB, replica_set_en
 
 @mark.e2e_om_remotemode
 def test_replica_set_reaches_failed_phase(replica_set: MongoDB):
-    replica_set.load()
     replica_set["spec"]["version"] = VERSION_NOT_IN_WEB_SERVER
     replica_set.update()
 
@@ -216,7 +215,6 @@ def test_client_can_connect_to_mongodb_ent(replica_set_ent: MongoDB):
 
 @mark.e2e_om_remotemode
 def test_restart_ops_manager_pod(ops_manager: MongoDBOpsManager):
-    ops_manager.load()
     ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = "false"
     ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
@@ -224,7 +222,6 @@ def test_restart_ops_manager_pod(ops_manager: MongoDBOpsManager):
 
 @mark.e2e_om_remotemode
 def test_can_scale_replica_set(replica_set: MongoDB):
-    replica_set.load()
     replica_set["spec"]["members"] = 5
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)

@@ -114,7 +114,6 @@ def test_update_mongodb_multi_tls_with_scram(
     mongodb_multi: MongoDBMulti,
     namespace: str,
 ):
-    mongodb_multi.load()
     mongodb_multi["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
@@ -210,8 +209,6 @@ def test_mongodb_multi_tls_enable_x509(
     mongodb_multi: MongoDBMulti,
     namespace: str,
 ):
-    mongodb_multi.load()
-
     mongodb_multi["spec"]["security"]["authentication"]["modes"].append("X509")
     mongodb_multi["spec"]["security"]["authentication"]["agents"] = {"mode": "SCRAM"}
     mongodb_multi.update()

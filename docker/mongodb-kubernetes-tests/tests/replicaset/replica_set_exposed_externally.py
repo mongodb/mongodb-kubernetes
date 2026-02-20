@@ -42,7 +42,6 @@ def test_service_node_port_stays_the_same(namespace: str, replica_set: MongoDB):
     service = client.CoreV1Api().read_namespaced_service("my-replica-set-externally-exposed-0-svc-external", namespace)
     node_port = service.spec.ports[0].node_port
 
-    replica_set.load()
     replica_set["spec"]["members"] = 3
     replica_set.update()
 

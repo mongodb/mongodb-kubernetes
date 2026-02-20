@@ -249,7 +249,6 @@ class TestOperatorUpgrade:
         log_deployments_info(namespace)
 
     def test_scale_appdb(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         # Reordering the clusters triggers a change in the state
         ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = scale_on_upgrade.cluster_spec
         ops_manager.update()
@@ -312,7 +311,6 @@ class TestOperatorDowngrade:
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=200)
 
     def test_scale_appdb(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = scale_on_downgrade.cluster_spec
         ops_manager.update()
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)

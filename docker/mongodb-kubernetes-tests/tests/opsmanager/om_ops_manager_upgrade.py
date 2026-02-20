@@ -154,7 +154,6 @@ class TestBackupCreation:
         oplog_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         ops_manager["spec"]["backup"]["opLogStores"] = [
             {"name": "oplog1", "mongodbResourceRef": {"name": "my-mongodb-oplog"}}
         ]
@@ -192,7 +191,6 @@ class TestOpsManagerWithMongoDB:
     def test_mongodb_upgrade(self, mdb: MongoDB):
         """Scales up the mongodb. Note, that we are not upgrading the Mongodb version at this stage as it can be
         the major update (e.g. 4.2 -> 4.4) and this requires OM upgrade as well - this happens later."""
-        mdb.reload()
         mdb["spec"]["members"] = 4
 
         mdb.update()
@@ -210,7 +208,6 @@ class TestOpsManagerConfigurationChange:
     """
 
     def test_restart_om(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = ""
         ops_manager["spec"]["configuration"]["mms.helpAndSupportPage.enabled"] = "true"
         ops_manager.update()
@@ -280,7 +277,6 @@ class TestOpsManagerVersionUpgrade:
         custom_appdb_version: str,
     ):
         logger.info(f"Upgrading OM from {ops_manager.get_version()} to {custom_version}")
-        ops_manager.load()
         # custom_version fixture loads CUSTOM_OM_VERSION env variable, which is set in context files with one of the
         # values ops_manager_60_latest or ops_manager_70_latest in .evergreen.yml
         ops_manager.set_version(custom_version)
@@ -333,7 +329,6 @@ class TestMongoDbsVersionUpgrade:
         mdb.assert_reaches_phase(Phase.Running, timeout=1200)
         # Because OM was not in running phase, this resource, mdb, was also not in
         # running phase. We will wait for it to come back before applying any changes.
-        mdb.reload()
 
         # At this point all the agent versions should be up to date and we can perform the database version upgrade.
         mdb["spec"]["version"] = custom_mdb_version
@@ -366,7 +361,6 @@ class TestMongoDbsVersionUpgrade:
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestAppDBScramShaUpdated:
     def test_appdb_reconcile(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         ops_manager["spec"]["applicationDatabase"]["agent"] = {"logLevel": "DEBUG"}
         ops_manager.update()
 

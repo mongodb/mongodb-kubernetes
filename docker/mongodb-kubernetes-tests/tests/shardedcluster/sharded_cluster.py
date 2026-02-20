@@ -115,7 +115,6 @@ class TestShardedClusterCreation:
 @mark.e2e_sharded_cluster
 class TestShardedClusterUpdate:
     def test_scale_up_sharded_cluster(self, sc: MongoDB):
-        sc.load()
         sc["spec"]["shardCount"] = SCALED_SHARD_COUNT
         sc.update()
 

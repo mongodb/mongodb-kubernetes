@@ -62,7 +62,6 @@ class TestEnableX509ForReplicaSet(KubernetesTester):
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
 def test_enable_scram_and_x509(replica_set: MongoDB):
-    replica_set.load()
     replica_set["spec"]["security"]["authentication"]["modes"] = ["X509", "SCRAM"]
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
@@ -82,7 +81,6 @@ def test_x509_is_still_configured(replica_set: MongoDB):
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
 class TestReplicaSetDisableAuthentication(KubernetesTester):
     def test_disable_auth(self, replica_set: MongoDB):
-        replica_set.load()
         replica_set["spec"]["security"]["authentication"]["enabled"] = False
         replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=900)
@@ -100,7 +98,6 @@ class TestReplicaSetDisableAuthentication(KubernetesTester):
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
 class TestCanEnableScramSha256:
     def test_can_enable_scram_sha_256(self, replica_set: MongoDB):
-        replica_set.load()
         replica_set["spec"]["security"]["authentication"]["enabled"] = True
         replica_set["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
         replica_set["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"

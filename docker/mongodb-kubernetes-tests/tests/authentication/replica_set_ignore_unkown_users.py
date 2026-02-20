@@ -30,7 +30,6 @@ def test_authoritative_set_false(replica_set: MongoDB):
 
 @mark.e2e_replica_set_ignore_unknown_users
 def test_set_ignore_unknown_users_false(replica_set: MongoDB):
-    replica_set.reload()
     replica_set["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = False
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
@@ -44,7 +43,6 @@ def test_authoritative_set_true(replica_set: MongoDB):
 
 @mark.e2e_replica_set_ignore_unknown_users
 def test_set_ignore_unknown_users_true(replica_set: MongoDB):
-    replica_set.reload()
     replica_set["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = True
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)

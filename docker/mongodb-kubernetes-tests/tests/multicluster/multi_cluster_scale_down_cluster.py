@@ -103,7 +103,6 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 
 @pytest.mark.e2e_multi_cluster_scale_down_cluster
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.load()
     # remove first and last cluster
     mongodb_multi["spec"]["clusterSpecList"] = [mongodb_multi["spec"]["clusterSpecList"][1]]
     mongodb_multi.update()

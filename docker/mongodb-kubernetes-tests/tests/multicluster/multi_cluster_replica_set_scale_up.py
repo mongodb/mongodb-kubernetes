@@ -118,7 +118,6 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_up
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.load()
     mongodb_multi["spec"]["clusterSpecList"][0]["members"] = 2
     mongodb_multi["spec"]["clusterSpecList"][1]["members"] = 1
     mongodb_multi["spec"]["clusterSpecList"][2]["members"] = 2

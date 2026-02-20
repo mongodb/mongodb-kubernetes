@@ -102,7 +102,6 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_down
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.load()
     mongodb_multi["spec"]["clusterSpecList"][0]["members"] = 1
     # Testing scaling down to zero is required to test fix for https://jira.mongodb.org/browse/CLOUDP-324655
     mongodb_multi["spec"]["clusterSpecList"][1]["members"] = 0

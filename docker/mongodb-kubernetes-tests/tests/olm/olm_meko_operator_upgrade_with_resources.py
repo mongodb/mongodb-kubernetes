@@ -346,7 +346,6 @@ def test_set_backup_users(
     oplog_user: MongoDBUser,
     blockstore_user: MongoDBUser,
 ):
-    ops_manager.load()
     ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
     ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
     ops_manager.update()

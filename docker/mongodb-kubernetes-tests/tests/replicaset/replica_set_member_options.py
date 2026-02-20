@@ -74,8 +74,6 @@ def test_replica_set_member_options_ac(replica_set: MongoDB):
 
 @pytest.mark.e2e_replica_set_member_options
 def test_replica_set_update_member_options(replica_set: MongoDB):
-    replica_set.load()
-
     replica_set["spec"]["memberConfig"][0] = {
         "votes": 1,
         "priority": "2.5",
@@ -103,8 +101,6 @@ def test_replica_set_update_member_options(replica_set: MongoDB):
 
 @pytest.mark.e2e_replica_set_member_options
 def test_replica_set_member_votes_to_0(replica_set: MongoDB):
-    replica_set.load()
-
     # A non-voting member must also have priority set to 0
     replica_set["spec"]["memberConfig"][1]["votes"] = 0
     replica_set["spec"]["memberConfig"][1]["priority"] = "0.0"
@@ -121,7 +117,6 @@ def test_replica_set_member_votes_to_0(replica_set: MongoDB):
 
 @pytest.mark.e2e_replica_set_member_options
 def test_replica_set_invalid_votes_and_priority(replica_set: MongoDB):
-    replica_set.load()
     # A member with 0 votes must also have priority 0.0
     replica_set["spec"]["memberConfig"][1]["votes"] = 0
     replica_set["spec"]["memberConfig"][1]["priority"] = "1.2"
@@ -134,7 +129,6 @@ def test_replica_set_invalid_votes_and_priority(replica_set: MongoDB):
 
 @pytest.mark.e2e_replica_set_member_options
 def test_replica_set_recover_valid_member_options(replica_set: MongoDB):
-    replica_set.load()
     # A member with priority 0.0 could still be a voting member. It cannot become primary and cannot trigger elections.
     # https://www.mongodb.com/docs/v5.0/core/replica-set-priority-0-member/#priority-0-replica-set-members
     replica_set["spec"]["memberConfig"][1]["votes"] = 1
@@ -145,7 +139,6 @@ def test_replica_set_recover_valid_member_options(replica_set: MongoDB):
 
 @pytest.mark.e2e_replica_set_member_options
 def test_replica_set_only_one_vote_per_member(replica_set: MongoDB):
-    replica_set.load()
     # A single voting member can only have 1 vote
     replica_set["spec"]["memberConfig"][2]["votes"] = 5
     replica_set["spec"]["memberConfig"][2]["priority"] = "5.8"

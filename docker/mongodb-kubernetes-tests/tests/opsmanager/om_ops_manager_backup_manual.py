@@ -260,7 +260,6 @@ class TestBackupDatabasesAdded:
         oplog_user.assert_reaches_phase(Phase.Updated)
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
-        ops_manager.load()
         ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
         ops_manager.update()
 
@@ -287,7 +286,6 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         blockstore_user.assert_reaches_phase(Phase.Updated)
 
     def test_configure_blockstore_user(self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser):
-        ops_manager.reload()
         ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
         ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
@@ -372,12 +370,10 @@ class TestBackupForMongodb:
         mdb_non_fixed.assert_reaches_phase(Phase.Running)
 
     def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_non_fixed: MongoDB):
-        mdb_latest.load()
         mdb_latest.configure_backup(mode="enabled")
         mdb_latest.update()
         mdb_latest.assert_reaches_phase(Phase.Running)
 
-        mdb_non_fixed.load()
         mdb_non_fixed.configure_backup(mode="enabled")
         mdb_non_fixed.update()
         mdb_non_fixed.assert_reaches_phase(Phase.Running)

@@ -86,7 +86,6 @@ def test_log_types_with_default_automation_log_file(replica_set: MongoDB):
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_set_custom_log_file(replica_set: MongoDB):
-    replica_set.load()
     replica_set["spec"]["agent"] = {
         "startupOptions": {
             "logFile": custom_agent_log_path,

@@ -53,7 +53,6 @@ def test_start_background_checker(mdb_health_checker: MongoDBBackgroundTester):
 
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
 def test_mongodb_multi_upgrade(mongodb_multi: MongoDBMulti, custom_mdb_prev_version: str, custom_mdb_version: str):
-    mongodb_multi.load()
     mongodb_multi["spec"]["version"] = ensure_ent_version(custom_mdb_version)
     mongodb_multi["spec"]["featureCompatibilityVersion"] = fcv_from_version(custom_mdb_prev_version)
     mongodb_multi.update()
@@ -71,7 +70,6 @@ def test_upgraded_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
 
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
 def test_mongodb_multi_downgrade(mongodb_multi: MongoDBMulti, custom_mdb_prev_version: str):
-    mongodb_multi.load()
     mongodb_multi["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
     mongodb_multi["spec"]["featureCompatibilityVersion"] = fcv_from_version(custom_mdb_prev_version)
     mongodb_multi.update()

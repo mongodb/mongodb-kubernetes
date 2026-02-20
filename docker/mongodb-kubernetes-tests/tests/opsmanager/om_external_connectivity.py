@@ -62,7 +62,6 @@ def test_set_external_connectivity_load_balancer_with_default_port(
             "second-annotation": "second-value",
         },
     }
-    opsmanager.load()
     opsmanager["spec"]["externalConnectivity"] = ext_connectivity
     opsmanager.update()
 
@@ -95,7 +94,6 @@ def test_set_external_connectivity(opsmanager: MongoDBOpsManager):
             "second-annotation": "second-value",
         },
     }
-    opsmanager.load()
     opsmanager["spec"]["externalConnectivity"] = ext_connectivity
     opsmanager.update()
 
@@ -120,7 +118,6 @@ def test_set_external_connectivity(opsmanager: MongoDBOpsManager):
 def test_add_annotations(opsmanager: MongoDBOpsManager):
     """Makes sure annotations are updated properly."""
     annotations = {"second-annotation": "edited-value", "added-annotation": "new-value"}
-    opsmanager.load()
     opsmanager["spec"]["externalConnectivity"]["annotations"] = annotations
     opsmanager.update()
 
@@ -159,7 +156,6 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
         assert external.spec.ports[0].port == node_port
         assert external.spec.ports[0].target_port == 8080
 
-    opsmanager.load()
     opsmanager["spec"]["externalConnectivity"] = {
         "type": "LoadBalancer",
         "port": 443,

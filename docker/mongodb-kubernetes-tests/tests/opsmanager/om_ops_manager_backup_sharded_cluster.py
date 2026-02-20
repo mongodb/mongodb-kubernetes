@@ -224,7 +224,6 @@ class TestBackupDatabasesAdded:
         oplog_user.assert_reaches_phase(Phase.Updated)
 
     def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
-        oplog_replica_set.load()
         oplog_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
         oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
@@ -238,7 +237,6 @@ class TestBackupDatabasesAdded:
         )
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
-        ops_manager.load()
         ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
         ops_manager.update()
 
@@ -337,11 +335,9 @@ class TestBackupForMongodb:
         # we need to sleep here to give OM some time to recognize the shards.
         # otherwise, if you start a backup during a topology change will lead the backup to be aborted.
         time.sleep(30)
-        mdb_latest.load()
         mdb_latest.configure_backup(mode="enabled")
         mdb_latest.update()
 
-        mdb_prev.load()
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev.update()
 

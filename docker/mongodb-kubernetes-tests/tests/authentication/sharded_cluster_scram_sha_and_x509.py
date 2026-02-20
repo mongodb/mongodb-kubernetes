@@ -128,7 +128,6 @@ def test_user_cannot_authenticate_with_incorrect_password(ca_path: str):
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
 def test_enable_x509(sharded_cluster: MongoDB):
-    sharded_cluster.load()
     sharded_cluster["spec"]["security"]["authentication"]["modes"].append("X509")
     sharded_cluster["spec"]["security"]["authentication"]["agents"] = {"mode": "SCRAM"}
     sharded_cluster.update()

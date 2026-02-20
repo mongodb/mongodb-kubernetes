@@ -113,7 +113,6 @@ class TestOpsManagerCreation:
         )
 
     def test_om_with_correct_custom_cert(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         custom_certificate = [
             {"name": S3_TEST_CA1, "key": "ca-pem"},
             {"name": S3_TEST_CA2, "key": "ca-pem"},

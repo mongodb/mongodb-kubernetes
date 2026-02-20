@@ -95,8 +95,6 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
     def test_add_oidc_provider_and_role(self, sharded_cluster: MongoDB):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
 
-        sharded_cluster.load()
-
         new_oidc_provider_config = {
             "audience": "dummy-audience",
             "issuerURI": "https://valid-issuer-2.example.com",

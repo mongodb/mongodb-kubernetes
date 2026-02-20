@@ -253,7 +253,6 @@ def test_remove_failed_member_cluster(ops_manager: MongoDBOpsManager, config_ver
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
     # We can remove the failed cluster from cluster spec after it has been scaled down to zero members
-    ops_manager.reload()
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
         ["kind-e2e-cluster-2", OM_MEMBER_CLUSTER_NAME], [3, 1]
     )

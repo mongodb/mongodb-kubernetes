@@ -54,7 +54,6 @@ def test_mdb_is_reachable_with_ssl(mdb: MongoDB, ca_path: str):
 
 @pytest.mark.e2e_replica_set_tls_require
 def test_scale_up_replica_set(mdb: MongoDB):
-    mdb.load()
     mdb["spec"]["members"] = 5
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=400)
@@ -74,7 +73,6 @@ def test_mdb_scaled_up_is_reachable_with_ssl(mdb: MongoDB, ca_path: str):
 
 @pytest.mark.e2e_replica_set_tls_require
 def test_scale_down_replica_set(mdb: MongoDB):
-    mdb.load()
     mdb["spec"]["members"] = 3
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=1000)

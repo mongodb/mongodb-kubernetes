@@ -53,8 +53,6 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
     def test_add_oidc_provider_and_role(self, replica_set: MongoDB):
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
-        replica_set.load()
-
         new_oidc_provider_config = {
             "audience": "dummy-audience",
             "issuerURI": "https://valid-issuer.example.com",
@@ -125,7 +123,6 @@ class TestOIDCRemoval(KubernetesTester):
     def test_remove_oidc_provider_and_user(self, replica_set: MongoDB):
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
-        replica_set.load()
         replica_set["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
         replica_set["spec"]["security"]["authentication"]["oidcProviderConfigs"] = None
         replica_set["spec"]["security"]["roles"] = None

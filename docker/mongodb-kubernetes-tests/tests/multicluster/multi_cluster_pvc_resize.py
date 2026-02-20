@@ -46,7 +46,6 @@ def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
 @pytest.mark.e2e_multi_cluster_pvc_resize
 def test_mongodb_multi_resize_pvc_state_changes(mongodb_multi: MongoDBMulti):
     # Update the resource
-    mongodb_multi.load()
     mongodb_multi["spec"]["statefulSet"]["spec"]["volumeClaimTemplates"][0]["spec"]["resources"]["requests"][
         "storage"
     ] = RESIZED_STORAGE_SIZE

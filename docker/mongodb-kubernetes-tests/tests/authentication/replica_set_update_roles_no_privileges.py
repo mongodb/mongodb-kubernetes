@@ -103,7 +103,6 @@ def test_automation_config_has_roles(replica_set: MongoDB):
 
 @mark.e2e_replica_set_update_roles_no_privileges
 def test_update_role(replica_set: MongoDB):
-    replica_set.load()
     replica_set["spec"]["security"]["roles"] = [
         {
             "db": "admin",

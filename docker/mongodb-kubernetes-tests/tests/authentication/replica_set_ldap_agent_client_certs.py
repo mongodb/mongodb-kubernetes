@@ -164,7 +164,6 @@ def test_new_ldap_users_can_authenticate(replica_set: MongoDB, ldap_user_mongodb
 
 @mark.e2e_replica_set_ldap_agent_client_certs
 def test_client_requires_certs(replica_set: MongoDB):
-    replica_set.load()
     replica_set["spec"]["security"]["authentication"]["requireClientTLSAuthentication"] = True
     replica_set.update()
 
@@ -196,7 +195,6 @@ def test_client_can_auth_with_client_certs_provided(
 
 @mark.e2e_replica_set_ldap_agent_client_certs
 def test_client_certs_made_optional(replica_set: MongoDB):
-    replica_set.load()
     replica_set["spec"]["security"]["authentication"]["requireClientTLSAuthentication"] = False
     replica_set.update()
 

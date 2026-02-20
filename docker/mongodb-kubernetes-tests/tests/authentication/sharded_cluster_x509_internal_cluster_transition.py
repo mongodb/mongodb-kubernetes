@@ -51,7 +51,6 @@ def test_create_resource(sc: MongoDB):
 
 @mark.e2e_sharded_cluster_internal_cluster_transition
 def test_enable_internal_cluster_authentication(sc: MongoDB):
-    sc.load()
     sc["spec"]["security"]["authentication"]["internalCluster"] = "X509"
     sc.update()
 

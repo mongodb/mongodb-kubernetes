@@ -65,7 +65,6 @@ def test_enable_local_mode(ops_manager: MongoDBOpsManager, namespace: str):
         # the function by default does cascade=false
         delete_statefulset(namespace, sts_name, api_client=get_member_cluster_api_client(member_cluster_name))
 
-    ops_manager.load()
     ops_manager["spec"]["configuration"] = {"automation.versions.source": "local"}
     ops_manager["spec"]["statefulSet"] = om["spec"]["statefulSet"]
     ops_manager.update()

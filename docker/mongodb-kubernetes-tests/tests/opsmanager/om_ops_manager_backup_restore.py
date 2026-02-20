@@ -129,8 +129,6 @@ class TestOpsManagerCreation:
         )
 
     def test_s3_oplog_created(self, ops_manager: MongoDBOpsManager, oplog_s3_bucket: str):
-        ops_manager.load()
-
         ops_manager["spec"]["backup"]["s3OpLogStores"] = [
             {
                 "name": "s3Store2",

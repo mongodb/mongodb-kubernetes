@@ -93,7 +93,6 @@ def test_backing_dbs_created(oplog_replica_set: MongoDB, blockstore_replica_set:
 
 @pytest.mark.e2e_om_ops_manager_secure_config
 def test_backup_enabled(ops_manager: MongoDBOpsManager):
-    ops_manager.load()
     ops_manager["spec"]["backup"]["enabled"] = True
 
     if is_multi_cluster():
@@ -172,7 +171,6 @@ def test_no_unnecessary_rolling_upgrades_happen(
 
     assert old_backup_hash == old_hash
 
-    ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["version"] = custom_appdb_version
     ops_manager.update()
 

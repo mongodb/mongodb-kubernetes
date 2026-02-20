@@ -292,8 +292,6 @@ class TestOpsManagerCreation:
         oplog_s3_bucket_name: str,
         s3_bucket_endpoint: str,
     ):
-        ops_manager.load()
-
         # Backups rely on the JVM default keystore if no customCertificate has been uploaded
         ops_manager["spec"]["backup"]["s3OpLogStores"] = [
             {

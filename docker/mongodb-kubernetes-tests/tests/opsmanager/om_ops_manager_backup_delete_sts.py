@@ -114,7 +114,6 @@ def test_backup_statefulset_gets_recreated(
 ):
     # Wait for the the backup to be fully running
     ops_manager.backup_status().assert_reaches_phase(Phase.Running)
-    ops_manager.load()
     ops_manager["spec"]["backup"]["statefulSet"] = {"spec": {"revisionHistoryLimit": 15}}
     ops_manager.update()
 

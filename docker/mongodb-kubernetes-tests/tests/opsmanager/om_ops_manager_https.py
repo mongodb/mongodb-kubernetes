@@ -105,7 +105,6 @@ def test_appdb_running_no_tls(ops_manager: MongoDBOpsManager):
 @mark.e2e_om_ops_manager_https_enabled
 def test_appdb_enable_tls(ops_manager: MongoDBOpsManager, issuer_ca_configmap: str, appdb_certs: str):
     """Enable TLS for the AppDB (not for OM though)."""
-    ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["security"] = {
         "certsSecretPrefix": appdb_certs,
         "tls": {"ca": issuer_ca_configmap},

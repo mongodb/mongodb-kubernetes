@@ -80,7 +80,6 @@ class TestOpsManagerAppDbScaleUp:
     """
 
     def test_scale_app_db_up(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         ops_manager["spec"]["applicationDatabase"]["members"] = 5
         ops_manager.update()
 
@@ -126,7 +125,6 @@ class TestOpsManagerAppDbScaleDown:
     """
 
     def test_scale_app_db_down(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         ops_manager["spec"]["applicationDatabase"]["members"] = 3
         ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)

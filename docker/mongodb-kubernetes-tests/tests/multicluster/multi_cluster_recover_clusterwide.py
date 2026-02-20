@@ -340,8 +340,6 @@ def test_recover_operator_remove_cluster(
 
 @mark.e2e_multi_cluster_recover_clusterwide
 def test_mongodb_multi_nsa_recovers_removing_cluster(mongodb_multi_a: MongoDBMulti):
-    mongodb_multi_a.load()
-
     mongodb_multi_a["metadata"]["annotations"]["failedClusters"] = None
     mongodb_multi_a["spec"]["clusterSpecList"].pop()
     mongodb_multi_a.update()
@@ -351,8 +349,6 @@ def test_mongodb_multi_nsa_recovers_removing_cluster(mongodb_multi_a: MongoDBMul
 
 @mark.e2e_multi_cluster_recover_clusterwide
 def test_mongodb_multi_nsb_recovers_removing_cluster(mongodb_multi_b: MongoDBMulti):
-    mongodb_multi_b.load()
-
     mongodb_multi_b["metadata"]["annotations"]["failedClusters"] = None
     mongodb_multi_b["spec"]["clusterSpecList"].pop()
     mongodb_multi_b.update()

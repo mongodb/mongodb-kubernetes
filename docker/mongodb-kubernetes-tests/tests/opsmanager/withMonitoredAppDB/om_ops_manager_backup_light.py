@@ -101,7 +101,6 @@ class TestOpsManagerCreation:
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         ops_manager["spec"]["backup"]["opLogStores"] = [
             {"name": "oplog1", "mongodbResourceRef": {"name": "my-mongodb-oplog"}}
         ]
@@ -149,7 +148,6 @@ class TestOpsManagerCreation:
         # )
 
     def test_enable_external_connectivity(self, ops_manager: MongoDBOpsManager, namespace: str):
-        ops_manager.load()
         ops_manager["spec"]["externalConnectivity"] = {"type": "LoadBalancer"}
         ops_manager.update()
 
@@ -216,7 +214,6 @@ class TestOpsManagerCreation:
 def test_backup_statefulset_remains_after_disabling_backup(
     ops_manager: MongoDBOpsManager,
 ):
-    ops_manager.load()
     ops_manager["spec"]["backup"]["enabled"] = False
     ops_manager.update()
 

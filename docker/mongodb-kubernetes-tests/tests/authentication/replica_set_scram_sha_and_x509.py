@@ -96,7 +96,6 @@ class TestScramUserCanAuthenticate(KubernetesTester):
         )
 
     def test_enable_x509(self, replica_set: MongoDB):
-        replica_set.load()
         replica_set["spec"]["security"]["authentication"]["modes"].append("X509")
         replica_set["spec"]["security"]["authentication"]["agents"] = {"mode": "SCRAM"}
         replica_set.update()

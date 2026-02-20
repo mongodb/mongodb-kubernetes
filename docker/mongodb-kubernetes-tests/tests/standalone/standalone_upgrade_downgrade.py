@@ -48,7 +48,6 @@ class TestStandaloneUpgradeDowngradeUpdate(KubernetesTester):
     def test_upgrade_standalone(self, standalone: MongoDB, custom_mdb_prev_version: str, custom_mdb_version: str):
         fcv = fcv_from_version(custom_mdb_prev_version)
 
-        standalone.load()
         standalone.set_version(custom_mdb_version)
         standalone["spec"]["featureCompatibilityVersion"] = fcv
         standalone.update()
@@ -70,7 +69,6 @@ class TestStandaloneUpgradeDowngradeRevert(KubernetesTester):
     """
 
     def test_downgrade_standalone(self, standalone: MongoDB, custom_mdb_prev_version: str):
-        standalone.load()
         standalone.set_version(custom_mdb_prev_version)
         standalone.update()
 

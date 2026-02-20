@@ -133,7 +133,6 @@ def test_re_deploy_operator(
 def test_add_new_cluster_to_mongodb_multi_resource(
     mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
 ):
-    mongodb_multi.load()
     mongodb_multi["spec"]["clusterSpecList"].append(
         {"members": 2, "clusterName": member_cluster_clients[-1].cluster_name}
     )

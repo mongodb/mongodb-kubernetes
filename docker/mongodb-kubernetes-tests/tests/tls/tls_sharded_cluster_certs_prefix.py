@@ -113,7 +113,6 @@ def test_rotate_tls_certificate(sc: MongoDB, namespace: str):
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_disable_tls(sc: MongoDB):
     last_transition = sc.get_status_last_transition_time()
-    sc.load()
     sc["spec"]["security"]["tls"]["enabled"] = False
     sc.update()
 

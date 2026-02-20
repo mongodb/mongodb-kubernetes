@@ -102,7 +102,6 @@ class TestReplicaSetWithExternalAccess(KubernetesTester):
 
 @pytest.mark.e2e_tls_rs_external_access
 def test_scale_up_replica_set(mdb: MongoDB):
-    mdb.load()
     mdb["spec"]["members"] = 4
     mdb["spec"]["connectivity"]["replicaSetHorizons"] = [
         {"test-horizon": "mdb0-test.website.com:1337"},
@@ -116,7 +115,6 @@ def test_scale_up_replica_set(mdb: MongoDB):
 
 @pytest.mark.e2e_tls_rs_external_access
 def tests_invalid_cert(mdb: MongoDB):
-    mdb.load()
     mdb["spec"]["connectivity"]["replicaSetHorizons"] = [
         {"test-horizon": "mdb0-test.website.com:1337"},
         {"test-horizon": "mdb1-test.website.com:1337"},
@@ -132,7 +130,6 @@ def tests_invalid_cert(mdb: MongoDB):
 
 @pytest.mark.e2e_tls_rs_external_access
 def test_can_remove_horizons(mdb: MongoDB):
-    mdb.load()
     mdb["spec"]["connectivity"]["replicaSetHorizons"] = []
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=240)

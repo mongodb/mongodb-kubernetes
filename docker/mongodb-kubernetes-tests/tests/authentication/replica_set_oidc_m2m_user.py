@@ -93,7 +93,6 @@ class TestNewUserAdditionToReplicaSet(KubernetesTester):
 @pytest.mark.e2e_replica_set_oidc_m2m_user
 class TestRestrictedAccessToReplicaSet(KubernetesTester):
     def test_update_oidc_user(self, replica_set: MongoDB, oidc_user: MongoDBUser, namespace: str):
-        oidc_user.load()
         oidc_user["spec"]["roles"] = [{"db": TEST_DATABASE, "name": "readWrite"}]
         oidc_user.update()
 

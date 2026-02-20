@@ -55,9 +55,8 @@ def test_meko_replicaset_running(meko_replica_set: MongoDB):
 
 @mark.e2e_community_and_meko_replicaset_scale
 def test_replicaset_scale_up(mco_replica_set: MongoDBCommunity):
-    rs = mco_replica_set.load()
-    rs["spec"]["members"] = 5
-    rs.update()
+    mco_replica_set["spec"]["members"] = 5
+    mco_replica_set.update()
     # TODO: MCK As we don't have "observedGeneration" in MongoDBCommunity status, we could be checking the status too early.
     # We always need to check for abandoning phase first
     mco_replica_set.assert_abandons_phase(Phase.Running, timeout=60)
@@ -66,24 +65,21 @@ def test_replicaset_scale_up(mco_replica_set: MongoDBCommunity):
 
 @mark.e2e_community_and_meko_replicaset_scale
 def test_replicaset_scale_down(mco_replica_set: MongoDBCommunity):
-    rs = mco_replica_set.load()
-    rs["spec"]["members"] = 3
-    rs.update()
+    mco_replica_set["spec"]["members"] = 3
+    mco_replica_set.update()
     mco_replica_set.assert_abandons_phase(Phase.Running, timeout=60)
     mco_replica_set.assert_reaches_phase(Phase.Running, timeout=350)
 
 
 @mark.e2e_community_and_meko_replicaset_scale
 def test_meko_replicaset_scale_up(meko_replica_set: MongoDB):
-    rs = meko_replica_set.load()
-    rs["spec"]["members"] = 5
-    rs.update()
+    meko_replica_set["spec"]["members"] = 5
+    meko_replica_set.update()
     meko_replica_set.assert_reaches_phase(Phase.Running, timeout=500)
 
 
 @mark.e2e_community_and_meko_replicaset_scale
 def test_meko_replicaset_scale_down(meko_replica_set: MongoDB):
-    rs = meko_replica_set.load()
-    rs["spec"]["members"] = 3
-    rs.update()
+    meko_replica_set["spec"]["members"] = 3
+    meko_replica_set.update()
     meko_replica_set.assert_reaches_phase(Phase.Running, timeout=1000)

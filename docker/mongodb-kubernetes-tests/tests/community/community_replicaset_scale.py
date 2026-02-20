@@ -48,8 +48,7 @@ def test_replicaset_scale_up(mdbc: MongoDBCommunity):
 
 @mark.e2e_community_replicaset_scale
 def test_replicaset_scale_down(mdbc: MongoDBCommunity):
-    rs = mdbc.load()
-    rs["spec"]["members"] = 3
-    rs.update()
+    mdbc["spec"]["members"] = 3
+    mdbc.update()
     mdbc.assert_abandons_phase(Phase.Running, timeout=60)
     mdbc.assert_reaches_phase(Phase.Running, timeout=350)

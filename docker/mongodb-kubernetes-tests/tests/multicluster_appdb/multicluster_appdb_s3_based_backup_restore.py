@@ -123,7 +123,6 @@ class TestOpsManagerCreation:
         multi_cluster_s3_replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
         # configure metadatastore in om, use dedicate MDB instead of AppDB
-        ops_manager.load()
         ops_manager["spec"]["backup"]["s3Stores"][0]["mongodbResourceRef"] = {"name": multi_cluster_s3_replica_set.name}
         ops_manager["spec"]["backup"]["s3OpLogStores"][0]["mongodbResourceRef"] = {
             "name": multi_cluster_s3_replica_set.name

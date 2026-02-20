@@ -305,7 +305,6 @@ class TestOpsManagerCreation:
 @mark.e2e_om_ops_manager_pod_spec
 class TestOpsManagerUpdate:
     def test_om_updated(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         # adding annotations
         ops_manager["spec"]["applicationDatabase"]["podSpec"]["podTemplate"]["metadata"] = {
             "annotations": {"annotation1": "val"}

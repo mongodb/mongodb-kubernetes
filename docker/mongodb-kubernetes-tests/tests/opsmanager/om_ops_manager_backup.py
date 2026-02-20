@@ -393,7 +393,6 @@ class TestBackupDatabasesAdded:
         oplog_user.assert_reaches_phase(Phase.Updated)
 
     def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
-        oplog_replica_set.load()
         oplog_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
         oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
@@ -407,7 +406,6 @@ class TestBackupDatabasesAdded:
         )
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
-        ops_manager.load()
         ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
         ops_manager.update()
 
@@ -496,7 +494,6 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         )
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser):
-        ops_manager.load()
         ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
         ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
@@ -589,11 +586,9 @@ class TestBackupForMongodb:
         mdb_prev.assert_reaches_phase(Phase.Running)
 
     def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
-        mdb_latest.load()
         mdb_latest.configure_backup(mode="enabled")
         mdb_latest.update()
 
-        mdb_prev.load()
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev.update()
 
@@ -720,7 +715,6 @@ class TestAssignmentLabels:
         return ops_manager.get_om_tester(project_name=project_name)
 
     def test_add_assignment_labels_to_the_om(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         ops_manager["spec"]["backup"]["assignmentLabels"] = ["test"]
         ops_manager["spec"]["backup"]["blockStores"][0]["assignmentLabels"] = ["test"]
         ops_manager["spec"]["backup"]["opLogStores"][0]["assignmentLabels"] = ["test"]
@@ -756,7 +750,6 @@ class TestBackupConfigurationAdditionDeletion:
         s3_replica_set: MongoDB,
         oplog_user: MongoDBUser,
     ):
-        ops_manager.reload()
         ops_manager["spec"]["backup"]["opLogStores"].append(
             {"name": "oplog2", "mongodbResourceRef": {"name": S3_RS_NAME}}
         )
@@ -789,7 +782,6 @@ class TestBackupConfigurationAdditionDeletion:
         blockstore_user: MongoDBUser,
         oplog_user: MongoDBUser,
     ):
-        ops_manager.reload()
         ops_manager["spec"]["backup"]["opLogStores"].pop()
         ops_manager.update()
 
@@ -824,7 +816,6 @@ class TestBackupConfigurationAdditionDeletion:
         ops_manager: MongoDBOpsManager,
     ):
         """Removing the s3 store when there are backups running is an error"""
-        ops_manager.reload()
         ops_manager["spec"]["backup"]["s3Stores"] = []
         ops_manager.update()
 

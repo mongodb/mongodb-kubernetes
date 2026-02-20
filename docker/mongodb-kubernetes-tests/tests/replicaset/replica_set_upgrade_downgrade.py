@@ -57,7 +57,6 @@ class TestReplicaSetUpgradeDowngradeCreate(KubernetesTester):
 class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
 
     def test_mongodb_upgrade(self, replica_set: MongoDB, custom_mdb_version: str, custom_mdb_prev_version: str):
-        replica_set.load()
         replica_set.set_version(custom_mdb_version)
         fcv = fcv_from_version(custom_mdb_prev_version)
         replica_set["spec"]["featureCompatibilityVersion"] = fcv
@@ -80,7 +79,6 @@ class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
 class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
 
     def test_mongodb_downgrade(self, replica_set: MongoDB, custom_mdb_prev_version: str, custom_mdb_version: str):
-        replica_set.load()
         replica_set.set_version(custom_mdb_prev_version)
         replica_set.update()
 

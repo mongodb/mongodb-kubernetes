@@ -113,7 +113,6 @@ class TestShardedClusterScaleUpShards:
     """
 
     def test_scale_up_sharded_cluster(self, sc: MongoDB):
-        sc.load()
         sc["spec"]["shardCount"] = 2
         sc.update()
 

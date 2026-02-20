@@ -97,8 +97,6 @@ def test_recover_operator_add_cluster(
 
 @pytest.mark.e2e_multi_cluster_recover
 def test_mongodb_multi_recovers_adding_cluster(mongodb_multi: MongoDBMulti, member_cluster_names: List[str]):
-    mongodb_multi.load()
-
     mongodb_multi["spec"]["clusterSpecList"].append({"clusterName": member_cluster_names[-1], "members": 2})
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)

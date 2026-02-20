@@ -117,13 +117,11 @@ class TestOpsManagerCreation:
 @mark.e2e_om_localmode_multiple_pv
 class TestOpsManagerRestarted:
     def test_restart_ops_manager_pod(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
         ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = "false"
         ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_can_scale_replica_set(self, replica_set: MongoDB):
-        replica_set.load()
         replica_set["spec"]["members"] = 4
         replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=200)

@@ -109,8 +109,6 @@ def test_disabled_ssl(tls_replica_set: MongoDB):
     """
     Disable ssl explicitly
     """
-    tls_replica_set.load()
-
     # TLS can be disabled explicitly by setting security.tls.enabled to false and having
     # no configuration for certificate secret
     tls_replica_set["spec"]["security"]["certsSecretPrefix"] = None
