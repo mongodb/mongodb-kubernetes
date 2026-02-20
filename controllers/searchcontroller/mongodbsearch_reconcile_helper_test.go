@@ -645,50 +645,32 @@ func TestValidateSearchResource(t *testing.T) {
 
 
 func TestGetMongodConfigParametersForShard(t *testing.T) {
-	tests := []struct {
-		name           string
-		search         *searchv1.MongoDBSearch
-		shardName      string
-		clusterDomain  string
-		expectedHost   string
-	}{
-		{
-			name: "Internal service endpoint (no unmanaged LB)",
-			search: &searchv1.MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-search",
-					Namespace: "test-ns",
-				},
-				Spec: searchv1.MongoDBSearchSpec{
-					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
-							Name: "test-mdb",
-						},
-					},
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-search",
+			Namespace: "test-ns",
+		},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{
+					Name: "test-mdb",
 				},
 			},
-			shardName:      "test-mdb-0",
-			clusterDomain:  "cluster.local",
-			expectedHost:   "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			config := GetMongodConfigParametersForShard(tc.search, tc.shardName, tc.clusterDomain)
+	config := GetMongodConfigParametersForShard(search, "test-mdb-0", "cluster.local")
 
-			setParameter, ok := config["setParameter"].(map[string]any)
-			require.True(t, ok, "setParameter should be a map")
+	setParameter, ok := config["setParameter"].(map[string]any)
+	require.True(t, ok)
 
-			mongotHost, ok := setParameter["mongotHost"].(string)
-			require.True(t, ok, "mongotHost should be a string")
-			assert.Equal(t, tc.expectedHost, mongotHost)
+	mongotHost, ok := setParameter["mongotHost"].(string)
+	require.True(t, ok)
+	assert.Equal(t, "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028", mongotHost)
 
-			searchIndexHost, ok := setParameter["searchIndexManagementHostAndPort"].(string)
-			require.True(t, ok, "searchIndexManagementHostAndPort should be a string")
-			assert.Equal(t, tc.expectedHost, searchIndexHost)
-		})
-	}
+	searchIndexHost, ok := setParameter["searchIndexManagementHostAndPort"].(string)
+	require.True(t, ok)
+	assert.Equal(t, "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028", searchIndexHost)
 }
 
 
