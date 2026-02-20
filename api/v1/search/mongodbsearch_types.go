@@ -451,14 +451,14 @@ func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 	return s.Spec.Prometheus
 }
 
-func (s *MongoDBSearch) IsUnmanagedLBMode() bool {
+func (s *MongoDBSearch) IsLBModeUnmanaged() bool {
 	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Mode == LBModeUnmanaged
 }
 
 // IsReplicaSetUnmanagedLB returns true if this is a ReplicaSet unmanaged LB configuration.
 // An endpoint with a template placeholder ({shardName}) is NOT considered a ReplicaSet endpoint.
 func (s *MongoDBSearch) IsReplicaSetUnmanagedLB() bool {
-	return s.IsUnmanagedLBMode() &&
+	return s.IsLBModeUnmanaged() &&
 		s.Spec.LoadBalancer.Endpoint != "" &&
 		!s.HasEndpointTemplate()
 }
@@ -481,7 +481,7 @@ func (s *MongoDBSearch) HasEndpointTemplate() bool {
 // IsShardedUnmanagedLB returns true if this is a sharded unmanaged LB configuration
 // identified by the presence of the {shardName} template placeholder in the endpoint.
 func (s *MongoDBSearch) IsShardedUnmanagedLB() bool {
-	return s.IsUnmanagedLBMode() && s.HasEndpointTemplate()
+	return s.IsLBModeUnmanaged() && s.HasEndpointTemplate()
 }
 
 // GetEndpointForShard returns the endpoint for a specific shard by substituting

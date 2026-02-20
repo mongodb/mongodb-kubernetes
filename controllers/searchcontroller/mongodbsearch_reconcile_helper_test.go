@@ -900,7 +900,7 @@ func TestMongoDBSearch_LBHelperMethods(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expectUnmanagedLB, tc.search.IsUnmanagedLBMode())
+			assert.Equal(t, tc.expectUnmanagedLB, tc.search.IsLBModeUnmanaged())
 			assert.Equal(t, tc.expectShardedLB, tc.search.IsShardedUnmanagedLB())
 			assert.Equal(t, tc.expectedReplicas, tc.search.GetReplicas())
 		})
