@@ -371,7 +371,7 @@ func (s *MongoDBSearch) IsExternalMongoDBSource() bool {
 }
 
 // IsExternalShardedSource returns true if the source is an external sharded MongoDB cluster
-func (s *MongoDBSearch) IsExternalShardedSource() bool {
+func (s *MongoDBSearch) IsExternalSourceSharded() bool {
 	return s.IsExternalMongoDBSource() &&
 		s.Spec.Source.ExternalMongoDBSource.Sharded != nil
 }
