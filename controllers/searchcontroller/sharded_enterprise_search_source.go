@@ -125,3 +125,11 @@ func (r *ShardedEnterpriseSearchSource) Validate() error {
 
 	return nil
 }
+
+func (r *ShardedEnterpriseSearchSource) GetUnmanagedLBEndpointForShard(shardName string) string {
+	if r.search == nil || !r.search.IsShardedUnmanagedLB() {
+		return ""
+	}
+	return r.search.GetEndpointForShard(shardName)
+}
+
