@@ -70,12 +70,6 @@ func ReadProjectConfig(ctx context.Context, cmGetter configmap.Getter, projectCo
 		}
 	}
 
-	var useCustomCA bool
-	useCustomCAData, ok := data[util.UseCustomCAConfigMap]
-	if ok {
-		useCustomCA = useCustomCAData != falseCustomCASetting
-	}
-
 	return mdbv1.ProjectConfig{
 		BaseURL:     baseURL,
 		ProjectName: projectName,
@@ -100,9 +94,5 @@ func ReadProjectConfig(ctx context.Context, cmGetter configmap.Getter, projectCo
 			// Pod.
 			SSLMMSCAConfigMapContents: caFile,
 		},
-
-		Credentials: data[util.OmCredentials],
-
-		UseCustomCA: useCustomCA,
 	}, nil
 }

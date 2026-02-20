@@ -2,13 +2,10 @@ import json
 import os
 import re
 import tempfile
-import time
-from typing import Callable
+from typing import Dict, List
 
 import kubetester
-import pytest
 import requests
-import yaml
 from kubeobject import CustomObject
 from kubernetes import client
 from kubetester import run_periodically
@@ -182,3 +179,46 @@ def wait_for_operator_ready(namespace: str, name: str, expected_operator_version
         timeout=120,
         msg=f"operator ready and with {expected_operator_version} version",
     )
+
+
+def get_registry_env_vars_for_subscription(
+    operator_installation_config: Dict[str, str],
+    include_agent_registry: bool = False,
+) -> List[Dict[str, str]]:
+    """
+    Returns registry env vars to add to OLM subscription config for patch builds.
+
+    For upgrade tests in patch builds, we need to use ECR registries for OpsManager
+    since new versions may not be released to quay.io yet.
+    For staging/release builds, images are already published to quay.io, so we use quay.io
+    to verify the actual public release path.
+
+    Args:
+        operator_installation_config: The operator installation config from ConfigMap.
+        include_agent_registry: Whether to include agent registry override. Set to True
+            for MCK-to-MCK upgrades (non-suffixed agent versions exist in ECR). Set to
+            False for MEKO-to-MCK migrations (suffixed agent versions only on quay.io).
+
+    This function returns the env vars in the format expected by OLM subscription config:
+    [{"name": "ENV_VAR_NAME", "value": "value"}, ...]
+    """
+    build_scenario = operator_installation_config.get("buildScenario", "")
+
+    if build_scenario != "patch":
+        return []
+
+    env_vars = []
+
+    # Override OM registry for patch builds (unreleased versions not on quay.io)
+    if "registry.opsManager" in operator_installation_config:
+        ops_manager_name = operator_installation_config.get("opsManager.name", "mongodb-enterprise-ops-manager-ubi")
+        registry = operator_installation_config["registry.opsManager"]
+        env_vars.append({"name": "OPS_MANAGER_IMAGE_REPOSITORY", "value": f"{registry}/{ops_manager_name}"})
+
+    # Override agent registry only for MCK-to-MCK upgrades (non-suffixed agent versions)
+    # MEKO uses suffixed agent versions (e.g., 107.0.15.8741-1_1.33.0) that only exist on quay.io
+    if include_agent_registry and "registry.agent" in operator_installation_config:
+        registry = operator_installation_config["registry.agent"]
+        env_vars.append({"name": "MDB_AGENT_IMAGE_REPOSITORY", "value": f"{registry}/mongodb-agent"})
+
+    return env_vars

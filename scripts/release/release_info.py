@@ -6,7 +6,6 @@ from lib.base_logger import logger
 from scripts.release.build.build_info import (
     AGENT_IMAGE,
     DATABASE_IMAGE,
-    INIT_APPDB_IMAGE,
     INIT_DATABASE_IMAGE,
     INIT_OPS_MANAGER_IMAGE,
     OPERATOR_IMAGE,
@@ -17,12 +16,8 @@ from scripts.release.build.build_info import (
     load_build_info,
 )
 from scripts.release.build.build_scenario import BuildScenario
-from scripts.release.build.image_build_process import (
-    DockerImageBuilder,
-)
-from scripts.release.kubectl_mongodb.utils import (
-    upload_assets_to_github_release,
-)
+from scripts.release.build.image_build_process import DockerImageBuilder
+from scripts.release.kubectl_mongodb.utils import upload_assets_to_github_release
 
 SEARCH_IMAGE = "search"
 SEARCH_IMAGE_REPOSITORY = "quay.io/mongodb/mongodb-search"
@@ -32,8 +27,7 @@ MONGODB_ENTERPRISE_SERVER_REPOSITORY = "quay.io/mongodb/mongodb-enterprise-serve
 
 RELEASE_INFO_IMAGES_ORDERED = [
     OPERATOR_IMAGE,  # mongodb-kubernetes
-    INIT_DATABASE_IMAGE,  # mongodb-kubernetes-init-database
-    INIT_APPDB_IMAGE,  # mongodb-kubernetes-init-appdb
+    INIT_DATABASE_IMAGE,  # mongodb-kubernetes-init-database (also used for AppDB)
     INIT_OPS_MANAGER_IMAGE,  # mongodb-kubernetes-init-ops-manager
     DATABASE_IMAGE,  # mongodb-kubernetes-database
 ]

@@ -4,7 +4,7 @@ from typing import Dict, List
 
 import kubernetes
 from kubernetes import client
-from kubetester import create_or_update_configmap, create_or_update_secret, read_secret
+from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
@@ -12,10 +12,7 @@ from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import (
-    _install_multi_cluster_operator,
-    run_kube_config_creation_tool,
-)
+from tests.conftest import _install_multi_cluster_operator, run_kube_config_creation_tool
 
 from ..constants import MULTI_CLUSTER_OPERATOR_NAME
 from . import prepare_multi_cluster_namespaces
@@ -50,7 +47,7 @@ def mongodb_multi_a(
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -65,7 +62,7 @@ def mongodb_multi_b(
     resource.set_version(custom_mdb_version)
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -79,7 +76,7 @@ def unmanaged_mongodb_multi(
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -211,11 +208,13 @@ def test_copy_configmap_and_secret_across_ns(
 
 @mark.e2e_multi_cluster_specific_namespaces
 def test_create_mongodb_multi_nsa(mongodb_multi_a: MongoDBMulti):
+    mongodb_multi_a.update()
     mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=800)
 
 
 @mark.e2e_multi_cluster_specific_namespaces
 def test_create_mongodb_multi_nsb(mongodb_multi_b: MongoDBMulti):
+    mongodb_multi_b.update()
     mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=800)
 
 
@@ -224,6 +223,7 @@ def test_create_mongodb_multi_unmanaged(unmanaged_mongodb_multi: MongoDBMulti):
     """
     For an unmanaged resource, the status should not be updated!
     """
+    unmanaged_mongodb_multi.update()
     for i in range(10):
         time.sleep(5)
 

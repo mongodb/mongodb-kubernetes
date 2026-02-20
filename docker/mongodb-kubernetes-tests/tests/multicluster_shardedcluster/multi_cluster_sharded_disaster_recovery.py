@@ -4,17 +4,8 @@ from typing import Optional
 
 import kubernetes
 import kubernetes.client
-from kubetester import (
-    delete_statefulset,
-    get_statefulset,
-    read_configmap,
-    try_load,
-    update_configmap,
-)
-from kubetester.kubetester import (
-    KubernetesTester,
-    ensure_ent_version,
-)
+from kubetester import delete_statefulset, get_statefulset, read_configmap, try_load, update_configmap
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import (
     get_env_var_or_fail,
@@ -29,16 +20,10 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import (
-    get_central_cluster_client,
-    get_member_cluster_api_client,
-)
+from tests.conftest import get_central_cluster_client, get_member_cluster_api_client
 from tests.constants import MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP
 from tests.multicluster.conftest import cluster_spec_list
-from tests.shardedcluster.conftest import (
-    enable_multi_cluster_deployment,
-    get_all_sharded_cluster_pod_names,
-)
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_all_sharded_cluster_pod_names
 
 MEMBER_CLUSTERS = ["kind-e2e-cluster-1", "kind-e2e-cluster-2", "kind-e2e-cluster-3"]
 FAILED_MEMBER_CLUSTER_INDEX = 2
@@ -78,9 +63,6 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_tls.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
@@ -95,6 +77,7 @@ def ops_manager(
         resource["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(["kind-e2e-cluster-1"], [3])
         resource.api = kubernetes.client.CustomObjectsApi(api_client=get_central_cluster_client())
 
+    try_load(resource)
     return resource
 
 
@@ -120,9 +103,6 @@ def sc(namespace: str, custom_mdb_version: str, ops_manager: MongoDBOpsManager) 
         yaml_fixture("sharded-cluster-scale-shards.yaml"), namespace=namespace, name=RESOURCE_NAME
     )
 
-    if try_load(resource):
-        return resource
-
     # this allows us to reuse this test in both variants: with OMs and with Cloud QA
     # if this is not executed, the resource uses default values for project and credentials (my-project/my-credentials)
     # which are created up by the preparation scripts.
@@ -139,7 +119,8 @@ def sc(namespace: str, custom_mdb_version: str, ops_manager: MongoDBOpsManager) 
         configsrv_members_array=[2, 1, 2],
     )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -158,6 +139,7 @@ def test_install_operator(multi_cluster_operator: Operator):
 @mark.e2e_multi_cluster_sharded_disaster_recovery
 class TestDeployShardedClusterWithFailedCluster:
     def test_create_sharded_cluster(self, sc: MongoDB, config_version_store):
+        sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=1200)
         config_version_store.version = sc.get_automation_config_tester().automation_config["version"]
         logger.debug(f"Automation Config Version after initial deployment: {config_version_store.version}")

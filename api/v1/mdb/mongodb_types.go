@@ -714,8 +714,6 @@ type ProjectConfig struct {
 	BaseURL     string
 	ProjectName string
 	OrgID       string
-	Credentials string
-	UseCustomCA bool
 	env.SSLProjectConfig
 }
 
@@ -1022,6 +1020,15 @@ type AgentAuthentication struct {
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ClientCertificateSecretRefWrap common.ClientCertificateSecretRefWrapper `json:"clientCertificateSecretRef,omitempty"`
+}
+
+// GetAutomationUserName returns the configured automation agent username,
+// or the default value if not specified
+func (a *AgentAuthentication) GetAutomationUserName() string {
+	if a == nil || a.AutomationUserName == "" {
+		return util.AutomationAgentUserName
+	}
+	return a.AutomationUserName
 }
 
 // IsX509Enabled determines if X509 is to be enabled at the project level

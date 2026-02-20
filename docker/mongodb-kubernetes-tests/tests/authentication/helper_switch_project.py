@@ -1,7 +1,4 @@
-from kubetester import (
-    create_or_update_configmap,
-    read_configmap,
-)
+from kubetester import create_or_update_configmap, read_configmap
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester, ShardedClusterTester
 from kubetester.phase import Phase
@@ -23,6 +20,7 @@ class SwitchProjectHelper:
         self.active_auth_mechanism = active_auth_mechanism
 
     def test_create_resource(self):
+        self.resource.update()
         self.resource.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_replica_set_connectivity(self, resource_size):

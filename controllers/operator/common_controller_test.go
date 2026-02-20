@@ -671,6 +671,29 @@ func TestExternalRoleIsNotRemoved(t *testing.T) {
 	assert.Equal(t, roles[0].Role, "external-role")
 }
 
+// TestSetupCommonWatchers_NilTLSConfig_WithCertificatesSecretsPrefix tests that SetupCommonWatchers
+// handles the case when CertificatesSecretsPrefix is set but TLSConfig is nil.
+// This tests the fix for CLOUDP-352133: IsTLSEnabled() returns true when
+// CertificatesSecretsPrefix is set, and the code must handle nil TLSConfig gracefully.
+func TestSetupCommonWatchers_NilTLSConfig_WithCertificatesSecretsPrefix(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+	// Set CertificatesSecretsPrefix but leave TLSConfig nil
+	// IsTLSEnabled() will return true because CertificatesSecretsPrefix != ""
+	// The code should handle nil TLSConfig gracefully without panicking
+	rs.Spec.Security = &mdbv1.Security{
+		CertificatesSecretsPrefix: "my-prefix",
+		// TLSConfig is intentionally nil
+	}
+
+	kubeClient, _ := mock.NewDefaultFakeClient(rs)
+	controller := NewReconcileCommonController(ctx, kubeClient)
+
+	assert.NotPanics(t, func() {
+		controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
+	}, "SetupCommonWatchers should not panic when CertificatesSecretsPrefix is set but TLSConfig is nil")
+}
+
 func TestSecretWatcherWithAllResources(t *testing.T) {
 	ctx := context.Background()
 	caName := "custom-ca"
@@ -884,7 +907,7 @@ func checkOMReconciliationSuccessful(ctx context.Context, t *testing.T, reconcil
 
 func checkOMReconciliationInvalid(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager, client client.Client) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
-	expected, _ := workflow.OK().Requeue().ReconcileResult()
+	expected, _ := workflow.Pending("doesn't matter").Requeue().ReconcileResult()
 	assert.Equal(t, expected, res)
 	assert.NoError(t, err)
 

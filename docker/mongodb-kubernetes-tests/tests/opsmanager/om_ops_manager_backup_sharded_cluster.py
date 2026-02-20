@@ -2,12 +2,7 @@ import time
 from typing import Optional
 
 from kubernetes.client.rest import ApiException
-from kubetester import (
-    create_or_update_secret,
-    get_default_storage_class,
-    try_load,
-    wait_until,
-)
+from kubetester import create_or_update_secret, get_default_storage_class, try_load, wait_until
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -21,12 +16,8 @@ from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
-from tests.shardedcluster.conftest import (
-    enable_multi_cluster_deployment as enable_multi_cluster_deployment_mdb,
-)
-from tests.shardedcluster.conftest import (
-    get_mongos_service_names,
-)
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment as enable_multi_cluster_deployment_mdb
+from tests.shardedcluster.conftest import get_mongos_service_names
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
@@ -72,7 +63,8 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -84,7 +76,8 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     ).configure(ops_manager, "s3metadata")
     resource.set_version(custom_mdb_version)
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -96,7 +89,8 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
     ).configure(ops_manager, "blockstore")
     resource.set_version(custom_mdb_version)
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -114,7 +108,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -139,7 +133,8 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_om_ops_manager_backup_sharded_cluster
@@ -217,11 +212,15 @@ class TestBackupDatabasesAdded:
         blockstore_replica_set: MongoDB,
     ):
         """Creates mongodb databases all at once. Concurrent AC modifications may happen from time to time"""
+        oplog_replica_set.update()
+        s3_replica_set.update()
+        blockstore_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
         s3_replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
         blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
     def test_oplog_user_created(self, oplog_user: MongoDBUser):
+        oplog_user.update()
         oplog_user.assert_reaches_phase(Phase.Updated)
 
     def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
@@ -265,9 +264,6 @@ class TestBackupForMongodb:
             name="mdb-four-two",
         ).configure(ops_manager, "firstProject")
 
-        if try_load(resource):
-            return resource
-
         if is_multi_cluster():
             enable_multi_cluster_deployment_mdb(
                 resource,
@@ -280,7 +276,8 @@ class TestBackupForMongodb:
         resource.set_version(ensure_ent_version(custom_mdb_version))
         resource.set_architecture_annotation()
 
-        return resource.update()
+        try_load(resource)
+        return resource
 
     @fixture(scope="class")
     def mdb_prev(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str):
@@ -289,9 +286,6 @@ class TestBackupForMongodb:
             namespace=namespace,
             name="mdb-four-zero",
         ).configure(ops_manager, "secondProject")
-
-        if try_load(resource):
-            return resource
 
         if is_multi_cluster():
             enable_multi_cluster_deployment_mdb(
@@ -305,7 +299,8 @@ class TestBackupForMongodb:
         resource.set_version(ensure_ent_version(custom_mdb_prev_version))
         resource.set_architecture_annotation()
 
-        return resource.update()
+        try_load(resource)
+        return resource
 
     @fixture(scope="class")
     def mdb_latest_tester(self, mdb_latest: MongoDB) -> MongoTester:
@@ -320,6 +315,8 @@ class TestBackupForMongodb:
         return mdb_prev.tester(service_names=service_names)
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+        mdb_latest.update()
+        mdb_prev.update()
         mdb_latest.assert_reaches_phase(Phase.Running, timeout=1200)
         mdb_prev.assert_reaches_phase(Phase.Running, timeout=1200)
 

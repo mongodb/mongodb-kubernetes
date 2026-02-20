@@ -1,13 +1,15 @@
 package mdb
 
 import (
+	"context"
 	"errors"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/strings/slices"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
@@ -18,21 +20,24 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-var _ webhook.Validator = &MongoDB{}
+type MongoDBValidator struct {
+}
+
+var _ admission.CustomValidator = &MongoDBValidator{}
 
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
-func (m *MongoDB) ValidateCreate() (admission.Warnings, error) {
-	return nil, m.ProcessValidationsOnReconcile(nil)
+func (m *MongoDBValidator) ValidateCreate(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	return nil, obj.(*MongoDB).ProcessValidationsOnReconcile(nil)
 }
 
-func (m *MongoDB) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
-	return nil, m.ProcessValidationsOnReconcile(old.(*MongoDB))
+func (m *MongoDBValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+	return nil, newObj.(*MongoDB).ProcessValidationsOnReconcile(oldObj.(*MongoDB))
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
 // unnecessary
-func (m *MongoDB) ValidateDelete() (admission.Warnings, error) {
+func (m *MongoDBValidator) ValidateDelete(_ context.Context, _ runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 
@@ -47,6 +52,19 @@ func horizonsMustEqualMembers(ms MongoDbSpec) v1.ValidationResult {
 	numHorizonMembers := len(ms.Connectivity.ReplicaSetHorizons)
 	if numHorizonMembers > 0 && numHorizonMembers != ms.Members {
 		return v1.ValidationError("Number of horizons must be equal to number of members in replica set")
+	}
+	return v1.ValidationSuccess()
+}
+
+func horizonDomainNamesMustBeValid(ms MongoDbSpec) v1.ValidationResult {
+	for _, horizon := range ms.Connectivity.ReplicaSetHorizons {
+		for _, address := range horizon {
+			URL := url.URL{Host: address}
+			errs := validation.IsDNS1123Subdomain(URL.Hostname())
+			if len(errs) > 0 {
+				return v1.ValidationError("Horizons must have valid domain names")
+			}
+		}
 	}
 	return v1.ValidationSuccess()
 }
@@ -456,6 +474,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	// Topology field
 	mongoDBValidators := []func(m MongoDbSpec) v1.ValidationResult{
 		horizonsMustEqualMembers,
+		horizonDomainNamesMustBeValid,
 		additionalMongodConfig,
 		replicasetMemberIsSpecified,
 	}

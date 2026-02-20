@@ -22,15 +22,13 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
+    try_load(resource)
     return resource
 
 
@@ -98,10 +96,10 @@ class TestShardedClusterCreation:
                 hostname = sc.shard_hostname(0, member_idx, cluster_member_client.cluster_index)
                 hosts.append(hostname)
 
-        primary, secondaries = KubernetesTester.wait_for_rs_is_ready(hosts)
+        client = KubernetesTester.get_populated_mongo_client(hosts=hosts)
 
-        assert primary is not None
-        assert len(secondaries) == 2
+        assert client.primary is not None
+        assert len(client.secondaries) == 2
 
     def test_pvc_are_bound(self, sc: MongoDB):
         for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):

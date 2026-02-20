@@ -16,9 +16,6 @@ def opsmanager(namespace: str, custom_version: Optional[str], custom_appdb_versi
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     ## Force creating headless services for internal connectivity
@@ -29,12 +26,13 @@ def opsmanager(namespace: str, custom_version: Optional[str], custom_appdb_versi
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
 @mark.e2e_om_external_connectivity
 def test_reaches_goal_state(opsmanager: MongoDBOpsManager):
+    opsmanager.update()
     opsmanager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
     # some time for monitoring to be finished
     opsmanager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)

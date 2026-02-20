@@ -8,7 +8,7 @@ from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
 from kubetester.kubetester import create_testing_namespace
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import running_locally
+from kubetester.kubetester import run_periodically, running_locally
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_utils_replicaset import generic_replicaset
 from kubetester.operator import Operator
@@ -77,11 +77,9 @@ def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str, cust
 
 @fixture(scope="module")
 def unmanaged_mdb(ops_manager: MongoDBOpsManager, unmanaged_namespace: str) -> MongoDB:
-    rs = generic_replicaset(unmanaged_namespace, "5.0.0", "unmanaged-mdb", ops_manager).create()
-
-    yield rs
-
-    rs.delete()
+    resource = generic_replicaset(unmanaged_namespace, "5.0.0", "unmanaged-mdb", ops_manager)
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_operator_clusterwide
@@ -203,9 +201,14 @@ def test_upgrade_mdb(mdb: MongoDB, custom_mdb_version):
 def test_delete_mdb(mdb: MongoDB):
     mdb.delete()
 
-    time.sleep(10)
-    with pytest.raises(client.rest.ApiException):
-        mdb.read_statefulset()
+    def sts_is_deleted():
+        try:
+            mdb.read_statefulset()
+            return False
+        except client.rest.ApiException:
+            return True
+
+    run_periodically(sts_is_deleted, timeout=60, msg="StatefulSet to be deleted")
 
 
 @pytest.mark.e2e_operator_multi_namespaces
@@ -213,6 +216,7 @@ def test_resources_on_unmanaged_namespaces_stay_cold(unmanaged_mdb: MongoDB):
     """
     For an unmanaged resource, the status should not be updated!
     """
+    unmanaged_mdb.update()
     for i in range(10):
         time.sleep(5)
 

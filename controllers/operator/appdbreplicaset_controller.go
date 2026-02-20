@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,8 +88,8 @@ const (
 	// Used to convey to the operator to force reconfigure agent. At the moment
 	// it is used for DR in case of Multi-Cluster AppDB when after a cluster outage
 	// there is no primary in the AppDB deployment.
-	ForceReconfigureAnnotation = "mongodb.com/v1.forceReconfigure"
-
+	ForceReconfigureAnnotation                  = "mongodb.com/v1.forceReconfigure"
+	trueString                                  = "true"
 	ForcedReconfigureAlreadyPerformedAnnotation = "mongodb.com/v1.forceReconfigurePerformed"
 )
 
@@ -120,19 +121,19 @@ type ReconcileAppDbReplicaSet struct {
 	stateStore      *StateStore[AppDBDeploymentState]
 	deploymentState *AppDBDeploymentState
 
-	imageUrls        images.ImageUrls
-	initAppdbVersion string
+	imageUrls           images.ImageUrls
+	initDatabaseVersion string
 
 	ownerReferences []metav1.OwnerReference
 }
 
-func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initAppdbVersion string, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, ownerReferences []metav1.OwnerReference) (*ReconcileAppDbReplicaSet, error) {
+func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseVersion string, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, ownerReferences []metav1.OwnerReference) (*ReconcileAppDbReplicaSet, error) {
 	reconciler := &ReconcileAppDbReplicaSet{
 		ReconcileCommonController: commonController,
 		omConnectionFactory:       omConnectionFactory,
 		centralClient:             commonController.client,
 		imageUrls:                 imageUrls,
-		initAppdbVersion:          initAppdbVersion,
+		initDatabaseVersion:       initDatabaseVersion,
 		ownerReferences:           ownerReferences,
 	}
 
@@ -533,6 +534,14 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error ensuring Ops Manager user password: %w", err)), log, appDbStatusOption)
 	}
 
+	// We cannot allow removing cluster specification if the cluster is not scaled down to zero.
+	// For example: we have 3 members in a cluster, and we try to remove the entire cluster spec. The operator is scaling members down one by one.
+	// We could remove one member successfully, but recreate other members with default configuration, rather the one that was used before.
+	// Removing cluster spec would remove all non-default cluster configuration i.e. priority, persistence, etc. and that can lead to unexpected issues.
+	if err := r.blockNonEmptyClusterSpecItemRemoval(rs); err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log)
+	}
+
 	// if any of the processes have been marked as disabled, we don't reconcile the AppDB.
 	// This could be the case if we want to disable a process to perform a manual backup of the AppDB.
 	shouldReconcile, err := r.shouldReconcileAppDB(ctx, opsManager, log)
@@ -582,7 +591,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 
 	appdbOpts := construct.AppDBStatefulSetOptions{
-		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitAppdbImageUrlEnv, r.initAppdbVersion),
+		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
 		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations()),
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
@@ -717,7 +726,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		opsManager.Annotations = map[string]string{}
 	}
 
-	if val, ok := opsManager.Annotations[ForceReconfigureAnnotation]; ok && val == "true" {
+	if val, ok := opsManager.Annotations[ForceReconfigureAnnotation]; ok && val == trueString {
 		annotationsToAdd := map[string]string{ForcedReconfigureAlreadyPerformedAnnotation: timeutil.Now()}
 
 		err := annotations.SetAnnotations(ctx, opsManager, annotationsToAdd, r.client)
@@ -729,6 +738,20 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
 	return r.updateStatus(ctx, opsManager, workflow.OK(), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...))
+}
+
+func (r *ReconcileAppDbReplicaSet) blockNonEmptyClusterSpecItemRemoval(appDBSpec omv1.AppDBSpec) error {
+	for _, memberCluster := range r.memberClusters {
+		searchFunc := func(item mdbv1.ClusterSpecItem) bool {
+			return item.ClusterName == memberCluster.Name
+		}
+
+		if !slices.ContainsFunc(appDBSpec.GetClusterSpecList(), searchFunc) && memberCluster.Replicas > 0 {
+			return xerrors.Errorf("Cannot remove member cluster %s with non-zero members count. Please scale down members to zero first", memberCluster.Name)
+		}
+	}
+
+	return nil
 }
 
 func (r *ReconcileAppDbReplicaSet) getNameOfFirstMemberCluster() string {
@@ -1178,7 +1201,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		}).
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {
 			if acType == monitoring {
-				addMonitoring(automationConfig, log, rs.GetSecurity().IsTLSEnabled())
+				configureMonitoring(automationConfig, log, rs.GetSecurity().IsTLSEnabled())
 				automationConfig.ReplicaSets = []automationconfig.ReplicaSet{}
 				automationConfig.Processes = []automationconfig.Process{}
 			}
@@ -1248,7 +1271,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 // it checks this with the user provided annotation and if the operator has actually performed a force reconfigure already
 func shouldPerformForcedReconfigure(annotations map[string]string) bool {
 	if val, ok := annotations[ForceReconfigureAnnotation]; ok {
-		if val == "true" {
+		if val == trueString {
 			if _, ok := annotations[ForcedReconfigureAlreadyPerformedAnnotation]; !ok {
 				return true
 			}
@@ -1423,37 +1446,36 @@ func setBaseUrlForAgents(ac *automationconfig.AutomationConfig, url string) {
 	}
 }
 
-func addMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
+func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
 	if len(ac.Processes) == 0 {
 		return
 	}
+
 	monitoringVersions := ac.MonitoringVersions
 	for _, p := range ac.Processes {
-		found := false
-		for _, m := range monitoringVersions {
-			if m.Hostname == p.HostName {
-				found = true
-				break
-			}
-		}
-		if !found {
-			monitoringVersion := automationconfig.MonitoringVersion{
-				Hostname: p.HostName,
+		hostname := p.HostName
+		pemKeyFile := p.Args26.Get("net.tls.certificateKeyFile").String()
+
+		foundIdx := slices.IndexFunc(monitoringVersions, func(m automationconfig.MonitoringVersion) bool {
+			return m.Hostname == hostname
+		})
+
+		if foundIdx == -1 {
+			mv := automationconfig.MonitoringVersion{
+				Hostname: hostname,
 				Name:     om.MonitoringAgentDefaultVersion,
 			}
 			if tls {
-				additionalParams := map[string]string{
-					"useSslForAllConnections":      "true",
-					"sslTrustedServerCertificates": appdbCAFilePath,
-				}
-				pemKeyFile := p.Args26.Get("net.tls.certificateKeyFile")
-				if pemKeyFile != nil {
-					additionalParams["sslClientCertificate"] = pemKeyFile.String()
-				}
-				monitoringVersion.AdditionalParams = additionalParams
+				mv.AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)
 			}
-			log.Debugw("Added monitoring agent configuration", "host", p.HostName, "tls", tls)
-			monitoringVersions = append(monitoringVersions, monitoringVersion)
+			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
+			monitoringVersions = append(monitoringVersions, mv)
+		} else {
+			if tls {
+				monitoringVersions[foundIdx].AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)
+			} else {
+				om.ClearTLSParams(monitoringVersions[foundIdx].AdditionalParams)
+			}
 		}
 	}
 	ac.MonitoringVersions = monitoringVersions
@@ -1497,6 +1519,22 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(hostnames []str
 			}
 		}
 	}
+
+	// Remove hosts that are no longer in the desired list (scale-down scenario)
+	desiredHostnames := make(map[string]struct{})
+	for _, h := range hostnames {
+		desiredHostnames[h] = struct{}{}
+	}
+
+	for _, existingHost := range getHostsResult.Results {
+		if _, wanted := desiredHostnames[existingHost.Hostname]; !wanted {
+			log.Debugf("Removing AppDB host %s from monitoring as it's no longer needed", existingHost.Hostname)
+			if err := conn.RemoveHost(existingHost.Id); err != nil {
+				return xerrors.Errorf("error removing appdb host %s: %w", existingHost.Hostname, err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -1872,10 +1910,16 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 	}
 	currentClusterSpecs := map[string]int{}
 	scalingFirstTime := false
+
 	// iterate over all clusters to scale even unhealthy ones
 	// currentClusterSpecs map is maintained for scaling therefore we need to update it here
+	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range r.getAllMemberClusters() {
 		scaler := scalers.GetAppDBScaler(opsManager, memberCluster.Name, r.getMemberClusterIndex(memberCluster.Name), r.memberClusters)
+		if scaler.ScalingFirstTime() {
+			scalingFirstTime = true
+		}
+
 		replicasThisReconciliation := scale.ReplicasThisReconciliation(scaler)
 		currentClusterSpecs[memberCluster.Name] = replicasThisReconciliation
 
@@ -1897,36 +1941,33 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 			return workflow.Failed(xerrors.Errorf("can't construct AppDB Statefulset: %w", err))
 		}
 
-		if workflowStatus := r.deployStatefulSetInMemberCluster(ctx, opsManager, appDbSts, memberCluster.Name, log); !workflowStatus.IsOK() {
-			return workflowStatus
+		mutatedSts, deployStatus := r.deployStatefulSetInMemberCluster(ctx, opsManager, appDbSts, memberCluster.Name, log)
+		if !deployStatus.IsOK() {
+			return deployStatus
 		}
 
-		// we want to deploy all stateful sets the first time we're deploying stateful sets
-		if scaler.ScalingFirstTime() {
-			scalingFirstTime = true
-			continue
-		}
+		expectedGeneration := mutatedSts.GetGeneration()
+		statefulsetStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), expectedGeneration, memberCluster.Client)
 
-		if workflowStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
-			return workflowStatus
-		}
-
-		if err := statefulset.ResetUpdateStrategy(ctx, opsManager.GetVersionedImplForMemberCluster(r.getMemberClusterIndex(memberCluster.Name)), memberCluster.Client); err != nil {
-			return workflow.Failed(xerrors.Errorf("can't reset AppDB StatefulSet UpdateStrategyType: %w", err))
-		}
-	}
-
-	// if this is the first time deployment, then we need to wait for all stateful sets to become ready after deploying all of them
-	if scalingFirstTime {
-		for _, memberCluster := range r.GetHealthyMemberClusters() {
-			if workflowStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
-				return workflowStatus
-			}
-
+		if statefulsetStatus.IsOK() {
 			if err := statefulset.ResetUpdateStrategy(ctx, opsManager.GetVersionedImplForMemberCluster(r.getMemberClusterIndex(memberCluster.Name)), memberCluster.Client); err != nil {
 				return workflow.Failed(xerrors.Errorf("can't reset AppDB StatefulSet UpdateStrategyType: %w", err))
 			}
 		}
+
+		// if not scaling for the first time we want to deploy statefulsets one by one
+		if !scalingFirstTime {
+			if !statefulsetStatus.IsOK() {
+				return statefulsetStatus
+			}
+		}
+
+		workflowStatus = workflowStatus.Merge(statefulsetStatus)
+	}
+
+	// wait for all statefulsets to become ready
+	if !workflowStatus.IsOK() {
+		return workflowStatus
 	}
 
 	for k, v := range currentClusterSpecs {
@@ -1988,24 +2029,25 @@ func (r *ReconcileAppDbReplicaSet) createServices(ctx context.Context, opsManage
 }
 
 // deployStatefulSetInMemberCluster updates the StatefulSet spec and returns its status (if it's ready or not)
-func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, memberClusterName string, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, memberClusterName string, log *zap.SugaredLogger) (*appsv1.StatefulSet, workflow.Status) {
 	workflowStatus := create.HandlePVCResize(ctx, r.getMemberCluster(memberClusterName).Client, &appDbSts, log)
 	if !workflowStatus.IsOK() {
-		return workflowStatus
+		return nil, workflowStatus
 	}
 
 	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
 		if _, err := r.updateStatus(ctx, opsManager, workflow.Pending(""), log, workflowStatus.StatusOptions()...); err != nil {
-			return workflow.Failed(xerrors.Errorf("error updating status: %w", err))
+			return nil, workflow.Failed(xerrors.Errorf("error updating status: %w", err))
 		}
 	}
 
 	serviceSelectorLabel := opsManager.Spec.AppDB.HeadlessServiceSelectorAppLabel(r.getMemberCluster(memberClusterName).Index)
-	if err := create.AppDBInKubernetes(ctx, r.getMemberCluster(memberClusterName).Client, opsManager, appDbSts, serviceSelectorLabel, log); err != nil {
-		return workflow.Failed(err)
+	mutatedSts, err := create.AppDBInKubernetes(ctx, r.getMemberCluster(memberClusterName).Client, opsManager, appDbSts, serviceSelectorLabel, log)
+	if err != nil {
+		return nil, workflow.Failed(xerrors.Errorf("failed to create AppDB StatefulSet in cluster %s: %w", memberClusterName, err))
 	}
 
-	return workflow.OK()
+	return mutatedSts, workflow.OK()
 }
 
 func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalState(ctx context.Context, manager *omv1.MongoDBOpsManager, targetConfigVersion int, log *zap.SugaredLogger) workflow.Status {

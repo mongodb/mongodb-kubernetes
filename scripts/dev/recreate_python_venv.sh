@@ -118,14 +118,8 @@ PYENV_VERSION="${PYTHON_VERSION}" python -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 
-skip_requirements="${SKIP_INSTALL_REQUIREMENTS:-false}"
-if [[ "${skip_requirements}" != "true" ]]; then
-    echo "Installing requirements.txt..."
-    pip install -r requirements.txt
-else
-    echo "Skipping requirements.txt installation."
-    pip install requests
-fi
+echo "Installing requirements.txt..."
+pip install -r requirements.txt
 
 echo "Python venv was recreated successfully."
 echo "Using Python: $(which python) ($(python --version))" >&2

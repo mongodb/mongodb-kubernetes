@@ -15,6 +15,7 @@ import (
 	"github.com/blang/semver"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -95,13 +96,13 @@ type OpsManagerReconciler struct {
 	memberClustersMap map[string]client.Client
 
 	imageUrls                  images.ImageUrls
-	initAppdbVersion           string
+	initDatabaseVersion        string
 	initOpsManagerImageVersion string
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
+func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController:  NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:        omFunc,
@@ -111,7 +112,7 @@ func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memb
 		programmaticKeyVersion:     semver.MustParse(programmaticKeyVersion),
 		memberClustersMap:          memberClustersMap,
 		imageUrls:                  imageUrls,
-		initAppdbVersion:           initAppdbVersion,
+		initDatabaseVersion:        initDatabaseVersion,
 		initOpsManagerImageVersion: initOpsManagerImageVersion,
 	}
 }
@@ -673,21 +674,21 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 	}
 
 	// Prepare Ops Manager StatefulSets in parallel in all member clusters
+	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
-		status := r.createOpsManagerStatefulsetInMemberCluster(ctx, reconcilerHelper, appDBConnectionString, memberCluster, initOpsManagerImage, opsManagerImage, log)
-		if !status.IsOK() {
-			return status, nil
+		mutatedSts, err := r.createOpsManagerStatefulsetInMemberCluster(ctx, reconcilerHelper, appDBConnectionString, memberCluster, initOpsManagerImage, opsManagerImage, log)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("error creating Ops Manager statefulset in member cluster %s: %w", memberCluster.Name, err)), nil
 		}
+
+		expectedGeneration := mutatedSts.GetGeneration()
+		statefulsetStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, reconcilerHelper.OpsManagerStatefulSetNameForMemberCluster(memberCluster), expectedGeneration, memberCluster.Client)
+		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 	}
 
 	// wait for all statefulsets to become ready
-	var statefulSetStatus workflow.Status = workflow.OK()
-	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
-		status := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, reconcilerHelper.OpsManagerStatefulSetNameForMemberCluster(memberCluster), memberCluster.Client)
-		statefulSetStatus = statefulSetStatus.Merge(status)
-	}
-	if !statefulSetStatus.IsOK() {
-		return statefulSetStatus, nil
+	if !workflowStatus.IsOK() {
+		return workflowStatus, nil
 	}
 
 	opsManagerURL := opsManager.CentralURL()
@@ -798,8 +799,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 
 	// If backup is not enabled, we check whether it is still configured in OM to update the status.
 	if !opsManager.Spec.Backup.Enabled {
-		var backupStatus workflow.Status
-		backupStatus = workflow.Disabled()
+		var backupStatus workflow.Status = workflow.Disabled()
 
 		for _, fqdn := range reconcilerHelper.BackupDaemonHeadlessFQDNs() {
 			// In case there is a backup daemon running still, while backup is not enabled, we check whether it is still configured in OM.
@@ -812,18 +812,30 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 			}
 		}
 
-		_, err := r.updateStatus(ctx, opsManager, backupStatus, log, backupStatusPartOption)
-		if err != nil {
+		if _, err := r.updateStatus(ctx, opsManager, backupStatus, log, backupStatusPartOption); err != nil {
 			return workflow.Failed(err)
 		}
+
 		return backupStatus
 	}
 
+	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
 		// Prepare Backup Daemon StatefulSet (create and wait)
-		if status := r.createBackupDaemonStatefulset(ctx, reconcilerHelper, appDBConnectionString, memberCluster, initOpsManagerImage, opsManagerImage, log); !status.IsOK() {
-			return status
+		mutatedSts, err := r.createBackupDaemonStatefulset(ctx, reconcilerHelper, appDBConnectionString, memberCluster, initOpsManagerImage, opsManagerImage, log)
+		if err != nil {
+			// Check if it is a k8s error or a custom one
+			var statefulSetIsRecreatingError create.StatefulSetIsRecreating
+			if errors.As(err, &statefulSetIsRecreatingError) {
+				return workflow.Pending("%s", statefulSetIsRecreatingError.Error()).Requeue()
+			}
+
+			return workflow.Failed(xerrors.Errorf("error creating Backup Daemon statefulset in member cluster %s: %w", memberCluster.Name, err))
 		}
+
+		expectedGeneration := mutatedSts.GetGeneration()
+		stsStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, reconcilerHelper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), expectedGeneration, memberCluster.Client)
+		workflowStatus = workflowStatus.Merge(stsStatus)
 	}
 
 	// Configure Backup using API
@@ -832,12 +844,9 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 	}
 
 	// StatefulSet will reach ready state eventually once backup has been configured in Ops Manager.
-
-	// wait for all statefulsets to become ready
-	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
-		if status := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, reconcilerHelper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), memberCluster.Client); !status.IsOK() {
-			return status
-		}
+	// Wait for all statefulsets to become ready
+	if !workflowStatus.IsOK() {
+		return workflowStatus
 	}
 
 	if _, err := r.updateStatus(ctx, opsManager, workflow.OK(), log, backupStatusPartOption); err != nil {
@@ -899,7 +908,7 @@ func hashConnectionString(connectionString string) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 
-func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
 	opsManager := reconcilerHelper.opsManager
 
 	r.ensureConfiguration(reconcilerHelper, log)
@@ -926,18 +935,14 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 		construct.WithDebugPort(debugPort),
 	)
 	if err != nil {
-		return workflow.Failed(xerrors.Errorf("error building OpsManager stateful set: %w", err))
+		return nil, xerrors.Errorf("error building OpsManager stateful set: %w", err)
 	}
 
-	if err := create.OpsManagerInKubernetes(ctx, memberCluster, opsManager, sts, log); err != nil {
-		return workflow.Failed(err)
-	}
-
-	return workflow.OK()
+	return create.OpsManagerInKubernetes(ctx, memberCluster, opsManager, sts, log)
 }
 
-func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
-	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initAppdbVersion, initOpsManagerImageVersion, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
+func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string) error {
+	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initDatabaseVersion, initOpsManagerImageVersion, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -1010,13 +1015,9 @@ func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerR
 // Note, that the idea of creating two statefulsets for Ops Manager and Backup Daemon in parallel hasn't worked out
 // as the daemon in this case just hangs silently (in practice it's ok to start it in ~1 min after start of OM though
 // we will just start them sequentially)
-func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) workflow.Status {
-	if !reconcilerHelper.opsManager.Spec.Backup.Enabled {
-		return workflow.OK()
-	}
-
+func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
 	if err := r.ensureAppDBConnectionStringInMemberCluster(ctx, reconcilerHelper.opsManager, appDBConnectionString, memberCluster, log); err != nil {
-		return workflow.Failed(err)
+		return nil, xerrors.Errorf("error ensuring AppDB connection string in cluster %s: %w", memberCluster.Name, err)
 	}
 
 	r.ensureConfiguration(reconcilerHelper, log)
@@ -1025,6 +1026,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 	if r.VaultClient != nil {
 		vaultConfig = r.VaultClient.VaultConfig
 	}
+
 	clusterSpecItem := reconcilerHelper.getClusterSpecOMItem(memberCluster.Name)
 	sts, err := construct.BackupDaemonStatefulSet(ctx, r.SecretClient, reconcilerHelper.opsManager, memberCluster, log,
 		construct.WithInitOpsManagerImage(initOpsManagerImage),
@@ -1037,17 +1039,15 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 		construct.WithReplicas(reconcilerHelper.BackupDaemonMembersForMemberCluster(memberCluster)),
 	)
 	if err != nil {
-		return workflow.Failed(xerrors.Errorf("error building stateful set: %w", err))
+		return nil, xerrors.Errorf("error building stateful set: %w", err)
 	}
 
-	needToRequeue, err := create.BackupDaemonInKubernetes(ctx, memberCluster.Client, reconcilerHelper.opsManager, sts, log)
+	mutatedSts, err := create.BackupDaemonInKubernetes(ctx, memberCluster.Client, reconcilerHelper.opsManager, sts, log)
 	if err != nil {
-		return workflow.Failed(err)
+		return nil, xerrors.Errorf("error creating Backup Daemon stateful set: %w", err)
 	}
-	if needToRequeue {
-		return workflow.OK().Requeue()
-	}
-	return workflow.OK()
+
+	return mutatedSts, nil
 }
 
 func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByKmip(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
@@ -2153,7 +2153,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initAppdbVersion, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log, kube.BaseOwnerReference(opsManager))
+	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log, kube.BaseOwnerReference(opsManager))
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource

@@ -4,14 +4,9 @@ from functools import partial
 from typing import Callable, Dict
 
 from opentelemetry import context, trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-    OTLPSpanExporter as OTLPSpanGrpcExporter,
-)
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as OTLPSpanGrpcExporter
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
-from opentelemetry.sdk.trace import (
-    SynchronousMultiSpanProcessor,
-    TracerProvider,
-)
+from opentelemetry.sdk.trace import SynchronousMultiSpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
@@ -25,7 +20,6 @@ from scripts.release.argparse_utils import (
 from scripts.release.atomic_pipeline import (
     build_agent,
     build_database_image,
-    build_init_appdb_image,
     build_init_database_image,
     build_init_om_image,
     build_mco_tests_image,
@@ -38,7 +32,6 @@ from scripts.release.atomic_pipeline import (
 from scripts.release.build.build_info import (
     AGENT_IMAGE,
     DATABASE_IMAGE,
-    INIT_APPDB_IMAGE,
     INIT_DATABASE_IMAGE,
     INIT_OPS_MANAGER_IMAGE,
     MCO_TESTS_IMAGE,
@@ -53,13 +46,8 @@ from scripts.release.build.build_info import (
     UPGRADE_HOOK_IMAGE,
     load_build_info,
 )
-from scripts.release.build.build_scenario import (
-    SUPPORTED_SCENARIOS,
-    BuildScenario,
-)
-from scripts.release.build.image_build_configuration import (
-    ImageBuildConfiguration,
-)
+from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS, BuildScenario
+from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import PodmanImageBuilder
 
 CURRENT_AGENTS = "current"
@@ -88,7 +76,6 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         DATABASE_IMAGE: build_database_image,
         AGENT_IMAGE: build_agent,
         # Init images
-        INIT_APPDB_IMAGE: build_init_appdb_image,
         INIT_DATABASE_IMAGE: build_init_database_image,
         INIT_OPS_MANAGER_IMAGE: build_init_om_image,
         # Ops Manager image

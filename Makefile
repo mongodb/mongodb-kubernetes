@@ -57,10 +57,10 @@ prerequisites:
 	@ scripts/dev/install.sh
 
 precommit:
-	@ .githooks/pre-commit
+	@ source scripts/dev/set_env_context.sh && pre-commit run --all-files
 
-precommit-with-licenses:
-	@ MDB_UPDATE_LICENSES=true .githooks/pre-commit
+precommit-full:
+	@ source scripts/dev/set_env_context.sh && MDB_UPDATE_LICENSES=true MDB_REGENERATE_RBAC=true pre-commit run --all-files
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
@@ -170,18 +170,14 @@ build-and-push-mco-test-image: aws_login
 	fi
 
 # builds all app images in parallel
-# note that we cannot build both appdb and database init images in parallel as they change the same docker file
-build-and-push-images: build-and-push-operator-image appdb-init-image om-init-image database operator-image database-init-image
+build-and-push-images: build-and-push-operator-image om-init-image database operator-image database-init-image
 	@ $(MAKE) agent-image
 
 # builds all init images
-build-and-push-init-images: appdb-init-image om-init-image database-init-image
+build-and-push-init-images: om-init-image database-init-image
 
 database-init-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-database
-
-appdb-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-appdb
 
 # Not setting a parallel-factor will default to 0 which will lead to using all CPUs, that can cause docker to die.
 # Here we are defaulting to 6, a higher value might work for you.
@@ -275,19 +271,18 @@ endif
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 
 golang-tests:
-	scripts/evergreen/unit-tests.sh
+	USE_RACE=false USE_COVERAGE=false scripts/evergreen/unit-tests-golang.sh
 
 golang-tests-race:
-	USE_RACE=true scripts/evergreen/unit-tests.sh
+	USE_RACE=true USE_COVERAGE=true scripts/evergreen/unit-tests-golang.sh
 
 sbom-tests:
-	@ scripts/dev/run_python.sh -m pytest generate_ssdlc_report_test.py
+	scripts/evergreen/unit-tests-sbom.sh
 
 # e2e tests are also in python and we will need to ignore them as they are in the docker/mongodb-kubernetes-tests folder
 # additionally, we have one lib which we want to test which is in the =docker/mongodb-kubernetes-tests folder.
 python-tests:
-	@ scripts/dev/run_python.sh -m pytest docker/mongodb-kubernetes-tests/kubeobject
-	@ scripts/dev/run_python.sh -m pytest --ignore=docker/mongodb-kubernetes-tests
+	scripts/evergreen/unit-tests-python.sh
 
 generate-ssdlc-report:
 	@ scripts/dev/run_python.sh generate_ssdlc_report.py
@@ -300,8 +295,11 @@ test: generate fmt vet manifests golang-tests
 # helm-tests will run helm chart unit tests
 helm-tests:
 	@echo "Running helm chart unit tests..."
-	@if ! helm plugin list | grep -q unittest; then \
-		echo "Installing helm-unittest plugin..."; \
+	helm version
+	helm plugin list || true
+	@if ! helm unittest --help >/dev/null 2>&1; then \
+		echo "helm-unittest plugin not working/not installed, reinstalling..."; \
+		helm plugin uninstall unittest 2>/dev/null || true; \
 		helm plugin install https://github.com/helm-unittest/helm-unittest; \
 	fi
 	helm unittest helm_chart --color
@@ -368,7 +366,7 @@ controller-gen:
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.18.0)
 
 # Download kustomize locally if necessary
-KUSTOMIZE = $(shell pwd)/bin/kustomize
+KUSTOMIZE ?= $(shell which kustomize 2>/dev/null || echo $(shell pwd)/bin/kustomize)
 kustomize:
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.4)
 

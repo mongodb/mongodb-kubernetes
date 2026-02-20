@@ -11,6 +11,7 @@ from kubetester import (
     get_statefulset,
     random_k8s_name,
     read_secret,
+    try_load,
 )
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
@@ -24,13 +25,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
-from ..constants import (
-    APPDB_SA_NAME,
-    AWS_REGION,
-    DATABASE_SA_NAME,
-    OM_SA_NAME,
-    OPERATOR_NAME,
-)
+from ..constants import APPDB_SA_NAME, AWS_REGION, DATABASE_SA_NAME, OM_SA_NAME, OPERATOR_NAME
 from . import assert_secret_in_vault, run_command_in_vault, store_secret_in_vault
 
 OM_NAME = "om-basic"
@@ -161,7 +156,8 @@ def ops_manager(
         },
     }
 
-    return om.create()
+    try_load(om)
+    return om
 
 
 @fixture(scope="module")
@@ -174,7 +170,8 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
 
     resource.set_version(custom_mdb_version)
 
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -186,7 +183,8 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     ).configure(ops_manager, "s3metadata")
 
     resource.set_version(custom_mdb_version)
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_vault_setup_om_backup
@@ -406,6 +404,7 @@ def test_enable_vault_role_for_database_pod(
 
 @mark.e2e_vault_setup_om_backup
 def test_om_created(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
     ops_manager.backup_status().assert_reaches_phase(
         Phase.Pending,
         msg_regexp="The MongoDB object .+ doesn't exist",
@@ -429,7 +428,9 @@ def test_backup_mdbs_created(
     s3_replica_set: MongoDB,
 ):
     """Creates mongodb databases all at once"""
+    oplog_replica_set.update()
     oplog_replica_set.assert_reaches_phase(Phase.Running)
+    s3_replica_set.update()
     s3_replica_set.assert_reaches_phase(Phase.Running)
 
 

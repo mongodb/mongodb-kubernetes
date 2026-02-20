@@ -16,9 +16,7 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
         find_fixture("sharded-cluster-multi-cluster.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME
     )
 
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 

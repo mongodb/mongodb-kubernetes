@@ -141,7 +141,7 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 				podtemplatespec.WithContainer(MongotContainerName,
 					container.Apply(
 						container.WithVolumeMounts([]corev1.VolumeMount{keyfileVolumeMount}),
-						prependCommand(sensitiveFilePermissionsWorkaround(MongotKeyfilePath, TempKeyfilePath)),
+						prependCommand(sensitiveFilePermissionsWorkaround(MongotKeyfilePath, TempKeyfilePath, "0600")),
 					),
 				),
 			),
@@ -164,7 +164,7 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 			"-c",
 			"/mongot-community/mongot --config /mongot/config.yml",
 		}),
-		prependCommand(sensitiveFilePermissionsWorkaround(MongotSourceUserPasswordPath, TempSourceUserPasswordPath)),
+		prependCommand(sensitiveFilePermissionsWorkaround(MongotSourceUserPasswordPath, TempSourceUserPasswordPath, "0600")),
 		containerSecurityContext,
 	)
 }
@@ -235,10 +235,17 @@ func prependCommand(commands string) container.Modification {
 // mongot requires certain senstive files to have 600 permissions
 // but we can't get secret subPaths to have those permissions directly
 // so we copy them to a temp folder and set the permissions there
-func sensitiveFilePermissionsWorkaround(filePath, tempFilePath string) string {
+func sensitiveFilePermissionsWorkaround(filePath, tempFilePath, fileMode string) string {
 	return fmt.Sprintf(`
 cp %[1]s %[2]s
 chown 2000:2000 %[2]s
-chmod 0600 %[2]s
-`, filePath, tempFilePath)
+chmod %[3]s %[2]s
+`, filePath, tempFilePath, fileMode)
+}
+
+func sensitiveFilePermissionsForAPIKeys(srcFilePath, destFilePath, fileMode string) string {
+	return fmt.Sprintf(`
+cp %[1]s/* %[2]s
+chmod %[3]s %[2]s/*
+`, srcFilePath, destFilePath, fileMode)
 }

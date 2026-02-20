@@ -3,11 +3,7 @@ import tempfile
 import pytest
 from kubetester import create_secret, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.certs import (
-    create_sharded_cluster_certs,
-    create_x509_agent_tls_certs,
-    create_x509_user_cert,
-)
+from kubetester.certs import create_sharded_cluster_certs, create_x509_agent_tls_certs, create_x509_user_cert
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
@@ -64,14 +60,16 @@ def scram_user(sharded_cluster: MongoDB, mongodb_user_password_secret: str, name
     user = MongoDBUser.from_yaml(load_fixture("scram-sha-user.yaml"), namespace=namespace)
     user["spec"]["mongodbResourceRef"]["name"] = sharded_cluster.name
     user["spec"]["passwordSecretKeyRef"]["name"] = mongodb_user_password_secret
-    return user.create()
+    try_load(user)
+    return user
 
 
 @pytest.fixture(scope="module")
 def x509_user(sharded_cluster: MongoDB, namespace: str) -> MongoDBUser:
     user = MongoDBUser.from_yaml(load_fixture("test-x509-user.yaml"), namespace=namespace)
     user["spec"]["mongodbResourceRef"]["name"] = sharded_cluster.name
-    return user.create()
+    try_load(user)
+    return user
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
@@ -95,6 +93,7 @@ def test_ops_manager_state_correctly_updated_sha():
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
 def test_user_reaches_updated_phase(scram_user: MongoDBUser):
+    scram_user.update()
     scram_user.assert_reaches_phase(Phase.Updated, timeout=150)
 
 
@@ -147,6 +146,7 @@ def test_ops_manager_state_correctly_updated_sha_and_x509():
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
 def test_x509_user_reaches_updated_phase(x509_user: MongoDBUser):
+    x509_user.update()
     x509_user.assert_reaches_phase(Phase.Updated, timeout=150)
 
 

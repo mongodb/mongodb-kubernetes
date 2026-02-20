@@ -38,7 +38,7 @@ func CreateFromReplicaSet(mongoDBImage string, forceEnterprise bool, rs *mdb.Mon
 		nil,
 		zap.S(),
 	)
-	d.AddMonitoringAndBackup(zap.S(), rs.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	d.ConfigureMonitoringAndBackup(zap.S(), rs.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 	d.ConfigureTLS(rs.Spec.GetSecurity(), util.CAFilePathInContainer)
 	return d
 }

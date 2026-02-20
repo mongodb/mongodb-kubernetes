@@ -1,12 +1,11 @@
 {
   "mongodbToolsBundle": {
-    "ubi": "mongodb-database-tools-rhel88-x86_64-100.13.0.tgz"
+    "ubi": "mongodb-database-tools-rhel88-x86_64-100.14.0.tgz"
   },
-  "mongodbOperator": "1.6.0",
-  "initDatabaseVersion": "1.6.0",
-  "initOpsManagerVersion": "1.6.0",
-  "initAppDbVersion": "1.6.0",
-  "databaseImageVersion": "1.6.0",
+  "mongodbOperator": "1.7.0",
+  "initDatabaseVersion": "1.7.0",
+  "initOpsManagerVersion": "1.7.0",
+  "databaseImageVersion": "1.7.0",
   "agentVersion": "108.0.12.8846-1",
   "readinessProbeVersion": "1.0.23",
   "versionUpgradeHookVersion": "1.0.10",
@@ -14,7 +13,7 @@
     "minimumSupportedVersion": "4.6"
   },
   "search": {
-    "version": "0.55.0"
+    "version": "0.60.1"
   },
   "latestOpsManagerAgentMapping": [
     {
@@ -25,14 +24,14 @@
     },
     {
       "7": {
-        "opsManagerVersion": "7.0.19",
-        "agentVersion": "107.0.19.8805-1"
+        "opsManagerVersion": "7.0.22",
+        "agentVersion": "107.0.22.8828-1"
       }
     },
     {
       "8": {
-        "opsManagerVersion": "8.0.17",
-        "agentVersion": "108.0.16.8895-1"
+        "opsManagerVersion": "8.0.19",
+        "agentVersion": "108.0.19.8941-1"
       }
     }
   ],
@@ -51,6 +50,8 @@
         "7.0.18",
         "7.0.19",
         "7.0.20",
+        "7.0.21",
+        "7.0.22",
         "8.0.0",
         "8.0.1",
         "8.0.2",
@@ -65,7 +66,9 @@
         "8.0.14",
         "8.0.15",
         "8.0.16",
-        "8.0.17"
+        "8.0.17",
+        "8.0.18",
+        "8.0.19"
       ],
       "variants": [
         "ubi"
@@ -81,7 +84,9 @@
         "1.3.0",
         "1.4.0",
         "1.5.0",
-        "1.6.0"
+        "1.6.0",
+        "1.6.1",
+        "1.7.0"
       ],
       "variants": [
         "ubi"
@@ -120,8 +125,8 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.43.0.9995-1",
-        "cloud_manager_tools": "100.13.0",
+        "cloud_manager": "13.47.0.10239-1",
+        "cloud_manager_tools": "100.14.0",
         "ops_manager": {
           "6.0.27": {
             "agent_version": "12.0.35.7911-1",
@@ -214,6 +219,22 @@
           "8.0.17": {
             "agent_version": "108.0.16.8895-1",
             "tools_version": "100.13.0"
+          },
+          "7.0.21": {
+            "agent_version": "107.0.21.8817-1",
+            "tools_version": "100.13.0"
+          },
+          "8.0.18": {
+            "agent_version": "108.0.18.8921-1",
+            "tools_version": "100.13.0"
+          },
+          "7.0.22": {
+            "agent_version": "107.0.22.8828-1",
+            "tools_version": "100.14.0"
+          },
+          "8.0.19": {
+            "agent_version": "108.0.19.8941-1",
+            "tools_version": "100.14.0"
           }
         }
       },
@@ -231,7 +252,9 @@
         "1.3.0",
         "1.4.0",
         "1.5.0",
-        "1.6.0"
+        "1.6.0",
+        "1.6.1",
+        "1.7.0"
       ],
       "variants": [
         "ubi"
@@ -247,23 +270,9 @@
         "1.3.0",
         "1.4.0",
         "1.5.0",
-        "1.6.0"
-      ],
-      "variants": [
-        "ubi"
-      ]
-    },
-    "init-appdb": {
-      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
-      "ssdlc_name": "MongoDB Controllers for Kubernetes Init AppDB",
-      "versions": [
-        "1.0.1",
-        "1.1.0",
-        "1.2.0",
-        "1.3.0",
-        "1.4.0",
-        "1.5.0",
-        "1.6.0"
+        "1.6.0",
+        "1.6.1",
+        "1.7.0"
       ],
       "variants": [
         "ubi"
@@ -279,7 +288,9 @@
         "1.3.0",
         "1.4.0",
         "1.5.0",
-        "1.6.0"
+        "1.6.0",
+        "1.6.1",
+        "1.7.0"
       ],
       "variants": [
         "ubi"

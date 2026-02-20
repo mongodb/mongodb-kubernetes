@@ -19,9 +19,6 @@ tasks:
           image_name: mongodb-kubernetes
       - func: preflight_image
         vars:
-          image_name: init-appdb
-      - func: preflight_image
-        vars:
           image_name: init-database
       - func: preflight_image
         vars:
@@ -865,6 +862,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_om_ops_manager_backup_object_lock
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_om_ops_manager_queryable_backup
     tags: [ "patch-run" ]
     commands:
@@ -1319,6 +1321,11 @@ tasks:
       - func: e2e_test
 
   - name: e2e_search_community_basic
+    tags: ["patch-run"]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_community_auto_embedding
     tags: ["patch-run"]
     commands:
       - func: "e2e_test"

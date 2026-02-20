@@ -15,20 +15,10 @@ import requests
 from opentelemetry import trace
 
 from lib.base_logger import logger
-from scripts.release.agent.agents_to_rebuild import (
-    get_all_agents_for_rebuild,
-    get_currently_used_agents,
-)
-from scripts.release.agent.validation import (
-    generate_agent_build_args,
-    generate_tools_build_args,
-)
+from scripts.release.agent.agents_to_rebuild import get_all_agents_for_rebuild, get_currently_used_agents
+from scripts.release.agent.validation import generate_agent_build_args, generate_tools_build_args
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
-from scripts.release.build.image_signing import (
-    mongodb_artifactory_login,
-    sign_image,
-    verify_signature,
-)
+from scripts.release.build.image_signing import mongodb_artifactory_login, sign_image, verify_signature
 
 TRACER = trace.get_tracer("evergreen-agent")
 
@@ -250,31 +240,6 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     args = {
         "version": om_version,
         "om_download_url": om_download_url,
-    }
-
-    build_image(
-        build_configuration=build_configuration,
-        build_args=args,
-    )
-
-
-def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
-    release = load_release_file()
-    base_url = "https://fastdl.mongodb.org/tools/db"
-
-    tools_version = extract_tools_version_from_release(release)
-
-    platform_build_args = generate_tools_build_args(
-        platforms=build_configuration.platforms, tools_version=tools_version
-    )
-    if not platform_build_args:
-        logger.warning(f"Skipping build for init-appdb - tools version {tools_version} not found in repository")
-        return
-
-    args = {
-        "version": build_configuration.version,
-        "mongodb_tools_url": base_url,  # Base URL for platform-specific downloads
-        **platform_build_args,  # Add the platform-specific build args
     }
 
     build_image(

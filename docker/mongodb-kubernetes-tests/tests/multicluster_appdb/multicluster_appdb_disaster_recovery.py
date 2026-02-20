@@ -2,22 +2,14 @@ from typing import Optional
 
 import kubernetes
 import kubernetes.client
-from kubetester import (
-    delete_statefulset,
-    get_statefulset,
-    read_configmap,
-    try_load,
-    update_configmap,
-)
+from kubetester import delete_statefulset, get_statefulset, read_configmap, try_load, update_configmap
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
-from tests.conftest import (
-    get_member_cluster_api_client,
-)
+from tests.conftest import get_member_cluster_api_client
 from tests.constants import MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -37,9 +29,6 @@ def ops_manager(
         yaml_fixture("multicluster_appdb_om.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource["spec"]["version"] = custom_version
 
@@ -58,6 +47,7 @@ def ops_manager(
         },
     }
 
+    try_load(resource)
     return resource
 
 
@@ -252,9 +242,18 @@ def test_add_appdb_member_to_om_cluster_force_reconfig(ops_manager: MongoDBOpsMa
 
 @mark.e2e_multi_cluster_appdb_disaster_recovery
 @mark.e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
-def test_remove_failed_member_cluster_has_been_scaled_down(ops_manager: MongoDBOpsManager, config_version):
-    # we remove failed member cluster
-    # thanks to previous spec stored in the config map, the operator recognizes we need to scale its 2 processes one by one
+def test_remove_failed_member_cluster(ops_manager: MongoDBOpsManager, config_version):
+    # Before removing the failed cluster, scale down to zero members
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
+        ["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME, OM_MEMBER_CLUSTER_NAME],
+        [3, 0, 1],
+    )
+    ops_manager.update()
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running)
+
+    # We can remove the failed cluster from cluster spec after it has been scaled down to zero members
+    ops_manager.reload()
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
         ["kind-e2e-cluster-2", OM_MEMBER_CLUSTER_NAME], [3, 1]
     )

@@ -13,15 +13,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
-from tests.common.constants import (
-    MONGODB_PORT,
-    S3_BLOCKSTORE_NAME,
-    S3_OPLOG_NAME,
-    TEST_DATA,
-)
-from tests.common.ops_manager.multi_cluster import (
-    ops_manager_multi_cluster_with_tls_s3_backups,
-)
+from tests.common.constants import MONGODB_PORT, S3_BLOCKSTORE_NAME, S3_OPLOG_NAME, TEST_DATA
+from tests.common.ops_manager.multi_cluster import ops_manager_multi_cluster_with_tls_s3_backups
 from tests.conftest import assert_data_got_restored
 from tests.constants import AWS_REGION
 from tests.multicluster.conftest import cluster_spec_list
@@ -59,7 +52,8 @@ def multi_cluster_s3_replica_set(
     resource["spec"]["clusterSpecList"] = cluster_spec_list(appdb_member_cluster_names, [1, 2])
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -87,9 +81,7 @@ def ops_manager(
     del resource["spec"]["security"]
     del resource["spec"]["applicationDatabase"]["security"]
 
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 
@@ -127,6 +119,7 @@ class TestOpsManagerCreation:
         multi_cluster_s3_replica_set: MongoDBMulti,
         ops_manager: MongoDBOpsManager,
     ):
+        multi_cluster_s3_replica_set.update()
         multi_cluster_s3_replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
         # configure metadatastore in om, use dedicate MDB instead of AppDB
@@ -199,9 +192,11 @@ class TestBackupForMongodb:
         resource.configure_backup(mode="enabled")
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-        return resource.update()
+        try_load(resource)
+        return resource
 
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
+        mongodb_multi_one.update()
         # we might fail connection in the beginning since we set a custom dns in coredns
         mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=600)
 

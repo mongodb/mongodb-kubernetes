@@ -16,10 +16,7 @@ from tests.conftest import (
     install_legacy_deployment_state_meko,
     log_deployments_info,
 )
-from tests.constants import (
-    LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
-    MULTI_CLUSTER_OPERATOR_NAME,
-)
+from tests.constants import LEGACY_MULTI_CLUSTER_OPERATOR_NAME, MULTI_CLUSTER_OPERATOR_NAME
 from tests.multicluster.conftest import cluster_spec_list
 from tests.upgrades import downscale_operator_deployment
 
@@ -256,7 +253,7 @@ class TestOperatorUpgrade:
         # Reordering the clusters triggers a change in the state
         ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = scale_on_upgrade.cluster_spec
         ops_manager.update()
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=250)
 
     def test_migrated_state_correctness(

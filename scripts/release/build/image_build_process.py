@@ -1,32 +1,33 @@
 import base64
 import subprocess
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import boto3
-import docker
 import python_on_whales
 from botocore.exceptions import BotoCoreError, ClientError
 from python_on_whales.exceptions import DockerException
 
+import docker
 from lib.base_logger import logger
+from scripts.release.build_cache import build_cache_configuration, ensure_ecr_cache_repository, should_write_cache
 
 
 class ImageBuilder(object):
-    def prepare_builder(self):   pass
+    def prepare_builder(self):
+        pass
 
-    def check_if_image_exists(self, image_tag: str) -> bool: pass
+    def check_if_image_exists(self, image_tag: str) -> bool:
+        pass
 
-    def build_image(self, tags: list[str],
-                    dockerfile: str,
-                    path: str,
-                    args: Dict[str, str],
-                    platforms: list[str]):  pass
+    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str]):
+        pass
 
     # check_if_image_exists could easily be used to get the digest of manfiest list but
     # the python package that we use somehow doesn't return the digest of manifest list
     # even though the respective docker CLI returns the digest. That's why we had to introduce
     # this function.
-    def get_manfiest_list_digest(self, image: str) -> Optional[str]: pass
+    def get_manfiest_list_digest(self, image: str) -> Optional[str]:
+        pass
 
 
 DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
@@ -118,28 +119,52 @@ class DockerImageBuilder(ImageBuilder):
     def get_manfiest_list_digest(self, image) -> Optional[str]:
         SKOPEO_IMAGE = "quay.io/skopeo/stable"
 
-        skopeo_inspect_command = ["inspect",  f"docker://{image}", "--format", "{{.Digest}}"]
+        skopeo_inspect_command = ["inspect", f"docker://{image}", "--format", "{{.Digest}}"]
         docker_run_skopeo = ["docker", "run", "--rm", SKOPEO_IMAGE]
         docker_run_skopeo.extend(skopeo_inspect_command)
-        
+
         try:
-            result = subprocess.run(
-                docker_run_skopeo,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            result = subprocess.run(docker_run_skopeo, capture_output=True, text=True, check=True)
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
-            raise Exception(f"Failed to run skopeo inspect using 'docker run' for image {image}. Error: {e.stderr.strip()}") from e
+            raise Exception(
+                f"Failed to run skopeo inspect using 'docker run' for image {image}. Error: {e.stderr.strip()}"
+            ) from e
         except FileNotFoundError:
             raise Exception("docker is not installed on the system.")
 
-    def build_image(self, tags: list[str],
-                    dockerfile: str,
-                    path: str,
-                    args: Dict[str, str],
-                    platforms: list[str]):
+    def _build_cache(self, tags: list[str]) -> tuple[list[Any], Optional[dict[str, str]]]:
+        """
+        Build cache configuration for the given tags.
+
+        Only ECR tags trigger caching because our CI infrastructure uses ECR for remote cache
+        storage. Local or other registry builds skip caching to avoid authentication failures.
+
+        :param tags: List of image tags
+        :return: Tuple of (cache_from_refs, cache_to_refs) where cache_to_refs may be None
+        """
+        # Filter tags to only include ECR ones (containing ".dkr.ecr.")
+        ecr_tags = [tag for tag in tags if ".dkr.ecr." in tag]
+        if not ecr_tags:
+            return [], None
+
+        primary_tag = ecr_tags[0]
+        # Extract the repository URL without tag
+        repository_url = primary_tag.split(":")[0] if ":" in primary_tag else primary_tag
+        # Extract just the image name from the repository URL
+        cache_image_name = repository_url.split("/")[-1]
+        # Base cache repository name
+        base_cache_repo = f"dev/cache/{cache_image_name}"
+        # Build branch/arch-scoped cache configuration
+        base_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/{base_cache_repo}"
+
+        ensure_ecr_cache_repository(base_cache_repo)
+
+        # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
+        cache_from_refs, cache_to_refs = build_cache_configuration(base_registry)
+        return cache_from_refs, cache_to_refs
+
+    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str]):
         """
         Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
 
@@ -156,11 +181,18 @@ class DockerImageBuilder(ImageBuilder):
             # Convert build args to the format expected by python_on_whales
             build_args = {k: str(v) for k, v in args.items()}
 
+            # Build cache configuration
+            cache_from_refs, cache_to_refs = self._build_cache(tags)
+
             logger.info(f"Building image: {tags}")
             logger.info(f"Platforms: {platforms}")
             logger.info(f"Dockerfile: {dockerfile}")
             logger.info(f"Build context: {path}")
+            logger.info(f"Cache write enabled: {should_write_cache()}")
+            logger.info(f"Cache from sources: {len(cache_from_refs)} refs")
             logger.debug(f"Build args: {build_args}")
+            logger.debug(f"Cache from: {cache_from_refs}")
+            logger.debug(f"Cache to: {cache_to_refs}")
 
             # Use buildx for multi-platform builds
             if len(platforms) > 1:
@@ -177,6 +209,8 @@ class DockerImageBuilder(ImageBuilder):
                 push=True,
                 provenance=False,  # To not get an untagged image for single platform builds
                 pull=False,  # Don't always pull base images
+                cache_from=cache_from_refs,
+                cache_to=cache_to_refs,
             )
 
             logger.info(f"Successfully built and pushed {tags}")
@@ -190,25 +224,22 @@ class PodmanImageBuilder(ImageBuilder):
 
     def check_if_image_exists(self, image_tag: str) -> bool:
         logger.warning(
-            f"PodmanImageBuilder does not support checking if image exists remotely. Skipping check for {image_tag}.")
+            f"PodmanImageBuilder does not support checking if image exists remotely. Skipping check for {image_tag}."
+        )
         return False
 
     def get_manfiest_list_digest(self, image) -> Optional[str]:
-        raise Exception("PodmanImageBuilder does not support getting digest for manifest list, use docker image builder instead.")
+        raise Exception(
+            "PodmanImageBuilder does not support getting digest for manifest list, use docker image builder instead."
+        )
 
-    def build_image(self, tags: list[str],
-                    dockerfile: str,
-                    path: str,
-                    args: Dict[str, str],
-                    platforms: list[str]):
+    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str]):
         if len(platforms) > 1:
             raise Exception("PodmanImageBuilder currently supports only single platform builds.")
 
         platform = platforms[0]
 
-        logger.info(
-            f"Building image with podman, tags {tags} for platform={platform}, dockerfile args: {args}"
-        )
+        logger.info(f"Building image with podman, tags {tags} for platform={platform}, dockerfile args: {args}")
         try:
             build_command = [
                 "sudo",

@@ -10,15 +10,8 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import (
-    get_central_cluster_name,
-    is_multi_cluster,
-    update_coredns_hosts,
-)
-from tests.shardedcluster.conftest import (
-    get_dns_hosts_for_external_access,
-    setup_external_access,
-)
+from tests.conftest import get_central_cluster_name, is_multi_cluster, update_coredns_hosts
+from tests.shardedcluster.conftest import get_dns_hosts_for_external_access, setup_external_access
 
 SCALED_SHARD_COUNT = 2
 logger = test_logger.get_test_logger(__name__)
@@ -28,9 +21,6 @@ logger = test_logger.get_test_logger(__name__)
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace)
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
     setup_external_access(resource)
@@ -38,7 +28,8 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     if is_multi_cluster():
         raise Exception("This test has been designed to run only in Single Cluster mode")
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 # Even though this is theoretically not needed, it is useful for testing with Multi Cluster EVG hosts.
@@ -63,6 +54,7 @@ def test_update_coredns(cluster_clients: dict[str, kubernetes.client.ApiClient],
 class TestShardedClusterCreation:
 
     def test_create_sharded_cluster(self, sc: MongoDB):
+        sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
     # Testing connectivity with External Access requires using the same DNS as deployed in Kube within

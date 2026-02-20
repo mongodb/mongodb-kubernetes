@@ -2,12 +2,7 @@ from typing import Dict, List
 
 import kubernetes
 import pytest
-from kubetester import (
-    create_or_update_configmap,
-    create_or_update_secret,
-    read_configmap,
-    read_secret,
-)
+from kubetester import create_or_update_configmap, create_or_update_secret, read_configmap, read_secret
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture

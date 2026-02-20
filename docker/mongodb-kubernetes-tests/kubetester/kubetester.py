@@ -44,6 +44,18 @@ MEMBER_AUTH_WARNING = (
 )
 SERVER_WARNING = "The Operator is generating TLS certificates for server authentication. " + DEPRECATION_WARNING
 
+
+class OpsManagerGroupNotFoundError(Exception):
+    """Raised when Ops Manager returns 404 GROUP_NOT_FOUND.
+
+    This typically means the OM project/group was already deleted externally
+    (e.g., by TTL, cleanup processes, or parallel tests). During deletion
+    verification, this should be treated as a successful cleanup state.
+    """
+
+    pass
+
+
 plural_map = {
     "MongoDB": "mongodb",
     "MongoDBUser": "mongodbusers",
@@ -867,8 +879,16 @@ class KubernetesTester(object):
 
     @staticmethod
     def remove_group(group_id):
+        """Remove a group/project from Ops Manager.
+
+        If the group is already deleted (GROUP_NOT_FOUND), this succeeds silently
+        since the desired state (group doesn't exist) is already achieved.
+        """
         url = build_om_group_endpoint(KubernetesTester.get_om_base_url(), group_id)
-        KubernetesTester.om_request("delete", url)
+        try:
+            KubernetesTester.om_request("delete", url)
+        except OpsManagerGroupNotFoundError:
+            logger.debug(f"OM group {group_id} already deleted - nothing to remove")
 
     @staticmethod
     def remove_group_by_name(group_name):
@@ -1027,6 +1047,10 @@ class KubernetesTester(object):
         response = requests.request(method, endpoint, auth=auth, headers=headers, json=json_object)
 
         if response.status_code >= 300:
+            # Check for GROUP_NOT_FOUND error - this means the OM project was already deleted
+            # (e.g., by TTL, cleanup processes, or parallel tests)
+            if response.status_code == 404:
+                raise OpsManagerGroupNotFoundError(f"Ops Manager group not found")
             raise Exception(
                 "Error sending request to Ops Manager API. {} ({}).\n Request details: {} {} (data: {})".format(
                     response.status_code, response.text, method, endpoint, json_object
@@ -1051,27 +1075,40 @@ class KubernetesTester(object):
 
     @staticmethod
     def check_om_state_cleaned():
-        """Checks that OM state is cleaned: Automation config is empty, monitoring hosts are removed"""
+        """Checks that OM state is cleaned: Automation config is empty, monitoring hosts are removed.
 
-        config = KubernetesTester.get_automation_config()
-        assert len(config["replicaSets"]) == 0, "ReplicaSets not empty: {}".format(config["replicaSets"])
-        assert len(config["sharding"]) == 0, "Sharding not empty: {}".format(config["sharding"])
-        assert len(config["processes"]) == 0, "Processes not empty: {}".format(config["processes"])
+        Also succeeds if the OM group/project no longer exists (GROUP_NOT_FOUND),
+        which can happen if the group was deleted externally by TTL, cleanup
+        processes, or parallel tests - this counts as cleaned.
+        """
+        try:
+            config = KubernetesTester.get_automation_config()
+            assert len(config["replicaSets"]) == 0, "ReplicaSets not empty: {}".format(config["replicaSets"])
+            assert len(config["sharding"]) == 0, "Sharding not empty: {}".format(config["sharding"])
+            assert len(config["processes"]) == 0, "Processes not empty: {}".format(config["processes"])
 
-        hosts = KubernetesTester.get_hosts()
-        assert len(hosts["results"]) == 0, "Hosts not empty: ({} hosts left)".format(len(hosts["results"]))
+            hosts = KubernetesTester.get_hosts()
+            assert len(hosts["results"]) == 0, "Hosts not empty: ({} hosts left)".format(len(hosts["results"]))
+        except OpsManagerGroupNotFoundError:
+            # The OM group was already deleted externally - this counts as cleaned
+            logger.debug("OM group not found during cleanup check - treating as cleaned")
 
     @staticmethod
     def is_om_state_cleaned():
-        config = KubernetesTester.get_automation_config()
-        hosts = KubernetesTester.get_hosts()
+        try:
+            config = KubernetesTester.get_automation_config()
+            hosts = KubernetesTester.get_hosts()
 
-        return (
-            len(config["replicaSets"]) == 0
-            and len(config["sharding"]) == 0
-            and len(config["processes"]) == 0
-            and len(hosts["results"]) == 0
-        )
+            return (
+                len(config["replicaSets"]) == 0
+                and len(config["sharding"]) == 0
+                and len(config["processes"]) == 0
+                and len(hosts["results"]) == 0
+            )
+        except OpsManagerGroupNotFoundError:
+            # The OM group was already deleted externally - this counts as cleaned
+            logger.debug("OM group not found during cleanup check - treating as cleaned")
+            return True
 
     @staticmethod
     def mongo_resource_deleted(check_om_state=True):
@@ -1311,22 +1348,8 @@ class KubernetesTester(object):
 
         return yield_existing_csrs(csr_names, timeout)
 
-    # TODO eventually replace all usages of this function with "ReplicaSetTester(mdb_resource, 3).assert_connectivity()"
     @staticmethod
-    def wait_for_rs_is_ready(hosts, wait_for=60, check_every=5, ssl=False):
-        "Connects to a given replicaset and wait a while for a primary and secondaries."
-        client = KubernetesTester.check_hosts_are_ready(hosts, ssl)
-
-        check_times = wait_for / check_every
-
-        while (client.primary is None or len(client.secondaries) < len(hosts) - 1) and check_times >= 0:
-            time.sleep(check_every)
-            check_times -= 1
-
-        return client.primary, client.secondaries
-
-    @staticmethod
-    def check_hosts_are_ready(hosts, ssl=False):
+    def get_populated_mongo_client(hosts: list[str], ssl: bool = False) -> pymongo.MongoClient:
         mongodburi = KubernetesTester.build_mongodb_uri_for_rs(hosts)
         options = {}
         if ssl:

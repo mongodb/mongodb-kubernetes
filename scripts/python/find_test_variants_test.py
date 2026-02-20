@@ -4,11 +4,7 @@ import sys
 
 import pytest
 
-from scripts.python.find_test_variants import (
-    extract_task_name_from_url,
-    find_task_variants,
-    main,
-)
+from scripts.python.find_test_variants import extract_task_name_from_url, find_task_variants, main
 
 # This test file uses our real .evergreen.yml, so it might require adjustments if we change the test structure
 

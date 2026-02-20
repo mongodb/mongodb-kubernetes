@@ -25,6 +25,7 @@ variables:
       - ecr_registry_needs_auth
       - execution
       - github_commit
+      - github_pr_head_branch
       - image_name
       - is_patch
       - mms_eng_test_aws_access_key
@@ -50,6 +51,8 @@ variables:
       - VERSION_UPGRADE_HOOK_VERSION
       - BUILD_SCENARIO
       - MDB_BASH_DEBUG
+      - AI_MONGODB_EMBEDDING_INDEXING_KEY
+      - AI_MONGODB_EMBEDDING_QUERY_KEY
 
 functions:
 
@@ -58,6 +61,7 @@ functions:
   setup_jq: &setup_jq
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       <<: *e2e_include_expansions_in_env
       add_to_path:
@@ -94,6 +98,7 @@ functions:
   python_venv: &python_venv
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       command: scripts/dev/recreate_python_venv.sh
@@ -121,22 +126,15 @@ functions:
   setup_kubectl: &setup_kubectl
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       binary: scripts/evergreen/setup_kubectl.sh
 
-  setup_shellcheck:
-    command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/mongodb/mongodb-kubernetes
-      add_to_path:
-        - ${workdir}/bin
-      binary: scripts/evergreen/setup_shellcheck.sh
-
   setup_aws: &setup_aws
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -146,6 +144,7 @@ functions:
   setup_gcloud_cli:
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       include_expansions_in_env:
@@ -157,6 +156,7 @@ functions:
   setup_mongosh:
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -167,6 +167,7 @@ functions:
   setup_kind: &setup_kind
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -201,6 +202,7 @@ functions:
   install_olm:
     - command: subprocess.exec
       type: setup
+      retry_on_failure: true
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
@@ -226,6 +228,7 @@ functions:
   helm_registry_login:
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       include_expansions_in_env:
@@ -240,6 +243,7 @@ functions:
   configure_docker_auth: &configure_docker_auth
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -249,6 +253,7 @@ functions:
   setup_evg_host: &setup_evg_host
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -294,10 +299,10 @@ functions:
   setup_building_host_minikube:
     - command: subprocess.exec
       type: setup
+      retry_on_failure: true
       params:
         env:
           SKIP_MINIKUBE_SETUP: ${skip_minikube_setup!|false}
-          SKIP_INSTALL_REQUIREMENTS: ${skip_install_python_requirements!|true}
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
@@ -339,6 +344,7 @@ functions:
   setup_kubernetes_environment_p: &setup_kubernetes_environment_p
     command: subprocess.exec
     type: setup
+    retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
@@ -364,12 +370,14 @@ functions:
   quay_login:
     - command: subprocess.exec
       type: setup
+      retry_on_failure: true
       params:
         command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
 
   setup_cloud_qa:
     - command: shell.exec
       type: setup
+      retry_on_failure: true
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -414,6 +422,20 @@ functions:
   # reachable. Note that after a timeout, Evergreen kills the running process
   # and any running container in the host (which kills Kind).
   upload_e2e_logs:
+    # Upload HTML reports with proper content type so they render in browser
+    - command: s3.put
+      params:
+        continue_on_err: true
+        aws_key: ${enterprise_aws_access_key_id}
+        aws_secret: ${enterprise_aws_secret_access_key}
+        local_files_include_filter:
+          - src/github.com/mongodb/mongodb-kubernetes/logs/*.html
+        remote_file: logs/${task_id}/${execution}/
+        bucket: operator-e2e-artifacts
+        permissions: private
+        visibility: signed
+        content_type: text/html
+    # Upload all other log files as plain text
     - command: s3.put
       params:
         continue_on_err: true
@@ -426,6 +448,7 @@ functions:
         permissions: private
         visibility: signed
         content_type: text/plain
+        skip_existing: true  # Don't overwrite HTML files already uploaded with correct content type
     - command: attach.xunit_results
       params:
         continue_on_err: true
@@ -575,6 +598,7 @@ functions:
   e2e_test:
     - command: subprocess.exec
       type: test
+      retry_on_failure: true
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
@@ -585,6 +609,8 @@ functions:
           - github_pr_number
           - project_identifier
           - revision_order_id
+          - AI_MONGODB_EMBEDDING_INDEXING_KEY
+          - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/e2e.sh
@@ -592,6 +618,7 @@ functions:
   e2e_test_perf:
     - command: subprocess.exec
       type: test
+      retry_on_failure: true
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
@@ -613,19 +640,19 @@ functions:
   test_golang_unit:
     - command: shell.exec
       type: test
+      retry_on_failure: true
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make test-race
-    - command: gotest.parse_files
-      params:
-        files: [ "src/github.com/mongodb/mongodb-kubernetes/*.suite", "src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/*.suite" ]
+        env:
+          USE_RACE: "true"
+          USE_COVERAGE: "true"
+        script: scripts/evergreen/unit-tests-golang.sh
 
   test_helm_unit:
     - command: shell.exec
       type: test
+      retry_on_failure: true
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -636,22 +663,20 @@ functions:
   test_python_unit:
     - command: shell.exec
       type: test
+      retry_on_failure: true
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make python-tests
+        script: scripts/evergreen/unit-tests-python.sh
 
-  test_sboms:
+  test_python_sbom:
     - command: shell.exec
       type: test
+      retry_on_failure: true
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make sbom-tests
+        script: scripts/evergreen/unit-tests-sbom.sh
 
   generate_perf_tests_tasks:
     - command: shell.exec
@@ -670,21 +695,6 @@ functions:
           - evergreen_tasks.json
 
   ### Other ###
-
-  run_retry_script:
-    - command: shell.exec
-      type: test
-      params:
-        shell: bash
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        include_expansions_in_env:
-          - EVERGREEN_API_KEY
-          - EVERGREEN_USER
-          - evergreen_retry
-        env:
-          EVERGREEN_RETRY: ${evergreen_retry}
-        script: |
-          scripts/evergreen/retry-evergreen.sh ${version_id}
 
   # This is a generic function for conditionally running given task.
   # It works by appending <task> to <variant> if <condition_script> returns no error.
@@ -744,6 +754,8 @@ functions:
           - code_snippets_reset
           - task_name
           - MDB_BASH_DEBUG
+          - AI_MONGODB_EMBEDDING_INDEXING_KEY
+          - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
         script: |
@@ -820,3 +832,16 @@ functions:
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
           GH_TOKEN: ${GH_TOKEN}
         binary: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/promote_kubectl_plugin.py
+
+  # Notify Slack channel about master build failures
+  notify_master_failures:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - EVERGREEN_USER
+          - EVERGREEN_API_KEY
+          - SLACK_WEBHOOK_URL
+          - version_id
+        binary: scripts/dev/run_python.sh scripts/evergreen/notify_master_failures.py

@@ -4,17 +4,9 @@ import subprocess
 
 from lib.base_logger import logger
 from scripts.release.argparse_utils import get_platforms_from_arg, get_scenario_from_arg
-from scripts.release.build.build_info import (
-    KUBECTL_PLUGIN_BINARY,
-    load_build_info,
-)
+from scripts.release.build.build_info import KUBECTL_PLUGIN_BINARY, load_build_info
 from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS, BuildScenario
-from scripts.release.kubectl_mongodb.utils import (
-    create_s3_client,
-    kubectl_plugin_name,
-    parse_platform,
-    s3_path,
-)
+from scripts.release.kubectl_mongodb.utils import create_s3_client, kubectl_plugin_name, parse_platform, s3_path
 
 
 def build_kubectl_plugin(local_dir: str, platforms: list[str]):

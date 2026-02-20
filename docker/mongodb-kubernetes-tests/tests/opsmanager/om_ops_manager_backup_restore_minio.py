@@ -4,12 +4,7 @@ import time
 from typing import List, Optional
 
 import pymongo
-from kubetester import (
-    create_or_update_namespace,
-    create_or_update_secret,
-    read_secret,
-    try_load,
-)
+from kubetester import create_or_update_namespace, create_or_update_secret, read_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -23,10 +18,7 @@ from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import assert_data_got_restored, is_multi_cluster
 from tests.opsmanager.conftest import mino_operator_install, mino_tenant_install
 from tests.opsmanager.om_ops_manager_backup import S3_SECRET_NAME
-from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import (
-    FIRST_PROJECT_RS_NAME,
-    SECOND_PROJECT_RS_NAME,
-)
+from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import FIRST_PROJECT_RS_NAME, SECOND_PROJECT_RS_NAME
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
@@ -152,9 +144,6 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     # these values come from the tenant creation in minio.
     create_or_update_secret(
         namespace,
@@ -190,9 +179,13 @@ def ops_manager(
         "tls": {"ca": issuer_ca_configmap, "secretRef": {"prefix": appdb_certs}}
     }
 
+    # Disable validation only for backup tests using minio
+    resource["spec"]["configuration"]["brs.s3.validation.testing"] = "disabled"
+
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
+    try_load(resource)
     return resource
 
 

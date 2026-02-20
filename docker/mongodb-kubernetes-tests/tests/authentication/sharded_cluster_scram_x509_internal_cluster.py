@@ -1,3 +1,4 @@
+from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
@@ -41,12 +42,14 @@ def sharded_cluster(namespace: str, server_certs, agent_certs: str, issuer_ca_co
         namespace=namespace,
     )
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_sharded_cluster_scram_x509_internal_cluster
 class TestReplicaSetScramX509Internal(KubernetesTester):
     def test_create_resource(self, sharded_cluster: MongoDB):
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
 
     def test_ops_manager_state_was_updated_correctly(self):

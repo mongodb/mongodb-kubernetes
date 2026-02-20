@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -541,12 +542,14 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	}
 
 	// Create or update the StatefulSet in Kubernetes
-	if err := create.DatabaseInKubernetes(ctx, reconciler.client, *rs, sts, rsConfig, log); err != nil {
+	mutatedSts, err := create.DatabaseInKubernetes(ctx, reconciler.client, *rs, sts, rsConfig, log)
+	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to create/update (Kubernetes reconciliation phase): %w", err))
 	}
 
 	// Check StatefulSet status
-	if status := statefulset.GetStatefulSetStatus(ctx, rs.Namespace, rs.Name, reconciler.client); !status.IsOK() {
+	expectedGeneration := mutatedSts.GetGeneration()
+	if status := statefulset.GetStatefulSetStatus(ctx, rs.Namespace, rs.Name, expectedGeneration, reconciler.client); !status.IsOK() {
 		return status
 	}
 
@@ -825,27 +828,32 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 		return err
 	}
 
+	// Collect errors during cleanup but continue with all cleanup steps.
+	// This ensures we attempt all cleanup operations even if some fail.
+	var errs error
+
 	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
-		return err
+		errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
 	}
 
 	if rs.Spec.Backup != nil && rs.Spec.Backup.AutoTerminateOnDeletion {
 		if err := backup.StopBackupIfEnabled(conn, conn, rs.Name, backup.ReplicaSetType, log); err != nil {
-			return err
+			errs = multierror.Append(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
 		}
 	}
 
 	// During deletion, calculate the maximum number of hosts that could possibly exist to ensure complete cleanup.
 	// Reading from Status here is appropriate since this is outside the reconciliation loop.
-	hostsToRemove, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), util.MaxInt(rs.Status.Members, rs.Spec.Members), nil)
+	hostsToRemove, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), util.MaxInt(rs.Status.Members, rs.Spec.Members), rs.Spec.GetExternalDomain())
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 
-	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
-		return err
+	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
+		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
+		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
 
 	if err := r.reconciler.clearProjectAuthenticationSettings(ctx, conn, rs, processNames, log); err != nil {
-		return err
+		errs = multierror.Append(errs, xerrors.Errorf("failed to clear project authentication settings. Continuing with cleanup: %w", err))
 	}
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
@@ -854,8 +862,12 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 		log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 	}
 
-	log.Info("Removed replica set from Ops Manager!")
-	return nil
+	if errs != nil {
+		log.Warnf("Replica set cleanup from Ops Manager completed with errors")
+	} else {
+		log.Info("Removed replica set from Ops Manager!")
+	}
+	return errs
 }
 
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {

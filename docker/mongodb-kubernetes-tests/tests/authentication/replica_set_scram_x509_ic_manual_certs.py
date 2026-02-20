@@ -1,3 +1,4 @@
+from kubetester import try_load
 from kubetester.certs import SetProperties, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb import MongoDB
@@ -50,16 +51,18 @@ def replica_set(
     issuer_ca_configmap: str,
 ) -> MongoDB:
     _ = all_certs
-    mdb: MongoDB = MongoDB.from_yaml(
+    resource: MongoDB = MongoDB.from_yaml(
         _fixture("replica-set-scram-sha-256-x509-internal-cluster.yaml"),
         namespace=namespace,
     )
-    mdb["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return mdb.create()
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_replica_set_scram_x509_ic_manual_certs
 def test_create_replica_set_with_x509_internal_cluster(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running)
 
 

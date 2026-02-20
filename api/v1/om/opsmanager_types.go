@@ -66,15 +66,6 @@ type MongoDBOpsManager struct {
 }
 
 func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretClient secrets.SecretClient, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
-	var operatorVaultSecretPath string
-	if secretClient.VaultClient != nil {
-		operatorVaultSecretPath = secretClient.VaultClient.OperatorSecretPath()
-	}
-	secretName, err := om.APIKeySecretName(ctx, secretClient, operatorVaultSecretPath)
-	if err != nil {
-		return mdbv1.ProjectConfig{}, err
-	}
-
 	if om.IsTLSEnabled() {
 		opsManagerCA := om.Spec.GetOpsManagerCA()
 		cm, err := client.GetConfigMap(ctx, kube.ObjectKey(om.Namespace, opsManagerCA))
@@ -85,8 +76,6 @@ func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretCl
 		return mdbv1.ProjectConfig{
 			BaseURL:     om.CentralURL(),
 			ProjectName: om.Spec.AppDB.Name(),
-			Credentials: secretName,
-			UseCustomCA: true,
 			SSLProjectConfig: env.SSLProjectConfig{
 				SSLRequireValidMMSServerCertificates: true,
 				SSLMMSCAConfigMap:                    opsManagerCA,
@@ -98,7 +87,6 @@ func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretCl
 	return mdbv1.ProjectConfig{
 		BaseURL:     om.CentralURL(),
 		ProjectName: om.Spec.AppDB.Name(),
-		Credentials: secretName,
 	}, nil
 }
 
@@ -548,6 +536,10 @@ type S3Config struct {
 	// that apply to the associated S3 bucket.
 	// +optional
 	CustomCertificateSecretRefs []corev1.SecretKeySelector `json:"customCertificateSecretRefs"`
+	// ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
+	// This should be enabled to leverage Immutable Backups.
+	// +optional
+	ObjectLockEnabled *bool `json:"objectLockEnabled"`
 }
 
 func (s S3Config) Identifier() interface{} {

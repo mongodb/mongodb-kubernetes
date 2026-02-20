@@ -1,11 +1,7 @@
 from typing import List
 
 import pytest
-from kubetester import (
-    create_secret,
-    find_fixture,
-    try_load,
-)
+from kubetester import create_secret, find_fixture, try_load
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
@@ -13,9 +9,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.phase import Phase
 
-from .helper_switch_project import (
-    SwitchProjectHelper,
-)
+from .helper_switch_project import SwitchProjectHelper
 
 MDB_RESOURCE_NAME = "replica-set-ldap-switch-project"
 
@@ -37,9 +31,6 @@ def replica_set(
     resource = MongoDB.from_yaml(
         find_fixture("ldap/ldap-replica-set.yaml"), name=MDB_RESOURCE_NAME, namespace=namespace
     )
-
-    if try_load(resource):
-        return resource
 
     secret_name = "bind-query-password"
     create_secret(namespace, secret_name, {"password": openldap.admin_password})
@@ -75,7 +66,8 @@ def replica_set(
         },
     }
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.fixture(scope="function")
@@ -96,7 +88,8 @@ def user_ldap(replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDA
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @pytest.fixture(scope="function")
@@ -117,6 +110,7 @@ class TestReplicaSetLDAPProjectSwitch(KubernetesTester):
 
     # TODO CLOUDP-349093 - Disabled these tests because project migrations are not supported yet, which could lead to flaky behavior.
     # def test_create_ldap_user(self, user_ldap: MongoDBUser):
+    #     user_ldap.update()
     #     user_ldap.assert_reaches_phase(Phase.Updated)
 
     def test_ops_manager_state_correctly_updated_in_initial_replica_set(self, testhelper: SwitchProjectHelper):

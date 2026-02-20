@@ -15,7 +15,6 @@ READINESS_PROBE_IMAGE = "readiness-probe"
 UPGRADE_HOOK_IMAGE = "upgrade-hook"
 DATABASE_IMAGE = "database"
 AGENT_IMAGE = "agent"
-INIT_APPDB_IMAGE = "init-appdb"
 INIT_DATABASE_IMAGE = "init-database"
 INIT_OPS_MANAGER_IMAGE = "init-ops-manager"
 OPS_MANAGER_IMAGE = "ops-manager"
@@ -124,7 +123,7 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
             sign=scenario_data.get("sign", False),
             version_prefix=scenario_data.get("version-prefix"),
             registry=scenario_data.get("registry"),
-            region=scenario_data.get("region")
+            region=scenario_data.get("region"),
         )
 
     return BuildInfo(images=images, binaries=binaries, helm_charts=helm_charts)

@@ -399,13 +399,16 @@ func addSearchEvents(ctx context.Context, operatorClusterClient kubeclient.Clien
 		if !ok { // search source doesn't exist yet, don't generate a telemetry event
 			continue
 		}
-		properties := DeploymentUsageSnapshotProperties{
-			DeploymentUID:            string(item.UID),
-			OperatorID:               operatorUUID,
-			Architecture:             architecture,
-			IsMultiCluster:           false, // Search doesn't support multi-cluster
-			Type:                     "Search",
-			IsRunningEnterpriseImage: isEnterprise,
+		properties := SearchDeploymentUsageSnapshotProperties{
+			DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
+				DeploymentUID:            string(item.UID),
+				OperatorID:               operatorUUID,
+				Architecture:             architecture,
+				IsMultiCluster:           false, // Search doesn't support multi-cluster
+				Type:                     "Search",
+				IsRunningEnterpriseImage: isEnterprise,
+			},
+			IsAutoEmbeddingEnabled: item.Spec.AutoEmbedding != nil,
 		}
 		if event := createEvent(properties, now, Deployments); event != nil {
 			events = append(events, *event)

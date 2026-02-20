@@ -31,7 +31,7 @@ See [more info](#how-does-mck-differ-from-the-mongodb-enterprise-kubernetes-oper
 Customers with contracts that allowed use of the Enterprise Operator will still be able to leverage the new replacement, allowing customers to adopt it without contract changes. The Operator itself is licensed under the Apache 2.0, and a license file [included in the repository](LICENSE-MCK) provides further details. License entitlements for all other MongoDB products and tools remain unchanged (for example Enterprise Server and Ops Manager) - if in doubt, contact your MongoDB account team.
 
 ## Support, Feature Requests and Community
-MCK is supported by the [MongoDB Support Team](https://support.mongodb.com/). If you need help, please file a support ticket. If you have a feature request, you can make one on our [Feedback Site](https://feedback.mongodb.com/forums/924355-ops-tools)
+MCK is supported by the [MongoDB Support Team](https://support.mongodb.com/). If you need help, please file a support ticket. If you have a feature request, you can make one on our [Feedback Site](https://feedback.mongodb.com/?category=7548142104564903515)
 
 You can discuss this integration in our new [Community Forum](https://developer.mongodb.com/community/forums/) - please use the tag [kubernetes-operator](https://developer.mongodb.com/community/forums/tag/kubernetes-operator)
 

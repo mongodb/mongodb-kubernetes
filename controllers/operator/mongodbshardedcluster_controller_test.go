@@ -1676,7 +1676,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 		Finalizing:      false,
 	})
 	assert.NoError(t, err)
-	d.AddMonitoringAndBackup(zap.S(), sh.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	d.ConfigureMonitoringAndBackup(zap.S(), sh.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 	return d
 }
 

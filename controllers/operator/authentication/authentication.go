@@ -191,14 +191,22 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 			return xerrors.Errorf("error ensuring agent password: %w", err)
 		}
 
-		// we don't always want to delete the users. This can result in the agents getting stuck
-		// certain situations around auth transitions.
+		// deleteUsers=true: Full deployment deletion - safe to remove all credentials.
+		// deleteUsers=false: Auth transition (e.g., X509→SCRAM) - agents need credentials preserved
+		// to re-authenticate when auth is re-enabled. Deleting them causes agents to get stuck.
 		if deleteUsers {
 			ac.Auth.Users = []*om.MongoDBUser{}
+			// Clear automation agent credentials to prevent Ops Manager from propagating stale
+			// credentials to monitoring/backup agents. Without this, redeploying a new MDB causes
+			// 409 "version not available" errors because the monitoring agent tries to authenticate
+			// with old SCRAM credentials against the new deployment.
+			ac.Auth.AutoUser = util.MergoDelete
+			ac.Auth.AutoPwd = util.MergoDelete
+		} else {
+			ac.Auth.AutoUser =  opts.AutoUser
 		}
 		ac.Auth.AutoAuthMechanisms = []string{}
 		ac.Auth.DeploymentAuthMechanisms = []string{}
-		ac.Auth.AutoUser = util.AutomationAgentName
 		ac.Auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 		ac.Auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 		ac.Auth.AuthoritativeSet = opts.AuthoritativeSet
@@ -210,8 +218,9 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		return xerrors.Errorf("error read/updating automation config: %w", err)
 	}
 
-	// It is only required to update monitoring and backup agent configs in a 3 agent environment.
-	// we should eventually be able to remove this.
+	// In 3-agent environments, monitoring and backup agents have separate configs with their own
+	// X509 authentication settings. Without explicitly disabling X509 in these configs, the agents
+	// would continue attempting X509 auth against MongoDB instances that no longer support it.
 	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
 		config.DisableX509Authentication()
 		return nil

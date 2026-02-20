@@ -338,7 +338,12 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 				secretNames = append(secretNames, security.AgentClientCertificateSecretName(resourceNameForSecret))
 			}
 		}
-		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, security.TLSConfig.CA, secretNames)
+		// TLSConfig may be nil if TLS is enabled via CertificatesSecretsPrefix only
+		var ca string
+		if security.TLSConfig != nil {
+			ca = security.TLSConfig.CA
+		}
+		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, ca, secretNames)
 	}
 
 	if security.GetInternalClusterAuthenticationMode() == util.X509 {
@@ -539,11 +544,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		clientCerts = util.RequireClientCertificates
 	}
 
-	scramAgentUserName := util.AutomationAgentUserName
-	// only use the default name if there is not already a configured username
-	if ac.Auth.AutoUser != "" && ac.Auth.AutoUser != scramAgentUserName {
-		scramAgentUserName = ac.Auth.AutoUser
-	}
+	scramAgentUserName := ar.GetSecurity().Authentication.Agents.GetAutomationUserName()
 
 	authOpts := authentication.Options{
 		Mechanisms:         mdbv1.ConvertAuthModesToStrings(ar.GetSecurity().Authentication.Modes),
@@ -612,7 +613,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 
 			authOpts.AutoPwd = autoConfigPassword
 			userOpts := authentication.UserOptions{}
-			agentName := ar.GetSecurity().Authentication.Agents.AutomationUserName
+			agentName := ar.GetSecurity().Authentication.Agents.GetAutomationUserName()
 			userOpts.AutomationSubject = agentName
 			authOpts.UserOptions = userOpts
 		}
@@ -1075,7 +1076,7 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 	//}
 
 	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, spec.ExternalMembers, log)
-	d.AddMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
+	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
 

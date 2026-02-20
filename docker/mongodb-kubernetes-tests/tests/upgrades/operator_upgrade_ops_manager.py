@@ -1,5 +1,6 @@
 from typing import Optional
 
+from kubetester import try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -42,7 +43,8 @@ def ops_manager(
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
     om["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
-    return om.create()
+    try_load(om)
+    return om
 
 
 @fixture(scope="module")
@@ -56,7 +58,8 @@ def oplog_replica_set(ops_manager, custom_mdb_version: str) -> MongoDB:
     resource["spec"]["members"] = 1
     resource["spec"]["persistent"] = True
 
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -71,7 +74,8 @@ def s3_replica_set(ops_manager: MongoDBOpsManager, custom_mdb_version: str) -> M
     resource["spec"]["members"] = 1
     resource["spec"]["persistent"] = True
 
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -84,7 +88,8 @@ def some_mdb(ops_manager: MongoDBOpsManager, custom_mdb_version: str) -> MongoDB
     resource.set_version(custom_mdb_version)
     resource["spec"]["persistent"] = True
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -106,6 +111,7 @@ def test_install_latest_official_operator(official_operator: Operator):
 
 @mark.e2e_operator_upgrade_ops_manager
 def test_om_created(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
     ops_manager.backup_status().assert_reaches_phase(
         Phase.Pending,
         msg_regexp="The MongoDB object .+ doesn't exist",
@@ -119,7 +125,9 @@ def test_backup_enabled(
     oplog_replica_set: MongoDB,
     s3_replica_set: MongoDB,
 ):
+    oplog_replica_set.update()
     oplog_replica_set.assert_reaches_phase(Phase.Running)
+    s3_replica_set.update()
     s3_replica_set.assert_reaches_phase(Phase.Running)
     # We are ignoring any errors as there could be temporary blips in connectivity to backing
     # databases by this time
@@ -134,6 +142,7 @@ def test_om_is_ok(ops_manager: MongoDBOpsManager):
 
 @mark.e2e_operator_upgrade_ops_manager
 def test_mdb_created(some_mdb: MongoDB):
+    some_mdb.update()
     some_mdb.assert_reaches_phase(Phase.Running)
     # TODO we need to enable backup for the mongodb - it's critical to make sure the backup for
     # deployments continue to work correctly after upgrade

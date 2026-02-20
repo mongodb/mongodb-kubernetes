@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-logr/zapr"
+	"github.com/joho/godotenv"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -26,12 +27,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	golog "log"
+	localruntime "runtime"
+
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	golog "log"
-	localruntime "runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	kubelog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -131,7 +133,6 @@ func main() {
 	forceEnterprise := env.ReadBoolOrDefault(architectures.MdbAssumeEnterpriseImage, false)
 	initDatabaseNonStaticImageVersion := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
 	databaseNonStaticImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
-	initAppdbVersion := env.ReadOrDefault(construct.InitAppdbVersionEnv, "latest")
 	initOpsManagerImageVersion := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
 	// Namespace where the operator is installed
 	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
@@ -264,7 +265,7 @@ func main() {
 		}
 	}
 	if slices.Contains(crds, mongoDBOpsManagerCRDPlural) {
-		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
+		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseNonStaticImageVersion, initOpsManagerImageVersion); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -372,14 +373,18 @@ func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.
 	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).
+		WithValidator(&mdbv1.MongoDBValidator{}).
+		Complete()
 }
 
-func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
-	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
+func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string) error {
+	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).
+		WithValidator(&omv1.MongoDBOpsManagerValidator{}).
+		Complete()
 }
 
 func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
@@ -390,7 +395,9 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
 		return err
 	}
-	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
+	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
+		WithValidator(&mdbmultiv1.MongoDBMultiClusterValidator{}).
+		Complete()
 }
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
@@ -501,6 +508,26 @@ func initializeEnvironment() {
 	log.Infof("Go Version: %s", localruntime.Version())
 	log.Infof("Go OS/Arch: %s/%s", localruntime.GOOS, localruntime.GOARCH)
 
+	printEnvVariables()
+}
+
+// loadEnvFromLocalFileForDevelopment loads env vars from .generated/context.operator.env if not running in "prod" env
+func loadEnvFromLocalFileForDevelopment() {
+	if getOperatorEnv() == util.OperatorEnvironmentProd {
+		return
+	}
+
+	envFile := ".generated/context.operator.env"
+	if _, err := os.Stat(envFile); err == nil {
+		if err := godotenv.Load(envFile); err != nil {
+			log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
+		} else {
+			log.Infof("Loaded environment variables from file %s", envFile)
+		}
+	}
+}
+
+func printEnvVariables() {
 	printableEnvPrefixes := []string{
 		"BACKUP_WAIT_",
 		"POD_WAIT_",
@@ -571,6 +598,8 @@ func getBuildSettingsString() string {
 // env variables). Having the central place to manage defaults increases manageability and transparency of the application
 // Method initializes variables only in case they are not specified already.
 func initEnvVariables() {
+	loadEnvFromLocalFileForDevelopment()
+
 	env.EnsureVar(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
 	env.EnsureVar(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
 	env.EnsureVar(util.OpsManagerMonitorAppDB, strconv.FormatBool(util.OpsManagerMonitorAppDBDefault))

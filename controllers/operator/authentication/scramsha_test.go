@@ -49,6 +49,7 @@ func TestAgentsAuthentication(t *testing.T) {
 				AuthoritativeSet: true,
 				CAFilePath:       util.CAFilePathInContainer,
 				MongoDBResource:  mongoDBResource,
+				AutoUser:         util.AutomationAgentName,
 			}
 
 			err := s.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S())
@@ -79,4 +80,35 @@ func TestScramSha1_DisableAgentAuthentication(t *testing.T) {
 func TestScramSha256_DisableAgentAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	assertAgentAuthenticationDisabled(t, scramSha256Mechanism, conn, Options{})
+}
+
+func TestAgentsAuthenticationWithCustomUsername(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+
+	customUsername := "custom-automation-agent"
+
+	opts := Options{
+		AuthoritativeSet: true,
+		CAFilePath:       util.CAFilePathInContainer,
+		MongoDBResource:  mongoDBResource,
+		AutoUser:         customUsername,
+	}
+
+	// Test with SCRAM-SHA-256
+	err := scramSha256Mechanism.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S())
+	require.NoError(t, err)
+
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
+
+	assertAuthenticationEnabled(t, ac.Auth)
+	// Verify custom username is used instead of default
+	assert.Equal(t, customUsername, ac.Auth.AutoUser, "Custom username should be configured")
+	assert.NotEmpty(t, ac.Auth.AutoPwd)
+	// Verify IsAgentAuthenticationConfigured works with custom username
+	assert.True(t, scramSha256Mechanism.IsAgentAuthenticationConfigured(ac, opts))
 }

@@ -3,11 +3,7 @@ from kubetester import try_load
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
-from kubetester.mongotester import (
-    MongoDBBackgroundTester,
-    MongoTester,
-    ReplicaSetTester,
-)
+from kubetester.mongotester import MongoDBBackgroundTester, MongoTester, ReplicaSetTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
@@ -23,14 +19,7 @@ def mongod_tester():
 
 @fixture(scope="module")
 def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
-    return MongoDBBackgroundTester(
-        mongod_tester,
-        allowed_sequential_failures=2,
-        health_function_params={
-            "attempts": 1,
-            "write_concern": pymongo.WriteConcern(w="majority"),
-        },
-    )
+    return MongoDBBackgroundTester(mongod_tester)
 
 
 @fixture
@@ -43,15 +32,15 @@ def mdb_test_collection(mongod_tester):
 def replica_set(namespace: str, custom_mdb_prev_version: str, cluster_domain: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-downgrade.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_prev_version)
-    if try_load(resource):
-        return resource
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_replica_set_upgrade_downgrade
 class TestReplicaSetUpgradeDowngradeCreate(KubernetesTester):
 
     def test_mdb_created(self, replica_set: MongoDB):
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_start_mongod_background_tester(self, mdb_health_checker):

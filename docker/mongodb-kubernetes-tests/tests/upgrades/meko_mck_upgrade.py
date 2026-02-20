@@ -13,11 +13,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import (
-    get_multi_cluster_operator,
-    is_multi_cluster,
-    log_deployments_info,
-)
+from tests.conftest import get_multi_cluster_operator, is_multi_cluster, log_deployments_info
 from tests.constants import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_NAME,
@@ -27,9 +23,7 @@ from tests.constants import (
     OPERATOR_NAME,
 )
 from tests.multicluster.conftest import cluster_spec_list
-from tests.multicluster_appdb.multicluster_appdb_upgrade_downgrade_v1_27_to_mck import (
-    assert_cm_expected_data,
-)
+from tests.multicluster_appdb.multicluster_appdb_upgrade_downgrade_v1_27_to_mck import assert_cm_expected_data
 from tests.upgrades import downscale_operator_deployment
 
 logger = test_logger.get_test_logger(__name__)
@@ -62,13 +56,10 @@ def replica_set(
         resource["spec"]["persistent"] = False
         resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [1, 1, 1])
 
-        if try_load(resource):
-            return resource
-
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
         resource.set_architecture_annotation()
 
-        resource.update()
+        try_load(resource)
         return resource
     else:
         resource = MongoDB.from_yaml(
@@ -94,9 +85,8 @@ def replica_set(
             "modes": ["SCRAM"],
         }
 
-        if try_load(resource):
-            return resource
-        return resource.create()
+        try_load(resource)
+        return resource
 
 
 # Installs the latest officially released version of MEKO, from Quay
@@ -109,6 +99,7 @@ def test_install_latest_official_operator(official_meko_operator: Operator, name
 
 @mark.e2e_meko_mck_upgrade
 def test_install_replicaset(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(phase=Phase.Running, timeout=1000 if is_multi_cluster() else 600)
 
 

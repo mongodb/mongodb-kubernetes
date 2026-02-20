@@ -8,9 +8,7 @@ from kubetester.kubetester import KubernetesTester, is_multi_cluster
 from kubetester.mongodb import MongoDB
 from kubetester.multicluster_client import MultiClusterClient
 from tests import test_logger
-from tests.shardedcluster.conftest import (
-    get_member_cluster_clients_using_cluster_mapping,
-)
+from tests.shardedcluster.conftest import get_member_cluster_clients_using_cluster_mapping
 
 logger = test_logger.get_test_logger(__name__)
 

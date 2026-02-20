@@ -7,11 +7,7 @@ from kubetester.omtester import OMBackgroundTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
-from tests.conftest import (
-    get_member_cluster_api_client,
-    is_multi_cluster,
-    verify_pvc_expanded,
-)
+from tests.conftest import get_member_cluster_api_client, is_multi_cluster, verify_pvc_expanded
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 gen_key_resource_version = None

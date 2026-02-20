@@ -5,18 +5,8 @@ import kubetester
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import (
-    create_configmap,
-    delete_secret,
-    get_statefulset,
-    random_k8s_name,
-    read_secret,
-)
-from kubetester.certs import (
-    create_mongodb_tls_certs,
-    create_x509_agent_tls_certs,
-    create_x509_mongodb_tls_certs,
-)
+from kubetester import create_configmap, delete_secret, get_statefulset, random_k8s_name, read_secret, try_load
+from kubetester.certs import create_mongodb_tls_certs, create_x509_agent_tls_certs, create_x509_mongodb_tls_certs
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -90,7 +80,7 @@ def replica_set(
             "name": prom_cert_secret,
         },
     }
-    resource.create()
+    try_load(resource)
 
     return resource
 
@@ -169,7 +159,8 @@ def sharded_cluster(
         },
     }
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -184,7 +175,9 @@ def mongodb_user(namespace: str) -> MongoDBUser:
 
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
     resource["spec"]["mongodbResourceRef"]["namespace"] = namespace
-    return resource.create()
+
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_vault_setup
@@ -353,6 +346,7 @@ def test_enable_vault_role_for_database_pod(
 
 @mark.e2e_vault_setup
 def test_mdb_created(replica_set: MongoDB, namespace: str):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=500, ignore_errors=True)
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
@@ -471,6 +465,7 @@ def test_prometheus_endpoint_on_replica_set(replica_set: MongoDB, namespace: str
 
 @mark.e2e_vault_setup
 def test_sharded_mdb_created(sharded_cluster: MongoDB):
+    sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
 
@@ -507,4 +502,5 @@ def test_create_mongodb_user(mongodb_user: MongoDBUser, vault_name: str, vault_n
         f"secret/mongodbenterprise/database/{namespace}/{PASSWORD_SECRET_NAME}",
     )
 
+    mongodb_user.update()
     mongodb_user.assert_reaches_phase(Phase.Updated, timeout=100)

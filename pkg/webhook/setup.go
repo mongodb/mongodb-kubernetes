@@ -23,6 +23,17 @@ import (
 // This label must match the label used for Operator deployment
 const controllerLabelName = "app.kubernetes.io/name"
 
+// defaultWebhookName is the default name for the ValidatingWebhookConfiguration.
+// This can be overridden via the MDB_WEBHOOK_NAME environment variable to allow
+// multiple operator instances to coexist on the same cluster (e.g., for CI parallelization).
+const defaultWebhookName = "mdbpolicy.mongodb.com"
+
+// getWebhookName returns the configured webhook name, falling back to the default
+// if not explicitly set. This ensures backward compatibility for existing installations.
+func getWebhookName() string {
+	return env.ReadOrDefault(util.MdbWebhookNameEnv, defaultWebhookName) // nolint:forbidigo
+}
+
 // createWebhookService creates a Kubernetes service for the webhook.
 func createWebhookService(ctx context.Context, client client.Client, location types.NamespacedName, webhookPort int, svcSelector string) error {
 	svc := corev1.Service{
@@ -77,13 +88,14 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 	dbPath := "/validate-mongodb-com-v1-mongodb"
 	dbmultiPath := "/validate-mongodb-com-v1-mongodbmulticluster"
 	omPath := "/validate-mongodb-com-v1-mongodbopsmanager"
+	webhookName := getWebhookName()
 	return admissionv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "mdbpolicy.mongodb.com",
+			Name: webhookName,
 		},
 		Webhooks: []admissionv1.ValidatingWebhook{
 			{
-				Name: "mdbpolicy.mongodb.com",
+				Name: webhookName,
 				ClientConfig: admissionv1.WebhookClientConfig{
 					Service: &admissionv1.ServiceReference{
 						Name:      serviceLocation.Name,
@@ -194,7 +206,7 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 
 		webhookConfig := admissionv1.ValidatingWebhookConfiguration{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "mdbpolicy.mongodb.com",
+				Name: getWebhookName(),
 			},
 		}
 		if err := client.Delete(ctx, &webhookConfig); err != nil {
@@ -222,13 +234,13 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 		// client.Update results in internal K8s error "Invalid value: 0x0: must be specified for an update"
 		// (see https://github.com/kubernetes/kubernetes/issues/80515)
 		// this fixed in K8s 1.16.0+
-		if err = client.Delete(context.Background(), &webhookConfig); err == nil {
+		if err = client.Delete(ctx, &webhookConfig); err == nil {
 			err = client.Create(ctx, &webhookConfig)
 		}
 	}
 	if err != nil {
-		log.Warnf("Failed to configure admission webhooks. The operator might not have necessary permissions anymore. " +
-			"Admission webhooks might not work correctly. Ignore this error if the cluster role for the operator was removed deliberately.")
+		log.Warnf("Failed to configure admission webhooks. The operator might not have necessary permissions anymore. "+
+			"Admission webhooks might not work correctly. Ignore this error if the cluster role for the operator was removed deliberately. Error: %s", err)
 		return nil
 	}
 	log.Debugf("Configured ValidatingWebhookConfiguration %s", webhookConfig.Name)
