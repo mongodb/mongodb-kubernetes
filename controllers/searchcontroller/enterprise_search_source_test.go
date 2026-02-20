@@ -287,3 +287,122 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		})
 	}
 }
+
+func newShardedClusterMongoDB(name, namespace string, shardCount int, version string) *mdbv1.MongoDB {
+	return &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				Version:      version,
+				ResourceType: mdbv1.ShardedCluster,
+			},
+			MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{
+				ShardCount: shardCount,
+			},
+		},
+	}
+}
+
+func newShardedUnmanagedLBSearch(name, namespace, mdbName string, endpointTemplate string) *searchv1.MongoDBSearch {
+	var lb *searchv1.LoadBalancerConfig
+	if endpointTemplate != "" {
+		lb = &searchv1.LoadBalancerConfig{
+			Mode:     searchv1.LBModeUnmanaged,
+			Endpoint: endpointTemplate,
+		}
+	}
+	return &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: searchv1.MongoDBSearchSpec{
+			Replicas: 1,
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{
+					Name: mdbName,
+				},
+			},
+			LoadBalancer: lb,
+		},
+	}
+}
+
+func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
+	tests := []struct {
+		name           string
+		shardCount     int
+		mdbName        string
+		expectedShards []string
+	}{
+		{
+			name:           "Single shard",
+			shardCount:     1,
+			mdbName:        "my-cluster",
+			expectedShards: []string{"my-cluster-0"},
+		},
+		{
+			name:           "Three shards",
+			shardCount:     3,
+			mdbName:        "my-cluster",
+			expectedShards: []string{"my-cluster-0", "my-cluster-1", "my-cluster-2"},
+		},
+		{
+			name:           "Five shards",
+			shardCount:     5,
+			mdbName:        "test-sharded",
+			expectedShards: []string{"test-sharded-0", "test-sharded-1", "test-sharded-2", "test-sharded-3", "test-sharded-4"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := newShardedClusterMongoDB(tc.mdbName, "test-ns", tc.shardCount, "8.2.0")
+			search := newShardedUnmanagedLBSearch("test-search", "test-ns", tc.mdbName, "")
+			src := NewShardedEnterpriseSearchSource(mdb, search)
+
+			shardNames := src.GetShardNames()
+			assert.Equal(t, tc.expectedShards, shardNames)
+		})
+	}
+}
+
+func TestShardedEnterpriseSearchSource_Validate(t *testing.T) {
+	tests := []struct {
+		name           string
+		shardCount     int
+		expectError    bool
+		expectedErrMsg string
+	}{
+		{
+			name:        "Valid - two shards",
+			shardCount:  2,
+			expectError: false,
+		},
+		{
+			name:        "Valid - single shard",
+			shardCount:  1,
+			expectError: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := newShardedClusterMongoDB("my-cluster", "test-ns", tc.shardCount, "8.2.0")
+			search := newShardedUnmanagedLBSearch("test-search", "test-ns", "my-cluster", "")
+			src := NewShardedEnterpriseSearchSource(mdb, search)
+
+			err := src.Validate()
+
+			if tc.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedErrMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
