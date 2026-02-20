@@ -244,27 +244,10 @@ def mdbs(namespace: str, mdb: MongoDB) -> MongoDBSearch:
         },
     }
 
-    # Build the lb endpoints configuration for Envoy proxy
-    lb_endpoints = []
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        endpoint = (
-            f"{MDBS_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
-        )
-        lb_endpoints.append(
-            {
-                "shardName": shard_name,
-                "endpoint": endpoint,
-            }
-        )
-
+    # Build the lb configuration with endpoint template for Envoy proxy
     resource["spec"]["lb"] = {
         "mode": "Unmanaged",
-        "external": {
-            "sharded": {
-                "endpoints": lb_endpoints,
-            },
-        },
+        "endpoint": f"{MDBS_RESOURCE_NAME}-mongot-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}",
     }
 
     return resource

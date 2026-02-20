@@ -140,8 +140,8 @@ def mdbs(namespace: str) -> MongoDBSearch:
 
     # Replace NAMESPACE placeholder in endpoint template URL with actual namespace
     spec = resource["spec"]
-    if "lb" in spec and "external" in spec["lb"] and "endpoint" in spec["lb"]["external"]:
-        spec["lb"]["external"]["endpoint"] = spec["lb"]["external"]["endpoint"].replace("NAMESPACE", namespace)
+    if "lb" in spec and "endpoint" in spec["lb"]:
+        spec["lb"]["endpoint"] = spec["lb"]["endpoint"].replace("NAMESPACE", namespace)
 
     return resource
 

@@ -6,7 +6,7 @@ spec:
   replicas: 2
   logLevel: DEBUG
   source:
-    mongodb:
+    mongodbResourceRef:
       name: mdb-sh
   security:
     tls:
@@ -14,8 +14,6 @@ spec:
       # Secret naming pattern: {prefix}-{shardName}-search-cert
       # e.g., certs-mdb-sh-0-search-cert, certs-mdb-sh-1-search-cert
       certsSecretPrefix: certs
-      ca:
-        name: mdb-sh-ca
   lb:
     mode: Unmanaged
     # Endpoint template with {shardName} placeholder
