@@ -556,6 +556,8 @@ spec:
               credentials:
                 description: Name of the Secret holding credentials information
                 type: string
+              downloadBase:
+                type: string
               duplicateServiceObjects:
                 description: |-
                   In few service mesh options for ex: Istio, by default we would need to duplicate the

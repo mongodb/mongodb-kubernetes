@@ -89,6 +89,10 @@ type MongoDB struct {
 	Spec   MongoDbSpec   `json:"spec"`
 }
 
+func (m *MongoDB) GetDownloadBase() string {
+	return m.Spec.GetDownloadBase()
+}
+
 func (m *MongoDB) IsAgentImageOverridden() bool {
 	if m.Spec.PodSpec.IsAgentImageOverridden() {
 		return true
@@ -478,6 +482,8 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	DownloadBase string `json:"downloadBase,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -960,6 +966,13 @@ func (s *Security) GetTLSCAFilePath(defaultPath string) string {
 		return defaultPath
 	}
 	return s.TLSConfig.GetCAFilePath(defaultPath)
+}
+
+func (d *DbCommonSpec) GetDownloadBase() string {
+	if d.DownloadBase != "" {
+		return d.DownloadBase
+	}
+	return util.DefaultPvcMmsMountPath
 }
 
 func (s *Security) IsTLSEnabled() bool {
