@@ -326,10 +326,7 @@ func (s *MongoDBSearch) TLSOperatorSecretNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-certificate-key", Namespace: s.Namespace}
 }
 
-// IsSharedTLSCertificate returns true if all shards should use the same TLS certificate.
-// This is the case when CertificateKeySecret.Name is explicitly set.
-// When false, per-shard certificates are used (one certificate per shard).
-func (s *MongoDBSearch) IsSharedTLSCertificate() bool {
+func (s *MongoDBSearch) CertificateKeySecretName() bool {
 	if s.Spec.Security.TLS == nil {
 		return false
 	}
