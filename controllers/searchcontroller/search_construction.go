@@ -141,9 +141,9 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 // CreateShardSearchStatefulSetFunc creates a StatefulSet for a specific shard's mongot deployment.
 func CreateShardSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, shardedSource ShardedSearchSourceDBResource, shardIdx int, searchImage string) statefulset.Modification {
 	shardName := shardedSource.GetShardNames()[shardIdx]
-	stsName := mdbSearch.ShardMongotStatefulSetName(shardName)
-	svcName := mdbSearch.ShardMongotServiceName(shardName)
-	configMapName := mdbSearch.ShardMongotConfigMapName(shardName)
+	stsName := mdbSearch.MongotStatefulSetNamespacedNameForShard(shardName).Name
+	svcName := mdbSearch.MongotServiceNamespacedNameForShard(shardName).Name
+	configMapName := mdbSearch.MongotConfigMapNamespacedNameForShard(shardName).Name
 
 	labels := map[string]string{
 		"app":   stsName,
