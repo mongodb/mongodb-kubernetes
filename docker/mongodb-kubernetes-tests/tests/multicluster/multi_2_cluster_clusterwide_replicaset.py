@@ -2,7 +2,7 @@ from typing import Dict, List
 
 import kubernetes
 import pytest
-from kubetester import create_or_update_configmap, create_or_update_secret, read_configmap, read_secret
+from kubetester import create_or_update_configmap, create_or_update_secret, read_configmap, read_secret, try_load
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -31,24 +31,18 @@ def mdbb_ns(namespace: str):
 
 @pytest.fixture(scope="module")
 def mongodb_multi_a_unmarshalled(
-    central_cluster_client: kubernetes.client.ApiClient,
     mdba_ns: str,
     member_cluster_names: List[str],
     custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdba_ns)
-
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
     resource.set_version(ensure_ent_version(custom_mdb_version))
-
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource.update()
     return resource
 
 
 @pytest.fixture(scope="module")
 def mongodb_multi_b_unmarshalled(
-    central_cluster_client: kubernetes.client.ApiClient,
     mdbb_ns: str,
     member_cluster_names: List[str],
     custom_mdb_version: str,
@@ -56,9 +50,6 @@ def mongodb_multi_b_unmarshalled(
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdbb_ns)
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
     resource.set_version(ensure_ent_version(custom_mdb_version))
-
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource.update()
     return resource
 
 
@@ -108,8 +99,6 @@ def mongodb_multi_a(
 ) -> MongoDBMulti:
     ca = open(issuer_ca_filepath).read()
 
-    # The operator expects the CA that validates Ops Manager is contained in
-    # an entry with a name of "mms-ca.crt"
     data = {"ca-pem": ca, "mms-ca.crt": ca}
     name = "issuer-ca"
 
@@ -123,7 +112,7 @@ def mongodb_multi_a(
         },
     }
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -137,8 +126,6 @@ def mongodb_multi_b(
 ) -> MongoDBMulti:
     ca = open(issuer_ca_filepath).read()
 
-    # The operator expects the CA that validates Ops Manager is contained in
-    # an entry with a name of "mms-ca.crt"
     data = {"ca-pem": ca, "mms-ca.crt": ca}
     name = "issuer-ca"
 
@@ -152,7 +139,7 @@ def mongodb_multi_b(
         },
     }
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -249,21 +236,22 @@ def test_copy_configmap_and_secret_across_ns(
 
 @pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
 def test_create_mongodb_multi_nsa(mongodb_multi_a: MongoDBMulti):
+    mongodb_multi_a.update()
     mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=800)
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
 def test_enable_mongodb_multi_nsa_auth(mongodb_multi_a: MongoDBMulti):
-    mongodb_multi_a.reload()
-    mongodb_multi_a["spec"]["authentication"] = (
-        {
-            "agents": {"mode": "SCRAM"},
-            "enabled": True,
-            "modes": ["SCRAM"],
-        },
-    )
+    mongodb_multi_a["spec"]["security"]["authentication"] = {
+        "agents": {"mode": "SCRAM"},
+        "enabled": True,
+        "modes": ["SCRAM"],
+    }
+    mongodb_multi_a.update()
+    mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=800)
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
 def test_create_mongodb_multi_nsb(mongodb_multi_b: MongoDBMulti):
+    mongodb_multi_b.update()
     mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=800)
