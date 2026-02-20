@@ -165,7 +165,7 @@ type TLS struct {
 	CertificateKeySecret corev1.LocalObjectReference `json:"certificateKeySecretRef,omitempty"`
 	// CertsSecretPrefix is a prefix used to derive the TLS secret name.
 	// When set, the operator will look for a secret named "{prefix}-{resourceName}-search-cert".
-	// If CertificateKeySecret.Name is also specified, it takes precedence over this field.
+	// If CertificateKeySecret.Name is also specified, that takes precedence over this field.
 	// +optional
 	CertsSecretPrefix string `json:"certsSecretPrefix,omitempty"`
 }
