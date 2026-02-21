@@ -97,12 +97,52 @@ type MongoDBSource struct {
 }
 
 type ExternalMongoDBSource struct {
+	// HostAndPorts is the list of mongod host:port seeds for replica set sources.
+	// Mutually exclusive with Sharded.
+	// +optional
 	HostAndPorts []string `json:"hostAndPorts,omitempty"`
+	// Sharded contains configuration for external sharded MongoDB clusters.
+	// Mutually exclusive with HostAndPorts.
+	// +optional
+	Sharded *ExternalShardedConfig `json:"sharded,omitempty"`
 	// mongod keyfile used to connect to the external MongoDB deployment
+	// +optional
 	KeyFileSecretKeyRef *userv1.SecretKeyRef `json:"keyfileSecretRef,omitempty"`
 	// TLS configuration for the external MongoDB deployment
 	// +optional
 	TLS *ExternalMongodTLS `json:"tls,omitempty"`
+}
+
+// ExternalShardedConfig contains configuration for external sharded MongoDB clusters
+type ExternalShardedConfig struct {
+	// Router contains the mongos router configuration
+	// +kubebuilder:validation:Required
+	Router ExternalRouterConfig `json:"router"`
+	// Shards is the list of shard configurations
+	// +kubebuilder:validation:MinItems=1
+	Shards []ExternalShardConfig `json:"shards"`
+}
+
+// ExternalRouterConfig contains configuration for mongos routers in an external sharded cluster
+type ExternalRouterConfig struct {
+	// Hosts is the list of mongos router endpoints (host:port)
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	Hosts []string `json:"hosts"`
+	// TLS configuration specific to the router. If not specified, falls back to the top-level external.tls config.
+	// +optional
+	TLS *ExternalMongodTLS `json:"tls,omitempty"`
+}
+
+// ExternalShardConfig contains configuration for a single shard in an external sharded cluster
+type ExternalShardConfig struct {
+	// ShardName is the logical shard name (e.g., "shard-0").
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ShardName string `json:"shardName"`
+	// Hosts is the list of mongod host:port seeds for this shard's replica set
+	// +kubebuilder:validation:MinItems=1
+	Hosts []string `json:"hosts"`
 }
 
 type ExternalMongodTLS struct {
@@ -120,7 +160,14 @@ type TLS struct {
 	// CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
 	// The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
 	// This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
-	CertificateKeySecret corev1.LocalObjectReference `json:"certificateKeySecretRef"`
+	// If both CertificateKeySecret.Name and CertsSecretPrefix are specified, CertificateKeySecret.Name takes precedence.
+	// +optional
+	CertificateKeySecret corev1.LocalObjectReference `json:"certificateKeySecretRef,omitempty"`
+	// CertsSecretPrefix is a prefix used to derive the TLS secret name.
+	// When set, the operator will look for a secret named "{prefix}-{resourceName}-search-cert".
+	// If CertificateKeySecret.Name is also specified, that takes precedence over this field.
+	// +optional
+	CertsSecretPrefix string `json:"certsSecretPrefix,omitempty"`
 }
 
 type MongoDBSearchStatus struct {
@@ -251,9 +298,26 @@ func (s *MongoDBSearch) GetMongotGrpcPort() int32 {
 	return MongotDefaultGrpcPort
 }
 
-// TLSSecretNamespacedName will get the namespaced name of the Secret containing the server certificate and key
+// TLSSecretNamespacedName will get the namespaced name of the Secret containing the server certificate and key.
+// Precedence:
+//  1. CertificateKeySecret.Name - explicit secret name
+//  2. CertsSecretPrefix - uses pattern {prefix}-{resourceName}-search-cert
+//  3. Default - uses pattern {resourceName}-search-cert
 func (s *MongoDBSearch) TLSSecretNamespacedName() types.NamespacedName {
-	return types.NamespacedName{Name: s.Spec.Security.TLS.CertificateKeySecret.Name, Namespace: s.Namespace}
+	// Explicit name takes precedence
+	if s.Spec.Security.TLS.CertificateKeySecret.Name != "" {
+		return types.NamespacedName{Name: s.Spec.Security.TLS.CertificateKeySecret.Name, Namespace: s.Namespace}
+	}
+
+	// Prefix-based naming: {prefix}-{resourceName}-search-cert
+	if s.Spec.Security.TLS.CertsSecretPrefix != "" {
+		secretName := fmt.Sprintf("%s-%s-search-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name)
+		return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
+	}
+
+	// Default naming: {resourceName}-search-cert
+	secretName := fmt.Sprintf("%s-search-cert", s.Name)
+	return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
 }
 
 // TLSOperatorSecretNamespacedName will get the namespaced name of the Secret created by the operator
@@ -262,12 +326,51 @@ func (s *MongoDBSearch) TLSOperatorSecretNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-certificate-key", Namespace: s.Namespace}
 }
 
+func (s *MongoDBSearch) CertificateKeySecretName() bool {
+	if s.Spec.Security.TLS == nil {
+		return false
+	}
+	return s.Spec.Security.TLS.CertificateKeySecret.Name != ""
+}
+
+// TLSSecretNamespacedNameForShard returns the namespaced name of the TLS source secret for a specific shard.
+// This is used in per-shard TLS mode for sharded clusters.
+// Naming pattern:
+//   - With prefix: {prefix}-{shardName}-search-cert
+//   - Without prefix: {shardName}-search-cert
+func (s *MongoDBSearch) TLSSecretNamespacedNameForShard(shardName string) types.NamespacedName {
+	var secretName string
+	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
+		secretName = fmt.Sprintf("%s-%s-search-cert", s.Spec.Security.TLS.CertsSecretPrefix, shardName)
+	} else {
+		secretName = fmt.Sprintf("%s-search-cert", shardName)
+	}
+	return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
+}
+
+// TLSOperatorSecretNamespacedNameForShard returns the namespaced name of the operator-managed TLS secret
+// for a specific shard. This is the secret created by the operator containing the combined certificate and key.
+func (s *MongoDBSearch) TLSOperatorSecretNamespacedNameForShard(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-certificate-key", shardName), Namespace: s.Namespace}
+}
+
+// IsTLSConfigured returns true if TLS is enabled (TLS struct is present)
+func (s *MongoDBSearch) IsTLSConfigured() bool {
+	return s.Spec.Security.TLS != nil
+}
+
 func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
 	return MongotDefautHealthCheckPort
 }
 
 func (s *MongoDBSearch) IsExternalMongoDBSource() bool {
 	return s.Spec.Source != nil && s.Spec.Source.ExternalMongoDBSource != nil
+}
+
+// IsExternalSourceSharded returns true if the source is an external sharded MongoDB cluster
+func (s *MongoDBSearch) IsExternalSourceSharded() bool {
+	return s.IsExternalMongoDBSource() &&
+		s.Spec.Source.ExternalMongoDBSource.Sharded != nil
 }
 
 func (s *MongoDBSearch) GetLogLevel() mdb.LogLevel {
@@ -295,4 +398,16 @@ func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
 
 func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 	return s.Spec.Prometheus
+}
+
+func (s *MongoDBSearch) MongotStatefulSetNamespacedNameForShard(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s", s.Name, shardName), Namespace: s.Namespace}
+}
+
+func (s *MongoDBSearch) MongotServiceNamespacedNameForShard(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s-svc", s.Name, shardName), Namespace: s.Namespace}
+}
+
+func (s *MongoDBSearch) MongotConfigMapNamespacedNameForShard(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s-config", s.Name, shardName), Namespace: s.Namespace}
 }

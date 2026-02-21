@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -17,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -639,4 +641,735 @@ func TestValidateSearchResource(t *testing.T) {
 			assert.Equal(t, tc.errMsg, err.Error())
 		}
 	}
+}
+
+func TestGetMongodConfigParametersForShard(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-search",
+			Namespace: "test-ns",
+		},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{
+					Name: "test-mdb",
+				},
+			},
+		},
+	}
+
+	config := GetMongodConfigParametersForShard(search, "test-mdb-0", "cluster.local")
+
+	setParameter, ok := config["setParameter"].(map[string]any)
+	require.True(t, ok)
+
+	mongotHost, ok := setParameter["mongotHost"].(string)
+	require.True(t, ok)
+	assert.Equal(t, "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028", mongotHost)
+
+	searchIndexHost, ok := setParameter["searchIndexManagementHostAndPort"].(string)
+	require.True(t, ok)
+	assert.Equal(t, "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028", searchIndexHost)
+}
+
+func TestCreateShardMongotConfig(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test")
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"my-cluster-0", "my-cluster-1"},
+		hostSeeds: map[int][]string{
+			0: {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
+			1: {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
+		},
+	}
+
+	config := mongot.Config{}
+	createShardMongotConfig(search, shardedSource, 0)(&config)
+
+	assert.Equal(t, []string{"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"}, config.SyncSource.ReplicaSet.HostAndPort)
+	assert.Equal(t, search.SourceUsername(), config.SyncSource.ReplicaSet.Username)
+
+	config2 := mongot.Config{}
+	createShardMongotConfig(search, shardedSource, 1)(&config2)
+
+	assert.Equal(t, []string{"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"}, config2.SyncSource.ReplicaSet.HostAndPort)
+}
+
+func TestShardedMongotConfigWithTLS(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test")
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"my-cluster-0", "my-cluster-1"},
+		hostSeeds: map[int][]string{
+			0: {"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"},
+			1: {"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"},
+		},
+		tlsConfig: &TLSSourceConfig{
+			CAFileName: "ca-pem",
+		},
+	}
+
+	config := mongot.Config{}
+	createShardMongotConfig(search, shardedSource, 0)(&config)
+
+	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
+	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should initially be false")
+	assert.NotNil(t, config.SyncSource.Router)
+	assert.NotNil(t, config.SyncSource.Router.TLS)
+	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should initially be false")
+
+	// Simulate what ensureEgressTlsConfig does when TLS is enabled
+	tlsSourceConfig := shardedSource.TLSConfig()
+	assert.NotNil(t, tlsSourceConfig, "TLS config should not be nil")
+
+	// Apply the TLS modification (simulating ensureEgressTlsConfig behavior)
+	config.SyncSource.ReplicaSet.TLS = ptr.To(true)
+	config.SyncSource.CertificateAuthorityFile = ptr.To("/mongodb-automation/ca/" + tlsSourceConfig.CAFileName)
+	if config.SyncSource.Router != nil {
+		config.SyncSource.Router.TLS = ptr.To(true)
+	}
+
+	assert.True(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be enabled")
+	assert.NotNil(t, config.SyncSource.CertificateAuthorityFile)
+	assert.Equal(t, "/mongodb-automation/ca/ca-pem", *config.SyncSource.CertificateAuthorityFile)
+	assert.True(t, *config.SyncSource.Router.TLS, "Router TLS should be enabled for sharded clusters")
+}
+
+func TestShardedMongotConfigWithoutTLS(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test")
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"my-cluster-0"},
+		hostSeeds: map[int][]string{
+			0: {"my-cluster-0-0.svc:27017"},
+		},
+		tlsConfig: nil, // No TLS
+	}
+
+	config := mongot.Config{}
+	createShardMongotConfig(search, shardedSource, 0)(&config)
+
+	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
+	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be false when source has no TLS")
+	assert.NotNil(t, config.SyncSource.Router)
+	assert.NotNil(t, config.SyncSource.Router.TLS)
+	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should be false when source has no TLS")
+	assert.Nil(t, config.SyncSource.CertificateAuthorityFile)
+}
+
+// mockShardedSource is a mock implementation of ShardedSearchSourceDBResource for testing
+type mockShardedSource struct {
+	shardNames []string
+	hostSeeds  map[int][]string
+	tlsConfig  *TLSSourceConfig
+}
+
+func (m *mockShardedSource) GetShardCount() int {
+	return len(m.shardNames)
+}
+
+func (m *mockShardedSource) GetShardNames() []string {
+	return m.shardNames
+}
+
+func (m *mockShardedSource) HostSeedsForShard(shardIdx int) []string {
+	return m.hostSeeds[shardIdx]
+}
+
+func (m *mockShardedSource) MongosHostAndPort() string {
+	return "mongos-svc.test-ns.svc.cluster.local:27017"
+}
+
+// Implement SearchSourceDBResource interface
+func (m *mockShardedSource) HostSeeds() []string {
+	return nil
+}
+
+func (m *mockShardedSource) Validate() error {
+	return nil
+}
+
+func (m *mockShardedSource) KeyfileSecretName() string {
+	return ""
+}
+
+func (m *mockShardedSource) TLSConfig() *TLSSourceConfig {
+	return m.tlsConfig
+}
+
+func TestBuildShardSearchHeadlessService(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test")
+	shardName := "my-cluster-0"
+
+	svc := buildShardSearchHeadlessService(search, shardName)
+
+	assert.Equal(t, "test-search-mongot-my-cluster-0-svc", svc.Name)
+	assert.Equal(t, "test", svc.Namespace)
+	assert.Equal(t, corev1.ClusterIPNone, svc.Spec.ClusterIP)
+	assert.Equal(t, corev1.ServiceTypeClusterIP, svc.Spec.Type)
+
+	// Check selector points to the shard StatefulSet
+	assert.Equal(t, "test-search-mongot-my-cluster-0", svc.Spec.Selector["app"])
+
+	// Check ports
+	var grpcPort, healthPort *corev1.ServicePort
+	for i := range svc.Spec.Ports {
+		switch svc.Spec.Ports[i].Name {
+		case "mongot-grpc":
+			grpcPort = &svc.Spec.Ports[i]
+		case "healthcheck":
+			healthPort = &svc.Spec.Ports[i]
+		}
+	}
+
+	require.NotNil(t, grpcPort, "grpc port should exist")
+	assert.Equal(t, int32(27028), grpcPort.Port)
+
+	require.NotNil(t, healthPort, "healthcheck port should exist")
+	assert.Equal(t, int32(8080), healthPort.Port)
+}
+
+func TestGetMongosConfigParametersForSharded(t *testing.T) {
+	tests := []struct {
+		name          string
+		search        *searchv1.MongoDBSearch
+		shardNames    []string
+		clusterDomain string
+		expectedHost  string
+	}{
+		{
+			name: "Internal service endpoint (no unmanaged LB)",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test-ns",
+				},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+							Name: "test-mdb",
+						},
+					},
+				},
+			},
+			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
+			clusterDomain: "cluster.local",
+			// Uses first shard's internal service endpoint
+			expectedHost: "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
+		},
+		{
+			name: "Empty shard names",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test-ns",
+				},
+				Spec: searchv1.MongoDBSearchSpec{},
+			},
+			shardNames:    []string{},
+			clusterDomain: "cluster.local",
+			expectedHost:  "", // No shards, no endpoint
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			config := GetMongosConfigParametersForSharded(tc.search, tc.shardNames, tc.clusterDomain)
+
+			setParameter, ok := config["setParameter"].(map[string]any)
+			require.True(t, ok, "setParameter should be a map")
+
+			mongotHost, ok := setParameter["mongotHost"].(string)
+			require.True(t, ok, "mongotHost should be a string")
+			assert.Equal(t, tc.expectedHost, mongotHost)
+
+			searchIndexHost, ok := setParameter["searchIndexManagementHostAndPort"].(string)
+			require.True(t, ok, "searchIndexManagementHostAndPort should be a string")
+			assert.Equal(t, tc.expectedHost, searchIndexHost)
+
+			// useGrpcForSearch must always be true for mongos
+			useGrpc, ok := setParameter["useGrpcForSearch"].(bool)
+			require.True(t, ok, "useGrpcForSearch should be a bool")
+			assert.True(t, useGrpc, "useGrpcForSearch must be true for mongos")
+		})
+	}
+}
+
+func TestTLSSecretPrefixNaming(t *testing.T) {
+	testCases := []struct {
+		name               string
+		secretName         string
+		secretPrefix       string
+		resourceName       string
+		expectedSecretName string
+	}{
+		{
+			name:               "explicit secret name takes precedence",
+			secretName:         "my-explicit-secret",
+			secretPrefix:       "my-prefix",
+			resourceName:       "my-search",
+			expectedSecretName: "my-explicit-secret",
+		},
+		{
+			name:               "prefix-based naming when no explicit name",
+			secretName:         "",
+			secretPrefix:       "my-prefix",
+			resourceName:       "my-search",
+			expectedSecretName: "my-prefix-my-search-search-cert",
+		},
+		{
+			name:               "only explicit name specified",
+			secretName:         "only-explicit",
+			secretPrefix:       "",
+			resourceName:       "my-search",
+			expectedSecretName: "only-explicit",
+		},
+		{
+			name:               "default naming when both empty",
+			secretName:         "",
+			secretPrefix:       "",
+			resourceName:       "my-search",
+			expectedSecretName: "my-search-search-cert",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch(tc.resourceName, "default", func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{
+						CertificateKeySecret: corev1.LocalObjectReference{
+							Name: tc.secretName,
+						},
+						CertsSecretPrefix: tc.secretPrefix,
+					},
+				}
+			})
+
+			secretNsName := search.TLSSecretNamespacedName()
+			assert.Equal(t, tc.expectedSecretName, secretNsName.Name)
+			assert.Equal(t, "default", secretNsName.Namespace)
+		})
+	}
+}
+
+func TestIsTLSConfigured(t *testing.T) {
+	testCases := []struct {
+		name           string
+		setup          func(*searchv1.MongoDBSearch)
+		expectedResult bool
+	}{
+		{
+			name: "TLS with explicit secret name",
+			setup: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{
+						CertificateKeySecret: corev1.LocalObjectReference{Name: "my-secret"},
+					},
+				}
+			},
+			expectedResult: true,
+		},
+		{
+			name: "TLS with prefix",
+			setup: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{
+						CertsSecretPrefix: "my-prefix",
+					},
+				}
+			},
+			expectedResult: true,
+		},
+		{
+			name: "TLS with both",
+			setup: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{
+						CertificateKeySecret: corev1.LocalObjectReference{Name: "my-secret"},
+						CertsSecretPrefix:    "my-prefix",
+					},
+				}
+			},
+			expectedResult: true,
+		},
+		{
+			name: "TLS with neither uses default",
+			setup: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{},
+				}
+			},
+			expectedResult: true,
+		},
+		{
+			name: "no TLS config",
+			setup: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{}
+			},
+			expectedResult: false,
+		},
+		{
+			name: "security but no TLS",
+			setup: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: nil,
+				}
+			},
+			expectedResult: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", "default", tc.setup)
+			assert.Equal(t, tc.expectedResult, search.IsTLSConfigured())
+		})
+	}
+}
+
+func TestTLSSecretNamespacedNameForShard(t *testing.T) {
+	testCases := []struct {
+		name               string
+		secretPrefix       string
+		shardName          string
+		namespace          string
+		expectedSecretName string
+	}{
+		{
+			name:               "with prefix",
+			secretPrefix:       "my-prefix",
+			shardName:          "my-cluster-0",
+			namespace:          "test-ns",
+			expectedSecretName: "my-prefix-my-cluster-0-search-cert",
+		},
+		{
+			name:               "without prefix",
+			secretPrefix:       "",
+			shardName:          "my-cluster-0",
+			namespace:          "test-ns",
+			expectedSecretName: "my-cluster-0-search-cert",
+		},
+		{
+			name:               "with prefix - second shard",
+			secretPrefix:       "prod",
+			shardName:          "shard-1",
+			namespace:          "mongodb",
+			expectedSecretName: "prod-shard-1-search-cert",
+		},
+		{
+			name:               "without prefix - different shard",
+			secretPrefix:       "",
+			shardName:          "shard-2",
+			namespace:          "mongodb",
+			expectedSecretName: "shard-2-search-cert",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", tc.namespace, func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{
+						CertsSecretPrefix: tc.secretPrefix,
+					},
+				}
+			})
+
+			secretNsName := search.TLSSecretNamespacedNameForShard(tc.shardName)
+			assert.Equal(t, tc.expectedSecretName, secretNsName.Name)
+			assert.Equal(t, tc.namespace, secretNsName.Namespace)
+		})
+	}
+}
+
+func TestTLSOperatorSecretNamespacedNameForShard(t *testing.T) {
+	testCases := []struct {
+		name               string
+		shardName          string
+		namespace          string
+		expectedSecretName string
+	}{
+		{
+			name:               "first shard",
+			shardName:          "my-cluster-0",
+			namespace:          "test-ns",
+			expectedSecretName: "my-cluster-0-search-certificate-key",
+		},
+		{
+			name:               "second shard",
+			shardName:          "my-cluster-1",
+			namespace:          "mongodb",
+			expectedSecretName: "my-cluster-1-search-certificate-key",
+		},
+		{
+			name:               "different shard naming",
+			shardName:          "shard-prod-0",
+			namespace:          "production",
+			expectedSecretName: "shard-prod-0-search-certificate-key",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", tc.namespace)
+
+			secretNsName := search.TLSOperatorSecretNamespacedNameForShard(tc.shardName)
+			assert.Equal(t, tc.expectedSecretName, secretNsName.Name)
+			assert.Equal(t, tc.namespace, secretNsName.Namespace)
+		})
+	}
+}
+
+func TestPerShardTLSResourceAdapter(t *testing.T) {
+	testCases := []struct {
+		name                       string
+		secretPrefix               string
+		shardName                  string
+		namespace                  string
+		expectedSourceSecretName   string
+		expectedOperatorSecretName string
+	}{
+		{
+			name:                       "with prefix",
+			secretPrefix:               "my-prefix",
+			shardName:                  "my-cluster-0",
+			namespace:                  "test-ns",
+			expectedSourceSecretName:   "my-prefix-my-cluster-0-search-cert",
+			expectedOperatorSecretName: "my-cluster-0-search-certificate-key",
+		},
+		{
+			name:                       "without prefix",
+			secretPrefix:               "",
+			shardName:                  "shard-1",
+			namespace:                  "mongodb",
+			expectedSourceSecretName:   "shard-1-search-cert",
+			expectedOperatorSecretName: "shard-1-search-certificate-key",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", tc.namespace, func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{
+						CertsSecretPrefix: tc.secretPrefix,
+					},
+				}
+			})
+
+			adapter := &perShardTLSResource{
+				MongoDBSearch: search,
+				shardName:     tc.shardName,
+			}
+
+			// Test TLSSecretNamespacedName
+			sourceSecret := adapter.TLSSecretNamespacedName()
+			assert.Equal(t, tc.expectedSourceSecretName, sourceSecret.Name)
+			assert.Equal(t, tc.namespace, sourceSecret.Namespace)
+
+			// Test TLSOperatorSecretNamespacedName
+			operatorSecret := adapter.TLSOperatorSecretNamespacedName()
+			assert.Equal(t, tc.expectedOperatorSecretName, operatorSecret.Name)
+			assert.Equal(t, tc.namespace, operatorSecret.Namespace)
+		})
+	}
+}
+
+func TestReconcileSharded_CertificateKeySecretRefRejected(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Security = searchv1.Security{
+			TLS: &searchv1.TLS{
+				CertificateKeySecret: corev1.LocalObjectReference{Name: "shared-cert"},
+			},
+		}
+	})
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"shard-0", "shard-1"},
+	}
+
+	helper := NewMongoDBSearchReconcileHelper(
+		newTestFakeClient(search),
+		search,
+		shardedSource,
+		newTestOperatorSearchConfig(),
+	)
+
+	result := helper.reconcileSharded(t.Context(), zap.S(), shardedSource, "8.0.0")
+
+	assert.False(t, result.IsOK())
+	assert.Equal(t, status.PhaseFailed, result.Phase())
+
+	msgOpt, exists := status.GetOption(result.StatusOptions(), status.MessageOption{})
+	require.True(t, exists)
+	assert.Contains(t, msgOpt.(status.MessageOption).Message, "spec.security.tls.certificateKeySecretRef is not supported for sharded clusters")
+}
+
+func TestValidatePerShardTLSSecrets(t *testing.T) {
+	testCases := []struct {
+		name           string
+		setup          func(*searchv1.MongoDBSearch)
+		shardNames     []string
+		existingSecret string // Name of secret to create (empty = no secrets)
+		expectedOK     bool
+		expectedPhase  status.Phase // status.PhasePending or status.PhaseFailed or "" for OK
+	}{
+		{
+			name: "TLS not configured - returns OK",
+			setup: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{TLS: nil}
+			},
+			shardNames:    []string{"shard-0", "shard-1"},
+			expectedOK:    true,
+			expectedPhase: "",
+		},
+		{
+			name: "per-shard mode - missing secret returns Pending",
+			setup: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{
+						CertsSecretPrefix: "my-prefix",
+					},
+				}
+			},
+			shardNames:     []string{"shard-0", "shard-1"},
+			existingSecret: "", // No secrets exist
+			expectedOK:     false,
+			expectedPhase:  status.PhasePending,
+		},
+		{
+			name: "per-shard mode - first secret exists, second missing returns Pending",
+			setup: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{
+						CertsSecretPrefix: "my-prefix",
+					},
+				}
+			},
+			shardNames:     []string{"shard-0", "shard-1"},
+			existingSecret: "my-prefix-shard-0-search-cert", // Only first shard's secret exists
+			expectedOK:     false,
+			expectedPhase:  status.PhasePending,
+		},
+		{
+			name: "per-shard mode - all secrets exist returns OK",
+			setup: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{
+						CertsSecretPrefix: "my-prefix",
+					},
+				}
+			},
+			shardNames:     []string{"shard-0"},
+			existingSecret: "my-prefix-shard-0-search-cert",
+			expectedOK:     true,
+			expectedPhase:  "",
+		},
+		{
+			name: "per-shard mode without prefix - missing secret returns Pending",
+			setup: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{},
+				}
+			},
+			shardNames:     []string{"shard-0"},
+			existingSecret: "", // No secrets exist
+			expectedOK:     false,
+			expectedPhase:  status.PhasePending,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", "test-ns", tc.setup)
+
+			var objects []client.Object
+			objects = append(objects, search)
+
+			// Create the existing secret if specified
+			if tc.existingSecret != "" {
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      tc.existingSecret,
+						Namespace: "test-ns",
+					},
+					Data: map[string][]byte{
+						"tls.crt": []byte("cert-data"),
+						"tls.key": []byte("key-data"),
+					},
+				}
+				objects = append(objects, secret)
+			}
+
+			fakeClient := newTestFakeClient(objects...)
+
+			// Create a mock sharded source
+			shardedSource := &mockShardedSource{
+				shardNames: tc.shardNames,
+			}
+
+			helper := NewMongoDBSearchReconcileHelper(
+				fakeClient,
+				search,
+				shardedSource,
+				newTestOperatorSearchConfig(),
+			)
+
+			status := helper.validatePerShardTLSSecrets(t.Context(), zap.S(), tc.shardNames)
+
+			if tc.expectedOK {
+				assert.True(t, status.IsOK(), "Expected status to be OK")
+			} else {
+				assert.False(t, status.IsOK(), "Expected status to not be OK")
+				assert.Equal(t, tc.expectedPhase, status.Phase())
+			}
+		})
+	}
+}
+
+func TestValidatePerShardTLSSecretsAllExist(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Security = searchv1.Security{
+			TLS: &searchv1.TLS{
+				CertsSecretPrefix: "my-prefix",
+			},
+		}
+	})
+
+	shardNames := []string{"shard-0", "shard-1", "shard-2"}
+
+	var objects []client.Object
+	objects = append(objects, search)
+
+	// Create all per-shard secrets
+	for _, shardName := range shardNames {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("my-prefix-%s-search-cert", shardName),
+				Namespace: "test-ns",
+			},
+			Data: map[string][]byte{
+				"tls.crt": []byte("cert-data"),
+				"tls.key": []byte("key-data"),
+			},
+		}
+		objects = append(objects, secret)
+	}
+
+	fakeClient := newTestFakeClient(objects...)
+
+	shardedSource := &mockShardedSource{
+		shardNames: shardNames,
+	}
+
+	helper := NewMongoDBSearchReconcileHelper(
+		fakeClient,
+		search,
+		shardedSource,
+		newTestOperatorSearchConfig(),
+	)
+
+	status := helper.validatePerShardTLSSecrets(t.Context(), zap.S(), shardNames)
+	assert.True(t, status.IsOK(), "Expected status to be OK when all secrets exist")
 }

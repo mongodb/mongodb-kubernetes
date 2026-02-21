@@ -75,7 +75,17 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 
 	// Watch our own TLS certificate secret for changes
 	if mdbSearch.Spec.Security.TLS != nil {
-		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.Security.TLS.CertificateKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		if shardedSource, ok := searchSource.(searchcontroller.ShardedSearchSourceDBResource); ok {
+			// Sharded: watch per-shard source secrets (one per shard)
+			for _, shardName := range shardedSource.GetShardNames() {
+				shardSecretNsName := mdbSearch.TLSSecretNamespacedNameForShard(shardName)
+				r.watch.AddWatchedResourceIfNotAdded(shardSecretNsName.Name, shardSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
+			}
+		} else {
+			// Non-sharded: watch the single source secret
+			sourceSecretNsName := mdbSearch.TLSSecretNamespacedName()
+			r.watch.AddWatchedResourceIfNotAdded(sourceSecretNsName.Name, sourceSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		}
 	}
 
 	if mdbSearch.Spec.AutoEmbedding != nil {
@@ -96,7 +106,18 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 	// If everything fails just error out and the controller will retry reconciliation.
 
 	if search.IsExternalMongoDBSource() {
-		return searchcontroller.NewExternalSearchSource(search.Namespace, search.Spec.Source.ExternalMongoDBSource), nil
+		externalSpec := search.Spec.Source.ExternalMongoDBSource
+
+		// Sharded external source
+		if search.IsExternalSourceSharded() {
+			return searchcontroller.NewShardedExternalSearchSource(
+				search.Namespace,
+				externalSpec,
+			), nil
+		}
+
+		// Replica set external source (existing behavior)
+		return searchcontroller.NewExternalSearchSource(search.Namespace, externalSpec), nil
 	}
 
 	sourceMongoDBResourceRef := search.GetMongoDBResourceRef()
@@ -114,6 +135,9 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 		}
 	} else {
 		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
+		if mdb.GetResourceType() == mdbv1.ShardedCluster {
+			return searchcontroller.NewShardedEnterpriseSearchSource(mdb, search), nil
+		}
 		return searchcontroller.NewEnterpriseResourceSearchSource(mdb), nil
 	}
 
