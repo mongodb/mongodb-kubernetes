@@ -309,18 +309,27 @@ func newShardedClusterMongoDB(name, namespace string, shardCount int, version st
 	}
 }
 
-func newShardedSearch(name, namespace, mdbName string) *searchv1.MongoDBSearch {
+func newShardedUnmanagedLBSearch(name, namespace, mdbName string, endpointTemplate string) *searchv1.MongoDBSearch {
+	var lb *searchv1.LoadBalancerConfig
+	if endpointTemplate != "" {
+		lb = &searchv1.LoadBalancerConfig{
+			Mode:     searchv1.LBModeUnmanaged,
+			Endpoint: endpointTemplate,
+		}
+	}
 	return &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
 		Spec: searchv1.MongoDBSearchSpec{
+			Replicas: 1,
 			Source: &searchv1.MongoDBSource{
 				MongoDBResourceRef: &userv1.MongoDBResourceRef{
 					Name: mdbName,
 				},
 			},
+			LoadBalancer: lb,
 		},
 	}
 }
@@ -355,11 +364,48 @@ func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			mdb := newShardedClusterMongoDB(tc.mdbName, "test-ns", tc.shardCount, "8.2.0")
-			search := newShardedSearch("test-search", "test-ns", tc.mdbName)
+			search := newShardedUnmanagedLBSearch("test-search", "test-ns", tc.mdbName, "")
 			src := NewShardedEnterpriseSearchSource(mdb, search)
 
 			shardNames := src.GetShardNames()
 			assert.Equal(t, tc.expectedShards, shardNames)
+		})
+	}
+}
+
+func TestShardedEnterpriseSearchSource_Validate(t *testing.T) {
+	tests := []struct {
+		name           string
+		shardCount     int
+		expectError    bool
+		expectedErrMsg string
+	}{
+		{
+			name:        "Valid - two shards",
+			shardCount:  2,
+			expectError: false,
+		},
+		{
+			name:        "Valid - single shard",
+			shardCount:  1,
+			expectError: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := newShardedClusterMongoDB("my-cluster", "test-ns", tc.shardCount, "8.2.0")
+			search := newShardedUnmanagedLBSearch("test-search", "test-ns", "my-cluster", "")
+			src := NewShardedEnterpriseSearchSource(mdb, search)
+
+			err := src.Validate()
+
+			if tc.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedErrMsg)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }
