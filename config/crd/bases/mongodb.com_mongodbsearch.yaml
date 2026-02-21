@@ -78,6 +78,68 @@ spec:
                 required:
                 - embeddingModelAPIKeySecret
                 type: object
+              lb:
+                description: LoadBalancer configures how mongod/mongos connect to
+                  mongot (Managed vs Unmanaged/BYO LB).
+                properties:
+                  envoy:
+                    description: Envoy contains configuration for operator-managed
+                      Envoy load balancer
+                    type: object
+                  external:
+                    description: External contains configuration for user-provided
+                      external L7 load balancer
+                    properties:
+                      endpoint:
+                        description: |-
+                          Endpoint is the LB endpoint for ReplicaSet or a template for sharded clusters.
+                          For sharded clusters, use {shardName} as a placeholder that will be substituted
+                          with the actual shard name. Example: "lb-{shardName}.example.com:27028"
+                        type: string
+                      sharded:
+                        description: |-
+                          DEPRECATED: Use Endpoint with {shardName} template instead.
+                          Sharded contains per-shard LB endpoint configuration for sharded clusters.
+                          If both Endpoint (with template) and Sharded.Endpoints are specified,
+                          Endpoint template takes precedence.
+                        properties:
+                          endpoints:
+                            description: Endpoints is a list of per-shard LB endpoints
+                            items:
+                              description: ShardEndpoint maps a shard name to its
+                                external LB endpoint
+                              properties:
+                                endpoint:
+                                  description: |-
+                                    Endpoint is the external LB host:port for this shard's mongot pool
+                                    The hostname is typically used as SNI by the external LB to route to the correct shard-local mongot
+                                  minLength: 1
+                                  type: string
+                                shardName:
+                                  description: ShardName is the logical shard name
+                                    (e.g., "my-cluster-0")
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - endpoint
+                              - shardName
+                              type: object
+                            minItems: 1
+                            type: array
+                        required:
+                        - endpoints
+                        type: object
+                    type: object
+                  mode:
+                    description: 'Mode specifies the load balancer mode: Managed (operator-managed)
+                      or Unmanaged (BYO L7 LB)'
+                    enum:
+                    - Managed
+                    - Unmanaged
+                    type: string
+                required:
+                - mode
+                type: object
               logLevel:
                 description: Configure verbosity of mongot logs. Defaults to INFO
                   if not set.
@@ -219,6 +281,7 @@ spec:
                           CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
                           The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
                           This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
+                          If both CertificateKeySecret.Name and CertsSecretPrefix are specified, CertificateKeySecret.Name takes precedence.
                         properties:
                           name:
                             default: ""
@@ -231,8 +294,12 @@ spec:
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
-                    required:
-                    - certificateKeySecretRef
+                      certsSecretPrefix:
+                        description: |-
+                          CertsSecretPrefix is a prefix used to derive the TLS secret name.
+                          When set, the operator will look for a secret named "{prefix}-{resourceName}-search-cert".
+                          If CertificateKeySecret.Name is also specified, it takes precedence over this field.
+                        type: string
                     type: object
                 type: object
               source:
@@ -301,6 +368,16 @@ spec:
                     required:
                     - name
                     type: object
+                  replicas:
+                    default: 1
+                    description: |-
+                      Replicas is the number of mongot pods to deploy.
+                      For ReplicaSet source: this many mongot pods total.
+                      For Sharded source: this many mongot pods per shard.
+                      When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.external.endpoint)
+                      is required to distribute traffic across mongot instances.
+                    minimum: 1
+                    type: integer
                   username:
                     type: string
                 type: object
