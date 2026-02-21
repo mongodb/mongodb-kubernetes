@@ -1,0 +1,56 @@
+{
+  "readiness_probe_log": {
+    "title": "MongoDB Readiness Probe Log",
+    "description": "JSON log format for MongoDB Kubernetes readiness probe",
+    "url": "https://docs.mongodb.com/",
+    "json": true,
+    "line-format": [
+      {
+        "field": "ts"
+      },
+      " ",
+      {
+        "field": "level",
+        "min-width": 5,
+        "align": "left"
+      },
+      " ",
+      {
+        "field": "msg"
+      }
+    ],
+    "level-field": "level",
+    "level": {
+      "error": "error|Error|ERROR",
+      "warning": "warn|Warn|WARN|warning|Warning|WARNING",
+      "info": "info|Info|INFO",
+      "debug": "debug|Debug|DEBUG"
+    },
+    "timestamp-field": "ts",
+    "timestamp-format": [
+      "%Y-%m-%dT%H:%M:%S.%LZ"
+    ],
+    "value": {
+      "level": {
+        "kind": "string",
+        "identifier": true
+      },
+      "ts": {
+        "kind": "string",
+        "identifier": true
+      },
+      "msg": {
+        "kind": "string",
+        "identifier": false
+      }
+    },
+    "sample": [
+      {
+        "line": "{\"level\":\"info\",\"ts\":\"2025-07-17T15:58:37.842Z\",\"msg\":\"logging configuration: &{Filename:/var/log/mongodb-mms-automation/readiness.log MaxSize:5 MaxAge:0 MaxBackups:5 LocalTime:false Compress:false size:0 file:<nil> mu:{state:0 sema:0} millCh:<nil> startMill:{done:{_:{} v:0} m:{state:0 sema:0}}}\"}"
+      },
+      {
+        "line": "{\"level\":\"debug\",\"ts\":\"2025-07-17T15:59:07.926Z\",\"msg\":\"Indicated a wait Step, status: WaitAllRsMembersUp, started at 2025-07-17T15:58:47Z but hasn't finished yet. Marking the probe as ready\"}"
+      }
+    ]
+  }
+}
