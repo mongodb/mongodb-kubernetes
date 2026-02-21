@@ -114,6 +114,12 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 		}
 	} else {
 		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
+		// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
+		// For sharded clusters with external LB mode, use ShardedEnterpriseSearchSource
+		// which provides per-shard host seeds and endpoint mapping.
+		if mdb.GetResourceType() == mdbv1.ShardedCluster && search.IsShardedExternalLB() {
+			return searchcontroller.NewShardedEnterpriseSearchSource(mdb, search), nil
+		}
 		return searchcontroller.NewEnterpriseResourceSearchSource(mdb), nil
 	}
 

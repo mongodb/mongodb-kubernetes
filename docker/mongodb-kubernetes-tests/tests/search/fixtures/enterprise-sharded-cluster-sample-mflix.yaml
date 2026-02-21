@@ -1,0 +1,40 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: mdb-sh
+spec:
+  type: ShardedCluster
+  shardCount: 2
+  mongodsPerShardCount: 1
+  mongosCount: 1
+  configServerCount: 1
+  version: 8.2.0-ent
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  security:
+    certsSecretPrefix: mdb-sh
+    tls:
+      ca: mdb-sh-ca
+    authentication:
+      enabled: true
+      ignoreUnknownUsers: true
+      modes:
+        - SCRAM
+  agent:
+    logLevel: DEBUG
+  persistent: true
+  podSpec:
+    podTemplate:
+      spec:
+        containers:
+          - name: mongodb-enterprise-database
+            resources:
+              limits:
+                cpu: "1"
+                memory: 1Gi
+              requests:
+                cpu: "0.5"
+                memory: 512Mi

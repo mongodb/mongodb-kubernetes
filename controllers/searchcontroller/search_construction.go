@@ -46,6 +46,25 @@ type SearchSourceDBResource interface {
 	Validate() error
 }
 
+// ShardedSearchSourceDBResource extends SearchSourceDBResource for sharded MongoDB clusters.
+// It provides per-shard host seeds and configuration for the sharded Search + external L7 LB PoC.
+//
+// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
+// - spec.lb.mode == External
+// - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
+// We map shardName -> endpoint and configure each mongod shard
+// to use its shard-local external LB endpoint for Search gRPC.
+type ShardedSearchSourceDBResource interface {
+	SearchSourceDBResource
+	GetShardCount() int
+	GetShardNames() []string
+	HostSeedsForShard(shardIdx int) []string
+	GetExternalLBEndpointForShard(shardName string) string
+	// MongosHostAndPort returns the mongos host:port for the sharded cluster.
+	// This is used for the router section in mongot config.
+	MongosHostAndPort() string
+}
+
 type TLSSourceConfig struct {
 	CAFileName       string
 	CAVolume         corev1.Volume
@@ -104,7 +123,95 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 		statefulset.WithLabels(labels),
 		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
-		statefulset.WithReplicas(1),
+		statefulset.WithReplicas(mdbSearch.GetReplicas()),
+		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
+		dataVolumeClaim,
+		statefulset.WithPodSpecTemplate(
+			podtemplatespec.Apply(
+				podSecurityContext,
+				podtemplatespec.WithPodLabels(labels),
+				podtemplatespec.WithVolumes(volumes),
+				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
+				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
+			),
+		),
+	}
+
+	if mdbSearch.Spec.StatefulSetConfiguration != nil {
+		stsModifications = append(stsModifications, statefulset.WithCustomSpecs(mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec))
+		stsModifications = append(stsModifications, statefulset.WithObjectMetadata(
+			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Labels,
+			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Annotations,
+		))
+	}
+
+	return statefulset.Apply(stsModifications...)
+}
+
+// CreateShardSearchStatefulSetFunc creates a StatefulSet for a specific shard's mongot deployment.
+// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
+// - spec.lb.mode == External
+// - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
+// We map shardName -> endpoint and configure each mongod shard
+// to use its shard-local external LB endpoint for Search gRPC.
+func CreateShardSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, shardedSource ShardedSearchSourceDBResource, shardIdx int, searchImage string) statefulset.Modification {
+	shardName := shardedSource.GetShardNames()[shardIdx]
+	stsName := mdbSearch.ShardMongotStatefulSetName(shardName)
+	svcName := mdbSearch.ShardMongotServiceName(shardName)
+	configMapName := mdbSearch.ShardMongotConfigMapName(shardName)
+
+	labels := map[string]string{
+		"app":   stsName,
+		"shard": shardName,
+	}
+
+	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
+	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
+
+	dataVolumeName := "data"
+	sourceUserPasswordVolumeName := "password"
+	mongotConfigVolumeName := "config"
+
+	pvcVolumeMount := statefulset.CreateVolumeMount(dataVolumeName, MongotDataPath, statefulset.WithSubPath("data"))
+
+	sourceUserPasswordSecretKey := mdbSearch.SourceUserPasswordSecretRef()
+	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
+	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
+
+	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap(mongotConfigVolumeName, configMapName)
+	mongotConfigVolumeMount := statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
+
+	var persistenceConfig *common.PersistenceConfig
+	if mdbSearch.Spec.Persistence != nil && mdbSearch.Spec.Persistence.SingleConfig != nil {
+		persistenceConfig = mdbSearch.Spec.Persistence.SingleConfig
+	}
+
+	defaultPersistenceConfig := common.PersistenceConfig{Storage: util.DefaultMongodStorageSize}
+	dataVolumeClaim := statefulset.WithVolumeClaim(dataVolumeName, construct.PvcFunc(dataVolumeName, persistenceConfig, defaultPersistenceConfig, nil))
+
+	podSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()
+
+	volumeMounts := []corev1.VolumeMount{
+		pvcVolumeMount,
+		tmpVolumeMount,
+		mongotConfigVolumeMount,
+		sourceUserPasswordVolumeMount,
+	}
+
+	volumes := []corev1.Volume{
+		tmpVolume,
+		mongotConfigVolume,
+		sourceUserPasswordVolume,
+	}
+
+	stsModifications := []statefulset.Modification{
+		statefulset.WithName(stsName),
+		statefulset.WithNamespace(mdbSearch.Namespace),
+		statefulset.WithServiceName(svcName),
+		statefulset.WithLabels(labels),
+		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
+		statefulset.WithMatchLabels(labels),
+		statefulset.WithReplicas(mdbSearch.GetReplicas()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
 		dataVolumeClaim,
 		statefulset.WithPodSpecTemplate(
