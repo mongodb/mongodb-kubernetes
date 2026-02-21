@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	k8swait "k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -152,16 +153,54 @@ func ServiceHasOwnerReference(ctx context.Context, mdb *mdbv1.MongoDBCommunity, 
 	}
 }
 
+// WaitForAllProcessesToHavePort waits until all processes in the automation config have the expected port.
+// This is necessary because port changes happen one process at a time through multiple reconciliation cycles.
+func WaitForAllProcessesToHavePort(ctx context.Context, mdb *mdbv1.MongoDBCommunity, expectedPort int) func(t *testing.T) {
+	return func(t *testing.T) {
+		timeout := 10 * time.Minute
+		pollInterval := 10 * time.Second
+
+		err := k8swait.PollUntilContextTimeout(ctx, pollInterval, timeout, false, func(ctx context.Context) (bool, error) {
+			currentAc := getAutomationConfig(ctx, t, mdb)
+
+			allAtExpectedPort := true
+			for _, process := range currentAc.Processes {
+				port := process.GetPort()
+				if port != expectedPort {
+					t.Logf("Process %s has port %d, waiting for %d", process.Name, port, expectedPort)
+					allAtExpectedPort = false
+				}
+			}
+
+			if allAtExpectedPort {
+				t.Logf("All %d processes have port %d", len(currentAc.Processes), expectedPort)
+			}
+			return allAtExpectedPort, nil
+		})
+		assert.NoError(t, err, "Timed out waiting for all processes to have port %d", expectedPort)
+	}
+}
+
 func ServiceUsesCorrectPort(ctx context.Context, mdb *mdbv1.MongoDBCommunity, expectedPort int32) func(t *testing.T) {
 	return func(t *testing.T) {
+		// After all AC processes have the new port, the service should be updated
+		// within 1-2 reconciliation cycles (30-60 seconds typically).
+		timeout := 2 * time.Minute
+		pollInterval := 5 * time.Second
 		serviceNamespacedName := types.NamespacedName{Name: mdb.ServiceName(), Namespace: mdb.Namespace}
-		svc := corev1.Service{}
-		err := e2eutil.TestClient.Get(ctx, serviceNamespacedName, &svc)
-		if err != nil {
-			t.Fatal(err)
-		}
-		assert.Len(t, svc.Spec.Ports, 1)
-		assert.Equal(t, svc.Spec.Ports[0].Port, expectedPort)
+
+		err := k8swait.PollUntilContextTimeout(ctx, pollInterval, timeout, false, func(ctx context.Context) (bool, error) {
+			svc := corev1.Service{}
+			if err := e2eutil.TestClient.Get(ctx, serviceNamespacedName, &svc); err != nil {
+				return false, err
+			}
+			if len(svc.Spec.Ports) == 1 && svc.Spec.Ports[0].Port == expectedPort {
+				return true, nil
+			}
+			t.Logf("Service has %d ports, waiting for single port %d", len(svc.Spec.Ports), expectedPort)
+			return false, nil
+		})
+		assert.NoError(t, err, "Timed out waiting for service to have single port %d", expectedPort)
 	}
 }
 
@@ -380,6 +419,21 @@ func AutomationConfigVersionHasTheExpectedVersion(ctx context.Context, mdb *mdbv
 	return func(t *testing.T) {
 		currentAc := getAutomationConfig(ctx, t, mdb)
 		assert.Equal(t, expectedVersion, currentAc.Version)
+	}
+}
+
+// WaitForAutomationConfigVersion waits for the automation config to reach the expected version with retries.
+// This is useful for scenarios like port changes where the config update takes time to propagate.
+func WaitForAutomationConfigVersion(ctx context.Context, mdb *mdbv1.MongoDBCommunity, expectedVersion int, timeout time.Duration) func(t *testing.T) {
+	return func(t *testing.T) {
+		var lastVersion int
+		err := k8swait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, false, func(ctx context.Context) (done bool, err error) {
+			currentAc := getAutomationConfig(ctx, t, mdb)
+			lastVersion = currentAc.Version
+			t.Logf("Current AC version: %d, waiting for: %d", lastVersion, expectedVersion)
+			return currentAc.Version == expectedVersion, nil
+		})
+		assert.NoError(t, err, "Timed out waiting for automation config version %d (last seen: %d)", expectedVersion, lastVersion)
 	}
 }
 
