@@ -75,7 +75,7 @@ e2e-telepresence: build-and-push-test-image
 	telepresence connect --context $(test_pod_cluster); scripts/dev/launch_e2e.sh; telepresence quit
 
 # clean all kubernetes cluster resources and OM state
-reset: reset-mco
+reset:
 	go run scripts/dev/reset.go
 
 reset-mco: ## Cleans up e2e test env
@@ -350,7 +350,7 @@ bundle: manifests kustomize
 bundle-build:
 	docker build $(EXPIRES) --platform linux/amd64 -f ./bundle/$(VERSION)/bundle.Dockerfile -t $(BUNDLE_IMG) .
 
-prepare-local-e2e: reset-mco # prepares the local environment to run a local operator
+prepare-local-e2e:  # prepares the local environment to run a local operator
 	scripts/dev/prepare_local_e2e_run.sh
 
 prepare-local-olm-e2e:
