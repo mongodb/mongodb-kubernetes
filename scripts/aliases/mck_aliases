@@ -1,0 +1,80 @@
+function mck() {
+    local command=$1
+
+    if [[ -z "${command}" ]]; then
+      command="help"
+    else
+      shift
+    fi
+
+    mck_${command} "$@"
+}
+
+function mck_source() {
+  mck_source_context
+}
+
+function mck_source_context() {
+    test -f .generated/context.export.env && source .generated/context.export.env && echo "Current context: $(cat .generated/.current_context)"
+    test -f venv/bin/activate && source venv/bin/activate && echo "Activated venv ($(python --version)): $(which python)"
+    test -f scripts/aliases/aliases && source scripts/aliases/aliases && echo "Sourced aliases from scripts/aliases/aliases"
+}
+
+function mck_switch() {
+  scripts/dev/switch_context.sh "$@"
+  mck_source_context
+}
+
+function _mck_fzf_git_status() {
+  cd $(awk "{print \$1}" <<< "$1")
+  git status
+}
+
+function mck_switch_worktree() {
+    local worktree
+
+    worktree=$(git worktree list | sed "s|$HOME/||g" \
+      | fzf \
+        --ansi \
+        --preview "
+          worktree=\"\$(awk '{print \$1}' <<< {})\"
+          dir=\"\$HOME/\${worktree}\"
+          git -c color.status=always -C \"\${dir}\" status
+        " \
+        --border \
+        --border-label 'Switch git worktree' \
+        --header 'CTRL-X (remove worktree)' \
+        --no-separator \
+        --header-border horizontal \
+        --border-label-pos 2 \
+        --color 'label:blue' \
+        --min-height 20+ \
+        --header-border horizontal \
+        --preview-border line \
+        --bind "ctrl-x:reload(git worktree remove \"\$HOME/\$(awk '{print \$1}' <<< {})\" > /dev/null; git worktree list | sed \"s|\$HOME/||g\")" \
+      | awk "{print \$1}" \
+    )
+
+    if [[ -n "${worktree}" ]]; then
+        cd $HOME/${worktree}
+        mck_source_context
+        echo "Switched to worktree: $(pwd)"
+    fi
+}
+
+function mck_cd() {
+  if [[ ! -f ".git" && ! -d ".git" || ! -f "release.json" ]]; then
+    test -n "${mck_repo_dir}" && cd "${mck_repo_dir}"
+  fi
+
+  mck_switch_worktree "$@"
+}
+
+function mck_help() {
+  echo "Available mck commands:"
+  echo "  mck switch - switch context (make switch) + mck source_context"
+  echo "  mck source_context, source - sources context env files, python venv and aliases"
+  echo "  mck switch_worktree, cd - switches git worktree + source_context"
+}
+
+
