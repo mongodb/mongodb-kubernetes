@@ -1,7 +1,14 @@
 export K8S_CTX="kind-kind"
 
 # patch id from evergreen patch
-version_id="6969124ffd1e5d00076895fa"
+version_id="6978c1cad34f0000071b3126"
+
+# Cloud Manager configuration - using cloud-qa.mongodb.com
+export OPS_MANAGER_API_URL="https://cloud-qa.mongodb.com"
+export OPS_MANAGER_API_USER="${OPS_MANAGER_API_USER:-}"
+export OPS_MANAGER_API_KEY="${OPS_MANAGER_API_KEY:-}"
+export OPS_MANAGER_ORG_ID="${OPS_MANAGER_ORG_ID:-}"
+export OPS_MANAGER_PROJECT_NAME="mongodb-test-${MDB_EXTERNAL_CLUSTER_NAME:-external-mdb-sh}"
 
 #search_image_repo="268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
 #search_image_hash="fbd60fb055dd500058edcb45677ea85d19421f47"
@@ -11,6 +18,7 @@ declare -a helm_values=(
 "registry.imagePullSecrets=image-registries-secret"
 "registry.operator=${ecr}/dev"
 "registry.initOpsManager=${ecr}/dev"
+"registry.initAppDb=${ecr}/dev"
 "registry.initDatabase=${ecr}/dev"
 "registry.agent=${ecr}/dev"
 "registry.opsManager=quay.io/mongodb"
@@ -18,6 +26,7 @@ declare -a helm_values=(
 "registry.database=${ecr}/dev"
 "operator.version=${version_id}"
 "initOpsManager.version=${version_id}"
+"initAppDb.version=${version_id}"
 "initDatabase.version=${version_id}"
 "database.version=${version_id}"
 #"search.community.repo=${search_image_repo}"
@@ -30,5 +39,7 @@ SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
 
 OPERATOR_ADDITIONAL_HELM_VALUES="$(echo -n "${helm_values[@]}" | tr ' ' ',')"
 export OPERATOR_ADDITIONAL_HELM_VALUES
-OPERATOR_HELM_CHART="$(realpath "${SCRIPT_DIR}/../../helm_chart")"
+# Use the helm_chart directory relative to the repo root
+OPERATOR_HELM_CHART="$(realpath "${SCRIPT_DIR}/../../../helm_chart")"
 export OPERATOR_HELM_CHART
+
