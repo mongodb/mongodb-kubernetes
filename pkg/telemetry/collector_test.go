@@ -353,19 +353,19 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					Spec: mdbmulti.MongoDBMultiSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
 							ResourceType: mdbv1.ReplicaSet,
-						},
-						ClusterSpecList: []mdbv1.ClusterSpecItem{
-							{
-								ClusterName: "cluster1",
-								Members:     1,
-							},
-							{
-								ClusterName: "cluster2",
-								Members:     3,
-							},
-							{
-								ClusterName: "cluster3",
-								Members:     3,
+							ClusterSpecList: []mdbv1.ClusterSpecItem{
+								{
+									ClusterName: "cluster1",
+									Members:     1,
+								},
+								{
+									ClusterName: "cluster2",
+									Members:     3,
+								},
+								{
+									ClusterName: "cluster3",
+									Members:     3,
+								},
 							},
 						},
 					}, ObjectMeta: metav1.ObjectMeta{
@@ -582,19 +582,19 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					Spec: mdbmulti.MongoDBMultiSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
 							ResourceType: mdbv1.ReplicaSet,
-						},
-						ClusterSpecList: []mdbv1.ClusterSpecItem{
-							{
-								ClusterName: "cluster1",
-								Members:     1,
-							},
-							{
-								ClusterName: "cluster2",
-								Members:     3,
-							},
-							{
-								ClusterName: "cluster3",
-								Members:     3,
+							ClusterSpecList: []mdbv1.ClusterSpecItem{
+								{
+									ClusterName: "cluster1",
+									Members:     1,
+								},
+								{
+									ClusterName: "cluster2",
+									Members:     3,
+								},
+								{
+									ClusterName: "cluster3",
+									Members:     3,
+								},
 							},
 						},
 					}, ObjectMeta: metav1.ObjectMeta{
@@ -609,19 +609,19 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 								ExternalDomain: ptr.To("some.default.domain"),
 							},
-						},
-						ClusterSpecList: []mdbv1.ClusterSpecItem{
-							{
-								ClusterName: "cluster1",
-								Members:     1,
-							},
-							{
-								ClusterName: "cluster2",
-								Members:     3,
-							},
-							{
-								ClusterName: "cluster3",
-								Members:     3,
+							ClusterSpecList: []mdbv1.ClusterSpecItem{
+								{
+									ClusterName: "cluster1",
+									Members:     1,
+								},
+								{
+									ClusterName: "cluster2",
+									Members:     3,
+								},
+								{
+									ClusterName: "cluster3",
+									Members:     3,
+								},
 							},
 						},
 					}, ObjectMeta: metav1.ObjectMeta{
@@ -636,27 +636,27 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 								ExternalDomain: ptr.To("some.default.domain"),
 							},
-						},
-						ClusterSpecList: []mdbv1.ClusterSpecItem{
-							{
-								ClusterName: "cluster1",
-								Members:     1,
-								ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
-									ExternalDomain: ptr.To("cluster1.domain"),
+							ClusterSpecList: []mdbv1.ClusterSpecItem{
+								{
+									ClusterName: "cluster1",
+									Members:     1,
+									ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+										ExternalDomain: ptr.To("cluster1.domain"),
+									},
 								},
-							},
-							{
-								ClusterName: "cluster2",
-								Members:     3,
-								ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
-									ExternalDomain: ptr.To("cluster2.domain"),
+								{
+									ClusterName: "cluster2",
+									Members:     3,
+									ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+										ExternalDomain: ptr.To("cluster2.domain"),
+									},
 								},
-							},
-							{
-								ClusterName: "cluster3",
-								Members:     3,
-								ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
-									ExternalDomain: ptr.To("cluster3.domain"),
+								{
+									ClusterName: "cluster3",
+									Members:     3,
+									ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+										ExternalDomain: ptr.To("cluster3.domain"),
+									},
 								},
 							},
 						},
@@ -669,27 +669,27 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					Spec: mdbmulti.MongoDBMultiSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
 							ResourceType: mdbv1.ReplicaSet,
-						},
-						ClusterSpecList: []mdbv1.ClusterSpecItem{
-							{
-								ClusterName: "cluster1",
-								Members:     1,
-								ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
-									ExternalDomain: ptr.To("cluster1.domain"),
+							ClusterSpecList: []mdbv1.ClusterSpecItem{
+								{
+									ClusterName: "cluster1",
+									Members:     1,
+									ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+										ExternalDomain: ptr.To("cluster1.domain"),
+									},
 								},
-							},
-							{
-								ClusterName: "cluster2",
-								Members:     3,
-								ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
-									ExternalDomain: ptr.To("cluster2.domain"),
+								{
+									ClusterName: "cluster2",
+									Members:     3,
+									ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+										ExternalDomain: ptr.To("cluster2.domain"),
+									},
 								},
-							},
-							{
-								ClusterName: "cluster3",
-								Members:     3,
-								ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
-									ExternalDomain: ptr.To("cluster3.domain"),
+								{
+									ClusterName: "cluster3",
+									Members:     3,
+									ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+										ExternalDomain: ptr.To("cluster3.domain"),
+									},
 								},
 							},
 						},
