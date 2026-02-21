@@ -68,6 +68,9 @@ const (
 	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
 	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
 	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
+
+	// BackupHostnameOverrideEnv sets up the -backupOverrideLocalHost flag in agent-launcher.sh
+	BackupHostnameOverrideEnv = "MDB_BACKUP_HOSTNAME_OVERRIDE"
 )
 
 type StsType int
@@ -122,6 +125,7 @@ type DatabaseStatefulSetOptions struct {
 	// The certificate secrets and other dependencies named using the resource name will use the `Name` field.
 	StatefulSetNameOverride       string // this needs to be overriden of the
 	HostNameOverrideConfigmapName string
+	EnableBackupHostnameOverride  bool
 
 	AgentDebug      bool
 	AgentDebugImage string
@@ -758,6 +762,15 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		agentContainerModifications = append(agentContainerModifications, hostnameOverrideModification)
 		mongodContainerModifications = append(mongodContainerModifications, hostnameOverrideModification)
 		agentUtilitiesHolderModifications = append(agentUtilitiesHolderModifications, hostnameOverrideModification)
+		// In static architecture, agent-launcher-shim.sh (which exec's agent-launcher.sh) runs in the agent container.
+		// agent-launcher.sh reads this env var to set the -backupOverrideLocalHost flag.
+		if opts.EnableBackupHostnameOverride {
+			backupOverrideEnv := container.WithEnvs(corev1.EnvVar{
+				Name:  BackupHostnameOverrideEnv,
+				Value: "true",
+			})
+			agentContainerModifications = append(agentContainerModifications, backupOverrideEnv)
+		}
 	}
 
 	mods := []podtemplatespec.Modification{
@@ -808,6 +821,13 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		})
 		initContainerModifications = append(initContainerModifications, hostnameOverrideModification)
 		databaseContainerModifications = append(databaseContainerModifications, hostnameOverrideModification)
+		if opts.EnableBackupHostnameOverride {
+			backupOverrideEnv := container.WithEnvs(corev1.EnvVar{
+				Name:  BackupHostnameOverrideEnv,
+				Value: "true",
+			})
+			databaseContainerModifications = append(databaseContainerModifications, backupOverrideEnv)
+		}
 	}
 
 	mods := []podtemplatespec.Modification{

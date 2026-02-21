@@ -388,3 +388,145 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 		})
 	}
 }
+
+// TestBackupHostnameOverrideEnvVar verifies the BackupHostnameOverrideEnv env var is set correctly based on external domain and override settings.
+func TestBackupHostnameOverrideEnvVar(t *testing.T) {
+	tests := []struct {
+		name                         string
+		hasExternalDomain            bool
+		enableBackupHostnameOverride bool
+		staticArchitecture           bool
+		expectEnvVar                 bool
+	}{
+		{
+			name:                         "non-static: env var present when external domain configured and override enabled",
+			hasExternalDomain:            true,
+			enableBackupHostnameOverride: true,
+			staticArchitecture:           false,
+			expectEnvVar:                 true,
+		},
+		{
+			name:                         "non-static: env var absent when external domain configured but override disabled",
+			hasExternalDomain:            true,
+			enableBackupHostnameOverride: false,
+			staticArchitecture:           false,
+			expectEnvVar:                 false,
+		},
+		{
+			name:                         "non-static: env var absent when no external domain configured",
+			hasExternalDomain:            false,
+			enableBackupHostnameOverride: false,
+			staticArchitecture:           false,
+			expectEnvVar:                 false,
+		},
+		{
+			name:                         "static: env var present when external domain configured and override enabled",
+			hasExternalDomain:            true,
+			enableBackupHostnameOverride: true,
+			staticArchitecture:           true,
+			expectEnvVar:                 true,
+		},
+		{
+			name:                         "static: env var absent when external domain configured but override disabled",
+			hasExternalDomain:            true,
+			enableBackupHostnameOverride: false,
+			staticArchitecture:           true,
+			expectEnvVar:                 false,
+		},
+		{
+			name:                         "static: env var absent when no external domain configured",
+			hasExternalDomain:            false,
+			enableBackupHostnameOverride: false,
+			staticArchitecture:           true,
+			expectEnvVar:                 false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := mdbv1.NewReplicaSetBuilder().Build()
+			if tc.staticArchitecture {
+				mdb.Annotations = map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}
+			}
+
+			var opts func(mdbv1.MongoDB) DatabaseStatefulSetOptions
+			if tc.hasExternalDomain {
+				externalDomain := "mongodb.example.com"
+				mdb.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{
+					ExternalDomain: &externalDomain,
+				}
+				opts = ReplicaSetOptions(
+					GetPodEnvOptions(),
+					func(options *DatabaseStatefulSetOptions) {
+						options.HostNameOverrideConfigmapName = mdb.GetHostNameOverrideConfigmapName()
+						options.EnableBackupHostnameOverride = tc.enableBackupHostnameOverride
+					},
+				)
+			} else {
+				opts = ReplicaSetOptions(GetPodEnvOptions())
+			}
+
+			sts := DatabaseStatefulSet(*mdb, opts, zap.S())
+
+			// In non-static architecture, the env var is in the database container (which runs agent-launcher.sh).
+			// In static architecture, the env var is in the agent container (which runs agent-launcher-shim.sh -> agent-launcher.sh).
+			containerName := util.DatabaseContainerName
+			if tc.staticArchitecture {
+				containerName = util.AgentContainerName
+			}
+
+			containerIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+				return c.Name == containerName
+			})
+			require.NotEqual(t, -1, containerIdx, containerName+" container should exist")
+
+			envMap := env.ToMap(sts.Spec.Template.Spec.Containers[containerIdx].Env...)
+			val, ok := envMap[BackupHostnameOverrideEnv]
+
+			if tc.expectEnvVar {
+				assert.True(t, ok, BackupHostnameOverrideEnv+" should be present in "+containerName)
+				assert.Equal(t, "true", val)
+			} else {
+				assert.False(t, ok, BackupHostnameOverrideEnv+" should NOT be present in "+containerName)
+			}
+		})
+	}
+}
+
+// TestWithBackupHostnameOverrideOption verifies the option function correctly sets the EnableBackupHostnameOverride field.
+func TestWithBackupHostnameOverrideOption(t *testing.T) {
+	tests := []struct {
+		name          string
+		initialValue  bool
+		setValue      bool
+		expectedValue bool
+	}{
+		{
+			name:          "sets EnableBackupHostnameOverride to true",
+			initialValue:  false,
+			setValue:      true,
+			expectedValue: true,
+		},
+		{
+			name:          "sets EnableBackupHostnameOverride to false",
+			initialValue:  true,
+			setValue:      false,
+			expectedValue: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := &DatabaseStatefulSetOptions{EnableBackupHostnameOverride: tc.initialValue}
+
+			applyOpt := func(enabled bool) func(*DatabaseStatefulSetOptions) {
+				return func(opts *DatabaseStatefulSetOptions) {
+					opts.EnableBackupHostnameOverride = enabled
+				}
+			}
+
+			applyOpt(tc.setValue)(opts)
+			assert.Equal(t, tc.expectedValue, opts.EnableBackupHostnameOverride)
+		})
+	}
+}
