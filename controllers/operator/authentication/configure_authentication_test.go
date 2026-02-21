@@ -224,7 +224,12 @@ func TestDisableAuthenticationWithoutDeleteUsers(t *testing.T) {
 	}, zap.S())
 
 	// Disable with deleteUsers=false (auth transition)
-	if err := Disable(ctx, kubeClient, conn, Options{MongoDBResource: mongoDBResource}, false, zap.S()); err != nil {
+	// Pass the configured AutoUser to preserve it during auth transitions
+	opts := Options{
+		MongoDBResource: mongoDBResource,
+		AutoUser:        util.AutomationAgentName,
+	}
+	if err := Disable(ctx, kubeClient, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -235,6 +240,44 @@ func TestDisableAuthenticationWithoutDeleteUsers(t *testing.T) {
 
 	// When deleteUsers=false, AutoUser should be kept for agent validation
 	assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser, "AutoUser should be set when deleteUsers=false")
+	// Password should NOT be cleared during auth transitions - agent needs it to re-authenticate
+	assert.Equal(t, "some-password", ac.Auth.AutoPwd, "AutoPwd should be preserved when deleteUsers=false")
+}
+
+func TestDisableAuthenticationWithCustomUsername(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
+	dep := om.NewDeployment()
+	conn := om.NewMockedOmConnection(dep)
+
+	customUsername := "custom-automation-agent"
+
+	// enable authentication with custom username
+	_ = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		ac.Auth.Enable()
+		ac.Auth.AutoUser = customUsername
+		ac.Auth.AutoPwd = "some-password"
+		return nil
+	}, zap.S())
+
+	// Disable with deleteUsers=false (auth transition) using custom username
+	opts := Options{
+		MongoDBResource: mongoDBResource,
+		AutoUser:        customUsername,
+	}
+	if err := Disable(ctx, kubeClient, conn, opts, false, zap.S()); err != nil {
+		t.Fatal(err)
+	}
+
+	ac, err := conn.ReadAutomationConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// When deleteUsers=false, custom AutoUser should be preserved for agent validation
+	assert.Equal(t, customUsername, ac.Auth.AutoUser, "Custom AutoUser should be preserved when deleteUsers=false")
 	// Password should NOT be cleared during auth transitions - agent needs it to re-authenticate
 	assert.Equal(t, "some-password", ac.Auth.AutoPwd, "AutoPwd should be preserved when deleteUsers=false")
 }
