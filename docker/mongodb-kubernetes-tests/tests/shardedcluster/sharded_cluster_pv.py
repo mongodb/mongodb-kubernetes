@@ -96,7 +96,7 @@ class TestShardedClusterCreation:
                 hostname = sc.shard_hostname(0, member_idx, cluster_member_client.cluster_index)
                 hosts.append(hostname)
 
-        client = KubernetesTester.get_populated_mongo_client(hosts=hosts)
+        client = KubernetesTester.get_connected_mongo_client(hosts=hosts)
 
         assert client.primary is not None
         assert len(KubernetesTester.get_replica_set_secondaries(client)) == 2

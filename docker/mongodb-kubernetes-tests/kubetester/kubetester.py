@@ -1334,7 +1334,7 @@ class KubernetesTester(object):
         return yield_existing_csrs(csr_names, timeout)
 
     @staticmethod
-    def get_populated_mongo_client(hosts: list[str], ssl: bool = False) -> pymongo.MongoClient:
+    def get_connected_mongo_client(hosts: list[str], ssl: bool = False) -> pymongo.MongoClient:
         mongodburi = KubernetesTester.build_mongodb_uri_for_rs(hosts)
         options = {}
         if ssl:
@@ -1353,9 +1353,7 @@ class KubernetesTester(object):
         Prefer this over client.secondaries, which relies on pymongo's async topology
         discovery and may return an incomplete result immediately after connecting.
         """
-        status = client.admin.command(
-            "replSetGetStatus", read_preference=pymongo.ReadPreference.PRIMARY
-        )
+        status = client.admin.command("replSetGetStatus", read_preference=pymongo.ReadPreference.PRIMARY)
         return [m for m in status["members"] if m["stateStr"] == "SECONDARY" and m["health"] == 1]
 
     def _get_pods(self, podname, qty=3):

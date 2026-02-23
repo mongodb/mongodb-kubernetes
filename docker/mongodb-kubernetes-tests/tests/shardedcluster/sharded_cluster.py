@@ -130,7 +130,7 @@ class TestShardedClusterUpdate:
                     hosts.append(hostname)
 
             logger.debug(f"Checking for connectivity of hosts: {hosts}")
-            client = KubernetesTester.get_populated_mongo_client(hosts=hosts)
+            client = KubernetesTester.get_connected_mongo_client(hosts=hosts)
             assert client.primary is not None
             assert len(KubernetesTester.get_replica_set_secondaries(client)) == 2
 
