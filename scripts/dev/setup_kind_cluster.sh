@@ -135,6 +135,11 @@ nodes:
     hostPath: /dev/shm/kind-etcd-${cluster_name}
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
+- role: worker
+  image: ${kind_image}
+  extraMounts:
+  - containerPath: /var/lib/kubelet/config.json
+    hostPath: ${HOME}/.docker/config.json
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
