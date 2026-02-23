@@ -112,9 +112,6 @@ data:
   orgId: "${OM_ORGID:-}"
 EOF
 
-  # Note: create_image_registries_secret is already called by configure_operator.sh
-  # and handles multi-cluster case automatically based on KUBE_ENVIRONMENT_NAME
-
   echo "Creating credentials secret (using apply for idempotency)"
   kubectl --context "${CENTRAL_CLUSTER}" apply -f - <<EOF
 apiVersion: v1
