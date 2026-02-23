@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import boto3
-from botocore.config import Config
 from botocore.exceptions import ClientError
 from kubernetes import client
 from kubetester import get_pod_when_ready
@@ -138,7 +137,6 @@ def _wait_for_minio_buckets(
         endpoint_url=f"https://{endpoint}",
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
-        config=Config(signature_version="s3v4"),
         verify=issuer_ca_filepath,
     )
 
