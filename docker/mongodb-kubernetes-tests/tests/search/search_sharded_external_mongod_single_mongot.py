@@ -104,8 +104,8 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
         namespace=namespace,
     )
 
-    # if try_load(resource):
-    #     return resource
+    if try_load(resource):
+        return resource
 
     # Configure OpsManager/CloudManager connection
     resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
