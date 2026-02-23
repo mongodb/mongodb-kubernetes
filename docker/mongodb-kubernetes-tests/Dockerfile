@@ -8,7 +8,7 @@
 #
 ARG PYTHON_VERSION
 
-FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim as builder
+FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim AS builder
 
 RUN apt-get -qq update \
     && apt-get -y -qq install \
@@ -58,7 +58,7 @@ RUN mkdir -p /tmp/mongodb-tools && \
     rm -rf /tmp/mongodb-tools /tmp/mongodb-tools.tgz
 
 
-ENV HELM_NAME "helm-v3.17.1-linux-${TARGETARCH}.tar.gz"
+ENV HELM_NAME="helm-v3.17.1-linux-${TARGETARCH}.tar.gz"
 
 # install Helm
 RUN curl --fail --retry 3 -L -o "${HELM_NAME}" "https://get.helm.sh/${HELM_NAME}" \
@@ -79,12 +79,13 @@ RUN mkdir /tests
 WORKDIR /tests
 
 # copying the test files after python build, otherwise pip install will be called each time the tests change
-COPY . /tests
-# copying the helm_chart/crds directory so that we can install CRDs before installing the operator helm chart to run a test.
-# operator is installed via published OCI helm repo and not the local helm repo.
-COPY helm_chart/crds /helm_chart/crds
-COPY release.json /release.json
+COPY docker/mongodb-kubernetes-tests /tests
+# Operator is installed via published OCI helm repo and not the local helm repo,
+# but some tests require applying CRDs first (e.g. upgrade tests) and some
+# need other resources such as RBAC (e.g. multi-cluster tests), so we need to have the manifests in the image.
+COPY helm_chart /tests/helm_chart
+COPY release.json /tests/release.json
 # we use the public directory to automatically test resources samples
 COPY public /mongodb-kubernetes/public
 
-ADD "multi-cluster-kube-config-creator_${TARGETARCH}" /usr/local/bin/multi-cluster-kube-config-creator
+ADD "docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_${TARGETARCH}" /usr/local/bin/multi-cluster-kube-config-creator
