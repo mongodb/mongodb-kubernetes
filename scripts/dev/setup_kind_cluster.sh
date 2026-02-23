@@ -123,6 +123,7 @@ EOF
 }
 
 kind_create_cluster() {
+  mkdir -p /dev/shm/kind-etcd-${cluster_name}
   cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" --wait 700s -v 5 --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -130,6 +131,8 @@ nodes:
 - role: control-plane
   image: ${kind_image}
   extraMounts:
+  - containerPath: /var/lib/etcd
+    hostPath: /dev/shm/kind-etcd-${cluster_name}
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 networking:

@@ -16,8 +16,6 @@ spec:
               resources:
                 requests:
                   memory: "400M"
-                limits:
-                  memory: "5G"
 
   applicationDatabase:
     members: 3

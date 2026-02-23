@@ -39,8 +39,6 @@ spec:
               resources:
                 requests:
                   memory: 15G
-                limits:
-                  memory: 15G
 
   # Dev: adding this just to avoid wizard when opening OM UI
   # (note, that to debug issues in OM you need to add 'spec.externalConnectivity.type=NodePort'

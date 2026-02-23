@@ -20,9 +20,6 @@ spec:
         spec:
           containers:
             - name: mongodb-ops-manager
-              resources:
-                limits:
-                  memory: 15G
 
   configuration:
     mms.limits.maxGroupsPerOrg: "5000"

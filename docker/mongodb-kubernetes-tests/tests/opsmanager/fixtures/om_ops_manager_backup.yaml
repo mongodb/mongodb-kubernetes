@@ -36,8 +36,6 @@ spec:
                 resources:
                   requests:
                     memory: 10G
-                  limits:
-                    memory: 10G
 
   statefulSet:
     spec:
@@ -47,8 +45,6 @@ spec:
             - name: mongodb-ops-manager
               resources:
                 requests:
-                  memory: 15G
-                limits:
                   memory: 15G
 
   applicationDatabase:
