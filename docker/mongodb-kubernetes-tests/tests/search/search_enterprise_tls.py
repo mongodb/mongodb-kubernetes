@@ -10,6 +10,7 @@ from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
@@ -193,14 +194,10 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
 
 @mark.e2e_search_enterprise_tls
-def test_search_deploy_tools_pod(namespace: str):
-    deploy_mongodb_tools_pod(namespace)
-
-
-@mark.e2e_search_enterprise_tls
-def test_search_verify_prometheus_disabled_initially(mdbs: MongoDBSearch):
+def test_search_verify_prometheus_disabled_initially(namespace: str, mdbs: MongoDBSearch):
+    tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
     assert_search_service_prometheus_port(mdbs, should_exist=False)
-    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=False)
+    assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=False)
 
 
 @mark.e2e_search_enterprise_tls
@@ -211,9 +208,10 @@ def test_search_enable_prometheus_on_default_port(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_enterprise_tls
-def test_search_verify_prometheus_enabled(mdbs: MongoDBSearch):
+def test_search_verify_prometheus_enabled(namespace: str, mdbs: MongoDBSearch):
+    tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
     assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=9946)
-    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=True, port=9946)
+    assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=True, port=9946)
 
 
 @mark.e2e_search_enterprise_tls
@@ -224,46 +222,33 @@ def test_search_change_prometheus_to_custom_port(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_enterprise_tls
-def test_search_verify_prometheus_enabled_on_custom_port(mdbs: MongoDBSearch):
+def test_search_verify_prometheus_enabled_on_custom_port(namespace: str, mdbs: MongoDBSearch):
+    tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
     assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=10000)
-    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=True, port=10000)
+    assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=True, port=10000)
 
 
-@mark.e2e_search_enterprise_tls
-def test_search_restore_sample_database(mdb: MongoDB):
-    get_admin_sample_movies_helper(mdb).restore_sample_database()
-
-
-@mark.e2e_search_enterprise_tls
-def test_search_create_search_index(mdb: MongoDB):
-    get_user_sample_movies_helper(mdb).create_search_index()
-
-
-@mark.e2e_search_enterprise_tls
-def test_search_assert_search_query(mdb: MongoDB):
-    get_user_sample_movies_helper(mdb).assert_search_query(retry_timeout=60)
-
-
-def get_connection_string(mdb: MongoDB, user_name: str, user_password: str) -> str:
-    return f"mongodb://{user_name}:{user_password}@{mdb.name}-0.{mdb.name}-svc.{mdb.namespace}.svc.cluster.local:27017/?replicaSet={mdb.name}"
-
-
-def get_admin_sample_movies_helper(mdb):
+@fixture(scope="function")
+def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(
-            get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD),
-            use_ssl=True,
-            ca_path=get_issuer_ca_filepath(),
-        )
+        SearchTester.for_replicaset(mdb, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()),
+        tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
     )
 
 
-def get_user_sample_movies_helper(mdb):
-    return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(
-            get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=True, ca_path=get_issuer_ca_filepath()
-        )
-    )
+@mark.e2e_search_enterprise_tls
+def test_search_restore_sample_database(sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper):
+    sample_movies_helper.restore_sample_database()
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_create_search_index(sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper):
+    sample_movies_helper.create_search_index()
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_assert_search_query(sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper):
+    sample_movies_helper.assert_search_query(retry_timeout=60)
 
 
 def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: bool, expected_port: int = 9946):
@@ -280,64 +265,22 @@ def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: boo
         assert "prometheus" not in ports
 
 
-def deploy_mongodb_tools_pod(namespace: str):
-    """
-    Deploys a bastion pod to perform connectivty checks using pod exec. It's similar to how we
-    run connectivity checks in snippets.
-    """
-    from kubetester import get_pod_when_ready
-
-    pod_body = {
-        "apiVersion": "v1",
-        "kind": "Pod",
-        "metadata": {
-            "name": "mongodb-tools-pod",
-            "labels": {"app": "mongodb-tools"},
-        },
-        "spec": {
-            "containers": [
-                {
-                    "name": "mongodb-tools",
-                    "image": "mongodb/mongodb-community-server:8.0-ubi8",
-                    "command": ["/bin/bash", "-c"],
-                    "args": ["sleep infinity"],
-                }
-            ],
-            "restartPolicy": "Never",
-        },
-    }
-
-    try:
-        KubernetesTester.create_pod(namespace, pod_body)
-        logger.info(f"Created mongodb-tools-pod in namespace {namespace}")
-    except Exception as e:
-        logger.info(f"Pod may already exist: {e}")
-
-    get_pod_when_ready(namespace, "app=mongodb-tools", default_retry=60)
-    logger.info("mongodb-tools-pod is ready")
-
-
-def assert_search_pod_prometheus_endpoint(mdbs: MongoDBSearch, should_be_accessible: bool, port: int = 9946):
+def assert_search_pod_prometheus_endpoint(
+    mdbs: MongoDBSearch, tools_pod: mongodb_tools_pod.ToolsPod, should_be_accessible: bool, port: int = 9946
+):
     service_fqdn = f"{mdbs.name}-search-svc.{mdbs.namespace}.svc.cluster.local"
     url = f"http://{service_fqdn}:{port}/metrics"
 
     if should_be_accessible:
         # We don't necessarily need the connectivity test to run via a bastion pod as we could connect to it directly when running test in pod.
         # But it's not requiring forwarding when running locally.
-        result = KubernetesTester.run_command_in_pod_container(
-            "mongodb-tools-pod", mdbs.namespace, ["curl", "-f", "-s", url], container="mongodb-tools"
-        )
+        result = tools_pod.run_command(["curl", "-f", "-s", url])
         assert "# HELP" in result or "# TYPE" in result
 
         logger.info(f"Prometheus endpoint is accessible at {url} and returning metrics")
     else:
         try:
-            result = KubernetesTester.run_command_in_pod_container(
-                "mongodb-tools-pod",
-                mdbs.namespace,
-                ["curl", "-f", "-s", "--max-time", "5", url],
-                container="mongodb-tools",
-            )
+            result = tools_pod.run_command(["curl", "-f", "-s", "--max-time", "5", url])
             assert False, f"Prometheus endpoint should not be accessible but got: {result}"
         except Exception as e:
             logger.info(f"Expected failure: Prometheus endpoint is not accessible at {url}: {e}")
