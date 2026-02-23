@@ -194,9 +194,10 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
 
 @mark.e2e_search_enterprise_tls
-def test_search_verify_prometheus_disabled_initially(mdbs: MongoDBSearch):
+def test_search_verify_prometheus_disabled_initially(namespace: str, mdbs: MongoDBSearch):
+    tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
     assert_search_service_prometheus_port(mdbs, should_exist=False)
-    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=False)
+    assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=False)
 
 
 @mark.e2e_search_enterprise_tls
@@ -207,9 +208,10 @@ def test_search_enable_prometheus_on_default_port(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_enterprise_tls
-def test_search_verify_prometheus_enabled(mdbs: MongoDBSearch):
+def test_search_verify_prometheus_enabled(namespace: str, mdbs: MongoDBSearch):
+    tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
     assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=9946)
-    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=True, port=9946)
+    assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=True, port=9946)
 
 
 @mark.e2e_search_enterprise_tls
@@ -220,9 +222,10 @@ def test_search_change_prometheus_to_custom_port(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_enterprise_tls
-def test_search_verify_prometheus_enabled_on_custom_port(mdbs: MongoDBSearch):
+def test_search_verify_prometheus_enabled_on_custom_port(namespace: str, mdbs: MongoDBSearch):
+    tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
     assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=10000)
-    assert_search_pod_prometheus_endpoint(mdbs, should_be_accessible=True, port=10000)
+    assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=True, port=10000)
 
 
 @fixture(scope="function")
@@ -262,27 +265,22 @@ def assert_search_service_prometheus_port(mdbs: MongoDBSearch, should_exist: boo
         assert "prometheus" not in ports
 
 
-def assert_search_pod_prometheus_endpoint(mdbs: MongoDBSearch, should_be_accessible: bool, port: int = 9946):
+def assert_search_pod_prometheus_endpoint(
+    mdbs: MongoDBSearch, tools_pod: mongodb_tools_pod.ToolsPod, should_be_accessible: bool, port: int = 9946
+):
     service_fqdn = f"{mdbs.name}-search-svc.{mdbs.namespace}.svc.cluster.local"
     url = f"http://{service_fqdn}:{port}/metrics"
 
     if should_be_accessible:
         # We don't necessarily need the connectivity test to run via a bastion pod as we could connect to it directly when running test in pod.
         # But it's not requiring forwarding when running locally.
-        result = KubernetesTester.run_command_in_pod_container(
-            "mongodb-tools-pod", mdbs.namespace, ["curl", "-f", "-s", url], container="mongodb-tools"
-        )
+        result = tools_pod.run_command(["curl", "-f", "-s", url])
         assert "# HELP" in result or "# TYPE" in result
 
         logger.info(f"Prometheus endpoint is accessible at {url} and returning metrics")
     else:
         try:
-            result = KubernetesTester.run_command_in_pod_container(
-                "mongodb-tools-pod",
-                mdbs.namespace,
-                ["curl", "-f", "-s", "--max-time", "5", url],
-                container="mongodb-tools",
-            )
+            result = tools_pod.run_command(["curl", "-f", "-s", "--max-time", "5", url])
             assert False, f"Prometheus endpoint should not be accessible but got: {result}"
         except Exception as e:
             logger.info(f"Expected failure: Prometheus endpoint is not accessible at {url}: {e}")
