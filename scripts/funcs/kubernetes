@@ -138,6 +138,11 @@ create_image_registries_secret() {
       echo "Using Docker config: ${config_file}"
     fi
 
+    if kubectl --context "${context}" get secret "${secret_name}" -n "${namespace}" &>/dev/null; then
+      echo "${context}: Secret ${namespace}/${secret_name} already exists, skipping"
+      return
+    fi
+
     # shellcheck disable=SC2154
     if kubectl --context "${context}" get namespace "${namespace}"; then
       echo "${context}: Applying ${namespace}/${secret_name} pull secret"

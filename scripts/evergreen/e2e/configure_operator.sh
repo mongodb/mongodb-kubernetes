@@ -31,13 +31,7 @@ else
   BASE_URL="http://ops-manager-svc.${OPS_MANAGER_NAMESPACE:-}.svc.cluster.local:8080"
 fi
 
-# In local runs, configure_container_auth.sh already creates the pull secret in all clusters
-# before this script runs. Skip the redundant call to avoid a ~0.9s delete+recreate cycle
-# across all clusters. In CI (Evergreen), this script is the only place the pull secret is
-# created (e2e.sh sources it directly without configure_container_auth.sh).
-if [[ "${RUNNING_IN_EVG:-false}" == "true" ]]; then
-  create_image_registries_secret
-fi
+create_image_registries_secret
 
 # In local multi-cluster runs, prepare_multi_cluster.go creates my-project and my-credentials
 # via the Go API immediately after this script. Skip the redundant kubectl calls (~0.7s).
