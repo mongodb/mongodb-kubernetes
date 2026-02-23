@@ -44,7 +44,8 @@ operator:
       cpu: 500m
       memory: 200Mi
     limits:
-      memory: 1Gi
+      cpu: 3000m
+      memory: 3Gi
 
   podSecurityContext:
     runAsNonRoot: true
