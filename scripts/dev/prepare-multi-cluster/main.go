@@ -778,18 +778,12 @@ func extractConfigFiles(ctx context.Context, client *kubernetes.Clientset, cfg c
 	// Write central cluster token
 	writeConfigFile(cfg.multiClusterConfigDir, cfg.centralCluster, secret.Data[cfg.centralCluster], collectError)
 
-	// Write member cluster data in parallel
-	var wg sync.WaitGroup
+	// Write member cluster data
 	for idx, member := range cfg.memberClusters {
-		wg.Add(1)
-		go func(m string, i int) {
-			defer wg.Done()
-			memberKey := fmt.Sprintf("member_cluster_%d", i+1)
-			writeConfigFile(cfg.multiClusterConfigDir, memberKey, secret.Data[memberKey], collectError)
-			writeConfigFile(cfg.multiClusterConfigDir, m, secret.Data[m], collectError)
-		}(member, idx)
+		memberKey := fmt.Sprintf("member_cluster_%d", idx+1)
+		writeConfigFile(cfg.multiClusterConfigDir, memberKey, secret.Data[memberKey], collectError)
+		writeConfigFile(cfg.multiClusterConfigDir, member, secret.Data[member], collectError)
 	}
-	wg.Wait()
 }
 
 func writeConfigFile(dir, name string, data []byte, collectError func(error, string)) {
