@@ -94,7 +94,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         client = self.get_populated_mongo_client(hosts=hosts)
 
         assert client.primary is not None
-        assert len(client.secondaries) == 2
+        assert len(KubernetesTester.get_replica_set_secondaries(client)) == 2
 
 
 @pytest.mark.e2e_replica_set_pv
