@@ -7,7 +7,6 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 )
 
-// ValidateSpec validates the MongoDBSearch spec
 func (s *MongoDBSearch) ValidateSpec() error {
 	for _, res := range s.RunValidations() {
 		if res.Level == v1.ErrorLevel {
@@ -17,13 +16,11 @@ func (s *MongoDBSearch) ValidateSpec() error {
 	return nil
 }
 
-// RunValidations runs all validation rules and returns the results
 func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 	validators := []func(*MongoDBSearch) v1.ValidationResult{
 		validateLBConfig,
 		validateUnmanagedLBConfig,
 		validateEndpointTemplate,
-		validateTLSConfig,
 	}
 
 	var results []v1.ValidationResult
@@ -36,7 +33,6 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 	return results
 }
 
-// validateLBConfig validates the load balancer configuration
 func validateLBConfig(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.LoadBalancer == nil {
 		// LB config is optional
@@ -77,31 +73,10 @@ func validateEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 
 	endpoint := s.Spec.LoadBalancer.Endpoint
 
-	// Template must contain exactly one {shardName} placeholder
 	count := strings.Count(endpoint, ShardNamePlaceholder)
-	if count != 1 {
-		return v1.ValidationError("spec.lb.endpoint template must contain exactly one %s placeholder, found %d", ShardNamePlaceholder, count)
+	if count == 0 {
+		return v1.ValidationError("spec.lb.endpoint template must contain at least one %s placeholder to differentiate between shards, found %d", ShardNamePlaceholder, count)
 	}
-
-	// Template should have some content before or after the placeholder
-	if endpoint == ShardNamePlaceholder {
-		return v1.ValidationError("spec.lb.endpoint template must contain more than just the %s placeholder", ShardNamePlaceholder)
-	}
-
-	return v1.ValidationSuccess()
-}
-
-// validateTLSConfig validates the TLS configuration
-func validateTLSConfig(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.Security.TLS == nil {
-		return v1.ValidationSuccess()
-	}
-
-	// TLS is valid in all cases:
-	// 1. CertificateKeySecret.Name is specified - use explicit secret name
-	// 2. CertsSecretPrefix is specified - use {prefix}-{resourceName}-search-cert
-	// 3. Both are empty - use default {resourceName}-search-cert
-	// No validation error needed as we always have a valid fallback
 
 	return v1.ValidationSuccess()
 }

@@ -80,12 +80,14 @@ spec:
                 type: object
               lb:
                 description: LoadBalancer configures how mongod/mongos connect to
-                  mongot (Managed vs Unmanaged/BYO LB).
+                  mongot (Managed vs Unmanaged/BYO Load Balancer).
                 properties:
                   endpoint:
                     description: |-
                       Endpoint is the LB endpoint for ReplicaSet, or a template for sharded clusters.
-                      For sharded clusters, use {shardName} as a placeholder substituted with the actual shard name.
+                      For sharded clusters, at least one {shardName} placeholder must be present and will be substituted with the actual shard name.
+                      Each shard must connect to their mongots using a shard-unique endpoint to allow LoadBalancer to
+                      route the traffic to the mongot instances for that shard.
                       Example: "lb-{shardName}.example.com:27028"
                     type: string
                   envoy:
@@ -94,7 +96,7 @@ spec:
                     type: object
                   mode:
                     description: 'Mode specifies the load balancer mode: Managed (operator-managed)
-                      or Unmanaged (BYO L7 LB)'
+                      or Unmanaged (BYO L7 Load Balancer)'
                     enum:
                     - Managed
                     - Unmanaged
@@ -176,9 +178,9 @@ spec:
                 default: 1
                 description: |-
                   Replicas is the number of mongot pods to deploy.
-                  For ReplicaSet source: this many mongot pods total.
-                  For Sharded source: this many mongot pods per shard.
-                  When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.endpoint)
+                  For ReplicaSet source: the number of mongot pods in total.
+                  For Sharded source: the number mongot pods per shard.
+                  When Replicas > 1, a load balancer configuration (spec.lb)
                   is required to distribute traffic across mongot instances.
                 minimum: 1
                 type: integer
