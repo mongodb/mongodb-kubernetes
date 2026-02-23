@@ -3,6 +3,7 @@ import tempfile
 
 from kubernetes import client, config
 from kubernetes.stream import stream
+from kubetester import get_pod_when_ready
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
@@ -94,26 +95,10 @@ class ToolsPod:
             else:
                 raise
 
-        # Wait for pod to be ready
-        from kubernetes.watch import Watch
-
-        w = Watch()
-        for event in w.stream(
-            self.core_v1.list_namespaced_pod,
-            namespace=self.namespace,
-            label_selector="app=mongodb-tools",
-            timeout_seconds=120,
-        ):
-            pod = event["object"]
-            if pod.status.phase == "Running":
-                # Check if container is ready
-                if pod.status.container_statuses:
-                    for container_status in pod.status.container_statuses:
-                        if container_status.ready:
-                            logger.info(f"{self.pod_name} is ready")
-                            w.stop()
-                            return
-        raise TimeoutError(f"Timed out waiting for {self.pod_name} to be ready")
+        pod = get_pod_when_ready(self.namespace, "app=mongodb-tools", default_retry=120)
+        if pod is None:
+            raise TimeoutError(f"Timed out waiting for {self.pod_name} to be ready")
+        logger.info(f"{self.pod_name} is ready")
 
 
 def get_tools_pod(namespace: str) -> ToolsPod:

@@ -1,3 +1,11 @@
+"""
+This test sharded cluster support for search, running with a single mongot instance per shard (replica set).
+
+Deployment configuration:
+  - MongoDB CR, sharded cluster, pretending to be deployed externally
+  - MongoDBSearch: referencing external mongodb, one instance of mongot deployed per shard
+"""
+
 import time
 
 import pymongo
