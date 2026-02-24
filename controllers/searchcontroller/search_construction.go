@@ -46,8 +46,8 @@ type SearchSourceDBResource interface {
 	Validate() error
 }
 
-// ShardedSearchSourceDBResource extends SearchSourceDBResource for sharded MongoDB clusters.
-type ShardedSearchSourceDBResource interface {
+// SearchSourceShardedDeployment extends SearchSourceDBResource for sharded MongoDB clusters.
+type SearchSourceShardedDeployment interface {
 	SearchSourceDBResource
 	GetShardCount() int
 	GetShardNames() []string
@@ -138,12 +138,12 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 	return statefulset.Apply(stsModifications...)
 }
 
-// CreateShardSearchStatefulSetFunc creates a StatefulSet for a specific shard's mongot deployment.
-func CreateShardSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, shardedSource ShardedSearchSourceDBResource, shardIdx int, searchImage string) statefulset.Modification {
+// CreateSearchStatefulSetForShardFunc creates a StatefulSet for a specific shard's mongot deployment.
+func CreateSearchStatefulSetForShardFunc(mdbSearch *searchv1.MongoDBSearch, shardedSource SearchSourceShardedDeployment, shardIdx int, searchImage string) statefulset.Modification {
 	shardName := shardedSource.GetShardNames()[shardIdx]
-	stsName := mdbSearch.MongotStatefulSetNamespacedNameForShard(shardName).Name
-	svcName := mdbSearch.MongotServiceNamespacedNameForShard(shardName).Name
-	configMapName := mdbSearch.MongotConfigMapNamespacedNameForShard(shardName).Name
+	stsName := mdbSearch.MongotStatefulSetForShard(shardName).Name
+	svcName := mdbSearch.MongotServiceForShard(shardName).Name
+	configMapName := mdbSearch.MongotConfigMapForShard(shardName).Name
 
 	labels := map[string]string{
 		"app":   stsName,

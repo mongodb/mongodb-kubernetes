@@ -35,10 +35,17 @@ func (r *ShardedExternalSearchSource) Validate() error {
 		return xerrors.New("at least one shard must be configured")
 	}
 
+	seenShards := make(map[string]struct{}, len(r.spec.Sharded.Shards))
 	for i, shard := range r.spec.Sharded.Shards {
 		if shard.ShardName == "" {
 			return xerrors.Errorf("shard[%d].shardName is required", i)
 		}
+
+		if _, ok := seenShards[shard.ShardName]; ok {
+			return xerrors.Errorf("shardNames can not be duplicate, shard name %s is duplicate", shard.ShardName)
+		}
+		seenShards[shard.ShardName] = struct{}{}
+
 		if len(shard.Hosts) == 0 {
 			return xerrors.Errorf("shard[%d].hosts must have at least one host", i)
 		}

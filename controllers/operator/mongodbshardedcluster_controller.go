@@ -3,6 +3,10 @@ package operator
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
+	"strings"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -21,9 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"slices"
-	"sort"
-	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -2311,7 +2312,17 @@ func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificate
 		hostnames, podNames := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))
 		for i := range hostnames {
 			// Use desiredMongosConfiguration which includes search parameters applied in applySearchParametersForShards
-			process := om.NewMongosProcess(podNames[i], hostnames[i], r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, r.desiredMongosConfiguration.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongosProcess(
+				podNames[i],
+				hostnames[i],
+				r.imageUrls[mcoConstruct.MongodbImageEnv],
+				r.forceEnterprise,
+				r.desiredMongosConfiguration.GetAdditionalMongodConfig(),
+				r.sc.GetSpec(),
+				certificateFilePath,
+				r.sc.Annotations,
+				r.sc.CalculateFeatureCompatibilityVersion(),
+			)
 			processes = append(processes, process)
 		}
 	}

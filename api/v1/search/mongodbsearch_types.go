@@ -333,12 +333,12 @@ func (s *MongoDBSearch) CertificateKeySecretName() bool {
 	return s.Spec.Security.TLS.CertificateKeySecret.Name != ""
 }
 
-// TLSSecretNamespacedNameForShard returns the namespaced name of the TLS source secret for a specific shard.
+// TLSSecretForShard returns the namespaced name of the TLS source secret for a specific shard.
 // This is used in per-shard TLS mode for sharded clusters.
 // Naming pattern:
 //   - With prefix: {prefix}-{shardName}-search-cert
 //   - Without prefix: {shardName}-search-cert
-func (s *MongoDBSearch) TLSSecretNamespacedNameForShard(shardName string) types.NamespacedName {
+func (s *MongoDBSearch) TLSSecretForShard(shardName string) types.NamespacedName {
 	var secretName string
 	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
 		secretName = fmt.Sprintf("%s-%s-search-cert", s.Spec.Security.TLS.CertsSecretPrefix, shardName)
@@ -348,9 +348,9 @@ func (s *MongoDBSearch) TLSSecretNamespacedNameForShard(shardName string) types.
 	return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
 }
 
-// TLSOperatorSecretNamespacedNameForShard returns the namespaced name of the operator-managed TLS secret
+// TLSOperatorSecretForShard returns the namespaced name of the operator-managed TLS secret
 // for a specific shard. This is the secret created by the operator containing the combined certificate and key.
-func (s *MongoDBSearch) TLSOperatorSecretNamespacedNameForShard(shardName string) types.NamespacedName {
+func (s *MongoDBSearch) TLSOperatorSecretForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{Name: fmt.Sprintf("%s-search-certificate-key", shardName), Namespace: s.Namespace}
 }
 
@@ -400,14 +400,14 @@ func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 	return s.Spec.Prometheus
 }
 
-func (s *MongoDBSearch) MongotStatefulSetNamespacedNameForShard(shardName string) types.NamespacedName {
+func (s *MongoDBSearch) MongotStatefulSetForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s", s.Name, shardName), Namespace: s.Namespace}
 }
 
-func (s *MongoDBSearch) MongotServiceNamespacedNameForShard(shardName string) types.NamespacedName {
+func (s *MongoDBSearch) MongotServiceForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s-svc", s.Name, shardName), Namespace: s.Namespace}
 }
 
-func (s *MongoDBSearch) MongotConfigMapNamespacedNameForShard(shardName string) types.NamespacedName {
+func (s *MongoDBSearch) MongotConfigMapForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s-config", s.Name, shardName), Namespace: s.Namespace}
 }
