@@ -637,91 +637,6 @@ func TestValidateSearchResource(t *testing.T) {
 	}
 }
 
-func TestMongoDBSearchReconcileHelper_ValidateAutoEmbeddingConfig(t *testing.T) {
-	tests := []struct {
-		name        string
-		mdbSearch   *searchv1.MongoDBSearch
-		expectError bool
-		errContains string
-	}{
-		{
-			name: "No auto embedding configured - should pass",
-			mdbSearch: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-				s.Spec.AutoEmbedding = nil
-				s.Spec.Replicas = 3
-			}),
-			expectError: false,
-		},
-		{
-			name: "Auto embedding with single replica - should pass",
-			mdbSearch: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
-					EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
-						Name: "api-key-secret",
-					},
-				}
-				s.Spec.Replicas = 1
-			}),
-			expectError: false,
-		},
-		{
-			name: "Auto embedding with default replica (0 means 1) - should pass",
-			mdbSearch: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
-					EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
-						Name: "api-key-secret",
-					},
-				}
-				s.Spec.Replicas = 0
-			}),
-			expectError: false,
-		},
-		{
-			name: "Auto embedding with multiple replicas (2) - should fail",
-			mdbSearch: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
-					EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
-						Name: "api-key-secret",
-					},
-				}
-				s.Spec.Replicas = 2
-			}),
-			expectError: true,
-			errContains: "auto embeddings are not supported with multiple mongot replicas (2)",
-		},
-		{
-			name: "Auto embedding with multiple replicas (3) - should fail",
-			mdbSearch: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
-				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
-					EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
-						Name: "api-key-secret",
-					},
-					ProviderEndpoint: "https://api.openai.com/v1/embeddings",
-				}
-				s.Spec.Replicas = 3
-			}),
-			expectError: true,
-			errContains: "auto embeddings are not supported with multiple mongot replicas (3)",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			fakeClient := newTestFakeClient(tc.mdbSearch)
-			helper := NewMongoDBSearchReconcileHelper(fakeClient, tc.mdbSearch, nil, newTestOperatorSearchConfig())
-
-			err := helper.ValidateAutoEmbeddingConfig()
-
-			if tc.expectError {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.errContains)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
 func TestGetMongodConfigParametersForShard(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -815,88 +730,6 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 			searchIndexHost, ok := setParameter["searchIndexManagementHostAndPort"].(string)
 			require.True(t, ok, "searchIndexManagementHostAndPort should be a string")
 			assert.Equal(t, tc.expectedHost, searchIndexHost)
-		})
-	}
-}
-
-func TestMongoDBSearch_LBHelperMethods(t *testing.T) {
-	tests := []struct {
-		name              string
-		search            *searchv1.MongoDBSearch
-		expectUnmanagedLB bool
-		expectShardedLB   bool
-		expectedReplicas  int
-	}{
-		{
-			name: "No LB config",
-			search: &searchv1.MongoDBSearch{
-				Spec: searchv1.MongoDBSearchSpec{},
-			},
-			expectUnmanagedLB: false,
-			expectShardedLB:   false,
-			expectedReplicas:  1,
-		},
-		{
-			name: "Managed mode",
-			search: &searchv1.MongoDBSearch{
-				Spec: searchv1.MongoDBSearchSpec{
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode: searchv1.LBModeManaged,
-					},
-				},
-			},
-			expectUnmanagedLB: false,
-			expectShardedLB:   false,
-			expectedReplicas:  1,
-		},
-		{
-			name: "Unmanaged mode with single endpoint",
-			search: &searchv1.MongoDBSearch{
-				Spec: searchv1.MongoDBSearchSpec{
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb.example.com:27028",
-					},
-				},
-			},
-			expectUnmanagedLB: true,
-			expectShardedLB:   false,
-			expectedReplicas:  1,
-		},
-		{
-			name: "Unmanaged mode with endpoint template",
-			search: &searchv1.MongoDBSearch{
-				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 1,
-					Source:   &searchv1.MongoDBSource{},
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb-{shardName}.example.com:27028",
-					},
-				},
-			},
-			expectUnmanagedLB: true,
-			expectShardedLB:   true,
-			expectedReplicas:  1,
-		},
-		{
-			name: "Custom replicas",
-			search: &searchv1.MongoDBSearch{
-				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 3,
-				},
-			},
-			expectUnmanagedLB: false,
-			expectShardedLB:   false,
-			expectedReplicas:  3,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expectUnmanagedLB, tc.search.IsLBModeUnmanaged())
-			assert.Equal(t, tc.expectShardedLB, tc.search.IsShardedUnmanagedLB())
-			assert.Equal(t, tc.expectedReplicas, tc.search.GetReplicas())
 		})
 	}
 }
@@ -1077,149 +910,6 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 	assert.Equal(t, int32(8080), healthPort.Port)
 }
 
-func TestMongoDBSearch_ReplicaSetUnmanagedLBHelperMethods(t *testing.T) {
-	tests := []struct {
-		name                      string
-		search                    *searchv1.MongoDBSearch
-		expectReplicaSetLB        bool
-		expectedEndpoint          string
-		expectHasMultipleReplicas bool
-	}{
-		{
-			name: "No LB config",
-			search: &searchv1.MongoDBSearch{
-				Spec: searchv1.MongoDBSearchSpec{},
-			},
-			expectReplicaSetLB:        false,
-			expectedEndpoint:          "",
-			expectHasMultipleReplicas: false,
-		},
-		{
-			name: "Unmanaged mode with single endpoint for replica set",
-			search: &searchv1.MongoDBSearch{
-				Spec: searchv1.MongoDBSearchSpec{
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb.example.com:27028",
-					},
-				},
-			},
-			expectReplicaSetLB:        true,
-			expectedEndpoint:          "lb.example.com:27028",
-			expectHasMultipleReplicas: false,
-		},
-		{
-			name: "Unmanaged mode with endpoint template (not replica set LB)",
-			search: &searchv1.MongoDBSearch{
-				Spec: searchv1.MongoDBSearchSpec{
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb-{shardName}.example.com:27028",
-					},
-				},
-			},
-			expectReplicaSetLB:        false,
-			expectedEndpoint:          "",
-			expectHasMultipleReplicas: false,
-		},
-		{
-			name: "Multiple replicas with unmanaged LB",
-			search: &searchv1.MongoDBSearch{
-				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 3,
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb.example.com:27028",
-					},
-				},
-			},
-			expectReplicaSetLB:        true,
-			expectedEndpoint:          "lb.example.com:27028",
-			expectHasMultipleReplicas: true,
-		},
-		{
-			name: "Multiple replicas without unmanaged LB",
-			search: &searchv1.MongoDBSearch{
-				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 2,
-				},
-			},
-			expectReplicaSetLB:        false,
-			expectedEndpoint:          "",
-			expectHasMultipleReplicas: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expectReplicaSetLB, tc.search.IsReplicaSetUnmanagedLB())
-			assert.Equal(t, tc.expectedEndpoint, tc.search.GetReplicaSetUnmanagedLBEndpoint())
-			assert.Equal(t, tc.expectHasMultipleReplicas, tc.search.HasMultipleReplicas())
-		})
-	}
-}
-
-func TestGetMongodConfigParameters_UnmanagedLBEndpoint(t *testing.T) {
-	tests := []struct {
-		name         string
-		search       *searchv1.MongoDBSearch
-		expectedHost string
-	}{
-		{
-			name: "No unmanaged LB - uses internal service",
-			search: &searchv1.MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-search",
-					Namespace: "test-ns",
-				},
-				Spec: searchv1.MongoDBSearchSpec{},
-			},
-			expectedHost: "test-search-search-svc.test-ns.svc.cluster.local:27028",
-		},
-		{
-			name: "Unmanaged LB configured - uses unmanaged endpoint",
-			search: &searchv1.MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-search",
-					Namespace: "test-ns",
-				},
-				Spec: searchv1.MongoDBSearchSpec{
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb.example.com:27028",
-					},
-				},
-			},
-			expectedHost: "lb.example.com:27028",
-		},
-		{
-			name: "Multiple replicas with unmanaged LB",
-			search: &searchv1.MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-search",
-					Namespace: "test-ns",
-				},
-				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 3,
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb.example.com:27028",
-					},
-				},
-			},
-			expectedHost: "lb.example.com:27028",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			params := GetMongodConfigParameters(tc.search, "cluster.local")
-			setParams := params["setParameter"].(map[string]any)
-			assert.Equal(t, tc.expectedHost, setParams["mongotHost"])
-		})
-	}
-}
-
 func TestValidateMultipleReplicasConfig(t *testing.T) {
 	mdbSearchSpec := searchv1.MongoDBSearchSpec{
 		Source: &searchv1.MongoDBSource{
@@ -1268,7 +958,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "multiple mongot replicas (3) require unmanaged load balancer configuration; please configure spec.lb.mode=Unmanaged with spec.lb.endpoint",
+			expectedError: "multiple mongot replicas (3) require unmanaged load balancer configuration; please configure load balancing in spec.lb.",
 		},
 		{
 			name: "Multiple replicas with unmanaged LB - valid",
@@ -1291,27 +981,6 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 				},
 			},
 			expectedError: "",
-		},
-		{
-			name: "Multiple replicas with Managed mode (no endpoint) - error",
-			search: &searchv1.MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-search",
-					Namespace: "test",
-				},
-				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 2,
-					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
-							Name: "test-mongodb",
-						},
-					},
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode: searchv1.LBModeManaged,
-					},
-				},
-			},
-			expectedError: "multiple mongot replicas (2) require unmanaged load balancer configuration; please configure spec.lb.mode=Unmanaged with spec.lb.endpoint",
 		},
 	}
 
@@ -1531,46 +1200,6 @@ func TestTLSSecretPrefixNaming(t *testing.T) {
 	}
 }
 
-func TestReplicaSetUnmanagedLBNotAffectedByTemplate(t *testing.T) {
-	testCases := []struct {
-		name                 string
-		endpoint             string
-		expectedIsReplicaSet bool
-		expectedIsSharded    bool
-		expectedHasTemplate  bool
-	}{
-		{
-			name:                 "plain endpoint is ReplicaSet",
-			endpoint:             "lb.example.com:27028",
-			expectedIsReplicaSet: true,
-			expectedIsSharded:    false,
-			expectedHasTemplate:  false,
-		},
-		{
-			name:                 "template endpoint is Sharded",
-			endpoint:             "lb-{shardName}.example.com:27028",
-			expectedIsReplicaSet: false,
-			expectedIsSharded:    true,
-			expectedHasTemplate:  true,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
-				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-					Mode:     searchv1.LBModeUnmanaged,
-					Endpoint: tc.endpoint,
-				}
-			})
-
-			assert.Equal(t, tc.expectedIsReplicaSet, search.IsReplicaSetUnmanagedLB())
-			assert.Equal(t, tc.expectedIsSharded, search.IsShardedUnmanagedLB())
-			assert.Equal(t, tc.expectedHasTemplate, search.HasEndpointTemplate())
-		})
-	}
-}
-
 func TestValidateEndpointTemplate(t *testing.T) {
 	testCases := []struct {
 		name          string
@@ -1595,10 +1224,9 @@ func TestValidateEndpointTemplate(t *testing.T) {
 			errorContains: "must contain more than just",
 		},
 		{
-			name:          "multiple placeholders is invalid",
-			endpoint:      "lb-{shardName}-{shardName}.example.com:27028",
-			expectError:   true,
-			errorContains: "exactly one",
+			name:        "multiple placeholders are supported",
+			endpoint:    "lb-{shardName}-{shardName}.example.com:27028",
+			expectError: false,
 		},
 	}
 
@@ -1624,6 +1252,7 @@ func TestValidateEndpointTemplate(t *testing.T) {
 	}
 }
 
+// TODO: explicit secret name for sharded clusters is not supported
 func TestValidateTLSConfig(t *testing.T) {
 	testCases := []struct {
 		name          string
