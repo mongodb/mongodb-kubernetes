@@ -124,7 +124,9 @@ EOF
 
 kind_create_cluster() {
   rm -rf /dev/shm/kind-etcd-${cluster_name}
+  rm -rf /dev/shm/kind-pvc-${cluster_name}
   mkdir -p /dev/shm/kind-etcd-${cluster_name}
+  mkdir -p /dev/shm/kind-pvc-${cluster_name}
   cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" --wait 700s -v 5 --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -134,6 +136,8 @@ nodes:
   extraMounts:
   - containerPath: /var/lib/etcd
     hostPath: /dev/shm/kind-etcd-${cluster_name}
+  - containerPath: /opt/local-path-provisioner
+    hostPath: /dev/shm/kind-pvc-${cluster_name}
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 networking:
