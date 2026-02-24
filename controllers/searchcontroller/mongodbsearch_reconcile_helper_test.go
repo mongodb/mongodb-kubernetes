@@ -964,7 +964,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "multiple mongot replicas (3) require unmanaged load balancer configuration; please configure spec.lb.mode=Unmanaged with spec.lb.endpoint",
+			expectedError: "multiple mongot replicas (3) require unmanaged load balancer configuration; please configure load balancing in spec.lb.",
 		},
 		{
 			name: "Multiple replicas with unmanaged LB - valid",

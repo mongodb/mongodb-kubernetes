@@ -78,5 +78,11 @@ func validateEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationError("spec.lb.endpoint template must contain at least one %s placeholder to differentiate between shards, found %d", ShardNamePlaceholder, count)
 	}
 
+	// Endpoint must contain more than just the placeholder(s)
+	stripped := strings.TrimSpace(strings.ReplaceAll(endpoint, ShardNamePlaceholder, ""))
+	if stripped == "" {
+		return v1.ValidationError("spec.lb.endpoint must contain more than just the %s placeholder", ShardNamePlaceholder)
+	}
+
 	return v1.ValidationSuccess()
 }
