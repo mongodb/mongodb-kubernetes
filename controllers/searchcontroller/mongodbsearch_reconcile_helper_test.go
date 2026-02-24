@@ -684,13 +684,13 @@ func TestCreateShardMongotConfig(t *testing.T) {
 	}
 
 	config := mongot.Config{}
-	createShardMongotConfig(search, shardedSource, 0)(&config)
+	createMongotConfigForShard(search, shardedSource, 0)(&config)
 
 	assert.Equal(t, []string{"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"}, config.SyncSource.ReplicaSet.HostAndPort)
 	assert.Equal(t, search.SourceUsername(), config.SyncSource.ReplicaSet.Username)
 
 	config2 := mongot.Config{}
-	createShardMongotConfig(search, shardedSource, 1)(&config2)
+	createMongotConfigForShard(search, shardedSource, 1)(&config2)
 
 	assert.Equal(t, []string{"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"}, config2.SyncSource.ReplicaSet.HostAndPort)
 }
@@ -710,7 +710,7 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 	}
 
 	config := mongot.Config{}
-	createShardMongotConfig(search, shardedSource, 0)(&config)
+	createMongotConfigForShard(search, shardedSource, 0)(&config)
 
 	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should initially be false")
@@ -747,7 +747,7 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 	}
 
 	config := mongot.Config{}
-	createShardMongotConfig(search, shardedSource, 0)(&config)
+	createMongotConfigForShard(search, shardedSource, 0)(&config)
 
 	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be false when source has no TLS")
@@ -801,7 +801,7 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test")
 	shardName := "my-cluster-0"
 
-	svc := buildShardSearchHeadlessService(search, shardName)
+	svc := buildSearchHeadlessServiceForShard(search, shardName)
 
 	assert.Equal(t, "test-search-mongot-my-cluster-0-svc", svc.Name)
 	assert.Equal(t, "test", svc.Namespace)
@@ -1076,102 +1076,9 @@ func TestTLSSecretNamespacedNameForShard(t *testing.T) {
 				}
 			})
 
-			secretNsName := search.TLSSecretNamespacedNameForShard(tc.shardName)
+			secretNsName := search.TLSSecretForShard(tc.shardName)
 			assert.Equal(t, tc.expectedSecretName, secretNsName.Name)
 			assert.Equal(t, tc.namespace, secretNsName.Namespace)
-		})
-	}
-}
-
-func TestTLSOperatorSecretNamespacedNameForShard(t *testing.T) {
-	testCases := []struct {
-		name               string
-		shardName          string
-		namespace          string
-		expectedSecretName string
-	}{
-		{
-			name:               "first shard",
-			shardName:          "my-cluster-0",
-			namespace:          "test-ns",
-			expectedSecretName: "my-cluster-0-search-certificate-key",
-		},
-		{
-			name:               "second shard",
-			shardName:          "my-cluster-1",
-			namespace:          "mongodb",
-			expectedSecretName: "my-cluster-1-search-certificate-key",
-		},
-		{
-			name:               "different shard naming",
-			shardName:          "shard-prod-0",
-			namespace:          "production",
-			expectedSecretName: "shard-prod-0-search-certificate-key",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			search := newTestMongoDBSearch("test-search", tc.namespace)
-
-			secretNsName := search.TLSOperatorSecretNamespacedNameForShard(tc.shardName)
-			assert.Equal(t, tc.expectedSecretName, secretNsName.Name)
-			assert.Equal(t, tc.namespace, secretNsName.Namespace)
-		})
-	}
-}
-
-func TestPerShardTLSResourceAdapter(t *testing.T) {
-	testCases := []struct {
-		name                       string
-		secretPrefix               string
-		shardName                  string
-		namespace                  string
-		expectedSourceSecretName   string
-		expectedOperatorSecretName string
-	}{
-		{
-			name:                       "with prefix",
-			secretPrefix:               "my-prefix",
-			shardName:                  "my-cluster-0",
-			namespace:                  "test-ns",
-			expectedSourceSecretName:   "my-prefix-my-cluster-0-search-cert",
-			expectedOperatorSecretName: "my-cluster-0-search-certificate-key",
-		},
-		{
-			name:                       "without prefix",
-			secretPrefix:               "",
-			shardName:                  "shard-1",
-			namespace:                  "mongodb",
-			expectedSourceSecretName:   "shard-1-search-cert",
-			expectedOperatorSecretName: "shard-1-search-certificate-key",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			search := newTestMongoDBSearch("test-search", tc.namespace, func(s *searchv1.MongoDBSearch) {
-				s.Spec.Security = searchv1.Security{
-					TLS: &searchv1.TLS{
-						CertsSecretPrefix: tc.secretPrefix,
-					},
-				}
-			})
-
-			adapter := &perShardTLSResource{
-				MongoDBSearch: search,
-				shardName:     tc.shardName,
-			}
-
-			// Test TLSSecretNamespacedName
-			sourceSecret := adapter.TLSSecretNamespacedName()
-			assert.Equal(t, tc.expectedSourceSecretName, sourceSecret.Name)
-			assert.Equal(t, tc.namespace, sourceSecret.Namespace)
-
-			// Test TLSOperatorSecretNamespacedName
-			operatorSecret := adapter.TLSOperatorSecretNamespacedName()
-			assert.Equal(t, tc.expectedOperatorSecretName, operatorSecret.Name)
-			assert.Equal(t, tc.namespace, operatorSecret.Namespace)
 		})
 	}
 }
