@@ -121,7 +121,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if shardedSource, ok := r.db.(ShardedSearchSourceDBResource); ok {
+	if shardedSource, ok := r.db.(SearchSourceShardedDeployment); ok {
 		return r.reconcileSharded(ctx, log, shardedSource, version)
 	}
 
@@ -192,7 +192,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 }
 
 // reconcileSharded deploys one mongot StatefulSet, Service, and ConfigMap per shard.
-func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log *zap.SugaredLogger, shardedSource ShardedSearchSourceDBResource, version string) workflow.Status {
+func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log *zap.SugaredLogger, shardedSource SearchSourceShardedDeployment, version string) workflow.Status {
 	log.Infof("Reconciling MongoDBSearch for sharded source deployment with %d shards", shardedSource.GetShardCount())
 
 	keyfileStsModification := statefulset.NOOP()
@@ -250,7 +250,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		mutatedSts, err := r.createOrUpdateShardStatefulSet(ctx,
 			shardLog,
 			shardName,
-			CreateShardSearchStatefulSetFunc(r.mdbSearch, shardedSource, shardIdx, searchImage),
+			CreateSearchStatefulSetForShardFunc(r.mdbSearch, shardedSource, shardIdx, searchImage),
 			configHashModification,
 			keyfileStsModification,
 			ingressTlsStsModification,
@@ -497,7 +497,7 @@ func buildSearchHeadlessServiceForShard(search *searchv1.MongoDBSearch, shardNam
 
 // createMongotConfigForShard creates the mongot configuration for a specific shard.
 // Each shard's mongot connects to its own shard's mongod hosts.
-func createMongotConfigForShard(search *searchv1.MongoDBSearch, shardedSource ShardedSearchSourceDBResource, shardIdx int) mongot.Modification {
+func createMongotConfigForShard(search *searchv1.MongoDBSearch, shardedSource SearchSourceShardedDeployment, shardIdx int) mongot.Modification {
 	return func(config *mongot.Config) {
 		hostAndPorts := shardedSource.HostSeedsForShard(shardIdx)
 
