@@ -235,7 +235,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			return workflow.Failed(err)
 		}
 
-		shardMongotConfig := createShardMongotConfig(r.mdbSearch, shardedSource, shardIdx)
+		shardMongotConfig := createMongotConfigForShard(r.mdbSearch, shardedSource, shardIdx)
 		configHash, err := r.ensureShardMongotConfig(ctx, shardLog, shardName, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 		if err != nil {
 			return workflow.Failed(err)
@@ -304,7 +304,7 @@ func (r *MongoDBSearchReconcileHelper) validatePerShardTLSSecrets(ctx context.Co
 
 	// Per-shard mode: validate each shard's source secret exists
 	for _, shardName := range shardNames {
-		secretNsName := r.mdbSearch.TLSSecretNamespacedNameForShard(shardName)
+		secretNsName := r.mdbSearch.TLSSecretForShard(shardName)
 		tlsSecret := &corev1.Secret{}
 		err := r.client.Get(ctx, secretNsName, tlsSecret)
 		if apierrors.IsNotFound(err) {
@@ -389,11 +389,11 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureShardSearchService(ctx context.Context, shardName string) error {
-	svcName := r.mdbSearch.MongotServiceNamespacedNameForShard(shardName)
+	svcName := r.mdbSearch.MongotServiceForShard(shardName)
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName.Name, Namespace: svcName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, svc, func() error {
 		resourceVersion := svc.ResourceVersion
-		*svc = buildShardSearchHeadlessService(r.mdbSearch, shardName)
+		*svc = buildSearchHeadlessServiceForShard(r.mdbSearch, shardName)
 		svc.ResourceVersion = resourceVersion
 		return controllerutil.SetOwnerReference(r.mdbSearch, svc, r.client.Scheme())
 	})
@@ -414,7 +414,7 @@ func (r *MongoDBSearchReconcileHelper) ensureShardMongotConfig(ctx context.Conte
 		return "", err
 	}
 
-	cmName := r.mdbSearch.MongotConfigMapNamespacedNameForShard(shardName)
+	cmName := r.mdbSearch.MongotConfigMapForShard(shardName)
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName.Name, Namespace: cmName.Namespace}, Data: map[string]string{}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, cm, func() error {
 		resourceVersion := cm.ResourceVersion
@@ -435,7 +435,7 @@ func (r *MongoDBSearchReconcileHelper) ensureShardMongotConfig(ctx context.Conte
 }
 
 func (r *MongoDBSearchReconcileHelper) createOrUpdateShardStatefulSet(ctx context.Context, log *zap.SugaredLogger, shardName string, modifications ...statefulset.Modification) (*appsv1.StatefulSet, error) {
-	stsName := r.mdbSearch.MongotStatefulSetNamespacedNameForShard(shardName)
+	stsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, sts, func() error {
 		statefulset.Apply(modifications...)(sts)
@@ -450,10 +450,10 @@ func (r *MongoDBSearchReconcileHelper) createOrUpdateShardStatefulSet(ctx contex
 	return sts, nil
 }
 
-// buildShardSearchHeadlessService builds a headless Service for a specific shard's mongot.
-func buildShardSearchHeadlessService(search *searchv1.MongoDBSearch, shardName string) corev1.Service {
-	svcName := search.MongotServiceNamespacedNameForShard(shardName)
-	stsName := search.MongotStatefulSetNamespacedNameForShard(shardName).Name
+// buildSearchHeadlessServiceForShard builds a headless Service for a specific shard's mongot.
+func buildSearchHeadlessServiceForShard(search *searchv1.MongoDBSearch, shardName string) corev1.Service {
+	svcName := search.MongotServiceForShard(shardName)
+	stsName := search.MongotStatefulSetForShard(shardName).Name
 
 	labels := map[string]string{
 		"app":   svcName.Name,
@@ -495,9 +495,9 @@ func buildShardSearchHeadlessService(search *searchv1.MongoDBSearch, shardName s
 	return serviceBuilder.Build()
 }
 
-// createShardMongotConfig creates the mongot configuration for a specific shard.
+// createMongotConfigForShard creates the mongot configuration for a specific shard.
 // Each shard's mongot connects to its own shard's mongod hosts.
-func createShardMongotConfig(search *searchv1.MongoDBSearch, shardedSource ShardedSearchSourceDBResource, shardIdx int) mongot.Modification {
+func createMongotConfigForShard(search *searchv1.MongoDBSearch, shardedSource ShardedSearchSourceDBResource, shardIdx int) mongot.Modification {
 	return func(config *mongot.Config) {
 		hostAndPorts := shardedSource.HostSeedsForShard(shardIdx)
 
@@ -697,12 +697,12 @@ type perShardTLSResource struct {
 
 // TLSSecretNamespacedName returns the per-shard source secret name.
 func (p *perShardTLSResource) TLSSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSSecretNamespacedNameForShard(p.shardName)
+	return p.MongoDBSearch.TLSSecretForShard(p.shardName)
 }
 
 // TLSOperatorSecretNamespacedName returns the per-shard operator-managed secret name.
 func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSOperatorSecretNamespacedNameForShard(p.shardName)
+	return p.MongoDBSearch.TLSOperatorSecretForShard(p.shardName)
 }
 
 // ensureIngressTlsConfigForShard processes TLS configuration for a specific shard.
@@ -941,7 +941,7 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 
 // shardMongotHostAndPort returns the internal service endpoint for a shard's mongot deployment
 func shardMongotHostAndPort(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
-	svcName := search.MongotServiceNamespacedNameForShard(shardName)
+	svcName := search.MongotServiceForShard(shardName)
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
 }
