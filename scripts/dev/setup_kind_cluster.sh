@@ -123,8 +123,8 @@ EOF
 }
 
 kind_create_cluster() {
-  rm -rf /dev/shm/kind-etcd-${cluster_name}
-  rm -rf /dev/shm/kind-pvc-${cluster_name}
+  sudo rm -rf /dev/shm/kind-etcd-${cluster_name}
+  sudo rm -rf /dev/shm/kind-pvc-${cluster_name}
   mkdir -p /dev/shm/kind-etcd-${cluster_name}
   mkdir -p /dev/shm/kind-pvc-${cluster_name}
   cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" --wait 700s -v 5 --config=-
