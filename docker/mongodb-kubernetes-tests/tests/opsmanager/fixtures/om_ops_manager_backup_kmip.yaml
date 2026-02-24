@@ -6,6 +6,8 @@ spec:
   replicas: 1
   version: 4.2.13
   adminCredentials: ops-manager-admin-secret
+  jvmParameters:
+    - "-XX:TieredStopAtLevel=1"
   backup:
     enabled: true
     encryption:
@@ -39,6 +41,8 @@ spec:
               resources:
                 requests:
                   memory: 15G
+                limits:
+                  memory: 30G
 
   # Dev: adding this just to avoid wizard when opening OM UI
   # (note, that to debug issues in OM you need to add 'spec.externalConnectivity.type=NodePort'

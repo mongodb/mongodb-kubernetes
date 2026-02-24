@@ -6,6 +6,8 @@ spec:
   replicas: 1
   version: 5.0.2
   adminCredentials: ops-manager-admin-secret
+  jvmParameters:
+    - "-XX:TieredStopAtLevel=1"
   backup:
     enabled: false
   security:

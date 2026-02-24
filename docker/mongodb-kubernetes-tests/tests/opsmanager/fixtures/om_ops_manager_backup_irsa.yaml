@@ -6,6 +6,8 @@ spec:
   replicas: 1
   version: 5.0.4
   adminCredentials: ops-manager-admin-secret
+  jvmParameters:
+    - "-XX:TieredStopAtLevel=1"
   backup:
     enabled: true
     headDB:
@@ -32,6 +34,8 @@ spec:
                 resources:
                   requests:
                     memory: 10G
+                  limits:
+                    memory: 15G
 
   statefulSet:
     spec:
@@ -42,6 +46,8 @@ spec:
               resources:
                 requests:
                   memory: 15G
+                limits:
+                  memory: 30G
 
   applicationDatabase:
     members: 3

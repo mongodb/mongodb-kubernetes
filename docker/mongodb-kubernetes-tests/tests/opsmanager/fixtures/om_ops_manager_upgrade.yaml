@@ -6,6 +6,8 @@ spec:
   replicas: 1
   # version is configured in the test
   adminCredentials: ops-manager-admin-secret
+  jvmParameters:
+    - "-XX:TieredStopAtLevel=1"
 
   backup:
     enabled: true

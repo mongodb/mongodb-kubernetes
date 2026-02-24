@@ -6,6 +6,8 @@ spec:
   replicas: 1
   version: 4.2.10
   adminCredentials: ops-manager-admin-secret
+  jvmParameters:
+    - "-XX:TieredStopAtLevel=1"
   backup:
     enabled: true
     opLogStores:
@@ -25,6 +27,8 @@ spec:
                 resources:
                   requests:
                     memory: 10G
+                  limits:
+                    memory: 15G
   security:
     tls:
       ca: issuer-ca
@@ -44,6 +48,8 @@ spec:
               resources:
                 requests:
                   memory: 15G
+                limits:
+                  memory: 30G
 
   # adding this just to avoid wizard when opening OM UI
   configuration:

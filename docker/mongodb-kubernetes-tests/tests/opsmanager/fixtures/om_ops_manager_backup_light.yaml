@@ -9,6 +9,8 @@ spec:
   replicas: 1
   version: 4.2.13
   adminCredentials: ops-manager-admin-secret
+  jvmParameters:
+    - "-XX:TieredStopAtLevel=1"
   backup:
     enabled: true
     s3Stores:
@@ -27,6 +29,8 @@ spec:
                 resources:
                   requests:
                     memory: 10G
+                  limits:
+                    memory: 15G
 
   statefulSet:
     spec:
@@ -37,6 +41,8 @@ spec:
               resources:
                 requests:
                   memory: 15G
+                limits:
+                  memory: 30G
   applicationDatabase:
     members: 3
 

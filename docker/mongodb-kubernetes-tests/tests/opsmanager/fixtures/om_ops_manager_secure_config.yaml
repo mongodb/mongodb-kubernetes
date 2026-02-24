@@ -6,6 +6,8 @@ spec:
   replicas: 1
   version: 4.2.10
   adminCredentials: ops-manager-admin-secret
+  jvmParameters:
+    - "-XX:TieredStopAtLevel=1"
   backup:
     enabled: false # enabled during test
     opLogStores:
