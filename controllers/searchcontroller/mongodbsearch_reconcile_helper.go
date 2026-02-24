@@ -125,10 +125,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if err := r.ValidateAutoEmbeddingConfig(); err != nil {
-		return workflow.Failed(err)
-	}
-
 	if shardedSource, ok := r.db.(SearchSourceShardedDeployment); ok {
 		return r.reconcileSharded(ctx, log, shardedSource, version)
 	}
@@ -883,7 +879,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 		if !r.mdbSearch.IsShardedUnmanagedLB() {
 			return xerrors.Errorf(
 				"multiple mongot replicas (%d) require unmanaged load balancer configuration; "+
-					"please configure spec.lb.mode=Unmanaged with spec.lb.endpoint for sharded clusters",
+					"please configure load balancing in spec.lb.",
 				r.mdbSearch.GetReplicas(),
 			)
 		}
@@ -894,26 +890,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 	if !r.mdbSearch.IsReplicaSetUnmanagedLB() {
 		return xerrors.Errorf(
 			"multiple mongot replicas (%d) require unmanaged load balancer configuration; "+
-				"please configure spec.lb.mode=Unmanaged with spec.lb.endpoint",
-			r.mdbSearch.GetReplicas(),
-		)
-	}
-
-	return nil
-}
-
-// ValidateAutoEmbeddingConfig validates that auto embeddings are not configured with multiple mongot replicas.
-// Auto embeddings require the IsAutoEmbeddingViewWriter flag to be set to true for exactly one mongot instance.
-// When multiple replicas are configured, all mongot instances would have this flag set to true, causing conflicts.
-func (r *MongoDBSearchReconcileHelper) ValidateAutoEmbeddingConfig() error {
-	if r.mdbSearch.Spec.AutoEmbedding == nil {
-		return nil
-	}
-
-	if r.mdbSearch.HasMultipleReplicas() {
-		return xerrors.Errorf(
-			"auto embeddings are not supported with multiple mongot replicas (%d); "+
-				"please set spec.source.replicas to 1 or remove spec.autoEmbedding",
+				"please configure load balancing in spec.lb.",
 			r.mdbSearch.GetReplicas(),
 		)
 	}
