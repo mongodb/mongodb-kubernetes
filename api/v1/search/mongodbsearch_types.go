@@ -56,9 +56,9 @@ type MongoDBSearchSpec struct {
 	// +optional
 	Source *MongoDBSource `json:"source"`
 	// Replicas is the number of mongot pods to deploy.
-	// For ReplicaSet source: this many mongot pods total.
-	// For Sharded source: this many mongot pods per shard.
-	// When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.endpoint)
+	// For ReplicaSet source: the number of mongot pods in total.
+	// For Sharded source: the number mongot pods per shard.
+	// When Replicas > 1, a load balancer configuration (spec.lb)
 	// is required to distribute traffic across mongot instances.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
@@ -88,7 +88,7 @@ type MongoDBSearchSpec struct {
 	// `embedding` field of mongot config is generated using the values provided here.
 	// +optional
 	AutoEmbedding *EmbeddingConfig `json:"autoEmbedding,omitempty"`
-	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO LB).
+	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
 	// +optional
 	LoadBalancer *LoadBalancerConfig `json:"lb,omitempty"`
 }
@@ -98,7 +98,7 @@ type MongoDBSearchSpec struct {
 type LBMode string
 
 const (
-	// LBModeManaged indicates operator-managed Envoy load balancer
+	// LBModeManaged indicates operator-managed load balancer
 	LBModeManaged LBMode = "Managed"
 	// LBModeUnmanaged indicates user-provided L7 load balancer (BYO LB)
 	LBModeUnmanaged LBMode = "Unmanaged"
@@ -106,11 +106,13 @@ const (
 
 // LoadBalancerConfig configures how mongod/mongos connect to mongot
 type LoadBalancerConfig struct {
-	// Mode specifies the load balancer mode: Managed (operator-managed) or Unmanaged (BYO L7 LB)
+	// Mode specifies the load balancer mode: Managed (operator-managed) or Unmanaged (BYO L7 Load Balancer)
 	// +kubebuilder:validation:Required
 	Mode LBMode `json:"mode"`
 	// Endpoint is the LB endpoint for ReplicaSet, or a template for sharded clusters.
-	// For sharded clusters, use {shardName} as a placeholder substituted with the actual shard name.
+	// For sharded clusters, at least one {shardName} placeholder must be present and will be substituted with the actual shard name.
+	// Each shard must connect to their mongots using a shard-unique endpoint to allow LoadBalancer to
+	// route the traffic to the mongot instances for that shard.
 	// Example: "lb-{shardName}.example.com:27028"
 	// +optional
 	Endpoint string `json:"endpoint,omitempty"`
@@ -452,7 +454,7 @@ func (s *MongoDBSearch) IsLBModeUnmanaged() bool {
 	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Mode == LBModeUnmanaged
 }
 
-// IsReplicaSetUnmanagedLB returns true if this is a ReplicaSet unmanaged LB configuration.
+// IsReplicaSetUnmanagedLB returns true if this is a ReplicaSet with unmanaged LB configuration.
 // An endpoint with a template placeholder ({shardName}) is NOT considered a ReplicaSet endpoint.
 func (s *MongoDBSearch) IsReplicaSetUnmanagedLB() bool {
 	return s.IsLBModeUnmanaged() &&

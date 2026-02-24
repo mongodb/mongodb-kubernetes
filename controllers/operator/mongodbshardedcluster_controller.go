@@ -3,6 +3,10 @@ package operator
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
+	"strings"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -21,9 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"slices"
-	"sort"
-	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -1021,7 +1022,6 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 
 	log.Infof("Applying search parameters from MongoDBSearch %s", search.NamespacedName())
 
-	// Collect shard names for mongos configuration
 	shardNames := make([]string, sc.Spec.ShardCount)
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
 		shardNames[shardIdx] = sc.ShardRsName(shardIdx)
