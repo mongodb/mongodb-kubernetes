@@ -124,6 +124,17 @@ func TestShardedExternalSearchSource_Validate(t *testing.T) {
 			},
 			expectError: false,
 		},
+		{
+			name: "InValid config, multiple shards with same name",
+			spec: &searchv1.ExternalMongoDBSource{
+				Sharded: newExternalShardedConfig([]string{"mongos1.example.com:27017", "mongos2.example.com:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017"}},
+					{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017"}},
+				}),
+			},
+			expectError:    true,
+			expectedErrMsg: "shardNames can not be duplicate, shard name shard-0 is duplicate",
+		},
 	}
 
 	for _, c := range cases {
