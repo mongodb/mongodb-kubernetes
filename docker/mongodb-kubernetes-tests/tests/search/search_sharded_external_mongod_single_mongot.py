@@ -495,44 +495,9 @@ def test_search_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_p
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_search_shard_collections(mdb: MongoDB):
     search_tester = get_admin_search_tester(mdb, use_ssl=True)
-    client = search_tester.client
-    admin_db = client.admin
-    sample_mflix_db = client["sample_mflix"]
-
-    # Enable sharding on database
-    try:
-        admin_db.command("enableSharding", "sample_mflix")
-        logger.info("Sharding enabled on sample_mflix database")
-    except pymongo.errors.OperationFailure as e:
-        if (
-            "already enabled" in str(e) or e.code == 23 or e.code == 59
-        ):  # AlreadyInitialized or CommandNotFound (MongoDB 8.0+)
-            logger.info("Sharding already enabled on sample_mflix")
-        else:
-            raise
-
-    # Shard movies collection
-    try:
-        sample_mflix_db["movies"].create_index([("_id", pymongo.HASHED)])
-        admin_db.command("shardCollection", "sample_mflix.movies", key={"_id": "hashed"})
-        logger.info("movies collection sharded")
-    except pymongo.errors.OperationFailure as e:
-        if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
-            logger.info("movies collection already sharded")
-        else:
-            raise
-
-    # Shard embedded_movies collection
-    try:
-        sample_mflix_db["embedded_movies"].create_index([("_id", pymongo.HASHED)])
-        admin_db.command("shardCollection", "sample_mflix.embedded_movies", key={"_id": "hashed"})
-        logger.info("embedded_movies collection sharded")
-    except pymongo.errors.OperationFailure as e:
-        if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
-            logger.info("embedded_movies collection already sharded")
-        else:
-            raise
-
+    search_tester.enable_sharding("sample_mflix")
+    search_tester.shard_collection("sample_mflix", "movies")
+    search_tester.shard_collection("sample_mflix", "embedded_movies")
     # Wait for balancer to distribute chunks
     # TODO: execute mdb command to wait for the balancer
     time.sleep(10)
@@ -559,15 +524,11 @@ def test_search_assert_search_query(mdb: MongoDB):
 
     def execute_search():
         try:
-            results = list(
-                search_tester.client["sample_mflix"]["movies"].aggregate(
-                    [
-                        {"$search": {"index": "default", "text": {"query": "star wars", "path": "title"}}},
-                        {"$limit": 10},
-                        {"$project": {"_id": 0, "title": 1, "score": {"$meta": "searchScore"}}},
-                    ]
-                )
-            )
+            results = search_tester.search("sample_mflix", "movies", [
+                {"$search": {"index": "default", "text": {"query": "star wars", "path": "title"}}},
+                {"$limit": 10},
+                {"$project": {"_id": 0, "title": 1, "score": {"$meta": "searchScore"}}},
+            ])
 
             result_count = len(results)
             logger.info(f"Search returned {result_count} results")
@@ -587,26 +548,20 @@ def test_search_assert_search_query(mdb: MongoDB):
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_search_verify_results_from_all_shards(mdb: MongoDB):
     search_tester = get_user_search_tester(mdb, use_ssl=True)
-    movies_collection = search_tester.client["sample_mflix"]["movies"]
-
     # Get total document count
-    total_docs = movies_collection.count_documents({})
+    total_docs = search_tester.client["sample_mflix"]["movies"].count_documents({})
     logger.info(f"Total documents in collection: {total_docs}")
 
     # Execute wildcard search to get all documents
-    results = list(
-        movies_collection.aggregate(
-            [
-                {
-                    "$search": {
-                        "index": "default",
-                        "wildcard": {"query": "*", "path": "title", "allowAnalyzedField": True},
-                    }
-                },
-                {"$project": {"_id": 0, "title": 1}},
-            ]
-        )
-    )
+    results = search_tester.search("sample_mflix", "movies", [
+        {
+            "$search": {
+                "index": "default",
+                "wildcard": {"query": "*", "path": "title", "allowAnalyzedField": True},
+            }
+        },
+        {"$project": {"_id": 0, "title": 1}},
+    ])
 
     search_count = len(results)
     logger.info(f"Search through mongos returned {search_count} documents")

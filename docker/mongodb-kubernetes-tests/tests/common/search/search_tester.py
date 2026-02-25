@@ -1,5 +1,8 @@
 from typing import Optional, Self
 
+import pymongo
+import pymongo.errors
+
 import kubetester
 from kubetester.mongotester import MongoTester
 from pymongo.operations import SearchIndexModel
@@ -73,6 +76,34 @@ class SearchTester(MongoTester):
             f"?authSource=admin"
         )
         return cls(conn_str, use_ssl=use_ssl, ca_path=ca_path)
+
+    def enable_sharding(self, database_name: str):
+        try:
+            self.client.admin.command("enableSharding", database_name)
+            logger.info(f"Sharding enabled on {database_name} database")
+        except pymongo.errors.OperationFailure as e:
+            if (
+                "already enabled" in str(e) or e.code == 23 or e.code == 59
+            ):  # AlreadyInitialized or CommandNotFound (MongoDB 8.0+)
+                logger.info(f"Sharding already enabled on {database_name}")
+            else:
+                raise
+
+    def shard_collection(self, database_name: str, collection_name: str):
+        ns = f"{database_name}.{collection_name}"
+        try:
+            self.client[database_name][collection_name].create_index([("_id", pymongo.HASHED)])
+            self.client.admin.command("shardCollection", ns, key={"_id": "hashed"})
+            logger.info(f"{collection_name} collection sharded")
+        except pymongo.errors.OperationFailure as e:
+            if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
+                logger.info(f"{collection_name} collection already sharded")
+            else:
+                raise
+
+    def search(self, database_name: str, collection_name: str, pipeline: list):
+        """Run a search aggregation pipeline and return the results."""
+        return list(self.client[database_name][collection_name].aggregate(pipeline))
 
     def mongorestore_from_url(self, archive_url: str, ns_include: str, tools_pod: ToolsPod):
         """Run mongorestore from a URL using the tools pod.
