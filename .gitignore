@@ -17,6 +17,8 @@ cache
 **/__pycache__
 **/myenv
 **/venv*/
+# venv symlink created by .githooks/post-checkout, doesn't get covered by **/venv*/ because it's a symlink and not a folder
+venv
 *.bak
 **/pytest_cache/
 tmp/*
