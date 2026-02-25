@@ -39,17 +39,17 @@ echo "post-checkout: detected linked worktree at ${worktree_root}"
 echo "post-checkout: main repo at ${main_repo_root}"
 
 # ---------------------------------------------------------------------------
-# Helper: create a symlink if the target does not already exist.
-# Usage: maybe_symlink <rel-path-in-worktree> <abs-source-path>
+# Helper: copy a file or directory if the target does not already exist.
+# Usage: maybe_copy <rel-path-in-worktree> <abs-source-path>
 # ---------------------------------------------------------------------------
-maybe_symlink() {
+maybe_copy() {
     local rel_path="${1}"
     local source="${2}"
     local dest="${worktree_root}/${rel_path}"
     local dest_dir
     dest_dir="$(dirname "${dest}")"
 
-    if [[ -e "${dest}" || -L "${dest}" ]]; then
+    if [[ -e "${dest}" ]]; then
         echo "post-checkout: '${rel_path}' already exists, skipping."
         return
     fi
@@ -60,20 +60,27 @@ maybe_symlink() {
     fi
 
     mkdir -p "${dest_dir}"
-    ln -s "${source}" "${dest}"
-    echo "post-checkout: symlinked '${rel_path}' -> '${source}'"
+    cp -r "${source}" "${dest}"
+    echo "post-checkout: copied '${source}' -> '${rel_path}'"
 }
 
 # ---------------------------------------------------------------------------
 # 1. private-context
 # ---------------------------------------------------------------------------
-maybe_symlink \
+maybe_copy \
     "scripts/dev/contexts/private-context" \
     "${main_repo_root}/scripts/dev/contexts/private-context"
 
 # ---------------------------------------------------------------------------
 # 2. venv
 # ---------------------------------------------------------------------------
-maybe_symlink \
+maybe_copy \
     "venv" \
     "${main_repo_root}/venv"
+
+# ---------------------------------------------------------------------------
+# 3. .generated
+# ---------------------------------------------------------------------------
+maybe_copy \
+    ".generated" \
+    "${main_repo_root}/.generated"
