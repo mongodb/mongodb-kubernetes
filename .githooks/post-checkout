@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+#
+# Git post-checkout hook that sets up copies of files for linked worktrees.
+#
+# When a new worktree is checked out it will automatically copy:
+#   - scripts/dev/contexts/private-context  (user-local dev config)
+#   - venv/                                 (shared Python virtual environment)
+# from the original repository clone into the worktree root.
+#
+# To set up: git config core.hooksPath .githooks
+#
+
+set -Eeou pipefail
+
+# Hook arguments:
+#   $1 - previous HEAD ref
+#   $2 - new HEAD ref
+#   $3 - flag: 1 = branch checkout, 0 = file checkout
+CHECKOUT_TYPE="${3:-}"
+
+# Only run on branch checkouts.
+if [[ "${CHECKOUT_TYPE}" != "1" ]]; then
+    exit 0
+fi
+
+# Only run inside a linked worktree. In a linked worktree .git is a regular
+# file; in the main clone it is a directory.
+if [[ ! -f ".git" ]]; then
+    exit 0
+fi
+
+# Resolve the root of the original ("main") clone via the shared git dir.
+# `git rev-parse --git-common-dir` returns e.g. /path/to/main-clone/.git
+git_common_dir="$(git rev-parse --git-common-dir)"
+main_repo_root="$(cd "${git_common_dir}/.." && pwd)"
+worktree_root="$(pwd)"
+
+echo "post-checkout: detected linked worktree at ${worktree_root}"
+echo "post-checkout: main repo at ${main_repo_root}"
+
+# ---------------------------------------------------------------------------
+# Helper: copy repo-relative paths (or glob patterns) from the main repo
+# clone into the worktree root, skipping any that already exist.
+#
+# Brace-expansion patterns (e.g. file.{a,b}.yml) are expanded by the shell
+# before this function is called and arrive as separate arguments.
+# Glob patterns (e.g. scripts/*.user.sh) that match nothing in the current
+# directory are passed as literal strings and expanded here against
+# main_repo_root so that the worktree state does not interfere.
+#
+# Usage: maybe_copy <repo-relative-pattern> [<pattern> ...]
+#   e.g. maybe_copy scripts/dev/contexts/private-context
+#        maybe_copy .devcontainer/compose.{generated,user}.yml
+#        maybe_copy .devcontainer/scripts/*.user.sh
+# ---------------------------------------------------------------------------
+maybe_copy() {
+    local -a all_paths=()
+
+    # Expand every argument as a glob against main_repo_root so that glob
+    # chars like * work even though the files don't exist in the worktree yet.
+    pushd "${main_repo_root}" > /dev/null
+    shopt -s nullglob
+    local pattern
+    for pattern in "$@"; do
+        local -a matches=()
+        # eval is intentional: it allows brace expansion ({a,b}) and glob
+        # expansion (*.sh) to work on the pattern string. nullglob is active
+        # so unmatched globs silently produce an empty array.
+        # shellcheck disable=SC2294
+        eval "matches=($pattern)"
+        all_paths+=("${matches[@]+"${matches[@]}"}")
+    done
+    shopt -u nullglob
+    popd > /dev/null
+
+    if [[ ${#all_paths[@]} -eq 0 ]]; then
+        echo "post-checkout: no sources matched '$*' in main repo, skipping."
+        return
+    fi
+
+    local rel_path
+    for rel_path in "${all_paths[@]}"; do
+        local source="${main_repo_root}/${rel_path}"
+        local dest="${worktree_root}/${rel_path}"
+        local dest_dir
+        dest_dir="$(dirname "${dest}")"
+
+        if [[ -e "${dest}" ]]; then
+            echo "post-checkout: '${rel_path}' already exists, skipping."
+            continue
+        fi
+
+        if [[ ! -e "${source}" ]]; then
+            echo "post-checkout: source '${rel_path}' not found in main repo, skipping."
+            continue
+        fi
+
+        mkdir -p "${dest_dir}"
+        cp -r "${source}" "${dest}"
+        echo "post-checkout: copied '${rel_path}'"
+    done
+}
+
+# ---------------------------------------------------------------------------
+# 1. private-context
+# ---------------------------------------------------------------------------
+maybe_copy "scripts/dev/contexts/private-context"
+
+# ---------------------------------------------------------------------------
+# 2. venv
+# ---------------------------------------------------------------------------
+maybe_copy "venv"
+
+# ---------------------------------------------------------------------------
+# 3. .generated
+# ---------------------------------------------------------------------------
+maybe_copy ".generated"
+
+# ---------------------------------------------------------------------------
+# 4. .devcontainer customizations
+# ---------------------------------------------------------------------------
+maybe_copy ".devcontainer/compose.{generated,user}.yml" ".devcontainer/scripts/*.user.sh"
