@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-K8S_AI_TOOLS_DIR="/tmp/k8s-ai-tools"
+K8S_AI_TOOLS_DIR="/opt/k8s-ai-tools"
 
 # Clone k8s-ai-tools repository
 if git clone "https://github.com/10gen/k8s-ai-tools.git" "${K8S_AI_TOOLS_DIR}" 2>/dev/null; then

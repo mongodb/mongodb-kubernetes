@@ -6,7 +6,6 @@ services:
       - ..:/workspace:cached
 
       # Unique per devcontainer instance to avoid conflicts
-      - generated-contexts:/workspace/.generated
       - venv:/workspace/venv
 
       # Named volumes for persistent caches, shared across all devcontainer instances
@@ -20,11 +19,6 @@ services:
       - ${HOME}/.evergreen.yml:/home/vscode/.evergreen.yml:cached
       - ${HOME}/.kanopy:${HOME}/.kanopy:cached
 
-    # Environment variables
-    env_file:
-      # AWS credentials from aws-vault
-      - .envs/aws-vault.env
-
     # Additional host configuration
     extra_hosts:
       # Ensure host.docker.internal resolves on Linux Docker
@@ -32,9 +26,8 @@ services:
 
     command: sleep infinity
 
-# Named volumes declaration
+# Volumes with an explicit name are shared globally, otherwise they are prefixed with the project name generated for this compose stack
 volumes:
-  generated-contexts:
   venv:
   gomodcache:
     name: mck-devcontainer-gomodcache

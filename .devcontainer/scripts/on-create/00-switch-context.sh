@@ -2,7 +2,11 @@
 
 set -euo pipefail
 
-# Switch to the root context once, to kickstart the environment
-make switch context=root-context
+# Switch context once, to kickstart the environment
+context=root-context
+if [ -f "/workspace/.generated/.current_context" ]; then
+    context=$(cat /workspace/.generated/.current_context)
+fi
+make switch context="${context}"
 
 echo "source /workspace/.generated/context.export.env" >> /home/vscode/.bashrc

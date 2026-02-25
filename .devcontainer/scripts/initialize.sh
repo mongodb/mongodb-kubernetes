@@ -5,9 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 export ENV_DIR="${SCRIPT_DIR}/../.envs"
 mkdir -p "${ENV_DIR}"
 
-# query the docker containers by label, look for the one where the devcontainer.local_folder label is set to the absolute value of $SCRIPT_DIR/../..
-DEV_CONTAINER_ID=$(docker ps --filter "label=devcontainer.config_file=$(realpath "${SCRIPT_DIR}/../devcontainer.json")" --format "{{.ID}}")
-export DEV_CONTAINER_ID
 COMPOSE_OVERRIDE_FILE="${SCRIPT_DIR}/../compose.generated.yml"
 export COMPOSE_OVERRIDE_FILE
 

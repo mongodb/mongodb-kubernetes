@@ -25,6 +25,8 @@
             "helm": "latest",
             "minikube": "none"
         },
+        // Installs the helm-unittest plugin; depends on kubectl-helm-minikube for helm.
+        "./features/helm-unittest": {},
         // Reuse host Docker for building images and running kind clusters
         "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
         // AWS CLI for logging-in to ECR
@@ -46,7 +48,6 @@
     // --- Lifecycle Commands ---
     "initializeCommand": "bash .devcontainer/scripts/initialize.sh",
     "onCreateCommand": "bash .devcontainer/scripts/on-create.sh",
-    "postAttachCommand": "bash .devcontainer/scripts/post-attach.sh",
 
     // Disable all auto port forwarding by default
     "otherPortsAttributes": {
