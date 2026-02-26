@@ -135,9 +135,9 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 		}
 	} else {
 		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
-		// For sharded clusters with unmanaged LB mode, use ShardedEnterpriseSearchSource
-		// which provides per-shard host seeds and endpoint mapping.
-		if mdb.GetResourceType() == mdbv1.ShardedCluster && search.IsShardedUnmanagedLB() {
+		// For sharded clusters, use ShardedEnterpriseSearchSource which provides
+		// per-shard host seeds and endpoint mapping for both managed and unmanaged LB modes.
+		if mdb.GetResourceType() == mdbv1.ShardedCluster {
 			return searchcontroller.NewShardedEnterpriseSearchSource(mdb, search), nil
 		}
 		return searchcontroller.NewEnterpriseResourceSearchSource(mdb), nil
