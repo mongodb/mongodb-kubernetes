@@ -401,11 +401,19 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 }
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
-	return operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
+	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
 		SearchRepo:    env.ReadOrPanic("MDB_SEARCH_REPO_URL"),
 		SearchName:    env.ReadOrPanic("MDB_SEARCH_NAME"),
 		SearchVersion: env.ReadOrPanic("MDB_SEARCH_VERSION"),
-	})
+	}); err != nil {
+		return err
+	}
+
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func setupCommunityController(
