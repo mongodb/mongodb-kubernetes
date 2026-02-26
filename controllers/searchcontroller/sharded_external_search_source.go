@@ -23,20 +23,20 @@ func NewShardedExternalSearchSource(namespace string, spec *searchv1.ExternalMon
 }
 
 func (r *ShardedExternalSearchSource) Validate() error {
-	if r.spec.ShardedDeployment == nil {
+	if r.spec.ShardedCluster == nil {
 		return xerrors.New("sharded configuration is required for ShardedExternalSearchSource")
 	}
 
-	if len(r.spec.ShardedDeployment.Router.Hosts) == 0 {
+	if len(r.spec.ShardedCluster.Router.Hosts) == 0 {
 		return xerrors.New("router.hosts must have at least one host")
 	}
 
-	if len(r.spec.ShardedDeployment.Shards) == 0 {
+	if len(r.spec.ShardedCluster.Shards) == 0 {
 		return xerrors.New("at least one shard must be configured")
 	}
 
-	seenShards := make(map[string]struct{}, len(r.spec.ShardedDeployment.Shards))
-	for i, shard := range r.spec.ShardedDeployment.Shards {
+	seenShards := make(map[string]struct{}, len(r.spec.ShardedCluster.Shards))
+	for i, shard := range r.spec.ShardedCluster.Shards {
 		if shard.ShardName == "" {
 			return xerrors.Errorf("shard[%d].shardName is required", i)
 		}
@@ -57,8 +57,8 @@ func (r *ShardedExternalSearchSource) Validate() error {
 func (r *ShardedExternalSearchSource) TLSConfig() *TLSSourceConfig {
 	// Prioritize router-specific TLS if present, otherwise fall back to top-level TLS
 	var tlsConfig *searchv1.ExternalMongodTLS
-	if r.spec.ShardedDeployment != nil && r.spec.ShardedDeployment.Router.TLS != nil {
-		tlsConfig = r.spec.ShardedDeployment.Router.TLS
+	if r.spec.ShardedCluster != nil && r.spec.ShardedCluster.Router.TLS != nil {
+		tlsConfig = r.spec.ShardedCluster.Router.TLS
 	} else if r.spec.TLS != nil {
 		tlsConfig = r.spec.TLS
 	}
@@ -86,40 +86,40 @@ func (r *ShardedExternalSearchSource) KeyfileSecretName() string {
 }
 
 func (r *ShardedExternalSearchSource) HostSeeds() []string {
-	if r.spec.ShardedDeployment != nil && len(r.spec.ShardedDeployment.Shards) > 0 {
-		return r.spec.ShardedDeployment.Shards[0].Hosts
+	if r.spec.ShardedCluster != nil && len(r.spec.ShardedCluster.Shards) > 0 {
+		return r.spec.ShardedCluster.Shards[0].Hosts
 	}
 	return nil
 }
 
 func (r *ShardedExternalSearchSource) GetShardCount() int {
-	if r.spec.ShardedDeployment == nil {
+	if r.spec.ShardedCluster == nil {
 		return 0
 	}
-	return len(r.spec.ShardedDeployment.Shards)
+	return len(r.spec.ShardedCluster.Shards)
 }
 
 func (r *ShardedExternalSearchSource) GetShardNames() []string {
-	if r.spec.ShardedDeployment == nil {
+	if r.spec.ShardedCluster == nil {
 		return nil
 	}
-	names := make([]string, len(r.spec.ShardedDeployment.Shards))
-	for i, shard := range r.spec.ShardedDeployment.Shards {
+	names := make([]string, len(r.spec.ShardedCluster.Shards))
+	for i, shard := range r.spec.ShardedCluster.Shards {
 		names[i] = shard.ShardName
 	}
 	return names
 }
 
 func (r *ShardedExternalSearchSource) HostSeedsForShard(shardIdx int) []string {
-	if r.spec.ShardedDeployment == nil || shardIdx < 0 || shardIdx >= len(r.spec.ShardedDeployment.Shards) {
+	if r.spec.ShardedCluster == nil || shardIdx < 0 || shardIdx >= len(r.spec.ShardedCluster.Shards) {
 		return nil
 	}
-	return r.spec.ShardedDeployment.Shards[shardIdx].Hosts
+	return r.spec.ShardedCluster.Shards[shardIdx].Hosts
 }
 
 func (r *ShardedExternalSearchSource) MongosHostAndPort() string {
-	if r.spec.ShardedDeployment == nil || len(r.spec.ShardedDeployment.Router.Hosts) == 0 {
+	if r.spec.ShardedCluster == nil || len(r.spec.ShardedCluster.Router.Hosts) == 0 {
 		return ""
 	}
-	return r.spec.ShardedDeployment.Router.Hosts[0]
+	return r.spec.ShardedCluster.Router.Hosts[0]
 }
