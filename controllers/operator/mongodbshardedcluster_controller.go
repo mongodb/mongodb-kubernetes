@@ -1001,12 +1001,15 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 
 // applySearchParametersForShards applies search parameters for each shard and mongos in the sharded cluster.
 // This configures:
-// 1. Per-shard mongod search parameters (only when unmanaged LB is configured)
+// 1. Per-shard mongod search parameters (when unmanaged or managed LB is configured)
 // 2. Mongos search parameters (always, when a MongoDBSearch resource exists)
 //
 // For sharded clusters with unmanaged LB (spec.lb.mode == Unmanaged):
 //   - spec.lb.endpoint contains a template with {shardName} placeholder
 //   - Each shard resolves its endpoint by substituting {shardName} with the actual shard name
+//
+// For sharded clusters with managed LB (spec.lb.mode == Managed):
+//   - Each shard's mongod points to the operator-managed envoy proxy service
 //
 // For mongos (always configured when MongoDBSearch exists):
 // - mongotHost: host:port of the first shard's mongot server
@@ -1031,16 +1034,22 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 	// Collect shard names for mongos configuration
 	shardNames := sc.ShardRsNames()
 
-	// Apply per-shard search configuration only when unmanaged LB is configured
-	if search.IsShardedUnmanagedLB() {
-		// Create a sharded search source to validate the configuration
-		shardedSource := searchcontroller.NewShardedEnterpriseSearchSource(sc, search)
-		if err := shardedSource.Validate(); err != nil {
-			log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
-			return
+	// Apply per-shard search configuration when LB is configured (unmanaged or managed)
+	if search.IsShardedUnmanagedLB() || search.IsLBModeManaged() {
+		// Validate unmanaged LB endpoint configuration
+		if search.IsShardedUnmanagedLB() {
+			shardedSource := searchcontroller.NewShardedEnterpriseSearchSource(sc, search)
+			if err := shardedSource.Validate(); err != nil {
+				log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
+				return
+			}
 		}
 
-		log.Infof("Applying per-shard search overrides (unmanaged LB mode)")
+		lbMode := "managed"
+		if search.IsShardedUnmanagedLB() {
+			lbMode = "unmanaged"
+		}
+		log.Infof("Applying per-shard search overrides (%s LB mode)", lbMode)
 
 		// Apply search configuration to each shard
 		for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
