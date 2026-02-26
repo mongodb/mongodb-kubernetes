@@ -86,8 +86,8 @@ func main() {
 	runParallel(cfg.memberClusters, func(cluster string) {
 		collectError := collectErrorFor(cluster)
 		ensureNamespace(ctx, clients[cluster], cluster, cfg.namespace, cfg.taskID, collectError)
-		labelNamespaceIstio(ctx, clients[cluster], cluster, cfg.namespace, collectError)
 		if cfg.applyMTLS {
+			labelNamespaceIstio(ctx, clients[cluster], cluster, cfg.namespace, collectError)
 			applyPeerAuthentication(ctx, dynamicClients[cluster], cluster, cfg.namespace, collectError)
 		}
 	})
@@ -211,6 +211,12 @@ type config struct {
 func loadConfig() config {
 	localVal := os.Getenv("local")               // nolint:forbidigo
 	noMesh := os.Getenv("MULTI_CLUSTER_NO_MESH") // nolint:forbidigo
+	// The old bash code defaulted MULTI_CLUSTER_NO_MESH to "true" when unset:
+	//   "${MULTI_CLUSTER_NO_MESH:-"true"}" != "true"
+	// So mTLS is only applied when MULTI_CLUSTER_NO_MESH is explicitly set to something other than "true".
+	if noMesh == "" {
+		noMesh = "true"
+	}
 	applyMTLS := localVal == "" && noMesh != "true"
 
 	cfg := config{
