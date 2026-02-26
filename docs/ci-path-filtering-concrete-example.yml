@@ -1,0 +1,102 @@
+# Example: How to modify .evergreen.yml to add path-based filtering
+# This shows the BEFORE and AFTER for one variant
+
+# ============================================================================
+# BEFORE: Current configuration (no filtering)
+# ============================================================================
+# 
+# buildvariants:
+#   - name: e2e_mdb_community
+#     display_name: e2e_mdb_community
+#     tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+#     run_on:
+#       - ubuntu2404-large
+#     <<: *community_dependency
+#     tasks:
+#       - name: e2e_mdb_community_task_group
+
+# ============================================================================
+# AFTER: With path-based filtering using activate condition
+# ============================================================================
+#
+# buildvariants:
+#   - name: e2e_mdb_community
+#     display_name: e2e_mdb_community
+#     tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+#     activate:
+#       - func: clone
+#       - func: setup_jq  # Required: jq is needed for should_run.sh
+#       - command: shell.exec
+#         params:
+#           shell: bash
+#           working_dir: src/github.com/mongodb/mongodb-kubernetes
+#           script: scripts/evergreen/should_run.sh e2e_tests
+#     run_on:
+#       - ubuntu2404-large
+#     <<: *community_dependency
+#     tasks:
+#       - name: e2e_mdb_community_task_group
+#
+# Note: The `activate` section runs BEFORE the variant is scheduled.
+# If the script exits with code != 0, the variant is skipped entirely.
+# The script takes scope as argument: e2e_tests, unit_tests, or build_images
+
+# ============================================================================
+# ALTERNATIVE: Using run_task_conditionally (for dynamic task addition)
+# ============================================================================
+#
+# This approach requires creating a new task that conditionally adds tasks:
+#
+# tasks:
+#   - name: conditionally_add_e2e_tasks
+#     tags: [ "pr_patch" ]
+#     commands:
+#       - func: clone
+#       - func: setup_jq  # Required: jq is needed for should_run.sh
+#       - func: run_task_conditionally
+#         vars:
+#           condition_script: scripts/evergreen/should_run.sh e2e_tests
+#           variant: e2e_mdb_community
+#           task: e2e_mdb_community_task_group
+#
+# Then ensure this task runs early in the build (maybe in init_test_run variant)
+
+# ============================================================================
+# ALTERNATIVE: Early exit in task commands (simplest, but less efficient)
+# ============================================================================
+#
+# Modify the task group to exit early:
+#
+# task_groups:
+#   - name: e2e_mdb_community_task_group
+#     max_hosts: -1
+#     setup_group_can_fail_task: true
+#     setup_group:
+#       - func: clone
+#       - func: setup_jq  # Required: jq is needed for should_run.sh
+#       - command: shell.exec
+#         params:
+#           shell: bash
+#           working_dir: src/github.com/mongodb/mongodb-kubernetes
+#           script: |
+#             if ! scripts/evergreen/should_run.sh e2e_tests; then
+#               echo "Skipping e2e tests - only non-production files changed"
+#               exit 0
+#             fi
+#       - func: download_kube_tools
+#       # ... rest of setup
+#     tasks:
+#       - name: e2e_mdb_community
+#
+# Note: This still schedules the task but exits early, so some setup overhead remains.
+
+# ============================================================================
+# RECOMMENDED: Start with variant-level activate for e2e variants
+# ============================================================================
+#
+# This is the cleanest approach because:
+# 1. Variants don't appear in Evergreen UI if skipped
+# 2. No resources are wasted
+# 3. Easy to understand
+#
+# Apply to all variants with tag "e2e_test_suite" and "pr_patch"
