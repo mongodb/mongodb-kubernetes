@@ -125,15 +125,3 @@ func (r *ShardedEnterpriseSearchSource) Validate() error {
 
 	return nil
 }
-
-func (r *ShardedEnterpriseSearchSource) GetMongoDB() *mdbv1.MongoDB {
-	return r.MongoDB
-}
-
-func (r *ShardedEnterpriseSearchSource) GetSearch() *searchv1.MongoDBSearch {
-	return r.search
-}
-
-func (r *ShardedEnterpriseSearchSource) IsShardedSource() bool {
-	return true
-}
