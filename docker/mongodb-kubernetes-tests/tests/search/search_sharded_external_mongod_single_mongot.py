@@ -496,9 +496,7 @@ def test_search_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_p
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_search_shard_collections(mdb: MongoDB):
     search_tester = get_admin_search_tester(mdb, use_ssl=True)
-    # search_tester.enable_sharding("sample_mflix")
     search_tester.shard_and_distribute_collection("sample_mflix", "movies")
-    # search_tester.shard_and_distribute_collection("sample_mflix", "embedded_movies")
     
     logger.info("Collections sharded and chunks are distributed")
 

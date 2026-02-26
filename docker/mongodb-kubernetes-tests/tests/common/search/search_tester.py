@@ -87,7 +87,6 @@ class SearchTester(MongoTester):
         ns = f"{database_name}.{collection_name}"
         try:
             self.client[database_name][collection_name].create_index([("_id", pymongo.HASHED)])
-            # self.client.admin.command("shardAndDistributeCollection", ns, key={"_id": "hashed"})
             self.client.admin.command(
                 "shardCollection",
                 ns,
