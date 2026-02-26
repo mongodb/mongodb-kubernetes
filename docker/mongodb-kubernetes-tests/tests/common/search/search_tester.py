@@ -77,33 +77,37 @@ class SearchTester(MongoTester):
         )
         return cls(conn_str, use_ssl=use_ssl, ca_path=ca_path)
 
-    def enable_sharding(self, database_name: str):
-        try:
-            self.client.admin.command("enableSharding", database_name)
-            logger.info(f"Sharding enabled on {database_name} database")
-        except pymongo.errors.OperationFailure as e:
-            if (
-                "already enabled" in str(e) or e.code == 23 or e.code == 59
-            ):  # AlreadyInitialized or CommandNotFound (MongoDB 8.0+)
-                logger.info(f"Sharding already enabled on {database_name}")
-            else:
-                raise
-
-    def shard_collection(self, database_name: str, collection_name: str):
+    # shard_and_distribute_collection tries to implement mongnosh helper `sh.shardAndDistributeCollection` method
+    # which is equivalent to running `shardCollection` and `reshardCollection` consecutively. It means that
+    # immediately after the shard is created, resharding would happen and the collection data would be distributed
+    # in different shards using chunks. Balancer is not really involved here initially because resharding handles the
+    # chunk creation and distribution. The command is synchronous which means it will only return when the chunks are
+    # distributed properly among shards. 
+    def shard_and_distribute_collection(self, database_name: str, collection_name: str):
         ns = f"{database_name}.{collection_name}"
         try:
             self.client[database_name][collection_name].create_index([("_id", pymongo.HASHED)])
-            self.client.admin.command("shardCollection", ns, key={"_id": "hashed"})
-            logger.info(f"{collection_name} collection sharded")
+            # self.client.admin.command("shardAndDistributeCollection", ns, key={"_id": "hashed"})
+            self.client.admin.command(
+                "shardCollection",
+                ns,
+                key={"_id": "hashed"},
+                unique=False,
+            )
+
+            self.client.admin.command(
+                "reshardCollection",
+                ns,
+                key={"_id": "hashed"},
+                forceRedistribution=True,    # require 8.0+
+            )
+
+            logger.info(f"{collection_name} collection sharded and chunks distributed using the method shardAndDistributeCollection")
         except pymongo.errors.OperationFailure as e:
             if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
                 logger.info(f"{collection_name} collection already sharded")
             else:
                 raise
-
-    def search(self, database_name: str, collection_name: str, pipeline: list):
-        """Run a search aggregation pipeline and return the results."""
-        return list(self.client[database_name][collection_name].aggregate(pipeline))
 
     def mongorestore_from_url(self, archive_url: str, ns_include: str, tools_pod: ToolsPod):
         """Run mongorestore from a URL using the tools pod.
