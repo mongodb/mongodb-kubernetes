@@ -813,6 +813,7 @@ task_groups:
       - e2e_search_enterprise_x509_cluster_auth
       - e2e_search_sharded_external_mongod_single_mongot
       - e2e_search_sharded_enterprise_external_lb
+      - e2e_search_sharded_enterprise_managed_lb
       - e2e_search_sharded_enterprise_external_mongod
     <<: *teardown_group
 
