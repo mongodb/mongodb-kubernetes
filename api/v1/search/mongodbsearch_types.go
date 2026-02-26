@@ -104,7 +104,7 @@ type ExternalMongoDBSource struct {
 	// Sharded contains configuration for external sharded MongoDB clusters.
 	// Mutually exclusive with HostAndPorts.
 	// +optional
-	Sharded *ExternalShardedConfig `json:"sharded,omitempty"`
+	ShardedDeployment *ExternalShardedDeploymentConfig `json:"shardedDeployment,omitempty"`
 	// mongod keyfile used to connect to the external MongoDB deployment
 	// +optional
 	KeyFileSecretKeyRef *userv1.SecretKeyRef `json:"keyfileSecretRef,omitempty"`
@@ -114,7 +114,7 @@ type ExternalMongoDBSource struct {
 }
 
 // ExternalShardedConfig contains configuration for external sharded MongoDB clusters
-type ExternalShardedConfig struct {
+type ExternalShardedDeploymentConfig struct {
 	// Router contains the mongos router configuration
 	// +kubebuilder:validation:Required
 	Router ExternalRouterConfig `json:"router"`
@@ -370,7 +370,7 @@ func (s *MongoDBSearch) IsExternalMongoDBSource() bool {
 // IsExternalSourceSharded returns true if the source is an external sharded MongoDB cluster
 func (s *MongoDBSearch) IsExternalSourceSharded() bool {
 	return s.IsExternalMongoDBSource() &&
-		s.Spec.Source.ExternalMongoDBSource.Sharded != nil
+		s.Spec.Source.ExternalMongoDBSource.ShardedDeployment != nil
 }
 
 func (s *MongoDBSearch) GetLogLevel() mdb.LogLevel {

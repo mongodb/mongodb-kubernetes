@@ -264,7 +264,7 @@ spec:
                         required:
                         - name
                         type: object
-                      sharded:
+                      shardedDeployment:
                         description: |-
                           Sharded contains configuration for external sharded MongoDB clusters.
                           Mutually exclusive with HostAndPorts.
