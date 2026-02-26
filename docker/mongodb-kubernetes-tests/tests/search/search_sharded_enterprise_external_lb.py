@@ -641,7 +641,7 @@ def test_create_users(
         name=admin_user["spec"]["passwordSecretKeyRef"]["name"],
         data={"password": ADMIN_USER_PASSWORD},
     )
-    admin_user.create()
+    admin_user.update()
     admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
@@ -649,7 +649,7 @@ def test_create_users(
         name=user["spec"]["passwordSecretKeyRef"]["name"],
         data={"password": USER_PASSWORD},
     )
-    user.create()
+    user.update()
     user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
@@ -657,7 +657,7 @@ def test_create_users(
         name=mongot_user["spec"]["passwordSecretKeyRef"]["name"],
         data={"password": MONGOT_USER_PASSWORD},
     )
-    mongot_user.create()
+    mongot_user.update()
     # Don't wait for mongot user - it needs searchCoordinator role from Search CR
 
 
