@@ -514,3 +514,22 @@ func (s *MongoDBSearch) MongotServiceNamespacedNameForShard(shardName string) ty
 func (s *MongoDBSearch) MongotConfigMapNamespacedNameForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s-config", s.Name, shardName), Namespace: s.Namespace}
 }
+
+func (s *MongoDBSearch) IsLBModeManaged() bool {
+	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Mode == LBModeManaged
+}
+
+// EnvoyDeploymentName returns the name of the Envoy Deployment for this resource.
+func (s *MongoDBSearch) EnvoyDeploymentName() string {
+	return s.Name + "-envoy-proxy"
+}
+
+// EnvoyConfigMapName returns the name of the Envoy ConfigMap for this resource.
+func (s *MongoDBSearch) EnvoyConfigMapName() string {
+	return s.Name + "-envoy-config"
+}
+
+// EnvoyProxyServiceNameForShard returns the per-shard proxy Service name used for SNI routing.
+func (s *MongoDBSearch) EnvoyProxyServiceNameForShard(shardName string) string {
+	return fmt.Sprintf("%s-mongot-%s-proxy-svc", s.Name, shardName)
+}
