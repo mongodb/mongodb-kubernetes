@@ -770,6 +770,9 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 	var mongotEndpoint string
 	if search.IsShardedUnmanagedLB() {
 		mongotEndpoint = search.GetEndpointForShard(shardName)
+	} else if search.IsLBModeManaged() {
+		// Use the operator-managed envoy proxy service for this shard
+		mongotEndpoint = shardEnvoyProxyHostAndPort(search, shardName, clusterDomain)
 	} else {
 		mongotEndpoint = shardMongotHostAndPort(search, shardName, clusterDomain)
 	}
@@ -786,6 +789,8 @@ func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, shardNa
 	if len(shardNames) > 0 {
 		if search.IsShardedUnmanagedLB() {
 			mongotEndpoint = search.GetEndpointForShard(shardNames[0])
+		} else if search.IsLBModeManaged() {
+			mongotEndpoint = shardEnvoyProxyHostAndPort(search, shardNames[0], clusterDomain)
 		} else {
 			mongotEndpoint = shardMongotHostAndPort(search, shardNames[0], clusterDomain)
 		}
@@ -823,6 +828,14 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 	svcName := search.SearchServiceNamespacedName()
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
+}
+
+// shardEnvoyProxyHostAndPort returns the operator-managed envoy proxy service endpoint for a shard.
+// Used when spec.lb.mode is Managed; the envoy controller creates per-shard proxy Services.
+func shardEnvoyProxyHostAndPort(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
+	proxySvcName := search.EnvoyProxyServiceNameForShard(shardName)
+	const envoyProxyPort = 27029
+	return fmt.Sprintf("%s.%s.svc.%s:%d", proxySvcName, search.Namespace, clusterDomain, envoyProxyPort)
 }
 
 // shardMongotHostAndPort returns the internal service endpoint for a shard's mongot deployment
@@ -874,11 +887,11 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 		return nil
 	}
 
-	// For sharded clusters, check if sharded unmanaged LB is configured
+	// For sharded clusters, check if LB is configured (managed or unmanaged)
 	if _, ok := r.db.(SearchSourceShardedDeployment); ok {
-		if !r.mdbSearch.IsShardedUnmanagedLB() {
+		if !r.mdbSearch.IsShardedUnmanagedLB() && !r.mdbSearch.IsLBModeManaged() {
 			return xerrors.Errorf(
-				"multiple mongot replicas (%d) require unmanaged load balancer configuration; "+
+				"multiple mongot replicas (%d) require load balancer configuration; "+
 					"please configure load balancing in spec.lb.",
 				r.mdbSearch.GetReplicas(),
 			)
@@ -886,10 +899,10 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 		return nil
 	}
 
-	// For replica sets, check if replica set unmanaged LB is configured
-	if !r.mdbSearch.IsReplicaSetUnmanagedLB() {
+	// For replica sets, check if LB is configured (managed or unmanaged)
+	if !r.mdbSearch.IsReplicaSetUnmanagedLB() && !r.mdbSearch.IsLBModeManaged() {
 		return xerrors.Errorf(
-			"multiple mongot replicas (%d) require unmanaged load balancer configuration; "+
+			"multiple mongot replicas (%d) require load balancer configuration; "+
 				"please configure load balancing in spec.lb.",
 			r.mdbSearch.GetReplicas(),
 		)
