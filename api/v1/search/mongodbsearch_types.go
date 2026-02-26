@@ -101,7 +101,7 @@ type ExternalMongoDBSource struct {
 	// Mutually exclusive with Sharded.
 	// +optional
 	HostAndPorts []string `json:"hostAndPorts,omitempty"`
-	// Sharded contains configuration for external sharded MongoDB clusters.
+	// ShardedDeployment contains configuration for external sharded MongoDB clusters.
 	// Mutually exclusive with HostAndPorts.
 	// +optional
 	ShardedDeployment *ExternalShardedDeploymentConfig `json:"shardedDeployment,omitempty"`
@@ -113,7 +113,7 @@ type ExternalMongoDBSource struct {
 	TLS *ExternalMongodTLS `json:"tls,omitempty"`
 }
 
-// ExternalShardedConfig contains configuration for external sharded MongoDB clusters
+// ExternalShardedDeploymentConfig contains configuration for external sharded MongoDB clusters
 type ExternalShardedDeploymentConfig struct {
 	// Router contains the mongos router configuration
 	// +kubebuilder:validation:Required
