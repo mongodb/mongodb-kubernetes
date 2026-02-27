@@ -3,6 +3,7 @@ package searchcontroller
 import (
 	"fmt"
 
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -42,8 +43,9 @@ const (
 type SearchSourceDBResource interface {
 	KeyfileSecretName() string
 	TLSConfig() *TLSSourceConfig
-	HostSeeds() []string
+	HostSeeds(shardName string) []string
 	Validate() error
+	ResourceType() mdb.ResourceType
 }
 
 // SearchSourceShardedDeployment extends SearchSourceDBResource for sharded MongoDB clusters.
@@ -51,7 +53,6 @@ type SearchSourceShardedDeployment interface {
 	SearchSourceDBResource
 	GetShardCount() int
 	GetShardNames() []string
-	HostSeedsForShard(shardIdx int) []string
 	GetUnmanagedLBEndpointForShard(shardName string) string
 	MongosHostAndPort() string
 }

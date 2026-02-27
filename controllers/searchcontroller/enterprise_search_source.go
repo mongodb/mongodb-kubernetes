@@ -22,7 +22,10 @@ func NewEnterpriseResourceSearchSource(mdb *mdbv1.MongoDB) SearchSourceDBResourc
 	return EnterpriseResourceSearchSource{mdb}
 }
 
-func (r EnterpriseResourceSearchSource) HostSeeds() []string {
+func (r EnterpriseResourceSearchSource) HostSeeds(shardName string) []string {
+	if shardName != "" {
+		panic("shardName is not supported for replica set")
+	}
 	seeds := make([]string, r.Spec.Members)
 	clusterDomain := r.Spec.GetClusterDomain()
 	for i := range seeds {
@@ -49,6 +52,10 @@ func (r EnterpriseResourceSearchSource) TLSConfig() *TLSSourceConfig {
 
 func (r EnterpriseResourceSearchSource) KeyfileSecretName() string {
 	return fmt.Sprintf("%s-%s", r.Name, MongotKeyfileFilename)
+}
+
+func (r EnterpriseResourceSearchSource) ResourceType() mdbv1.ResourceType {
+	return r.GetResourceType()
 }
 
 func (r EnterpriseResourceSearchSource) Validate() error {
