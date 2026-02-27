@@ -1,3 +1,5 @@
+from typing import Optional
+
 import pymongo.errors
 from kubetester import kubetester
 from tests import test_logger
@@ -12,15 +14,17 @@ class SampleMoviesSearchHelper:
     db_name: str
     col_name: str
     archive_url: str
-    tools_pod: ToolsPod
+    tools_pod: Optional[ToolsPod]
 
-    def __init__(self, search_tester: SearchTester, tools_pod: ToolsPod):
+    def __init__(self, search_tester: SearchTester, tools_pod: ToolsPod = None):
         self.search_tester = search_tester
         self.tools_pod = tools_pod
         self.db_name = "sample_mflix"
         self.col_name = "movies"
 
     def restore_sample_database(self):
+        if self.tools_pod is None:
+            raise ValueError("tools_pod is required for restore_sample_database, pass it to the constructor while creating SampleMoviesSearchHelper instance")
         self.search_tester.mongorestore_from_url(
             "https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
             f"{self.db_name}.*",
@@ -129,3 +133,38 @@ class SampleMoviesSearchHelper:
             sleep_time=1,
             msg="Auto-embedding vector search query to return correct data",
         )
+
+    def text_search_movies(self, query: str, index: str = "default", path: str = "title", limit: int = 10):
+        return list(self.search_tester.client[self.db_name][self.col_name].aggregate([
+            {"$search": {"index": index, "text": {"query": query, "path": path}}},
+            {"$limit": limit},
+            {"$project": {"_id": 0, "title": 1, "score": {"$meta": "searchScore"}}},
+        ]))
+
+    def wildcard_search_movies(self, wildcard: str = "*", index: str = "default"):
+        return list(self.search_tester.client[self.db_name][self.col_name].aggregate([
+            {
+                "$search": {
+                    "index": index,
+                    "wildcard": {"query": wildcard, "path": "title", "allowAnalyzedField": True},
+                }
+            },
+            {"$project": {"_id": 0, "title": 1}},
+        ]))
+
+    # get_shard_document_counts returns the documents counts in each shard for a specific collection.
+    # It is supposed to be called after sharding a collection and making sure that
+    # the chunks have been distributed properly to the shards.
+    def get_shard_document_counts(self) -> dict[str, int]:
+        """Get per-shard document counts for the collection.
+
+        Returns:
+            Dict mapping shard name to document count stored in that shard.
+        """
+        db = self.search_tester.client[self.db_name]
+        stats = db.command("collStats", self.col_name)
+        shard_counts = {}
+        for shard_name, shard_stats in stats["shards"].items():
+            shard_counts[shard_name] = shard_stats["count"]
+            logger.info(f"Shard {shard_name}: {shard_stats['count']} documents")
+        return shard_counts
