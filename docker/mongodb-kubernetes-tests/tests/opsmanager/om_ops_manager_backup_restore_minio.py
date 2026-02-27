@@ -176,7 +176,8 @@ def ops_manager(
 
     resource["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_certs}}}
     resource["spec"]["applicationDatabase"]["security"] = {
-        "tls": {"ca": issuer_ca_configmap, "secretRef": {"prefix": appdb_certs}}
+        "certsSecretPrefix": appdb_certs,
+        "tls": {"ca": issuer_ca_configmap},
     }
 
     # Disable validation only for backup tests using minio
@@ -263,13 +264,10 @@ def mdb_latest_project(ops_manager: MongoDBOpsManager) -> OMTester:
 @mark.e2e_om_ops_manager_backup_restore_minio
 class TestMinioCreation:
     def test_install_minio(
-        self,
-        tenant_name: str,
-        issuer_ca_configmap: str,
-        copy_manager_certs_for_minio: str,
+        self, tenant_name: str, issuer_ca_configmap: str, copy_manager_certs_for_minio: str, issuer_ca_filepath: str
     ):
         mino_operator_install(namespace=tenant_name)
-        mino_tenant_install(namespace=tenant_name)
+        mino_tenant_install(namespace=tenant_name, issuer_ca_filepath=issuer_ca_filepath)
 
 
 @mark.e2e_om_ops_manager_backup_restore_minio

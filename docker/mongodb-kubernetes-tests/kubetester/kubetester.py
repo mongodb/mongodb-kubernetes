@@ -308,7 +308,7 @@ class KubernetesTester(object):
         cls,
         namespace: str,
         body: Dict,
-        storage_class_name: str = "gp2",
+        storage_class_name: str = None,
         api_client: Optional[kubernetes.client.ApiClient] = None,
     ):
         if storage_class_name is not None:
@@ -1322,21 +1322,6 @@ class KubernetesTester(object):
         sv1.patch_storage_class(name, sc)
 
     @staticmethod
-    def make_default_gp2_storage_class():
-        """
-        gp2 is an aws-ebs storage class, make sure to only use that on aws based tests
-        """
-        classes = KubernetesTester.list_storage_class()
-
-        for sc in classes:
-            if sc.metadata.name == "gp2":
-                # The required class already exist, no need to create it.
-                return
-
-        KubernetesTester.create_storage_class("gp2")
-        KubernetesTester.storage_class_make_not_default("standard")
-
-    @staticmethod
     def yield_existing_csrs(csr_names, timeout=300):
         warnings.warn(
             DeprecationWarning(
@@ -1349,7 +1334,7 @@ class KubernetesTester(object):
         return yield_existing_csrs(csr_names, timeout)
 
     @staticmethod
-    def get_populated_mongo_client(hosts: list[str], ssl: bool = False) -> pymongo.MongoClient:
+    def get_connected_mongo_client(hosts: list[str], ssl: bool = False) -> pymongo.MongoClient:
         mongodburi = KubernetesTester.build_mongodb_uri_for_rs(hosts)
         options = {}
         if ssl:
@@ -1360,6 +1345,16 @@ class KubernetesTester(object):
         client.admin.command("ismaster")
 
         return client
+
+    @staticmethod
+    def get_replica_set_secondaries(client: pymongo.MongoClient) -> list:
+        """Returns healthy secondaries queried from the primary via replSetGetStatus.
+
+        Prefer this over client.secondaries, which relies on pymongo's async topology
+        discovery and may return an incomplete result immediately after connecting.
+        """
+        status = client.admin.command("replSetGetStatus", read_preference=pymongo.ReadPreference.PRIMARY)
+        return [m for m in status["members"] if m["stateStr"] == "SECONDARY" and m["health"] == 1]
 
     def _get_pods(self, podname, qty=3):
         return [podname.format(i) for i in range(qty)]

@@ -20,8 +20,7 @@ spec:
       multiple:
         data:
           storage: 2Gi
-          storageClass: gp2
         journal:
           storage: 1Gi
         logs:
-          storage: 1G # 1G is the minimum PV possible in EBS
+          storage: 1G

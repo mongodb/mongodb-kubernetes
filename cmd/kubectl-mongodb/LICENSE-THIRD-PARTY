@@ -27,10 +27,10 @@ gopkg.in/evanphx/json-patch.v4,v4.12.0,https://github.com/evanphx/json-patch/blo
 gopkg.in/inf.v0,v0.9.1,https://github.com/go-inf/inf/blob/v0.9.1/LICENSE,BSD-3-Clause
 gopkg.in/yaml.v2,v2.4.0,https://github.com/go-yaml/yaml/blob/v2.4.0/LICENSE,Apache-2.0
 gopkg.in/yaml.v3,v3.0.1,https://github.com/go-yaml/yaml/blob/v3.0.1/LICENSE,MIT
-k8s.io/api,v0.33.7,https://github.com/kubernetes/api/blob/v0.33.7/LICENSE,Apache-2.0
-k8s.io/apimachinery/pkg,v0.33.7,https://github.com/kubernetes/apimachinery/blob/v0.33.7/LICENSE,Apache-2.0
-k8s.io/apimachinery/third_party/forked/golang,v0.33.7,https://github.com/kubernetes/apimachinery/blob/v0.33.7/third_party/forked/golang/LICENSE,BSD-3-Clause
-k8s.io/client-go,v0.33.7,https://github.com/kubernetes/client-go/blob/v0.33.7/LICENSE,Apache-2.0
+k8s.io/api,v0.33.8,https://github.com/kubernetes/api/blob/v0.33.8/LICENSE,Apache-2.0
+k8s.io/apimachinery/pkg,v0.33.8,https://github.com/kubernetes/apimachinery/blob/v0.33.8/LICENSE,Apache-2.0
+k8s.io/apimachinery/third_party/forked/golang,v0.33.8,https://github.com/kubernetes/apimachinery/blob/v0.33.8/third_party/forked/golang/LICENSE,BSD-3-Clause
+k8s.io/client-go,v0.33.8,https://github.com/kubernetes/client-go/blob/v0.33.8/LICENSE,Apache-2.0
 k8s.io/klog/v2,v2.130.1,https://github.com/kubernetes/klog/blob/v2.130.1/LICENSE,Apache-2.0
 k8s.io/kube-openapi/pkg,v0.0.0-20250318190949-c8a335a9a2ff,https://github.com/kubernetes/kube-openapi/blob/c8a335a9a2ff/LICENSE,Apache-2.0
 k8s.io/kube-openapi/pkg/internal/third_party/go-json-experiment/json,v0.0.0-20250318190949-c8a335a9a2ff,https://github.com/kubernetes/kube-openapi/blob/c8a335a9a2ff/pkg/internal/third_party/go-json-experiment/json/LICENSE,BSD-3-Clause
