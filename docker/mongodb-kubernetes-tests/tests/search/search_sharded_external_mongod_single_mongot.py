@@ -25,6 +25,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search.search_tester import SearchTester
+from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
@@ -495,48 +496,32 @@ def test_search_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_p
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_search_shard_collections(mdb: MongoDB):
     search_tester = get_admin_search_tester(mdb, use_ssl=True)
-    client = search_tester.client
-    admin_db = client.admin
-    sample_mflix_db = client["sample_mflix"]
+    search_tester.shard_and_distribute_collection("sample_mflix", "movies")
+    
+    logger.info("Collections sharded and chunks are distributed")
 
-    # Enable sharding on database
-    try:
-        admin_db.command("enableSharding", "sample_mflix")
-        logger.info("Sharding enabled on sample_mflix database")
-    except pymongo.errors.OperationFailure as e:
-        if (
-            "already enabled" in str(e) or e.code == 23 or e.code == 59
-        ):  # AlreadyInitialized or CommandNotFound (MongoDB 8.0+)
-            logger.info("Sharding already enabled on sample_mflix")
-        else:
-            raise
 
-    # Shard movies collection
-    try:
-        sample_mflix_db["movies"].create_index([("_id", pymongo.HASHED)])
-        admin_db.command("shardCollection", "sample_mflix.movies", key={"_id": "hashed"})
-        logger.info("movies collection sharded")
-    except pymongo.errors.OperationFailure as e:
-        if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
-            logger.info("movies collection already sharded")
-        else:
-            raise
+@mark.e2e_search_sharded_external_mongod_single_mongot
+def test_verify_documents_count_in_shards(mdb: MongoDB):
+    search_tester = get_admin_search_tester(mdb, use_ssl=True)
+    movies_helper = SampleMoviesSearchHelper(search_tester)
 
-    # Shard embedded_movies collection
-    try:
-        sample_mflix_db["embedded_movies"].create_index([("_id", pymongo.HASHED)])
-        admin_db.command("shardCollection", "sample_mflix.embedded_movies", key={"_id": "hashed"})
-        logger.info("embedded_movies collection sharded")
-    except pymongo.errors.OperationFailure as e:
-        if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
-            logger.info("embedded_movies collection already sharded")
-        else:
-            raise
+    total_docs = search_tester.client["sample_mflix"]["movies"].count_documents({})
+    logger.info(f"Total documents in movies collection: {total_docs}")
 
-    # Wait for balancer to distribute chunks
-    # TODO: execute mdb command to wait for the balancer
-    time.sleep(10)
-    logger.info("Collections sharded and balanced")
+    shard_counts = movies_helper.get_shard_document_counts()
+
+    assert len(shard_counts) == SHARD_COUNT, (
+        f"Expected {SHARD_COUNT} shards, found {len(shard_counts)}"
+    )
+    for shard_name, count in shard_counts.items():
+        assert count > 0, f"Shard {shard_name} has 0 documents, data was not distributed"
+
+    shard_total = sum(shard_counts.values())
+    assert shard_total == total_docs, (
+        f"Sum of shard counts ({shard_total}) != total documents ({total_docs})"
+    )
+    logger.info(f"Document distribution verified: {shard_counts}, total: {shard_total}")
 
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
@@ -556,18 +541,11 @@ def test_search_wait_for_search_index_ready(mdb: MongoDB):
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_search_assert_search_query(mdb: MongoDB):
     search_tester = get_user_search_tester(mdb, use_ssl=True)
+    movies_helper = SampleMoviesSearchHelper(search_tester)
 
     def execute_search():
         try:
-            results = list(
-                search_tester.client["sample_mflix"]["movies"].aggregate(
-                    [
-                        {"$search": {"index": "default", "text": {"query": "star wars", "path": "title"}}},
-                        {"$limit": 10},
-                        {"$project": {"_id": 0, "title": 1, "score": {"$meta": "searchScore"}}},
-                    ]
-                )
-            )
+            results = movies_helper.text_search_movies("star wars")
 
             result_count = len(results)
             logger.info(f"Search returned {result_count} results")
@@ -587,38 +565,31 @@ def test_search_assert_search_query(mdb: MongoDB):
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_search_verify_results_from_all_shards(mdb: MongoDB):
     search_tester = get_user_search_tester(mdb, use_ssl=True)
-    movies_collection = search_tester.client["sample_mflix"]["movies"]
-
+    movies_helper = SampleMoviesSearchHelper(search_tester)
     # Get total document count
-    total_docs = movies_collection.count_documents({})
+    total_docs = search_tester.client["sample_mflix"]["movies"].count_documents({})
     logger.info(f"Total documents in collection: {total_docs}")
 
-    # Execute wildcard search to get all documents
-    results = list(
-        movies_collection.aggregate(
-            [
-                {
-                    "$search": {
-                        "index": "default",
-                        "wildcard": {"query": "*", "path": "title", "allowAnalyzedField": True},
-                    }
-                },
-                {"$project": {"_id": 0, "title": 1}},
-            ]
-        )
-    )
+    # we have a document in our movies collection whose title is `$`, that's it. And because
+    # of that Lucene doesn't tokenize that document and as a result the respective entry is not
+    # made/found in the Lucene Inverted index and that's where the wildcard query looks for data.
+    # That's why we are expecting 1 less document because that one untokenzed data is not going
+    # to be found ever in inverted index.
+    expected_docs = total_docs - 1
 
-    search_count = len(results)
-    logger.info(f"Search through mongos returned {search_count} documents")
+    def execute_all_docs_search():
+        # Execute wildcard search to get all documents
+        results = movies_helper.wildcard_search_movies()
+        search_count = len(results)
+        logger.info(f"Search through mongos returned {search_count} documents")
 
-    # Verify search returns all documents (or close to it - some tolerance for timing)
-    # TODO: verify 100% of documents, perhaps clone the movies collection to have sharded and unsharded queries to compare
-    assert search_count > 0, "Search returned no results"
-    assert (
-        search_count >= total_docs * 0.9
-    ), f"Search returned {search_count} but collection has {total_docs} (expected >= 90%)"
+        if search_count == expected_docs:
+            return True, f""
+        else:
+            return False, f"Search query for all documents returned {search_count} documents, expected were {expected_docs}"
 
-    logger.info(f"Search results verified: {search_count}/{total_docs} documents from all shards")
+    run_periodically(execute_all_docs_search, timeout=120, sleep_time=5, msg="search query for all docs")
+    logger.info(f"Search results for all documents verified.")
 
 
 def get_admin_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
