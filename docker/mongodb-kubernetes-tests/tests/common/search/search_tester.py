@@ -1,5 +1,8 @@
 from typing import Optional, Self
 
+import pymongo
+import pymongo.errors
+
 import kubetester
 from kubetester.mongotester import MongoTester
 from pymongo.operations import SearchIndexModel
@@ -73,6 +76,37 @@ class SearchTester(MongoTester):
             f"?authSource=admin"
         )
         return cls(conn_str, use_ssl=use_ssl, ca_path=ca_path)
+
+    # shard_and_distribute_collection tries to implement mongnosh helper `sh.shardAndDistributeCollection` method
+    # which is equivalent to running `shardCollection` and `reshardCollection` consecutively. It means that
+    # immediately after the shard is created, resharding would happen and the collection data would be distributed
+    # in different shards using chunks. Balancer is not really involved here initially because resharding handles the
+    # chunk creation and distribution. The command is synchronous which means it will only return when the chunks are
+    # distributed properly among shards. 
+    def shard_and_distribute_collection(self, database_name: str, collection_name: str):
+        ns = f"{database_name}.{collection_name}"
+        try:
+            self.client[database_name][collection_name].create_index([("_id", pymongo.HASHED)])
+            self.client.admin.command(
+                "shardCollection",
+                ns,
+                key={"_id": "hashed"},
+                unique=False,
+            )
+
+            self.client.admin.command(
+                "reshardCollection",
+                ns,
+                key={"_id": "hashed"},
+                forceRedistribution=True,    # require 8.0+
+            )
+
+            logger.info(f"{collection_name} collection sharded and chunks distributed using the method shardAndDistributeCollection")
+        except pymongo.errors.OperationFailure as e:
+            if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
+                logger.info(f"{collection_name} collection already sharded")
+            else:
+                raise
 
     def mongorestore_from_url(self, archive_url: str, ns_include: str, tools_pod: ToolsPod):
         """Run mongorestore from a URL using the tools pod.
