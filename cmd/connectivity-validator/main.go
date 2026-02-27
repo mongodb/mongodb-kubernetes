@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes/pkg/cmdMigration/connectivitycheck"
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/migration/connectivitycheck"
 )
 
 func main() {
