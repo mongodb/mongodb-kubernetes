@@ -37,8 +37,7 @@ func (r *ShardedInternalSearchSource) GetShardCount() int {
 	return r.Spec.ShardCount
 }
 
-func (r *ShardedInternalSearchSource) HostSeedsForShard(shardIdx int) []string {
-	shardName := r.ShardRsName(shardIdx)
+func (r *ShardedInternalSearchSource) HostSeeds(shardName string) []string {
 	members := r.Spec.MongodsPerShardCount
 	clusterDomain := r.Spec.GetClusterDomain()
 	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
@@ -86,6 +85,10 @@ func (r *ShardedInternalSearchSource) KeyfileSecretName() string {
 	return fmt.Sprintf("%s-%s", r.Name, MongotKeyfileFilename)
 }
 
+func (r *ShardedEnterpriseSearchSource) ResourceType() mdbv1.ResourceType {
+	return r.GetResourceType()
+}
+
 func (r *ShardedInternalSearchSource) Validate() error {
 	version, err := semver.ParseTolerant(util.StripEnt(r.Spec.GetMongoDBVersion()))
 	if err != nil {
@@ -128,4 +131,3 @@ func (r *ShardedEnterpriseSearchSource) GetUnmanagedLBEndpointForShard(shardName
 	}
 	return r.search.GetEndpointForShard(shardName)
 }
-
