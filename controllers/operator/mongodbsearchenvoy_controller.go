@@ -202,7 +202,7 @@ func (r *MongoDBSearchEnvoyReconciler) buildShardRoutes(search *searchv1.MongoDB
 	for i := 0; i < mdb.Spec.ShardCount; i++ {
 		shardName := mdb.ShardRsName(i)
 		proxyServiceName := search.EnvoyProxyServiceNameForShard(shardName)
-		mongotServiceName := search.MongotServiceNamespacedNameForShard(shardName).Name
+		mongotServiceName := search.MongotServiceForShard(shardName).Name
 
 		routes = append(routes, shardRoute{
 			ShardName:     shardName,
