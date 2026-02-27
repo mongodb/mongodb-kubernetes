@@ -87,6 +87,10 @@ type MongoDB struct {
 	Spec   MongoDbSpec   `json:"spec"`
 }
 
+func (m *MongoDB) GetDownloadBase() string {
+	return m.Spec.GetDownloadBase()
+}
+
 func (m *MongoDB) IsAgentImageOverridden() bool {
 	if m.Spec.PodSpec.IsAgentImageOverridden() {
 		return true
@@ -431,6 +435,8 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	DownloadBase string `json:"downloadBase,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -799,7 +805,7 @@ func (d *DbCommonSpec) GetExternalDomain() *string {
 	return nil
 }
 
-func (d DbCommonSpec) GetAgentConfig() AgentConfig {
+func (d *DbCommonSpec) GetAgentConfig() AgentConfig {
 	return d.Agent
 }
 
@@ -809,6 +815,13 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
+}
+
+func (d *DbCommonSpec) GetDownloadBase() string {
+	if d.DownloadBase != "" {
+		return d.DownloadBase
+	}
+	return util.DefaultPvcMmsMountPath
 }
 
 func (s *Security) IsTLSEnabled() bool {

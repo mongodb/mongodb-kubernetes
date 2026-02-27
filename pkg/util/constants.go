@@ -113,12 +113,12 @@ const (
 	KMIPClientSecretNamePrefix     = "kmip-client-" //nolint
 	KMIPCAFileInContainer          = KMIPServerCAHome + "/ca.pem"
 	PvcMms                         = "mongodb-mms-automation"
-	PvcMmsMountPath                = "/var/lib/mongodb-mms-automation"
+	DefaultPvcMmsMountPath         = "/var/lib/mongodb-mms-automation"
 	PvMms                          = "agent"
-	AgentDownloadsDir              = PvcMmsMountPath + "/downloads"
-	AgentAuthenticationKeyfilePath = PvcMmsMountPath + "/keyfile"
+	AgentDownloadsDir              = DefaultPvcMmsMountPath + "/downloads"
+	AgentAuthenticationKeyfilePath = DefaultPvcMmsMountPath + "/keyfile"
 	AutomationConfigFilePath       = PvcMountPathData + "/automation-mongod.conf"
-	MongosConfigFileDirPath        = PvcMmsMountPath + "/workspace"
+	MongosConfigFileDirPath        = DefaultPvcMmsMountPath + "/workspace"
 
 	MmsPemKeyFileDirInContainer  = "/opt/mongodb/mms/secrets"
 	AppDBMmsCaFileDirInContainer = "/opt/mongodb/mms/ca/"
@@ -177,7 +177,7 @@ const (
 
 	// AutomationAgentKeyFilePathInContainer is the default path of the keyfile and should be
 	// kept as is for the same reason as above
-	AutomationAgentKeyFilePathInContainer = PvcMmsMountPath + "/keyfile"
+	AutomationAgentKeyFilePathInContainer = DefaultPvcMmsMountPath + "/keyfile"
 
 	// Operator Env configuration properties. Please note that when adding environment variables to this list,
 	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
