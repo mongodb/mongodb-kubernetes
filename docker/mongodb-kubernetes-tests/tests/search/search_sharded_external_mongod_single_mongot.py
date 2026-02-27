@@ -206,7 +206,7 @@ def mdbs(namespace: str, mdb: MongoDB) -> MongoDBSearch:
             "key": "password",
         },
         "external": {
-            "sharded": {
+            "shardedCluster": {
                 "router": {
                     "hosts": router_hosts,
                 },
