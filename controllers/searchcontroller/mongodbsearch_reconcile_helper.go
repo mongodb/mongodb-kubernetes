@@ -245,7 +245,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			return workflow.Failed(err)
 		}
 
-		shardMongotConfig := createMongotConfigForShard(r.mdbSearch, shardedSource, shardIdx)
+		shardMongotConfig := createMongotConfigForShard(r.mdbSearch, shardedSource, shardName)
 		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 		if err != nil {
 			return workflow.Failed(err)
@@ -456,9 +456,9 @@ func buildSearchHeadlessServiceForShard(search *searchv1.MongoDBSearch, shardNam
 
 // createMongotConfigForShard creates the mongot configuration for a specific shard.
 // Each shard's mongot connects to its own shard's mongod hosts and includes Router config for mongos.
-func createMongotConfigForShard(search *searchv1.MongoDBSearch, shardedSource SearchSourceShardedDeployment, shardIdx int) mongot.Modification {
+func createMongotConfigForShard(search *searchv1.MongoDBSearch, shardedSource SearchSourceShardedDeployment, shardName string) mongot.Modification {
 	return func(config *mongot.Config) {
-		baseMongotConfig(search, shardedSource.HostSeedsForShard(shardIdx))(config)
+		baseMongotConfig(search, shardedSource.HostSeeds(shardName))(config)
 
 		config.SyncSource.Router = &mongot.ConfigRouter{
 			HostAndPort:  shardedSource.MongosHostAndPort(),
@@ -741,7 +741,7 @@ func baseMongotConfig(search *searchv1.MongoDBSearch, hostAndPorts []string) mon
 
 func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResource) mongot.Modification {
 	return func(config *mongot.Config) {
-		baseMongotConfig(search, db.HostSeeds())(config)
+		baseMongotConfig(search, db.HostSeeds(""))(config)
 
 		if search.IsWireprotoEnabled() {
 			config.Server.Wireproto = &mongot.ConfigWireproto{
