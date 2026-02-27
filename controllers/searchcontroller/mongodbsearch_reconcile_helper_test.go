@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ghodss/yaml"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -751,13 +752,13 @@ func TestCreateShardMongotConfig(t *testing.T) {
 	}
 
 	config := mongot.Config{}
-	createMongotConfigForShard(search, shardedSource, 0)(&config)
+	createMongotConfigForShard(search, shardedSource, shardedSource.shardNames[0])(&config)
 
 	assert.Equal(t, []string{"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"}, config.SyncSource.ReplicaSet.HostAndPort)
 	assert.Equal(t, search.SourceUsername(), config.SyncSource.ReplicaSet.Username)
 
 	config2 := mongot.Config{}
-	createMongotConfigForShard(search, shardedSource, 1)(&config2)
+	createMongotConfigForShard(search, shardedSource, shardedSource.shardNames[1])(&config2)
 
 	assert.Equal(t, []string{"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"}, config2.SyncSource.ReplicaSet.HostAndPort)
 }
@@ -782,7 +783,7 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 	}
 
 	config := mongot.Config{}
-	createMongotConfigForShard(search, shardedSource, 0)(&config)
+	createMongotConfigForShard(search, shardedSource, shardedSource.shardNames[0])(&config)
 
 	require.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should initially be false")
@@ -824,7 +825,7 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 	}
 
 	config := mongot.Config{}
-	createMongotConfigForShard(search, shardedSource, 0)(&config)
+	createMongotConfigForShard(search, shardedSource, shardedSource.shardNames[0])(&config)
 
 	require.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be false when source has no TLS")
@@ -849,10 +850,6 @@ func (m *mockShardedSource) GetShardNames() []string {
 	return m.shardNames
 }
 
-func (m *mockShardedSource) HostSeedsForShard(shardIdx int) []string {
-	return m.hostSeeds[shardIdx]
-}
-
 func (m *mockShardedSource) GetUnmanagedLBEndpointForShard(shardName string) string {
 	return ""
 }
@@ -862,7 +859,7 @@ func (m *mockShardedSource) MongosHostAndPort() string {
 }
 
 // Implement SearchSourceDBResource interface
-func (m *mockShardedSource) HostSeeds() []string {
+func (m *mockShardedSource) HostSeeds(shardName string) []string {
 	return nil
 }
 
@@ -876,6 +873,10 @@ func (m *mockShardedSource) KeyfileSecretName() string {
 
 func (m *mockShardedSource) TLSConfig() *TLSSourceConfig {
 	return m.tlsConfig
+}
+
+func (m *mockShardedSource) ResourceType() mdbv1.ResourceType {
+	return mdbv1.ShardedCluster
 }
 
 func TestBuildShardSearchHeadlessService(t *testing.T) {
