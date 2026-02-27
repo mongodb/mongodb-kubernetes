@@ -1031,8 +1031,7 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 
 	log.Infof("Applying search parameters from MongoDBSearch %s", search.NamespacedName())
 
-	// Collect shard names for mongos configuration
-	shardNames := sc.ShardRsNames()
+	shardNames := sc.ShardNames()
 
 	// Apply per-shard search configuration when LB is configured (unmanaged or managed)
 	if search.IsShardedUnmanagedLB() || search.IsLBModeManaged() {

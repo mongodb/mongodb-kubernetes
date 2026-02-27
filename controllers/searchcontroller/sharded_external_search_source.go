@@ -1,9 +1,13 @@
 package searchcontroller
 
 import (
+	"fmt"
+	"slices"
+
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -20,6 +24,10 @@ func NewShardedExternalSearchSource(namespace string, spec *searchv1.ExternalMon
 		namespace: namespace,
 		spec:      spec,
 	}
+}
+
+func (r *ShardedExternalSearchSource) ResourceType() mdbv1.ResourceType {
+	return mdbv1.ShardedCluster
 }
 
 func (r *ShardedExternalSearchSource) Validate() error {
@@ -85,13 +93,6 @@ func (r *ShardedExternalSearchSource) KeyfileSecretName() string {
 	return ""
 }
 
-func (r *ShardedExternalSearchSource) HostSeeds() []string {
-	if r.spec.ShardedCluster != nil && len(r.spec.ShardedCluster.Shards) > 0 {
-		return r.spec.ShardedCluster.Shards[0].Hosts
-	}
-	return nil
-}
-
 func (r *ShardedExternalSearchSource) GetShardCount() int {
 	if r.spec.ShardedCluster == nil {
 		return 0
@@ -110,11 +111,19 @@ func (r *ShardedExternalSearchSource) GetShardNames() []string {
 	return names
 }
 
-func (r *ShardedExternalSearchSource) HostSeedsForShard(shardIdx int) []string {
-	if r.spec.ShardedCluster == nil || shardIdx < 0 || shardIdx >= len(r.spec.ShardedCluster.Shards) {
+func (r *ShardedExternalSearchSource) HostSeeds(shardName string) []string {
+	if r.spec.ShardedCluster == nil {
 		return nil
 	}
-	return r.spec.ShardedCluster.Shards[shardIdx].Hosts
+
+	shardIndex := slices.IndexFunc(r.spec.ShardedCluster.Shards, func(c searchv1.ExternalShardConfig) bool {
+		return c.ShardName == shardName
+	})
+	if shardIndex == -1 {
+		panic(fmt.Errorf("shardName %s not found", shardName))
+	}
+
+	return r.spec.ShardedCluster.Shards[shardIndex].Hosts
 }
 
 func (r *ShardedExternalSearchSource) MongosHostAndPort() string {
