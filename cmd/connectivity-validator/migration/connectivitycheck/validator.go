@@ -165,7 +165,7 @@ func hasSystemRole(ctx context.Context, client *mongo.Client) bool {
 }
 
 func pingMemberDirect(ctx context.Context, hostPort string, cfg Config) int {
-	directURI := "mongodb://" + hostPort + "/?directConnection=true"
+	directURI := "mongodb://" + hostPort + "/?directConnection=true&serverSelectionTimeoutMS=5000"
 	opts, err := buildClientOptions(cfg, directURI)
 	if err != nil {
 		return classifyError(err)

@@ -1,4 +1,4 @@
-package connectivitycheck_test
+package validator_test
 
 import (
 	"context"
@@ -64,40 +64,80 @@ func tempKeyfile(t *testing.T, content string) string {
 	return f.Name()
 }
 
-func TestValidate_SCRAM_Success(t *testing.T) {
+// TestValidate_SingleMongod groups all tests that need exactly one running mongod,
+// sharing the container across subtests to avoid redundant startup overhead.
+func TestValidate_SingleMongod(t *testing.T) {
 	ctx := context.Background()
 	addr := startMongodWithKeyfile(ctx, t)
+	connStr := fmt.Sprintf("mongodb://%s/?directConnection=true&serverSelectionTimeoutMS=5000", addr)
 
-	cfg := connectivitycheck.Config{
-		ConnectionString: fmt.Sprintf("mongodb://%s/?directConnection=true&serverSelectionTimeoutMS=5000", addr),
-		ExternalMembers:  []string{addr},
-		AuthMechanism:    "SCRAM-SHA-256",
-		KeyfilePath:      tempKeyfile(t, keyfileBody),
-	}
-	assert.Equal(t, connectivitycheck.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
+	t.Run("SCRAM_Success", func(t *testing.T) {
+		cfg := connectivitycheck.Config{
+			ConnectionString: connStr,
+			ExternalMembers:  []string{addr},
+			AuthMechanism:    "SCRAM-SHA-256",
+			KeyfilePath:      tempKeyfile(t, keyfileBody),
+		}
+		assert.Equal(t, connectivitycheck.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
+	})
+
+	t.Run("WrongKeyfile", func(t *testing.T) {
+		cfg := connectivitycheck.Config{
+			ConnectionString: connStr,
+			AuthMechanism:    "SCRAM-SHA-256",
+			KeyfilePath:      tempKeyfile(t, "wrongkey"),
+		}
+		assert.Equal(t, connectivitycheck.ExitAuthFailed, connectivitycheck.Validate(ctx, cfg))
+	})
+
+	t.Run("OneUnreachable", func(t *testing.T) {
+		cfg := connectivitycheck.Config{
+			ConnectionString: connStr,
+			ExternalMembers:  []string{addr, "localhost:27999"},
+			AuthMechanism:    "SCRAM-SHA-256",
+			KeyfilePath:      tempKeyfile(t, keyfileBody),
+		}
+		assert.Equal(t, connectivitycheck.ExitMemberUnreachable, connectivitycheck.Validate(ctx, cfg))
+	})
+
+	t.Run("DNSFailed_ExternalMember", func(t *testing.T) {
+		cfg := connectivitycheck.Config{
+			ConnectionString: connStr,
+			ExternalMembers:  []string{"nonexistent.invalid:27017"},
+			AuthMechanism:    "SCRAM-SHA-256",
+			KeyfilePath:      tempKeyfile(t, keyfileBody),
+		}
+		assert.Equal(t, connectivitycheck.ExitDNSFailed, connectivitycheck.Validate(ctx, cfg))
+	})
 }
 
-func TestValidate_SCRAM_WrongKeyfile(t *testing.T) {
+// TestValidate_TwoMembers_BothReachable is kept separate as it needs two containers.
+// Both are started in parallel to halve startup time.
+func TestValidate_TwoMembers(t *testing.T) {
 	ctx := context.Background()
-	addr := startMongodWithKeyfile(ctx, t)
 
-	cfg := connectivitycheck.Config{
-		ConnectionString: fmt.Sprintf("mongodb://%s/?directConnection=true&serverSelectionTimeoutMS=5000", addr),
-		AuthMechanism:    "SCRAM-SHA-256",
-		KeyfilePath:      tempKeyfile(t, "wrongkey"),
-	}
-	assert.Equal(t, connectivitycheck.ExitAuthFailed, connectivitycheck.Validate(ctx, cfg))
-}
+	addr1Ch := make(chan string, 1)
+	addr2Ch := make(chan string, 1)
+	go func() { addr1Ch <- startMongodWithKeyfile(ctx, t) }()
+	go func() { addr2Ch <- startMongodWithKeyfile(ctx, t) }()
+	addr1, addr2 := <-addr1Ch, <-addr2Ch
 
-func TestValidate_DNSFailed_ExternalMember(t *testing.T) {
-	ctx := context.Background()
-	addr := startMongodWithKeyfile(ctx, t)
-
-	cfg := connectivitycheck.Config{
-		ConnectionString: fmt.Sprintf("mongodb://%s/?directConnection=true&serverSelectionTimeoutMS=5000", addr),
-		ExternalMembers:  []string{"nonexistent.invalid:27017"},
-		AuthMechanism:    "SCRAM-SHA-256",
-		KeyfilePath:      tempKeyfile(t, keyfileBody),
-	}
-	assert.Equal(t, connectivitycheck.ExitDNSFailed, connectivitycheck.Validate(ctx, cfg))
+	t.Run("TwoMembers_BothReachable", func(t *testing.T) {
+		cfg := connectivitycheck.Config{
+			ConnectionString: fmt.Sprintf("mongodb://%s/?directConnection=true&serverSelectionTimeoutMS=5000", addr1),
+			ExternalMembers:  []string{addr1, addr2},
+			AuthMechanism:    "SCRAM-SHA-256",
+			KeyfilePath:      tempKeyfile(t, keyfileBody),
+		}
+		assert.Equal(t, connectivitycheck.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
+	})
+	t.Run("TwoMembers_OneUnReachable", func(t *testing.T) {
+		cfg := connectivitycheck.Config{
+			ConnectionString: fmt.Sprintf("mongodb://%s/?directConnection=true&serverSelectionTimeoutMS=5000", addr1),
+			ExternalMembers:  []string{addr1, "localhost:1111"},
+			AuthMechanism:    "SCRAM-SHA-256",
+			KeyfilePath:      tempKeyfile(t, keyfileBody),
+		}
+		assert.Equal(t, connectivitycheck.ExitMemberUnreachable, connectivitycheck.Validate(ctx, cfg))
+	})
 }
