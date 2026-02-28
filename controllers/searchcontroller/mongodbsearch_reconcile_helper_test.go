@@ -222,7 +222,7 @@ func TestGetMongodConfigParameters_TransportAndPorts(t *testing.T) {
 			if tc.withWireproto {
 				expectedPort = search.GetMongotWireprotoPort()
 			}
-			expectedPrefix := fmt.Sprintf("%s.%s.svc.%s", search.Name+"-search-svc", search.Namespace, clusterDomain)
+			expectedPrefix := fmt.Sprintf("%s.%s.svc.%s", search.Name+"-search-0-svc", search.Namespace, clusterDomain)
 			expectedSuffix := fmt.Sprintf(":%d", expectedPort)
 
 			for _, key := range []string{"mongotHost", "searchIndexManagementHostAndPort"} {
@@ -664,7 +664,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 			},
 			shardName:      "test-mdb-0",
 			clusterDomain:  "cluster.local",
-			expectedHost:   "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
+			expectedHost:   "test-search-search-0-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
 			useUnmanagedLB: false,
 		},
 		{
@@ -860,6 +860,11 @@ func (m *mockShardedSource) MongosHostAndPort() string {
 
 // Implement SearchSourceDBResource interface
 func (m *mockShardedSource) HostSeeds(shardName string) []string {
+	for idx, name := range m.shardNames {
+		if name == shardName {
+			return m.hostSeeds[idx]
+		}
+	}
 	return nil
 }
 
@@ -885,13 +890,13 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 
 	svc := buildSearchHeadlessServiceForShard(search, shardName)
 
-	assert.Equal(t, "test-search-mongot-my-cluster-0-svc", svc.Name)
+	assert.Equal(t, "test-search-search-0-my-cluster-0-svc", svc.Name)
 	assert.Equal(t, "test", svc.Namespace)
 	assert.Equal(t, corev1.ClusterIPNone, svc.Spec.ClusterIP)
 	assert.Equal(t, corev1.ServiceTypeClusterIP, svc.Spec.Type)
 
 	// Check selector points to the shard StatefulSet
-	assert.Equal(t, "test-search-mongot-my-cluster-0", svc.Spec.Selector["app"])
+	assert.Equal(t, "test-search-search-0-my-cluster-0", svc.Spec.Selector["app"])
 
 	// Check ports
 	var grpcPort, healthPort *corev1.ServicePort
@@ -959,7 +964,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "multiple mongot replicas (3) require unmanaged load balancer configuration; please configure load balancing in spec.lb.",
+			expectedError: "multiple mongot replicas (3) require load balancer configuration; please configure load balancing in spec.lb.",
 		},
 		{
 			name: "Multiple replicas with unmanaged LB - valid",
@@ -1033,7 +1038,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
 			// Uses first shard's internal service endpoint
-			expectedHost: "test-search-mongot-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
+			expectedHost: "test-search-search-0-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
 		},
 		{
 			name: "Unmanaged LB endpoint - uses first shard's endpoint via template",
@@ -1163,7 +1168,7 @@ func TestTLSSecretPrefixNaming(t *testing.T) {
 			secretName:         "",
 			secretPrefix:       "my-prefix",
 			resourceName:       "my-search",
-			expectedSecretName: "my-prefix-my-search-search-cert",
+			expectedSecretName: "my-prefix-my-search-search-0-cert",
 		},
 		{
 			name:               "only explicit name specified",
@@ -1177,7 +1182,7 @@ func TestTLSSecretPrefixNaming(t *testing.T) {
 			secretName:         "",
 			secretPrefix:       "",
 			resourceName:       "my-search",
-			expectedSecretName: "my-search-search-cert",
+			expectedSecretName: "my-search-search-0-cert",
 		},
 	}
 
@@ -1400,28 +1405,28 @@ func TestTLSSecretNamespacedNameForShard(t *testing.T) {
 			secretPrefix:       "my-prefix",
 			shardName:          "my-cluster-0",
 			namespace:          "test-ns",
-			expectedSecretName: "my-prefix-my-cluster-0-search-cert",
+			expectedSecretName: "my-prefix-test-search-search-0-my-cluster-0-cert",
 		},
 		{
 			name:               "without prefix",
 			secretPrefix:       "",
 			shardName:          "my-cluster-0",
 			namespace:          "test-ns",
-			expectedSecretName: "my-cluster-0-search-cert",
+			expectedSecretName: "test-search-search-0-my-cluster-0-cert",
 		},
 		{
 			name:               "with prefix - second shard",
 			secretPrefix:       "prod",
 			shardName:          "shard-1",
 			namespace:          "mongodb",
-			expectedSecretName: "prod-shard-1-search-cert",
+			expectedSecretName: "prod-test-search-search-0-shard-1-cert",
 		},
 		{
 			name:               "without prefix - different shard",
 			secretPrefix:       "",
 			shardName:          "shard-2",
 			namespace:          "mongodb",
-			expectedSecretName: "shard-2-search-cert",
+			expectedSecretName: "test-search-search-0-shard-2-cert",
 		},
 	}
 
@@ -1514,7 +1519,7 @@ func TestValidatePerShardTLSSecrets(t *testing.T) {
 				}
 			},
 			shardNames:     []string{"shard-0", "shard-1"},
-			existingSecret: "my-prefix-shard-0-search-cert", // Only first shard's secret exists
+			existingSecret: "my-prefix-test-search-search-0-shard-0-cert", // Only first shard's secret exists
 			expectedOK:     false,
 			expectedPhase:  status.PhasePending,
 		},
@@ -1528,7 +1533,7 @@ func TestValidatePerShardTLSSecrets(t *testing.T) {
 				}
 			},
 			shardNames:     []string{"shard-0"},
-			existingSecret: "my-prefix-shard-0-search-cert",
+			existingSecret: "my-prefix-test-search-search-0-shard-0-cert",
 			expectedOK:     true,
 			expectedPhase:  "",
 		},
@@ -1612,7 +1617,7 @@ func TestValidatePerShardTLSSecretsAllExist(t *testing.T) {
 	for _, shardName := range shardNames {
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("my-prefix-%s-search-cert", shardName),
+				Name:      fmt.Sprintf("my-prefix-test-search-search-0-%s-cert", shardName),
 				Namespace: "test-ns",
 			},
 			Data: map[string][]byte{
