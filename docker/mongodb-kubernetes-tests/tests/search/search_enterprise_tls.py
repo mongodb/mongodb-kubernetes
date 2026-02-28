@@ -54,11 +54,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
     if "spec" not in resource:
         resource["spec"] = {}
     resource["spec"]["security"] = {"tls": {"certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
-    resource["spec"]["source"] = {
-        "passwordSecretRef": {
-            "name": f"{resource.name}-{MONGOT_USER_NAME}-password"
-        }
-    }
+    resource["spec"]["source"] = {"passwordSecretRef": {"name": f"{resource.name}-{MONGOT_USER_NAME}-password"}}
     try_load(resource)
     return resource
 
@@ -81,7 +77,9 @@ def admin_user(namespace: str) -> MongoDBUser:
 
 @fixture(scope="function")
 def user(namespace: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(yaml_fixture("mongodbuser-mdb-user.yaml"), namespace=namespace, name=f"{MDB_RESOURCE_NAME}-{USER_NAME}")
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("mongodbuser-mdb-user.yaml"), namespace=namespace, name=f"{MDB_RESOURCE_NAME}-{USER_NAME}"
+    )
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
     resource["spec"]["username"] = resource.name
     resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
@@ -240,7 +238,9 @@ def test_search_verify_prometheus_enabled_on_custom_port(namespace: str, mdbs: M
 @fixture(scope="function")
 def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester.for_replicaset(mdb, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()),
+        SearchTester.for_replicaset(
+            mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()
+        ),
         tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
     )
 
