@@ -24,8 +24,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.search import search_resource_names, movies_search_helper
-from tests.common.search.search_tester import SearchTester
+from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
@@ -139,7 +138,9 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
 
     # Configure mongos with search parameters pointing to first shard's Envoy proxy
     first_shard_name = f"{MDB_RESOURCE_NAME}-0"
-    mongos_proxy_host = search_resource_names.shard_service_host(MDBS_RESOURCE_NAME, first_shard_name, namespace, MONGOT_PORT)
+    mongos_proxy_host = search_resource_names.shard_service_host(
+        MDBS_RESOURCE_NAME, first_shard_name, namespace, MONGOT_PORT
+    )
 
     # Initialize mongos spec if not present
     if "mongos" not in resource["spec"]:
@@ -240,7 +241,9 @@ def admin_user(namespace: str) -> MongoDBUser:
 
 @fixture(scope="function")
 def user(namespace: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(yaml_fixture("mongodbuser-mdb-user.yaml"), namespace=namespace, name=f"{MDB_RESOURCE_NAME}-{USER_NAME}")
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("mongodbuser-mdb-user.yaml"), namespace=namespace, name=f"{MDB_RESOURCE_NAME}-{USER_NAME}"
+    )
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
     resource["spec"]["username"] = resource.name
     resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
@@ -407,7 +410,9 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
                         pod_name, namespace, ["cat", "/data/automation-mongod.conf"]
                     )
                 )
-                expected_mongot_host_port = search_resource_names.shard_service_host(mdbs.name, shard_name, namespace, MONGOT_PORT)
+                expected_mongot_host_port = search_resource_names.shard_service_host(
+                    mdbs.name, shard_name, namespace, MONGOT_PORT
+                )
 
                 set_parameter = mongod_config.get("setParameter", {})
                 mongot_host = set_parameter.get("mongotHost", "")
@@ -467,14 +472,19 @@ def test_search_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
 @fixture(scope="function")
 def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester.for_sharded(mdb, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()),
+        SearchTester.for_sharded(
+            mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()
+        ),
         tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
     )
 
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
-def test_search_restore_sample_database(mdb: MongoDB, sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper):
+def test_search_restore_sample_database(
+    mdb: MongoDB, sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper
+):
     sample_movies_helper.restore_sample_database()
+
 
 logger.info("Sample database restored")
 
@@ -580,13 +590,17 @@ def test_search_verify_results_from_all_shards(mdb: MongoDB):
 def get_admin_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
     """Get SearchTester with admin credentials."""
     ca_path = get_issuer_ca_filepath() if use_ssl else None
-    return SearchTester.for_sharded(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path)
+    return SearchTester.for_sharded(
+        mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path
+    )
 
 
 def get_user_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
     """Get SearchTester with regular user credentials."""
     ca_path = get_issuer_ca_filepath() if use_ssl else None
-    return SearchTester.for_sharded(mdb, USER_NAME, USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path)
+    return SearchTester.for_sharded(
+        mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path
+    )
 
 
 def create_per_shard_search_tls_certs(namespace: str, issuer: str, prefix: str):
