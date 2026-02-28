@@ -41,6 +41,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
+from tests.common.search import search_resource_names
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
@@ -63,17 +64,18 @@ ENVOY_PROXY_PORT = 27029
 ENVOY_ADMIN_PORT = 9901
 
 # Resource names
-MDB_RESOURCE_NAME = "mdb-sh"
+MDB_RESOURCE_NAME = "mdb-sh-managed-lb"
 SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
 CONFIG_SERVER_COUNT = 1
 
 # TLS configuration
-# Per-shard TLS: each shard gets its own certificate with naming pattern:
-# {prefix}-{name}-search-0-{shardName}-cert (e.g., certs-mdb-sh-0-search-cert)
+# Per-shard mongot TLS: {prefix}-{name}-search-0-{shardName}-cert (e.g., certs-mdb-sh-search-0-mdb-sh-0-cert)
+# Managed LB server TLS: {prefix}-{name}-search-lb-0-cert (e.g., certs-mdb-sh-search-lb-0-cert)
+# Managed LB client TLS: {prefix}-{name}-search-lb-0-client-cert (e.g., certs-mdb-sh-search-lb-0-client-cert)
 MDBS_TLS_CERT_PREFIX = "certs"
-CA_CONFIGMAP_NAME = "mdb-sh-ca"
+CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 
 
 # ============================================================================
@@ -220,15 +222,23 @@ def get_user_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
     return SearchTester.for_sharded(mdb, USER_NAME, USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path)
 
 
-def create_envoy_certificates(namespace: str, issuer: str):
-    """Create TLS certificates for Envoy proxy."""
-    logger.info("Creating Envoy proxy certificates...")
+def create_lb_certificates(namespace: str, issuer: str):
+    """Create TLS certificates for the operator-managed load balancer (Envoy proxy).
+
+    Secret names must match what the operator expects per LoadBalancerServerCert() and
+    LoadBalancerClientCert(): {prefix}-{name}-search-lb-0-cert and
+    {prefix}-{name}-search-lb-0-client-cert.
+    """
+    logger.info("Creating managed LB certificates...")
+
+    lb_server_cert_name = search_resource_names.lb_server_cert_name(MDB_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+    lb_client_cert_name = search_resource_names.lb_client_cert_name(MDB_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
 
     # Build SANs for server certificate (all per-shard proxy services)
     additional_domains = []
     for i in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc = f"{MDB_RESOURCE_NAME}-search-0-{shard_name}-proxy-svc"
+        proxy_svc = search_resource_names.shard_proxy_service_name(MDB_RESOURCE_NAME, shard_name)
         additional_domains.append(f"{proxy_svc}.{namespace}.svc.cluster.local")
 
     # Add wildcard for flexibility
@@ -238,25 +248,25 @@ def create_envoy_certificates(namespace: str, issuer: str):
     create_tls_certs(
         issuer=issuer,
         namespace=namespace,
-        resource_name="envoy-server",
+        resource_name=search_resource_names.lb_deployment_name(MDB_RESOURCE_NAME),
         replicas=1,
-        service_name="envoy-proxy",
+        service_name=search_resource_names.lb_service_name(MDB_RESOURCE_NAME),
         additional_domains=additional_domains,
-        secret_name="envoy-server-cert-pem",
+        secret_name=lb_server_cert_name,
     )
-    logger.info("✓ Envoy server certificate created")
+    logger.info(f"✓ LB server certificate created: {lb_server_cert_name}")
 
     # Create client certificate
     create_tls_certs(
         issuer=issuer,
         namespace=namespace,
-        resource_name="envoy-client",
+        resource_name=f"{search_resource_names.lb_deployment_name(MDB_RESOURCE_NAME)}-client",
         replicas=1,
-        service_name="envoy-proxy-client",
+        service_name=search_resource_names.lb_service_name(MDB_RESOURCE_NAME),
         additional_domains=[f"*.{namespace}.svc.cluster.local"],
-        secret_name="envoy-client-cert-pem",
+        secret_name=lb_client_cert_name,
     )
-    logger.info("✓ Envoy client certificate created")
+    logger.info(f"✓ LB client certificate created: {lb_client_cert_name}")
 
 
 def create_per_shard_search_tls_certs(namespace: str, issuer: str, prefix: str):
@@ -268,27 +278,23 @@ def create_per_shard_search_tls_certs(namespace: str, issuer: str, prefix: str):
     - The proxy service: {search-name}-search-0-{shardName}-proxy-svc.{namespace}.svc.cluster.local
 
     Secret naming pattern: {prefix}-{name}-search-0-{shardName}-cert
-    e.g., certs-mdb-sh-search-mdb-sh-0-cert, certs-mdb-sh-search-mdb-sh-1-cert
+    e.g., certs-mdb-sh-search-0-mdb-sh-0-cert, certs-mdb-sh-search-0-mdb-sh-1-cert
     """
     logger.info(f"Creating per-shard Search TLS certificates with prefix '{prefix}'...")
 
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        secret_name = f"{prefix}-{MDB_RESOURCE_NAME}-search-0-{shard_name}-cert"
-
-        # DNS names for this shard's mongot
-        mongot_svc = f"{MDB_RESOURCE_NAME}-search-0-{shard_name}-svc"
-        proxy_svc = f"{MDB_RESOURCE_NAME}-search-0-{shard_name}-proxy-svc"
+        secret_name = search_resource_names.shard_tls_cert_name(MDB_RESOURCE_NAME, shard_name, prefix)
 
         additional_domains = [
-            f"{mongot_svc}.{namespace}.svc.cluster.local",
-            f"{proxy_svc}.{namespace}.svc.cluster.local",
+            f"{search_resource_names.shard_service_name(MDB_RESOURCE_NAME, shard_name)}.{namespace}.svc.cluster.local",
+            f"{search_resource_names.shard_proxy_service_name(MDB_RESOURCE_NAME, shard_name)}.{namespace}.svc.cluster.local",
         ]
 
         create_tls_certs(
             issuer=issuer,
             namespace=namespace,
-            resource_name=f"{MDB_RESOURCE_NAME}-search-0-{shard_name}",
+            resource_name=search_resource_names.shard_statefulset_name(MDB_RESOURCE_NAME, shard_name),
             secret_name=secret_name,
             additional_domains=additional_domains,
         )
@@ -385,9 +391,9 @@ def test_create_users(
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
-def test_deploy_envoy_certificates(namespace: str, issuer: str):
-    """Create TLS certificates for Envoy proxy."""
-    create_envoy_certificates(namespace, issuer)
+def test_deploy_lb_certificates(namespace: str, issuer: str):
+    """Create TLS certificates for the operator-managed load balancer."""
+    create_lb_certificates(namespace, issuer)
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
@@ -395,7 +401,7 @@ def test_create_search_tls_certificate(namespace: str, issuer: str):
     """Create per-shard TLS certificates for MongoDBSearch resource.
 
     Creates one certificate per shard with naming pattern:
-    {prefix}-{name}-search-0-{shardName}-cert (e.g., certs-mdb-sh-0-search-cert)
+    {prefix}-{name}-search-0-{shardName}-cert (e.g., certs-mdb-sh-search-0-mdb-sh-0-cert)
 
     The operator will create operator-managed secrets:
     {shardName}-search-certificate-key (e.g., mdb-sh-0-search-certificate-key)
@@ -414,13 +420,13 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 def test_verify_envoy_deployment(namespace: str):
     """Verify operator-managed Envoy proxy deployment and configuration.
 
-    The controller creates resources named {search-name}-envoy-config,
-    {search-name}-envoy-proxy, and {search-name}-search-0-{shard}-proxy-svc.
+    The controller creates resources named {search-name}-search-lb-0-config,
+    {search-name}-search-lb-0, and {search-name}-search-0-{shard}-proxy-svc.
     Uses polling since the controller creates these asynchronously after the
     MongoDBSearch CR reaches Running phase.
     """
-    envoy_config_name = f"{MDB_RESOURCE_NAME}-envoy-config"
-    envoy_deployment_name = f"{MDB_RESOURCE_NAME}-envoy-proxy"
+    envoy_config_name = search_resource_names.lb_configmap_name(MDB_RESOURCE_NAME)
+    envoy_deployment_name = search_resource_names.lb_deployment_name(MDB_RESOURCE_NAME)
 
     # Verify Envoy ConfigMap exists (with polling)
     def check_envoy_configmap():
@@ -451,7 +457,7 @@ def test_verify_envoy_deployment(namespace: str):
     # Verify per-shard proxy Services exist
     for i in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc_name = f"{MDB_RESOURCE_NAME}-search-0-{shard_name}-proxy-svc"
+        proxy_svc_name = search_resource_names.shard_proxy_service_name(MDB_RESOURCE_NAME, shard_name)
 
         def check_proxy_service(svc_name=proxy_svc_name):
             try:
@@ -482,7 +488,7 @@ def test_verify_per_shard_tls_secrets(namespace: str, mdbs: MongoDBSearch):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
 
         # Verify source secret (created by cert-manager in test_)
-        source_secret_name = f"{MDBS_TLS_CERT_PREFIX}-{MDB_RESOURCE_NAME}-search-0-{shard_name}-cert"
+        source_secret_name = search_resource_names.shard_tls_cert_name(MDB_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX)
         try:
             source_secret = read_secret(namespace, source_secret_name)
             assert "tls.crt" in source_secret, f"Source secret {source_secret_name} missing tls.crt"
@@ -530,7 +536,7 @@ def test_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
     """
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        service_name = f"{mdbs.name}-search-0-{shard_name}-svc"
+        service_name = search_resource_names.shard_service_name(mdbs.name, shard_name)
 
         logger.info(f"Checking for per-shard Service: {service_name}")
         service = get_service(namespace, service_name)
@@ -557,7 +563,7 @@ def test_verify_per_shard_statefulsets(namespace: str, mdbs: MongoDBSearch):
     """
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        sts_name = f"{mdbs.name}-search-0-{shard_name}"
+        sts_name = search_resource_names.shard_statefulset_name(mdbs.name, shard_name)
 
         logger.info(f"Checking for per-shard StatefulSet: {sts_name}")
 
@@ -620,7 +626,7 @@ def test_verify_mongod_parameters_per_shard(namespace: str, mdb: MongoDB, mdbs: 
                 search_mgmt_host = set_parameter.get("searchIndexManagementHostAndPort", "")
 
                 # For managed LB mode, endpoint should point to proxy service on port 27029
-                expected_proxy_service = f"{mdbs.name}-search-0-{shard_name}-proxy-svc"
+                expected_proxy_service = search_resource_names.shard_proxy_service_name(mdbs.name, shard_name)
 
                 if expected_proxy_service not in mongot_host:
                     all_correct = False
