@@ -91,7 +91,7 @@ def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
 def test_install_tls_secrets_and_configmaps(namespace: str, mdbc: MongoDBCommunity, mdbs: MongoDBSearch, issuer: str):
     create_tls_certs(issuer, namespace, mdbc.name, mdbc["spec"]["members"], secret_name=TLS_SECRET_NAME)
 
-    search_service_name = f"{mdbs.name}-search-svc"
+    search_service_name = f"{mdbs.name}-search-0-svc"
     create_tls_certs(
         issuer,
         namespace,
