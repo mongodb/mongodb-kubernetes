@@ -38,7 +38,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    mongot_host = f"{MDBS_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27028"
+    mongot_host = f"{MDBS_RESOURCE_NAME}-search-0-svc.{namespace}.svc.cluster.local:27028"
     if "additionalMongodConfig" not in resource["spec"]:
         resource["spec"]["additionalMongodConfig"] = {}
     if "setParameter" not in resource["spec"]["additionalMongodConfig"]:
@@ -101,7 +101,7 @@ def test_install_tls_secrets_and_configmaps(
 ):
     create_tls_certs(issuer, namespace, mdbc.name, mdbc["spec"]["members"], secret_name=TLS_SECRET_NAME)
 
-    search_service_name = f"{mdbs.name}-search-svc"
+    search_service_name = f"{mdbs.name}-search-0-svc"
     create_tls_certs(
         issuer,
         namespace,
