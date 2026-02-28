@@ -34,7 +34,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    mongot_host = f"{MDBS_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27028"
+    mongot_host = f"{MDBS_RESOURCE_NAME}-search-0-svc.{namespace}.svc.cluster.local:27028"
     if "additionalMongodConfig" not in resource["spec"]:
         resource["spec"]["additionalMongodConfig"] = {}
     if "setParameter" not in resource["spec"]["additionalMongodConfig"]:

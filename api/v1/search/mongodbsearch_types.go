@@ -282,11 +282,11 @@ func (s *MongoDBSearch) NamespacedName() types.NamespacedName {
 }
 
 func (s *MongoDBSearch) SearchServiceNamespacedName() types.NamespacedName {
-	return types.NamespacedName{Name: s.Name + "-search-svc", Namespace: s.Namespace}
+	return types.NamespacedName{Name: s.Name + "-search-0-svc", Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedName {
-	return types.NamespacedName{Name: s.Name + "-search-config", Namespace: s.Namespace}
+	return types.NamespacedName{Name: s.Name + "-search-0-config", Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) SourceUserPasswordSecretRef() *userv1.SecretKeyRef {
@@ -315,7 +315,7 @@ func (s *MongoDBSearch) SourceUsername() string {
 }
 
 func (s *MongoDBSearch) StatefulSetNamespacedName() types.NamespacedName {
-	return types.NamespacedName{Name: s.Name + "-search", Namespace: s.Namespace}
+	return types.NamespacedName{Name: s.Name + "-search-0", Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) GetOwnerReferences() []metav1.OwnerReference {
@@ -351,22 +351,22 @@ func (s *MongoDBSearch) GetMongotGrpcPort() int32 {
 // TLSSecretNamespacedName will get the namespaced name of the Secret containing the server certificate and key.
 // Precedence:
 //  1. CertificateKeySecret.Name - explicit secret name
-//  2. CertsSecretPrefix - uses pattern {prefix}-{resourceName}-search-cert
-//  3. Default - uses pattern {resourceName}-search-cert
+//  2. CertsSecretPrefix - uses pattern {prefix}-{resourceName}-search-0-cert
+//  3. Default - uses pattern {resourceName}-search-0-cert
 func (s *MongoDBSearch) TLSSecretNamespacedName() types.NamespacedName {
 	// Explicit name takes precedence
 	if s.Spec.Security.TLS.CertificateKeySecret.Name != "" {
 		return types.NamespacedName{Name: s.Spec.Security.TLS.CertificateKeySecret.Name, Namespace: s.Namespace}
 	}
 
-	// Prefix-based naming: {prefix}-{resourceName}-search-cert
+	// Prefix-based naming: {prefix}-{resourceName}-search-0-cert
 	if s.Spec.Security.TLS.CertsSecretPrefix != "" {
-		secretName := fmt.Sprintf("%s-%s-search-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name)
+		secretName := fmt.Sprintf("%s-%s-search-0-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name)
 		return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
 	}
 
-	// Default naming: {resourceName}-search-cert
-	secretName := fmt.Sprintf("%s-search-cert", s.Name)
+	// Default naming: {resourceName}-search-0-cert
+	secretName := fmt.Sprintf("%s-search-0-cert", s.Name)
 	return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
 }
 
@@ -386,14 +386,14 @@ func (s *MongoDBSearch) CertificateKeySecretName() bool {
 // TLSSecretForShard returns the namespaced name of the TLS source secret for a specific shard.
 // This is used in per-shard TLS mode for sharded clusters.
 // Naming pattern:
-//   - With prefix: {prefix}-{shardName}-search-cert
-//   - Without prefix: {shardName}-search-cert
+//   - With prefix: {prefix}-{name}-search-0-{shardName}-cert
+//   - Without prefix: {name}-search-0-{shardName}-cert
 func (s *MongoDBSearch) TLSSecretForShard(shardName string) types.NamespacedName {
 	var secretName string
 	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
-		secretName = fmt.Sprintf("%s-%s-search-cert", s.Spec.Security.TLS.CertsSecretPrefix, shardName)
+		secretName = fmt.Sprintf("%s-%s-search-0-%s-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name, shardName)
 	} else {
-		secretName = fmt.Sprintf("%s-search-cert", shardName)
+		secretName = fmt.Sprintf("%s-search-0-%s-cert", s.Name, shardName)
 	}
 	return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
 }
@@ -504,15 +504,15 @@ func (s *MongoDBSearch) HasMultipleReplicas() bool {
 }
 
 func (s *MongoDBSearch) MongotStatefulSetForShard(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s", s.Name, shardName), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-0-%s", s.Name, shardName), Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) MongotServiceForShard(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s-svc", s.Name, shardName), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-0-%s-svc", s.Name, shardName), Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) MongotConfigMapForShard(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s-config", s.Name, shardName), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-0-%s-config", s.Name, shardName), Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) IsLBModeManaged() bool {
@@ -531,5 +531,5 @@ func (s *MongoDBSearch) EnvoyConfigMapName() string {
 
 // EnvoyProxyServiceNameForShard returns the per-shard proxy Service name used for SNI routing.
 func (s *MongoDBSearch) EnvoyProxyServiceNameForShard(shardName string) string {
-	return fmt.Sprintf("%s-mongot-%s-proxy-svc", s.Name, shardName)
+	return fmt.Sprintf("%s-search-0-%s-proxy-svc", s.Name, shardName)
 }
