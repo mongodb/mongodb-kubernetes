@@ -7,7 +7,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.search import movies_search_helper
+from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator
@@ -24,11 +24,13 @@ USER_NAME = "mdb-user"
 USER_PASSWORD = "mdb-user-pass"
 
 MDBC_RESOURCE_NAME = "mdbc-rs"
+# MongoDBSearch uses the same name as MDBC (from search-minimal.yaml default)
+MDBS_RESOURCE_NAME = MDBC_RESOURCE_NAME
 
 TLS_SECRET_NAME = "tls-secret"
 
-# MongoDBSearch TLS configuration
-MDBS_TLS_SECRET_NAME = "mdbs-tls-secret"
+# MongoDBSearch TLS configuration — convention: {name}-search-0-cert
+MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME)
 
 
 @fixture(scope="function")
@@ -91,11 +93,11 @@ def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
 def test_install_tls_secrets_and_configmaps(namespace: str, mdbc: MongoDBCommunity, mdbs: MongoDBSearch, issuer: str):
     create_tls_certs(issuer, namespace, mdbc.name, mdbc["spec"]["members"], secret_name=TLS_SECRET_NAME)
 
-    search_service_name = f"{mdbs.name}-search-0-svc"
+    search_service_name = search_resource_names.mongot_service_name(mdbs.name)
     create_tls_certs(
         issuer,
         namespace,
-        f"{mdbs.name}-search",
+        search_resource_names.mongot_statefulset_name(mdbs.name),
         replicas=1,
         service_name=search_service_name,
         additional_domains=[f"{search_service_name}.{namespace}.svc.cluster.local"],
