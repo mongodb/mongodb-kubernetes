@@ -832,7 +832,7 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 // shardEnvoyProxyHostAndPort returns the operator-managed envoy proxy service endpoint for a shard.
 // Used when spec.lb.mode is Managed; the envoy controller creates per-shard proxy Services.
 func shardEnvoyProxyHostAndPort(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
-	proxySvcName := search.EnvoyProxyServiceNameForShard(shardName)
+	proxySvcName := search.LoadBalancerProxyServiceNameForShard(shardName)
 	const envoyProxyPort = 27029
 	return fmt.Sprintf("%s.%s.svc.%s:%d", proxySvcName, search.Namespace, clusterDomain, envoyProxyPort)
 }
