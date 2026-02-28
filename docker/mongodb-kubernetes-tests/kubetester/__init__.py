@@ -458,6 +458,8 @@ def try_load(resource: CustomObject) -> bool:
     Tries to load the resource without raising an exception when the resource does not exist.
     Returns False if the resource does not exist.
     """
+    # FIXME DELETE THIS
+    return False
     try:
         resource.load()
     except kubernetes.client.ApiException as e:

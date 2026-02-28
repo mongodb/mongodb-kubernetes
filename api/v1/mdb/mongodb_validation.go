@@ -419,7 +419,7 @@ func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
 	}
 
 	if count != 1 {
-		return v1.ValidationError("must validate one and only one schema")
+		return v1.ValidationError("either spec.cloudManager or spec.opsManager can be set")
 	}
 	return v1.ValidationSuccess()
 }
