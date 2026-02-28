@@ -121,7 +121,7 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
     create_x509_mongodb_tls_certs(issuer, namespace, mdb.name, f"certs-{mdb.name}-clusterfile")
     create_x509_mongodb_tls_certs(issuer, namespace, mdb.name, f"certs-{mdb.name}-cert", mdb.get_members())
 
-    search_service_name = f"{mdbs.name}-search-svc"
+    search_service_name = f"{mdbs.name}-search-0-svc"
     create_tls_certs(
         issuer,
         namespace,
