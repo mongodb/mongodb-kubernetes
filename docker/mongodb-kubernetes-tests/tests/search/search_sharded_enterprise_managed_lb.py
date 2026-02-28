@@ -120,6 +120,8 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
     # Configure OpsManager/CloudManager connection
     resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
 
+    resource["spec"]["security"]["tls"]["ca"] = CA_CONFIGMAP_NAME
+
     return resource
 
 
@@ -138,6 +140,8 @@ def mdbs(namespace: str) -> MongoDBSearch:
 
     if try_load(resource):
         return resource
+
+    resource["spec"]["source"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
 
     return resource
 
@@ -488,7 +492,9 @@ def test_verify_per_shard_tls_secrets(namespace: str, mdbs: MongoDBSearch):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
 
         # Verify source secret (created by cert-manager in test_)
-        source_secret_name = search_resource_names.shard_tls_cert_name(MDB_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX)
+        source_secret_name = search_resource_names.shard_tls_cert_name(
+            MDB_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX
+        )
         try:
             source_secret = read_secret(namespace, source_secret_name)
             assert "tls.crt" in source_secret, f"Source secret {source_secret_name} missing tls.crt"

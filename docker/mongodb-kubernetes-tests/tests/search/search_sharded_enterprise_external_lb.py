@@ -539,14 +539,14 @@ def create_envoy_certificates(namespace: str, issuer: str):
 
 def create_per_shard_search_tls_certs(namespace: str, issuer: str, prefix: str):
     """
-    Create per-shard TLS certificates for MongoDBSearch resource.
+        Create per-shard TLS certificates for MongoDBSearch resource.
 
-    For each shard, creates a certificate with DNS names for:
-    - The mongot service: {search-name}-search-0-{shardName}-svc.{namespace}.svc.cluster.local
-    - The proxy service: {search-name}-search-0-{shardName}-proxy-svc.{namespace}.svc.cluster.local
+        For each shard, creates a certificate with DNS names for:
+        - The mongot service: {search-name}-search-0-{shardName}-svc.{namespace}.svc.cluster.local
+        - The proxy service: {search-name}-search-0-{shardName}-proxy-svc.{namespace}.svc.cluster.local
 
-a    Secret naming: search_resource_names.shard_tls_cert_name(MDB_RESOURCE_NAME, shardName, prefix)
-    e.g., certs-mdb-sh-search-0-mdb-sh-0-cert
+    a    Secret naming: search_resource_names.shard_tls_cert_name(MDB_RESOURCE_NAME, shardName, prefix)
+        e.g., certs-mdb-sh-search-0-mdb-sh-0-cert
     """
     logger.info(f"Creating per-shard Search TLS certificates with prefix '{prefix}'...")
 
@@ -731,7 +731,9 @@ def test_verify_per_shard_tls_secrets(namespace: str, mdbs: MongoDBSearch):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
 
         # Verify source secret (created by cert-manager in test_)
-        source_secret_name = search_resource_names.shard_tls_cert_name(MDB_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX)
+        source_secret_name = search_resource_names.shard_tls_cert_name(
+            MDB_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX
+        )
         try:
             source_secret = read_secret(namespace, source_secret_name)
             assert "tls.crt" in source_secret, f"Source secret {source_secret_name} missing tls.crt"
