@@ -7,7 +7,6 @@ is reserved for future multi-cluster support.
 Go source: api/v1/search/mongodbsearch_types.go
 """
 
-
 # ============================================================================
 # Replica Set resources
 # ============================================================================
