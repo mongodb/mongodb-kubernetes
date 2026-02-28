@@ -54,7 +54,7 @@ CONFIG_SERVER_COUNT = 1
 
 # TLS configuration
 # Per-shard TLS: each shard gets its own certificate with naming pattern:
-# {prefix}-{shardName}-search-cert (e.g., certs-mdb-sh-0-search-cert)
+# {prefix}-{name}-search-0-{shardName}-cert (e.g., certs-mdb-sh-search-search-mdb-sh-0-cert)
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = "mdb-sh-ca"
 
@@ -116,8 +116,8 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
     shard_overrides = []
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        # Envoy proxy service name follows the pattern: <search-name>-mongot-<shard-name>-svc
-        proxy_host = f"{MDBS_RESOURCE_NAME}-mongot-{shard_name}-svc.{namespace}.svc.cluster.local:{MONGOT_PORT}"
+        # mongot headless service name follows the pattern: <search-name>-search-0-<shard-name>-svc
+        proxy_host = f"{MDBS_RESOURCE_NAME}-search-0-{shard_name}-svc.{namespace}.svc.cluster.local:{MONGOT_PORT}"
 
         shard_overrides.append(
             {
@@ -140,7 +140,7 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
     # Configure mongos with search parameters pointing to first shard's Envoy proxy
     first_shard_name = f"{MDB_RESOURCE_NAME}-0"
     mongos_proxy_host = (
-        f"{MDBS_RESOURCE_NAME}-mongot-{first_shard_name}-svc.{namespace}.svc.cluster.local:{MONGOT_PORT}"
+        f"{MDBS_RESOURCE_NAME}-search-0-{first_shard_name}-svc.{namespace}.svc.cluster.local:{MONGOT_PORT}"
     )
 
     # Initialize mongos spec if not present
@@ -394,7 +394,7 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 def test_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        service_name = f"{mdbs.name}-mongot-{shard_name}-svc"
+        service_name = f"{mdbs.name}-search-0-{shard_name}-svc"
 
         logger.info(f"Checking for per-shard Service: {service_name}")
 
@@ -424,7 +424,7 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
                     )
                 )
                 expected_mongot_host_port = (
-                    f"{mdbs.name}-mongot-{shard_name}-svc.{namespace}.svc.cluster.local:{MONGOT_PORT}"
+                    f"{mdbs.name}-search-0-{shard_name}-svc.{namespace}.svc.cluster.local:{MONGOT_PORT}"
                 )
 
                 set_parameter = mongod_config.get("setParameter", {})
@@ -609,21 +609,21 @@ def create_per_shard_search_tls_certs(namespace: str, issuer: str, prefix: str):
     Create per-shard TLS certificates for MongoDBSearch resource.
 
     For each shard, creates a certificate with DNS names for:
-    - The mongot service: {search-name}-mongot-{shardName}-svc.{namespace}.svc.cluster.local
-    - The proxy service: {search-name}-mongot-{shardName}-proxy-svc.{namespace}.svc.cluster.local
+    - The mongot service: {search-name}-search-0-{shardName}-svc.{namespace}.svc.cluster.local
+    - The proxy service: {search-name}-search-0-{shardName}-proxy-svc.{namespace}.svc.cluster.local
 
-    Secret naming pattern: {prefix}-{shardName}-search-cert
-    e.g., certs-mdb-sh-0-search-cert, certs-mdb-sh-1-search-cert
+    Secret naming pattern: {prefix}-{name}-search-0-{shardName}-cert
+    e.g., certs-mdb-sh-search-search-mdb-sh-0-cert, certs-mdb-sh-search-search-mdb-sh-1-cert
     """
     logger.info(f"Creating per-shard Search TLS certificates with prefix '{prefix}'...")
 
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        secret_name = f"{prefix}-{shard_name}-search-cert"
+        secret_name = f"{prefix}-{MDBS_RESOURCE_NAME}-search-0-{shard_name}-cert"
 
         # DNS names for this shard's mongot
-        mongot_svc = f"{MDBS_RESOURCE_NAME}-mongot-{shard_name}-svc"
-        proxy_svc = f"{MDBS_RESOURCE_NAME}-mongot-{shard_name}-proxy-svc"
+        mongot_svc = f"{MDBS_RESOURCE_NAME}-search-0-{shard_name}-svc"
+        proxy_svc = f"{MDBS_RESOURCE_NAME}-search-0-{shard_name}-proxy-svc"
 
         additional_domains = [
             f"{mongot_svc}.{namespace}.svc.cluster.local",

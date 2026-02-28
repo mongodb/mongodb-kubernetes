@@ -1670,7 +1670,7 @@ func (m *MongoDB) CalculateFeatureCompatibilityVersion() string {
 	return fcv.CalculateFeatureCompatibilityVersion(m.Spec.Version, m.Status.FeatureCompatibilityVersion, m.Spec.FeatureCompatibilityVersion)
 }
 
-func (m *MongoDB) ShardNames() interface{} {
+func (m *MongoDB) ShardNames() []string {
 	shardNames := make([]string, m.Spec.ShardCount)
 	for shardIdx := 0; shardIdx < m.Spec.ShardCount; shardIdx++ {
 		shardNames[shardIdx] = m.ShardRsName(shardIdx)
