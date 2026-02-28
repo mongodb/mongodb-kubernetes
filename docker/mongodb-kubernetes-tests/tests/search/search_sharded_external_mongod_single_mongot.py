@@ -24,6 +24,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
+from tests.common.search import search_resource_names, movies_search_helper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
@@ -45,18 +46,15 @@ USER_PASSWORD = "mdb-user-pass"
 MONGOT_PORT = 27028
 
 # Resource names
-MDB_RESOURCE_NAME = "mdb-sh"
-MDBS_RESOURCE_NAME = "mdb-sh-search"
+MDB_RESOURCE_NAME = "mdb-sh-single"
+MDBS_RESOURCE_NAME = MDB_RESOURCE_NAME
 SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
 CONFIG_SERVER_COUNT = 1
 
-# TLS configuration
-# Per-shard TLS: each shard gets its own certificate with naming pattern:
-# {prefix}-{name}-search-0-{shardName}-cert (e.g., certs-mdb-sh-search-search-mdb-sh-0-cert)
 MDBS_TLS_CERT_PREFIX = "certs"
-CA_CONFIGMAP_NAME = "mdb-sh-ca"
+CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 
 
 # ============================================================================
@@ -117,7 +115,7 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
         # mongot headless service name follows the pattern: <search-name>-search-0-<shard-name>-svc
-        proxy_host = f"{MDBS_RESOURCE_NAME}-search-0-{shard_name}-svc.{namespace}.svc.cluster.local:{MONGOT_PORT}"
+        proxy_host = search_resource_names.shard_service_host(MDBS_RESOURCE_NAME, shard_name, namespace, MONGOT_PORT)
 
         shard_overrides.append(
             {
@@ -136,12 +134,11 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
         )
 
     resource["spec"]["shardOverrides"] = shard_overrides
+    resource["spec"]["security"]["tls"]["ca"] = CA_CONFIGMAP_NAME
 
     # Configure mongos with search parameters pointing to first shard's Envoy proxy
     first_shard_name = f"{MDB_RESOURCE_NAME}-0"
-    mongos_proxy_host = (
-        f"{MDBS_RESOURCE_NAME}-search-0-{first_shard_name}-svc.{namespace}.svc.cluster.local:{MONGOT_PORT}"
-    )
+    mongos_proxy_host = search_resource_names.shard_service_host(MDBS_RESOURCE_NAME, first_shard_name, namespace, MONGOT_PORT)
 
     # Initialize mongos spec if not present
     if "mongos" not in resource["spec"]:
@@ -203,7 +200,7 @@ def mdbs(namespace: str, mdb: MongoDB) -> MongoDBSearch:
     resource["spec"]["source"] = {
         "username": MONGOT_USER_NAME,
         "passwordSecretRef": {
-            "name": f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+            "name": f"{resource.name}-{MONGOT_USER_NAME}-password",
             "key": "password",
         },
         "external": {
@@ -226,11 +223,8 @@ def mdbs(namespace: str, mdb: MongoDB) -> MongoDBSearch:
 
 @fixture(scope="function")
 def admin_user(namespace: str) -> MongoDBUser:
-    """Fixture for admin user."""
     resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-admin.yaml"),
-        namespace=namespace,
-        name=ADMIN_USER_NAME,
+        yaml_fixture("mongodbuser-mdb-admin.yaml"), namespace=namespace, name=f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}"
     )
 
     if try_load(resource):
@@ -245,16 +239,7 @@ def admin_user(namespace: str) -> MongoDBUser:
 
 @fixture(scope="function")
 def user(namespace: str) -> MongoDBUser:
-    """Fixture for regular user."""
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-user.yaml"),
-        namespace=namespace,
-        name=USER_NAME,
-    )
-
-    if try_load(resource):
-        return resource
-
+    resource = MongoDBUser.from_yaml(yaml_fixture("mongodbuser-mdb-user.yaml"), namespace=namespace, name=f"{MDB_RESOURCE_NAME}-{USER_NAME}")
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
     resource["spec"]["username"] = resource.name
     resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
@@ -264,7 +249,6 @@ def user(namespace: str) -> MongoDBUser:
 
 @fixture(scope="function")
 def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
-    """Fixture for mongot sync user."""
     resource = MongoDBUser.from_yaml(
         yaml_fixture("mongodbuser-search-sync-source-user.yaml"),
         namespace=namespace,
@@ -283,7 +267,6 @@ def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
 
 @fixture(scope="module")
 def tools_pod(namespace: str) -> mongodb_tools_pod.ToolsPod:
-    """Fixture for MongoDB tools pod used for running mongorestore."""
     return mongodb_tools_pod.get_tools_pod(namespace)
 
 
@@ -394,7 +377,7 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 def test_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        service_name = f"{mdbs.name}-search-0-{shard_name}-svc"
+        service_name = search_resource_names.shard_service_name(mdbs.name, shard_name)
 
         logger.info(f"Checking for per-shard Service: {service_name}")
 
@@ -423,9 +406,7 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
                         pod_name, namespace, ["cat", "/data/automation-mongod.conf"]
                     )
                 )
-                expected_mongot_host_port = (
-                    f"{mdbs.name}-search-0-{shard_name}-svc.{namespace}.svc.cluster.local:{MONGOT_PORT}"
-                )
+                expected_mongot_host_port = search_resource_names.shard_service_host(mdbs.name, shard_name, namespace, MONGOT_PORT)
 
                 set_parameter = mongod_config.get("setParameter", {})
                 mongot_host = set_parameter.get("mongotHost", "")
@@ -482,22 +463,26 @@ def test_search_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
     logger.info(f"Tools pod {tools_pod.pod_name} is ready")
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
-def test_search_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.ToolsPod):
-    search_tester = get_admin_search_tester(mdb, use_ssl=True)
-    search_tester.mongorestore_from_url(
-        archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
-        ns_include="sample_mflix.*",
-        tools_pod=tools_pod,
+@fixture(scope="function")
+def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.SampleMoviesSearchHelper:
+    return movies_search_helper.SampleMoviesSearchHelper(
+        SearchTester.for_sharded(mdb, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()),
+        tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
     )
-    logger.info("Sample database restored")
+
+
+@mark.e2e_search_sharded_external_mongod_single_mongot
+def test_search_restore_sample_database(mdb: MongoDB, sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper):
+    sample_movies_helper.restore_sample_database()
+
+logger.info("Sample database restored")
 
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_search_shard_collections(mdb: MongoDB):
     search_tester = get_admin_search_tester(mdb, use_ssl=True)
     search_tester.shard_and_distribute_collection("sample_mflix", "movies")
-    
+
     logger.info("Collections sharded and chunks are distributed")
 
 
@@ -612,28 +597,24 @@ def create_per_shard_search_tls_certs(namespace: str, issuer: str, prefix: str):
     - The mongot service: {search-name}-search-0-{shardName}-svc.{namespace}.svc.cluster.local
     - The proxy service: {search-name}-search-0-{shardName}-proxy-svc.{namespace}.svc.cluster.local
 
-    Secret naming pattern: {prefix}-{name}-search-0-{shardName}-cert
-    e.g., certs-mdb-sh-search-search-mdb-sh-0-cert, certs-mdb-sh-search-search-mdb-sh-1-cert
+    Secret naming: search_resource_names.shard_tls_cert_name(MDBS_RESOURCE_NAME, shardName, prefix)
+    e.g., certs-mdb-sh-search-search-0-mdb-sh-0-cert
     """
     logger.info(f"Creating per-shard Search TLS certificates with prefix '{prefix}'...")
 
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        secret_name = f"{prefix}-{MDBS_RESOURCE_NAME}-search-0-{shard_name}-cert"
-
-        # DNS names for this shard's mongot
-        mongot_svc = f"{MDBS_RESOURCE_NAME}-search-0-{shard_name}-svc"
-        proxy_svc = f"{MDBS_RESOURCE_NAME}-search-0-{shard_name}-proxy-svc"
+        secret_name = search_resource_names.shard_tls_cert_name(MDBS_RESOURCE_NAME, shard_name, prefix)
 
         additional_domains = [
-            f"{mongot_svc}.{namespace}.svc.cluster.local",
-            f"{proxy_svc}.{namespace}.svc.cluster.local",
+            f"{search_resource_names.shard_service_name(MDBS_RESOURCE_NAME, shard_name)}.{namespace}.svc.cluster.local",
+            f"{search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name)}.{namespace}.svc.cluster.local",
         ]
 
         create_tls_certs(
             issuer=issuer,
             namespace=namespace,
-            resource_name=f"{shard_name}-search",
+            resource_name=search_resource_names.shard_statefulset_name(MDBS_RESOURCE_NAME, shard_name),
             secret_name=secret_name,
             additional_domains=additional_domains,
         )

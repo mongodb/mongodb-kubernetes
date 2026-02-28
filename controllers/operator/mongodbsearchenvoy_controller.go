@@ -45,10 +45,6 @@ const (
 	envoyCACertPath     = "/etc/envoy/tls/ca"
 	envoyConfigPath     = "/etc/envoy"
 
-	// Convention-based TLS secret names for Envoy
-	envoyServerCertSecret = "envoy-server-cert-pem"
-	envoyClientCertSecret = "envoy-client-cert-pem"
-
 	// CA key in the MongoDB CA ConfigMap
 	envoyCAKey = "ca-pem"
 
@@ -201,7 +197,7 @@ func (r *MongoDBSearchEnvoyReconciler) buildShardRoutes(search *searchv1.MongoDB
 
 	for i := 0; i < mdb.Spec.ShardCount; i++ {
 		shardName := mdb.ShardRsName(i)
-		proxyServiceName := search.EnvoyProxyServiceNameForShard(shardName)
+		proxyServiceName := search.LoadBalancerProxyServiceNameForShard(shardName)
 		mongotServiceName := search.MongotServiceForShard(shardName).Name
 
 		routes = append(routes, shardRoute{
@@ -220,7 +216,7 @@ func (r *MongoDBSearchEnvoyReconciler) buildShardRoutes(search *searchv1.MongoDB
 func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, envoyYAML string, log *zap.SugaredLogger) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      search.EnvoyConfigMapName(),
+			Name:      search.LoadBalancerConfigMapName(),
 			Namespace: search.Namespace,
 		},
 	}
@@ -247,7 +243,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      search.EnvoyDeploymentName(),
+			Name:      search.LoadBalancerDeploymentName(),
 			Namespace: search.Namespace,
 		},
 	}
@@ -288,7 +284,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, ca caConfig, tlsEnabled b
 			Name: "envoy-config",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: search.EnvoyConfigMapName()},
+					LocalObjectReference: corev1.LocalObjectReference{Name: search.LoadBalancerConfigMapName()},
 				},
 			},
 		},
@@ -303,13 +299,13 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, ca caConfig, tlsEnabled b
 			corev1.Volume{
 				Name: "envoy-server-cert",
 				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{SecretName: envoyServerCertSecret},
+					Secret: &corev1.SecretVolumeSource{SecretName: search.LoadBalancerServerCert().Name},
 				},
 			},
 			corev1.Volume{
 				Name: "envoy-client-cert",
 				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{SecretName: envoyClientCertSecret},
+					Secret: &corev1.SecretVolumeSource{SecretName: search.LoadBalancerClientCert().Name},
 				},
 			},
 			corev1.Volume{
@@ -370,7 +366,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, ca caConfig, tlsEnabled b
 
 // ensureProxyService creates or updates a per-shard proxy Service pointing to Envoy.
 func (r *MongoDBSearchEnvoyReconciler) ensureProxyService(ctx context.Context, search *searchv1.MongoDBSearch, shardName string, log *zap.SugaredLogger) error {
-	serviceName := search.EnvoyProxyServiceNameForShard(shardName)
+	serviceName := search.LoadBalancerProxyServiceNameForShard(shardName)
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -381,7 +377,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureProxyService(ctx context.Context, s
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.kubeClient, svc, func() error {
 		svc.Labels = map[string]string{
-			"app":          search.EnvoyDeploymentName(),
+			"app":          search.LoadBalancerDeploymentName(),
 			"component":    "search-proxy",
 			"target-shard": shardName,
 		}
@@ -412,7 +408,7 @@ func (r *MongoDBSearchEnvoyReconciler) cleanupStaleProxyServices(ctx context.Con
 	err := r.kubeClient.List(ctx, serviceList,
 		client.InNamespace(search.Namespace),
 		client.MatchingLabels{
-			"app":       search.EnvoyDeploymentName(),
+			"app":       search.LoadBalancerDeploymentName(),
 			"component": "search-proxy",
 		},
 	)
@@ -437,7 +433,7 @@ func (r *MongoDBSearchEnvoyReconciler) cleanupStaleProxyServices(ctx context.Con
 // envoyLabels returns standard labels for Envoy resources.
 func envoyLabels(search *searchv1.MongoDBSearch) map[string]string {
 	return map[string]string{
-		"app":       search.EnvoyDeploymentName(),
+		"app":       search.LoadBalancerDeploymentName(),
 		"component": "search-proxy",
 	}
 }
@@ -445,7 +441,7 @@ func envoyLabels(search *searchv1.MongoDBSearch) map[string]string {
 // envoyPodLabels returns labels for Envoy pod selection.
 func envoyPodLabels(search *searchv1.MongoDBSearch) map[string]string {
 	return map[string]string{
-		"app": search.EnvoyDeploymentName(),
+		"app": search.LoadBalancerDeploymentName(),
 	}
 }
 
