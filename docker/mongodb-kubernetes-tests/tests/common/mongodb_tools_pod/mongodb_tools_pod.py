@@ -10,7 +10,9 @@ logger = test_logger.get_test_logger(__name__)
 
 TOOLS_POD_NAME = "mongodb-tools-pod"
 # pinning to specific hash as there was a regression in recently published images
-TOOLS_POD_IMAGE = "quay.io/mongodb/mongodb-community-server@sha256:4be3e7a6568e467a21c093f34ddedf0a7d35c244ead410d687e9eb50ac46be25"
+TOOLS_POD_IMAGE = (
+    "quay.io/mongodb/mongodb-community-server@sha256:4be3e7a6568e467a21c093f34ddedf0a7d35c244ead410d687e9eb50ac46be25"
+)
 
 
 class ToolsPod:

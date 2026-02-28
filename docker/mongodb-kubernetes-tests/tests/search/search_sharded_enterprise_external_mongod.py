@@ -13,7 +13,7 @@ This test verifies the sharded Search with external MongoDB source implementatio
 - Executes search queries through mongos and verifies results from all shards
 
 Key difference from search_sharded_enterprise_external_lb.py:
-- This test uses spec.source.external.sharded (external MongoDB source)
+- This test uses spec.source.external.shardedCluster (external MongoDB source)
 - The other test uses spec.source.mongodb.name (operator-managed MongoDB source)
 """
 
@@ -139,7 +139,9 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
         # Envoy proxy service name follows the pattern: <search-name>-search-0-<shard-name>-proxy-svc
-        proxy_host = search_resource_names.shard_proxy_service_host(MDBS_RESOURCE_NAME, shard_name, namespace, ENVOY_PROXY_PORT)
+        proxy_host = search_resource_names.shard_proxy_service_host(
+            MDBS_RESOURCE_NAME, shard_name, namespace, ENVOY_PROXY_PORT
+        )
 
         shard_overrides.append(
             {
@@ -161,7 +163,9 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
 
     # Configure mongos with search parameters pointing to first shard's Envoy proxy
     first_shard_name = f"{MDB_RESOURCE_NAME}-0"
-    mongos_proxy_host = search_resource_names.shard_proxy_service_host(MDBS_RESOURCE_NAME, first_shard_name, namespace, ENVOY_PROXY_PORT)
+    mongos_proxy_host = search_resource_names.shard_proxy_service_host(
+        MDBS_RESOURCE_NAME, first_shard_name, namespace, ENVOY_PROXY_PORT
+    )
 
     # Initialize mongos spec if not present
     if "mongos" not in resource["spec"]:
@@ -185,7 +189,7 @@ def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
 def mdbs(namespace: str, mdb: MongoDB) -> MongoDBSearch:
     """Fixture for MongoDBSearch with external sharded source configuration.
 
-    This fixture dynamically builds the spec.source.external.sharded configuration
+    This fixture dynamically builds the spec.source.external.shardedCluster configuration
     based on the deployed MongoDB sharded cluster, treating it as an external source.
     """
     resource = MongoDBSearch.from_yaml(
@@ -227,7 +231,7 @@ def mdbs(namespace: str, mdb: MongoDB) -> MongoDBSearch:
             "key": "password",
         },
         "external": {
-            "sharded": {
+            "shardedCluster": {
                 "router": {
                     "hosts": router_hosts,
                 },
@@ -784,7 +788,9 @@ def test_verify_per_shard_tls_secrets(namespace: str, mdbs: MongoDBSearch):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
 
         # Verify source secret (created by cert-manager in test_create_search_tls_certificate)
-        source_secret_name = search_resource_names.shard_tls_cert_name(MDBS_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX)
+        source_secret_name = search_resource_names.shard_tls_cert_name(
+            MDBS_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX
+        )
         try:
             source_secret = read_secret(namespace, source_secret_name)
             assert "tls.crt" in source_secret, f"Source secret {source_secret_name} missing tls.crt"
