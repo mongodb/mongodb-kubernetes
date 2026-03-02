@@ -43,6 +43,8 @@ from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
 from tests.common.search.search_tester import SearchTester
+from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
@@ -65,6 +67,7 @@ ENVOY_ADMIN_PORT = 9901
 
 # Resource names
 MDB_RESOURCE_NAME = "mdb-sh-managed-lb"
+MDBS_RESOURCE_NAME = MDB_RESOURCE_NAME
 SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
@@ -85,24 +88,7 @@ CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 
 @fixture(scope="module")
 def sharded_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
-    """Create CA ConfigMap and Secret with the name expected by the sharded cluster (mdb-sh-ca).
-
-    The MongoDB operator expects a ConfigMap with keys "ca-pem" and "mms-ca.crt".
-    The Search controller expects a Secret with key "ca.crt" for mTLS.
-    Both are created with the same name (mdb-sh-ca) but different resource types.
-    """
-    from kubetester import create_or_update_configmap, create_or_update_secret
-
-    ca = open(issuer_ca_filepath).read()
-    # The MongoDB operator expects the CA in entries named "ca-pem" and "mms-ca.crt"
-    configmap_data = {"ca-pem": ca, "mms-ca.crt": ca}
-    create_or_update_configmap(namespace, CA_CONFIGMAP_NAME, configmap_data)
-
-    # The Search controller expects a Secret with key "ca.crt" for mTLS ingress
-    secret_data = {"ca.crt": ca}
-    create_or_update_secret(namespace, CA_CONFIGMAP_NAME, secret_data)
-
-    return CA_CONFIGMAP_NAME
+    return create_sharded_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
 
 
 @fixture(scope="function")
@@ -135,7 +121,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
     resource = MongoDBSearch.from_yaml(
         yaml_fixture("search-sharded-managed-lb.yaml"),
         namespace=namespace,
-        name=MDB_RESOURCE_NAME,
+        name=MDBS_RESOURCE_NAME,
     )
 
     if try_load(resource):
@@ -148,82 +134,16 @@ def mdbs(namespace: str) -> MongoDBSearch:
 
 @fixture(scope="function")
 def admin_user(namespace: str) -> MongoDBUser:
-    """Fixture for admin user."""
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-admin.yaml"),
-        namespace=namespace,
-        name=ADMIN_USER_NAME,
-    )
-
-    if try_load(resource):
-        return resource
-
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
-    return resource
-
+    return make_admin_user(namespace, MDB_RESOURCE_NAME, ADMIN_USER_NAME)
+    
 
 @fixture(scope="function")
 def user(namespace: str) -> MongoDBUser:
-    """Fixture for regular user."""
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-user.yaml"),
-        namespace=namespace,
-        name=USER_NAME,
-    )
-
-    if try_load(resource):
-        return resource
-
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
-    return resource
-
+    return make_user(namespace, MDB_RESOURCE_NAME, USER_NAME)
 
 @fixture(scope="function")
 def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
-    """Fixture for mongot sync user."""
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-search-sync-source-user.yaml"),
-        namespace=namespace,
-        name=f"{mdbs.name}-{MONGOT_USER_NAME}",
-    )
-
-    if try_load(resource):
-        return resource
-
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = MONGOT_USER_NAME
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
-    return resource
-
-
-@fixture(scope="module")
-def tools_pod(namespace: str) -> mongodb_tools_pod.ToolsPod:
-    """Fixture for MongoDB tools pod used for running mongorestore."""
-    return mongodb_tools_pod.get_tools_pod(namespace)
-
-
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
-
-def get_admin_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
-    """Get SearchTester with admin credentials."""
-    ca_path = get_issuer_ca_filepath() if use_ssl else None
-    return SearchTester.for_sharded(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path)
-
-
-def get_user_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
-    """Get SearchTester with regular user credentials."""
-    ca_path = get_issuer_ca_filepath() if use_ssl else None
-    return SearchTester.for_sharded(mdb, USER_NAME, USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path)
+    return make_mongot_user(namespace, mdbs, MDB_RESOURCE_NAME, MONGOT_USER_NAME)
 
 
 def create_lb_certificates(namespace: str, issuer: str):
@@ -271,45 +191,6 @@ def create_lb_certificates(namespace: str, issuer: str):
         secret_name=lb_client_cert_name,
     )
     logger.info(f"✓ LB client certificate created: {lb_client_cert_name}")
-
-
-def create_per_shard_search_tls_certs(namespace: str, issuer: str, prefix: str):
-    """
-    Create per-shard TLS certificates for MongoDBSearch resource.
-
-    For each shard, creates a certificate with DNS names for:
-    - The mongot service: {search-name}-search-0-{shardName}-svc.{namespace}.svc.cluster.local
-    - The proxy service: {search-name}-search-0-{shardName}-proxy-svc.{namespace}.svc.cluster.local
-
-    Secret naming pattern: {prefix}-{name}-search-0-{shardName}-cert
-    e.g., certs-mdb-sh-search-0-mdb-sh-0-cert, certs-mdb-sh-search-0-mdb-sh-1-cert
-    """
-    logger.info(f"Creating per-shard Search TLS certificates with prefix '{prefix}'...")
-
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        secret_name = search_resource_names.shard_tls_cert_name(MDB_RESOURCE_NAME, shard_name, prefix)
-
-        additional_domains = [
-            f"{search_resource_names.shard_service_name(MDB_RESOURCE_NAME, shard_name)}.{namespace}.svc.cluster.local",
-            f"{search_resource_names.shard_proxy_service_name(MDB_RESOURCE_NAME, shard_name)}.{namespace}.svc.cluster.local",
-        ]
-
-        create_tls_certs(
-            issuer=issuer,
-            namespace=namespace,
-            resource_name=search_resource_names.shard_statefulset_name(MDB_RESOURCE_NAME, shard_name),
-            secret_name=secret_name,
-            additional_domains=additional_domains,
-        )
-        logger.info(f"✓ Per-shard Search TLS certificate created: {secret_name}")
-
-    logger.info(f"✓ All {SHARD_COUNT} per-shard Search TLS certificates created")
-
-
-# ============================================================================
-# Test Functions
-# ============================================================================
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
@@ -410,7 +291,7 @@ def test_create_search_tls_certificate(namespace: str, issuer: str):
     The operator will create operator-managed secrets:
     {shardName}-search-certificate-key (e.g., mdb-sh-0-search-certificate-key)
     """
-    create_per_shard_search_tls_certs(namespace, issuer, MDBS_TLS_CERT_PREFIX)
+    create_per_shard_search_tls_certs(namespace, issuer, MDBS_TLS_CERT_PREFIX, SHARD_COUNT, MDB_RESOURCE_NAME, MDBS_RESOURCE_NAME)
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
@@ -698,7 +579,7 @@ def test_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.Tool
     Uses mongorestore from inside the tools pod since the MongoDB cluster
     is only accessible via Kubernetes internal DNS.
     """
-    search_tester = get_admin_search_tester(mdb, use_ssl=True)
+    search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
     search_tester.mongorestore_from_url(
         archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
         ns_include="sample_mflix.*",
@@ -708,52 +589,10 @@ def test_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.Tool
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
-def test_shard_collections(mdb: MongoDB):
-    """Shard the movies and embedded_movies collections.
-
-    Uses SearchTester with direct pymongo connection. This works locally with kubefwd
-    because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
-    """
-    search_tester = get_admin_search_tester(mdb, use_ssl=True)
-    client = search_tester.client
-    admin_db = client.admin
-    sample_mflix_db = client["sample_mflix"]
-
-    # Enable sharding on database
-    try:
-        admin_db.command("enableSharding", "sample_mflix")
-        logger.info("✓ Sharding enabled on sample_mflix database")
-    except pymongo.errors.OperationFailure as e:
-        if "already enabled" in str(e) or e.code == 23:  # AlreadyInitialized
-            logger.info("Sharding already enabled on sample_mflix")
-        else:
-            raise
-
-    # Shard movies collection
-    try:
-        sample_mflix_db["movies"].create_index([("_id", pymongo.HASHED)])
-        admin_db.command("shardCollection", "sample_mflix.movies", key={"_id": "hashed"})
-        logger.info("✓ movies collection sharded")
-    except pymongo.errors.OperationFailure as e:
-        if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
-            logger.info("movies collection already sharded")
-        else:
-            raise
-
-    # Shard embedded_movies collection
-    try:
-        sample_mflix_db["embedded_movies"].create_index([("_id", pymongo.HASHED)])
-        admin_db.command("shardCollection", "sample_mflix.embedded_movies", key={"_id": "hashed"})
-        logger.info("✓ embedded_movies collection sharded")
-    except pymongo.errors.OperationFailure as e:
-        if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
-            logger.info("embedded_movies collection already sharded")
-        else:
-            raise
-
-    # Wait for balancer to distribute chunks
-    time.sleep(10)
-    logger.info("✓ Collections sharded and balanced")
+def test_search_shard_collections(mdb: MongoDB):
+    search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
+    search_tester.shard_and_distribute_collection("sample_mflix", "movies")
+    logger.info("Collections sharded and chunks are distributed")
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
@@ -763,7 +602,7 @@ def test_create_search_index(mdb: MongoDB):
     Uses SearchTester with direct pymongo connection. This works locally with kubefwd
     because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
     """
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
     logger.info("✓ Text search index created")
 
@@ -775,32 +614,19 @@ def test_wait_for_search_index_ready(mdb: MongoDB):
     Uses SearchTester with direct pymongo connection. This works locally with kubefwd
     because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
     """
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
     logger.info("✓ Search index is ready")
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
 def test_execute_text_search_query(mdb: MongoDB):
-    """Execute text search query through mongos and verify results.
-
-    Uses SearchTester with direct pymongo connection. This works locally with kubefwd
-    because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
-    """
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    movies_helper = SampleMoviesSearchHelper(search_tester)
 
     def execute_search():
         try:
-            # Execute search query using pymongo aggregation
-            results = list(
-                search_tester.client["sample_mflix"]["movies"].aggregate(
-                    [
-                        {"$search": {"index": "default", "text": {"query": "star wars", "path": "title"}}},
-                        {"$limit": 10},
-                        {"$project": {"_id": 0, "title": 1, "score": {"$meta": "searchScore"}}},
-                    ]
-                )
-            )
+            results = movies_helper.text_search_movies("star wars")
 
             result_count = len(results)
             logger.info(f"Search returned {result_count} results")
@@ -814,50 +640,40 @@ def test_execute_text_search_query(mdb: MongoDB):
             return False, f"Error: {e}"
 
     run_periodically(execute_search, timeout=60, sleep_time=5, msg="search query to succeed")
-    logger.info("✓ Text search query executed successfully through mongos")
+    logger.info("Text search query executed successfully through mongos")
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
 def test_verify_search_results_from_all_shards(mdb: MongoDB):
-    """
-    Verify that search results through mongos contain documents from all shards.
-    This is the definitive test that mongos is correctly aggregating search results.
-
-    Uses SearchTester with direct pymongo connection. This works locally with kubefwd
-    because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
-    """
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
-    movies_collection = search_tester.client["sample_mflix"]["movies"]
-
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    movies_helper = SampleMoviesSearchHelper(search_tester)
     # Get total document count
-    total_docs = movies_collection.count_documents({})
+    total_docs = search_tester.client["sample_mflix"]["movies"].count_documents({})
     logger.info(f"Total documents in collection: {total_docs}")
 
-    # Execute wildcard search to get all documents
-    results = list(
-        movies_collection.aggregate(
-            [
-                {
-                    "$search": {
-                        "index": "default",
-                        "wildcard": {"query": "*", "path": "title", "allowAnalyzedField": True},
-                    }
-                },
-                {"$project": {"_id": 0, "title": 1}},
-            ]
-        )
-    )
+    # we have a document in our movies collection whose title is `$`, that's it. And because
+    # of that Lucene doesn't tokenize that document and as a result the respective entry is not
+    # made/found in the Lucene Inverted index and that's where the wildcard query looks for data.
+    # That's why we are expecting 1 less document because that one untokenzed data is not going
+    # to be found ever in inverted index.
+    expected_docs = total_docs - 1
 
-    search_count = len(results)
-    logger.info(f"Search through mongos returned {search_count} documents")
+    def execute_all_docs_search():
+        # Execute wildcard search to get all documents
+        results = movies_helper.wildcard_search_movies()
+        search_count = len(results)
+        logger.info(f"Search through mongos returned {search_count} documents")
 
-    # Verify search returns all documents (or close to it - some tolerance for timing)
-    assert search_count > 0, "Search returned no results"
-    assert (
-        search_count >= total_docs * 0.9
-    ), f"Search returned {search_count} but collection has {total_docs} (expected >= 90%)"
+        if search_count == expected_docs:
+            return True, f""
+        else:
+            return (
+                False,
+                f"Search query for all documents returned {search_count} documents, expected were {expected_docs}",
+            )
 
-    logger.info(f"✓ Search results verified: {search_count}/{total_docs} documents from all shards")
+    run_periodically(execute_all_docs_search, timeout=120, sleep_time=5, msg="search query for all docs")
+    logger.info(f"Search results for all documents verified.")
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
