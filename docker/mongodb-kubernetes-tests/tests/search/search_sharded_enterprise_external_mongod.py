@@ -258,9 +258,9 @@ def deploy_envoy_proxy(namespace: str):
     """Deploy Envoy proxy for L7 load balancing mongot traffic."""
     logger.info("Deploying Envoy proxy...")
     _create_envoy_configmap(namespace)
-    _create_envoy_deployment(namespace)
-    _create_envoy_proxy_services(namespace)
-    _wait_for_envoy_ready(namespace)
+    create_envoy_deployment(namespace, CA_CONFIGMAP_NAME, ENVOY_PROXY_PORT, ENVOY_ADMIN_PORT)
+    create_envoy_proxy_services(namespace, MDBS_RESOURCE_NAME, MDB_RESOURCE_NAME, SHARD_COUNT, ENVOY_PROXY_PORT)
+    wait_for_envoy_ready(namespace)
     logger.info("✓ Envoy proxy deployed successfully")
 
 
@@ -385,146 +385,6 @@ static_resources:
     logger.info(f"✓ Envoy ConfigMap created with routing for {SHARD_COUNT} shards")
 
 
-def _create_envoy_deployment(namespace: str):
-    """Create Envoy Deployment."""
-    deployment = {
-        "apiVersion": "apps/v1",
-        "kind": "Deployment",
-        "metadata": {
-            "name": "envoy-proxy",
-            "labels": {"app": "envoy-proxy", "component": "search-proxy"},
-        },
-        "spec": {
-            "replicas": 1,
-            "selector": {"matchLabels": {"app": "envoy-proxy"}},
-            "template": {
-                "metadata": {"labels": {"app": "envoy-proxy", "component": "search-proxy"}},
-                "spec": {
-                    "containers": [
-                        {
-                            "name": "envoy",
-                            "image": "envoyproxy/envoy:v1.31-latest",
-                            "command": ["/usr/local/bin/envoy"],
-                            "args": ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"],
-                            "ports": [
-                                {"name": "grpc", "containerPort": ENVOY_PROXY_PORT},
-                                {"name": "admin", "containerPort": ENVOY_ADMIN_PORT},
-                            ],
-                            "resources": {
-                                "requests": {"cpu": "100m", "memory": "128Mi"},
-                                "limits": {"cpu": "500m", "memory": "512Mi"},
-                            },
-                            "readinessProbe": {
-                                "httpGet": {"path": "/ready", "port": ENVOY_ADMIN_PORT},
-                                "initialDelaySeconds": 5,
-                                "periodSeconds": 5,
-                            },
-                            "volumeMounts": [
-                                {"name": "envoy-config", "mountPath": "/etc/envoy", "readOnly": True},
-                                {"name": "envoy-server-cert", "mountPath": "/etc/envoy/tls/server", "readOnly": True},
-                                {"name": "envoy-client-cert", "mountPath": "/etc/envoy/tls/client", "readOnly": True},
-                                {"name": "ca-cert", "mountPath": "/etc/envoy/tls/ca", "readOnly": True},
-                            ],
-                        }
-                    ],
-                    "volumes": [
-                        {"name": "envoy-config", "configMap": {"name": "envoy-config"}},
-                        {"name": "envoy-server-cert", "secret": {"secretName": "envoy-server-cert-pem"}},
-                        {"name": "envoy-client-cert", "secret": {"secretName": "envoy-client-cert-pem"}},
-                        {
-                            "name": "ca-cert",
-                            "configMap": {"name": CA_CONFIGMAP_NAME, "items": [{"key": "ca-pem", "path": "ca-pem"}]},
-                        },
-                    ],
-                },
-            },
-        },
-    }
-
-    try:
-        KubernetesTester.create_deployment(namespace, deployment)
-        logger.info("✓ Envoy Deployment created")
-    except Exception as e:
-        logger.info(f"Envoy Deployment may already exist: {e}")
-
-
-def _create_envoy_proxy_services(namespace: str):
-    """Create per-shard proxy Services pointing to Envoy."""
-    for i in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc_name = search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name)
-
-        service = {
-            "apiVersion": "v1",
-            "kind": "Service",
-            "metadata": {
-                "name": proxy_svc_name,
-                "labels": {"app": "envoy-proxy", "target-shard": shard_name},
-            },
-            "spec": {
-                "type": "ClusterIP",
-                "selector": {"app": "envoy-proxy"},
-                "ports": [{"name": "grpc", "port": ENVOY_PROXY_PORT, "targetPort": ENVOY_PROXY_PORT}],
-            },
-        }
-
-        try:
-            KubernetesTester.create_service(namespace, service)
-            logger.info(f"✓ Proxy Service {proxy_svc_name} created")
-        except Exception as e:
-            logger.info(f"Proxy Service {proxy_svc_name} may already exist: {e}")
-
-
-def _wait_for_envoy_ready(namespace: str, timeout: int = 120):
-    """Wait for Envoy deployment to be ready."""
-
-    def check_envoy_ready():
-        try:
-            apps_v1 = client.AppsV1Api()
-            deployment = apps_v1.read_namespaced_deployment("envoy-proxy", namespace)
-            ready = deployment.status.ready_replicas or 0
-            return ready >= 1, f"Envoy ready replicas: {ready}"
-        except Exception as e:
-            return False, f"Error checking Envoy: {e}"
-
-    run_periodically(check_envoy_ready, timeout=timeout, sleep_time=5, msg="Envoy proxy to be ready")
-
-
-def create_envoy_certificates(namespace: str, issuer: str):
-    """Create TLS certificates for Envoy proxy."""
-    logger.info("Creating Envoy proxy certificates...")
-
-    additional_domains = []
-    for i in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc = f"{MDBS_RESOURCE_NAME}-search-0-{shard_name}-proxy-svc"
-        additional_domains.append(f"{proxy_svc}.{namespace}.svc.cluster.local")
-
-    additional_domains.append(f"*.{namespace}.svc.cluster.local")
-
-    create_tls_certs(
-        issuer=issuer,
-        namespace=namespace,
-        resource_name="envoy-server",
-        replicas=1,
-        service_name="envoy-proxy",
-        additional_domains=additional_domains,
-        secret_name="envoy-server-cert-pem",
-    )
-    logger.info("✓ Envoy server certificate created")
-
-    create_tls_certs(
-        issuer=issuer,
-        namespace=namespace,
-        resource_name="envoy-client",
-        replicas=1,
-        service_name="envoy-proxy-client",
-        additional_domains=[f"*.{namespace}.svc.cluster.local"],
-        secret_name="envoy-client-cert-pem",
-    )
-    logger.info("✓ Envoy client certificate created")
-
-
 @mark.e2e_search_sharded_enterprise_external_mongod
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     """Test that the operator is installed and running."""
@@ -602,8 +462,7 @@ def test_create_users(
 
 @mark.e2e_search_sharded_enterprise_external_mongod
 def test_deploy_envoy_certificates(namespace: str, issuer: str):
-    """Create TLS certificates for Envoy proxy."""
-    create_envoy_certificates(namespace, issuer)
+    create_envoy_certificates(namespace, issuer, MDBS_RESOURCE_NAME, MDB_RESOURCE_NAME, SHARD_COUNT)
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
