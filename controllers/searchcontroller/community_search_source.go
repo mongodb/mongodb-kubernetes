@@ -2,6 +2,7 @@ package searchcontroller
 
 import (
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	"strings"
 
 	"github.com/blang/semver"
@@ -54,7 +55,7 @@ func (r *CommunitySearchSource) TLSConfig() *TLSSourceConfig {
 	}
 
 	return &TLSSourceConfig{
-		CAFileName:       "ca.crt",
+		CAFileName:       controllers.TlsCACertName,
 		CAVolume:         volume,
 		ResourcesToWatch: watchedResources,
 	}
