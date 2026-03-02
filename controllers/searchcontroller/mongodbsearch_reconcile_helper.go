@@ -141,7 +141,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 		}
 	}
 
-	if err := r.ensureSearchService(ctx, r.mdbSearch.SearchServiceNamespacedName(), buildSearchHeadlessService(r.mdbSearch)); err != nil {
+	if err := r.ensureSearchService(ctx, log, r.mdbSearch.SearchServiceNamespacedName(), buildSearchHeadlessService(r.mdbSearch)); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -231,7 +231,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		shardLog.Infof("Reconciling mongot for shard %s", shardName)
 
 		shardSvcName := r.mdbSearch.MongotServiceForShard(shardName)
-		if err := r.ensureSearchService(ctx, shardSvcName, buildSearchHeadlessServiceForShard(r.mdbSearch, shardName)); err != nil {
+		if err := r.ensureSearchService(ctx, shardLog, shardSvcName, buildSearchHeadlessServiceForShard(r.mdbSearch, shardName)); err != nil {
 			return workflow.Failed(err)
 		}
 
@@ -349,7 +349,7 @@ func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Con
 	return sts, nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, svcName types.NamespacedName, desired corev1.Service) error {
+func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, log *zap.SugaredLogger, svcName types.NamespacedName, desired corev1.Service) error {
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName.Name, Namespace: svcName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, svc, func() error {
 		resourceVersion := svc.ResourceVersion
@@ -361,7 +361,7 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 		return xerrors.Errorf("error creating/updating search service %v: %w", svcName, err)
 	}
 
-	zap.S().Debugf("Updated search service %v: %s", svcName, op)
+	log.Debugf("Updated search service %v: %s", svcName, op)
 
 	return nil
 }

@@ -712,15 +712,15 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 	config := mongot.Config{}
 	createMongotConfigForShard(search, shardedSource, 0)(&config)
 
-	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
+	require.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should initially be false")
-	assert.NotNil(t, config.SyncSource.Router)
-	assert.NotNil(t, config.SyncSource.Router.TLS)
+	require.NotNil(t, config.SyncSource.Router)
+	require.NotNil(t, config.SyncSource.Router.TLS)
 	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should initially be false")
 
 	// Simulate what ensureEgressTlsConfig does when TLS is enabled
 	tlsSourceConfig := shardedSource.TLSConfig()
-	assert.NotNil(t, tlsSourceConfig, "TLS config should not be nil")
+	require.NotNil(t, tlsSourceConfig, "TLS config should not be nil")
 
 	// Apply the TLS modification (simulating ensureEgressTlsConfig behavior)
 	config.SyncSource.ReplicaSet.TLS = ptr.To(true)
@@ -730,7 +730,7 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 	}
 
 	assert.True(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be enabled")
-	assert.NotNil(t, config.SyncSource.CertificateAuthorityFile)
+	require.NotNil(t, config.SyncSource.CertificateAuthorityFile)
 	assert.Equal(t, "/mongodb-automation/ca/ca-pem", *config.SyncSource.CertificateAuthorityFile)
 	assert.True(t, *config.SyncSource.Router.TLS, "Router TLS should be enabled for sharded clusters")
 }
@@ -749,10 +749,10 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 	config := mongot.Config{}
 	createMongotConfigForShard(search, shardedSource, 0)(&config)
 
-	assert.NotNil(t, config.SyncSource.ReplicaSet.TLS)
+	require.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be false when source has no TLS")
-	assert.NotNil(t, config.SyncSource.Router)
-	assert.NotNil(t, config.SyncSource.Router.TLS)
+	require.NotNil(t, config.SyncSource.Router)
+	require.NotNil(t, config.SyncSource.Router.TLS)
 	assert.False(t, *config.SyncSource.Router.TLS, "Router TLS should be false when source has no TLS")
 	assert.Nil(t, config.SyncSource.CertificateAuthorityFile)
 }
