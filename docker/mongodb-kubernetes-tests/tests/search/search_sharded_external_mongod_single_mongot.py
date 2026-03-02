@@ -24,8 +24,8 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.search.search_tester import SearchTester
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
@@ -497,7 +497,7 @@ def test_search_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_p
 def test_search_shard_collections(mdb: MongoDB):
     search_tester = get_admin_search_tester(mdb, use_ssl=True)
     search_tester.shard_and_distribute_collection("sample_mflix", "movies")
-    
+
     logger.info("Collections sharded and chunks are distributed")
 
 
@@ -511,16 +511,12 @@ def test_verify_documents_count_in_shards(mdb: MongoDB):
 
     shard_counts = movies_helper.get_shard_document_counts()
 
-    assert len(shard_counts) == SHARD_COUNT, (
-        f"Expected {SHARD_COUNT} shards, found {len(shard_counts)}"
-    )
+    assert len(shard_counts) == SHARD_COUNT, f"Expected {SHARD_COUNT} shards, found {len(shard_counts)}"
     for shard_name, count in shard_counts.items():
         assert count > 0, f"Shard {shard_name} has 0 documents, data was not distributed"
 
     shard_total = sum(shard_counts.values())
-    assert shard_total == total_docs, (
-        f"Sum of shard counts ({shard_total}) != total documents ({total_docs})"
-    )
+    assert shard_total == total_docs, f"Sum of shard counts ({shard_total}) != total documents ({total_docs})"
     logger.info(f"Document distribution verified: {shard_counts}, total: {shard_total}")
 
 
@@ -586,7 +582,10 @@ def test_search_verify_results_from_all_shards(mdb: MongoDB):
         if search_count == expected_docs:
             return True, f""
         else:
-            return False, f"Search query for all documents returned {search_count} documents, expected were {expected_docs}"
+            return (
+                False,
+                f"Search query for all documents returned {search_count} documents, expected were {expected_docs}",
+            )
 
     run_periodically(execute_all_docs_search, timeout=120, sleep_time=5, msg="search query for all docs")
     logger.info(f"Search results for all documents verified.")
