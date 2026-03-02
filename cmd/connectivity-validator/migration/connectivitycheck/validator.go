@@ -13,6 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	driver "go.mongodb.org/mongo-driver/x/mongo/driver"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"go.uber.org/zap"
 )
 
@@ -174,7 +176,12 @@ func pingMemberDirect(ctx context.Context, hostPort string, cfg Config) int {
 	if err != nil {
 		return classifyError(err)
 	}
-	defer client.Disconnect(ctx) //nolint:errcheck
+	defer func(client *mongo.Client, ctx context.Context) {
+		err := client.Disconnect(ctx)
+		if err != nil {
+			zap.S().Errorf("Failed to disconnect from MongoDB: %v", err)
+		}
+	}(client, ctx)
 	if err := client.Ping(ctx, nil); err != nil {
 		return classifyError(err)
 	}
@@ -185,46 +192,57 @@ func classifyError(err error) int {
 	if err == nil {
 		return ExitSuccess
 	}
-	// The driver wraps underlying errors in topology.ServerSelectionError or
-	// topology.ConnectionError (both internal packages), so errors.As on net/x509
-	// types won't unwrap them — check the message string for all cases.
-	msg := err.Error()
+	// ServerSelectionError.Wrapped is just "server selection timeout" — the actual
+	// per-server cause lives in Desc.Servers[i].LastError.
+	var selErr topology.ServerSelectionError
+	if errors.As(err, &selErr) {
+		for _, srv := range selErr.Desc.Servers {
+			if srv.LastError != nil {
+				if code := classifyConnectionError(srv.LastError); code != ExitUnknown {
+					return code
+				}
+			}
+		}
+		return ExitMemberUnreachable
+	}
+	return classifyConnectionError(err)
+}
+
+// classifyConnectionError classifies a ConnectionError or its inner cause.
+func classifyConnectionError(err error) int {
+	if err == nil {
+		return ExitSuccess
+	}
+	// ConnectionError.Wrapped holds the actual cause (net.OpError, x509 error, etc.).
+	var connErr topology.ConnectionError
+	if errors.As(err, &connErr) {
+		return classifyConnectionError(connErr.Wrapped)
+	}
 	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) || strings.Contains(msg, "no such host") {
+	if errors.As(err, &dnsErr) {
 		return ExitDNSFailed
 	}
-	if isTLSError(err) {
+	var certInvalidErr x509.CertificateInvalidError
+	if errors.As(err, &certInvalidErr) {
 		return ExitTLSFailed
 	}
-	// MongoDB auth error code 18 = AuthenticationFailed.
-	// The driver wraps this in topology.ConnectionError (internal package), so errors.As
-	// on mongo.CommandError won't unwrap it — check the message string as well.
+	var unknownAuthorityErr x509.UnknownAuthorityError
+	if errors.As(err, &unknownAuthorityErr) {
+		return ExitTLSFailed
+	}
+	// Auth failures during connection handshake surface as driver.Error (not mongo.CommandError).
+	var drvErr driver.Error
+	if errors.As(err, &drvErr) && drvErr.Code == 18 {
+		return ExitAuthFailed
+	}
 	var cmdErr mongo.CommandError
 	if errors.As(err, &cmdErr) && cmdErr.Code == 18 {
 		return ExitAuthFailed
 	}
-	if strings.Contains(msg, "AuthenticationFailed") || strings.Contains(msg, "auth error") {
-		return ExitAuthFailed
-	}
 	var netErr net.Error
-	if errors.As(err, &netErr) || strings.Contains(msg, "connection refused") || strings.Contains(msg, "i/o timeout") {
+	if errors.As(err, &netErr) {
 		return ExitMemberUnreachable
 	}
 	return ExitUnknown
 }
 
-func isTLSError(err error) bool {
-	if err == nil {
-		return false
-	}
-	var certErr x509.CertificateInvalidError
-	if errors.As(err, &certErr) {
-		return true
-	}
-	var unknownAuthErr x509.UnknownAuthorityError
-	if errors.As(err, &unknownAuthErr) {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "tls:") || strings.Contains(msg, "x509:")
-}
