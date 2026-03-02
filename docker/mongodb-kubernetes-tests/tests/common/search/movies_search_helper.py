@@ -24,7 +24,9 @@ class SampleMoviesSearchHelper:
 
     def restore_sample_database(self):
         if self.tools_pod is None:
-            raise ValueError("tools_pod is required for restore_sample_database, pass it to the constructor while creating SampleMoviesSearchHelper instance")
+            raise ValueError(
+                "tools_pod is required for restore_sample_database, pass it to the constructor while creating SampleMoviesSearchHelper instance"
+            )
         self.search_tester.mongorestore_from_url(
             "https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
             f"{self.db_name}.*",
@@ -135,22 +137,30 @@ class SampleMoviesSearchHelper:
         )
 
     def text_search_movies(self, query: str, index: str = "default", path: str = "title", limit: int = 10):
-        return list(self.search_tester.client[self.db_name][self.col_name].aggregate([
-            {"$search": {"index": index, "text": {"query": query, "path": path}}},
-            {"$limit": limit},
-            {"$project": {"_id": 0, "title": 1, "score": {"$meta": "searchScore"}}},
-        ]))
+        return list(
+            self.search_tester.client[self.db_name][self.col_name].aggregate(
+                [
+                    {"$search": {"index": index, "text": {"query": query, "path": path}}},
+                    {"$limit": limit},
+                    {"$project": {"_id": 0, "title": 1, "score": {"$meta": "searchScore"}}},
+                ]
+            )
+        )
 
     def wildcard_search_movies(self, wildcard: str = "*", index: str = "default"):
-        return list(self.search_tester.client[self.db_name][self.col_name].aggregate([
-            {
-                "$search": {
-                    "index": index,
-                    "wildcard": {"query": wildcard, "path": "title", "allowAnalyzedField": True},
-                }
-            },
-            {"$project": {"_id": 0, "title": 1}},
-        ]))
+        return list(
+            self.search_tester.client[self.db_name][self.col_name].aggregate(
+                [
+                    {
+                        "$search": {
+                            "index": index,
+                            "wildcard": {"query": wildcard, "path": "title", "allowAnalyzedField": True},
+                        }
+                    },
+                    {"$project": {"_id": 0, "title": 1}},
+                ]
+            )
+        )
 
     # get_shard_document_counts returns the documents counts in each shard for a specific collection.
     # It is supposed to be called after sharding a collection and making sure that
