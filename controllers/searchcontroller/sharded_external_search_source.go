@@ -1,6 +1,7 @@
 package searchcontroller
 
 import (
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -68,7 +69,7 @@ func (r *ShardedExternalSearchSource) TLSConfig() *TLSSourceConfig {
 	}
 
 	return &TLSSourceConfig{
-		CAFileName: "ca.crt",
+		CAFileName: controllers.TlsCACertName,
 		CAVolume:   statefulset.CreateVolumeFromSecret("ca", tlsConfig.CA.Name),
 		ResourcesToWatch: map[watch.Type][]types.NamespacedName{
 			watch.Secret: {

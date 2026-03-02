@@ -1,6 +1,7 @@
 package searchcontroller
 
 import (
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	"k8s.io/apimachinery/pkg/types"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
@@ -31,7 +32,7 @@ func (r *externalSearchResource) TLSConfig() *TLSSourceConfig {
 	}
 
 	return &TLSSourceConfig{
-		CAFileName: "ca.crt",
+		CAFileName: controllers.TlsCACertName,
 		CAVolume:   statefulset.CreateVolumeFromSecret("ca", r.spec.TLS.CA.Name),
 		ResourcesToWatch: map[watch.Type][]types.NamespacedName{
 			watch.Secret: {
