@@ -30,11 +30,7 @@ func NewShardedEnterpriseSearchSource(mdb *mdbv1.MongoDB, search *searchv1.Mongo
 }
 
 func (r *ShardedEnterpriseSearchSource) GetShardNames() []string {
-	shardNames := make([]string, r.Spec.ShardCount)
-	for i := 0; i < r.Spec.ShardCount; i++ {
-		shardNames[i] = r.ShardRsName(i)
-	}
-	return shardNames
+	return r.ShardRsNames()
 }
 
 func (r *ShardedEnterpriseSearchSource) GetShardCount() int {

@@ -1013,10 +1013,7 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 	log.Infof("Applying search parameters from MongoDBSearch %s", search.NamespacedName())
 
 	// Collect shard names
-	shardNames := make([]string, sc.Spec.ShardCount)
-	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
-		shardNames[shardIdx] = sc.ShardRsName(shardIdx)
-	}
+	shardNames := sc.ShardRsNames()
 
 	// Apply per-shard search configuration to each shard
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
