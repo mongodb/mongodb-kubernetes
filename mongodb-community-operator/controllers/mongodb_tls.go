@@ -22,7 +22,7 @@ import (
 
 const (
 	tlsCAMountPath               = "/var/lib/tls/ca/"
-	TlsCACertName                = "ca.crt"
+	tlsCACertName                = "ca.crt"
 	tlsOperatorSecretMountPath   = "/var/lib/tls/server/"     //nolint
 	tlsPrometheusSecretMountPath = "/var/lib/tls/prometheus/" //nolint
 	tlsSecretCertName            = "tls.crt"
@@ -176,8 +176,8 @@ func getCaCrt(ctx context.Context, cmGetter configmap.Getter, secretGetter secre
 		return "", fmt.Errorf("TLS field requires a reference to the CA certificate which signed the server certificates. Neither secret (field caCertificateSecretRef) not configMap (field CaConfigMap) reference present")
 	}
 
-	if cert, ok := caData[TlsCACertName]; !ok || cert == "" {
-		return "", fmt.Errorf(`CA certificate resource "%s" should have a CA certificate in field "%s"`, caResourceName, TlsCACertName)
+	if cert, ok := caData[tlsCACertName]; !ok || cert == "" {
+		return "", fmt.Errorf(`CA certificate resource "%s" should have a CA certificate in field "%s"`, caResourceName, tlsCACertName)
 	} else {
 		return cert, nil
 	}

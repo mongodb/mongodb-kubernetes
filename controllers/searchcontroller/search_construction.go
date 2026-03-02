@@ -33,6 +33,7 @@ const (
 	TempSourceUserPasswordPath   = tempVolumePath + "/" + "sourceUserPassword"
 	SearchLivenessProbePath      = "/health"
 	SearchReadinessProbePath     = "/health" // Todo: Update this when search GA is available
+	tlsCACertName                = "ca.crt"
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
