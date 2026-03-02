@@ -122,7 +122,7 @@ class TestShardedClusterInvalidWithProjectAndOpsManager(KubernetesTester):
                     "value": {"configMapRef": {"name": "something"}},
                 },
             ],
-            "exception": "must validate one and only one schema",
+            "exception": "either spec.cloudManager or spec.opsManager can be set",
         },
     }
 
@@ -147,7 +147,7 @@ class TestShardedClusterInvalidWithCloudAndOpsManagerAndProject(KubernetesTester
                     "value": {"configMapRef": {"name": "something"}},
                 },
             ],
-            "exception": "must validate one and only one schema",
+            "exception": "either spec.cloudManager or spec.opsManager can be set",
         },
     }
 
