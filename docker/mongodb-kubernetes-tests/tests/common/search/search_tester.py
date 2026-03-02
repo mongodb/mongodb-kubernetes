@@ -1,9 +1,8 @@
 from typing import Optional, Self
 
+import kubetester
 import pymongo
 import pymongo.errors
-
-import kubetester
 from kubetester.mongotester import MongoTester
 from pymongo.operations import SearchIndexModel
 from tests import test_logger
@@ -82,7 +81,7 @@ class SearchTester(MongoTester):
     # immediately after the shard is created, resharding would happen and the collection data would be distributed
     # in different shards using chunks. Balancer is not really involved here initially because resharding handles the
     # chunk creation and distribution. The command is synchronous which means it will only return when the chunks are
-    # distributed properly among shards. 
+    # distributed properly among shards.
     def shard_and_distribute_collection(self, database_name: str, collection_name: str):
         ns = f"{database_name}.{collection_name}"
         try:
@@ -98,10 +97,12 @@ class SearchTester(MongoTester):
                 "reshardCollection",
                 ns,
                 key={"_id": "hashed"},
-                forceRedistribution=True,    # require 8.0+
+                forceRedistribution=True,  # require 8.0+
             )
 
-            logger.info(f"{collection_name} collection sharded and chunks distributed using the method shardAndDistributeCollection")
+            logger.info(
+                f"{collection_name} collection sharded and chunks distributed using the method shardAndDistributeCollection"
+            )
         except pymongo.errors.OperationFailure as e:
             if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
                 logger.info(f"{collection_name} collection already sharded")
