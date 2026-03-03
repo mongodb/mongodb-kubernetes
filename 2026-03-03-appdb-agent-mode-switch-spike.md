@@ -1,6 +1,6 @@
 # Spike: AppDB Agent Mode Switch — Headless to Online via Meta OM
 
-**Author:** Maciej Karaś  
+**Author:** Maciej Karaś
 **Related docs:**
 - [[SPIKE + TD] OM Backup with PITR and Deployment Reconciliation](https://docs.google.com/document/d/1UkcMpEVhCjvI-ouCp4hjOxjIDMi7cAxEA_myBmIk67U)
 - [[Spike + TD] OM Backup (Phase 1)](https://docs.google.com/document/d/1ScQ9OjT-5XWTz3jtr-ECXBLlOuot6hiq_MUD0G8eaaI)
@@ -109,28 +109,19 @@ stringData:
 
 ### 2. Reconciliation Flow
 
-Because MCK's reconciler runs continuously, the implementation must be **fully idempotent**. The migration state is tracked via `status.applicationDatabase.conditions` — the reconciler checks each condition in order and only performs the work for the first unmet one. Once all conditions are `True`, subsequent reconciliations are no-ops for the migration path.
-
-**Status conditions tracked:**
-
-| Condition | Meaning |
-|---|---|
-| `MetaOMProjectReady` | Meta OM project exists and is accessible |
-| `AutomationConfigMigrated` | Initial Automation Config was pushed to Meta OM (one-time) |
-| `AgentAPIKeyProvisioned` | Agent API key Secret exists in-cluster |
-| `AppDBManagedByMetaOM` | All AppDB pods are running with Meta OM env vars and are Ready |
+Because MCK's reconciler runs continuously, the implementation must be **fully idempotent**. Each step checks the actual state of the relevant resource and skips the action if it is already in the desired state.
 
 **Reconciliation steps:**
 
 1. Check if `spec.applicationDatabase.managedByMetaOM` is set. If not, proceed with standard headless reconciliation.
-2. **[MetaOMProjectReady]** Look up the referenced `MongoDBOpsManager` CR (Meta OM). Verify it is in `Running` phase. Call Meta OM Admin API to create (or retrieve) the project named `spec.projectName`. Store the returned `groupId` in `status.applicationDatabase.metaOMGroupId`. Set `MetaOMProjectReady=True`.
-3. **[AutomationConfigMigrated]** Read the `{appdb-name}-config` Secret (headless Automation Config). If the Secret does not exist (it may have been deleted post-migration), skip. Otherwise POST the config to Meta OM's `/api/public/v1.0/groups/{groupId}/automationConfig`. Set `AutomationConfigMigrated=True`.
-4. **[AgentAPIKeyProvisioned]** Create an agent API key in Meta OM for the project. Store the key in a new K8s Secret (`{appdb-name}-meta-om-agent-key`). Set `AgentAPIKeyProvisioned=True`.
-5. **[AppDBManagedByMetaOM]** Patch the AppDB StatefulSet:
+2. Look up the referenced `MongoDBOpsManager` CR (Meta OM). Verify it is in `Running` phase. Call Meta OM Admin API to create or retrieve the project named `spec.projectName`. Store the returned `groupId` in `status.applicationDatabase.metaOMGroupId` for use by subsequent steps.
+3. Read the `{appdb-name}-config` Secret (headless Automation Config). If the Secret does not exist (it may have been deleted post-migration), skip. Otherwise, check whether the Meta OM project already has a non-empty Automation Config (GET `/api/public/v1.0/groups/{groupId}/automationConfig`). Only POST the config if the existing one is empty — this prevents overwriting a config that Meta OM is already managing.
+4. Check if the agent API key Secret (`{appdb-name}-meta-om-agent-key`) already exists in-cluster. If not, create an agent API key in Meta OM for the project and store it in that Secret.
+5. Check if the AppDB StatefulSet already has Meta OM env vars set (`MMS_SERVER` present). If not, patch the template spec:
    - Remove env vars: `HEADLESS_AGENT`, `AUTOMATION_CONFIG_MAP`
    - Add env vars: `MMS_SERVER=<meta-om-url>`, `MMS_GROUP_ID=<groupId>`, `MMS_API_KEY=<agent-api-key>`
-   - Bump a reconciliation annotation on the StatefulSet to trigger a rolling restart.
-6. Wait for all AppDB pods to pass their readiness probe (existing mechanism, no new polling required). Once the StatefulSet reports all replicas ready, set `AppDBManagedByMetaOM=True`.
+   - The template spec change is sufficient to trigger a rolling restart.
+6. Wait for all AppDB pods to pass their readiness probe (existing mechanism, no new polling required).
 
 **Flow chart:**
 
@@ -138,43 +129,36 @@ Because MCK's reconciler runs continuously, the implementation must be **fully i
 flowchart TD
     A([Reconcile triggered]) --> B{managedByMetaOM\nfield set?}
     B -- No --> Z([Standard headless\nreconciliation])
-    B -- Yes --> C{MetaOMProjectReady\n= True?}
-    C -- No --> D[Lookup Meta OM CR\nverify phase=Running]
-    D --> E[Create/get project\nvia Meta OM Admin API]
-    E --> F[Store groupId in status\nSet MetaOMProjectReady=True]
-    F --> G
-    C -- Yes --> G{AutomationConfigMigrated\n= True?}
-    G -- No --> H{Config Secret\nexists?}
-    H -- Yes --> I[POST Automation Config\nto Meta OM API]
-    I --> J[Set AutomationConfigMigrated=True]
+    B -- Yes --> C[Lookup Meta OM CR\nverify phase=Running]
+    C --> D[Create/get project\nvia Meta OM Admin API\nstore groupId in status]
+    D --> E{Config Secret\nexists?}
+    E -- Yes --> F{Automation Config\nin Meta OM empty?}
+    F -- Yes --> G[POST Automation Config\nto Meta OM API]
+    G --> H
+    F -- No --> H
+    E -- No --> H{Agent key Secret\nexists?}
+    H -- No --> I[Create agent API key\nin Meta OM project]
+    I --> J[Store key in K8s Secret\nappdb-meta-om-agent-key]
     J --> K
-    H -- No --> K
-    G -- Yes --> K{AgentAPIKeyProvisioned\n= True?}
-    K -- No --> L[Create agent API key\nin Meta OM project]
-    L --> M[Store key in K8s Secret\nappdb-meta-om-agent-key]
-    M --> N[Set AgentAPIKeyProvisioned=True]
-    N --> O
-    K -- Yes --> O{AppDBManagedByMetaOM\n= True?}
-    O -- No --> P[Patch StatefulSet env vars\nremove HEADLESS_AGENT\nadd MMS_SERVER, MMS_GROUP_ID,\nMMS_API_KEY]
-    P --> Q[Rolling restart via\nStatefulSet annotation bump]
-    Q --> R{All pods Ready?\nvia existing readiness probe}
-    R -- No --> S([Requeue / wait])
-    R -- Yes --> T[Set AppDBManagedByMetaOM=True]
-    T --> U([Reconciliation complete])
-    O -- Yes --> U
+    H -- Yes --> K{StatefulSet has\nMeta OM env vars?}
+    K -- No --> L[Patch StatefulSet env vars\nremove HEADLESS_AGENT\nadd MMS_SERVER, MMS_GROUP_ID,\nMMS_API_KEY]
+    L --> M{All pods Ready?\nvia existing readiness probe}
+    M -- No --> N([Requeue / wait])
+    M -- Yes --> O([Reconciliation complete])
+    K -- Yes --> O
 ```
 
 ### 3. MCK Code Changes
 
-| Area | File(s) | Change |
-|---|---|---|
-| **API types** | `api/v1/om/appdb_types.go`, `opsmanager_types.go` | Add `ManagedByMetaOM *MetaOMRef` to `AppDBSpec`; add `MetaOMRef` struct; add four status conditions |
-| **CRD manifest** | `config/crd/bases/...` | Auto-generated via `make generate` |
-| **AppDB controller** | `controllers/operator/appdbreplicaset_controller.go` | Add `reconcileManagedByMetaOM()` branch in the main reconcile loop implementing the idempotent state machine above |
-| **StatefulSet construction** | `controllers/operator/construct/appdb_construction.go` | Conditional: if `ManagedByMetaOM` is set, omit `HEADLESS_AGENT`/`AUTOMATION_CONFIG_MAP`, inject Meta OM connection env vars |
-| **OM connection reuse** | `controllers/om/` | Reuse existing `omConnectionFactory` / Admin API client to call Meta OM (project creation, agent API key provisioning) |
-| **Unit tests** | `controllers/operator/appdbreplicaset_controller_test.go`, `controllers/operator/construct/appdb_construction_test.go`, `api/v1/om/...` | Test: CR field validation, idempotent reconcile loop (all conditions already met → no-op), StatefulSet env var construction with and without `ManagedByMetaOM` set |
-| **e2e tests** | `test/e2e/` | New test scenario (see Section 4) |
+| Area                         | File(s)                                                                                                                                 | Change                                                                                                                                                             |
+|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **API types**                | `api/v1/om/appdb_types.go`, `opsmanager_types.go`                                                                                       | Add `ManagedByMetaOM *MetaOMRef` to `AppDBSpec`; add `MetaOMRef` struct; add `metaOMGroupId` to status                                                             |
+| **CRD manifest**             | `config/crd/bases/...`                                                                                                                  | Auto-generated via `make generate`                                                                                                                                 |
+| **AppDB controller**         | `controllers/operator/appdbreplicaset_controller.go`                                                                                    | Add `reconcileManagedByMetaOM()` branch in the main reconcile loop implementing the idempotent state machine above                                                 |
+| **StatefulSet construction** | `controllers/operator/construct/appdb_construction.go`                                                                                  | Conditional: if `ManagedByMetaOM` is set, omit `HEADLESS_AGENT`/`AUTOMATION_CONFIG_MAP`, inject Meta OM connection env vars                                        |
+| **OM connection reuse**      | `controllers/om/`                                                                                                                       | Reuse existing `omConnectionFactory` / Admin API client to call Meta OM (project creation, agent API key provisioning)                                             |
+| **Unit tests**               | `controllers/operator/appdbreplicaset_controller_test.go`, `controllers/operator/construct/appdb_construction_test.go`, `api/v1/om/...` | Test: CR field validation, idempotent reconcile loop (all conditions already met → no-op), StatefulSet env var construction with and without `ManagedByMetaOM` set |
+| **e2e tests**                | `test/e2e/`                                                                                                                             | New test scenario (see Section 4)                                                                                                                                  |
 
 ---
 
@@ -183,11 +167,11 @@ flowchart TD
 ### Unit Tests
 
 - CR validation: `managedByMetaOM` with missing required fields is rejected at admission
-- Reconciler is idempotent when all conditions are already `True` (no API calls to Meta OM, no StatefulSet patches)
+- Reconciler is idempotent: when Meta OM project already exists, Automation Config is non-empty, agent key Secret exists, and StatefulSet already has Meta OM env vars — no API calls to Meta OM are made and no StatefulSet patches are applied
 - StatefulSet construction: when `ManagedByMetaOM` is set, `HEADLESS_AGENT` and `AUTOMATION_CONFIG_MAP` env vars are absent; `MMS_SERVER`, `MMS_GROUP_ID`, `MMS_API_KEY` are present
 - StatefulSet construction: when `ManagedByMetaOM` is not set, original headless env vars are present (no regression)
-- Reconciler progresses through each condition in order; fails gracefully if Meta OM is not yet `Running`
-- `AutomationConfigMigrated` is set to `True` and is not re-attempted if the config Secret is absent
+- Reconciler fails gracefully and requeues if Meta OM CR is not yet in `Running` phase
+- Automation Config push is skipped when the config Secret is absent or when Meta OM already has a non-empty config
 
 ### e2e Test Scenario
 
@@ -200,11 +184,10 @@ The following scenario reflects a real customer upgrading from an unmanaged AppD
 5. Deploy Meta OM (`om-meta`) via MCK with its own Meta AppDB
 6. Verify `om-meta` reaches `Running` phase
 7. Patch `om-primary` CR: add `spec.applicationDatabase.managedByMetaOM`
-8. Assert all four status conditions transition to `True` in order: `MetaOMProjectReady → AutomationConfigMigrated → AgentAPIKeyProvisioned → AppDBManagedByMetaOM`
-9. Assert AppDB StatefulSet pods restart and all become Ready
-10. Assert `HEADLESS_AGENT` env var is absent; `MMS_SERVER`/`MMS_GROUP_ID`/`MMS_API_KEY` are present on AppDB pods
-11. Assert no data loss in AppDB (verify a pre-migration document is still present)
-12. Assert `om-primary`'s sample MongoDB deployment is still healthy throughout
+8. Assert AppDB StatefulSet pods restart and all become Ready
+9. Assert `HEADLESS_AGENT` env var is absent; `MMS_SERVER`/`MMS_GROUP_ID`/`MMS_API_KEY` are present on AppDB pods
+10. Assert no data loss in AppDB (verify a pre-migration document is still present)
+11. Assert `om-primary`'s sample MongoDB deployment is still healthy throughout
 
 ### Manual PoC Validation (beyond e2e)
 
@@ -223,8 +206,7 @@ After the e2e test passes, the following steps are performed manually to validat
 ## Success Criteria
 
 - ✅ AppDB agents transition from headless → online with **zero data loss** and no Primary OM downtime
-- ✅ All four `ManagedByMetaOM` status conditions reach `True` in the correct order
-- ✅ Reconciler is fully idempotent — repeated reconciliations after migration completion are no-ops
+- ✅ Reconciler is fully idempotent — repeated reconciliations after migration completion make no API calls to Meta OM and apply no StatefulSet patches
 - ✅ Meta OM UI shows AppDB as an active managed deployment
 - ✅ Backup can be manually enabled and a snapshot is taken via Meta OM UI
 - ✅ PITR restore successfully recovers AppDB to a past point-in-time
@@ -236,15 +218,15 @@ After the e2e test passes, the following steps are performed manually to validat
 
 ## Risks and Open Questions
 
-| # | Risk / Question | Severity | Notes |
-|---|---|---|---|
-| 1 | **Automation Config format compatibility** — the headless config may include agent-version-specific fields that Meta OM's API rejects or interprets differently | Medium | Needs investigation during PoC; may require config sanitization before POST |
-| 2 | **Rolling restart data availability** — during the rolling restart, the AppDB replicaset drops from 3→2 members temporarily; Primary OM must tolerate this | Low | Standard RS rolling restart; Primary OM's connection pool handles this |
-| 3 | **Meta OM trying to reconfigure AppDB** — once agents check in, Meta OM may immediately push its own Automation Config, potentially conflicting with the existing one | High | Must verify that the pushed config is accepted as-is and Meta OM does not overwrite critical settings (e.g. replica set name, storage config) |
-| 4 | **Cross-namespace / cross-cluster Meta OM** — accessing the Meta OM CR and its Admin API from a different namespace or cluster requires RBAC and networking setup | Medium | Flexible topology is in scope; needs RBAC and cross-cluster connectivity design |
-| 5 | **Reversibility** — switching back from online → headless mode is not designed in this PoC | Low (for PoC) | Treat as out of scope; document as known limitation |
-| 6 | **Agent API key lifecycle** — if the `{appdb-name}-meta-om-agent-key` Secret is deleted after migration, the agents lose connectivity to Meta OM | Medium | MCK should detect missing Secret and re-provision (add to reconcile loop) |
-| 7 | **Primary OM AppDB reconciliation interference** — the MCK AppDB controller still runs for the AppDB; it must not re-inject `HEADLESS_AGENT` on subsequent reconciliations | High | Must ensure the StatefulSet construction path respects the `ManagedByMetaOM` condition at all times |
+| # | Risk / Question                                                                                                                                                            | Severity      | Notes                                                                                                                                         |
+|---|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| 1 | **Automation Config format compatibility** — the headless config may include agent-version-specific fields that Meta OM's API rejects or interprets differently            | Medium        | Needs investigation during PoC; may require config sanitization before POST                                                                   |
+| 2 | **Rolling restart data availability** — during the rolling restart, the AppDB replicaset drops from 3→2 members temporarily; Primary OM must tolerate this                 | Low           | Standard RS rolling restart; Primary OM's connection pool handles this                                                                        |
+| 3 | **Meta OM trying to reconfigure AppDB** — once agents check in, Meta OM may immediately push its own Automation Config, potentially conflicting with the existing one      | High          | Must verify that the pushed config is accepted as-is and Meta OM does not overwrite critical settings (e.g. replica set name, storage config) |
+| 4 | **Cross-namespace / cross-cluster Meta OM** — accessing the Meta OM CR and its Admin API from a different namespace or cluster requires RBAC and networking setup          | Medium        | Flexible topology is in scope; needs RBAC and cross-cluster connectivity design                                                               |
+| 5 | **Reversibility** — switching back from online → headless mode is not designed in this PoC                                                                                 | Low (for PoC) | Treat as out of scope; document as known limitation                                                                                           |
+| 6 | **Agent API key lifecycle** — if the `{appdb-name}-meta-om-agent-key` Secret is deleted after migration, the agents lose connectivity to Meta OM                           | Medium        | MCK should detect missing Secret and re-provision (add to reconcile loop)                                                                     |
+| 7 | **Primary OM AppDB reconciliation interference** — the MCK AppDB controller still runs for the AppDB; it must not re-inject `HEADLESS_AGENT` on subsequent reconciliations | High          | Must ensure the StatefulSet construction path respects the `ManagedByMetaOM` condition at all times                                           |
 
 ---
 
