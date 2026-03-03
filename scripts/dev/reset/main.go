@@ -160,6 +160,32 @@ func resetContext(ctx context.Context, contextName string, deleteCRD bool, colle
 	fmt.Printf("Finished resetting context %s\n", contextName)
 }
 
+// removeIstioConfig removes Istio sidecar injection label and PeerAuthentication from the namespace.
+// This prevents Istio artifacts from a multi-cluster run from leaking into subsequent single-cluster tests.
+func removeIstioConfig(ctx context.Context, kubeClient *kubernetes.Clientset, dynamicClient dynamic.Interface, namespace string, collectError func(error, string)) {
+	// Remove istio-injection label from namespace
+	ns, err := kubeClient.CoreV1().Namespaces().Get(ctx, namespace, v1.GetOptions{})
+	if err == nil && ns.Labels["istio-injection"] != "" {
+		delete(ns.Labels, "istio-injection")
+		_, err = kubeClient.CoreV1().Namespaces().Update(ctx, ns, v1.UpdateOptions{})
+		collectError(err, fmt.Sprintf("failed to remove istio-injection label from namespace %s", namespace))
+	}
+
+	// Delete PeerAuthentication resources
+	peerAuthGVR := schema.GroupVersionResource{
+		Group:    "security.istio.io",
+		Version:  "v1beta1",
+		Resource: "peerauthentications",
+	}
+	err = dynamicClient.Resource(peerAuthGVR).Namespace(namespace).DeleteCollection(ctx, deleteOptionsNoGrace, v1.ListOptions{})
+	if err != nil && !kerrors.IsNotFound(err) {
+		// Ignore "the server could not find the requested resource" when Istio CRDs are not installed
+		if !strings.Contains(err.Error(), "could not find the requested resource") {
+			collectError(err, fmt.Sprintf("failed to delete PeerAuthentication resources in namespace %s", namespace))
+		}
+	}
+}
+
 // resetNamespace cleans up the namespace in the given context
 func resetNamespace(ctx context.Context, contextName string, namespace string, deleteCRD bool, collectError func(error, string)) {
 	kubeClient, dynamicClient, err := initKubeClient(contextName)
@@ -167,6 +193,9 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 		collectError(err, fmt.Sprintf("failed to initialize Kubernetes client for context %s", contextName))
 		return
 	}
+
+	// Remove Istio configuration that may have been set by a previous multi-cluster test
+	removeIstioConfig(ctx, kubeClient, dynamicClient, namespace, collectError)
 
 	// Hack: remove the statefulset for backup daemon first - otherwise it may get stuck on removal if AppDB is removed first
 	stsList, err := kubeClient.AppsV1().StatefulSets(namespace).List(ctx, v1.ListOptions{})
