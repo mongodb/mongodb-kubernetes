@@ -19,12 +19,7 @@ import pymongo
 import pymongo.errors
 import yaml
 from kubernetes import client
-from kubetester import (
-    create_or_update_secret,
-    get_service,
-    read_configmap,
-    try_load,
-)
+from kubetester import create_or_update_secret, get_service, read_configmap, try_load
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
