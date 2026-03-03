@@ -2193,6 +2193,125 @@ func (r *ReconcileAppDbReplicaSet) migrateToNewDeploymentState(ctx context.Conte
 	return nil
 }
 
+// reconcileManagedByMetaOM enrolls the AppDB with a secondary (Meta) Ops Manager instance.
+// The function is fully idempotent — each call checks actual resource state.
+func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
+	ctx context.Context,
+	opsManager *omv1.MongoDBOpsManager,
+	log *zap.SugaredLogger,
+) (construct.MetaOMEnvVars, workflow.Status) {
+	metaOMRef := opsManager.Spec.AppDB.ManagedByMetaOM
+
+	// Step 1: Verify Meta OM CR exists and is Running.
+	metaOMNamespace := metaOMRef.Namespace
+	if metaOMNamespace == "" {
+		metaOMNamespace = opsManager.Namespace
+	}
+	metaOM := &omv1.MongoDBOpsManager{}
+	if err := r.centralClient.Get(ctx, kube.ObjectKey(metaOMNamespace, metaOMRef.Name), metaOM); err != nil {
+		return construct.MetaOMEnvVars{}, workflow.Pending("Meta OM CR %s/%s not found: %s", metaOMNamespace, metaOMRef.Name, err)
+	}
+	if metaOM.Status.OpsManagerStatus.Phase != status.PhaseRunning {
+		return construct.MetaOMEnvVars{}, workflow.Pending("Meta OM %s/%s is not yet Running (phase: %s)", metaOMNamespace, metaOMRef.Name, metaOM.Status.OpsManagerStatus.Phase)
+	}
+
+	// Step 2: Read credentials secret.
+	credData, err := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, metaOMRef.CredentialsSecretRef.Name), "")
+	if err != nil {
+		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to read Meta OM credentials secret %s: %w", metaOMRef.CredentialsSecretRef.Name, err))
+	}
+	publicKey := credData["publicKey"]
+	privateKey := credData["privateKey"]
+
+	// Step 3: Create or retrieve Meta OM project (idempotent via ReadOrCreateProject).
+	projectConfig := mdbv1.ProjectConfig{
+		BaseURL:     metaOM.CentralURL(),
+		ProjectName: metaOMRef.ProjectName,
+	}
+	cred := mdbv1.Credentials{
+		PublicAPIKey:  publicKey,
+		PrivateAPIKey: privateKey,
+	}
+	proj, conn, err := project.ReadOrCreateProject(projectConfig, cred, r.omConnectionFactory, log)
+	if err != nil {
+		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to get or create Meta OM project: %w", err))
+	}
+	groupID := proj.ID
+	opsManager.Status.AppDbStatus.MetaOMGroupID = groupID
+	if err := r.centralClient.Status().Update(ctx, opsManager); err != nil {
+		log.Warnw("Failed to persist MetaOMGroupID in status", "error", err)
+	}
+
+	// Step 4: Optionally push Automation Config (gated — only when Meta OM config is empty).
+	appdbName := opsManager.Spec.AppDB.Name()
+	headlessConfig, headlessErr := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName()), "")
+	if headlessErr == nil {
+		if acStr, ok := headlessConfig[automationconfig.ConfigKey]; ok && len(acStr) > 0 {
+			metaAC, readErr := conn.ReadAutomationConfig()
+			if readErr != nil {
+				log.Warnw("Failed to read automation config from Meta OM; skipping push", "error", readErr)
+			} else {
+				procs, _ := metaAC.Deployment["processes"]
+				isEmpty := procs == nil
+				if !isEmpty {
+					if list, ok := procs.([]interface{}); ok {
+						isEmpty = len(list) == 0
+					}
+				}
+				if isEmpty {
+					omAC, buildErr := om.BuildAutomationConfigFromBytes([]byte(acStr))
+					if buildErr != nil {
+						log.Warnw("Failed to parse headless automation config; skipping push", "error", buildErr)
+					} else {
+						if updateErr := conn.UpdateAutomationConfig(omAC, log); updateErr != nil {
+							log.Warnw("Failed to push automation config to Meta OM", "error", updateErr)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Step 5: Ensure agent API key secret (idempotent).
+	agentKeySecretName := metaOMAgentKeySecretName(appdbName)
+	var agentKey string
+	agentKeyData, readErr := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, agentKeySecretName), "")
+	if readErr != nil {
+		if !secrets.SecretNotExist(readErr) {
+			return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to read agent key secret: %w", readErr))
+		}
+		agentKey, err = conn.GenerateAgentKey()
+		if err != nil {
+			return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to generate agent key in Meta OM: %w", err))
+		}
+		agentKeySecret := secret.Builder().
+			SetNamespace(opsManager.Namespace).
+			SetName(agentKeySecretName).
+			SetField("agentKey", agentKey).
+			Build()
+		if err := r.SecretClient.PutSecret(ctx, agentKeySecret, ""); err != nil {
+			return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to create agent key secret: %w", err))
+		}
+	} else {
+		agentKey = agentKeyData["agentKey"]
+		if agentKey == "" {
+			return construct.MetaOMEnvVars{}, workflow.Failed(
+				fmt.Errorf("agent key secret %s exists but 'agentKey' field is empty or missing", agentKeySecretName))
+		}
+	}
+
+	return construct.MetaOMEnvVars{
+		Enabled: true,
+		Server:  metaOM.CentralURL(),
+		GroupID: groupID,
+		APIKey:  agentKey,
+	}, workflow.OK()
+}
+
+func metaOMAgentKeySecretName(appDBName string) string {
+	return appDBName + "-meta-om-agent-key"
+}
+
 // markAppDBAsBackingProject will configure the AppDB project to be read only. Errors are ignored
 // if the OpsManager version does not support this feature.
 func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error {

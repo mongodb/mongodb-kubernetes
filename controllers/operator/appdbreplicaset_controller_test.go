@@ -25,6 +25,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
@@ -1543,4 +1544,77 @@ func TestClearTLSParams(t *testing.T) {
 			assert.Equal(t, tt.expectedOutput, tt.input)
 		})
 	}
+}
+
+// TestReconcileManagedByMetaOM_MetaOMNotRunning verifies that reconcileManagedByMetaOM returns
+// a Pending status when the referenced Meta OM CR exists but is not in Running phase.
+func TestReconcileManagedByMetaOM_MetaOMNotRunning(t *testing.T) {
+	ctx := context.Background()
+
+	primaryOM := DefaultOpsManagerBuilder().Build()
+	primaryOM.Spec.AppDB.ManagedByMetaOM = &omv1.MetaOMRef{
+		Name:                 "meta-om",
+		Namespace:            mock.TestNamespace,
+		ProjectName:          "meta-project",
+		CredentialsSecretRef: omv1.SecretRef{Name: "meta-om-creds"},
+	}
+
+	// Meta OM CR exists but is NOT in Running phase.
+	metaOM := &omv1.MongoDBOpsManager{
+		ObjectMeta: metav1.ObjectMeta{Name: "meta-om", Namespace: mock.TestNamespace},
+	}
+	metaOM.Status.OpsManagerStatus.Phase = status.PhasePending
+
+	omConnectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, primaryOM, metaOM)
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, primaryOM, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	envVars, st := reconciler.reconcileManagedByMetaOM(ctx, primaryOM, zap.S())
+
+	assert.False(t, st.IsOK(), "expected non-OK status when Meta OM is not Running")
+	assert.False(t, envVars.Enabled, "expected MetaOMEnvVars to be empty")
+}
+
+// TestReconcileManagedByMetaOM_CreatesProjectAndReturnsEnvVars verifies that reconcileManagedByMetaOM
+// creates a project in Meta OM and returns correct MetaOMEnvVars when Meta OM is Running.
+func TestReconcileManagedByMetaOM_CreatesProjectAndReturnsEnvVars(t *testing.T) {
+	ctx := context.Background()
+
+	primaryOM := DefaultOpsManagerBuilder().Build()
+	primaryOM.Spec.AppDB.ManagedByMetaOM = &omv1.MetaOMRef{
+		Name:                 "meta-om",
+		Namespace:            mock.TestNamespace,
+		ProjectName:          "meta-project",
+		CredentialsSecretRef: omv1.SecretRef{Name: "meta-om-creds"},
+	}
+
+	// Meta OM CR is Running with an explicit URL so CentralURL() is deterministic.
+	metaOM := &omv1.MongoDBOpsManager{
+		ObjectMeta: metav1.ObjectMeta{Name: "meta-om", Namespace: mock.TestNamespace},
+		Spec:       omv1.MongoDBOpsManagerSpec{OpsManagerURL: "http://meta-om.svc:8080"},
+	}
+	metaOM.Status.OpsManagerStatus.Phase = status.PhaseRunning
+
+	// Credentials secret expected by reconcileManagedByMetaOM.
+	credsSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "meta-om-creds", Namespace: mock.TestNamespace},
+		Data: map[string][]byte{
+			"publicKey":  []byte("test-public-key"),
+			"privateKey": []byte("test-private-key"),
+		},
+	}
+
+	omConnectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, primaryOM, metaOM, credsSecret)
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, primaryOM, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	envVars, st := reconciler.reconcileManagedByMetaOM(ctx, primaryOM, zap.S())
+
+	require.True(t, st.IsOK(), "expected OK status: %v", st)
+	assert.True(t, envVars.Enabled)
+	assert.Equal(t, "http://meta-om.svc:8080", envVars.Server)
+	assert.Equal(t, om.TestGroupID, envVars.GroupID)
+	assert.NotEmpty(t, envVars.APIKey)
 }
