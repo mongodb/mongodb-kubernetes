@@ -300,7 +300,9 @@ class KubernetesTester(object):
             cls.clients("appsv1").create_namespaced_stateful_set(body=body, namespace=namespace)
         except client.rest.ApiException as e:
             if e.status == 409:
-                cls.clients("appsv1").patch_namespaced_stateful_set(name=body["metadata"]["name"], body=body, namespace=namespace)
+                cls.clients("appsv1").patch_namespaced_stateful_set(
+                    name=body["metadata"]["name"], body=body, namespace=namespace
+                )
 
     @classmethod
     def create_service(
@@ -317,7 +319,9 @@ class KubernetesTester(object):
             cls.clients("corev1").create_namespaced_service(body=body, namespace=namespace)
         except client.rest.ApiException as e:
             if e.status == 409:
-                cls.clients("corev1").patch_namespaced_service(name=body["metadata"]["name"], body=body, namespace=namespace)
+                cls.clients("corev1").patch_namespaced_service(
+                    name=body["metadata"]["name"], body=body, namespace=namespace
+                )
 
     @classmethod
     def create_or_update_pvc(

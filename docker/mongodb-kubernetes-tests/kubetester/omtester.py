@@ -703,7 +703,9 @@ class OMTester(object):
         return self.om_request("get", f"/groups/{self.context.project_id}/automationStatus").json()
 
     def api_create_agent_api_key(self, description: str = "agent api key created by OMTester") -> str:
-        return self.om_request("post", f"/groups/{self.context.project_id}/agentapikeys", json_object={"desc": description}).json()["key"]
+        return self.om_request(
+            "post", f"/groups/{self.context.project_id}/agentapikeys", json_object={"desc": description}
+        ).json()["key"]
 
     def api_create_group(self):
         body = {
@@ -717,7 +719,6 @@ class OMTester(object):
 
     def api_put_automation_config(self, config: dict):
         self.om_request("put", f"/groups/{self.context.project_id}/automationConfig", json_object=config)
-
 
     def wait_agents_ready(self, timeout: Optional[int] = 600):
         """Waits until all the agents reached the goal automation config version."""
