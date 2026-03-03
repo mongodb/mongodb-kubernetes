@@ -1,5 +1,11 @@
 .dir-locals.el
-.idea/
+.idea/workspace.xml
+.idea/usage.statistics.xml
+.idea/shelf
+.idea/AugmentWebviewStateStore.xml
+.idea/go.imports.xml
+
+
 
 /pkg/client
 /vendor/
@@ -22,7 +28,6 @@ venv
 **/pytest_cache/
 tmp/*
 bin/*
-**/*.iml
 helm_out
 .redo-last-namespace
 exports.do
