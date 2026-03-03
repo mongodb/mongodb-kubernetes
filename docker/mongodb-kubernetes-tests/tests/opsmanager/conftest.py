@@ -183,8 +183,14 @@ def mino_tenant_install(
         # Provide the test CA to the MinIO operator so it can trust the MinIO server's
         # TLS cert when creating buckets. Without this, the operator fails with
         # "x509: certificate signed by unknown authority" and buckets are never created.
+        #
+        # We use ca-tls.crt (the bare test CA) rather than issuer_ca_filepath
+        # (ca-tls-full-chain.crt). The full-chain file bundles extra MongoDB CDN certs that
+        # have since expired. The MinIO operator (Go x509) marks the entire secret as expired
+        # if any cert inside it is expired, so even the still-valid test CA would be skipped.
         if issuer_ca_filepath is not None:
-            with open(issuer_ca_filepath) as f:
+            ca_cert_path = Path(issuer_ca_filepath).parent / "ca-tls.crt"
+            with open(ca_cert_path) as f:
                 ca_cert = f.read()
             create_or_update_secret(
                 namespace=namespace,
