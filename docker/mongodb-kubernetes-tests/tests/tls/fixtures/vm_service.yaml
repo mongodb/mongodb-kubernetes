@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vm-mongodb
+  labels:
+    app: vm-mongodb
+spec:
+  type: ClusterIP
+  selector:
+    app: vm-mongodb
+  ports:
+    - port: 27017
+      name: mongodb

@@ -1,0 +1,53 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vm-mongodb
+spec:
+  serviceName: vm-mongodb
+  replicas: 3
+  selector:
+    matchLabels:
+      app: vm-mongodb
+  template:
+    metadata:
+      labels:
+        app: vm-mongodb
+    spec:
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+        - name: mongodb-agent
+          image: quay.io/mongodb/mongodb-agent:13.47.0.10239-1
+          command:
+            - /bin/sh
+            - -c
+            - ./agent/mongodb-agent -mmsGroupId=$(MMS_GROUP_ID) -mmsBaseUrl=$(MMS_BASE_URL) -mmsApiKey=$(MMS_API_KEY)
+          env:
+            - name: MMS_GROUP_ID
+              value: ""
+            - name: MMS_BASE_URL
+              value: ""
+            - name: MMS_API_KEY
+              value: ""
+          volumeMounts:
+            - name: mongodb-data
+              mountPath: /data
+#            - name: mongodb-certs
+#              mountPath: /etc/mongodb/certs
+#              readOnly: true
+#      volumes:
+#        - name: mongodb-certs
+#          secret:
+#            secretName: mdb-certs
+
+  volumeClaimTemplates:
+    - metadata:
+        name: mongodb-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
