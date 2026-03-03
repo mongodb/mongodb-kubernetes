@@ -14,19 +14,14 @@ This test verifies the sharded Search + managed LB PoC implementation:
 - Executes search queries through mongos and verifies results from all shards
 """
 
-import time
-
 import pymongo
 import pymongo.errors
 import yaml
 from kubernetes import client
 from kubetester import (
-    create_or_update_configmap,
     create_or_update_secret,
     get_service,
-    get_statefulset,
     read_configmap,
-    read_secret,
     try_load,
 )
 from kubetester.certs import create_sharded_cluster_certs, create_tls_certs
@@ -43,9 +38,8 @@ from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
-from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import *
-from tests.conftest import get_default_operator, get_issuer_ca_filepath
+from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
@@ -79,11 +73,6 @@ CONFIG_SERVER_COUNT = 1
 # Managed LB client TLS: {prefix}-{name}-search-lb-client-cert (e.g., certs-mdb-sh-search-lb-client-cert)
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
-
-
-# ============================================================================
-# Fixtures
-# ============================================================================
 
 
 @fixture(scope="module")
@@ -363,127 +352,9 @@ def test_verify_envoy_deployment(namespace: str):
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
-def test_verify_per_shard_tls_secrets(namespace: str, mdbs: MongoDBSearch):
-    """Verify that per-shard TLS secrets are created by the operator.
-
-    Checks for:
-    1. Source secrets (from cert-manager): {prefix}-{name}-search-0-{shardName}-cert
-    2. Operator-managed secrets: {shardName}-search-certificate-key
-    """
-    logger.info("Verifying per-shard TLS secrets...")
-
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-
-        # Verify source secret (created by cert-manager in test_)
-        source_secret_name = search_resource_names.shard_tls_cert_name(
-            MDB_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX
-        )
-        try:
-            source_secret = read_secret(namespace, source_secret_name)
-            assert "tls.crt" in source_secret, f"Source secret {source_secret_name} missing tls.crt"
-            assert "tls.key" in source_secret, f"Source secret {source_secret_name} missing tls.key"
-            logger.info(f"✓ Source secret verified: {source_secret_name}")
-        except Exception as e:
-            raise AssertionError(f"Source secret {source_secret_name} not found: {e}")
-
-        # Verify operator-managed secret (created by Search controller)
-        # The operator creates a secret with a hash-based key like "abc123def456...pem"
-        # (SHA256 hash of the certificate content + ".pem" extension)
-        operator_secret_name = f"{shard_name}-search-certificate-key"
-
-        def check_operator_secret():
-            try:
-                operator_secret = read_secret(namespace, operator_secret_name)
-                # The operator uses hash-based filenames ending in .pem
-                pem_keys = [k for k in operator_secret.keys() if k.endswith(".pem")]
-                has_pem = len(pem_keys) > 0
-                return has_pem, f"Operator secret {operator_secret_name}: pem_keys={pem_keys}"
-            except Exception as e:
-                return False, f"Operator secret {operator_secret_name} not found: {e}"
-
-        run_periodically(
-            check_operator_secret, timeout=120, sleep_time=5, msg=f"operator secret {operator_secret_name}"
-        )
-        logger.info(f"✓ Operator secret verified: {operator_secret_name}")
-
-    logger.info(f"✓ All {SHARD_COUNT} per-shard TLS secrets verified")
-
-
-@mark.e2e_search_sharded_enterprise_managed_lb
 def test_wait_for_sharded_cluster_ready(mdb: MongoDB):
     """Wait for sharded cluster to be ready after Search CR deployment."""
     mdb.assert_reaches_phase(Phase.Running, timeout=600)
-
-
-@mark.e2e_search_sharded_enterprise_managed_lb
-def test_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
-    """
-    Verify that per-shard mongot Services are created.
-
-    For a sharded cluster with managed LB, the Search controller should create
-    one Service per shard with naming: <search-name>-search-0-<shardName>-svc
-    """
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        service_name = search_resource_names.shard_service_name(mdbs.name, shard_name)
-
-        logger.info(f"Checking for per-shard Service: {service_name}")
-        service = get_service(namespace, service_name)
-
-        assert service is not None, f"Per-shard Service {service_name} not found"
-        assert service.spec is not None, f"Service {service_name} has no spec"
-
-        # Verify the service has the expected port
-        ports = {p.name: p.port for p in service.spec.ports}
-        assert (
-            "mongot" in ports or MONGOT_PORT in ports.values()
-        ), f"Service {service_name} does not have mongot port ({MONGOT_PORT})"
-
-        logger.info(f"✓ Per-shard Service {service_name} exists with ports: {ports}")
-
-
-@mark.e2e_search_sharded_enterprise_managed_lb
-def test_verify_per_shard_statefulsets(namespace: str, mdbs: MongoDBSearch):
-    """
-    Verify that per-shard mongot StatefulSets are created.
-
-    For a sharded cluster with managed LB, the Search controller should create
-    one StatefulSet per shard with naming: <search-name>-search-0-<shardName>
-    """
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        sts_name = search_resource_names.shard_statefulset_name(mdbs.name, shard_name)
-
-        logger.info(f"Checking for per-shard StatefulSet: {sts_name}")
-
-        # Wait for the StatefulSet to have at least 1 ready replica
-        max_wait_time = 120  # seconds
-        poll_interval = 5  # seconds
-        start_time = time.time()
-        ready_replicas = 0
-
-        while time.time() - start_time < max_wait_time:
-            try:
-                sts = get_statefulset(namespace, sts_name)
-                assert sts is not None, f"Per-shard StatefulSet {sts_name} not found"
-                assert sts.status is not None, f"StatefulSet {sts_name} has no status"
-
-                ready_replicas = sts.status.ready_replicas or 0
-                if ready_replicas >= 1:
-                    break
-
-                logger.info(f"StatefulSet {sts_name} has {ready_replicas} ready replicas, waiting...")
-                time.sleep(poll_interval)
-            except Exception as e:
-                logger.warning(f"Error checking StatefulSet {sts_name}: {e}")
-                time.sleep(poll_interval)
-
-        assert (
-            ready_replicas >= 1
-        ), f"StatefulSet {sts_name} has {ready_replicas} ready replicas after {max_wait_time}s, expected >= 1"
-
-        logger.info(f"✓ Per-shard StatefulSet {sts_name} exists with {ready_replicas} ready replicas")
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb

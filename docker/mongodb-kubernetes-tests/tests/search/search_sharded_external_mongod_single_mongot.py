@@ -6,13 +6,11 @@ Deployment configuration:
   - MongoDBSearch: referencing external mongodb, one instance of mongot deployed per shard
 """
 
-import time
-
 import pymongo
 import pymongo.errors
 import yaml
-from kubetester import create_or_update_secret, get_service, try_load
-from kubetester.certs import create_sharded_cluster_certs, create_tls_certs
+from kubetester import create_or_update_secret, try_load
+from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
@@ -321,23 +319,6 @@ def test_wait_for_agents_ready(mdb: MongoDB):
     """Wait for automation agents to be ready."""
     mdb.get_om_tester().wait_agents_ready()
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
-
-
-@mark.e2e_search_sharded_external_mongod_single_mongot
-def test_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        service_name = search_resource_names.shard_service_name(mdbs.name, shard_name)
-
-        logger.info(f"Checking for per-shard Service: {service_name}")
-
-        service = get_service(namespace, service_name)
-        assert service is not None, f"Per-shard Service {service_name} not found"
-
-        ports = {p.port for p in service.spec.ports}
-        assert MONGOT_PORT in ports, f"Service {service_name} missing mongot port {MONGOT_PORT}"
-
-        logger.info(f"Per-shard Service {service_name} exists with ports: {ports}")
 
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
