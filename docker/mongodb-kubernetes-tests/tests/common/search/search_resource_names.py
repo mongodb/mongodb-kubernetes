@@ -1,8 +1,7 @@
 """Naming functions for MongoDBSearch Kubernetes resources.
 
 These functions mirror the Go naming methods in api/v1/search/mongodbsearch_types.go
-and must be kept in sync with them. The hardcoded cluster index '0' in all names
-is reserved for future multi-cluster support.
+and must be kept in sync with them.
 
 Go source: api/v1/search/mongodbsearch_types.go
 """
@@ -14,17 +13,17 @@ Go source: api/v1/search/mongodbsearch_types.go
 
 def mongot_statefulset_name(search_name: str) -> str:
     """StatefulSet name for the mongot instance. Mirrors StatefulSetNamespacedName()."""
-    return f"{search_name}-search-0"
+    return f"{search_name}-search"
 
 
 def mongot_service_name(search_name: str) -> str:
     """Service name for the mongot instance. Mirrors SearchServiceNamespacedName()."""
-    return f"{search_name}-search-0-svc"
+    return f"{search_name}-search-svc"
 
 
 def mongot_configmap_name(search_name: str) -> str:
     """ConfigMap name for the mongot config. Mirrors MongotConfigConfigMapNamespacedName()."""
-    return f"{search_name}-search-0-config"
+    return f"{search_name}-search-config"
 
 
 def mongot_service_host(search_name: str, namespace: str, port: int) -> str:
@@ -36,12 +35,12 @@ def mongot_tls_cert_name(search_name: str, certs_secret_prefix: str = "") -> str
     """TLS certificate secret name for RS mongot. Mirrors TLSSecretNamespacedName().
 
     Pattern:
-      - With prefix: {certs_secret_prefix}-{search_name}-search-0-cert
-      - Without prefix: {search_name}-search-0-cert
+      - With prefix: {certs_secret_prefix}-{search_name}-search-cert
+      - Without prefix: {search_name}-search-cert
     """
     if certs_secret_prefix:
-        return f"{certs_secret_prefix}-{search_name}-search-0-cert"
-    return f"{search_name}-search-0-cert"
+        return f"{certs_secret_prefix}-{search_name}-search-cert"
+    return f"{search_name}-search-cert"
 
 
 # ============================================================================
@@ -98,38 +97,38 @@ def shard_proxy_service_host(search_name: str, shard_name: str, namespace: str, 
 
 def lb_deployment_name(search_name: str) -> str:
     """Managed LB Deployment name. Mirrors LoadBalancerDeploymentName()."""
-    return f"{search_name}-search-lb-0"
+    return f"{search_name}-search-lb"
 
 
 def lb_configmap_name(search_name: str) -> str:
     """Managed LB ConfigMap name. Mirrors LoadBalancerConfigMapName()."""
-    return f"{search_name}-search-lb-0-config"
+    return f"{search_name}-search-lb-config"
 
 
 def lb_service_name(search_name: str) -> str:
     """Managed LB ClusterIP Service name. Mirrors LoadBalancerServiceName()."""
-    return f"{search_name}-search-lb-0-svc"
+    return f"{search_name}-search-lb-svc"
 
 
 def lb_server_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
     """Managed LB server TLS certificate secret name. Mirrors LoadBalancerServerCert().
 
     Pattern:
-      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-0-cert
-      - Without prefix: {search_name}-search-lb-0-cert
+      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-cert
+      - Without prefix: {search_name}-search-lb-cert
     """
     if certs_secret_prefix:
-        return f"{certs_secret_prefix}-{search_name}-search-lb-0-cert"
-    return f"{search_name}-search-lb-0-cert"
+        return f"{certs_secret_prefix}-{search_name}-search-lb-cert"
+    return f"{search_name}-search-lb-cert"
 
 
 def lb_client_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
     """Managed LB client TLS certificate secret name. Mirrors LoadBalancerClientCert().
 
     Pattern:
-      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-0-client-cert
-      - Without prefix: {search_name}-search-lb-0-client-cert
+      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-client-cert
+      - Without prefix: {search_name}-search-lb-client-cert
     """
     if certs_secret_prefix:
-        return f"{certs_secret_prefix}-{search_name}-search-lb-0-client-cert"
-    return f"{search_name}-search-lb-0-client-cert"
+        return f"{certs_secret_prefix}-{search_name}-search-lb-client-cert"
+    return f"{search_name}-search-lb-client-cert"
