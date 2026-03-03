@@ -143,150 +143,6 @@ def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
     return make_mongot_user(namespace, mdbs, MDB_RESOURCE_NAME, MONGOT_USER_NAME)
 
 
-def _create_envoy_configmap(namespace: str):
-    """Create Envoy ConfigMap with SNI-based routing configuration."""
-    filter_chains = ""
-    clusters = ""
-
-    for i in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc = search_resource_names.shard_proxy_service_name(MDB_RESOURCE_NAME, shard_name)
-        search_svc = search_resource_names.shard_service_name(MDB_RESOURCE_NAME, shard_name)
-        cluster_name = f"mongot_{shard_name.replace('-', '_')}_cluster"
-
-        # Filter chain for this shard
-        filter_chains += f"""
-        - filter_chain_match:
-            server_names:
-            - "{proxy_svc}.{namespace}.svc.cluster.local"
-          filters:
-          - name: envoy.filters.network.http_connection_manager
-            typed_config:
-              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-              stat_prefix: ingress_{shard_name.replace('-', '_')}
-              codec_type: AUTO
-              route_config:
-                name: {shard_name}_route
-                virtual_hosts:
-                - name: mongot_{shard_name.replace('-', '_')}_backend
-                  domains: ["*"]
-                  routes:
-                  - match:
-                      prefix: "/"
-                      grpc: {{}}
-                    route:
-                      cluster: {cluster_name}
-                      timeout: 300s
-              http_filters:
-              - name: envoy.filters.http.router
-                typed_config:
-                  "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
-              http2_protocol_options:
-                initial_connection_window_size: 1048576
-                initial_stream_window_size: 1048576
-              stream_idle_timeout: 300s
-              request_timeout: 300s
-          transport_socket:
-            name: envoy.transport_sockets.tls
-            typed_config:
-              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
-              common_tls_context:
-                tls_certificates:
-                - certificate_chain:
-                    filename: /etc/envoy/tls/server/tls.crt
-                  private_key:
-                    filename: /etc/envoy/tls/server/tls.key
-                validation_context:
-                  trusted_ca:
-                    filename: /etc/envoy/tls/ca/ca-pem
-                tls_params:
-                  tls_minimum_protocol_version: TLSv1_2
-                  tls_maximum_protocol_version: TLSv1_2
-                alpn_protocols:
-                - "h2"
-              require_client_certificate: true"""
-
-        # Cluster for this shard
-        clusters += f"""
-      - name: {cluster_name}
-        type: STRICT_DNS
-        lb_policy: ROUND_ROBIN
-        http2_protocol_options:
-          initial_connection_window_size: 1048576
-          initial_stream_window_size: 1048576
-        load_assignment:
-          cluster_name: {cluster_name}
-          endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: {search_svc}.{namespace}.svc.cluster.local
-                    port_value: {MONGOT_PORT}
-        circuit_breakers:
-          thresholds:
-          - priority: DEFAULT
-            max_connections: 1024
-            max_pending_requests: 1024
-            max_requests: 1024
-            max_retries: 3
-        transport_socket:
-          name: envoy.transport_sockets.tls
-          typed_config:
-            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            common_tls_context:
-              tls_certificates:
-              - certificate_chain:
-                  filename: /etc/envoy/tls/client/tls.crt
-                private_key:
-                  filename: /etc/envoy/tls/client/tls.key
-              validation_context:
-                trusted_ca:
-                  filename: /etc/envoy/tls/ca/ca-pem
-              alpn_protocols:
-              - "h2"
-            sni: {search_svc}.{namespace}.svc.cluster.local
-        upstream_connection_options:
-          tcp_keepalive:
-            keepalive_time: 10
-            keepalive_interval: 3
-            keepalive_probes: 3
-        common_http_protocol_options:
-          idle_timeout: 300s"""
-
-    envoy_config = f"""admin:
-  address:
-    socket_address:
-      address: 0.0.0.0
-      port_value: {ENVOY_ADMIN_PORT}
-
-static_resources:
-  listeners:
-  - name: mongod_listener
-    address:
-      socket_address:
-        address: 0.0.0.0
-        port_value: {ENVOY_PROXY_PORT}
-    listener_filters:
-    - name: envoy.filters.listener.tls_inspector
-      typed_config:
-        "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
-    filter_chains:{filter_chains}
-
-  clusters:{clusters}
-
-layered_runtime:
-  layers:
-  - name: static_layer
-    static_layer:
-      overload:
-        global_downstream_max_connections: 50000
-"""
-
-    create_or_update_configmap(namespace, "envoy-config", {"envoy.yaml": envoy_config})
-    logger.info(f"✓ Envoy ConfigMap created with routing for {SHARD_COUNT} shards")
-
-
 @mark.e2e_search_sharded_enterprise_external_lb
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     """Test that the operator is installed and running."""
@@ -379,7 +235,9 @@ def test_deploy_envoy_certificates(namespace: str, issuer: str):
 def test_deploy_envoy_proxy(namespace: str):
     """Deploy Envoy proxy for L7 load balancing."""
     # Create Envoy ConfigMap with SNI-based routing
-    _create_envoy_configmap(namespace)
+    create_envoy_configmap(
+        namespace, MDBS_RESOURCE_NAME, MDB_RESOURCE_NAME, SHARD_COUNT, MONGOT_PORT, ENVOY_PROXY_PORT, ENVOY_ADMIN_PORT
+    )
     # Create Envoy Deployment
     create_envoy_deployment(namespace, CA_CONFIGMAP_NAME, ENVOY_PROXY_PORT, ENVOY_ADMIN_PORT)
     # Create per-shard proxy Services
@@ -387,6 +245,7 @@ def test_deploy_envoy_proxy(namespace: str):
     # Wait for Envoy to be ready
     wait_for_envoy_ready(namespace)
     logger.info("✓ Envoy proxy deployed successfully")
+
 
 @mark.e2e_search_sharded_enterprise_external_lb
 def test_verify_envoy_deployment(namespace: str):
@@ -425,7 +284,9 @@ def test_create_search_tls_certificate(namespace: str, issuer: str):
     The operator will create operator-managed secrets:
     {shardName}-search-certificate-key (e.g., mdb-sh-0-search-certificate-key)
     """
-    create_per_shard_search_tls_certs(namespace, issuer, MDBS_TLS_CERT_PREFIX, SHARD_COUNT, MDB_RESOURCE_NAME, MDBS_RESOURCE_NAME)
+    create_per_shard_search_tls_certs(
+        namespace, issuer, MDBS_TLS_CERT_PREFIX, SHARD_COUNT, MDB_RESOURCE_NAME, MDBS_RESOURCE_NAME
+    )
 
 
 @mark.e2e_search_sharded_enterprise_external_lb

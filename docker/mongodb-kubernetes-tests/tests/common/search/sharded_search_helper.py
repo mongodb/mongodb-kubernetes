@@ -1,28 +1,27 @@
-from tests import test_logger
-from tests.common.search import search_resource_names
-from kubetester.certs import create_tls_certs
+from kubernetes import client
 from kubetester import create_or_update_configmap, create_or_update_secret, try_load
 from kubetester.certs import create_tls_certs
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
+from tests import test_logger
 from tests.common.search import search_resource_names
 from tests.common.search.search_tester import SearchTester
-from kubernetes import client
-from kubetester.kubetester import KubernetesTester, run_periodically
 from tests.conftest import get_issuer_ca_filepath
 
 logger = test_logger.get_test_logger(__name__)
 
 
 def create_per_shard_search_tls_certs(
-        namespace: str, 
-        issuer: str, 
-        prefix: str, 
-        shard_count: int, 
-        mdb_resource_name: str, 
-        mdbs_resource_name: str,
+    namespace: str,
+    issuer: str,
+    prefix: str,
+    shard_count: int,
+    mdb_resource_name: str,
+    mdbs_resource_name: str,
 ):
     """
         Create per-shard TLS certificates for MongoDBSearch resource.
@@ -58,9 +57,9 @@ def create_per_shard_search_tls_certs(
 
 
 def make_admin_user(
-        namespace: str,
-        mdb_resource_name: str,
-        admin_user_name: str,
+    namespace: str,
+    mdb_resource_name: str,
+    admin_user_name: str,
 ) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(
         yaml_fixture("mongodbuser-mdb-admin.yaml"),
@@ -77,11 +76,13 @@ def make_admin_user(
 
     return resource
 
+
 def get_search_tester(mdb: MongoDB, username: str, password: str, use_ssl: bool = False) -> SearchTester:
     """Replaces both get_admin_search_tester and get_user_search_tester.
     Callers just pass the appropriate credentials."""
     ca_path = get_issuer_ca_filepath() if use_ssl else None
     return SearchTester.for_sharded(mdb, username, password, use_ssl=use_ssl, ca_path=ca_path)
+
 
 def make_user(namespace: str, mdb_resource_name: str, user_name: str) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(
@@ -96,9 +97,8 @@ def make_user(namespace: str, mdb_resource_name: str, user_name: str) -> MongoDB
     resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
     return resource
 
-def make_mongot_user(
-    namespace: str, mdbs: MongoDBSearch, mdb_resource_name: str, mongot_user_name: str
-) -> MongoDBUser:
+
+def make_mongot_user(namespace: str, mdbs: MongoDBSearch, mdb_resource_name: str, mongot_user_name: str) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(
         yaml_fixture("mongodbuser-search-sync-source-user.yaml"),
         namespace=namespace,
@@ -111,6 +111,7 @@ def make_mongot_user(
     resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
     return resource
 
+
 def create_sharded_ca(issuer_ca_filepath: str, namespace: str, ca_configmap_name: str) -> str:
     ca = open(issuer_ca_filepath).read()
     configmap_data = {"ca-pem": ca, "mms-ca.crt": ca}
@@ -118,6 +119,7 @@ def create_sharded_ca(issuer_ca_filepath: str, namespace: str, ca_configmap_name
     secret_data = {"ca.crt": ca}
     create_or_update_secret(namespace, ca_configmap_name, secret_data)
     return ca_configmap_name
+
 
 def create_envoy_deployment(namespace: str, ca_configmap_name: str, envoy_proxy_port: int, envoy_admin_port: int):
     deployment = {
@@ -180,6 +182,7 @@ def create_envoy_deployment(namespace: str, ca_configmap_name: str, envoy_proxy_
     except Exception as e:
         logger.info(f"Envoy Deployment may already exist: {e}")
 
+
 def wait_for_envoy_ready(namespace: str, timeout: int = 120):
     def check_envoy_ready():
         try:
@@ -191,6 +194,7 @@ def wait_for_envoy_ready(namespace: str, timeout: int = 120):
             return False, f"Error checking Envoy: {e}"
 
     run_periodically(check_envoy_ready, timeout=timeout, sleep_time=5, msg="Envoy proxy to be ready")
+
 
 def create_envoy_proxy_services(
     namespace: str,
@@ -223,6 +227,7 @@ def create_envoy_proxy_services(
             logger.info(f"✓ Proxy Service {proxy_svc_name} created")
         except Exception as e:
             logger.info(f"Proxy Service {proxy_svc_name} may already exist: {e}")
+
 
 def create_envoy_certificates(
     namespace: str,
@@ -267,3 +272,155 @@ def create_envoy_certificates(
         secret_name="envoy-client-cert-pem",
     )
     logger.info("✓ Envoy client certificate created")
+
+
+def create_envoy_configmap(
+    namespace: str,
+    mdbs_resource_name: str,
+    mdb_resource_name: str,
+    shard_count: int,
+    mongot_port: int,
+    envoy_proxy_port: int,
+    envoy_admin_port: int,
+):
+    """Create Envoy ConfigMap with SNI-based routing configuration."""
+    filter_chains = ""
+    clusters = ""
+
+    for i in range(shard_count):
+        shard_name = f"{mdb_resource_name}-{i}"
+        proxy_svc = search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name)
+        search_svc = search_resource_names.shard_service_name(mdbs_resource_name, shard_name)
+        cluster_name = f"mongot_{shard_name.replace('-', '_')}_cluster"
+
+        # Filter chain for this shard
+        filter_chains += f"""
+        - filter_chain_match:
+            server_names:
+            - "{proxy_svc}.{namespace}.svc.cluster.local"
+          filters:
+          - name: envoy.filters.network.http_connection_manager
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+              stat_prefix: ingress_{shard_name.replace('-', '_')}
+              codec_type: AUTO
+              route_config:
+                name: {shard_name}_route
+                virtual_hosts:
+                - name: mongot_{shard_name.replace('-', '_')}_backend
+                  domains: ["*"]
+                  routes:
+                  - match:
+                      prefix: "/"
+                      grpc: {{}}
+                    route:
+                      cluster: {cluster_name}
+                      timeout: 300s
+              http_filters:
+              - name: envoy.filters.http.router
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+              http2_protocol_options:
+                initial_connection_window_size: 1048576
+                initial_stream_window_size: 1048576
+              stream_idle_timeout: 300s
+              request_timeout: 300s
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              common_tls_context:
+                tls_certificates:
+                - certificate_chain:
+                    filename: /etc/envoy/tls/server/tls.crt
+                  private_key:
+                    filename: /etc/envoy/tls/server/tls.key
+                validation_context:
+                  trusted_ca:
+                    filename: /etc/envoy/tls/ca/ca-pem
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_2
+                  tls_maximum_protocol_version: TLSv1_2
+                alpn_protocols:
+                - "h2"
+              require_client_certificate: true"""
+
+        # Cluster for this shard
+        clusters += f"""
+      - name: {cluster_name}
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options:
+          initial_connection_window_size: 1048576
+          initial_stream_window_size: 1048576
+        load_assignment:
+          cluster_name: {cluster_name}
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {search_svc}.{namespace}.svc.cluster.local
+                    port_value: {mongot_port}
+        circuit_breakers:
+          thresholds:
+          - priority: DEFAULT
+            max_connections: 1024
+            max_pending_requests: 1024
+            max_requests: 1024
+            max_retries: 3
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            common_tls_context:
+              tls_certificates:
+              - certificate_chain:
+                  filename: /etc/envoy/tls/client/tls.crt
+                private_key:
+                  filename: /etc/envoy/tls/client/tls.key
+              validation_context:
+                trusted_ca:
+                  filename: /etc/envoy/tls/ca/ca-pem
+              alpn_protocols:
+              - "h2"
+            sni: {search_svc}.{namespace}.svc.cluster.local
+        upstream_connection_options:
+          tcp_keepalive:
+            keepalive_time: 10
+            keepalive_interval: 3
+            keepalive_probes: 3
+        common_http_protocol_options:
+          idle_timeout: 300s"""
+
+    envoy_config = f"""admin:
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: {envoy_admin_port}
+
+static_resources:
+  listeners:
+  - name: mongod_listener
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: {envoy_proxy_port}
+    listener_filters:
+    - name: envoy.filters.listener.tls_inspector
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
+    filter_chains:{filter_chains}
+
+  clusters:{clusters}
+
+layered_runtime:
+  layers:
+  - name: static_layer
+    static_layer:
+      overload:
+        global_downstream_max_connections: 50000
+"""
+
+    create_or_update_configmap(namespace, "envoy-config", {"envoy.yaml": envoy_config})
+    logger.info(f"✓ Envoy ConfigMap created with routing for {shard_count} shards")

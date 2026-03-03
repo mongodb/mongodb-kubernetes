@@ -42,8 +42,8 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.common.search.search_tester import SearchTester
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
@@ -135,11 +135,12 @@ def mdbs(namespace: str) -> MongoDBSearch:
 @fixture(scope="function")
 def admin_user(namespace: str) -> MongoDBUser:
     return make_admin_user(namespace, MDB_RESOURCE_NAME, ADMIN_USER_NAME)
-    
+
 
 @fixture(scope="function")
 def user(namespace: str) -> MongoDBUser:
     return make_user(namespace, MDB_RESOURCE_NAME, USER_NAME)
+
 
 @fixture(scope="function")
 def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
@@ -291,7 +292,9 @@ def test_create_search_tls_certificate(namespace: str, issuer: str):
     The operator will create operator-managed secrets:
     {shardName}-search-certificate-key (e.g., mdb-sh-0-search-certificate-key)
     """
-    create_per_shard_search_tls_certs(namespace, issuer, MDBS_TLS_CERT_PREFIX, SHARD_COUNT, MDB_RESOURCE_NAME, MDBS_RESOURCE_NAME)
+    create_per_shard_search_tls_certs(
+        namespace, issuer, MDBS_TLS_CERT_PREFIX, SHARD_COUNT, MDB_RESOURCE_NAME, MDBS_RESOURCE_NAME
+    )
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb

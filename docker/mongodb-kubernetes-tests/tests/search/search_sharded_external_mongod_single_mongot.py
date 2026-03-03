@@ -215,7 +215,7 @@ def user(namespace: str) -> MongoDBUser:
 @fixture(scope="function")
 def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
     return make_mongot_user(namespace, mdbs, MDB_RESOURCE_NAME, MONGOT_USER_NAME)
-    
+
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
