@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
@@ -95,6 +94,7 @@ func TestAppdbContainerEnv_MetaOMMode(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	opts := AppDBStatefulSetOptions{
 		MetaOM: MetaOMEnvVars{
+			Enabled: true,
 			Server:  "http://om-meta-svc.meta-ns.svc.cluster.local:8080",
 			GroupID: "aabbccdd112233445566",
 			APIKey:  "secret-agent-key",
@@ -112,7 +112,47 @@ func TestAppdbContainerEnv_MetaOMMode(t *testing.T) {
 	assertEnvVarAbsent(t, agentContainer.Env, automationConfigMapEnv)
 }
 
-func findContainer(t *testing.T, sts appsv1.StatefulSet, name string) corev1.Container {
+func TestAppdbContainerEnv_MetaOMDisabled_FallsBackToHeadless(t *testing.T) {
+	partialConfigs := []AppDBStatefulSetOptions{
+		{MetaOM: MetaOMEnvVars{Server: "http://om:8080"}},
+		{MetaOM: MetaOMEnvVars{Server: "http://om:8080", GroupID: "gid"}},
+		{MetaOM: MetaOMEnvVars{GroupID: "gid", APIKey: "key"}},
+	}
+	for _, opts := range partialConfigs {
+		om := omv1.NewOpsManagerBuilderDefault().Build()
+		sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
+			opts, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
+		require.NoError(t, err)
+
+		agentContainer := findContainer(t, sts, communityConstruct.AgentName)
+		assertEnvVarPresent(t, agentContainer.Env, headlessAgentEnv, "true")
+		assertEnvVarAbsent(t, agentContainer.Env, metaOMServerEnv)
+	}
+}
+
+func TestAppdbContainerEnv_MetaOMEnabledWithEmptyFields_FallsBackToHeadless(t *testing.T) {
+	// Enabled: true but fields missing — should degrade gracefully to headless.
+	incompleteConfigs := []AppDBStatefulSetOptions{
+		{MetaOM: MetaOMEnvVars{Enabled: true}},
+		{MetaOM: MetaOMEnvVars{Enabled: true, Server: "http://om:8080"}},
+		{MetaOM: MetaOMEnvVars{Enabled: true, Server: "http://om:8080", GroupID: "gid"}},
+		{MetaOM: MetaOMEnvVars{Enabled: true, GroupID: "gid", APIKey: "key"}},
+	}
+	for _, opts := range incompleteConfigs {
+		om := omv1.NewOpsManagerBuilderDefault().Build()
+		sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
+			opts, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
+		require.NoError(t, err)
+
+		agentContainer := findContainer(t, sts, communityConstruct.AgentName)
+		assertEnvVarPresent(t, agentContainer.Env, headlessAgentEnv, "true")
+		assertEnvVarAbsent(t, agentContainer.Env, metaOMServerEnv)
+		assertEnvVarAbsent(t, agentContainer.Env, metaOMGroupIDEnv)
+		assertEnvVarAbsent(t, agentContainer.Env, metaOMAPIKeyEnv)
+	}
+}
+
+func findContainer(t *testing.T, sts v1.StatefulSet, name string) corev1.Container {
 	t.Helper()
 	for _, c := range sts.Spec.Template.Spec.Containers {
 		if c.Name == name {

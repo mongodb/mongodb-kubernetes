@@ -54,6 +54,9 @@ const (
 // MetaOMEnvVars holds the connection parameters needed to switch an AppDB agent
 // from headless mode to online mode under a Meta OM instance.
 type MetaOMEnvVars struct {
+	// Enabled, when true, switches the agent from headless mode to online mode
+	// connected to a Meta OM instance. Server, GroupID, and APIKey must be set.
+	Enabled bool
 	Server  string
 	GroupID string
 	APIKey  string
@@ -70,7 +73,7 @@ type AppDBStatefulSetOptions struct {
 
 	PrometheusTLSCertHash string
 
-	// MetaOM connection env vars. When all three are non-empty, the StatefulSet
+	// MetaOM connection env vars. When Enabled is true, the StatefulSet
 	// is built in online mode (no HEADLESS_AGENT / AUTOMATION_CONFIG_MAP).
 	MetaOM MetaOMEnvVars
 }
@@ -452,8 +455,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				podtemplatespec.WithContainer(construct.AgentName,
 					container.Apply(
 						container.WithCommand(automationAgentCommand),
-						container.WithEnvs(appdbContainerEnv(*appDb, opts)...),
-						removeHeadlessEnvVarsIfMetaOM(opts),
+						appdbContainerEnv(*appDb, opts),
 						container.WithVolumeMounts([]corev1.VolumeMount{acVersionMount}),
 					),
 				),
@@ -640,8 +642,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 				container.WithCommand(monitoringCommand),
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*NewDefaultPodSpecWrapper(*appDB.PodSpec))),
 				container.WithVolumeMounts(monitoringMounts),
-				container.WithEnvs(appdbContainerEnv(appDB, opts)...),
-				removeHeadlessEnvVarsIfMetaOM(opts),
+				appdbContainerEnv(appDB, opts),
 				container.WithEnvs(readinessEnvironmentVariablesToEnvVars(appDB.AutomationAgent.ReadinessProbe.EnvironmentVariables)...),
 			)(monitoringContainer)
 			podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, *monitoringContainer)
@@ -649,11 +650,11 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	)
 }
 
-// appdbContainerEnv returns the set of env vars needed by the AppDB agent container.
-// When MetaOM vars are all non-empty, online mode env vars are returned.
-// Otherwise headless mode env vars are returned.
-func appdbContainerEnv(appDbSpec om.AppDBSpec, opts AppDBStatefulSetOptions) []corev1.EnvVar {
-	envVars := []corev1.EnvVar{
+// appdbContainerEnv returns a container.Modification that applies the correct env vars for the AppDB
+// agent container. When MetaOM.Enabled is true, online mode vars are set and headless-mode vars
+// (injected unconditionally by community code) are removed. Otherwise headless mode vars are set.
+func appdbContainerEnv(appDbSpec om.AppDBSpec, opts AppDBStatefulSetOptions) container.Modification {
+	common := []corev1.EnvVar{
 		{
 			Name:      podNamespaceEnv,
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}},
@@ -664,33 +665,32 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec, opts AppDBStatefulSetOptions) []c
 		},
 	}
 
-	if opts.MetaOM.Server != "" && opts.MetaOM.GroupID != "" && opts.MetaOM.APIKey != "" {
-		// Online mode: connect to Meta OM instance
-		envVars = append(envVars,
-			corev1.EnvVar{Name: metaOMServerEnv, Value: opts.MetaOM.Server},
-			corev1.EnvVar{Name: metaOMGroupIDEnv, Value: opts.MetaOM.GroupID},
-			corev1.EnvVar{Name: metaOMAPIKeyEnv, Value: opts.MetaOM.APIKey},
-		)
-	} else {
-		// Headless mode: keep existing behavior
-		envVars = append(envVars,
-			corev1.EnvVar{Name: automationConfigMapEnv, Value: appDbSpec.Name() + "-config"},
-			corev1.EnvVar{Name: headlessAgentEnv, Value: "true"},
-		)
+	if opts.MetaOM.Enabled {
+		if opts.MetaOM.Server == "" || opts.MetaOM.GroupID == "" || opts.MetaOM.APIKey == "" {
+			// Misconfiguration: fall back to headless to avoid a broken agent.
+			// Callers must set Server, GroupID, and APIKey when Enabled is true.
+		} else {
+			return container.Apply(
+				container.WithEnvs(append(common,
+					corev1.EnvVar{Name: metaOMServerEnv, Value: opts.MetaOM.Server},
+					corev1.EnvVar{Name: metaOMGroupIDEnv, Value: opts.MetaOM.GroupID},
+					// TODO: MMS_API_KEY is passed as a plain string here for the PoC.
+					// In production, source this from a SecretKeyRef to avoid exposing credentials in pod spec.
+					corev1.EnvVar{Name: metaOMAPIKeyEnv, Value: opts.MetaOM.APIKey},
+				)...),
+				// Remove headless-mode vars injected by community code; they must be absent in online mode.
+				container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv),
+			)
+		}
 	}
-	return envVars
+	// Headless mode: keep existing behavior.
+	return container.WithEnvs(append(common,
+		corev1.EnvVar{Name: automationConfigMapEnv, Value: appDbSpec.Name() + "-config"},
+		corev1.EnvVar{Name: headlessAgentEnv, Value: "true"},
+	)...)
 }
 
-// removeHeadlessEnvVarsIfMetaOM returns a container modification that removes
-// headless-mode env vars when MetaOM online mode is active.
-func removeHeadlessEnvVarsIfMetaOM(opts AppDBStatefulSetOptions) container.Modification {
-	if opts.MetaOM.Server != "" && opts.MetaOM.GroupID != "" && opts.MetaOM.APIKey != "" {
-		return container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv)
-	}
-	return container.NOOP()
-}
-
-
+// Configure the -overrideLocalHost parameter which controls how the automation agent instances identify themselves. For multi-cluster deployments:
 //   - With externalDomain: Use {hostname}.{externalDomain} format for cross-cluster discovery via external DNS
 //   - Without externalDomain: Use Kubernetes internal DNS format with cluster domain suffix for in-cluster networking
 func overrideLocalHostFlag(appDbSpec *om.AppDBSpec, externalDomain *string) string {

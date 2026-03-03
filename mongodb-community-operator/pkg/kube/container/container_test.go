@@ -220,10 +220,48 @@ func TestWithVolumeMounts(t *testing.T) {
 	}
 }
 
+func TestWithoutEnvs(t *testing.T) {
+	c := New(
+		WithEnvs(
+			corev1.EnvVar{Name: "KEEP_ME", Value: "v1"},
+			corev1.EnvVar{Name: "REMOVE_ME", Value: "v2"},
+			corev1.EnvVar{Name: "KEEP_ME_2", Value: "v3"},
+		),
+	)
+
+	t.Run("removes named env vars", func(t *testing.T) {
+		WithoutEnvs("REMOVE_ME")(&c)
+		names := envNames(c.Env)
+		assert.Contains(t, names, "KEEP_ME")
+		assert.Contains(t, names, "KEEP_ME_2")
+		assert.NotContains(t, names, "REMOVE_ME")
+	})
+
+	t.Run("no-op when name not present", func(t *testing.T) {
+		before := len(c.Env)
+		WithoutEnvs("NON_EXISTENT")(&c)
+		assert.Len(t, c.Env, before)
+	})
+
+	t.Run("no-op on empty container", func(t *testing.T) {
+		empty := corev1.Container{}
+		WithoutEnvs("ANY")(&empty)
+		assert.Nil(t, empty.Env)
+	})
+}
+
 func boolRef(b bool) *bool {
 	return &b
 }
 
 func int64Ref(i int64) *int64 {
 	return &i
+}
+
+func envNames(envVars []corev1.EnvVar) []string {
+	names := make([]string, len(envVars))
+	for i, e := range envVars {
+		names[i] = e.Name
+	}
+	return names
 }
