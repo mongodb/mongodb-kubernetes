@@ -803,8 +803,8 @@ task_groups:
       - e2e_sharded_cluster_oidc_m2m_user
     <<: *teardown_group
 
-  # All MongoDBSearch tests that fit on medium instances.
-  # Added to both cloudqa and om80 variants.
+  # All MongoDBSearch tests that fit on large instances (mongot requires 2 CPU).
+  # Added to cloudqa-large variants.
   - name: e2e_mdb_kind_search_task_group
     max_hosts: -1
     <<: *setup_group
@@ -823,11 +823,41 @@ task_groups:
     <<: *teardown_group
 
   # MongoDBSearch tests that require a large instance (multiple mongots per shard:
-  # 2 shards x 2 mongots x 2 CPU = 8 CPU). Added to both cloudqa-large and om80 variants.
+  # 2 shards x 2 mongots x 2 CPU = 8 CPU). Added to cloudqa-large variants.
   - name: e2e_mdb_kind_search_large_task_group
     max_hosts: -1
     <<: *setup_group
     <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_search_sharded_enterprise_external_lb
+      - e2e_search_sharded_enterprise_managed_lb
+    <<: *teardown_group
+
+  # Same as e2e_mdb_kind_search_task_group but for om80 variants.
+  # Uses setup_and_teardown_task (not cloudqa) since ops_manager_version is not 'cloud_qa'.
+  - name: e2e_om80_kind_search_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_search_community_basic
+      - e2e_search_community_auto_embedding
+      - e2e_search_community_tls
+      - e2e_search_external_basic
+      - e2e_search_external_tls
+      - e2e_search_enterprise_basic
+      - e2e_search_enterprise_tls
+      - e2e_search_enterprise_x509_cluster_auth
+      - e2e_search_sharded_external_mongod_single_mongot
+      - e2e_search_sharded_enterprise_external_mongod
+    <<: *teardown_group
+
+  # Same as e2e_mdb_kind_search_large_task_group but for om80 variants.
+  # Uses setup_and_teardown_task (not cloudqa) since ops_manager_version is not 'cloud_qa'.
+  - name: e2e_om80_kind_search_large_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
     tasks:
       - e2e_search_sharded_enterprise_external_lb
       - e2e_search_sharded_enterprise_managed_lb
@@ -1340,7 +1370,6 @@ buildvariants:
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
-      - name: e2e_mdb_kind_search_task_group
 
   - name: e2e_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
@@ -1359,7 +1388,6 @@ buildvariants:
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
-      - name: e2e_mdb_kind_search_task_group
 
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
@@ -1388,6 +1416,7 @@ buildvariants:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
     tasks:
+      - name: e2e_mdb_kind_search_task_group
       - name: e2e_mdb_kind_search_large_task_group
 
   - name: e2e_static_mdb_kind_ubi_cloudqa_large
@@ -1397,6 +1426,7 @@ buildvariants:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
     tasks:
+      - name: e2e_mdb_kind_search_task_group
       - name: e2e_mdb_kind_search_large_task_group
 
   # We do not want to run openshift variants on every PR.
@@ -1515,8 +1545,8 @@ buildvariants:
       - ubuntu2404-large
     <<: *base_om8_dependency
     tasks:
-      - name: e2e_mdb_kind_search_task_group
-      - name: e2e_mdb_kind_search_large_task_group
+      - name: e2e_om80_kind_search_task_group
+      - name: e2e_om80_kind_search_large_task_group
 
   - name: e2e_static_om80_kind_ubi_large
     display_name: e2e_static_om80_kind_ubi_large
@@ -1525,8 +1555,8 @@ buildvariants:
       - ubuntu2404-large
     <<: *base_om8_dependency
     tasks:
-      - name: e2e_mdb_kind_search_task_group
-      - name: e2e_mdb_kind_search_large_task_group
+      - name: e2e_om80_kind_search_task_group
+      - name: e2e_om80_kind_search_large_task_group
 
   - name: e2e_operator_race_ubi_with_telemetry
     display_name: e2e_operator_race_ubi_with_telemetry
