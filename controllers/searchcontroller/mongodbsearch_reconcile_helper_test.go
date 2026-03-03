@@ -222,7 +222,7 @@ func TestGetMongodConfigParameters_TransportAndPorts(t *testing.T) {
 			if tc.withWireproto {
 				expectedPort = search.GetMongotWireprotoPort()
 			}
-			expectedPrefix := fmt.Sprintf("%s.%s.svc.%s", search.Name+"-search-0-svc", search.Namespace, clusterDomain)
+			expectedPrefix := fmt.Sprintf("%s.%s.svc.%s", search.Name+"-search-svc", search.Namespace, clusterDomain)
 			expectedSuffix := fmt.Sprintf(":%d", expectedPort)
 
 			for _, key := range []string{"mongotHost", "searchIndexManagementHostAndPort"} {
@@ -1168,7 +1168,7 @@ func TestTLSSecretPrefixNaming(t *testing.T) {
 			secretName:         "",
 			secretPrefix:       "my-prefix",
 			resourceName:       "my-search",
-			expectedSecretName: "my-prefix-my-search-search-0-cert",
+			expectedSecretName: "my-prefix-my-search-search-cert",
 		},
 		{
 			name:               "only explicit name specified",
@@ -1182,7 +1182,7 @@ func TestTLSSecretPrefixNaming(t *testing.T) {
 			secretName:         "",
 			secretPrefix:       "",
 			resourceName:       "my-search",
-			expectedSecretName: "my-search-search-0-cert",
+			expectedSecretName: "my-search-search-cert",
 		},
 	}
 

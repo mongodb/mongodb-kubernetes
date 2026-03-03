@@ -72,8 +72,8 @@ CONFIG_SERVER_COUNT = 1
 
 # TLS configuration
 # Per-shard mongot TLS: {prefix}-{name}-search-0-{shardName}-cert (e.g., certs-mdb-sh-search-0-mdb-sh-0-cert)
-# Managed LB server TLS: {prefix}-{name}-search-lb-0-cert (e.g., certs-mdb-sh-search-lb-0-cert)
-# Managed LB client TLS: {prefix}-{name}-search-lb-0-client-cert (e.g., certs-mdb-sh-search-lb-0-client-cert)
+# Managed LB server TLS: {prefix}-{name}-search-lb-cert (e.g., certs-mdb-sh-search-lb-cert)
+# Managed LB client TLS: {prefix}-{name}-search-lb-client-cert (e.g., certs-mdb-sh-search-lb-client-cert)
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 
@@ -230,8 +230,8 @@ def create_lb_certificates(namespace: str, issuer: str):
     """Create TLS certificates for the operator-managed load balancer (Envoy proxy).
 
     Secret names must match what the operator expects per LoadBalancerServerCert() and
-    LoadBalancerClientCert(): {prefix}-{name}-search-lb-0-cert and
-    {prefix}-{name}-search-lb-0-client-cert.
+    LoadBalancerClientCert(): {prefix}-{name}-search-lb-cert and
+    {prefix}-{name}-search-lb-client-cert.
     """
     logger.info("Creating managed LB certificates...")
 
@@ -424,8 +424,8 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 def test_verify_envoy_deployment(namespace: str):
     """Verify operator-managed Envoy proxy deployment and configuration.
 
-    The controller creates resources named {search-name}-search-lb-0-config,
-    {search-name}-search-lb-0, and {search-name}-search-0-{shard}-proxy-svc.
+    The controller creates resources named {search-name}-search-lb-config,
+    {search-name}-search-lb, and {search-name}-search-0-{shard}-proxy-svc.
     Uses polling since the controller creates these asynchronously after the
     MongoDBSearch CR reaches Running phase.
     """
