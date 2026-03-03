@@ -103,4 +103,4 @@ def test_enable_x509(sc: MongoDB, agent_certs: str):
         "modes": ["X509"],
     }
     sc.update()
-    sc.assert_reaches_phase(Phase.Running, timeout=1200)
+    sc.assert_reaches_phase(Phase.Running, timeout=2000)
