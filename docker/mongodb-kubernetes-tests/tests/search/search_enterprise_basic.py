@@ -5,6 +5,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
@@ -13,6 +14,7 @@ from tests.common.search import movies_search_helper
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator
+from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -35,6 +37,7 @@ def mdb(namespace: str) -> MongoDB:
         name=MDB_RESOURCE_NAME,
         namespace=namespace,
     )
+    resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
     try_load(resource)
     return resource
 
@@ -83,6 +86,15 @@ def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
     operator.assert_is_running()
+
+
+@mark.e2e_search_enterprise_basic
+@skip_if_cloud_manager
+def test_create_ops_manager(namespace: str):
+    ops_manager = get_ops_manager(namespace)
+    ops_manager.update()
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_enterprise_basic
