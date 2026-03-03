@@ -139,6 +139,23 @@ func WithEnvs(envs ...corev1.EnvVar) Modification {
 	}
 }
 
+// WithoutEnvs removes env vars with the given names from the container.
+func WithoutEnvs(names ...string) Modification {
+	return func(c *corev1.Container) {
+		toRemove := make(map[string]bool, len(names))
+		for _, n := range names {
+			toRemove[n] = true
+		}
+		filtered := c.Env[:0]
+		for _, e := range c.Env {
+			if !toRemove[e.Name] {
+				filtered = append(filtered, e)
+			}
+		}
+		c.Env = filtered
+	}
+}
+
 // WithVolumeMounts sets the VolumeMounts
 func WithVolumeMounts(volumeMounts []corev1.VolumeMount) Modification {
 	volumesMountsCopy := make([]corev1.VolumeMount, len(volumeMounts))
