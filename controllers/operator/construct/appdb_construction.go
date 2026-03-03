@@ -666,22 +666,17 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec, opts AppDBStatefulSetOptions) con
 	}
 
 	if opts.MetaOM.Enabled {
-		if opts.MetaOM.Server == "" || opts.MetaOM.GroupID == "" || opts.MetaOM.APIKey == "" {
-			// Misconfiguration: fall back to headless to avoid a broken agent.
-			// Callers must set Server, GroupID, and APIKey when Enabled is true.
-		} else {
-			return container.Apply(
-				container.WithEnvs(append(common,
-					corev1.EnvVar{Name: metaOMServerEnv, Value: opts.MetaOM.Server},
-					corev1.EnvVar{Name: metaOMGroupIDEnv, Value: opts.MetaOM.GroupID},
-					// TODO: MMS_API_KEY is passed as a plain string here for the PoC.
-					// In production, source this from a SecretKeyRef to avoid exposing credentials in pod spec.
-					corev1.EnvVar{Name: metaOMAPIKeyEnv, Value: opts.MetaOM.APIKey},
-				)...),
-				// Remove headless-mode vars injected by community code; they must be absent in online mode.
-				container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv),
-			)
-		}
+		return container.Apply(
+			container.WithEnvs(append(common,
+				corev1.EnvVar{Name: metaOMServerEnv, Value: opts.MetaOM.Server},
+				corev1.EnvVar{Name: metaOMGroupIDEnv, Value: opts.MetaOM.GroupID},
+				// TODO: MMS_API_KEY is passed as a plain string here for the PoC.
+				// In production, source this from a SecretKeyRef to avoid exposing credentials in pod spec.
+				corev1.EnvVar{Name: metaOMAPIKeyEnv, Value: opts.MetaOM.APIKey},
+			)...),
+			// Remove headless-mode vars injected by community code; they must be absent in online mode.
+			container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv),
+		)
 	}
 	// Headless mode: keep existing behavior.
 	return container.WithEnvs(append(common,
