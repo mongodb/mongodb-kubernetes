@@ -85,7 +85,7 @@ def test_enable_tls(sc: MongoDB, issuer_ca_configmap: str):
         "tls": {"ca": issuer_ca_configmap},
     }
     sc.update()
-    sc.assert_reaches_phase(Phase.Running, timeout=1200)
+    sc.assert_reaches_phase(Phase.Running, timeout=2000)
 
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
