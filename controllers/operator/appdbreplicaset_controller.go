@@ -654,6 +654,17 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	appdbOpts.PrometheusTLSCertHash = prometheusCertHash
 
+	// If ManagedByMetaOM is configured, transition agents to online mode.
+	var metaOMEnvVars construct.MetaOMEnvVars
+	if opsManager.Spec.AppDB.ManagedByMetaOM != nil {
+		var ws workflow.Status
+		metaOMEnvVars, ws = r.reconcileManagedByMetaOM(ctx, opsManager, log)
+		if !ws.IsOK() {
+			return r.updateStatus(ctx, opsManager, ws, log, appDbStatusOption)
+		}
+	}
+	appdbOpts.MetaOM = metaOMEnvVars
+
 	allStatefulSetsExist, err := r.allStatefulSetsExist(ctx, opsManager, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("failed to check the state of all stateful sets: %w", err)), log, appDbStatusOption)

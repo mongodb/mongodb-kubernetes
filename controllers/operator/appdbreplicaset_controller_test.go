@@ -1618,3 +1618,113 @@ func TestReconcileManagedByMetaOM_CreatesProjectAndReturnsEnvVars(t *testing.T) 
 	assert.Equal(t, om.TestGroupID, envVars.GroupID)
 	assert.NotEmpty(t, envVars.APIKey)
 }
+
+// TestReconcileAppDB_WithManagedByMetaOM_UpdatesStatefulSetEnvVars verifies that when
+// ManagedByMetaOM is set, a full ReconcileAppDB call results in a StatefulSet whose
+// agent container carries the online-mode env vars (MMS_SERVER, MMS_GROUP_ID, MMS_API_KEY)
+// and does NOT carry the headless-mode vars (HEADLESS_AGENT, AUTOMATION_CONFIG_MAP).
+func TestReconcileAppDB_WithManagedByMetaOM_UpdatesStatefulSetEnvVars(t *testing.T) {
+	ctx := context.Background()
+
+	primaryOM := DefaultOpsManagerBuilder().Build()
+	primaryOM.Spec.AppDB.ManagedByMetaOM = &omv1.MetaOMRef{
+		Name:                 "meta-om",
+		Namespace:            mock.TestNamespace,
+		ProjectName:          "meta-project",
+		CredentialsSecretRef: omv1.SecretRef{Name: "meta-om-creds"},
+	}
+
+	// Meta OM CR in Running phase with an explicit URL so CentralURL() is deterministic.
+	metaOM := &omv1.MongoDBOpsManager{
+		ObjectMeta: metav1.ObjectMeta{Name: "meta-om", Namespace: mock.TestNamespace},
+		Spec:       omv1.MongoDBOpsManagerSpec{OpsManagerURL: "http://meta-om.svc:8080"},
+	}
+	metaOM.Status.OpsManagerStatus.Phase = status.PhaseRunning
+
+	// Credentials secret for Meta OM.
+	credsSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "meta-om-creds", Namespace: mock.TestNamespace},
+		Data: map[string][]byte{
+			"publicKey":  []byte("test-public-key"),
+			"privateKey": []byte("test-private-key"),
+		},
+	}
+
+	omConnectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection).
+		// The interceptor marks StatefulSets as ready by looking up the OM connection for the
+		// StatefulSet's owner. When reconcileManagedByMetaOM adds a second connection to connMap
+		// (for the meta OM project), we must provide a mapping so the interceptor can resolve
+		// which connection belongs to the primary OM's StatefulSet.
+		WithResourceToProjectMapping(map[string]string{
+			primaryOM.Name: primaryOM.Spec.AppDB.Name(),
+		})
+	// Do NOT pass primaryOM here — createOpsManagerUserPasswordSecret + fakeClient.Create add it later.
+	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, metaOM, credsSecret)
+
+	err := createOpsManagerUserPasswordSecret(ctx, fakeClient, primaryOM, "pass")
+	require.NoError(t, err)
+
+	reconciler, err := newAppDbReconciler(ctx, fakeClient, primaryOM, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	// API key secret for primary OM (needed by tryConfigureMonitoringInOpsManager).
+	apiKeySecretName, err := primaryOM.APIKeySecretName(ctx, secrets.SecretClient{KubeClient: fakeClient}, "")
+	require.NoError(t, err)
+	apiKeySecret := secret.Builder().
+		SetNamespace(operatorNamespace()).
+		SetName(apiKeySecretName).
+		SetStringMapToData(map[string]string{
+			util.OmPublicApiKey: "publicApiKey",
+			util.OmPrivateKey:   "privateApiKey",
+		}).
+		Build()
+	err = reconciler.client.CreateSecret(ctx, apiKeySecret)
+	require.NoError(t, err)
+
+	err = fakeClient.Create(ctx, primaryOM)
+	require.NoError(t, err)
+
+	// Pre-create the AppDB StatefulSet so deployStatefulSet can update it.
+	// Owner reference is required so the interceptor can map this StatefulSet to the primary
+	// OM connection via resourceToProjectMapping (keyed on the owner resource name).
+	matchLabels, serviceName := appDBStatefulSetLabelsAndServiceName(primaryOM.Name)
+	appDbSts, err := statefulset.NewBuilder().
+		SetName(primaryOM.Spec.AppDB.Name()).
+		SetNamespace(primaryOM.Namespace).
+		SetMatchLabels(matchLabels).
+		SetServiceName(serviceName).
+		AddVolumeClaimTemplates(appDBStatefulSetVolumeClaimTemplates()).
+		SetReplicas(3).
+		Build()
+	require.NoError(t, err)
+	appDbSts.OwnerReferences = []metav1.OwnerReference{{Name: primaryOM.Name}}
+	err = fakeClient.CreateStatefulSet(ctx, appDbSts)
+	require.NoError(t, err)
+
+	_, err = reconciler.ReconcileAppDB(ctx, primaryOM)
+	require.NoError(t, err)
+
+	// Read the StatefulSet and inspect the agent container's env vars.
+	updatedSts, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(primaryOM.Namespace, primaryOM.Spec.AppDB.Name()))
+	require.NoError(t, err)
+
+	var agentContainer *corev1.Container
+	for i := range updatedSts.Spec.Template.Spec.Containers {
+		if updatedSts.Spec.Template.Spec.Containers[i].Name == "mongodb-agent" {
+			agentContainer = &updatedSts.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	require.NotNil(t, agentContainer, "mongodb-agent container not found in AppDB StatefulSet")
+
+	envByName := make(map[string]string, len(agentContainer.Env))
+	for _, e := range agentContainer.Env {
+		envByName[e.Name] = e.Value
+	}
+
+	assert.Equal(t, "http://meta-om.svc:8080", envByName["MMS_SERVER"], "expected MMS_SERVER env var")
+	assert.Equal(t, om.TestGroupID, envByName["MMS_GROUP_ID"], "expected MMS_GROUP_ID env var")
+	assert.NotEmpty(t, envByName["MMS_API_KEY"], "expected MMS_API_KEY env var")
+	assert.Empty(t, envByName["HEADLESS_AGENT"], "HEADLESS_AGENT must not be set in online mode")
+	assert.Empty(t, envByName["AUTOMATION_CONFIG_MAP"], "AUTOMATION_CONFIG_MAP must not be set in online mode")
+}
