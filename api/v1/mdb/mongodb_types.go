@@ -431,6 +431,10 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	ExternalMembers []string `json:"externalMembers,omitempty"`
+
+	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 type MongoDbSpec struct {
