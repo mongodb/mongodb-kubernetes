@@ -4,6 +4,7 @@ E2E tests for replica set TLS with requireSSL using CAFilePath custom path.
 When caFilePath is specified, the operator mounts the CA from the ConfigMap
 (tls.ca) at the custom path instead of the default.
 """
+
 import pytest
 from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
