@@ -31,38 +31,57 @@ var (
 	DefaultRetryMax     = 10
 )
 
-func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.SugaredLogger) *MemberHeathCheck {
+// HealthCheckOption is a functional option for configuring MemberHealthCheck
+type HealthCheckOption func(*retryablehttp.Client)
+
+// WithRetryConfig configures the retry behavior of the health check client
+func WithRetryConfig(retryWaitMin, retryWaitMax time.Duration, retryMax int) HealthCheckOption {
+	return func(client *retryablehttp.Client) {
+		client.RetryWaitMin = retryWaitMin
+		client.RetryWaitMax = retryWaitMax
+		client.RetryMax = retryMax
+	}
+}
+
+func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.SugaredLogger, opts ...HealthCheckOption) *MemberHeathCheck {
 	certpool := x509.NewCertPool()
 	certpool.AppendCertsFromPEM(ca)
 
+	client := &retryablehttp.Client{
+		HTTPClient: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					RootCAs:    certpool,
+					MinVersion: tls.VersionTLS12,
+				},
+			},
+			Timeout: time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second, // nolint:forbidigo
+		},
+		RetryWaitMin: DefaultRetryWaitMin,
+		RetryWaitMax: DefaultRetryWaitMax,
+		RetryMax:     DefaultRetryMax,
+		// Will retry on all errors
+		CheckRetry: retryablehttp.DefaultRetryPolicy,
+		// Exponential backoff based on the attempt number and limited by the provided minimum and maximum durations.
+		// We don't need Jitter here as we're the only client to the OM, so there's no risk
+		// of overwhelming it in a peek.
+		Backoff: retryablehttp.DefaultBackoff,
+		RequestLogHook: func(logger retryablehttp.Logger, request *http.Request, i int) {
+			if i > 0 {
+				log.Warnf("Retrying (#%d) failed health check to %s (%s)", i, server, request.URL)
+			}
+		},
+	}
+
+	// Apply any custom options
+	for _, opt := range opts {
+		opt(client)
+	}
+
 	return &MemberHeathCheck{
 		Server: server,
-		Client: &retryablehttp.Client{
-			HTTPClient: &http.Client{
-				Transport: &http.Transport{
-					TLSClientConfig: &tls.Config{
-						RootCAs:    certpool,
-						MinVersion: tls.VersionTLS12,
-					},
-				},
-				Timeout: time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second, // nolint:forbidigo
-			},
-			RetryWaitMin: DefaultRetryWaitMin,
-			RetryWaitMax: DefaultRetryWaitMax,
-			RetryMax:     DefaultRetryMax,
-			// Will retry on all errors
-			CheckRetry: retryablehttp.DefaultRetryPolicy,
-			// Exponential backoff based on the attempt number and limited by the provided minimum and maximum durations.
-			// We don't need Jitter here as we're the only client to the OM, so there's no risk
-			// of overwhelming it in a peek.
-			Backoff: retryablehttp.DefaultBackoff,
-			RequestLogHook: func(logger retryablehttp.Logger, request *http.Request, i int) {
-				if i > 0 {
-					log.Warnf("Retrying (#%d) failed health check to %s (%s)", i, server, request.URL)
-				}
-			},
-		},
-		Token: token,
+		Client: client,
+		Token:  token,
 	}
 }
 

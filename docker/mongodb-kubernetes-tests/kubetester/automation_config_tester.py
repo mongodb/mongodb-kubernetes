@@ -143,6 +143,17 @@ class AutomationConfigTester:
     def reached_version(self, version: int) -> bool:
         return self.automation_config["version"] == version
 
+    def assert_agent_cert_path(self, expected_path: str):
+        """Assert that the agent certificate path matches the expected value."""
+        assert "agentSSL" in self.automation_config, "agentSSL section missing from automation config"
+        assert "autoPEMKeyFilePath" in self.automation_config["agentSSL"], (
+            "autoPEMKeyFilePath missing from agentSSL"
+        )
+        actual_path = self.automation_config["agentSSL"]["autoPEMKeyFilePath"]
+        assert actual_path == expected_path, (
+            f"Expected agent cert path to be {expected_path}, but got {actual_path}"
+        )
+
     def get_agent_version(self) -> str:
         try:
             return self.automation_config["agentVersion"]["name"]

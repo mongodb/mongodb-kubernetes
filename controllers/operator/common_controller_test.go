@@ -772,24 +772,54 @@ func TestAgentCertHashAndPath(t *testing.T) {
 	tests := []struct {
 		name         string
 		secretName   string
+		security     *mdbv1.Security
 		expectedHash string
 		expectedPath string
 	}{
 		{
-			name:         "TLS secret",
+			name:         "TLS secret with default path",
 			secretName:   "tls-secret",
+			security:     nil,
+			expectedHash: "IQJW7I2VWNTYUEKGVULPP2DET2KPWT6CD7TX5AYQYBQPMHFK76FA",
+			expectedPath: "/mongodb-automation/agent-certs/IQJW7I2VWNTYUEKGVULPP2DET2KPWT6CD7TX5AYQYBQPMHFK76FA",
+		},
+		{
+			name:       "TLS secret with custom agent certificate path",
+			secretName: "tls-secret",
+			security: &mdbv1.Security{
+				Authentication: &mdbv1.Authentication{
+					Agents: mdbv1.AgentAuthentication{
+						AgentCertificatePath: "/etc/mongodb-mms/agent.pem",
+					},
+				},
+			},
+			expectedHash: "IQJW7I2VWNTYUEKGVULPP2DET2KPWT6CD7TX5AYQYBQPMHFK76FA",
+			expectedPath: "/etc/mongodb-mms/agent.pem",
+		},
+		{
+			name:       "TLS secret with empty custom path falls back to default",
+			secretName: "tls-secret",
+			security: &mdbv1.Security{
+				Authentication: &mdbv1.Authentication{
+					Agents: mdbv1.AgentAuthentication{
+						AgentCertificatePath: "",
+					},
+				},
+			},
 			expectedHash: "IQJW7I2VWNTYUEKGVULPP2DET2KPWT6CD7TX5AYQYBQPMHFK76FA",
 			expectedPath: "/mongodb-automation/agent-certs/IQJW7I2VWNTYUEKGVULPP2DET2KPWT6CD7TX5AYQYBQPMHFK76FA",
 		},
 		{
 			name:         "Opaque secret",
 			secretName:   "opaque-secret",
+			security:     nil,
 			expectedHash: "",
 			expectedPath: "",
 		},
 		{
 			name:         "Secret doesn't exist",
 			secretName:   "non-existent-secret",
+			security:     nil,
 			expectedHash: "",
 			expectedPath: "",
 		},
@@ -797,7 +827,7 @@ func TestAgentCertHashAndPath(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			hash, path := controller.agentCertHashAndPath(ctx, zap.S(), mock.TestNamespace, tc.secretName, "")
+			hash, path := controller.agentCertHashAndPath(ctx, zap.S(), mock.TestNamespace, tc.secretName, "", tc.security)
 			assert.Equal(t, tc.expectedHash, hash)
 			assert.Equal(t, tc.expectedPath, path)
 		})

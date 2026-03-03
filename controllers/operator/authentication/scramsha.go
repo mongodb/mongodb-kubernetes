@@ -100,9 +100,7 @@ func configureScramAgentUsers(ctx context.Context, client kubernetesClient.Clien
 		return err
 	}
 	auth := ac.Auth
-	if auth.AutoUser == "" {
-		auth.AutoUser = authOpts.AutoUser
-	}
+	auth.AutoUser = authOpts.AutoUser
 	auth.AutoPwd = agentPassword
 
 	return nil

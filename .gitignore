@@ -67,8 +67,7 @@ _.yaml
 
 # Things we built or download for the e2e tests & local dev
 /mongodb-kubernetes
-multi-cluster-kube-config-creator
-multi-cluster-kube-config-creator_linux
+multi-cluster-kube-config-creator*
 istio-*
 .multi_cluster_local_test_files
 csi-driver-host-path-*

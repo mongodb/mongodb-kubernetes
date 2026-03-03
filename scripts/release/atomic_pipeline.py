@@ -104,23 +104,6 @@ def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
     Builds image used to run tests.
     """
 
-    # helm directory needs to be copied over to the tests docker context.
-    helm_src = "helm_chart"
-    helm_dest = "docker/mongodb-kubernetes-tests/helm_chart"
-    requirements_dest = "docker/mongodb-kubernetes-tests/requirements.txt"
-    public_src = "public"
-    public_dest = "docker/mongodb-kubernetes-tests/public"
-
-    # Remove existing directories/files if they exist
-    shutil.rmtree(helm_dest, ignore_errors=True)
-    shutil.rmtree(public_dest, ignore_errors=True)
-
-    # Copy directories and files (recursive copy)
-    shutil.copytree(helm_src, helm_dest)
-    shutil.copytree(public_src, public_dest)
-    shutil.copyfile("release.json", "docker/mongodb-kubernetes-tests/release.json")
-    shutil.copyfile("requirements.txt", requirements_dest)
-
     python_version = os.getenv("PYTHON_VERSION")
     if not python_version:
         raise Exception("PYTHON_VERSION environment variable is not set or empty - it should be set in root-context")
@@ -130,7 +113,6 @@ def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
     build_image(
         build_configuration=build_configuration,
         build_args=build_args,
-        build_path="docker/mongodb-kubernetes-tests",
     )
 
 

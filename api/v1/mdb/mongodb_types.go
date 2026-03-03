@@ -3,6 +3,7 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -1016,6 +1017,12 @@ type AgentAuthentication struct {
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ClientCertificateSecretRefWrap common.ClientCertificateSecretRefWrapper `json:"clientCertificateSecretRef,omitempty"`
+	// AgentCertificatePath allows specifying a custom path for the agent certificate file.
+	// If not specified, the operator will automatically generate a path
+	// based on the certificate hash (e.g., /var/lib/automation/config/agent-certs/<hash>).
+	// +optional
+	// +kubebuilder:validation:Pattern=`^/.*`
+	AgentCertificatePath string `json:"agentCertificatePath,omitempty"`
 }
 
 // GetAutomationUserName returns the configured automation agent username,
@@ -1025,6 +1032,18 @@ func (a *AgentAuthentication) GetAutomationUserName() string {
 		return util.AutomationAgentUserName
 	}
 	return a.AutomationUserName
+}
+
+// GetAgentCertificatePath returns the configured agent certificate path if specified,
+// or generates a path based on the certificate hash if not specified.
+func (a *AgentAuthentication) GetAgentCertificatePath(certHash string) string {
+	if a != nil && a.AgentCertificatePath != "" {
+		return a.AgentCertificatePath
+	}
+	if certHash != "" {
+		return filepath.Join(util.AgentCertMountPath, certHash)
+	}
+	return ""
 }
 
 // IsX509Enabled determines if X509 is to be enabled at the project level

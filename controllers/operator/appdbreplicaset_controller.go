@@ -559,7 +559,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 
 	agentCertSecretName := opsManager.Spec.AppDB.GetSecurity().AgentClientCertificateSecretName(opsManager.Spec.AppDB.GetName())
-	_, agentCertPath := r.agentCertHashAndPath(ctx, log, opsManager.Namespace, agentCertSecretName, appdbSecretPath)
+	_, agentCertPath := r.agentCertHashAndPath(ctx, log, opsManager.Namespace, agentCertSecretName, appdbSecretPath, opsManager.Spec.AppDB.GetSecurity())
 
 	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, agentCertPath, log)
 	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
