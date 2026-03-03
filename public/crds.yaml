@@ -5160,6 +5160,45 @@ spec:
                     type: object
                   featureCompatibilityVersion:
                     type: string
+                  managedByMetaOM:
+                    description: |-
+                      ManagedByMetaOM, when set, transitions AppDB agents from headless mode
+                      to online mode managed by the referenced secondary (Meta) Ops Manager.
+                    properties:
+                      credentialsSecretRef:
+                        description: |-
+                          CredentialsSecretRef references a Secret containing Meta OM admin
+                          API credentials. The Secret must have keys "publicKey" and "privateKey".
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      name:
+                        description: Name of the MongoDBOpsManager CR acting as Meta
+                          OM.
+                        type: string
+                      namespace:
+                        description: Namespace of the Meta OM CR. Defaults to the
+                          same namespace as Primary OM.
+                        type: string
+                      projectName:
+                        description: |-
+                          ProjectName is the name of the project to create or use in Meta OM
+                          for this AppDB deployment.
+                        type: string
+                    required:
+                    - credentialsSecretRef
+                    - name
+                    - projectName
+                    type: object
                   memberConfig:
                     description: MemberConfig allows to specify votes, priorities
                       and tags for each of the mongodb process.
@@ -6421,6 +6460,11 @@ spec:
                   members:
                     type: integer
                   message:
+                    type: string
+                  metaOMGroupId:
+                    description: |-
+                      MetaOMGroupId stores the Meta OM project (group) ID once the AppDB
+                      has been registered with Meta OM. Used by subsequent reconciliation steps.
                     type: string
                   mongodsPerShardCount:
                     type: integer

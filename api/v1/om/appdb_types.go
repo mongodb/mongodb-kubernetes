@@ -8,6 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
@@ -99,6 +100,33 @@ type AppDBSpec struct {
 	Topology string `json:"topology,omitempty"`
 	// +optional
 	ClusterSpecList mdbv1.ClusterSpecList `json:"clusterSpecList,omitempty"`
+
+	// ManagedByMetaOM, when set, transitions AppDB agents from headless mode
+	// to online mode managed by the referenced secondary (Meta) Ops Manager.
+	// +optional
+	ManagedByMetaOM *MetaOMRef `json:"managedByMetaOM,omitempty"`
+}
+
+// MetaOMRef references a secondary (Meta) Ops Manager instance that will
+// take over management of the AppDB agents, enabling backup via Meta OM.
+type MetaOMRef struct {
+	// Name of the MongoDBOpsManager CR acting as Meta OM.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Namespace of the Meta OM CR. Defaults to the same namespace as Primary OM.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
+	// ProjectName is the name of the project to create or use in Meta OM
+	// for this AppDB deployment.
+	// +kubebuilder:validation:Required
+	ProjectName string `json:"projectName"`
+
+	// CredentialsSecretRef references a Secret containing Meta OM admin
+	// API credentials. The Secret must have keys "publicKey" and "privateKey".
+	// +kubebuilder:validation:Required
+	CredentialsSecretRef corev1.LocalObjectReference `json:"credentialsSecretRef"`
 }
 
 func (m *AppDBSpec) GetAgentConfig() mdbv1.AgentConfig {
