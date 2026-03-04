@@ -125,6 +125,7 @@ func buildTLSConfig(certPath, caPath string) (*tls.Config, error) {
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      caPool,
+		MinVersion:   tls.VersionTLS13,
 	}, nil
 }
 
@@ -245,4 +246,3 @@ func classifyConnectionError(err error) int {
 	}
 	return ExitUnknown
 }
-

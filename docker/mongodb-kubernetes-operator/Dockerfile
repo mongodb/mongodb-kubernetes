@@ -5,9 +5,15 @@ ADD "https://github.com/stedolan/jq/releases/download/jq-1.8.1/jq-linux-${BUILDA
 RUN chmod +x /usr/local/bin/jq
 
 COPY go.sum go.mod /go/src/github.com/mongodb/mongodb-kubernetes/
+COPY cmd/connectivity-validator/go.sum cmd/connectivity-validator/go.mod /go/src/github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/
 
 WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes
 RUN go mod download
+
+WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator
+RUN go mod download
+
+WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes
 
 COPY . /go/src/github.com/mongodb/mongodb-kubernetes
 
@@ -33,11 +39,12 @@ RUN mkdir /build && \
         -X github.com/mongodb/mongodb-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"; \
     fi
 
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+RUN cd cmd/connectivity-validator && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -buildvcs=false \
     -ldflags="-s -w" \
     -o /build/connectivity-validator \
-    ./cmd/connectivity-validator
+    .
 
 RUN mkdir -p /data
 RUN cat release.json | jq -r '.supportedImages."mongodb-agent" | { "supportedImages": { "mongodb-agent": . } }' > /data/om_version_mapping.json
