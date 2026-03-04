@@ -10,7 +10,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"math/big"
 	"net"
 	"os"
@@ -26,9 +25,14 @@ import (
 )
 
 const (
-	mongoImage  = "mongodb/mongodb-community-server:7.0-ubi8"
+	mongoImage  = "mongodb/mongodb-community-server:8.0-ubi8"
 	keyfileBody = "localtestkey123"
 )
+
+// keyfileSetupCmd writes keyfileBody to the mongod keyfile path inside the container.
+// It is embedded in every container start command that needs keyfile auth.
+// Built as a var (not a const) so it references keyfileBody rather than repeating the literal.
+var keyfileSetupCmd = fmt.Sprintf(`printf '%s' > /tmp/mongo-keyfile && chmod 400 /tmp/mongo-keyfile`, keyfileBody)
 
 // startMongodWithKeyfile starts a standalone mongod with keyfile auth and returns
 // the host:port reachable from the test process.
@@ -37,10 +41,7 @@ func startMongodWithKeyfile(ctx context.Context, t *testing.T) string {
 
 	// Write the keyfile inline so it is owned by the mongod process user.
 	// testcontainers.ContainerFile copies as root, which mongod rejects.
-	startCmd := fmt.Sprintf(
-		`printf '%s' > /tmp/mongo-keyfile && chmod 400 /tmp/mongo-keyfile && exec mongod --auth --keyFile /tmp/mongo-keyfile --bind_ip_all`,
-		keyfileBody,
-	)
+	startCmd := keyfileSetupCmd + ` && exec mongod --auth --keyFile /tmp/mongo-keyfile --bind_ip_all`
 
 	req := testcontainers.ContainerRequest{
 		Image:        mongoImage,
@@ -48,39 +49,36 @@ func startMongodWithKeyfile(ctx context.Context, t *testing.T) string {
 		ExposedPorts: []string{"27017/tcp"},
 		WaitingFor:   wait.ForLog("Waiting for connections").WithStartupTimeout(60 * time.Second),
 	}
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = container.Terminate(ctx) })
-
-	host, err := container.Host(ctx)
-	require.NoError(t, err)
-	port, err := container.MappedPort(ctx, "27017")
-	require.NoError(t, err)
-
-	return fmt.Sprintf("%s:%s", host, port.Port())
+	return startContainer(ctx, t, req)
 }
 
 // startMongodWithTLS starts a standalone mongod with TLS required and keyfile auth.
-// It returns the host:port address and the path to a temp file containing the server CA cert,
+// Certificates are generated in Go (no openssl dependency) and bind-mounted into the
+// container. It returns the host:port address and the path to the CA cert on the host
 // so callers can supply tlsCAFile in the connection string.
 func startMongodWithTLS(ctx context.Context, t *testing.T) (addr, caPath string) {
 	t.Helper()
 
-	startCmd := fmt.Sprintf(
-		`openssl req -x509 -newkey rsa:2048 -keyout /tmp/srv.key -out /tmp/srv.crt -days 1 -nodes -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1,DNS:localhost" 2>/dev/null && cat /tmp/srv.crt /tmp/srv.key > /tmp/srv.pem && chmod 400 /tmp/srv.pem && printf '%s' > /tmp/mongo-keyfile && chmod 400 /tmp/mongo-keyfile && exec mongod --tlsMode requireTLS --tlsCertificateKeyFile /tmp/srv.pem --tlsCAFile /tmp/srv.crt --tlsAllowConnectionsWithoutCertificates --auth --keyFile /tmp/mongo-keyfile --bind_ip_all`,
-		keyfileBody,
-	)
+	// Generate certs on the host using Go crypto so we don't depend on openssl being
+	// present in the image. generateClusterCertBundle produces ca.crt + srv.pem which
+	// is all mongod needs for TLS-only mode.
+	certsDir := generateClusterCertBundle(t)
 
+	startCmd := keyfileSetupCmd + ` && exec mongod --tlsMode requireTLS --tlsCertificateKeyFile /certs/srv.pem --tlsCAFile /certs/ca.crt --tlsAllowConnectionsWithoutCertificates --auth --keyFile /tmp/mongo-keyfile --bind_ip_all`
 	req := testcontainers.ContainerRequest{
 		Image:        mongoImage,
 		Cmd:          []string{"/bin/bash", "-c", startCmd},
 		ExposedPorts: []string{"27017/tcp"},
 		WaitingFor:   wait.ForLog("Waiting for connections").WithStartupTimeout(60 * time.Second),
+		Mounts:       testcontainers.Mounts(testcontainers.BindMount(certsDir, "/certs")),
 	}
+	return startContainer(ctx, t, req), filepath.Join(certsDir, "ca.crt")
+}
+
+// startContainer starts a testcontainer with the given request, registers a cleanup
+// hook to terminate it, and returns the mapped host:port for port 27017.
+func startContainer(ctx context.Context, t *testing.T, req testcontainers.ContainerRequest) string {
+	t.Helper()
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
@@ -92,21 +90,17 @@ func startMongodWithTLS(ctx context.Context, t *testing.T) (addr, caPath string)
 	require.NoError(t, err)
 	port, err := container.MappedPort(ctx, "27017")
 	require.NoError(t, err)
-	addr = fmt.Sprintf("%s:%s", host, port.Port())
+	return fmt.Sprintf("%s:%s", host, port.Port())
+}
 
-	// Copy the server CA cert out of the container so the caller can verify the server.
-	caReader, err := container.CopyFileFromContainer(ctx, "/tmp/srv.crt")
-	require.NoError(t, err)
-	caPEM, err := io.ReadAll(caReader)
-	require.NoError(t, err)
-	_ = caReader.Close()
-	caFile, err := os.CreateTemp(t.TempDir(), "server-ca*.pem")
-	require.NoError(t, err)
-	_, err = caFile.Write(caPEM)
-	require.NoError(t, err)
-	require.NoError(t, caFile.Close())
-
-	return addr, caFile.Name()
+// writePEMFile encodes certDER and keyDER as PEM blocks and writes them to path.
+// Used by generateClusterCertBundle for every cert+key pair it produces.
+func writePEMFile(t *testing.T, path string, certDER, keyDER []byte) {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}))
+	require.NoError(t, pem.Encode(&buf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0644))
 }
 
 // tempKeyfile writes content to a temp file and returns its path.
@@ -218,18 +212,7 @@ func TestValidate_X509Auth(t *testing.T) {
 			testcontainers.BindMount(certsDir, "/certs"),
 		),
 	}
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = container.Terminate(ctx) })
-
-	host, err := container.Host(ctx)
-	require.NoError(t, err)
-	port, err := container.MappedPort(ctx, "27017")
-	require.NoError(t, err)
-	addr := fmt.Sprintf("%s:%s", host, port.Port())
+	addr := startContainer(ctx, t, req)
 
 	t.Run("X509_Success", func(t *testing.T) {
 		cfg := connectivitycheck.Config{
@@ -298,10 +281,7 @@ func generateClusterCertBundle(t *testing.T) string {
 	require.NoError(t, err)
 	srvKeyDER, err := x509.MarshalECPrivateKey(srvKey)
 	require.NoError(t, err)
-	var srvBuf bytes.Buffer
-	require.NoError(t, pem.Encode(&srvBuf, &pem.Block{Type: "CERTIFICATE", Bytes: srvDER}))
-	require.NoError(t, pem.Encode(&srvBuf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: srvKeyDER}))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "srv.pem"), srvBuf.Bytes(), 0644))
+	writePEMFile(t, filepath.Join(dir, "srv.pem"), srvDER, srvKeyDER)
 
 	// ── Client cert (CA-signed, same O/OU triggers cluster-auth match) ───────
 	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -322,10 +302,7 @@ func generateClusterCertBundle(t *testing.T) string {
 	require.NoError(t, err)
 	clientKeyDER, err := x509.MarshalECPrivateKey(clientKey)
 	require.NoError(t, err)
-	var clientBuf bytes.Buffer
-	require.NoError(t, pem.Encode(&clientBuf, &pem.Block{Type: "CERTIFICATE", Bytes: clientDER}))
-	require.NoError(t, pem.Encode(&clientBuf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: clientKeyDER}))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "client.pem"), clientBuf.Bytes(), 0644))
+	writePEMFile(t, filepath.Join(dir, "client.pem"), clientDER, clientKeyDER)
 
 	return dir
 }
