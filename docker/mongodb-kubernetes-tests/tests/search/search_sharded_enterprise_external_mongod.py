@@ -35,7 +35,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.common.search.movies_search_helper import SampleMoviesSearchHelper, EmbeddedMoviesSearchHelper
+from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
@@ -614,7 +614,9 @@ def test_vector_search_before_and_after_sharding(mdb: MongoDB):
             return True, f"Vector search returned {count_after} results (matches pre-sharding count)"
         return False, f"Vector search returned {count_after} results, expected {count_before}"
 
-    run_periodically(verify_vector_search_after_sharding, timeout=300, sleep_time=10, msg="vector search after sharding")
+    run_periodically(
+        verify_vector_search_after_sharding, timeout=300, sleep_time=10, msg="vector search after sharding"
+    )
     logger.info(f"Vector search returns consistent {count_before} results after sharding")
 
 

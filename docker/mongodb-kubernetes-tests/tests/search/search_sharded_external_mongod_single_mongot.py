@@ -23,7 +23,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
-from tests.common.search.movies_search_helper import SampleMoviesSearchHelper, EmbeddedMoviesSearchHelper
+from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
@@ -513,11 +513,14 @@ def test_search_verify_results_from_all_shards(mdb: MongoDB):
     run_periodically(execute_all_docs_search, timeout=120, sleep_time=5, msg="search query for all docs")
     logger.info(f"Search results for all documents verified.")
 
+
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_vector_search_before_and_after_sharding(mdb: MongoDB):
     """Verify vector search returns consistent results before and after sharding embedded_movies."""
     search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
-    admin_search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=True)
+    admin_search_tester = get_search_tester(
+        mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=True
+    )
     emb_helper = EmbeddedMoviesSearchHelper(search_tester)
 
     # Generate query vector by calling the Voyage embedding API
@@ -557,6 +560,7 @@ def test_vector_search_before_and_after_sharding(mdb: MongoDB):
             return True, f"Vector search returned {count_after} results (matches pre-sharding count)"
         return False, f"Vector search returned {count_after} results, expected {count_before}"
 
-    run_periodically(verify_vector_search_after_sharding, timeout=300, sleep_time=10, msg="vector search after sharding")
+    run_periodically(
+        verify_vector_search_after_sharding, timeout=300, sleep_time=10, msg="vector search after sharding"
+    )
     logger.info(f"Vector search returns consistent {count_before} results after sharding")
-

@@ -1,13 +1,13 @@
+import os
 from typing import Optional
 
 import pymongo.errors
+import requests
 from kubetester import kubetester
+from pymongo.operations import SearchIndexModel
 from tests import test_logger
 from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod
 from tests.common.search.search_tester import SearchTester
-import os
-import requests
-from pymongo.operations import SearchIndexModel
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -15,6 +15,7 @@ VOYAGE_EMBEDDING_ENDPOINT = "https://ai.mongodb.com/v1/embeddings"
 VOYAGE_MODEL = "voyage-3-large"
 VOYAGE_DIMENSIONS = 2048
 EMBEDDING_QUERY_KEY_ENV_VAR = "AI_MONGODB_EMBEDDING_QUERY_KEY"
+
 
 class SampleMoviesSearchHelper:
     search_tester: SearchTester
@@ -187,9 +188,8 @@ class SampleMoviesSearchHelper:
         return shard_counts
 
 
-
 class EmbeddedMoviesSearchHelper:
-    
+
     def __init__(self, search_tester: SearchTester):
         self.search_tester = search_tester
         self.db_name = "sample_mflix"
@@ -278,23 +278,26 @@ class EmbeddedMoviesSearchHelper:
         db = self.search_tester.client[self.db_name]
         collection = db[self.col_name]
 
-        return list(collection.aggregate([
-            {
-                "$vectorSearch": {
-                    "index": index_name,
-                    "path": "plot_embedding_voyage_3_large",
-                    "queryVector": query_vector,
-                    "numCandidates": limit * 2,
-                    "limit": limit,
-                }
-            },
-            {
-                "$project": {
-                    "_id": 0,
-                    "title": 1,
-                    "plot": 1,
-                    "score": {"$meta": "vectorSearchScore"},
-                }
-            },
-        ]))
-    
+        return list(
+            collection.aggregate(
+                [
+                    {
+                        "$vectorSearch": {
+                            "index": index_name,
+                            "path": "plot_embedding_voyage_3_large",
+                            "queryVector": query_vector,
+                            "numCandidates": limit * 2,
+                            "limit": limit,
+                        }
+                    },
+                    {
+                        "$project": {
+                            "_id": 0,
+                            "title": 1,
+                            "plot": 1,
+                            "score": {"$meta": "vectorSearchScore"},
+                        }
+                    },
+                ]
+            )
+        )
