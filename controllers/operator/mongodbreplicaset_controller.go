@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
@@ -794,7 +795,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
+	caFilePath := rs.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, "ca-pem"))
 
 	existingDeployment, err := conn.ReadDeployment()
 	if err != nil {
