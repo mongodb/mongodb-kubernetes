@@ -65,6 +65,17 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault/vaultwatcher"
 )
 
+// AnnotationMigrationDryRun is the annotation key that triggers migration dry-run mode.
+// When present on a MongoDB CR, the operator computes the automation config diff
+// without writing anything to Ops Manager and surfaces it in status.migration.
+//
+// Example:
+//
+//	metadata:
+//	  annotations:
+//	    mongodb.com/migration-dry-run: "true"
+const AnnotationMigrationDryRun = "mongodb.com/migration-dry-run"
+
 // ReconcileMongoDbReplicaSet reconciles a MongoDB with a type of ReplicaSet.
 // WARNING: do not put any mutable state into this struct.
 // Controller runtime uses and shares a single instance of it.
@@ -293,6 +304,31 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		if !automationConfigStatus.IsOK() {
 			log.Errorf("Recovery failed because of Automation Config update errors, %v", automationConfigStatus)
 		}
+	}
+
+	// 5a. Dry-run: if annotation is set, compute AC diff without writing to OM and return early.
+	if _, isDryRun := rs.Annotations[AnnotationMigrationDryRun]; isDryRun {
+		dryConn := om.NewDryRunConnection(conn)
+		omStatus := r.updateOmDeploymentRs(ctx, dryConn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false)
+		if !omStatus.IsOK() {
+			return r.updateStatus(ctx, omStatus,
+				mdbstatus.NewMigrationStatusOption(mdbstatus.MigrationStatus{
+					Phase: mdbstatus.MigrationPhaseDryRunFailed,
+				}))
+		}
+		diffResult, err := dryConn.Result()
+		if err != nil {
+			return r.updateStatus(ctx, workflow.Failed(err))
+		}
+		log.Infow("[DRY-RUN AC DIFF]", "added", len(diffResult.Added),
+			"modified", len(diffResult.Modified), "removed", len(diffResult.Removed),
+			"warning", diffResult.Warning, "diff", diffResult)
+		return r.updateStatus(ctx, workflow.OK(),
+			mdbstatus.NewMigrationStatusOption(mdbstatus.MigrationStatus{
+				Phase:                mdbstatus.MigrationPhaseDryRunComplete,
+				Message:              "Dry run complete. Review status.migration.automationConfigDiff.",
+				AutomationConfigDiff: diffResult,
+			}))
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update

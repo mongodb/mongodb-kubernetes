@@ -1190,6 +1190,11 @@ func (d Deployment) limitVotingMembers(rsName string) {
 }
 
 func (d Deployment) deepCopy() Deployment {
+	return d.DeepCopy()
+}
+
+// DeepCopy returns a deep copy of the Deployment map.
+func (d Deployment) DeepCopy() Deployment {
 	var depCopy Deployment
 
 	depCopy, err := util.MapDeepCopy(d)

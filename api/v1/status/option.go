@@ -121,3 +121,16 @@ func (o PVCStatusOption) Value() interface{} {
 func NewPVCsStatusOptionEmptyStatus() PVCStatusOption {
 	return PVCStatusOption{PVC: nil}
 }
+
+// MigrationStatusOption carries the result of a migration dry run.
+type MigrationStatusOption struct {
+	Migration MigrationStatus
+}
+
+func NewMigrationStatusOption(migration MigrationStatus) MigrationStatusOption {
+	return MigrationStatusOption{Migration: migration}
+}
+
+func (o MigrationStatusOption) Value() interface{} {
+	return o.Migration
+}

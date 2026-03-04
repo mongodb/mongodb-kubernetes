@@ -366,6 +366,7 @@ type MongoDbStatus struct {
 	Link                                   string                                     `json:"link,omitempty"`
 	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
 	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
+	Migration                              *status.MigrationStatus                    `json:"migration,omitempty"`
 }
 
 type BackupMode string
@@ -1291,6 +1292,10 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
 		m.Status.Link = option.(status.BaseUrlOption).BaseUrl
+	}
+	if option, exists := status.GetOption(statusOptions, status.MigrationStatusOption{}); exists {
+		migration := option.(status.MigrationStatusOption).Migration
+		m.Status.Migration = &migration
 	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
