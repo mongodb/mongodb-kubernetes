@@ -126,6 +126,7 @@ type MetaOMRef struct {
 
 	// CredentialsSecretRef references a Secret containing Meta OM admin
 	// API credentials. The Secret must have keys "publicKey" and "privateKey".
+	// This is mostly useful for cases where Meta OM is in a different namespace or cluster.
 	// +kubebuilder:validation:Required
 	CredentialsSecretRef SecretRef `json:"credentialsSecretRef"`
 }

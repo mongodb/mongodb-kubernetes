@@ -5171,19 +5171,14 @@ spec:
                           API credentials. The Secret must have keys "publicKey" and "privateKey".
                         properties:
                           name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
                             type: string
+                        required:
+                        - name
                         type: object
-                        x-kubernetes-map-type: atomic
                       name:
                         description: Name of the MongoDBOpsManager CR acting as Meta
                           OM.
+                        minLength: 1
                         type: string
                       namespace:
                         description: Namespace of the Meta OM CR. Defaults to the
@@ -5193,6 +5188,7 @@ spec:
                         description: |-
                           ProjectName is the name of the project to create or use in Meta OM
                           for this AppDB deployment.
+                        minLength: 1
                         type: string
                     required:
                     - credentialsSecretRef
@@ -6463,7 +6459,7 @@ spec:
                     type: string
                   metaOMGroupId:
                     description: |-
-                      MetaOMGroupId stores the Meta OM project (group) ID once the AppDB
+                      MetaOMGroupID stores the Meta OM project (group) ID once the AppDB
                       has been registered with Meta OM. Used by subsequent reconciliation steps.
                     type: string
                   mongodsPerShardCount:

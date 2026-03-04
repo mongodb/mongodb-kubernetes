@@ -1,6 +1,7 @@
 apiVersion: mongodb.com/v1
 kind: MongoDBOpsManager
 metadata:
+  #TODO: change to om-primary
   name: om-appdb-meta-om-mode-switch
 spec:
   replicas: 1

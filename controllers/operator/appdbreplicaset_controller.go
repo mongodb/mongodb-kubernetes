@@ -2089,6 +2089,16 @@ func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalStateMultiCluster(ctx con
 	}
 
 	appDBSize := int(set.Status.Replicas)
+
+	// In online mode (MetaOM), the agent does not update pod annotations.
+	// Check pod readiness via StatefulSet status instead.
+	if manager.Spec.AppDB.ManagedByMetaOM != nil {
+		if statefulset.IsReady(set, appDBSize) {
+			return workflow.OK()
+		}
+		return workflow.Pending("Application Database Agents haven't reached Running state yet")
+	}
+
 	goalState, err := agent.AllReachedGoalState(ctx, set, memberClusterClient, appDBSize, targetConfigVersion, log)
 	if err != nil {
 		return workflow.Failed(err)
@@ -2113,6 +2123,16 @@ func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalStateSingleCluster(ctx co
 	}
 
 	appdbSize := int(set.Status.Replicas)
+
+	// In online mode (MetaOM), the agent does not update pod annotations.
+	// Check pod readiness via StatefulSet status instead.
+	if manager.Spec.AppDB.ManagedByMetaOM != nil {
+		if statefulset.IsReady(set, appdbSize) {
+			return workflow.OK()
+		}
+		return workflow.Pending("Application Database Agents haven't reached Running state yet")
+	}
+
 	goalState, err := agent.AllReachedGoalState(ctx, set, r.client, appdbSize, targetConfigVersion, log)
 	if err != nil {
 		return workflow.Failed(err)
@@ -2234,7 +2254,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
 	publicKey := credData["publicKey"]
 	privateKey := credData["privateKey"]
 
-	// Step 3: Create or retrieve Meta OM project (idempotent via ReadOrCreateProject).
+	// Step 3: Create or retrieve Meta OM project.
 	projectConfig := mdbv1.ProjectConfig{
 		BaseURL:     metaOM.CentralURL(),
 		ProjectName: metaOMRef.ProjectName,
@@ -2260,24 +2280,22 @@ func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
 		if acStr, ok := headlessConfig[automationconfig.ConfigKey]; ok && len(acStr) > 0 {
 			metaAC, readErr := conn.ReadAutomationConfig()
 			if readErr != nil {
-				log.Warnw("Failed to read automation config from Meta OM; skipping push", "error", readErr)
-			} else {
-				procs, _ := metaAC.Deployment["processes"]
-				isEmpty := procs == nil
-				if !isEmpty {
-					if list, ok := procs.([]interface{}); ok {
-						isEmpty = len(list) == 0
-					}
+				return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to read automation config from Meta OM: %w", readErr))
+			}
+			procs, _ := metaAC.Deployment["processes"]
+			isEmpty := procs == nil
+			if !isEmpty {
+				if list, ok := procs.([]interface{}); ok {
+					isEmpty = len(list) == 0
 				}
-				if isEmpty {
-					omAC, buildErr := om.BuildAutomationConfigFromBytes([]byte(acStr))
-					if buildErr != nil {
-						log.Warnw("Failed to parse headless automation config; skipping push", "error", buildErr)
-					} else {
-						if updateErr := conn.UpdateAutomationConfig(omAC, log); updateErr != nil {
-							log.Warnw("Failed to push automation config to Meta OM", "error", updateErr)
-						}
-					}
+			}
+			if isEmpty {
+				omAC, buildErr := om.BuildAutomationConfigFromBytes([]byte(acStr))
+				if buildErr != nil {
+					return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to parse headless automation config: %w", buildErr))
+				}
+				if updateErr := conn.UpdateAutomationConfig(omAC, log); updateErr != nil {
+					return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to push automation config to Meta OM: %w", updateErr))
 				}
 			}
 		}

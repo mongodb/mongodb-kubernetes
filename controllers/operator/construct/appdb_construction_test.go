@@ -86,8 +86,6 @@ func TestAppdbContainerEnv_HeadlessMode(t *testing.T) {
 	assertEnvVarPresent(t, agentContainer.Env, headlessAgentEnv, "true")
 	assertEnvVarPresent(t, agentContainer.Env, automationConfigMapEnv, om.Name+"-db-config")
 	assertEnvVarAbsent(t, agentContainer.Env, metaOMServerEnv)
-	assertEnvVarAbsent(t, agentContainer.Env, metaOMGroupIDEnv)
-	assertEnvVarAbsent(t, agentContainer.Env, metaOMAPIKeyEnv)
 }
 
 func TestAppdbContainerEnv_MetaOMMode(t *testing.T) {
@@ -106,8 +104,9 @@ func TestAppdbContainerEnv_MetaOMMode(t *testing.T) {
 
 	agentContainer := findContainer(t, sts, communityConstruct.AgentName)
 	assertEnvVarPresent(t, agentContainer.Env, metaOMServerEnv, opts.MetaOM.Server)
-	assertEnvVarPresent(t, agentContainer.Env, metaOMGroupIDEnv, opts.MetaOM.GroupID)
-	assertEnvVarPresent(t, agentContainer.Env, metaOMAPIKeyEnv, opts.MetaOM.APIKey)
+	// mmsGroupId and mmsApiKey are passed as explicit command params, not env vars
+	assertEnvVarAbsent(t, agentContainer.Env, "MMS_GROUP_ID")
+	assertEnvVarAbsent(t, agentContainer.Env, "MMS_API_KEY")
 	assertEnvVarAbsent(t, agentContainer.Env, headlessAgentEnv)
 	assertEnvVarAbsent(t, agentContainer.Env, automationConfigMapEnv)
 }
@@ -130,25 +129,25 @@ func TestAppdbContainerEnv_MetaOMDisabled_FallsBackToHeadless(t *testing.T) {
 	}
 }
 
-func TestAppdbContainerEnv_MetaOMEnabledWithEmptyFields_FallsBackToHeadless(t *testing.T) {
-	// Enabled: true but fields missing — should degrade gracefully to headless.
-	incompleteConfigs := []AppDBStatefulSetOptions{
+func TestAppdbContainerEnv_MetaOMEnabledWithEmptyFields_GoesToOnlineMode(t *testing.T) {
+	// When Enabled is true the construction functions enter online mode regardless of
+	// whether individual fields are empty. Field validation is the reconciler's responsibility:
+	// it only sets Enabled=true after successfully resolving all MetaOM credentials.
+	configs := []AppDBStatefulSetOptions{
 		{MetaOM: MetaOMEnvVars{Enabled: true}},
 		{MetaOM: MetaOMEnvVars{Enabled: true, Server: "http://om:8080"}},
 		{MetaOM: MetaOMEnvVars{Enabled: true, Server: "http://om:8080", GroupID: "gid"}},
 		{MetaOM: MetaOMEnvVars{Enabled: true, GroupID: "gid", APIKey: "key"}},
 	}
-	for _, opts := range incompleteConfigs {
+	for _, opts := range configs {
 		om := omv1.NewOpsManagerBuilderDefault().Build()
 		sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
 			opts, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
 		require.NoError(t, err)
 
 		agentContainer := findContainer(t, sts, communityConstruct.AgentName)
-		assertEnvVarPresent(t, agentContainer.Env, headlessAgentEnv, "true")
-		assertEnvVarAbsent(t, agentContainer.Env, metaOMServerEnv)
-		assertEnvVarAbsent(t, agentContainer.Env, metaOMGroupIDEnv)
-		assertEnvVarAbsent(t, agentContainer.Env, metaOMAPIKeyEnv)
+		assertEnvVarAbsent(t, agentContainer.Env, headlessAgentEnv)
+		assertEnvVarAbsent(t, agentContainer.Env, automationConfigMapEnv)
 	}
 }
 

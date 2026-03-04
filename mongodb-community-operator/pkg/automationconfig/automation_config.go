@@ -270,7 +270,7 @@ type ReplicaSet struct {
 	Id              string                 `json:"_id"`
 	Members         []ReplicaSetMember     `json:"members"`
 	ProtocolVersion string                 `json:"protocolVersion"`
-	NumberArbiters  int                    `json:"numberArbiters"`
+	NumberArbiters  int                    `json:"numberArbiters,omitempty"`
 	Force           *ReplSetForceConfig    `json:"force,omitempty"`
 	Settings        map[string]interface{} `json:"settings,omitempty"`
 }

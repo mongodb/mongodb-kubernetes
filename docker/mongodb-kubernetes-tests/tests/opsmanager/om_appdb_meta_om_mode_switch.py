@@ -1,32 +1,30 @@
 from typing import Optional
 
-from kubetester import create_or_update_secret, find_fixture, read_secret
-from kubetester.kubetester import KubernetesTester
+from kubetester import create_or_update_secret, read_secret, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import get_central_cluster_client, is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
+from tests.conftest import get_central_cluster_client
 
 """
 Tests the AppDB headless → online mode switch.
 
 Scenario:
   1. Deploy Primary OM (AppDB in headless mode).
-  2. Deploy a sample MongoDB replica set managed by Primary OM.
-  3. Deploy Meta OM (a secondary Ops Manager instance).
-  4. Create a credentials Secret for Meta OM admin API access.
-  5. Patch Primary OM to set spec.applicationDatabase.managedByMetaOM.
-  6. Assert AppDB pods restart and reach Running phase again.
-  7. Assert the AppDB StatefulSet env vars reflect online mode
-     (MMS_SERVER / MMS_GROUP_ID / MMS_API_KEY present;
-      HEADLESS_AGENT / AUTOMATION_CONFIG_MAP absent).
-  8. Assert the sample MongoDB deployment is still healthy (no disruption).
+  2. Deploy Meta OM (a secondary Ops Manager instance).
+  3. Create a credentials Secret for Meta OM admin API access.
+  4. Patch Primary OM to set spec.applicationDatabase.managedByMetaOM.
+  5. Assert AppDB pods restart and reach Running phase again.
+  6. Assert the AppDB StatefulSet env vars reflect online mode
+     (MMS_SERVER present; HEADLESS_AGENT / AUTOMATION_CONFIG_MAP absent).
+  7. Assert the AppDB agent command contains online mode params
+     (mmsBaseUrl, mmsGroupId, mmsApiKey as explicit flags; no -cluster flag).
 
 Both Ops Manager instances are deployed in the same namespace for simplicity.
 """
 
+#TODO: change to om-primary
 PRIMARY_OM_NAME = "om-appdb-meta-om-mode-switch"
 META_OM_NAME = "om-meta"
 META_OM_CREDS_SECRET = "meta-om-creds"
@@ -43,15 +41,12 @@ def primary_ops_manager(
     custom_appdb_version: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_appdb_meta_om_mode_switch.yaml"), namespace=namespace
+        yaml_fixture("om_appdb_switch_primary_om.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    if is_multi_cluster():
-        enable_multi_cluster_deployment(resource)
-
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -62,15 +57,12 @@ def meta_ops_manager(
     custom_appdb_version: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_meta_om.yaml"), namespace=namespace
+        yaml_fixture("om_appdb_switch_meta_om.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    if is_multi_cluster():
-        enable_multi_cluster_deployment(resource)
-
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -90,6 +82,7 @@ class TestPrimaryOMCreation:
     """Deploy Primary OM with headless AppDB and verify baseline state."""
 
     def test_primary_om_reaches_running(self, primary_ops_manager: MongoDBOpsManager):
+        primary_ops_manager.update()
         primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         primary_ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -112,6 +105,7 @@ class TestMetaOMCreation:
     """Deploy the secondary (Meta) Ops Manager instance."""
 
     def test_meta_om_reaches_running(self, meta_ops_manager: MongoDBOpsManager):
+        meta_ops_manager.update()
         meta_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         meta_ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -169,16 +163,16 @@ class TestModeSwitchToMetaOM:
         primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_appdb_in_online_mode(self, primary_ops_manager: MongoDBOpsManager):
-        """After the switch: AppDB agent container must carry online mode env vars."""
+        """After the switch: AppDB agent container must carry online mode env vars.
+        mmsGroupId and mmsApiKey are passed as explicit command params, not env vars."""
         env = _get_agent_container_env_vars(primary_ops_manager)
         assert "MMS_SERVER" in env, "MMS_SERVER must be present after mode switch"
-        assert "MMS_GROUP_ID" in env, "MMS_GROUP_ID must be present after mode switch"
-        assert "MMS_API_KEY" in env, "MMS_API_KEY must be present after mode switch"
         assert env.get("MMS_SERVER", ""), "MMS_SERVER must be non-empty"
-        assert env.get("MMS_GROUP_ID", ""), "MMS_GROUP_ID must be non-empty"
-        assert env.get("MMS_API_KEY", ""), "MMS_API_KEY must be non-empty"
         assert "HEADLESS_AGENT" not in env, "HEADLESS_AGENT must be absent after mode switch"
         assert "AUTOMATION_CONFIG_MAP" not in env, "AUTOMATION_CONFIG_MAP must be absent after mode switch"
+        # mmsGroupId and mmsApiKey are explicit command params, not env vars
+        assert "MMS_GROUP_ID" not in env, "MMS_GROUP_ID must be absent (passed as -mmsGroupId cmd param)"
+        assert "MMS_API_KEY" not in env, "MMS_API_KEY must be absent (passed as -mmsApiKey cmd param)"
 
     def test_primary_om_still_running(self, primary_ops_manager: MongoDBOpsManager):
         """Primary OM itself must remain healthy throughout the AppDB transition."""
