@@ -252,7 +252,9 @@ For quick reference, the end-to-end PoC steps in sequence:
 ## Spike feedback
 
 1. The monitoring agent that runs as a separate container in the AppDB pod also needs to be switched from headless to online mode.
+   1. During PoC we kept monitoring agent using mounted AC for simplicity and kept additional monitoring container
 2. Online mode requires mounting /downloads dir for the agent to download MongoDB binaries, which is not needed in headless mode.
 3. Automation Config for headless mode differs from online mode:
    1. `mongoDbVersions` array in the headless AC has empty url fields
    2. `numberArbiters` for replicaSet is set to 0 in headless mode, but for online mode is invalid and must be removed
+4. Backup activation will be done manually from the Admin UI
