@@ -40,7 +40,6 @@ const (
 	automationConfigMapEnv       = "AUTOMATION_CONFIG_MAP"
 	headlessAgentEnv             = "HEADLESS_AGENT"
 	clusterDomainEnv             = "CLUSTER_DOMAIN"
-	metaOMServerEnv              = "MMS_SERVER"
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
 	// Since the Monitoring Agent is created based on Agent's Pod spec (we modfy it using addMonitoringContainer),
 	// We can not reuse "tmp" here - this name is already taken and could lead to a clash. It's better to
@@ -58,11 +57,10 @@ const (
 // from headless mode to online mode under a Meta OM instance.
 type MetaOMEnvVars struct {
 	// Enabled, when true, switches the agent from headless mode to online mode
-	// connected to a Meta OM instance. Server, GroupID, and APIKey must be set.
+	// connected to a Meta OM instance. Server and GroupID must be set.
 	Enabled bool
 	Server  string
 	GroupID string
-	APIKey  string
 }
 
 type AppDBStatefulSetOptions struct {
@@ -394,9 +392,10 @@ func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
 
 // onlineAutomationAgentCommand builds the automation agent startup command for online mode.
 // Instead of reading a local -cluster file (headless), the agent connects directly to Meta OM
-// via -mmsBaseUrl. mmsGroupId and mmsApiKey are passed as explicit command-line params.
+// via -mmsBaseUrl. The API key is read at runtime from the mounted secret file and exported as
+// $AGENT_API_KEY by the GetMongodbUserCommandWithAPIKeyExport preamble.
 // extraParams are merged in last, allowing CR-level overrides.
-func onlineAutomationAgentCommand(withStatic bool, logLevel mdbcv1.LogLevel, logFile string, maxLogFileDurationHrs int, server, groupID, apiKey string, extraParams mdbv1.StartupParameters) []string {
+func onlineAutomationAgentCommand(withStatic bool, logLevel mdbcv1.LogLevel, logFile string, maxLogFileDurationHrs int, server, groupID string, extraParams mdbv1.StartupParameters) []string {
 	agentLogOptions := ""
 	if logFile == "/dev/stdout" {
 		agentLogOptions += " -logLevel " + string(logLevel)
@@ -407,7 +406,7 @@ func onlineAutomationAgentCommand(withStatic bool, logLevel mdbcv1.LogLevel, log
 	params := mdbv1.StartupParameters{
 		"mmsBaseUrl": server,
 		"mmsGroupId": groupID,
-		"mmsApiKey":  apiKey,
+		"mmsApiKey":  "${AGENT_API_KEY}",
 	}
 	for k, v := range extraParams {
 		params[k] = v
@@ -455,7 +454,6 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 			opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours(),
 			opts.MetaOM.Server,
 			opts.MetaOM.GroupID,
-			opts.MetaOM.APIKey,
 			appDb.AutomationAgent.StartupParameters,
 		)
 	} else {
@@ -608,36 +606,27 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 		monitoringACFunc = podtemplatespec.WithVolume(monitoringAcVolume)
 	}
 	// Construct the command by concatenating:
-	// 1. The base command - from community
+	// 1. The base command preamble - exports the agent API key from the mounted secret file.
 	command := construct.GetMongodbUserCommandWithAPIKeyExport(isStatic)
 	command += "agent/mongodb-agent"
 	command += " -healthCheckFilePath=" + monitoringAgentHealthStatusFilePathValue
 	command += " -serveStatusPort=5001"
 	command += getMonitoringAgentLogOptions(appDB)
 
-	// 2. Add the cluster config file path or Meta OM URL depending on the mode.
-	// In online mode, connect directly to Meta OM instead of reading a local file.
-	if opts.MetaOM.Enabled {
-		command += " -mmsBaseUrl=" + opts.MetaOM.Server
-	} else if vault.IsVaultSecretBackend() {
+	// 2. Always use a local cluster file (headless AC reading from secret).
+	// In MetaOM mode also add -mmsBaseUrl so the agent sends data to Meta OM.
+	if vault.IsVaultSecretBackend() {
 		command += " -cluster=/var/lib/automation/config/" + util.AppDBMonitoringAutomationConfigKey
 	} else {
 		command += " -cluster=/var/lib/automation/config/" + util.AppDBAutomationConfigKey
 	}
 
 	// 2. Startup parameters for the agent to enable monitoring.
-	// In online mode use Meta OM credentials; in headless mode use Primary OM project credentials.
-	var startupParams mdbv1.StartupParameters
-	if opts.MetaOM.Enabled {
-		startupParams = mdbv1.StartupParameters{
-			"mmsApiKey":  opts.MetaOM.APIKey,
-			"mmsGroupId": opts.MetaOM.GroupID,
-		}
-	} else {
-		startupParams = mdbv1.StartupParameters{
-			"mmsApiKey":  "${AGENT_API_KEY}",
-			"mmsGroupId": podVars.ProjectID,
-		}
+	// podVars.ProjectID holds the correct group ID for both MetaOM and non-MetaOM modes.
+	// The API key is always read at runtime from the mounted secret file exported as $AGENT_API_KEY.
+	startupParams := mdbv1.StartupParameters{
+		"mmsApiKey":  "${AGENT_API_KEY}",
+		"mmsGroupId": podVars.ProjectID,
 	}
 
 	// 3. Startup parameters for the agent to enable TLS
@@ -750,9 +739,7 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec, opts AppDBStatefulSetOptions) con
 
 	if opts.MetaOM.Enabled {
 		return container.Apply(
-			container.WithEnvs(append(common,
-				corev1.EnvVar{Name: metaOMServerEnv, Value: opts.MetaOM.Server},
-			)...),
+			container.WithEnvs(common...),
 			// Remove headless-mode vars injected by community code; they must be absent in online mode.
 			// mmsGroupId and mmsApiKey are passed as explicit command-line params instead of env vars.
 			container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv),

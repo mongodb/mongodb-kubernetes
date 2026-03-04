@@ -1616,7 +1616,6 @@ func TestReconcileManagedByMetaOM_CreatesProjectAndReturnsEnvVars(t *testing.T) 
 	assert.True(t, envVars.Enabled)
 	assert.Equal(t, "http://meta-om.svc:8080", envVars.Server)
 	assert.Equal(t, om.TestGroupID, envVars.GroupID)
-	assert.NotEmpty(t, envVars.APIKey)
 }
 
 // TestReconcileAppDB_WithManagedByMetaOM_UpdatesStatefulSetEnvVars verifies that when

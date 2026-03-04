@@ -85,7 +85,6 @@ func TestAppdbContainerEnv_HeadlessMode(t *testing.T) {
 	agentContainer := findContainer(t, sts, communityConstruct.AgentName)
 	assertEnvVarPresent(t, agentContainer.Env, headlessAgentEnv, "true")
 	assertEnvVarPresent(t, agentContainer.Env, automationConfigMapEnv, om.Name+"-db-config")
-	assertEnvVarAbsent(t, agentContainer.Env, metaOMServerEnv)
 }
 
 func TestAppdbContainerEnv_MetaOMMode(t *testing.T) {
@@ -95,7 +94,6 @@ func TestAppdbContainerEnv_MetaOMMode(t *testing.T) {
 			Enabled: true,
 			Server:  "http://om-meta-svc.meta-ns.svc.cluster.local:8080",
 			GroupID: "aabbccdd112233445566",
-			APIKey:  "secret-agent-key",
 		},
 	}
 	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
@@ -103,7 +101,7 @@ func TestAppdbContainerEnv_MetaOMMode(t *testing.T) {
 	require.NoError(t, err)
 
 	agentContainer := findContainer(t, sts, communityConstruct.AgentName)
-	assertEnvVarPresent(t, agentContainer.Env, metaOMServerEnv, opts.MetaOM.Server)
+	assertEnvVarAbsent(t, agentContainer.Env, "MMS_SERVER")
 	// mmsGroupId and mmsApiKey are passed as explicit command params, not env vars
 	assertEnvVarAbsent(t, agentContainer.Env, "MMS_GROUP_ID")
 	assertEnvVarAbsent(t, agentContainer.Env, "MMS_API_KEY")
@@ -115,7 +113,6 @@ func TestAppdbContainerEnv_MetaOMDisabled_FallsBackToHeadless(t *testing.T) {
 	partialConfigs := []AppDBStatefulSetOptions{
 		{MetaOM: MetaOMEnvVars{Server: "http://om:8080"}},
 		{MetaOM: MetaOMEnvVars{Server: "http://om:8080", GroupID: "gid"}},
-		{MetaOM: MetaOMEnvVars{GroupID: "gid", APIKey: "key"}},
 	}
 	for _, opts := range partialConfigs {
 		om := omv1.NewOpsManagerBuilderDefault().Build()
@@ -125,7 +122,7 @@ func TestAppdbContainerEnv_MetaOMDisabled_FallsBackToHeadless(t *testing.T) {
 
 		agentContainer := findContainer(t, sts, communityConstruct.AgentName)
 		assertEnvVarPresent(t, agentContainer.Env, headlessAgentEnv, "true")
-		assertEnvVarAbsent(t, agentContainer.Env, metaOMServerEnv)
+		assertEnvVarAbsent(t, agentContainer.Env, "MMS_SERVER")
 	}
 }
 
@@ -137,7 +134,6 @@ func TestAppdbContainerEnv_MetaOMEnabledWithEmptyFields_GoesToOnlineMode(t *test
 		{MetaOM: MetaOMEnvVars{Enabled: true}},
 		{MetaOM: MetaOMEnvVars{Enabled: true, Server: "http://om:8080"}},
 		{MetaOM: MetaOMEnvVars{Enabled: true, Server: "http://om:8080", GroupID: "gid"}},
-		{MetaOM: MetaOMEnvVars{Enabled: true, GroupID: "gid", APIKey: "key"}},
 	}
 	for _, opts := range configs {
 		om := omv1.NewOpsManagerBuilderDefault().Build()

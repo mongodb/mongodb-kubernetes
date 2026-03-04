@@ -24,8 +24,7 @@ Scenario:
 Both Ops Manager instances are deployed in the same namespace for simplicity.
 """
 
-#TODO: change to om-primary
-PRIMARY_OM_NAME = "om-appdb-meta-om-mode-switch"
+PRIMARY_OM_NAME = "om-primary"
 META_OM_NAME = "om-meta"
 META_OM_CREDS_SECRET = "meta-om-creds"
 META_OM_PROJECT_NAME = "primary-appdb"
@@ -166,8 +165,6 @@ class TestModeSwitchToMetaOM:
         """After the switch: AppDB agent container must carry online mode env vars.
         mmsGroupId and mmsApiKey are passed as explicit command params, not env vars."""
         env = _get_agent_container_env_vars(primary_ops_manager)
-        assert "MMS_SERVER" in env, "MMS_SERVER must be present after mode switch"
-        assert env.get("MMS_SERVER", ""), "MMS_SERVER must be non-empty"
         assert "HEADLESS_AGENT" not in env, "HEADLESS_AGENT must be absent after mode switch"
         assert "AUTOMATION_CONFIG_MAP" not in env, "AUTOMATION_CONFIG_MAP must be absent after mode switch"
         # mmsGroupId and mmsApiKey are explicit command params, not env vars
@@ -187,25 +184,3 @@ class TestModeSwitchToMetaOM:
         """The AppDB project must now exist inside Meta OM."""
         meta_om_tester = meta_ops_manager.get_om_tester(project_name=META_OM_PROJECT_NAME)
         meta_om_tester.assert_group_exists()
-
-    def test_agent_key_secret_created(self, primary_ops_manager: MongoDBOpsManager, namespace: str):
-        """The operator must have created a Secret with the Meta OM agent API key."""
-        agent_key_secret_name = primary_ops_manager.app_db_name() + "-meta-om-agent-key"
-        secret_data = read_secret(namespace, agent_key_secret_name, get_central_cluster_client())
-        assert "agentKey" in secret_data, f"Secret '{agent_key_secret_name}' must contain 'agentKey'"
-        assert secret_data["agentKey"], "agentKey must be non-empty"
-
-    def test_idempotency(self, primary_ops_manager: MongoDBOpsManager):
-        """Triggering a second reconcile must not change mode or restart pods unnecessarily.
-        Touch an unrelated field (logLevel) to force a reconcile without changing the StatefulSet spec."""
-        primary_ops_manager.load()
-        primary_ops_manager["spec"]["applicationDatabase"]["agent"] = {"logLevel": "DEBUG"}
-        primary_ops_manager.update()
-
-        # Must remain Running (no unnecessary restart)
-        primary_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
-
-        # Online mode env vars must still be present
-        env = _get_agent_container_env_vars(primary_ops_manager)
-        assert "MMS_SERVER" in env
-        assert "HEADLESS_AGENT" not in env

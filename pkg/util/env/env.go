@@ -97,11 +97,10 @@ func ReadIntOrDefault(key string, defaultValue int) int {
 // PodEnvVars is a convenience struct to pass environment variables to Pods as needed.
 // They are used by the automation agent to connect to Ops/Cloud Manager.
 type PodEnvVars struct {
-	BaseURL     string
-	ProjectID   string
-	User        string
-	AgentAPIKey string
-	LogLevel    string
+	BaseURL   string
+	ProjectID string
+	User      string
+	LogLevel  string
 
 	// Related to MMS SSL configuration
 	SSLProjectConfig

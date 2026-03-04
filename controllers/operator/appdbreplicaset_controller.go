@@ -670,6 +670,13 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		}
 	}
 	appdbOpts.MetaOM = metaOMEnvVars
+	// In MetaOM mode, set the project ID on podVars so that all downstream functions
+	// (vaultModification, tlsVolumes, addMonitoringContainer) derive the correct secret name
+	// via agents.ApiKeySecretName(podVars.ProjectID) without needing MetaOM-specific overrides.
+	if appdbOpts.MetaOM.Enabled {
+		podVars.ProjectID = appdbOpts.MetaOM.GroupID
+		podVars.BaseURL = appdbOpts.MetaOM.Server
+	}
 
 	allStatefulSetsExist, err := r.allStatefulSetsExist(ctx, opsManager, log)
 	if err != nil {
@@ -1154,6 +1161,11 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		replicasThisReconciliation += scale.ReplicasThisReconciliation(scalers.GetAppDBScaler(opsManager, memberCluster.Name, memberCluster.Index, r.memberClusters))
 	}
 
+	agentBaseURL, urlErr := r.appDBAgentBaseURL(ctx, opsManager)
+	if urlErr != nil {
+		return automationconfig.AutomationConfig{}, xerrors.Errorf("Failed to determine agent base URL, falling back to primary OM URL: %w", urlErr)
+	}
+
 	builder := automationconfig.NewBuilder().
 		SetTopology(automationconfig.ReplicaSetTopology).
 		SetMemberOptions(memberOptions).
@@ -1222,7 +1234,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 				automationConfig.ReplicaSets = []automationconfig.ReplicaSet{}
 				automationConfig.Processes = []automationconfig.Process{}
 			}
-			setBaseUrlForAgents(automationConfig, opsManager.CentralURL())
+			setBaseUrlForAgents(automationConfig, agentBaseURL)
 		}).
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {
 			if len(automationConfig.ReplicaSets) == 1 {
@@ -1461,6 +1473,24 @@ func setBaseUrlForAgents(ac *automationconfig.AutomationConfig, url string) {
 	for i := range ac.BackupVersions {
 		ac.BackupVersions[i].BaseUrl = url
 	}
+}
+
+// appDBAgentBaseURL returns the URL that AppDB agents should use to register and send data.
+// In MetaOM mode this is the Meta OM URL; otherwise it is the Primary OM URL.
+func (r *ReconcileAppDbReplicaSet) appDBAgentBaseURL(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
+	metaOMRef := opsManager.Spec.AppDB.ManagedByMetaOM
+	if metaOMRef == nil {
+		return opsManager.CentralURL(), nil
+	}
+	metaOMNamespace := metaOMRef.Namespace
+	if metaOMNamespace == "" {
+		metaOMNamespace = opsManager.Namespace
+	}
+	metaOM := &omv1.MongoDBOpsManager{}
+	if err := r.centralClient.Get(ctx, types.NamespacedName{Namespace: metaOMNamespace, Name: metaOMRef.Name}, metaOM); err != nil {
+		return "", xerrors.Errorf("failed to fetch Meta OM CR %s/%s: %w", metaOMNamespace, metaOMRef.Name, err)
+	}
+	return metaOM.CentralURL(), nil
 }
 
 func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
@@ -2280,7 +2310,6 @@ func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
 	}
 
 	// Step 4: Optionally push Automation Config (gated — only when Meta OM config is empty).
-	appdbName := opsManager.Spec.AppDB.Name()
 	headlessConfig, headlessErr := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName()), "")
 	if headlessErr == nil {
 		if acStr, ok := headlessConfig[automationconfig.ConfigKey]; ok && len(acStr) > 0 {
@@ -2309,7 +2338,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
 	}
 
 	// Step 5: Ensure agent API key secret (idempotent).
-	agentKeySecretName := metaOMAgentKeySecretName(appdbName)
+	agentKeySecretName := agents.ApiKeySecretName(groupID)
 	var agentKey string
 	agentKeyData, readErr := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, agentKeySecretName), "")
 	if readErr != nil {
@@ -2323,16 +2352,16 @@ func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
 		agentKeySecret := secret.Builder().
 			SetNamespace(opsManager.Namespace).
 			SetName(agentKeySecretName).
-			SetField("agentKey", agentKey).
+			SetField(util.OmAgentApiKey, agentKey).
 			Build()
 		if err := r.SecretClient.PutSecret(ctx, agentKeySecret, ""); err != nil {
 			return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to create agent key secret: %w", err))
 		}
 	} else {
-		agentKey = agentKeyData["agentKey"]
+		agentKey = agentKeyData[util.OmAgentApiKey]
 		if agentKey == "" {
 			return construct.MetaOMEnvVars{}, workflow.Failed(
-				fmt.Errorf("agent key secret %s exists but 'agentKey' field is empty or missing", agentKeySecretName))
+				fmt.Errorf("agent key secret %s exists but '%s' field is empty or missing", agentKeySecretName, util.OmAgentApiKey))
 		}
 	}
 
@@ -2340,12 +2369,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
 		Enabled: true,
 		Server:  metaOM.CentralURL(),
 		GroupID: groupID,
-		APIKey:  agentKey,
 	}, workflow.OK()
-}
-
-func metaOMAgentKeySecretName(appDBName string) string {
-	return appDBName + "-meta-om-agent-key"
 }
 
 // stripUnsupportedACFields removes fields from an AutomationConfig deployment that are
