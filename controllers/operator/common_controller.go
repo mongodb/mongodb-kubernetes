@@ -544,11 +544,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		clientCerts = util.RequireClientCertificates
 	}
 
-	scramAgentUserName := util.AutomationAgentUserName
-	// only use the default name if there is not already a configured username
-	if ac.Auth.AutoUser != "" && ac.Auth.AutoUser != scramAgentUserName {
-		scramAgentUserName = ac.Auth.AutoUser
-	}
+	scramAgentUserName := ar.GetSecurity().Authentication.Agents.GetAutomationUserName()
 
 	authOpts := authentication.Options{
 		Mechanisms:         mdbv1.ConvertAuthModesToStrings(ar.GetSecurity().Authentication.Modes),
@@ -617,7 +613,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 
 			authOpts.AutoPwd = autoConfigPassword
 			userOpts := authentication.UserOptions{}
-			agentName := ar.GetSecurity().Authentication.Agents.AutomationUserName
+			agentName := ar.GetSecurity().Authentication.Agents.GetAutomationUserName()
 			userOpts.AutomationSubject = agentName
 			authOpts.UserOptions = userOpts
 		}
@@ -1074,12 +1070,12 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 	}
 
-	excessProcesses := d.GetNumberOfExcessProcesses(resourceName)
-	if excessProcesses > 0 {
-		return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
-	}
+	//excessProcesses := d.GetNumberOfExcessProcesses(resourceName)
+	//if excessProcesses > 0 {
+	//	return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes/current/tutorial/migrate-to-single-resource )")
+	//}
 
-	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, log)
+	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, spec.ExternalMembers, log)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)

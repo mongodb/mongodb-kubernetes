@@ -432,6 +432,10 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	ExternalMembers []string `json:"externalMembers,omitempty"`
+
+	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -1017,6 +1021,15 @@ type AgentAuthentication struct {
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ClientCertificateSecretRefWrap common.ClientCertificateSecretRefWrapper `json:"clientCertificateSecretRef,omitempty"`
+}
+
+// GetAutomationUserName returns the configured automation agent username,
+// or the default value if not specified
+func (a *AgentAuthentication) GetAutomationUserName() string {
+	if a == nil || a.AutomationUserName == "" {
+		return util.AutomationAgentUserName
+	}
+	return a.AutomationUserName
 }
 
 // IsX509Enabled determines if X509 is to be enabled at the project level
