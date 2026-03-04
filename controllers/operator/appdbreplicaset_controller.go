@@ -561,32 +561,38 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	agentCertSecretName := opsManager.Spec.AppDB.GetSecurity().AgentClientCertificateSecretName(opsManager.Spec.AppDB.GetName())
 	_, agentCertPath := r.agentCertHashAndPath(ctx, log, opsManager.Namespace, agentCertSecretName, appdbSecretPath)
 
-	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, agentCertPath, log)
-	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
-	// in Ops Manager. This is not a blocker to continue with the rest of the reconciliation.
-	if err != nil {
-		log.Errorf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconciliation.", err)
+	// In MetaOM mode the AppDB agents connect to Meta OM directly; monitoring setup
+	// against Primary OM is not needed and would fail (Primary OM has no such org).
+	var podVars env.PodEnvVars
+	if opsManager.Spec.AppDB.ManagedByMetaOM == nil {
+		var err error
+		podVars, err = r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, agentCertPath, log)
+		// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
+		// in Ops Manager. This is not a blocker to continue with the rest of the reconciliation.
+		if err != nil {
+			log.Errorf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconciliation.", err)
 
-		if podVars.ProjectID != "" {
-			// when there is an error, but projectID is configured, then that means OM has been configured before but might be down
-			// in that case, we need to ensure that all member clusters have all the secrets to be mounted properly
-			// newly added member clusters will not contain them otherwise until OM is recreated and running
-			if err := r.ensureProjectIDConfigMap(ctx, opsManager, podVars.ProjectID); err != nil {
-				// we ignore the error here and let reconciler continue
-				log.Warnf("ignoring ensureProjectIDConfigMap error: %v", err)
+			if podVars.ProjectID != "" {
+				// when there is an error, but projectID is configured, then that means OM has been configured before but might be down
+				// in that case, we need to ensure that all member clusters have all the secrets to be mounted properly
+				// newly added member clusters will not contain them otherwise until OM is recreated and running
+				if err := r.ensureProjectIDConfigMap(ctx, opsManager, podVars.ProjectID); err != nil {
+					// we ignore the error here and let reconciler continue
+					log.Warnf("ignoring ensureProjectIDConfigMap error: %v", err)
+				}
+				// OM connection is passed as nil as it's used only for generating agent api key. Here we have it already
+				if _, err := r.ensureAppDbAgentApiKey(ctx, opsManager, nil, podVars.ProjectID, log); err != nil {
+					// we ignore the error here and let reconciler continue
+					log.Warnf("ignoring ensureAppDbAgentApiKey error: %v", err)
+				}
 			}
-			// OM connection is passed as nil as it's used only for generating agent api key. Here we have it already
-			if _, err := r.ensureAppDbAgentApiKey(ctx, opsManager, nil, podVars.ProjectID, log); err != nil {
-				// we ignore the error here and let reconciler continue
-				log.Warnf("ignoring ensureAppDbAgentApiKey error: %v", err)
-			}
-		}
 
-		// errors returned from "tryConfigureMonitoringInOpsManager" could be either transient or persistent. Transient errors could be when the ops-manager pods
-		// are not ready and trying to connect to the ops-manager service timeout, a persistent error is when the "ops-manager-admin-key" is corrupted, in this case
-		// any API call to ops-manager will fail(including the configuration of AppDB monitoring), this error should be reflected to the user in the "OPSMANAGER" status.
-		if strings.Contains(err.Error(), "401 (Unauthorized)") {
-			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("The admin-key secret might be corrupted: %w", err)), log, omStatusOption)
+			// errors returned from "tryConfigureMonitoringInOpsManager" could be either transient or persistent. Transient errors could be when the ops-manager pods
+			// are not ready and trying to connect to the ops-manager service timeout, a persistent error is when the "ops-manager-admin-key" is corrupted, in this case
+			// any API call to ops-manager will fail(including the configuration of AppDB monitoring), this error should be reflected to the user in the "OPSMANAGER" status.
+			if strings.Contains(err.Error(), "401 (Unauthorized)") {
+				return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("The admin-key secret might be corrupted: %w", err)), log, omStatusOption)
+			}
 		}
 	}
 
@@ -712,7 +718,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Could not save deployment state: %w", err)), log, omStatusOption)
 	}
 
-	if podVars.ProjectID == "" {
+	if podVars.ProjectID == "" && opsManager.Spec.AppDB.ManagedByMetaOM == nil {
 		// this doesn't requeue the reconciliation immediately, the calling OM controller
 		// requeues after Ops Manager has been fully configured.
 		log.Infof("Requeuing reconciliation to configure Monitoring in Ops Manager.")
@@ -2294,6 +2300,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
 				if buildErr != nil {
 					return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to parse headless automation config: %w", buildErr))
 				}
+				stripUnsupportedACFields(omAC)
 				if updateErr := conn.UpdateAutomationConfig(omAC, log); updateErr != nil {
 					return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to push automation config to Meta OM: %w", updateErr))
 				}
@@ -2339,6 +2346,32 @@ func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
 
 func metaOMAgentKeySecretName(appDBName string) string {
 	return appDBName + "-meta-om-agent-key"
+}
+
+// stripUnsupportedACFields removes fields from an AutomationConfig deployment that are
+// accepted by the local headless agent but rejected by the Ops Manager HTTP API:
+//   - "numberArbiters" in replica set entries: always serialized as 0 by the community code
+//     (no omitempty) and is not a valid attribute in the OM public API.
+//   - "mongoDbVersions": in online mode Meta OM manages MongoDB version downloads itself;
+//     the headless config entries often have empty "url" fields which the OM API rejects.
+func stripUnsupportedACFields(ac *om.AutomationConfig) {
+	// Strip mongoDbVersions — Meta OM manages version downloads in online mode.
+	delete(ac.Deployment, "mongoDbVersions")
+
+	// Strip numberArbiters from each replica set entry.
+	rsList, ok := ac.Deployment["replicaSets"]
+	if !ok {
+		return
+	}
+	entries, ok := rsList.([]interface{})
+	if !ok {
+		return
+	}
+	for _, entry := range entries {
+		if rs, ok := entry.(map[string]interface{}); ok {
+			delete(rs, "numberArbiters")
+		}
+	}
 }
 
 // markAppDBAsBackingProject will configure the AppDB project to be read only. Errors are ignored

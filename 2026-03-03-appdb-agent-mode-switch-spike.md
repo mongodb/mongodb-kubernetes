@@ -248,3 +248,11 @@ For quick reference, the end-to-end PoC steps in sequence:
 8. Manually configure backup in Meta OM UI
 9. Trigger PITR restore and verify recovery
 10. Confirm Primary OM and its managed deployments are unaffected
+
+## Spike feedback
+
+1. The monitoring agent that runs as a separate container in the AppDB pod also needs to be switched from headless to online mode.
+2. Online mode requires mounting /downloads dir for the agent to download MongoDB binaries, which is not needed in headless mode.
+3. Automation Config for headless mode differs from online mode:
+   1. `mongoDbVersions` array in the headless AC has empty url fields
+   2. `numberArbiters` for replicaSet is set to 0 in headless mode, but for online mode is invalid and must be removed

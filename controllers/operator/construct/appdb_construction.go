@@ -476,6 +476,24 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		MountPath: "/var/lib/automation/config/acVersion",
 	}
 
+	// In online mode the agent downloads MongoDB/mongosh binaries from Ops Manager's version
+	// catalog. The container root filesystem is read-only, so we need a writable emptyDir.
+	var metaOMVolumes []corev1.Volume
+	var metaOMVolumeMounts []corev1.VolumeMount
+	if opts.MetaOM.Enabled {
+		downloadsVolume := corev1.Volume{
+			Name: "agent-downloads",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		}
+		metaOMVolumes = append(metaOMVolumes, downloadsVolume)
+		metaOMVolumeMounts = append(metaOMVolumeMounts, corev1.VolumeMount{
+			Name:      "agent-downloads",
+			MountPath: "/var/lib/mongodb-mms-automation/downloads",
+		})
+	}
+
 	// Here we ask to create init containers which also creates required volumes.
 	// Note that we provide empty images for init containers. They are not important
 	// at this stage because later we will define our own init containers for non-static architecture.
@@ -506,9 +524,14 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 					container.Apply(
 						container.WithCommand(automationAgentCommand),
 						appdbContainerEnv(*appDb, opts),
-						container.WithVolumeMounts([]corev1.VolumeMount{acVersionMount}),
+						container.WithVolumeMounts(append([]corev1.VolumeMount{acVersionMount}, metaOMVolumeMounts...)),
 					),
 				),
+				func(spec *corev1.PodTemplateSpec) {
+					for _, v := range metaOMVolumes {
+						podtemplatespec.WithVolume(v)(spec)
+					}
+				},
 				vaultModification(*appDb, podVars, opts),
 				appDbPodSpec(opts.InitAppDBImage, opsManager),
 				monitoringModification,
