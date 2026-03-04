@@ -333,6 +333,7 @@ define go-install-tool
 @[ -f $(1) ] || { \
 set -e ;\
 TMP_DIR=$$(mktemp -d) ;\
+cp $(PROJECT_DIR)/.tool-versions $$TMP_DIR/.tool-versions ;\
 cd $$TMP_DIR ;\
 go mod init tmp ;\
 echo "Downloading $(2)" ;\
