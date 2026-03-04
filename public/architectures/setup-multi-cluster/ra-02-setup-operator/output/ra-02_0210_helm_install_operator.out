@@ -83,7 +83,6 @@ operator:
   affinity: {}
   createOperatorServiceAccount: false
   createResourcesServiceAccountsAndRoles: false
-  deployment_name: mongodb-kubernetes-operator
   enableClusterMongoDBRoles: true
   enablePVCResize: true
   env: dev
