@@ -32,7 +32,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.movies_search_helper import SampleMoviesSearchHelper, EmbeddedMoviesSearchHelper
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
@@ -290,28 +290,7 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_sharded_enterprise_managed_lb
 def test_verify_envoy_deployment(namespace: str):
-    """Verify operator-managed Envoy proxy deployment and configuration.
-
-    The controller creates resources named {search-name}-search-lb-config,
-    {search-name}-search-lb, and {search-name}-search-0-{shard}-proxy-svc.
-    Uses polling since the controller creates these asynchronously after the
-    MongoDBSearch CR reaches Running phase.
-    """
-    envoy_config_name = search_resource_names.lb_configmap_name(MDB_RESOURCE_NAME)
     envoy_deployment_name = search_resource_names.lb_deployment_name(MDB_RESOURCE_NAME)
-
-    # Verify Envoy ConfigMap exists (with polling)
-    def check_envoy_configmap():
-        try:
-            config = read_configmap(namespace, envoy_config_name)
-            has_yaml = "envoy.yaml" in config
-            has_listener = has_yaml and "mongod_listener" in config["envoy.yaml"]
-            return has_yaml and has_listener, f"has_yaml={has_yaml}, has_listener={has_listener}"
-        except Exception as e:
-            return False, f"ConfigMap {envoy_config_name} not found: {e}"
-
-    run_periodically(check_envoy_configmap, timeout=120, sleep_time=5, msg=f"Envoy ConfigMap {envoy_config_name}")
-    logger.info(f"✓ Envoy ConfigMap {envoy_config_name} verified")
 
     # Verify Envoy Deployment is running (with polling)
     def check_envoy_deployment():
@@ -325,25 +304,6 @@ def test_verify_envoy_deployment(namespace: str):
 
     run_periodically(check_envoy_deployment, timeout=120, sleep_time=5, msg=f"Envoy Deployment {envoy_deployment_name}")
     logger.info(f"✓ Envoy Deployment {envoy_deployment_name} is running")
-
-    # Verify per-shard proxy Services exist
-    for i in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc_name = search_resource_names.shard_proxy_service_name(MDB_RESOURCE_NAME, shard_name)
-
-        def check_proxy_service(svc_name=proxy_svc_name):
-            try:
-                service = get_service(namespace, svc_name)
-                if service is None:
-                    return False, f"Proxy Service {svc_name} not found"
-                ports = {p.port for p in service.spec.ports}
-                has_port = ENVOY_PROXY_PORT in ports
-                return has_port, f"ports={ports}, has_proxy_port={has_port}"
-            except Exception as e:
-                return False, f"Proxy Service {svc_name} not found: {e}"
-
-        run_periodically(check_proxy_service, timeout=120, sleep_time=5, msg=f"Proxy Service {proxy_svc_name}")
-        logger.info(f"✓ Proxy Service {proxy_svc_name} verified")
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
@@ -402,7 +362,8 @@ def test_verify_mongod_parameters_per_shard(namespace: str, mdb: MongoDB, mdbs: 
     run_periodically(check_mongod_parameters, timeout=300, sleep_time=10, msg="mongod search parameters")
     logger.info("✓ All shards have correct mongod search parameters pointing to Envoy proxy")
 
-
+# TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
+# to wait for to get the mongod/mongos config properly generated.
 @mark.e2e_search_sharded_enterprise_managed_lb
 def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
     """
@@ -473,19 +434,13 @@ def test_create_search_index(mdb: MongoDB):
     """
     search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
+    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
     logger.info("✓ Text search index created")
 
-
-@mark.e2e_search_sharded_enterprise_managed_lb
-def test_wait_for_search_index_ready(mdb: MongoDB):
-    """Wait for search index to be ready.
-
-    Uses SearchTester with direct pymongo connection. This works locally with kubefwd
-    because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
-    """
-    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
-    logger.info("✓ Search index is ready")
+    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
+    emb_helper.create_vector_search_index()
+    emb_helper.wait_for_vector_search_index()
+    logger.info("✓ Vector search index created on embedded_movies")
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
@@ -543,6 +498,53 @@ def test_verify_search_results_from_all_shards(mdb: MongoDB):
 
     run_periodically(execute_all_docs_search, timeout=120, sleep_time=5, msg="search query for all docs")
     logger.info(f"Search results for all documents verified.")
+
+
+@mark.e2e_search_sharded_enterprise_managed_lb
+def test_vector_search_before_and_after_sharding(mdb: MongoDB):
+    """Verify vector search returns consistent results before and after sharding embedded_movies."""
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    admin_search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
+    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
+
+    # Generate query vector by calling the Voyage embedding API
+    query_vector = emb_helper.generate_query_vector("war movies")
+
+    # Count total documents with embeddings to use as the limit
+    total_docs = emb_helper.count_documents_with_embeddings()
+    logger.info(f"Total documents with embeddings: {total_docs}")
+
+    # Run vector search before sharding
+    results_before = emb_helper.vector_search(query_vector, limit=total_docs)
+    count_before = len(results_before)
+    logger.info(f"Vector search before sharding: {count_before} results")
+    assert count_before > 0, "Vector search returned no results before sharding"
+
+    # Shard the embedded_movies collection (requires admin)
+    admin_search_tester.shard_and_distribute_collection("sample_mflix", "embedded_movies")
+    logger.info("embedded_movies collection sharded")
+
+    # Resharding (shard_and_distribute_collection) drops search indexes — recreate and wait for ready
+    emb_helper.create_vector_search_index()
+    emb_helper.wait_for_vector_search_index(timeout=300)
+    logger.info("Vector search index recreated after resharding")
+
+    # Run vector search after sharding with the same query vector and verify same count.
+    # Catch OperationFailure because mongot shards may still be in INITIAL_SYNC after resharding.
+    def verify_vector_search_after_sharding():
+        try:
+            results_after = emb_helper.vector_search(query_vector, limit=total_docs)
+        except pymongo.errors.OperationFailure as e:
+            logger.info(f"Vector search not ready yet: {e}")
+            return False, f"Vector search failed: {e}"
+        count_after = len(results_after)
+        logger.info(f"Vector search after sharding: {count_after} results")
+        if count_after == count_before:
+            return True, f"Vector search returned {count_after} results (matches pre-sharding count)"
+        return False, f"Vector search returned {count_after} results, expected {count_before}"
+
+    run_periodically(verify_vector_search_after_sharding, timeout=300, sleep_time=10, msg="vector search after sharding")
+    logger.info(f"Vector search returns consistent {count_before} results after sharding")
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb

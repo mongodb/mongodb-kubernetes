@@ -23,7 +23,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
-from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.movies_search_helper import SampleMoviesSearchHelper, EmbeddedMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
@@ -321,6 +321,8 @@ def test_wait_for_agents_ready(mdb: MongoDB):
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
+# TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
+# to wait for to get the mongod/mongos config properly generated.
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     def check_mongod_parameters():
@@ -367,6 +369,8 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
     logger.info("All shards have correct mongod search parameters pointing to Envoy proxy")
 
 
+# TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
+# to wait for to get the mongod/mongos config properly generated.
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
     mongos_pod = f"{MDB_RESOURCE_NAME}-mongos-0"
@@ -444,14 +448,13 @@ def test_verify_documents_count_in_shards(mdb: MongoDB):
 def test_search_create_search_index(mdb: MongoDB):
     search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
+    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
     logger.info("Text search index created")
 
-
-@mark.e2e_search_sharded_external_mongod_single_mongot
-def test_search_wait_for_search_index_ready(mdb: MongoDB):
-    search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
-    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
-    logger.info("Search index is ready")
+    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
+    emb_helper.create_vector_search_index()
+    emb_helper.wait_for_vector_search_index()
+    logger.info("Vector search index is ready on embedded_movies")
 
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
@@ -509,3 +512,51 @@ def test_search_verify_results_from_all_shards(mdb: MongoDB):
 
     run_periodically(execute_all_docs_search, timeout=120, sleep_time=5, msg="search query for all docs")
     logger.info(f"Search results for all documents verified.")
+
+@mark.e2e_search_sharded_external_mongod_single_mongot
+def test_vector_search_before_and_after_sharding(mdb: MongoDB):
+    """Verify vector search returns consistent results before and after sharding embedded_movies."""
+    search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
+    admin_search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=True)
+    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
+
+    # Generate query vector by calling the Voyage embedding API
+    query_vector = emb_helper.generate_query_vector("war movies")
+
+    # Count total documents with embeddings to use as the limit — ensures we verify
+    # ALL documents are reachable, not just an arbitrary subset.
+    total_docs = emb_helper.count_documents_with_embeddings()
+    logger.info(f"Total documents with embeddings: {total_docs}")
+
+    # Run vector search before sharding
+    results_before = emb_helper.vector_search(query_vector, limit=total_docs)
+    count_before = len(results_before)
+    logger.info(f"Vector search before sharding: {count_before} results")
+    assert count_before > 0, "Vector search returned no results before sharding"
+
+    # Shard the embedded_movies collection
+    admin_search_tester.shard_and_distribute_collection("sample_mflix", "embedded_movies")
+    logger.info("embedded_movies collection sharded")
+
+    # Resharding (shard_and_distribute_collection) drops search indexes — recreate and wait for ready
+    emb_helper.create_vector_search_index()
+    emb_helper.wait_for_vector_search_index(timeout=300)
+    logger.info("Vector search index recreated after resharding")
+
+    # Run vector search after sharding with the same query vector and verify same count.
+    # Catch OperationFailure because mongot shards may still be in INITIAL_SYNC after resharding.
+    def verify_vector_search_after_sharding():
+        try:
+            results_after = emb_helper.vector_search(query_vector, limit=total_docs)
+        except pymongo.errors.OperationFailure as e:
+            logger.info(f"Vector search not ready yet: {e}")
+            return False, f"Vector search failed: {e}"
+        count_after = len(results_after)
+        logger.info(f"Vector search after sharding: {count_after} results")
+        if count_after == count_before:
+            return True, f"Vector search returned {count_after} results (matches pre-sharding count)"
+        return False, f"Vector search returned {count_after} results, expected {count_before}"
+
+    run_periodically(verify_vector_search_after_sharding, timeout=300, sleep_time=10, msg="vector search after sharding")
+    logger.info(f"Vector search returns consistent {count_before} results after sharding")
+
