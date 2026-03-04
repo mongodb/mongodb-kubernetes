@@ -13,9 +13,9 @@ include:
 variables:
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_70_latest 7.0.22 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_70_latest 7.0.23 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.19 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.20 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -2015,6 +2015,7 @@ buildvariants:
   - name: flaky_test_report
     display_name: "Flaky Test Weekly Report"
     cron: "0 9 * * 1"
+    allowed_requesters: [ "ad_hoc", "patch" ] # only run on cron jobs or manually via patches
     run_on:
       - ubuntu2404-small
     tasks:

@@ -99,22 +99,31 @@ EOF
   kubectl --context "${test_pod_cluster}" delete secret test-pod-kubeconfig -n "${NAMESPACE}" --ignore-not-found
   kubectl --context "${test_pod_cluster}" create secret generic test-pod-kubeconfig --from-file=kubeconfig="${secret_kubeconfig}" --namespace "${NAMESPACE}" || true
 
-  echo "Creating project configmap"
-  # delete `my-project` if it exists
-  kubectl --context "${CENTRAL_CLUSTER}" --namespace "${NAMESPACE}" delete configmap my-project --ignore-not-found
-  # Configuring project
-  kubectl --context "${CENTRAL_CLUSTER}" --namespace "${NAMESPACE}" create configmap my-project \
-    --from-literal=projectName="${NAMESPACE}" --from-literal=baseUrl="${OM_BASE_URL}" \
-    --from-literal=orgId="${OM_ORGID:-}"
+  echo "Creating project configmap (using apply for idempotency)"
+  kubectl --context "${CENTRAL_CLUSTER}" apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-project
+  namespace: ${NAMESPACE}
+data:
+  projectName: "${NAMESPACE}"
+  baseUrl: "${OM_BASE_URL}"
+  orgId: "${OM_ORGID:-}"
+EOF
 
-  create_image_registries_secret
-
-  echo "Creating credentials secret"
-  # delete `my-credentials` if it exists
-  kubectl --context "${CENTRAL_CLUSTER}" --namespace "${NAMESPACE}" delete secret my-credentials --ignore-not-found
-  # Configure the Kubernetes credentials for Ops Manager
-  kubectl --context "${CENTRAL_CLUSTER}" --namespace "${NAMESPACE}" create secret generic my-credentials \
-    --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
+  echo "Creating credentials secret (using apply for idempotency)"
+  kubectl --context "${CENTRAL_CLUSTER}" apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-credentials
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  user: "${OM_USER:=admin}"
+  publicApiKey: "${OM_API_KEY}"
+EOF
 
   echo "Creating required roles and service accounts."
   kubectl --context "${CENTRAL_CLUSTER}" -n "${NAMESPACE}" apply -f "${helm_template_file}"

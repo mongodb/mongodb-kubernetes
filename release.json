@@ -1,6 +1,6 @@
 {
   "mongodbToolsBundle": {
-    "ubi": "mongodb-database-tools-rhel88-x86_64-100.14.0.tgz"
+    "ubi": "mongodb-database-tools-rhel88-x86_64-100.14.1.tgz"
   },
   "mongodbOperator": "1.7.0",
   "initDatabaseVersion": "1.7.0",
@@ -24,14 +24,14 @@
     },
     {
       "7": {
-        "opsManagerVersion": "7.0.22",
-        "agentVersion": "107.0.22.8828-1"
+        "opsManagerVersion": "7.0.23",
+        "agentVersion": "107.0.23.8833-1"
       }
     },
     {
       "8": {
-        "opsManagerVersion": "8.0.19",
-        "agentVersion": "108.0.19.8941-1"
+        "opsManagerVersion": "8.0.20",
+        "agentVersion": "108.0.20.8953-1"
       }
     }
   ],
@@ -52,6 +52,7 @@
         "7.0.20",
         "7.0.21",
         "7.0.22",
+        "7.0.23",
         "8.0.0",
         "8.0.1",
         "8.0.2",
@@ -68,7 +69,8 @@
         "8.0.16",
         "8.0.17",
         "8.0.18",
-        "8.0.19"
+        "8.0.19",
+        "8.0.20"
       ],
       "variants": [
         "ubi"
@@ -125,7 +127,7 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.47.0.10239-1",
+        "cloud_manager": "13.48.0.10348-1",
         "cloud_manager_tools": "100.14.0",
         "ops_manager": {
           "6.0.27": {
@@ -235,6 +237,14 @@
           "8.0.19": {
             "agent_version": "108.0.19.8941-1",
             "tools_version": "100.14.0"
+          },
+          "8.0.20": {
+            "agent_version": "108.0.20.8953-1",
+            "tools_version": "100.14.1"
+          },
+          "7.0.23": {
+            "agent_version": "107.0.23.8833-1",
+            "tools_version": "100.14.1"
           }
         }
       },
