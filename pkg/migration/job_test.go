@@ -5,6 +5,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func TestBuildJob_BasicShape(t *testing.T) {
@@ -111,4 +115,56 @@ func findEnv(envVars []corev1.EnvVar, name string) string {
 		}
 	}
 	return ""
+}
+
+// newTestRS builds a minimal MongoDB CR for use in BuildJobConfigFromRS tests.
+func newTestRS(name, namespace string, security *mdbv1.Security) *mdbv1.MongoDB {
+	rs := &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				Security: security,
+			},
+		},
+	}
+	rs.Spec.ResourceType = mdbv1.ReplicaSet
+	return rs
+}
+
+func TestBuildJobConfigFromRS_SCRAMAuth(t *testing.T) {
+	rs := newTestRS("my-rs", "default", nil)
+	members := []string{"vm1.example.com:27017", "vm2.example.com:27017"}
+	cfg := BuildJobConfigFromRS(rs, "quay.io/mongodb/operator:1.0", util.AutomationConfigScramSha256Option, members)
+
+	assert.Equal(t, "my-rs", cfg.Name)
+	assert.Equal(t, "default", cfg.Namespace)
+	assert.Equal(t, util.AutomationConfigScramSha256Option, cfg.AuthMechanism)
+	assert.Equal(t, members, cfg.ExternalMembers)
+	assert.Contains(t, cfg.ConnectionString, "vm1.example.com:27017")
+	assert.Contains(t, cfg.ConnectionString, "replicaSet=my-rs")
+	assert.Equal(t, "my-rs-clusterfile", cfg.KeyfileSecretRef)
+}
+
+func TestBuildJobConfigFromRS_X509Auth(t *testing.T) {
+	sec := &mdbv1.Security{
+		Authentication: &mdbv1.Authentication{
+			Enabled: true,
+			Modes:   []mdbv1.AuthMode{util.X509},
+		},
+	}
+	rs := newTestRS("my-rs", "ops", sec)
+	members := []string{"vm1.example.com:27017"}
+	cfg := BuildJobConfigFromRS(rs, "quay.io/mongodb/operator:1.0", "MONGODB-X509", members)
+
+	assert.Equal(t, util.AutomationConfigX509Option, cfg.AuthMechanism)
+	// Default agent-cert secret name: "agent-certs"
+	assert.Equal(t, util.AgentSecretName, cfg.KeyfileSecretRef)
+}
+
+func TestBuildJobConfigFromRS_ConnectionStringFormat(t *testing.T) {
+	rs := newTestRS("replica-set-0", "ns", nil)
+	members := []string{"a:27017", "b:27017", "c:27017"}
+	cfg := BuildJobConfigFromRS(rs, "", "", members)
+
+	assert.Equal(t, "mongodb://a:27017,b:27017,c:27017/?replicaSet=replica-set-0", cfg.ConnectionString)
 }
