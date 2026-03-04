@@ -1,5 +1,6 @@
 from typing import Optional
 
+from kubernetes import client
 from kubetester import create_or_update_configmap, find_fixture, random_k8s_name, read_configmap, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.mongodb import MongoDB
@@ -9,6 +10,8 @@ from tests.pod_logs import assert_log_types_in_structured_json_pod_log, get_all_
 
 custom_agent_log_path = "/var/log/mongodb-mms-automation/customLogFile"
 custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogFile"
+custom_monitoring_log_path = "/var/log/mongodb-mms-automation/custom-monitoring-agent.log"
+custom_backup_log_path = "/var/log/mongodb-mms-automation/custom-backup-agent.log"
 
 
 @fixture(scope="module")
@@ -161,6 +164,59 @@ def test_enable_audit_log(replica_set: MongoDB):
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_log_types_with_audit_enabled(replica_set: MongoDB):
     assert_pod_log_types(replica_set, get_all_log_types())
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_set_custom_monitoring_and_backup_log_paths(replica_set: MongoDB):
+    replica_set.load()
+    replica_set["spec"]["agent"]["monitoringAgent"] = {
+        "logFilePath": custom_monitoring_log_path,
+    }
+    replica_set["spec"]["agent"]["backupAgent"] = {
+        "logFilePath": custom_backup_log_path,
+    }
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_custom_monitoring_log_path_env_var(replica_set: MongoDB, namespace: str):
+    for i in range(3):
+        pod = client.CoreV1Api().read_namespaced_pod(f"replica-set-{i}", namespace)
+        env_vars = {var.name: var.value for var in pod.spec.containers[0].env if var.value is not None}
+        assert env_vars.get("MDB_LOG_FILE_MONITORING_AGENT") == custom_monitoring_log_path, (
+            f"Expected MDB_LOG_FILE_MONITORING_AGENT={custom_monitoring_log_path}, "
+            f"got {env_vars.get('MDB_LOG_FILE_MONITORING_AGENT')}"
+        )
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_custom_backup_log_path_env_var(replica_set: MongoDB, namespace: str):
+    for i in range(3):
+        pod = client.CoreV1Api().read_namespaced_pod(f"replica-set-{i}", namespace)
+        env_vars = {var.name: var.value for var in pod.spec.containers[0].env if var.value is not None}
+        assert env_vars.get("MDB_LOG_FILE_BACKUP_AGENT") == custom_backup_log_path, (
+            f"Expected MDB_LOG_FILE_BACKUP_AGENT={custom_backup_log_path}, "
+            f"got {env_vars.get('MDB_LOG_FILE_BACKUP_AGENT')}"
+        )
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_default_monitoring_and_backup_log_paths(second_replica_set: MongoDB, namespace: str):
+    """Verify that when no custom log paths are set, the default paths are used."""
+    default_monitoring_path = "/var/log/mongodb-mms-automation/monitoring-agent.log"
+    default_backup_path = "/var/log/mongodb-mms-automation/backup-agent.log"
+    for i in range(3):
+        pod = client.CoreV1Api().read_namespaced_pod(f"replica-set-2-{i}", namespace)
+        env_vars = {var.name: var.value for var in pod.spec.containers[0].env if var.value is not None}
+        assert env_vars.get("MDB_LOG_FILE_MONITORING_AGENT") == default_monitoring_path, (
+            f"Expected default MDB_LOG_FILE_MONITORING_AGENT={default_monitoring_path}, "
+            f"got {env_vars.get('MDB_LOG_FILE_MONITORING_AGENT')}"
+        )
+        assert env_vars.get("MDB_LOG_FILE_BACKUP_AGENT") == default_backup_path, (
+            f"Expected default MDB_LOG_FILE_BACKUP_AGENT={default_backup_path}, "
+            f"got {env_vars.get('MDB_LOG_FILE_BACKUP_AGENT')}"
+        )
 
 
 def assert_pod_log_types(replica_set: MongoDB, expected_log_types: Optional[set[str]]):
