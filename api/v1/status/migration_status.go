@@ -1,25 +1,36 @@
 package status
 
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// Condition type for migration (connectivity validation) dry run.
+const ConditionNetworkConnectivityVerified = "NetworkConnectivityVerified"
+
 // MigrationPhase describes the current phase of a connectivity validation dry run.
 type MigrationPhase string
 
 const (
-	// MigrationPhaseConnectivityCheckRunning means the connectivity validation Job
-	// has been created and is still in progress.
 	MigrationPhaseConnectivityCheckRunning MigrationPhase = "ConnectivityCheckRunning"
-
-	// MigrationPhaseConnectivityCheckPassed means the Job completed successfully:
-	// all external members were reachable and authenticated.
-	MigrationPhaseConnectivityCheckPassed MigrationPhase = "ConnectivityCheckPassed"
-
-	// MigrationPhaseConnectivityCheckFailed means the Job completed with a non-zero
-	// exit code; see status.migration.message for the reason.
-	MigrationPhaseConnectivityCheckFailed MigrationPhase = "ConnectivityCheckFailed"
+	MigrationPhaseConnectivityCheckPassed  MigrationPhase = "ConnectivityCheckPassed"
+	MigrationPhaseConnectivityCheckFailed  MigrationPhase = "ConnectivityCheckFailed"
 )
 
-// MigrationStatus is written to status.migration during a migration dry run.
-type MigrationStatus struct {
-	Phase   MigrationPhase `json:"phase"`
-	Message string         `json:"message,omitempty"`
-	Reason  string         `json:"reason,omitempty"`
+// MigrationCondition returns a metav1.Condition for the migration connectivity check.
+// Passed -> True, Failed -> False, Running -> Unknown.
+func MigrationCondition(phase MigrationPhase, reason, message string) metav1.Condition {
+	status := metav1.ConditionUnknown
+	switch phase {
+	case MigrationPhaseConnectivityCheckPassed:
+		status = metav1.ConditionTrue
+	case MigrationPhaseConnectivityCheckFailed:
+		status = metav1.ConditionFalse
+	}
+	return metav1.Condition{
+		Type:               ConditionNetworkConnectivityVerified,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		LastTransitionTime: metav1.Now(),
+	}
 }

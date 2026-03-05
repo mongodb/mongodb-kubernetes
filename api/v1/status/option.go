@@ -2,6 +2,8 @@ package status
 
 import (
 	"reflect"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type Option interface {
@@ -122,15 +124,15 @@ func NewPVCsStatusOptionEmptyStatus() PVCStatusOption {
 	return PVCStatusOption{PVC: nil}
 }
 
-// MigrationStatusOption carries the result of a migration dry run.
-type MigrationStatusOption struct {
-	Migration MigrationStatus
+// MigrationConditionOption carries a condition for the migration connectivity check.
+type MigrationConditionOption struct {
+	Condition metav1.Condition
 }
 
-func NewMigrationStatusOption(migration MigrationStatus) MigrationStatusOption {
-	return MigrationStatusOption{Migration: migration}
+func NewMigrationConditionOption(condition metav1.Condition) MigrationConditionOption {
+	return MigrationConditionOption{Condition: condition}
 }
 
-func (o MigrationStatusOption) Value() interface{} {
-	return o.Migration
+func (o MigrationConditionOption) Value() interface{} {
+	return o.Condition
 }

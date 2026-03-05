@@ -40,7 +40,7 @@ func RunConnectivityJob(ctx context.Context, kubeClient client.Client, template 
 	}
 
 	jobs := list.Items
-	for i := range jobs {
+	for i := range jobs { // TODO: check that logic
 		if jobs[i].Status.Succeeded > 0 {
 			_, r, m := migration.NetworkConditionFromExitCode(migration.ExitSuccess)
 			return mdbstatus.MigrationPhaseConnectivityCheckPassed, r, m, nil

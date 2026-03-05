@@ -14,9 +14,6 @@ const (
 	ExitMemberUnreachable = 4 // ping timed out / connection refused
 	ExitDNSFailed         = 5 // hostname resolution failed
 	ExitTLSFailed         = 6 // TLS handshake error
-
-	// ConditionNetworkConnectivityVerified is the condition type written to status.migration.conditions.
-	ConditionNetworkConnectivityVerified = "NetworkConnectivityVerified"
 )
 
 // NetworkConditionFromExitCode returns the status, reason, and message needed to populate a metav1.Condition
