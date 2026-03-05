@@ -19,26 +19,28 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 type MongoDBSearchReconciler struct {
-	kubeClient           kubernetesClient.Client
-	watch                *watch.ResourceWatcher
+	*ReconcileCommonController
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
+	omConnectionFactory  om.ConnectionFactory
 }
 
-func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig searchcontroller.OperatorSearchConfig) *MongoDBSearchReconciler {
+func newMongoDBSearchReconciler(ctx context.Context, client client.Client, operatorSearchConfig searchcontroller.OperatorSearchConfig, omConnectionFactory om.ConnectionFactory) *MongoDBSearchReconciler {
 	return &MongoDBSearchReconciler{
-		kubeClient:           kubernetesClient.NewClient(client),
-		watch:                watch.NewResourceWatcher(),
-		operatorSearchConfig: operatorSearchConfig,
+		ReconcileCommonController: NewReconcileCommonController(ctx, client),
+		operatorSearchConfig:      operatorSearchConfig,
+		omConnectionFactory:       omConnectionFactory,
 	}
 }
 
@@ -48,11 +50,11 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	log.Info("-> MongoDBSearch.Reconcile")
 
 	mdbSearch := &searchv1.MongoDBSearch{}
-	if result, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
+	if result, err := commoncontroller.GetResource(ctx, r.client, request, mdbSearch, log); err != nil {
 		return result, err
 	}
 
-	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
+	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.client, mdbSearch, log)
 	if err != nil {
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, err
 	}
@@ -60,7 +62,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	if mdbSearch.IsWireprotoEnabled() {
 		log.Info("Enabling the mongot wireproto server as required by annotation")
 		// the keyfile secret is necessary for wireproto authentication
-		r.watch.AddWatchedResourceIfNotAdded(searchSource.KeyfileSecretName(), mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(searchSource.KeyfileSecretName(), mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
 	// Watch for changes in database source CA certificate secrets or configmaps
@@ -68,21 +70,21 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	if tlsSourceConfig != nil {
 		for wType, resources := range tlsSourceConfig.ResourcesToWatch {
 			for _, resource := range resources {
-				r.watch.AddWatchedResourceIfNotAdded(resource.Name, resource.Namespace, wType, mdbSearch.NamespacedName())
+				r.resourceWatcher.AddWatchedResourceIfNotAdded(resource.Name, resource.Namespace, wType, mdbSearch.NamespacedName())
 			}
 		}
 	}
 
 	// Watch our own TLS certificate secret for changes
 	if mdbSearch.Spec.Security.TLS != nil {
-		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.Security.TLS.CertificateKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(mdbSearch.Spec.Security.TLS.CertificateKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
 	if mdbSearch.Spec.AutoEmbedding != nil {
-		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
-	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, searchSource, r.operatorSearchConfig)
+	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.client, mdbSearch, searchSource, r.operatorSearchConfig)
 
 	return reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 }
@@ -113,8 +115,26 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 			return nil, xerrors.Errorf("error getting MongoDB %s: %w", sourceName, err)
 		}
 	} else {
-		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
-		return searchcontroller.NewEnterpriseResourceSearchSource(mdb), nil
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
+		var processToHostnameMap map[string]om.HostnameAndPort = nil
+		if len(mdb.Spec.ExternalMembers) > 0 {
+			conn, err := r.getOMConnection(ctx, mdb, log)
+			if err != nil {
+				return nil, xerrors.Errorf("error getting Ops Manager connection for MongoDB search source: %w", err)
+			}
+
+			d, err := conn.ReadDeployment()
+			if err != nil {
+				return nil, xerrors.Errorf("error reading automation config deployment from Ops Manager for MongoDB search source: %w", err)
+			}
+
+			rsName := mdb.Name
+			if mdb.Spec.ReplicaSetNameOverride != "" {
+				rsName = mdb.Spec.ReplicaSetNameOverride
+			}
+			processToHostnameMap = d.GetHostnamesForReplicaSetMembers(rsName)
+		}
+		return searchcontroller.NewEnterpriseResourceSearchSource(mdb, processToHostnameMap), nil
 	}
 
 	mdbc := &mdbcv1.MongoDBCommunity{}
@@ -123,11 +143,25 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 			return nil, xerrors.Errorf("error getting MongoDBCommunity %s: %w", sourceName, err)
 		}
 	} else {
-		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, "MongoDBCommunity", search.NamespacedName())
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, "MongoDBCommunity", search.NamespacedName())
 		return searchcontroller.NewCommunityResourceSearchSource(mdbc), nil
 	}
 
 	return nil, xerrors.Errorf("No database resource named %s found", sourceName)
+}
+
+func (r *MongoDBSearchReconciler) getOMConnection(ctx context.Context, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) (om.Connection, error) {
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, mdb, log)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mdb.Namespace, log)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)
+	}
+
+	return conn, nil
 }
 
 func mdbcSearchIndexBuilder(rawObj client.Object) []string {
@@ -145,15 +179,15 @@ func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operat
 		return err
 	}
 
-	r := newMongoDBSearchReconciler(kubernetesClient.NewClient(mgr.GetClient()), operatorSearchConfig)
+	r := newMongoDBSearchReconciler(ctx, mgr.GetClient(), operatorSearchConfig, om.NewOpsManagerConnection)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
 		For(&searchv1.MongoDBSearch{}).
-		Watches(&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}).
-		Watches(&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}).
-		Watches(&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}).
-		Watches(&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}).
+		Watches(&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.resourceWatcher}).
+		Watches(&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.resourceWatcher}).
+		Watches(&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.resourceWatcher}).
+		Watches(&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.resourceWatcher}).
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Secret{}).
 		Complete(r)

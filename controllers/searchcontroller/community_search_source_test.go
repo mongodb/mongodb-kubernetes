@@ -10,23 +10,23 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 )
 
-func newCommunitySearchSource(version string, authModes []mdbcv1.AuthMode) *CommunitySearchSource {
-	return &CommunitySearchSource{
-		MongoDBCommunity: &mdbcv1.MongoDBCommunity{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-mongodb",
-				Namespace: "test-namespace",
-			},
-			Spec: mdbcv1.MongoDBCommunitySpec{
-				Version: version,
-				Security: mdbcv1.Security{
-					Authentication: mdbcv1.Authentication{
-						Modes: authModes,
-					},
+func newCommunitySearchSource(version string, authModes []mdbcv1.AuthMode) SearchSourceDBResource {
+	mdbc := &mdbcv1.MongoDBCommunity{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-mongodb",
+			Namespace: "test-namespace",
+		},
+		Spec: mdbcv1.MongoDBCommunitySpec{
+			Version: version,
+			Security: mdbcv1.Security{
+				Authentication: mdbcv1.Authentication{
+					Modes: authModes,
 				},
 			},
 		},
 	}
+
+	return NewCommunityResourceSearchSource(mdbc)
 }
 
 func TestCommunitySearchSource_Validate(t *testing.T) {

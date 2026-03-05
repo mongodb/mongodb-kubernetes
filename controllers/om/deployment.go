@@ -520,6 +520,38 @@ func (d Deployment) GetAllHostnames() []string {
 	return hostnames
 }
 
+type HostnameAndPort struct {
+	Hostname string
+	Port     int32
+}
+
+// Returns a map of process name to hostname for all members in the replicaset.
+func (d Deployment) GetHostnamesForReplicaSetMembers(rsName string) map[string]HostnameAndPort {
+	rs := d.GetReplicaSetByName(rsName)
+	if rs == nil {
+		return map[string]HostnameAndPort{}
+	}
+
+	hostnames := make(map[string]HostnameAndPort)
+	dummy := HostnameAndPort{}
+	for _, m := range rs.Members() {
+		// build the map with the member names as keys first,
+		// this helps efficiently determine if a process belongs to this replicaset next
+		hostnames[m.Name()] = dummy
+	}
+
+	for _, p := range d.getProcesses() {
+		if _, ok := hostnames[p.Name()]; ok {
+			hostnames[p.Name()] = HostnameAndPort{
+				Hostname: p.HostName(),
+				Port:     p.EnsureNetConfig()["port"].(int32),
+			}
+		}
+	}
+
+	return hostnames
+}
+
 func (d Deployment) NumberOfProcesses() int {
 	return len(d.getProcesses())
 }

@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -16,17 +17,27 @@ import (
 
 type EnterpriseResourceSearchSource struct {
 	*mdbv1.MongoDB
+	processToHostnameMap map[string]om.HostnameAndPort
 }
 
-func NewEnterpriseResourceSearchSource(mdb *mdbv1.MongoDB) SearchSourceDBResource {
-	return EnterpriseResourceSearchSource{mdb}
+func NewEnterpriseResourceSearchSource(mdb *mdbv1.MongoDB, processToHostnameMap map[string]om.HostnameAndPort) SearchSourceDBResource {
+	return EnterpriseResourceSearchSource{MongoDB: mdb, processToHostnameMap: processToHostnameMap}
 }
 
 func (r EnterpriseResourceSearchSource) HostSeeds() []string {
-	seeds := make([]string, r.Spec.Members)
+	externalMembersCount := len(r.Spec.ExternalMembers)
+	seeds := make([]string, r.Spec.Members+externalMembersCount)
+
+	// populate seed list with any external members first
+	// Validate() will have already checked that all external members have corresponding hostnames
+	for idx, memberName := range r.Spec.ExternalMembers {
+		seeds[idx] = fmt.Sprintf("%s:%d", r.processToHostnameMap[memberName].Hostname, r.processToHostnameMap[memberName].Port)
+	}
+
+	// add internal members to the end of the seed list
 	clusterDomain := r.Spec.GetClusterDomain()
-	for i := range seeds {
-		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.Spec.GetAdditionalMongodConfig().GetPortOrDefault())
+	for i := 0; i < r.Spec.Members; i++ {
+		seeds[externalMembersCount+i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.Spec.GetAdditionalMongodConfig().GetPortOrDefault())
 	}
 	return seeds
 }
@@ -65,6 +76,16 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 
 	if r.GetResourceType() != mdbv1.ReplicaSet {
 		return xerrors.Errorf("MongoDBSearch is only supported for %s resources", mdbv1.ReplicaSet)
+	}
+
+	// processToHostnameMap will only be set by the Search reconciler.
+	// The ReplicaSet reconciler always sets it to nil, because we don't care to validate the external members mapping there.
+	if r.processToHostnameMap != nil {
+		for _, member := range r.Spec.ExternalMembers {
+			if _, ok := r.processToHostnameMap[member]; !ok {
+				return xerrors.Errorf("external member '%s' does not have a corresponding hostname in the automation config", member)
+			}
+		}
 	}
 
 	authModes := r.Spec.GetSecurityAuthenticationModes()

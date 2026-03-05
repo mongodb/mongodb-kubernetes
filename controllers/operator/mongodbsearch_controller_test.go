@@ -9,9 +9,11 @@ import (
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zaptest"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -19,13 +21,16 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -42,6 +47,21 @@ func newMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
 	}
 }
 
+// newMongoDB builds an enterprise MongoDB CR wired to the default mock OM project
+// and credentials so that the search controller can establish an OM connection when needed.
+func newMongoDB(name, namespace string) *mdbv1.MongoDB {
+	mdb := mdbv1.NewReplicaSetBuilder().
+		SetName(name).
+		SetNamespace(namespace).
+		SetVersion("8.2.0").
+		Build()
+	mdb.Spec.OpsManagerConfig = &mdbv1.PrivateCloudConfig{
+		ConfigMapRef: mdbv1.ConfigMapRef{Name: mock.TestProjectConfigMapName},
+	}
+	mdb.Spec.Credentials = mock.TestCredentialsSecretName
+	return mdb
+}
+
 func newMongoDBSearch(name, namespace, mdbcName string) *searchv1.MongoDBSearch {
 	return &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
@@ -54,42 +74,53 @@ func newMongoDBSearch(name, namespace, mdbcName string) *searchv1.MongoDBSearch 
 }
 
 func newSearchReconcilerWithOperatorConfig(
-	mdbc *mdbcv1.MongoDBCommunity,
+	ctx context.Context,
 	operatorConfig searchcontroller.OperatorSearchConfig,
-	searches ...*searchv1.MongoDBSearch,
-) (*MongoDBSearchReconciler, client.Client) {
+	interceptors *interceptor.Funcs,
+	objects ...client.Object,
+) (*MongoDBSearchReconciler, client.WithWatch, *om.CachedOMConnectionFactory) {
 	builder := mock.NewEmptyFakeClientBuilder()
 	builder.WithIndex(&searchv1.MongoDBSearch{}, searchcontroller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder)
 
-	if mdbc != nil {
-		keyfileSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      mdbc.GetAgentKeyfileSecretNamespacedName().Name,
-				Namespace: mdbc.Namespace,
-			},
-			StringData: map[string]string{
-				constants.AgentKeyfileKey: "keyfile",
-			},
-		}
-		builder.WithObjects(mdbc, keyfileSecret)
+	if interceptors != nil {
+		builder.WithInterceptorFuncs(*interceptors)
 	}
 
-	for _, search := range searches {
-		if search != nil {
-			builder.WithObjects(search)
+	// for any MongoDBCommunity objects, create a corresponding keyfile secret
+	for _, obj := range objects {
+		if mdbc, ok := obj.(*mdbcv1.MongoDBCommunity); ok {
+			keyfileSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mdbc.GetAgentKeyfileSecretNamespacedName().Name,
+					Namespace: mdbc.Namespace,
+				},
+				StringData: map[string]string{
+					constants.AgentKeyfileKey: "keyfile",
+				},
+			}
+			builder.WithObjects(keyfileSecret)
 		}
 	}
 
+	for _, obj := range objects {
+		if obj != nil {
+			builder.WithObjects(obj)
+		}
+	}
+
+	// add mock Ops Manager ConfigMap and Secret
+	builder.WithObjects(mock.GetDefaultResources()...)
+	connectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
 	fakeClient := builder.Build()
 
-	return newMongoDBSearchReconciler(fakeClient, operatorConfig), fakeClient
+	return newMongoDBSearchReconciler(ctx, fakeClient, operatorConfig, connectionFactory.GetConnectionFunc), fakeClient, connectionFactory
 }
 
 func newSearchReconciler(
-	mdbc *mdbcv1.MongoDBCommunity,
-	searches ...*searchv1.MongoDBSearch,
-) (*MongoDBSearchReconciler, client.Client) {
-	return newSearchReconcilerWithOperatorConfig(mdbc, searchcontroller.OperatorSearchConfig{}, searches...)
+	ctx context.Context,
+	objects ...client.Object,
+) (*MongoDBSearchReconciler, client.Client, *om.CachedOMConnectionFactory) {
+	return newSearchReconcilerWithOperatorConfig(ctx, searchcontroller.OperatorSearchConfig{}, nil, objects...)
 }
 
 func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.MongoDBCommunity) mongot.Config {
@@ -148,7 +179,7 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 
 func TestMongoDBSearchReconcile_NotFound(t *testing.T) {
 	ctx := context.Background()
-	reconciler, _ := newSearchReconciler(nil, nil)
+	reconciler, _, _ := newSearchReconciler(ctx, nil, nil)
 
 	res, err := reconciler.Reconcile(
 		ctx,
@@ -163,7 +194,7 @@ func TestMongoDBSearchReconcile_NotFound(t *testing.T) {
 func TestMongoDBSearchReconcile_MissingSource(t *testing.T) {
 	ctx := context.Background()
 	search := newMongoDBSearch("search", mock.TestNamespace, "source")
-	reconciler, _ := newSearchReconciler(nil, search)
+	reconciler, _, _ := newSearchReconciler(ctx, nil, search)
 
 	res, err := reconciler.Reconcile(
 		ctx,
@@ -198,7 +229,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 				SearchName:    "mongot",
 				SearchVersion: "1.48.0",
 			}
-			reconciler, c := newSearchReconcilerWithOperatorConfig(mdbc, operatorConfig, search)
+			reconciler, c, _ := newSearchReconcilerWithOperatorConfig(ctx, operatorConfig, nil, mdbc, search)
 
 			// BEFORE readiness: version should still be empty (controller sets Version only after StatefulSet ready)
 			searchPending := &searchv1.MongoDBSearch{}
@@ -293,7 +324,7 @@ func TestMongoDBSearchReconcile_InvalidVersion(t *testing.T) {
 	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
 	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
 	mdbc.Spec.Version = "6.0"
-	reconciler, c := newSearchReconciler(mdbc, search)
+	reconciler, c, _ := newSearchReconciler(ctx, mdbc, search)
 
 	checkSearchReconcileFailed(ctx, t, reconciler, c, search, "MongoDB version")
 }
@@ -303,7 +334,7 @@ func TestMongoDBSearchReconcile_MultipleSearchResources(t *testing.T) {
 	search1 := newMongoDBSearch("search1", mock.TestNamespace, "mdb")
 	search2 := newMongoDBSearch("search2", mock.TestNamespace, "mdb")
 	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-	reconciler, c := newSearchReconciler(mdbc, search1, search2)
+	reconciler, c, _ := newSearchReconciler(ctx, mdbc, search1, search2)
 
 	checkSearchReconcileFailed(ctx, t, reconciler, c, search1, "multiple MongoDBSearch")
 }
@@ -358,9 +389,219 @@ func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 			operatorConfig := searchcontroller.OperatorSearchConfig{
 				SearchVersion: tc.operatorVersion,
 			}
-			reconciler, _ := newSearchReconcilerWithOperatorConfig(mdbc, operatorConfig, search)
+			reconciler, c, _ := newSearchReconcilerWithOperatorConfig(ctx, operatorConfig, nil, mdbc, search)
 
-			checkSearchReconcileFailed(ctx, t, reconciler, reconciler.kubeClient, search, expectedMsg)
+			checkSearchReconcileFailed(ctx, t, reconciler, c, search, expectedMsg)
 		})
 	}
+}
+
+// TestGetSourceMongoDB_ExternalSource verifies that an explicitly-configured external source is
+// returned immediately without looking up any MongoDB CR.
+func TestGetSourceMongoDB_ExternalSource(t *testing.T) {
+	ctx := context.Background()
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "search", Namespace: mock.TestNamespace},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					HostAndPorts: []string{"external-host:27017"},
+				},
+			},
+		},
+	}
+	reconciler, fakeClient, _ := newSearchReconciler(ctx, search)
+	log := zaptest.NewLogger(t).Sugar()
+
+	source, err := reconciler.getSourceMongoDBForSearch(ctx, fakeClient, search, log)
+
+	require.NoError(t, err)
+	require.NotNil(t, source)
+	assert.Equal(t, []string{"external-host:27017"}, source.HostSeeds())
+}
+
+// TestGetSourceMongoDB_NoResourceRef verifies that an error is returned when the search resource
+// has no source configured and no matching MongoDB or MongoDBCommunity resource exists. When
+// Spec.Source is nil, the controller falls back to implicit name matching (using the search's own
+// name), and returns an error when neither CR can be found.
+func TestGetSourceMongoDB_NoResourceRef(t *testing.T) {
+	ctx := context.Background()
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "search", Namespace: mock.TestNamespace},
+		Spec:       searchv1.MongoDBSearchSpec{},
+	}
+	reconciler, fakeClient, _ := newSearchReconciler(ctx, search)
+	log := zaptest.NewLogger(t).Sugar()
+
+	_, err := reconciler.getSourceMongoDBForSearch(ctx, fakeClient, search, log)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "No database resource named")
+}
+
+// TestGetSourceMongoDB_CommunityMongoDB_ImplicitName verifies that when the MongoDBSearch has no
+// explicit mongodbResourceRef, the controller resolves the source by matching the Search resource's
+// own name against a MongoDBCommunity with that name.
+func TestGetSourceMongoDB_CommunityMongoDB_ImplicitName(t *testing.T) {
+	ctx := context.Background()
+	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: mock.TestNamespace},
+		Spec:       searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{}},
+	}
+	reconciler, fakeClient, _ := newSearchReconciler(ctx, mdbc, search)
+	log := zaptest.NewLogger(t).Sugar()
+
+	source, err := reconciler.getSourceMongoDBForSearch(ctx, fakeClient, search, log)
+
+	require.NoError(t, err)
+	assert.IsType(t, searchcontroller.CommunitySearchSource{}, source)
+}
+
+// TestGetSourceMongoDB_EnterpriseMongoDB_ImplicitName verifies that when the MongoDBSearch has no
+// explicit mongodbResourceRef and an enterprise MongoDB CR with the same name exists, the search
+// source resolves to an EnterpriseResourceSearchSource.
+func TestGetSourceMongoDB_EnterpriseMongoDB_ImplicitName(t *testing.T) {
+	ctx := context.Background()
+	mdb := newMongoDB("mdb", mock.TestNamespace)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: mock.TestNamespace},
+		Spec:       searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{}},
+	}
+	reconciler, fakeClient, _ := newSearchReconciler(ctx, nil, mdb, search)
+	log := zaptest.NewLogger(t).Sugar()
+
+	source, err := reconciler.getSourceMongoDBForSearch(ctx, fakeClient, search, log)
+
+	require.NoError(t, err)
+	assert.IsType(t, searchcontroller.EnterpriseResourceSearchSource{}, source)
+}
+
+// TestGetSourceMongoDB_EnterpriseTakesPriorityOverCommunity_ImplicitName verifies that when both a
+// MongoDB and a MongoDBCommunity with the same name exist, the enterprise MongoDB is preferred.
+func TestGetSourceMongoDB_EnterpriseTakesPriorityOverCommunity_ImplicitName(t *testing.T) {
+	ctx := context.Background()
+	mdb := newMongoDB("mdb", mock.TestNamespace)
+	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: mock.TestNamespace},
+		Spec:       searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{}},
+	}
+	reconciler, fakeClient, _ := newSearchReconciler(ctx, mdbc, mdb, search)
+	log := zaptest.NewLogger(t).Sugar()
+
+	source, err := reconciler.getSourceMongoDBForSearch(ctx, fakeClient, search, log)
+
+	require.NoError(t, err)
+	assert.IsType(t, searchcontroller.EnterpriseResourceSearchSource{}, source)
+}
+
+// TestGetSourceMongoDB_EnterpriseMongoDB_WithExternalMembers verifies that when the enterprise
+// MongoDB has external members, the OM deployment is consulted for the process hostnames from the
+// automation config, and those hostnames appear in HostSeeds().
+func TestGetSourceMongoDB_EnterpriseMongoDB_WithExternalMembers(t *testing.T) {
+	ctx := context.Background()
+	log := zaptest.NewLogger(t).Sugar()
+
+	// One Kubernetes member and three external members, to verify that external members are included in the search source configuration.
+	mdb := newMongoDB("mdb", mock.TestNamespace)
+	mdb.Spec.Members = 1
+	mdb.Spec.ExternalMembers = []string{"mdb-ext-0", "mdb-ext-1", "mdb-ext-2"}
+
+	// Build a deployment with three processes in the "mdb" replica set,
+	// imitating an existing MongoDB deployment outside of Kubernetes.
+	spec := mdbv1.NewReplicaSetBuilder().SetVersion("8.2.0").Build().Spec
+	mongodConfig := mdbv1.NewAdditionalMongodConfig("net.port", util.MongoDbDefaultPort)
+	processes := []om.Process{
+		om.NewMongodProcess("mdb-ext-0", "mdb-ext-0.external.com", "fake-image", false, mongodConfig, &spec, "", nil, ""),
+		om.NewMongodProcess("mdb-ext-1", "mdb-ext-1.external.com", "fake-image", false, mongodConfig, &spec, "", nil, ""),
+		om.NewMongodProcess("mdb-ext-2", "mdb-ext-2.external.com", "fake-image", false, mongodConfig, &spec, "", nil, ""),
+	}
+	options := make([]automationconfig.MemberOptions, len(processes))
+	rs := om.NewReplicaSetWithProcesses(om.NewReplicaSet("mdb", "", "8.2.0"), processes, options)
+
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+
+	reconciler, fakeClient, omConnectionFactory := newSearchReconciler(ctx, mdb, search)
+	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+		conn.ReadUpdateDeployment(func(d om.Deployment) error {
+			d.MergeReplicaSet(rs, nil, nil, nil, log)
+			return nil
+		}, log)
+	})
+
+	source, err := reconciler.getSourceMongoDBForSearch(ctx, fakeClient, search, log)
+
+	require.NoError(t, err)
+	enterpriseSource, ok := source.(searchcontroller.EnterpriseResourceSearchSource)
+	require.True(t, ok, "expected EnterpriseResourceSearchSource but got %T", source)
+	assert.ElementsMatch(t, []string{
+		// External members resolved via the OM automation config process hostname map.
+		"mdb-ext-0.external.com:27017",
+		"mdb-ext-1.external.com:27017",
+		"mdb-ext-2.external.com:27017",
+		// The single internal Kubernetes member.
+		"mdb-0.mdb-svc.my-namespace.svc.cluster.local:27017",
+	}, enterpriseSource.HostSeeds())
+}
+
+// TestGetSourceMongoDB_NeitherFound verifies that an error is returned when neither a MongoDB nor a
+// MongoDBCommunity with the referenced name exists.
+func TestGetSourceMongoDB_NeitherFound(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "nonexistent")
+	reconciler, fakeClient, _ := newSearchReconciler(ctx, nil, search)
+	log := zaptest.NewLogger(t).Sugar()
+
+	_, err := reconciler.getSourceMongoDBForSearch(ctx, fakeClient, search, log)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "No database resource named")
+}
+
+// TestGetSourceMongoDB_EnterpriseGetError verifies that a non-404 error from the kube API while
+// getting the enterprise MongoDB CR is propagated back.
+func TestGetSourceMongoDB_EnterpriseGetError(t *testing.T) {
+	ctx := context.Background()
+	log := zaptest.NewLogger(t).Sugar()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+
+	interceptors := interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*mdbv1.MongoDB); ok {
+				return fmt.Errorf("internal server error")
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}
+
+	reconciler, client, _ := newSearchReconcilerWithOperatorConfig(ctx, searchcontroller.OperatorSearchConfig{}, &interceptors, search)
+	_, err := reconciler.getSourceMongoDBForSearch(ctx, client, search, log)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "error getting MongoDB")
+}
+
+// TestGetSourceMongoDB_CommunityGetError verifies that when the enterprise MongoDB CR is not found
+// but a non-404 error occurs while getting the MongoDBCommunity CR, that error is propagated.
+func TestGetSourceMongoDB_CommunityGetError(t *testing.T) {
+	ctx := context.Background()
+	log := zaptest.NewLogger(t).Sugar()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+
+	interceptors := interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*mdbcv1.MongoDBCommunity); ok {
+				return fmt.Errorf("internal server error")
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}
+
+	reconciler, client, _ := newSearchReconcilerWithOperatorConfig(ctx, searchcontroller.OperatorSearchConfig{}, &interceptors, search)
+
+	_, err := reconciler.getSourceMongoDBForSearch(ctx, client, search, log)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "error getting MongoDBCommunity")
 }

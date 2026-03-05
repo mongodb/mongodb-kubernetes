@@ -17,14 +17,14 @@ import (
 )
 
 func NewCommunityResourceSearchSource(mdbc *mdbcv1.MongoDBCommunity) SearchSourceDBResource {
-	return &CommunitySearchSource{MongoDBCommunity: mdbc}
+	return CommunitySearchSource{MongoDBCommunity: mdbc}
 }
 
 type CommunitySearchSource struct {
 	*mdbcv1.MongoDBCommunity
 }
 
-func (r *CommunitySearchSource) HostSeeds() []string {
+func (r CommunitySearchSource) HostSeeds() []string {
 	seeds := make([]string, r.Spec.Members)
 	clusterDomain := r.Spec.GetClusterDomain()
 	for i := range seeds {
@@ -33,11 +33,11 @@ func (r *CommunitySearchSource) HostSeeds() []string {
 	return seeds
 }
 
-func (r *CommunitySearchSource) KeyfileSecretName() string {
+func (r CommunitySearchSource) KeyfileSecretName() string {
 	return r.MongoDBCommunity.GetAgentKeyfileSecretNamespacedName().Name
 }
 
-func (r *CommunitySearchSource) TLSConfig() *TLSSourceConfig {
+func (r CommunitySearchSource) TLSConfig() *TLSSourceConfig {
 	if !r.Spec.Security.TLS.Enabled {
 		return nil
 	}
@@ -60,7 +60,7 @@ func (r *CommunitySearchSource) TLSConfig() *TLSSourceConfig {
 	}
 }
 
-func (r *CommunitySearchSource) Validate() error {
+func (r CommunitySearchSource) Validate() error {
 	version, err := semver.ParseTolerant(r.GetMongoDBVersion())
 	if err != nil {
 		return xerrors.Errorf("error parsing MongoDB version '%s': %w", r.Spec.Version, err)

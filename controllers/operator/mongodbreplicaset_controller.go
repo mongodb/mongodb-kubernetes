@@ -940,7 +940,7 @@ func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx conte
 	// and that this resource passes search validations. If either fails, proceed without a search target
 	// for the mongod automation config.
 	if len(searchList.Items) == 1 {
-		searchSource := searchcontroller.NewEnterpriseResourceSearchSource(rs)
+		searchSource := searchcontroller.NewEnterpriseResourceSearchSource(rs, nil)
 		if searchSource.Validate() == nil {
 			search = &searchList.Items[0]
 		}
