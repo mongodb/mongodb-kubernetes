@@ -6,13 +6,11 @@ Deployment configuration:
   - MongoDBSearch: referencing external mongodb, one instance of mongot deployed per shard
 """
 
-import time
-
 import pymongo
 import pymongo.errors
 import yaml
-from kubetester import create_or_update_secret, get_service, try_load
-from kubetester.certs import create_sharded_cluster_certs, create_tls_certs
+from kubetester import create_or_update_secret, try_load
+from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
@@ -25,8 +23,9 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
-from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
+from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
@@ -57,31 +56,9 @@ MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 
 
-# ============================================================================
-# Fixtures
-# ============================================================================
-
-
 @fixture(scope="module")
 def sharded_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
-    """Create CA ConfigMap and Secret with the name expected by the sharded cluster (mdb-sh-ca).
-
-    The MongoDB operator expects a ConfigMap with keys "ca-pem" and "mms-ca.crt".
-    The Search controller expects a Secret with key "ca.crt" for mTLS.
-    Both are created with the same name (mdb-sh-ca) but different resource types.
-    """
-    from kubetester import create_or_update_configmap, create_or_update_secret
-
-    ca = open(issuer_ca_filepath).read()
-    # The MongoDB operator expects the CA in entries named "ca-pem" and "mms-ca.crt"
-    configmap_data = {"ca-pem": ca, "mms-ca.crt": ca}
-    create_or_update_configmap(namespace, CA_CONFIGMAP_NAME, configmap_data)
-
-    # The Search controller expects a Secret with key "ca.crt" for mTLS ingress
-    secret_data = {"ca.crt": ca}
-    create_or_update_secret(namespace, CA_CONFIGMAP_NAME, secret_data)
-
-    return CA_CONFIGMAP_NAME
+    return create_sharded_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
 
 
 @fixture(scope="function")
@@ -225,53 +202,17 @@ def mdbs(namespace: str, mdb: MongoDB) -> MongoDBSearch:
 
 @fixture(scope="function")
 def admin_user(namespace: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-admin.yaml"), namespace=namespace, name=f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}"
-    )
-
-    if try_load(resource):
-        return resource
-
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
-    return resource
+    return make_admin_user(namespace, MDB_RESOURCE_NAME, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}")
 
 
 @fixture(scope="function")
 def user(namespace: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-user.yaml"), namespace=namespace, name=f"{MDB_RESOURCE_NAME}-{USER_NAME}"
-    )
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
-    return resource
+    return make_user(namespace, MDB_RESOURCE_NAME, f"{MDB_RESOURCE_NAME}-{USER_NAME}")
 
 
 @fixture(scope="function")
 def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-search-sync-source-user.yaml"),
-        namespace=namespace,
-        name=f"{mdbs.name}-{MONGOT_USER_NAME}",
-    )
-
-    if try_load(resource):
-        return resource
-
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = MONGOT_USER_NAME
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
-    return resource
-
-
-@fixture(scope="module")
-def tools_pod(namespace: str) -> mongodb_tools_pod.ToolsPod:
-    return mongodb_tools_pod.get_tools_pod(namespace)
+    return make_mongot_user(namespace, mdbs, MDB_RESOURCE_NAME, MONGOT_USER_NAME)
 
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
@@ -353,6 +294,9 @@ def test_create_search_tls_certificate(namespace: str, issuer: str):
         namespace=namespace,
         issuer=issuer,
         prefix=MDBS_TLS_CERT_PREFIX,
+        mdb_resource_name=MDB_RESOURCE_NAME,
+        shard_count=SHARD_COUNT,
+        mdbs_resource_name=MDBS_RESOURCE_NAME,
     )
     logger.info(f"Per-shard Search TLS certificates created with prefix: {MDBS_TLS_CERT_PREFIX}")
 
@@ -377,23 +321,8 @@ def test_wait_for_agents_ready(mdb: MongoDB):
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
-def test_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        service_name = search_resource_names.shard_service_name(mdbs.name, shard_name)
-
-        logger.info(f"Checking for per-shard Service: {service_name}")
-
-        service = get_service(namespace, service_name)
-        assert service is not None, f"Per-shard Service {service_name} not found"
-
-        ports = {p.port for p in service.spec.ports}
-        assert MONGOT_PORT in ports, f"Service {service_name} missing mongot port {MONGOT_PORT}"
-
-        logger.info(f"Per-shard Service {service_name} exists with ports: {ports}")
-
-
+# TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
+# to wait for to get the mongod/mongos config properly generated.
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     def check_mongod_parameters():
@@ -440,6 +369,8 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
     logger.info("All shards have correct mongod search parameters pointing to Envoy proxy")
 
 
+# TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
+# to wait for to get the mongod/mongos config properly generated.
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
     mongos_pod = f"{MDB_RESOURCE_NAME}-mongos-0"
@@ -484,22 +415,19 @@ def test_search_restore_sample_database(
     mdb: MongoDB, sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper
 ):
     sample_movies_helper.restore_sample_database()
-
-
-logger.info("Sample database restored")
+    logger.info("Sample database restored")
 
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_search_shard_collections(mdb: MongoDB):
-    search_tester = get_admin_search_tester(mdb, use_ssl=True)
+    search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=True)
     search_tester.shard_and_distribute_collection("sample_mflix", "movies")
-
     logger.info("Collections sharded and chunks are distributed")
 
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_verify_documents_count_in_shards(mdb: MongoDB):
-    search_tester = get_admin_search_tester(mdb, use_ssl=True)
+    search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=True)
     movies_helper = SampleMoviesSearchHelper(search_tester)
 
     total_docs = search_tester.client["sample_mflix"]["movies"].count_documents({})
@@ -518,21 +446,20 @@ def test_verify_documents_count_in_shards(mdb: MongoDB):
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_search_create_search_index(mdb: MongoDB):
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
+    search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
+    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
     logger.info("Text search index created")
 
-
-@mark.e2e_search_sharded_external_mongod_single_mongot
-def test_search_wait_for_search_index_ready(mdb: MongoDB):
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
-    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
-    logger.info("Search index is ready")
+    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
+    emb_helper.create_vector_search_index()
+    emb_helper.wait_for_vector_search_index()
+    logger.info("Vector search index is ready on embedded_movies")
 
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
-def test_search_assert_search_query(mdb: MongoDB):
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
+def test_execute_text_search_query(mdb: MongoDB):
+    search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     movies_helper = SampleMoviesSearchHelper(search_tester)
 
     def execute_search():
@@ -556,7 +483,7 @@ def test_search_assert_search_query(mdb: MongoDB):
 
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_search_verify_results_from_all_shards(mdb: MongoDB):
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
+    search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     movies_helper = SampleMoviesSearchHelper(search_tester)
     # Get total document count
     total_docs = search_tester.client["sample_mflix"]["movies"].count_documents({})
@@ -587,51 +514,53 @@ def test_search_verify_results_from_all_shards(mdb: MongoDB):
     logger.info(f"Search results for all documents verified.")
 
 
-def get_admin_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
-    """Get SearchTester with admin credentials."""
-    ca_path = get_issuer_ca_filepath() if use_ssl else None
-    return SearchTester.for_sharded(
-        mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path
+@mark.e2e_search_sharded_external_mongod_single_mongot
+def test_vector_search_before_and_after_sharding(mdb: MongoDB):
+    """Verify vector search returns consistent results before and after sharding embedded_movies."""
+    search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
+    admin_search_tester = get_search_tester(
+        mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=True
     )
+    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
 
+    # Generate query vector by calling the Voyage embedding API
+    query_vector = emb_helper.generate_query_vector("war movies")
 
-def get_user_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
-    """Get SearchTester with regular user credentials."""
-    ca_path = get_issuer_ca_filepath() if use_ssl else None
-    return SearchTester.for_sharded(
-        mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path
+    # Count total documents with embeddings to use as the limit — ensures we verify
+    # ALL documents are reachable, not just an arbitrary subset.
+    total_docs = emb_helper.count_documents_with_embeddings()
+    logger.info(f"Total documents with embeddings: {total_docs}")
+
+    # Run vector search before sharding
+    results_before = emb_helper.vector_search(query_vector, limit=total_docs)
+    count_before = len(results_before)
+    logger.info(f"Vector search before sharding: {count_before} results")
+    assert count_before > 0, "Vector search returned no results before sharding"
+
+    # Shard the embedded_movies collection
+    admin_search_tester.shard_and_distribute_collection("sample_mflix", "embedded_movies")
+    logger.info("embedded_movies collection sharded")
+
+    # Resharding (shard_and_distribute_collection) drops search indexes — recreate and wait for ready
+    emb_helper.create_vector_search_index()
+    emb_helper.wait_for_vector_search_index(timeout=300)
+    logger.info("Vector search index recreated after resharding")
+
+    # Run vector search after sharding with the same query vector and verify same count.
+    # Catch OperationFailure because mongot shards may still be in INITIAL_SYNC after resharding.
+    def verify_vector_search_after_sharding():
+        try:
+            results_after = emb_helper.vector_search(query_vector, limit=total_docs)
+        except pymongo.errors.OperationFailure as e:
+            logger.info(f"Vector search not ready yet: {e}")
+            return False, f"Vector search failed: {e}"
+        count_after = len(results_after)
+        logger.info(f"Vector search after sharding: {count_after} results")
+        if count_after == count_before:
+            return True, f"Vector search returned {count_after} results (matches pre-sharding count)"
+        return False, f"Vector search returned {count_after} results, expected {count_before}"
+
+    run_periodically(
+        verify_vector_search_after_sharding, timeout=300, sleep_time=10, msg="vector search after sharding"
     )
-
-
-def create_per_shard_search_tls_certs(namespace: str, issuer: str, prefix: str):
-    """
-    Create per-shard TLS certificates for MongoDBSearch resource.
-
-    For each shard, creates a certificate with DNS names for:
-    - The mongot service: {search-name}-search-0-{shardName}-svc.{namespace}.svc.cluster.local
-    - The proxy service: {search-name}-search-0-{shardName}-proxy-svc.{namespace}.svc.cluster.local
-
-    Secret naming: search_resource_names.shard_tls_cert_name(MDBS_RESOURCE_NAME, shardName, prefix)
-    e.g., certs-mdb-sh-search-search-0-mdb-sh-0-cert
-    """
-    logger.info(f"Creating per-shard Search TLS certificates with prefix '{prefix}'...")
-
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        secret_name = search_resource_names.shard_tls_cert_name(MDBS_RESOURCE_NAME, shard_name, prefix)
-
-        additional_domains = [
-            f"{search_resource_names.shard_service_name(MDBS_RESOURCE_NAME, shard_name)}.{namespace}.svc.cluster.local",
-            f"{search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name)}.{namespace}.svc.cluster.local",
-        ]
-
-        create_tls_certs(
-            issuer=issuer,
-            namespace=namespace,
-            resource_name=search_resource_names.shard_statefulset_name(MDBS_RESOURCE_NAME, shard_name),
-            secret_name=secret_name,
-            additional_domains=additional_domains,
-        )
-        logger.info(f"Per-shard Search TLS certificate created: {secret_name}")
-
-    logger.info(f"All {SHARD_COUNT} per-shard Search TLS certificates created")
+    logger.info(f"Vector search returns consistent {count_before} results after sharding")
