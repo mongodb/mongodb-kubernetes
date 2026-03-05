@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -44,8 +45,8 @@ func TestBuildJob_SCRAMEnvVars(t *testing.T) {
 
 	container := job.Spec.Template.Spec.Containers[0]
 	assert.Equal(t, "SCRAM-SHA-256", findEnv(container.Env, "AUTH_MECHANISM"))
-	assert.Equal(t, keyfileSecretMountPath, findEnv(container.Env, "KEYFILE_PATH"))
-	assert.Equal(t, "", findEnv(container.Env, "CERT_PATH"))
+	// Credential paths come from STS in BuildJobFromStatefulSet; BuildJob does not set them
+	assert.Equal(t, "", findEnv(container.Env, "KEYFILE_PATH"))
 }
 
 func TestBuildJob_X509EnvVars(t *testing.T) {
@@ -59,9 +60,9 @@ func TestBuildJob_X509EnvVars(t *testing.T) {
 
 	container := job.Spec.Template.Spec.Containers[0]
 	assert.Equal(t, "MONGODB-X509", findEnv(container.Env, "AUTH_MECHANISM"))
-	assert.Equal(t, certSecretMountPath, findEnv(container.Env, "CERT_PATH"))
-	assert.Equal(t, caSecretMountPath, findEnv(container.Env, "CA_PATH"))
-	assert.Equal(t, "", findEnv(container.Env, "KEYFILE_PATH"))
+	// Credential paths come from STS in BuildJobFromStatefulSet; BuildJob does not set them
+	assert.Equal(t, "", findEnv(container.Env, "CERT_PATH"))
+	assert.Equal(t, "", findEnv(container.Env, "CA_PATH"))
 }
 
 func TestBuildJob_ExternalMembersJoined(t *testing.T) {
@@ -77,22 +78,34 @@ func TestBuildJob_ExternalMembersJoined(t *testing.T) {
 	assert.Equal(t, "host1:27017 host2:27017 host3:27017", findEnv(container.Env, "EXTERNAL_MEMBERS"))
 }
 
-func TestBuildJob_VolumeMount(t *testing.T) {
-	job := BuildJob(JobConfig{
-		Name:             "my-rs",
-		Namespace:        "default",
-		OperatorImage:    "quay.io/mongodb/mongodb-kubernetes-operator:1.0",
-		AuthMechanism:    "SCRAM-SHA-256",
-		KeyfileSecretRef: "my-rs-keyfile",
-	})
+// TestBuildJobFromStatefulSet_IncludesCredentials asserts the Job gets credential volumes from the STS.
+func TestBuildJobFromStatefulSet_IncludesCredentials(t *testing.T) {
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{{
+						Name: util.ClusterFileName,
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{SecretName: "my-rs-clusterfile"},
+						},
+					}},
+					Containers: []corev1.Container{{
+						VolumeMounts: []corev1.VolumeMount{{
+							Name:      util.ClusterFileName,
+							MountPath: "/var/run/credentials",
+							ReadOnly:  true,
+						}},
+					}},
+				},
+			},
+		},
+	}
+	rs := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "my-rs", Namespace: "default"}}
+	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, util.AutomationConfigScramSha256Option, "", "")
 
-	container := job.Spec.Template.Spec.Containers[0]
-	assert.Len(t, container.VolumeMounts, 1)
-	assert.Equal(t, "/var/run/credentials", container.VolumeMounts[0].MountPath)
-	assert.True(t, container.VolumeMounts[0].ReadOnly)
-
-	assert.Len(t, job.Spec.Template.Spec.Volumes, 1)
-	assert.Equal(t, "my-rs-keyfile", job.Spec.Template.Spec.Volumes[0].VolumeSource.Secret.SecretName)
+	assert.NotEmpty(t, job.Spec.Template.Spec.Volumes)
+	assert.NotEmpty(t, job.Spec.Template.Spec.Containers[0].VolumeMounts)
 }
 
 func TestBuildJob_NoSecret(t *testing.T) {
@@ -129,48 +142,4 @@ func newTestRS(name, namespace string, security *mdbv1.Security) *mdbv1.MongoDB 
 	}
 	rs.Spec.ResourceType = mdbv1.ReplicaSet
 	return rs
-}
-
-func TestBuildJobConfigFromRS_SCRAMAuth(t *testing.T) {
-	sec := &mdbv1.Security{
-		Authentication: &mdbv1.Authentication{
-			Enabled: true,
-			Modes:   []mdbv1.AuthMode{util.SCRAMSHA256},
-		},
-	}
-	rs := newTestRS("my-rs", "default", sec)
-	members := []string{"vm1.example.com:27017", "vm2.example.com:27017"}
-	cfg := BuildJobConfigFromRS(rs, "quay.io/mongodb/operator:1.0", util.AutomationConfigScramSha256Option, members)
-
-	assert.Equal(t, "my-rs", cfg.Name)
-	assert.Equal(t, "default", cfg.Namespace)
-	assert.Equal(t, util.AutomationConfigScramSha256Option, cfg.AuthMechanism)
-	assert.Equal(t, members, cfg.ExternalMembers)
-	assert.Contains(t, cfg.ConnectionString, "vm1.example.com:27017")
-	assert.Contains(t, cfg.ConnectionString, "replicaSet=my-rs")
-	assert.Equal(t, "my-rs-clusterfile", cfg.KeyfileSecretRef)
-}
-
-func TestBuildJobConfigFromRS_X509Auth(t *testing.T) {
-	sec := &mdbv1.Security{
-		Authentication: &mdbv1.Authentication{
-			Enabled: true,
-			Modes:   []mdbv1.AuthMode{util.X509},
-		},
-	}
-	rs := newTestRS("my-rs", "ops", sec)
-	members := []string{"vm1.example.com:27017"}
-	cfg := BuildJobConfigFromRS(rs, "quay.io/mongodb/operator:1.0", "MONGODB-X509", members)
-
-	assert.Equal(t, util.AutomationConfigX509Option, cfg.AuthMechanism)
-	// Default agent-cert secret name: "agent-certs"
-	assert.Equal(t, util.AgentSecretName, cfg.KeyfileSecretRef)
-}
-
-func TestBuildJobConfigFromRS_ConnectionStringFormat(t *testing.T) {
-	rs := newTestRS("replica-set-0", "ns", nil)
-	members := []string{"a:27017", "b:27017", "c:27017"}
-	cfg := BuildJobConfigFromRS(rs, "", "", members)
-
-	assert.Equal(t, "mongodb://a:27017,b:27017,c:27017/?replicaSet=replica-set-0", cfg.ConnectionString)
 }

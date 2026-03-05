@@ -880,7 +880,11 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 		)
 	}
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
-	connectionString := fmt.Sprintf("mongodb://%s/?replicaSet=%s", strings.Join(hostnamePorts, ","), rs.Name) // TODO: in later iterations of the project we should use the connection string from the secret, which also pertains user access
+	replicaSetName := rs.Spec.ReplicaSetNameOverride
+	if replicaSetName == "" {
+		replicaSetName = rs.Name
+	}
+	connectionString := fmt.Sprintf("mongodb://%s/?replicaSet=%s", strings.Join(hostnamePorts, ","), replicaSetName) // TODO: in later iterations of the project we should use the connection string from the secret, which also pertains user access
 	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, internalClusterCertPath)
 	if job.Labels == nil {
 		job.Labels = make(map[string]string)

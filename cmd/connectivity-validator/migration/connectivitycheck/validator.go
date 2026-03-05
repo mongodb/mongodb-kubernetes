@@ -112,11 +112,15 @@ func Validate(ctx context.Context, cfg Config) int {
 	}
 	log.Debugw("MongoDB ping succeeded")
 
-	if !hasSystemRole(ctx, client) {
-		log.Warnw("__system@local role not found", "exitCode", ExitRoleNotFound, "exitCodeName", ExitCodeName(ExitRoleNotFound))
-		return ExitRoleNotFound
+	// When auth is configured we require __system@local (internal cluster auth) for migration.
+	// When auth is disabled (no AuthMechanism) skip this check so local/dev runs can validate reachability.
+	if cfg.AuthMechanism != "" {
+		if !hasSystemRole(ctx, client) {
+			log.Warnw("__system@local role not found", "exitCode", ExitRoleNotFound, "exitCodeName", ExitCodeName(ExitRoleNotFound))
+			return ExitRoleNotFound
+		}
+		log.Debugw("__system@local role verified")
 	}
-	log.Debugw("__system@local role verified")
 
 	for i, member := range cfg.ExternalMembers {
 		log.Infow("Pinging external member", "member", member, "index", i+1, "total", len(cfg.ExternalMembers))
