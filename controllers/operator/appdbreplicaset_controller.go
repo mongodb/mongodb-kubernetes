@@ -2306,35 +2306,36 @@ func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
 	groupID := proj.ID
 	opsManager.Status.AppDbStatus.MetaOMGroupID = groupID
 	if err := r.centralClient.Status().Update(ctx, opsManager); err != nil {
-		log.Warnw("Failed to persist MetaOMGroupID in status", "error", err)
+		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("Failed to persist MetaOMGroupID in status: %w", err))
 	}
 
-	// Step 4: Optionally push Automation Config (gated — only when Meta OM config is empty).
-	headlessConfig, headlessErr := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName()), "")
-	if headlessErr == nil {
-		if acStr, ok := headlessConfig[automationconfig.ConfigKey]; ok && len(acStr) > 0 {
-			metaAC, readErr := conn.ReadAutomationConfig()
-			if readErr != nil {
-				return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to read automation config from Meta OM: %w", readErr))
-			}
-			procs, _ := metaAC.Deployment["processes"]
-			isEmpty := procs == nil
-			if !isEmpty {
-				if list, ok := procs.([]interface{}); ok {
-					isEmpty = len(list) == 0
-				}
-			}
-			if isEmpty {
-				omAC, buildErr := om.BuildAutomationConfigFromBytes([]byte(acStr))
-				if buildErr != nil {
-					return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to parse headless automation config: %w", buildErr))
-				}
-				stripUnsupportedACFields(omAC)
-				if updateErr := conn.UpdateAutomationConfig(omAC, log); updateErr != nil {
-					return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to push automation config to Meta OM: %w", updateErr))
-				}
-			}
+	// Step 4: Update Automation Config
+	metaAC, readErr := conn.ReadAutomationConfig()
+	if readErr != nil {
+		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to read automation config from Meta OM: %w", readErr))
+	}
+
+	// Initial push from secret when Meta OM does not have any process yet
+	if metaAC.Deployment.NumberOfProcesses() == 0 {
+		headlessConfig, headlessErr := r.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName()), "")
+		if headlessErr != nil && !secrets.SecretNotExist(headlessErr) {
+			return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to read headless automation config secret: %w", headlessErr))
 		}
+
+		acStr := headlessConfig[automationconfig.ConfigKey]
+		if acFromSecret, err := om.BuildAutomationConfigFromBytes([]byte(acStr)); err == nil {
+			metaAC = acFromSecret
+		} else {
+			return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to parse headless automation config: %w", err))
+		}
+	}
+
+	stripUnsupportedACFields(metaAC)
+	metaAC.Deployment.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), appdbCAFilePath)
+	metaAC.AgentSSL.CAFilePath = util.MergoDelete
+	metaAC.Deployment.ConfigureBackup(log)
+	if updateErr := conn.UpdateAutomationConfig(metaAC, log); updateErr != nil {
+		return construct.MetaOMEnvVars{}, workflow.Failed(xerrors.Errorf("failed to push automation config to Meta OM: %w", updateErr))
 	}
 
 	// Step 5: Ensure agent API key secret (idempotent).

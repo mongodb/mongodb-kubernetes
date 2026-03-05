@@ -108,6 +108,9 @@ class OMTester(object):
         if self.context.project_id is None:
             self.context.project_id = self.find_group_id()
 
+    def set_project_id(self, project_id: str):
+        self.context.project_id = project_id
+
     def get_project_events(self):
         return self.om_request("get", f"/groups/{self.context.project_id}/events")
 
@@ -447,7 +450,6 @@ class OMTester(object):
         return group_id
 
     def api_backup_group(self):
-        group_id = self.find_group_id()
         return self.om_request("get", f"/admin/backup/groups/{self.context.project_id}").json()
 
     def api_get_om_version(self) -> str:
@@ -494,6 +496,51 @@ class OMTester(object):
 
     def api_read_backup_configs(self) -> List:
         return self.om_request("get", f"/groups/{self.context.project_id}/backupConfigs").json()["results"]
+
+    def api_configure_backup_group(self):
+        """Ensures the group backup config exists for this project by calling PUT
+        /admin/backup/groups/{groupId} with empty filters (use any available daemon/store).
+        This mirrors what the Go operator's ensureGroupConfig does before enabling backup.
+        Without this, OM may return 'A running backup agent is required' even when agents
+        are in STANDBY, because OM has no group-level backup config initialized."""
+        payload = {"labelFilter": [], "syncStoreFilter": []}
+        self.om_request("put", f"/admin/backup/groups/{self.context.project_id}", json_object=payload)
+
+    def api_enable_backup(self, timeout: int = 300):
+        """Waits for the cluster to register in backupConfigs and backup agents to be ready,
+        initializes the group backup config, then retries PATCH statusName=STARTED with the
+        full backup config payload until OM accepts it.
+        Useful when backup cannot be enabled via the CRD spec (e.g. AppDB in MetaOM mode)."""
+
+        def wait_for_backup_config():
+            return len(self.api_read_backup_configs()) > 0
+
+        run_periodically(fn=wait_for_backup_config, timeout=timeout)
+
+        configs = self.api_read_backup_configs()
+        cluster_id = configs[0]["clusterId"]
+        # Use the full backup config payload (mirrors UpdateBackupConfig in the Go operator).
+        backup_config = dict(configs[0])
+        backup_config["statusName"] = BackupStatus.STARTED
+        backup_config["storageEngineName"] = "WIRED_TIGER"
+        backup_config["syncSource"] = "PRIMARY"
+        backup_config["encryptionEnabled"] = False
+        backup_config["excludedNamespaces"] = []
+        backup_config["groupId"] = self.context.project_id
+
+        def patch_backup_started():
+            try:
+                self.om_request(
+                    "patch",
+                    f"/groups/{self.context.project_id}/backupConfigs/{cluster_id}",
+                    json_object=backup_config,
+                )
+                return True
+            except Exception as e:
+                logger.error(self, f"Failed to patch backup config to STARTED, will retry until timeout. Error: {e}")
+                return False
+
+        run_periodically(fn=patch_backup_started, timeout=timeout)
 
     # Backup states are from here:
     # https://github.com/10gen/mms/blob/bcec76f60fc10fd6b7de40ee0f57951b54a4b4a0/server/src/main/com/xgen/cloud/common/brs/_public/model/BackupConfigState.java#L8
@@ -564,6 +611,10 @@ class OMTester(object):
 
     def api_read_automation_agents(self) -> List:
         return self._read_agents("AUTOMATION")
+
+    def api_read_backup_agents(self) -> List:
+        agents = self._read_agents("BACKUP")
+        return agents
 
     def _read_agents(self, agent_type: str, page_num: int = 1):
         return self.om_request(

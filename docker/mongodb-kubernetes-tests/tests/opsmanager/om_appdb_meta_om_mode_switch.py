@@ -3,6 +3,7 @@ from typing import Optional
 from kubetester import create_or_update_secret, read_secret, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
@@ -48,6 +49,11 @@ def meta_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 def meta_oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, META_OM_OPLOG_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, "meta-om-oplog")
+
+
+@fixture(scope="module")
+def meta_om_appdb_tester(meta_ops_manager: MongoDBOpsManager) -> OMTester:
+    return meta_ops_manager.get_om_tester(project_name=META_OM_PROJECT_NAME)
 
 
 @fixture(scope="module")
@@ -120,7 +126,7 @@ class TestPrimaryOMCreation:
 
 @mark.e2e_om_appdb_meta_om_mode_switch
 class TestMetaOMCreation:
-    """Deploy the secondary (Meta) Ops Manager instance."""
+    """Deploy the secondary (Meta) Ops Manager instance with backup enabled."""
 
     def test_meta_om_reaches_running(self, meta_ops_manager: MongoDBOpsManager):
         meta_ops_manager.update()
@@ -224,3 +230,19 @@ class TestModeSwitchToMetaOM:
         """The AppDB project must now exist inside Meta OM."""
         meta_om_tester = meta_ops_manager.get_om_tester(project_name=META_OM_PROJECT_NAME)
         meta_om_tester.assert_group_exists()
+
+
+@mark.e2e_om_appdb_meta_om_mode_switch
+class TestAppDBBackupInMetaOM:
+    """Enable and verify backup for Primary AppDB managed by Meta OM.
+    Since the AppDB CRD has no backup.mode field, backup is enabled directly via the Meta OM API."""
+
+    def test_enable_appdb_backup(self, meta_om_appdb_tester: OMTester):
+        """Wait for the AppDB cluster to register in Meta OM's backup system, then enable backup."""
+        meta_om_appdb_tester.api_enable_backup(timeout=300)
+
+    def test_wait_backup_running(self, meta_om_appdb_tester: OMTester):
+        meta_om_appdb_tester.wait_until_backup_running(timeout=300)
+
+    def test_appdb_snapshot_ready(self, meta_om_appdb_tester: OMTester):
+        meta_om_appdb_tester.wait_until_backup_snapshots_are_ready(expected_count=1)
