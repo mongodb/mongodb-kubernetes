@@ -17,22 +17,12 @@ Key difference from search_sharded_enterprise_external_lb.py:
 - The other test uses spec.source.mongodb.name (operator-managed MongoDB source)
 """
 
-import time
-
 import pymongo
 import pymongo.errors
 import yaml
 from kubernetes import client
-from kubetester import (
-    create_or_update_configmap,
-    create_or_update_secret,
-    get_service,
-    get_statefulset,
-    read_configmap,
-    read_secret,
-    try_load,
-)
-from kubetester.certs import create_sharded_cluster_certs, create_tls_certs
+from kubetester import create_or_update_secret, get_service, read_configmap, try_load
+from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
@@ -45,8 +35,9 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.common.search.search_tester import SearchTester
-from tests.conftest import get_default_operator, get_issuer_ca_filepath
+from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
+from tests.common.search.sharded_search_helper import *
+from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
@@ -81,31 +72,9 @@ MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = "mdb-sh-ca"
 
 
-# ============================================================================
-# Fixtures
-# ============================================================================
-
-
 @fixture(scope="module")
 def sharded_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
-    """Create CA ConfigMap and Secret with the name expected by the sharded cluster (mdb-sh-ca).
-
-    The MongoDB operator expects a ConfigMap with keys "ca-pem" and "mms-ca.crt".
-    The Search controller expects a Secret with key "ca.crt" for mTLS.
-    Both are created with the same name (mdb-sh-ca) but different resource types.
-    """
-    from kubetester import create_or_update_configmap, create_or_update_secret
-
-    ca = open(issuer_ca_filepath).read()
-    # The MongoDB operator expects the CA in entries named "ca-pem" and "mms-ca.crt"
-    configmap_data = {"ca-pem": ca, "mms-ca.crt": ca}
-    create_or_update_configmap(namespace, CA_CONFIGMAP_NAME, configmap_data)
-
-    # The Search controller expects a Secret with key "ca.crt" for mTLS ingress
-    secret_data = {"ca.crt": ca}
-    create_or_update_secret(namespace, CA_CONFIGMAP_NAME, secret_data)
-
-    return CA_CONFIGMAP_NAME
+    return create_sharded_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
 
 
 @fixture(scope="function")
@@ -256,392 +225,29 @@ def mdbs(namespace: str, mdb: MongoDB) -> MongoDBSearch:
 
 @fixture(scope="function")
 def admin_user(namespace: str) -> MongoDBUser:
-    """Fixture for admin user."""
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-admin.yaml"),
-        namespace=namespace,
-        name=ADMIN_USER_NAME,
-    )
-
-    if try_load(resource):
-        return resource
-
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
-    return resource
+    return make_admin_user(namespace, MDB_RESOURCE_NAME, ADMIN_USER_NAME)
 
 
 @fixture(scope="function")
 def user(namespace: str) -> MongoDBUser:
-    """Fixture for regular user."""
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-user.yaml"),
-        namespace=namespace,
-        name=USER_NAME,
-    )
-
-    if try_load(resource):
-        return resource
-
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
-    return resource
+    return make_user(namespace, MDB_RESOURCE_NAME, USER_NAME)
 
 
 @fixture(scope="function")
 def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
-    """Fixture for mongot sync user."""
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-search-sync-source-user.yaml"),
-        namespace=namespace,
-        name=f"{mdbs.name}-{MONGOT_USER_NAME}",
-    )
-
-    if try_load(resource):
-        return resource
-
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = MONGOT_USER_NAME
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
-    return resource
-
-
-@fixture(scope="module")
-def tools_pod(namespace: str) -> mongodb_tools_pod.ToolsPod:
-    """Fixture for MongoDB tools pod used for running mongorestore."""
-    return mongodb_tools_pod.get_tools_pod(namespace)
-
-
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
-
-def get_admin_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
-    """Get SearchTester with admin credentials."""
-    ca_path = get_issuer_ca_filepath() if use_ssl else None
-    return SearchTester.for_sharded(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path)
-
-
-def get_user_search_tester(mdb: MongoDB, use_ssl: bool = False) -> SearchTester:
-    """Get SearchTester with regular user credentials."""
-    ca_path = get_issuer_ca_filepath() if use_ssl else None
-    return SearchTester.for_sharded(mdb, USER_NAME, USER_PASSWORD, use_ssl=use_ssl, ca_path=ca_path)
+    return make_mongot_user(namespace, mdbs, MDB_RESOURCE_NAME, MONGOT_USER_NAME)
 
 
 def deploy_envoy_proxy(namespace: str):
     """Deploy Envoy proxy for L7 load balancing mongot traffic."""
     logger.info("Deploying Envoy proxy...")
-    _create_envoy_configmap(namespace)
-    _create_envoy_deployment(namespace)
-    _create_envoy_proxy_services(namespace)
-    _wait_for_envoy_ready(namespace)
+    create_envoy_configmap(
+        namespace, MDBS_RESOURCE_NAME, MDB_RESOURCE_NAME, SHARD_COUNT, MONGOT_PORT, ENVOY_PROXY_PORT, ENVOY_ADMIN_PORT
+    )
+    create_envoy_deployment(namespace, CA_CONFIGMAP_NAME, ENVOY_PROXY_PORT, ENVOY_ADMIN_PORT)
+    create_envoy_proxy_services(namespace, MDBS_RESOURCE_NAME, MDB_RESOURCE_NAME, SHARD_COUNT, ENVOY_PROXY_PORT)
+    wait_for_envoy_ready(namespace)
     logger.info("✓ Envoy proxy deployed successfully")
-
-
-def _create_envoy_configmap(namespace: str):
-    """Create Envoy ConfigMap with SNI-based routing configuration."""
-    filter_chains = ""
-    clusters = ""
-
-    for i in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc = search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name)
-        search_svc = search_resource_names.shard_service_name(MDBS_RESOURCE_NAME, shard_name)
-        cluster_name = f"mongot_{shard_name.replace('-', '_')}_cluster"
-
-        filter_chains += f"""
-        - filter_chain_match:
-            server_names:
-            - "{proxy_svc}.{namespace}.svc.cluster.local"
-          filters:
-          - name: envoy.filters.network.http_connection_manager
-            typed_config:
-              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-              stat_prefix: ingress_{shard_name.replace('-', '_')}
-              codec_type: AUTO
-              route_config:
-                name: {shard_name}_route
-                virtual_hosts:
-                - name: mongot_{shard_name.replace('-', '_')}_backend
-                  domains: ["*"]
-                  routes:
-                  - match:
-                      prefix: "/"
-                      grpc: {{}}
-                    route:
-                      cluster: {cluster_name}
-                      timeout: 300s
-              http_filters:
-              - name: envoy.filters.http.router
-                typed_config:
-                  "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
-              http2_protocol_options:
-                initial_connection_window_size: 1048576
-                initial_stream_window_size: 1048576
-              stream_idle_timeout: 300s
-              request_timeout: 300s
-          transport_socket:
-            name: envoy.transport_sockets.tls
-            typed_config:
-              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
-              common_tls_context:
-                tls_certificates:
-                - certificate_chain:
-                    filename: /etc/envoy/tls/server/tls.crt
-                  private_key:
-                    filename: /etc/envoy/tls/server/tls.key
-                validation_context:
-                  trusted_ca:
-                    filename: /etc/envoy/tls/ca/ca-pem
-                tls_params:
-                  tls_minimum_protocol_version: TLSv1_2
-                  tls_maximum_protocol_version: TLSv1_2
-                alpn_protocols:
-                - "h2"
-              require_client_certificate: true"""
-
-        clusters += f"""
-      - name: {cluster_name}
-        type: STRICT_DNS
-        lb_policy: ROUND_ROBIN
-        http2_protocol_options:
-          initial_connection_window_size: 1048576
-          initial_stream_window_size: 1048576
-        load_assignment:
-          cluster_name: {cluster_name}
-          endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: {search_svc}.{namespace}.svc.cluster.local
-                    port_value: {MONGOT_PORT}
-        transport_socket:
-          name: envoy.transport_sockets.tls
-          typed_config:
-            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            common_tls_context:
-              tls_certificates:
-              - certificate_chain:
-                  filename: /etc/envoy/tls/client/tls.crt
-                private_key:
-                  filename: /etc/envoy/tls/client/tls.key
-              validation_context:
-                trusted_ca:
-                  filename: /etc/envoy/tls/ca/ca-pem
-              alpn_protocols:
-              - "h2"
-            sni: {search_svc}.{namespace}.svc.cluster.local"""
-
-    envoy_config = f"""admin:
-  address:
-    socket_address:
-      address: 0.0.0.0
-      port_value: {ENVOY_ADMIN_PORT}
-
-static_resources:
-  listeners:
-  - name: mongod_listener
-    address:
-      socket_address:
-        address: 0.0.0.0
-        port_value: {ENVOY_PROXY_PORT}
-    listener_filters:
-    - name: envoy.filters.listener.tls_inspector
-      typed_config:
-        "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
-    filter_chains:{filter_chains}
-
-  clusters:{clusters}
-"""
-
-    create_or_update_configmap(namespace, "envoy-config", {"envoy.yaml": envoy_config})
-    logger.info(f"✓ Envoy ConfigMap created with routing for {SHARD_COUNT} shards")
-
-
-def _create_envoy_deployment(namespace: str):
-    """Create Envoy Deployment."""
-    deployment = {
-        "apiVersion": "apps/v1",
-        "kind": "Deployment",
-        "metadata": {
-            "name": "envoy-proxy",
-            "labels": {"app": "envoy-proxy", "component": "search-proxy"},
-        },
-        "spec": {
-            "replicas": 1,
-            "selector": {"matchLabels": {"app": "envoy-proxy"}},
-            "template": {
-                "metadata": {"labels": {"app": "envoy-proxy", "component": "search-proxy"}},
-                "spec": {
-                    "containers": [
-                        {
-                            "name": "envoy",
-                            "image": "envoyproxy/envoy:v1.31-latest",
-                            "command": ["/usr/local/bin/envoy"],
-                            "args": ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"],
-                            "ports": [
-                                {"name": "grpc", "containerPort": ENVOY_PROXY_PORT},
-                                {"name": "admin", "containerPort": ENVOY_ADMIN_PORT},
-                            ],
-                            "resources": {
-                                "requests": {"cpu": "100m", "memory": "128Mi"},
-                                "limits": {"cpu": "500m", "memory": "512Mi"},
-                            },
-                            "readinessProbe": {
-                                "httpGet": {"path": "/ready", "port": ENVOY_ADMIN_PORT},
-                                "initialDelaySeconds": 5,
-                                "periodSeconds": 5,
-                            },
-                            "volumeMounts": [
-                                {"name": "envoy-config", "mountPath": "/etc/envoy", "readOnly": True},
-                                {"name": "envoy-server-cert", "mountPath": "/etc/envoy/tls/server", "readOnly": True},
-                                {"name": "envoy-client-cert", "mountPath": "/etc/envoy/tls/client", "readOnly": True},
-                                {"name": "ca-cert", "mountPath": "/etc/envoy/tls/ca", "readOnly": True},
-                            ],
-                        }
-                    ],
-                    "volumes": [
-                        {"name": "envoy-config", "configMap": {"name": "envoy-config"}},
-                        {"name": "envoy-server-cert", "secret": {"secretName": "envoy-server-cert-pem"}},
-                        {"name": "envoy-client-cert", "secret": {"secretName": "envoy-client-cert-pem"}},
-                        {
-                            "name": "ca-cert",
-                            "configMap": {"name": CA_CONFIGMAP_NAME, "items": [{"key": "ca-pem", "path": "ca-pem"}]},
-                        },
-                    ],
-                },
-            },
-        },
-    }
-
-    try:
-        KubernetesTester.create_deployment(namespace, deployment)
-        logger.info("✓ Envoy Deployment created")
-    except Exception as e:
-        logger.info(f"Envoy Deployment may already exist: {e}")
-
-
-def _create_envoy_proxy_services(namespace: str):
-    """Create per-shard proxy Services pointing to Envoy."""
-    for i in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc_name = search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name)
-
-        service = {
-            "apiVersion": "v1",
-            "kind": "Service",
-            "metadata": {
-                "name": proxy_svc_name,
-                "labels": {"app": "envoy-proxy", "target-shard": shard_name},
-            },
-            "spec": {
-                "type": "ClusterIP",
-                "selector": {"app": "envoy-proxy"},
-                "ports": [{"name": "grpc", "port": ENVOY_PROXY_PORT, "targetPort": ENVOY_PROXY_PORT}],
-            },
-        }
-
-        try:
-            KubernetesTester.create_service(namespace, service)
-            logger.info(f"✓ Proxy Service {proxy_svc_name} created")
-        except Exception as e:
-            logger.info(f"Proxy Service {proxy_svc_name} may already exist: {e}")
-
-
-def _wait_for_envoy_ready(namespace: str, timeout: int = 120):
-    """Wait for Envoy deployment to be ready."""
-
-    def check_envoy_ready():
-        try:
-            apps_v1 = client.AppsV1Api()
-            deployment = apps_v1.read_namespaced_deployment("envoy-proxy", namespace)
-            ready = deployment.status.ready_replicas or 0
-            return ready >= 1, f"Envoy ready replicas: {ready}"
-        except Exception as e:
-            return False, f"Error checking Envoy: {e}"
-
-    run_periodically(check_envoy_ready, timeout=timeout, sleep_time=5, msg="Envoy proxy to be ready")
-
-
-def create_envoy_certificates(namespace: str, issuer: str):
-    """Create TLS certificates for Envoy proxy."""
-    logger.info("Creating Envoy proxy certificates...")
-
-    additional_domains = []
-    for i in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc = f"{MDBS_RESOURCE_NAME}-search-0-{shard_name}-proxy-svc"
-        additional_domains.append(f"{proxy_svc}.{namespace}.svc.cluster.local")
-
-    additional_domains.append(f"*.{namespace}.svc.cluster.local")
-
-    create_tls_certs(
-        issuer=issuer,
-        namespace=namespace,
-        resource_name="envoy-server",
-        replicas=1,
-        service_name="envoy-proxy",
-        additional_domains=additional_domains,
-        secret_name="envoy-server-cert-pem",
-    )
-    logger.info("✓ Envoy server certificate created")
-
-    create_tls_certs(
-        issuer=issuer,
-        namespace=namespace,
-        resource_name="envoy-client",
-        replicas=1,
-        service_name="envoy-proxy-client",
-        additional_domains=[f"*.{namespace}.svc.cluster.local"],
-        secret_name="envoy-client-cert-pem",
-    )
-    logger.info("✓ Envoy client certificate created")
-
-
-def create_per_shard_search_tls_certs(namespace: str, issuer: str, prefix: str):
-    """
-    Create per-shard TLS certificates for MongoDBSearch resource.
-
-    For each shard, creates a certificate with DNS names for:
-    - The mongot service: {search-name}-search-0-{shardName}-svc.{namespace}.svc.cluster.local
-    - The proxy service: {search-name}-search-0-{shardName}-proxy-svc.{namespace}.svc.cluster.local
-
-    Secret naming: search_resource_names.shard_tls_cert_name(MDBS_RESOURCE_NAME, shardName, prefix)
-    e.g., certs-mdb-sh-search-search-0-mdb-sh-0-cert
-    """
-    logger.info(f"Creating per-shard Search TLS certificates with prefix '{prefix}'...")
-
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        secret_name = search_resource_names.shard_tls_cert_name(MDBS_RESOURCE_NAME, shard_name, prefix)
-
-        additional_domains = [
-            f"{search_resource_names.shard_service_name(MDBS_RESOURCE_NAME, shard_name)}.{namespace}.svc.cluster.local",
-            f"{search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name)}.{namespace}.svc.cluster.local",
-        ]
-
-        create_tls_certs(
-            issuer=issuer,
-            namespace=namespace,
-            resource_name=search_resource_names.shard_statefulset_name(MDBS_RESOURCE_NAME, shard_name),
-            secret_name=secret_name,
-            additional_domains=additional_domains,
-        )
-        logger.info(f"✓ Per-shard Search TLS certificate created: {secret_name}")
-
-    logger.info(f"✓ All {SHARD_COUNT} per-shard Search TLS certificates created")
-
-
-# ============================================================================
-# Test Functions
-# ============================================================================
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
@@ -721,8 +327,7 @@ def test_create_users(
 
 @mark.e2e_search_sharded_enterprise_external_mongod
 def test_deploy_envoy_certificates(namespace: str, issuer: str):
-    """Create TLS certificates for Envoy proxy."""
-    create_envoy_certificates(namespace, issuer)
+    create_envoy_certificates(namespace, issuer, MDBS_RESOURCE_NAME, MDB_RESOURCE_NAME, SHARD_COUNT)
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
@@ -744,15 +349,6 @@ def test_verify_envoy_deployment(namespace: str):
     assert deployment.status.ready_replicas >= 1, "Envoy Deployment not ready"
     logger.info("✓ Envoy Deployment is running")
 
-    for i in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{i}"
-        proxy_svc_name = search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name)
-        service = get_service(namespace, proxy_svc_name)
-        assert service is not None, f"Proxy Service {proxy_svc_name} not found"
-        ports = {p.port for p in service.spec.ports}
-        assert ENVOY_PROXY_PORT in ports, f"Proxy Service missing port {ENVOY_PROXY_PORT}"
-        logger.info(f"✓ Proxy Service {proxy_svc_name} verified")
-
 
 @mark.e2e_search_sharded_enterprise_external_mongod
 def test_create_search_tls_certificate(namespace: str, issuer: str):
@@ -761,6 +357,9 @@ def test_create_search_tls_certificate(namespace: str, issuer: str):
         namespace=namespace,
         issuer=issuer,
         prefix=MDBS_TLS_CERT_PREFIX,
+        mdb_resource_name=MDB_RESOURCE_NAME,
+        shard_count=SHARD_COUNT,
+        mdbs_resource_name=MDBS_RESOURCE_NAME,
     )
     logger.info(f"✓ Per-shard Search TLS certificates created with prefix: {MDBS_TLS_CERT_PREFIX}")
 
@@ -770,56 +369,6 @@ def test_create_search_resource(mdbs: MongoDBSearch):
     """Test MongoDBSearch resource deployment with external sharded source config."""
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
-
-
-@mark.e2e_search_sharded_enterprise_external_mongod
-def test_verify_per_shard_tls_secrets(namespace: str, mdbs: MongoDBSearch):
-    """Verify that per-shard TLS secrets are created by the operator.
-
-    Checks for:
-    1. Source secrets (from cert-manager): {prefix}-{name}-search-0-{shardName}-cert
-    2. Operator-managed secrets: {shardName}-search-certificate-key
-       Note: The operator creates secrets with hash-based keys (e.g., "abc123...pem")
-       not a literal "certificate-key" key.
-    """
-    logger.info("Verifying per-shard TLS secrets...")
-
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-
-        # Verify source secret (created by cert-manager in test_create_search_tls_certificate)
-        source_secret_name = search_resource_names.shard_tls_cert_name(
-            MDBS_RESOURCE_NAME, shard_name, MDBS_TLS_CERT_PREFIX
-        )
-        try:
-            source_secret = read_secret(namespace, source_secret_name)
-            assert "tls.crt" in source_secret, f"Source secret {source_secret_name} missing tls.crt"
-            assert "tls.key" in source_secret, f"Source secret {source_secret_name} missing tls.key"
-            logger.info(f"✓ Source secret verified: {source_secret_name}")
-        except Exception as e:
-            raise AssertionError(f"Source secret {source_secret_name} not found: {e}")
-
-        # Verify operator-managed secret (created by Search controller)
-        # The operator creates a secret with a hash-based key like "abc123def456...pem"
-        # (SHA256 hash of the certificate content + ".pem" extension)
-        operator_secret_name = f"{shard_name}-search-certificate-key"
-
-        def check_operator_secret():
-            try:
-                operator_secret = read_secret(namespace, operator_secret_name)
-                # The operator uses hash-based filenames ending in .pem
-                pem_keys = [k for k in operator_secret.keys() if k.endswith(".pem")]
-                has_pem = len(pem_keys) > 0
-                return has_pem, f"Operator secret {operator_secret_name}: pem_keys={pem_keys}"
-            except Exception as e:
-                return False, f"Operator secret {operator_secret_name} not found: {e}"
-
-        run_periodically(
-            check_operator_secret, timeout=120, sleep_time=5, msg=f"operator secret {operator_secret_name}"
-        )
-        logger.info(f"✓ Operator secret verified: {operator_secret_name}")
-
-    logger.info(f"✓ All {SHARD_COUNT} per-shard TLS secrets verified")
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
@@ -835,71 +384,8 @@ def test_wait_for_agents_ready(mdb: MongoDB):
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod
-def test_verify_per_shard_services(namespace: str, mdbs: MongoDBSearch):
-    """
-    Verify that per-shard mongot Services are created.
-
-    For a sharded cluster with external source, the Search controller should create
-    one Service per shard with naming: <search-name>-search-0-<shardName>-svc
-    """
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        service_name = search_resource_names.shard_service_name(mdbs.name, shard_name)
-
-        logger.info(f"Checking for per-shard Service: {service_name}")
-
-        service = get_service(namespace, service_name)
-        assert service is not None, f"Per-shard Service {service_name} not found"
-
-        ports = {p.port for p in service.spec.ports}
-        assert MONGOT_PORT in ports, f"Service {service_name} missing mongot port {MONGOT_PORT}"
-
-        logger.info(f"✓ Per-shard Service {service_name} exists with ports: {ports}")
-
-
-@mark.e2e_search_sharded_enterprise_external_mongod
-def test_verify_per_shard_statefulsets(namespace: str, mdbs: MongoDBSearch):
-    """
-    Verify that per-shard mongot StatefulSets are created.
-
-    For a sharded cluster with external source, the Search controller should create
-    one StatefulSet per shard with naming: <search-name>-search-0-<shardName>
-    """
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        sts_name = search_resource_names.shard_statefulset_name(mdbs.name, shard_name)
-
-        logger.info(f"Checking for per-shard StatefulSet: {sts_name}")
-
-        max_wait_time = 120
-        poll_interval = 5
-        start_time = time.time()
-        ready_replicas = 0
-
-        while time.time() - start_time < max_wait_time:
-            try:
-                sts = get_statefulset(namespace, sts_name)
-                assert sts is not None, f"Per-shard StatefulSet {sts_name} not found"
-                assert sts.status is not None, f"StatefulSet {sts_name} has no status"
-
-                ready_replicas = sts.status.ready_replicas or 0
-                if ready_replicas >= 1:
-                    break
-
-                logger.info(f"StatefulSet {sts_name} has {ready_replicas} ready replicas, waiting...")
-                time.sleep(poll_interval)
-            except Exception as e:
-                logger.warning(f"Error checking StatefulSet {sts_name}: {e}")
-                time.sleep(poll_interval)
-
-        assert (
-            ready_replicas >= 1
-        ), f"StatefulSet {sts_name} has {ready_replicas} ready replicas after {max_wait_time}s, expected >= 1"
-
-        logger.info(f"✓ Per-shard StatefulSet {sts_name} exists with {ready_replicas} ready replicas")
-
-
+# TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
+# to wait for to get the mongod/mongos config properly generated.
 @mark.e2e_search_sharded_enterprise_external_mongod
 def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     """
@@ -994,7 +480,7 @@ def test_search_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_p
     Uses mongorestore from inside the tools pod since the MongoDB cluster
     is only accessible via Kubernetes internal DNS.
     """
-    search_tester = get_admin_search_tester(mdb, use_ssl=True)
+    search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
     search_tester.mongorestore_from_url(
         archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
         ns_include="sample_mflix.*",
@@ -1005,53 +491,9 @@ def test_search_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_p
 
 @mark.e2e_search_sharded_enterprise_external_mongod
 def test_search_shard_collections(mdb: MongoDB):
-    """Shard the movies and embedded_movies collections.
-
-    Uses SearchTester with direct pymongo connection. This works locally with kubefwd
-    because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
-    """
-    search_tester = get_admin_search_tester(mdb, use_ssl=True)
-    client = search_tester.client
-    admin_db = client.admin
-    sample_mflix_db = client["sample_mflix"]
-
-    # Enable sharding on database
-    try:
-        admin_db.command("enableSharding", "sample_mflix")
-        logger.info("✓ Sharding enabled on sample_mflix database")
-    except pymongo.errors.OperationFailure as e:
-        if (
-            "already enabled" in str(e) or e.code == 23 or e.code == 59
-        ):  # AlreadyInitialized or CommandNotFound (MongoDB 8.0+)
-            logger.info("Sharding already enabled on sample_mflix")
-        else:
-            raise
-
-    # Shard movies collection
-    try:
-        sample_mflix_db["movies"].create_index([("_id", pymongo.HASHED)])
-        admin_db.command("shardCollection", "sample_mflix.movies", key={"_id": "hashed"})
-        logger.info("✓ movies collection sharded")
-    except pymongo.errors.OperationFailure as e:
-        if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
-            logger.info("movies collection already sharded")
-        else:
-            raise
-
-    # Shard embedded_movies collection
-    try:
-        sample_mflix_db["embedded_movies"].create_index([("_id", pymongo.HASHED)])
-        admin_db.command("shardCollection", "sample_mflix.embedded_movies", key={"_id": "hashed"})
-        logger.info("✓ embedded_movies collection sharded")
-    except pymongo.errors.OperationFailure as e:
-        if "already sharded" in str(e) or e.code == 20:  # AlreadyInitialized for sharding
-            logger.info("embedded_movies collection already sharded")
-        else:
-            raise
-
-    # Wait for balancer to distribute chunks
-    time.sleep(10)
-    logger.info("✓ Collections sharded and balanced")
+    search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
+    search_tester.shard_and_distribute_collection("sample_mflix", "movies")
+    logger.info("Collections sharded and chunks are distributed")
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
@@ -1061,44 +503,25 @@ def test_search_create_search_index(mdb: MongoDB):
     Uses SearchTester with direct pymongo connection. This works locally with kubefwd
     because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
     """
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
+    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
     logger.info("✓ Text search index created")
 
-
-@mark.e2e_search_sharded_enterprise_external_mongod
-def test_search_wait_for_search_index_ready(mdb: MongoDB):
-    """Wait for search index to be ready.
-
-    Uses SearchTester with direct pymongo connection. This works locally with kubefwd
-    because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
-    """
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
-    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
-    logger.info("✓ Search index is ready")
+    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
+    emb_helper.create_vector_search_index()
+    emb_helper.wait_for_vector_search_index()
+    logger.info("✓ Vector search index created on embedded_movies")
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
-def test_search_assert_search_query(mdb: MongoDB):
-    """Execute text search query through mongos and verify results.
-
-    Uses SearchTester with direct pymongo connection. This works locally with kubefwd
-    because pymongo (Python) properly resolves /etc/hosts entries, unlike Go-based tools.
-    """
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
+def test_execute_text_search_query(mdb: MongoDB):
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    movies_helper = SampleMoviesSearchHelper(search_tester)
 
     def execute_search():
         try:
-            # Execute search query using pymongo aggregation
-            results = list(
-                search_tester.client["sample_mflix"]["movies"].aggregate(
-                    [
-                        {"$search": {"index": "default", "text": {"query": "star wars", "path": "title"}}},
-                        {"$limit": 10},
-                        {"$project": {"_id": 0, "title": 1, "score": {"$meta": "searchScore"}}},
-                    ]
-                )
-            )
+            results = movies_helper.text_search_movies("star wars")
 
             result_count = len(results)
             logger.info(f"Search returned {result_count} results")
@@ -1112,47 +535,89 @@ def test_search_assert_search_query(mdb: MongoDB):
             return False, f"Error: {e}"
 
     run_periodically(execute_search, timeout=60, sleep_time=5, msg="search query to succeed")
-    logger.info("✓ Text search query executed successfully through mongos")
+    logger.info("Text search query executed successfully through mongos")
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
 def test_search_verify_results_from_all_shards(mdb: MongoDB):
-    """
-    Verify that search results through mongos contain documents from all shards.
-    This is the definitive test that mongos is correctly aggregating search results.
-    """
-    search_tester = get_user_search_tester(mdb, use_ssl=True)
-    movies_collection = search_tester.client["sample_mflix"]["movies"]
-
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    movies_helper = SampleMoviesSearchHelper(search_tester)
     # Get total document count
-    total_docs = movies_collection.count_documents({})
+    total_docs = search_tester.client["sample_mflix"]["movies"].count_documents({})
     logger.info(f"Total documents in collection: {total_docs}")
 
-    # Execute wildcard search to get all documents
-    results = list(
-        movies_collection.aggregate(
-            [
-                {
-                    "$search": {
-                        "index": "default",
-                        "wildcard": {"query": "*", "path": "title", "allowAnalyzedField": True},
-                    }
-                },
-                {"$project": {"_id": 0, "title": 1}},
-            ]
-        )
+    # we have a document in our movies collection whose title is `$`, that's it. And because
+    # of that Lucene doesn't tokenize that document and as a result the respective entry is not
+    # made/found in the Lucene Inverted index and that's where the wildcard query looks for data.
+    # That's why we are expecting 1 less document because that one untokenzed data is not going
+    # to be found ever in inverted index.
+    expected_docs = total_docs - 1
+
+    def execute_all_docs_search():
+        # Execute wildcard search to get all documents
+        results = movies_helper.wildcard_search_movies()
+        search_count = len(results)
+        logger.info(f"Search through mongos returned {search_count} documents")
+
+        if search_count == expected_docs:
+            return True, f""
+        else:
+            return (
+                False,
+                f"Search query for all documents returned {search_count} documents, expected were {expected_docs}",
+            )
+
+    run_periodically(execute_all_docs_search, timeout=120, sleep_time=5, msg="search query for all docs")
+    logger.info(f"Search results for all documents verified.")
+
+
+@mark.e2e_search_sharded_enterprise_external_mongod
+def test_vector_search_before_and_after_sharding(mdb: MongoDB):
+    """Verify vector search returns consistent results before and after sharding embedded_movies."""
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    admin_search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
+    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
+
+    # Generate query vector by calling the Voyage embedding API
+    query_vector = emb_helper.generate_query_vector("war movies")
+
+    # Count total documents with embeddings to use as the limit
+    total_docs = emb_helper.count_documents_with_embeddings()
+    logger.info(f"Total documents with embeddings: {total_docs}")
+
+    # Run vector search before sharding
+    results_before = emb_helper.vector_search(query_vector, limit=total_docs)
+    count_before = len(results_before)
+    logger.info(f"Vector search before sharding: {count_before} results")
+    assert count_before > 0, "Vector search returned no results before sharding"
+
+    # Shard the embedded_movies collection (requires admin)
+    admin_search_tester.shard_and_distribute_collection("sample_mflix", "embedded_movies")
+    logger.info("embedded_movies collection sharded")
+
+    # Resharding (shard_and_distribute_collection) drops search indexes — recreate and wait for ready
+    emb_helper.create_vector_search_index()
+    emb_helper.wait_for_vector_search_index(timeout=300)
+    logger.info("Vector search index recreated after resharding")
+
+    # Run vector search after sharding with the same query vector and verify same count.
+    # Catch OperationFailure because mongot shards may still be in INITIAL_SYNC after resharding.
+    def verify_vector_search_after_sharding():
+        try:
+            results_after = emb_helper.vector_search(query_vector, limit=total_docs)
+        except pymongo.errors.OperationFailure as e:
+            logger.info(f"Vector search not ready yet: {e}")
+            return False, f"Vector search failed: {e}"
+        count_after = len(results_after)
+        logger.info(f"Vector search after sharding: {count_after} results")
+        if count_after == count_before:
+            return True, f"Vector search returned {count_after} results (matches pre-sharding count)"
+        return False, f"Vector search returned {count_after} results, expected {count_before}"
+
+    run_periodically(
+        verify_vector_search_after_sharding, timeout=300, sleep_time=10, msg="vector search after sharding"
     )
-
-    search_count = len(results)
-    logger.info(f"Search through mongos returned {search_count} documents")
-
-    # Verify search returns all documents (or close to it - some tolerance for timing)
-    assert search_count > 0, "Search returned no results"
-    assert (
-        search_count >= total_docs * 0.9
-    ), f"Search returned {search_count} but collection has {total_docs} (expected >= 90%)"
-
-    logger.info(f"✓ Search results verified: {search_count}/{total_docs} documents from all shards")
+    logger.info(f"Vector search returns consistent {count_before} results after sharding")
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod

@@ -13,6 +13,7 @@ from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.search_tester import SearchTester
+from tests.common.search.sharded_search_helper import make_admin_user, make_mongot_user, make_user
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
@@ -66,38 +67,17 @@ def mdbs(namespace: str) -> MongoDBSearch:
 
 @fixture(scope="function")
 def admin_user(namespace: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-admin.yaml"), namespace=namespace, name=ADMIN_USER_NAME
-    )
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-    try_load(resource)
-    return resource
+    return make_admin_user(namespace, MDB_RESOURCE_NAME, ADMIN_USER_NAME)
 
 
 @fixture(scope="function")
 def user(namespace: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(yaml_fixture("mongodbuser-mdb-user.yaml"), namespace=namespace, name=USER_NAME)
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-    try_load(resource)
-    return resource
+    return make_user(namespace, MDB_RESOURCE_NAME, USER_NAME)
 
 
 @fixture(scope="function")
 def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-search-sync-source-user.yaml"),
-        namespace=namespace,
-        name=f"{mdbs.name}-{MONGOT_USER_NAME}",
-    )
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = MONGOT_USER_NAME
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-    try_load(resource)
-    return resource
+    return make_mongot_user(namespace, mdbs, MDB_RESOURCE_NAME, MONGOT_USER_NAME)
 
 
 @mark.e2e_search_enterprise_x509_cluster_auth
