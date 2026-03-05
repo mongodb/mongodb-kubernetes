@@ -174,13 +174,13 @@ def test_migration_dry_run_connectivity_passes(mdb_migration_dry_run: MongoDB):
     """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
 
     def migration_connectivity_passed(mdb: MongoDB) -> bool:
-        return mdb.get("status", {}).get("migration", {}).get("phase") == MIGRATION_PHASE_CONNECTIVITY_PASSED
+        return mdb["status"]["migration"]["phase"] == MIGRATION_PHASE_CONNECTIVITY_PASSED
 
     mdb_migration_dry_run.wait_for(migration_connectivity_passed, timeout=300, should_raise=True)
 
-    # Remove dry-run annotation so subsequent tests (test_mdb_reaches_running, test_promote_and_prune) reconcile normally.
+    # Remove dry-run annotation so later tests (test_mdb_reaches_running, test_promote_and_prune) reconcile normally.
     mdb_migration_dry_run.load()
-    if mdb_migration_dry_run.get("metadata", {}).get("annotations", {}).pop(MIGRATION_DRY_RUN_ANNOTATION, None) is not None:
+    if mdb_migration_dry_run["metadata"]["annotations"].pop(MIGRATION_DRY_RUN_ANNOTATION, None) is not None:
         mdb_migration_dry_run.update()
 
 
