@@ -45,3 +45,6 @@ export PERFORM_CLEANUP=false
 
 # Specifies default local path to the helm charts if not specified explicitly in e2e test.
 export DEFAULT_HELM_CHART_PATH="${PROJECT_DIR}/helm_chart"
+
+# Version tag for locally built dev images (e.g. make operator-image). Override in private-context if needed.
+export DEV_VERSION="${DEV_VERSION:-${USER}-dev}"

@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -287,7 +286,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
-	// Recovery is skipped when a migration dry-run is active to preserve the no-write contract.
+	// Recovery is skipped when a migration dry-run is active.
 	isDryRun := rs.Annotations[opMigration.AnnotationDryRun] == "true"
 	if !isDryRun && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
@@ -302,8 +301,20 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// 5a. Connectivity dry-run: launch a validation Job without touching OM or StatefulSets.
+	// TODO: access cloud-qa project and create a new project for migration e2e tests with existing external members so we can access against
 	if isDryRun {
-		return r.runConnectivityValidationDryRun(ctx, conn, rs, deploymentOpts.currentAgentAuthMode, log)
+		operatorImage := getOperatorImageForDryRun(ctx, r.reconciler.client, r.reconciler.imageUrls, rs.Namespace, log)
+		if operatorImage == "" {
+			return r.updateStatus(ctx,
+				workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set OPERATOR_IMAGE env or deploy operator from Helm chart)")),
+				mdbstatus.NewMigrationStatusOption(mdbstatus.MigrationStatus{
+					Phase:   mdbstatus.MigrationPhaseConnectivityCheckFailed,
+					Reason:  "OperatorImageUnknown",
+					Message: "Set OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
+				}),
+			)
+		}
+		return r.runConnectivityValidationDryRun(ctx, rs.Spec.ExternalMembers, rs, deploymentOpts.currentAgentAuthMode, operatorImage, log)
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
@@ -797,6 +808,29 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	return workflow.OK()
 }
 
+// getOperatorImageForDryRun returns the operator image to use for migration dry-run Jobs.
+// It prefers OPERATOR_IMAGE env (set by Helm or locally); if unset, tries to read the
+// operator Deployment image in-cluster so that any deployment method works when running in a pod.
+func getOperatorImageForDryRun(ctx context.Context, c client.Client, imageUrls images.ImageUrls, resourceNamespace string, log *zap.SugaredLogger) string {
+	if img := imageUrls[util.OperatorImageEnv]; img != "" {
+		return img
+	}
+	depName := env.ReadOrDefault(util.OperatorNameEnv, "")
+	ns := env.ReadOrDefault(util.CurrentNamespace, resourceNamespace)
+	if depName == "" {
+		return ""
+	}
+	dep := &appsv1.Deployment{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: depName}, dep); err != nil {
+		log.Debugw("Could not get operator Deployment for dry-run image fallback", "namespace", ns, "name", depName, "error", err)
+		return ""
+	}
+	if len(dep.Spec.Template.Spec.Containers) == 0 {
+		return ""
+	}
+	return dep.Spec.Template.Spec.Containers[0].Image
+}
+
 // runConnectivityValidationDryRun launches (or polls) a connectivity-validator Kubernetes Job
 // that checks whether all external MongoDB members in the current Ops Manager deployment are
 // reachable from within the cluster. No StatefulSets or Ops Manager config are modified.
@@ -805,22 +839,8 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 // is requeued after 30s. On success the resource phase is set to Running with a
 // ConnectivityCheckPassed migration status. On failure the phase is set to Failed with a
 // ConnectivityCheckFailed migration status and reconciliation is requeued after 5 minutes.
-func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(
-	ctx context.Context,
-	conn om.Connection,
-	rs *mdbv1.MongoDB,
-	currentAgentAuthMode string,
-	log *zap.SugaredLogger,
-) (reconcile.Result, error) {
-	dep, err := conn.ReadDeployment()
-	if err != nil {
-		return r.updateStatus(ctx,
-			workflow.Failed(fmt.Errorf("connectivity dry run: reading Ops Manager deployment: %w", err)),
-		)
-	}
-	externalMembers := dep.GetAllHostnames()
-
-	operatorImage := os.Getenv(util.OperatorImageEnv)
+// TODO: extract to common controllers
+func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, externalMembers []string, rs *mdbv1.MongoDB, currentAgentAuthMode string, operatorImage string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	jobCfg := pkgMigration.BuildJobConfigFromRS(rs, operatorImage, currentAgentAuthMode, externalMembers)
 	job := pkgMigration.BuildJob(jobCfg)
 
