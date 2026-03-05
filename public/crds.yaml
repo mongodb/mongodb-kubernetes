@@ -2773,6 +2773,21 @@ spec:
                 type: integer
               message:
                 type: string
+              migration:
+                description: MigrationStatus is written to status.migration during
+                  a migration dry run.
+                properties:
+                  message:
+                    type: string
+                  phase:
+                    description: MigrationPhase describes the current phase of a connectivity
+                      validation dry run.
+                    type: string
+                  reason:
+                    type: string
+                required:
+                - phase
+                type: object
               mongodsPerShardCount:
                 type: integer
               mongosCount:
@@ -6434,6 +6449,21 @@ spec:
                     type: integer
                   message:
                     type: string
+                  migration:
+                    description: MigrationStatus is written to status.migration during
+                      a migration dry run.
+                    properties:
+                      message:
+                        type: string
+                      phase:
+                        description: MigrationPhase describes the current phase of
+                          a connectivity validation dry run.
+                        type: string
+                      reason:
+                        type: string
+                    required:
+                    - phase
+                    type: object
                   mongodsPerShardCount:
                     type: integer
                   mongosCount:

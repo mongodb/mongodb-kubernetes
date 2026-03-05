@@ -132,7 +132,13 @@ func newTestRS(name, namespace string, security *mdbv1.Security) *mdbv1.MongoDB 
 }
 
 func TestBuildJobConfigFromRS_SCRAMAuth(t *testing.T) {
-	rs := newTestRS("my-rs", "default", nil)
+	sec := &mdbv1.Security{
+		Authentication: &mdbv1.Authentication{
+			Enabled: true,
+			Modes:   []mdbv1.AuthMode{util.SCRAMSHA256},
+		},
+	}
+	rs := newTestRS("my-rs", "default", sec)
 	members := []string{"vm1.example.com:27017", "vm2.example.com:27017"}
 	cfg := BuildJobConfigFromRS(rs, "quay.io/mongodb/operator:1.0", util.AutomationConfigScramSha256Option, members)
 

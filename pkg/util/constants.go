@@ -196,6 +196,7 @@ const (
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
 	// OperatorImageEnv is the env variable that holds the full image reference for the running operator.
 	// The connectivity-validator binary is compiled into the same image, so this image is used for migration Jobs.
+	// includes the version
 	OperatorImageEnv              = "OPERATOR_IMAGE"
 	ManagedSecurityContextEnv     = "MANAGED_SECURITY_CONTEXT"
 	CurrentNamespace              = "NAMESPACE"

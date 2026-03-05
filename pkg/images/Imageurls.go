@@ -59,7 +59,7 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		// you at least one of the following should be true:
 		//   - New env var has a RELATED_IMAGE_* counterpart
 		//   - New env var contains an image URL or part of the URL
-		//     and it will be used in container for MongoDB workfloads
+		//     and it will be used in container for MongoDB workloads
 		construct.MongodbRepoUrlEnv:           "",
 		construct.MongodbImageEnv:             "",
 		util.InitOpsManagerImageUrl:           "",

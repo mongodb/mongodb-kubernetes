@@ -7,6 +7,10 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
+# Annotation that triggers migration dry-run (connectivity validation only, no OM/StatefulSet changes).
+MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
+MIGRATION_PHASE_CONNECTIVITY_PASSED = "ConnectivityCheckPassed"
+
 
 @fixture(scope="module")
 def om_tester(namespace: str) -> OMTester:
@@ -66,6 +70,19 @@ def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts) -> MongoDB:
     return resource
 
 
+@fixture(scope="module")
+def mdb_migration_dry_run(mdb_migration: MongoDB) -> MongoDB:
+    """Take mdb_migration, add migration dry-run annotation so the operator only runs connectivity validation."""
+    mdb_migration.load()
+    if "metadata" not in mdb_migration:
+        mdb_migration["metadata"] = {}
+    if "annotations" not in mdb_migration["metadata"]:
+        mdb_migration["metadata"]["annotations"] = {}
+    mdb_migration["metadata"]["annotations"][MIGRATION_DRY_RUN_ANNOTATION] = "true"
+    mdb_migration.update()
+    return mdb_migration
+
+
 @mark.e2e_vm_migration
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
@@ -93,6 +110,16 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
             "protocolVersion": "1",
         }
     ]
+
+    # Internal cluster auth on external members: set auth.key so the agent configures keyfile on the VMs
+    # and the operator (same code path as normal reconciliation) can ensure the credentials secret for
+    # the connectivity dry-run Job. Omit when testing migration with auth disabled.
+    ac["auth"] = {
+        "disabled": False,
+        "key": "vm-migration-test-keyfile",
+        "keyfile": "/var/lib/mongodb-mms-automation/authentication/keyfile",
+        "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
+    }
 
     for i in range(vm_sts["spec"]["replicas"]):
         # Set monitoring versions
@@ -140,6 +167,21 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
         )
 
     om_tester.api_put_automation_config(ac)
+
+
+@mark.e2e_vm_migration
+def test_migration_dry_run_connectivity_passes(mdb_migration_dry_run: MongoDB):
+    """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
+
+    def migration_connectivity_passed(mdb: MongoDB) -> bool:
+        return mdb.get("status", {}).get("migration", {}).get("phase") == MIGRATION_PHASE_CONNECTIVITY_PASSED
+
+    mdb_migration_dry_run.wait_for(migration_connectivity_passed, timeout=300, should_raise=True)
+
+    # Remove dry-run annotation so subsequent tests (test_mdb_reaches_running, test_promote_and_prune) reconcile normally.
+    mdb_migration_dry_run.load()
+    if mdb_migration_dry_run.get("metadata", {}).get("annotations", {}).pop(MIGRATION_DRY_RUN_ANNOTATION, None) is not None:
+        mdb_migration_dry_run.update()
 
 
 @mark.e2e_vm_migration

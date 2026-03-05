@@ -174,6 +174,23 @@ func (p Process) HostName() string {
 	return p["hostname"].(string)
 }
 
+// Port returns the port from args.net.port, or util.MongoDbDefaultPort (27017) if not set.
+// Read-only: does not mutate the process.
+func (p Process) Port() int {
+	args, _ := p["args2_6"].(map[string]interface{})
+	if args == nil {
+		return int(util.MongoDbDefaultPort)
+	}
+	netConfig, _ := args["net"].(map[string]interface{})
+	if netConfig == nil {
+		return int(util.MongoDbDefaultPort)
+	}
+	if port, ok := netConfig["port"]; ok {
+		return cast.ToInt(port)
+	}
+	return int(util.MongoDbDefaultPort)
+}
+
 // GetVotes returns the number of votes requested for the member using this process.
 func (p Process) GetVotes() int {
 	if votes, ok := p["votes"]; ok {

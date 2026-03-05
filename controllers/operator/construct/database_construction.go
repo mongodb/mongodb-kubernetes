@@ -680,6 +680,18 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumesToAdd = append(volumesToAdd, internalClusterAuthVolume)
 	}
 
+	// add volume for SCRAM keyfile used in internal cluster authentication (secret created by other code paths)
+	if !vault.IsVaultSecretBackend() && (mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.SCRAMSHA256 || mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.SCRAM) {
+		secretName := mdb.GetSecurity().InternalClusterAuthSecretName(databaseOpts.Name)
+		internalClusterKeyfileVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, secretName)
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			MountPath: util.InternalClusterAuthMountPath,
+			Name:      internalClusterKeyfileVolume.Name,
+			ReadOnly:  true,
+		})
+		volumesToAdd = append(volumesToAdd, internalClusterKeyfileVolume)
+	}
+
 	if !vault.IsVaultSecretBackend() {
 		volumesToAdd = append(volumesToAdd, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(databaseOpts.PodVars.ProjectID)))
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))

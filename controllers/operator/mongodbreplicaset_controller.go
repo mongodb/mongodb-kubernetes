@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -314,7 +315,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 				}),
 			)
 		}
-		return r.runConnectivityValidationDryRun(ctx, rs.Spec.ExternalMembers, rs, deploymentOpts.currentAgentAuthMode, operatorImage, log)
+		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, internalClusterCertPath, log)
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
@@ -834,15 +835,53 @@ func getOperatorImageForDryRun(ctx context.Context, c client.Client, imageUrls i
 // runConnectivityValidationDryRun launches (or polls) a connectivity-validator Kubernetes Job
 // that checks whether all external MongoDB members in the current Ops Manager deployment are
 // reachable from within the cluster. No StatefulSets or Ops Manager config are modified.
+// The Job is built from the same StatefulSet spec (buildStatefulSetOptions + DatabaseStatefulSet)
+// so it uses the same credentials volumes and mounts as the STS.
 //
 // While the Job is still running the resource phase is set to Pending and reconciliation
 // is requeued after 30s. On success the resource phase is set to Running with a
 // ConnectivityCheckPassed migration status. On failure the phase is set to Failed with a
 // ConnectivityCheckFailed migration status and reconciliation is requeued after 5 minutes.
 // TODO: extract to common controllers
-func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, externalMembers []string, rs *mdbv1.MongoDB, currentAgentAuthMode string, operatorImage string, log *zap.SugaredLogger) (reconcile.Result, error) {
-	jobCfg := pkgMigration.BuildJobConfigFromRS(rs, operatorImage, currentAgentAuthMode, externalMembers)
-	job := pkgMigration.BuildJob(jobCfg)
+func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, externalMemberProcessNames []string, rs *mdbv1.MongoDB, deploymentOpts deploymentOptionsRS, operatorImage, internalClusterCertPath string, log *zap.SugaredLogger) (reconcile.Result, error) {
+	dep, err := conn.ReadDeployment()
+	if err != nil {
+		return r.updateStatus(ctx,
+			workflow.Failed(xerrors.Errorf("connectivity dry-run: reading automation config: %w", err)),
+			mdbstatus.NewMigrationStatusOption(mdbstatus.MigrationStatus{
+				Phase:   mdbstatus.MigrationPhaseConnectivityCheckFailed,
+				Reason:  "ReadDeployment",
+				Message: err.Error(),
+			}),
+		)
+	}
+	// externalMemberProcessNames are process IDs; resolve to hostname:port from the automation config.
+	hostnamePorts := dep.GetHostnamePortsForProcessNames(externalMemberProcessNames)
+	if len(hostnamePorts) == 0 {
+		return r.updateStatus(ctx,
+			workflow.Failed(fmt.Errorf("connectivity dry-run: no hostnames found in automation config for external members %v", externalMemberProcessNames)),
+			mdbstatus.NewMigrationStatusOption(mdbstatus.MigrationStatus{
+				Phase:   mdbstatus.MigrationPhaseConnectivityCheckFailed,
+				Reason:  "NoHostnames",
+				Message: fmt.Sprintf("Automation config has no hostname:port for process names %v", externalMemberProcessNames),
+			}),
+		)
+	}
+
+	rsConfig, err := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)
+	if err != nil {
+		return r.updateStatus(ctx,
+			workflow.Failed(xerrors.Errorf("connectivity dry-run: building StatefulSet options: %w", err)),
+			mdbstatus.NewMigrationStatusOption(mdbstatus.MigrationStatus{
+				Phase:   mdbstatus.MigrationPhaseConnectivityCheckFailed,
+				Reason:  "BuildStatefulSetOptions",
+				Message: err.Error(),
+			}),
+		)
+	}
+	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+	connectionString := fmt.Sprintf("mongodb://%s/?replicaSet=%s", strings.Join(hostnamePorts, ","), rs.Name) // TODO: in later iterations of the project we should use the connection string from the secret, which also pertains user access
+	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, internalClusterCertPath)
 
 	phase, reason, message, runErr := opMigration.RunConnectivityJob(ctx, r.reconciler.client, job)
 	if runErr != nil {
@@ -876,7 +915,7 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 				Message: message,
 			}),
 		)
-	default: // ConnectivityCheckFailed
+	default: // ConnectivityCheckFailed // TODO: handle failure cases, should we re-create the job after 5 minutes?
 		result, updateErr := r.updateStatus(ctx,
 			workflow.Failed(fmt.Errorf("%s: %s", reason, message)),
 			mdbstatus.NewMigrationStatusOption(mdbstatus.MigrationStatus{
