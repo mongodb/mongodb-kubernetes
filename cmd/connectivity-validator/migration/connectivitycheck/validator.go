@@ -47,8 +47,8 @@ type Config struct {
 	SubjectDN string
 }
 
-// exitCodeName returns a short name for the exit code for logging.
-func exitCodeName(code int) string {
+// ExitCodeName returns a short name for the exit code for logging.
+func ExitCodeName(code int) string {
 	switch code {
 	case ExitSuccess:
 		return "Success"
@@ -86,7 +86,7 @@ func Validate(ctx context.Context, cfg Config) int {
 	clientOpts, err := buildClientOptions(cfg, cfg.ConnectionString)
 	if err != nil {
 		code := classifyError(err)
-		log.Warnw("Failed to build client options", "error", err, "exitCode", code, "exitCodeName", exitCodeName(code))
+		log.Warnw("Failed to build client options", "error", err, "exitCode", code, "exitCodeName", ExitCodeName(code))
 		return code
 	}
 	log.Debugw("Client options built successfully")
@@ -94,7 +94,7 @@ func Validate(ctx context.Context, cfg Config) int {
 	client, err := mongo.Connect(ctx, clientOpts)
 	if err != nil {
 		code := classifyError(err)
-		log.Warnw("Failed to connect to MongoDB", "error", err, "exitCode", code, "exitCodeName", exitCodeName(code))
+		log.Warnw("Failed to connect to MongoDB", "error", err, "exitCode", code, "exitCodeName", ExitCodeName(code))
 		return code
 	}
 	defer func(client *mongo.Client, ctx context.Context) {
@@ -107,13 +107,13 @@ func Validate(ctx context.Context, cfg Config) int {
 
 	if err := client.Ping(ctx, nil); err != nil {
 		code := classifyError(err)
-		log.Warnw("MongoDB ping failed", "error", err, "exitCode", code, "exitCodeName", exitCodeName(code))
+		log.Warnw("MongoDB ping failed", "error", err, "exitCode", code, "exitCodeName", ExitCodeName(code))
 		return code
 	}
 	log.Debugw("MongoDB ping succeeded")
 
 	if !hasSystemRole(ctx, client) {
-		log.Warnw("__system@local role not found", "exitCode", ExitRoleNotFound, "exitCodeName", exitCodeName(ExitRoleNotFound))
+		log.Warnw("__system@local role not found", "exitCode", ExitRoleNotFound, "exitCodeName", ExitCodeName(ExitRoleNotFound))
 		return ExitRoleNotFound
 	}
 	log.Debugw("__system@local role verified")
@@ -121,7 +121,7 @@ func Validate(ctx context.Context, cfg Config) int {
 	for i, member := range cfg.ExternalMembers {
 		log.Infow("Pinging external member", "member", member, "index", i+1, "total", len(cfg.ExternalMembers))
 		if code := pingMemberDirect(ctx, member, cfg); code != ExitSuccess {
-			log.Warnw("External member ping failed", "member", member, "exitCode", code, "exitCodeName", exitCodeName(code))
+			log.Warnw("External member ping failed", "member", member, "exitCode", code, "exitCodeName", ExitCodeName(code))
 			return code
 		}
 		log.Debugw("External member reachable", "member", member)
