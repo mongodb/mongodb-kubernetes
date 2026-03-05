@@ -35,6 +35,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.envoy_helpers import EnvoyProxy
 from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator
@@ -75,6 +76,20 @@ CA_CONFIGMAP_NAME = "mdb-sh-ca"
 @fixture(scope="module")
 def sharded_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
     return create_sharded_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
+
+
+@fixture(scope="function")
+def envoy(namespace: str) -> EnvoyProxy:
+    return EnvoyProxy(
+        namespace=namespace,
+        ca_configmap_name=CA_CONFIGMAP_NAME,
+        mdb_resource_name=MDB_RESOURCE_NAME,
+        mdbs_resource_name=MDBS_RESOURCE_NAME,
+        shard_count=SHARD_COUNT,
+        mongot_port=MONGOT_PORT,
+        envoy_proxy_port=ENVOY_PROXY_PORT,
+        envoy_admin_port=ENVOY_ADMIN_PORT,
+    )
 
 
 @fixture(scope="function")
@@ -238,18 +253,6 @@ def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
     return make_mongot_user(namespace, mdbs, MDB_RESOURCE_NAME, MONGOT_USER_NAME)
 
 
-def deploy_envoy_proxy(namespace: str):
-    """Deploy Envoy proxy for L7 load balancing mongot traffic."""
-    logger.info("Deploying Envoy proxy...")
-    create_envoy_configmap(
-        namespace, MDBS_RESOURCE_NAME, MDB_RESOURCE_NAME, SHARD_COUNT, MONGOT_PORT, ENVOY_PROXY_PORT, ENVOY_ADMIN_PORT
-    )
-    create_envoy_deployment(namespace, CA_CONFIGMAP_NAME, ENVOY_PROXY_PORT, ENVOY_ADMIN_PORT)
-    create_envoy_proxy_services(namespace, MDBS_RESOURCE_NAME, MDB_RESOURCE_NAME, SHARD_COUNT, ENVOY_PROXY_PORT)
-    wait_for_envoy_ready(namespace)
-    logger.info("✓ Envoy proxy deployed successfully")
-
-
 @mark.e2e_search_sharded_enterprise_external_mongod
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     """Test that the operator is installed and running."""
@@ -326,28 +329,14 @@ def test_create_users(
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
-def test_deploy_envoy_certificates(namespace: str, issuer: str):
-    create_envoy_certificates(namespace, issuer, MDBS_RESOURCE_NAME, MDB_RESOURCE_NAME, SHARD_COUNT)
+def test_deploy_envoy_certificates(envoy: EnvoyProxy, issuer: str):
+    envoy.create_certificates(issuer)
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
-def test_deploy_envoy_proxy(namespace: str):
+def test_deploy_envoy_proxy(envoy: EnvoyProxy):
     """Deploy Envoy proxy for L7 load balancing."""
-    deploy_envoy_proxy(namespace)
-
-
-@mark.e2e_search_sharded_enterprise_external_mongod
-def test_verify_envoy_deployment(namespace: str):
-    """Verify Envoy proxy deployment and configuration."""
-    config = read_configmap(namespace, "envoy-config")
-    assert "envoy.yaml" in config, "Envoy ConfigMap missing envoy.yaml"
-    assert "mongod_listener" in config["envoy.yaml"], "Envoy config missing listener"
-    logger.info("✓ Envoy ConfigMap verified")
-
-    apps_v1 = client.AppsV1Api()
-    deployment = apps_v1.read_namespaced_deployment("envoy-proxy", namespace)
-    assert deployment.status.ready_replicas >= 1, "Envoy Deployment not ready"
-    logger.info("✓ Envoy Deployment is running")
+    envoy.deploy()
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
