@@ -247,8 +247,16 @@ layered_runtime:
                                 },
                                 "volumeMounts": [
                                     {"name": "envoy-config", "mountPath": "/etc/envoy", "readOnly": True},
-                                    {"name": "envoy-server-cert", "mountPath": "/etc/envoy/tls/server", "readOnly": True},
-                                    {"name": "envoy-client-cert", "mountPath": "/etc/envoy/tls/client", "readOnly": True},
+                                    {
+                                        "name": "envoy-server-cert",
+                                        "mountPath": "/etc/envoy/tls/server",
+                                        "readOnly": True,
+                                    },
+                                    {
+                                        "name": "envoy-client-cert",
+                                        "mountPath": "/etc/envoy/tls/client",
+                                        "readOnly": True,
+                                    },
                                     {"name": "ca-cert", "mountPath": "/etc/envoy/tls/ca", "readOnly": True},
                                 ],
                             }
@@ -313,8 +321,7 @@ layered_runtime:
 
         run_periodically(check_envoy_ready, timeout=timeout, sleep_time=5, msg="Envoy proxy to be ready")
 
-    def deploy(self, issuer: str):
-        self.create_certificates(issuer)
+    def deploy(self):
         self.create_configmap()
         self.create_deployment()
         self.create_services()

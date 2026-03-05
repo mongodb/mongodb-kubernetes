@@ -33,9 +33,9 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.envoy_helpers import EnvoyProxy
 from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
 from tests.common.search.sharded_search_helper import *
-from tests.common.search.envoy_helpers import EnvoyProxy
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
 
@@ -237,11 +237,7 @@ def test_deploy_envoy_certificates(envoy: EnvoyProxy, issuer: str):
 @mark.e2e_search_sharded_enterprise_external_lb
 def test_deploy_envoy_proxy(envoy: EnvoyProxy):
     """Deploy Envoy proxy for L7 load balancing."""
-    envoy.create_configmap()
-    envoy.create_deployment()
-    envoy.create_services()
-    envoy.wait_for_ready()
-    logger.info("✓ Envoy proxy deployed successfully")
+    envoy.deploy()
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
