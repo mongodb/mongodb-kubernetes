@@ -33,7 +33,6 @@ from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.common.search.envoy_helpers import EnvoyProxy
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
 from tests.common.search.envoy_helpers import EnvoyProxy

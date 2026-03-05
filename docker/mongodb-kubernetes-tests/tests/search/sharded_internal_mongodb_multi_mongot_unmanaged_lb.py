@@ -36,7 +36,6 @@ from tests.common.search import search_resource_names
 from tests.common.search.envoy_helpers import EnvoyProxy
 from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
 from tests.common.search.sharded_search_helper import *
-from tests.common.search.envoy_helpers import EnvoyProxy
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
 
