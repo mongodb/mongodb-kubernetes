@@ -1644,3 +1644,78 @@ func TestValidatePerShardTLSSecretsAllExist(t *testing.T) {
 	status := helper.validatePerShardTLSSecrets(t.Context(), zap.S(), shardNames)
 	assert.True(t, status.IsOK(), "Expected status to be OK when all secrets exist")
 }
+
+func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns")
+
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"my-cluster-0", "my-cluster-1"},
+		hostSeeds: map[int][]string{
+			0: {"my-cluster-0-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
+			1: {"my-cluster-1-0.my-cluster-sh.test-ns.svc.cluster.local:27017"},
+		},
+	}
+
+	fakeClient := newTestFakeClient(search)
+
+	helper := NewMongoDBSearchReconcileHelper(
+		fakeClient,
+		search,
+		shardedSource,
+		newTestOperatorSearchConfig(),
+	)
+
+	// Pass 1: creates shard-0 resources, returns Pending (StatefulSet not ready)
+	result := helper.reconcileSharded(t.Context(), zap.S(), shardedSource, "8.0.0")
+	assert.False(t, result.IsOK())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
+
+	// Pass 2: shard-0 ready, creates shard-1 resources, returns Pending
+	result = helper.reconcileSharded(t.Context(), zap.S(), shardedSource, "8.0.0")
+	assert.False(t, result.IsOK())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
+
+	// Pass 3: all shards ready, returns OK
+	result = helper.reconcileSharded(t.Context(), zap.S(), shardedSource, "8.0.0")
+	assert.True(t, result.IsOK())
+
+	// Verify per-shard Services
+	for _, shardName := range shardedSource.GetShardNames() {
+		svcNsName := search.MongotServiceForShard(shardName)
+		svc, err := fakeClient.GetService(t.Context(), svcNsName)
+		require.NoError(t, err)
+
+		assert.Equal(t, fmt.Sprintf("test-search-search-0-%s-svc", shardName), svc.Name)
+		assert.Equal(t, "test-ns", svc.Namespace)
+		assert.Equal(t, corev1.ClusterIPNone, svc.Spec.ClusterIP)
+		assert.Equal(t, fmt.Sprintf("test-search-search-0-%s", shardName), svc.Spec.Selector["app"])
+
+		portMap := make(map[string]int32)
+		for _, p := range svc.Spec.Ports {
+			portMap[p.Name] = p.Port
+		}
+		assert.Equal(t, int32(27028), portMap["mongot-grpc"])
+		assert.Equal(t, int32(8080), portMap["healthcheck"])
+	}
+
+	// Verify per-shard StatefulSets
+	for _, shardName := range shardedSource.GetShardNames() {
+		stsNsName := search.MongotStatefulSetForShard(shardName)
+		sts, err := fakeClient.GetStatefulSet(t.Context(), stsNsName)
+		require.NoError(t, err)
+
+		assert.Equal(t, fmt.Sprintf("test-search-search-0-%s", shardName), sts.Name)
+		assert.Equal(t, "test-ns", sts.Namespace)
+		assert.Equal(t, shardName, sts.Labels["shard"])
+	}
+
+	// Verify per-shard ConfigMaps
+	for _, shardName := range shardedSource.GetShardNames() {
+		cmNsName := search.MongotConfigMapForShard(shardName)
+		cm, err := fakeClient.GetConfigMap(t.Context(), cmNsName)
+		require.NoError(t, err)
+
+		assert.Equal(t, fmt.Sprintf("test-search-search-0-%s-config", shardName), cm.Name)
+		assert.Contains(t, cm.Data, MongotConfigFilename)
+	}
+}
