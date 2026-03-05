@@ -21,10 +21,8 @@ import pymongo
 import pymongo.errors
 import yaml
 from kubernetes import client
-from kubetester import create_or_update_secret, get_service, read_configmap, try_load
-from kubetester.certs import create_sharded_cluster_certs
+from kubetester import get_service, read_configmap
 from kubetester.kubetester import KubernetesTester
-from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -37,6 +35,7 @@ from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
 from tests.common.search.envoy_helpers import EnvoyProxy
 from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
+from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
@@ -79,6 +78,15 @@ def sharded_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
 
 
 @fixture(scope="function")
+def helper(namespace: str) -> SearchDeploymentHelper:
+    return SearchDeploymentHelper(
+        namespace=namespace,
+        mdb_resource_name=MDB_RESOURCE_NAME,
+        mdbs_resource_name=MDBS_RESOURCE_NAME,
+    )
+
+
+@fixture(scope="function")
 def envoy(namespace: str) -> EnvoyProxy:
     return EnvoyProxy(
         namespace=namespace,
@@ -93,164 +101,35 @@ def envoy(namespace: str) -> EnvoyProxy:
 
 
 @fixture(scope="function")
-def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
-    """Fixture for sharded MongoDB cluster with TLS enabled and search configuration.
-
-    For the "external MongoDB source" simulation scenario, the MongoDB sharded cluster
-    needs to be created WITH search configuration from the beginning (pointing to Envoy
-    proxy endpoints that will be deployed later). This is different from the internal
-    MongoDB source scenario where the operator automatically applies search configuration.
-
-    The search configuration includes:
-    - shardOverrides: Each shard points to its own Envoy proxy service
-    - mongos: Points to the first shard's Envoy proxy service for search routing
-    """
-    resource = MongoDB.from_yaml(
-        yaml_fixture("enterprise-sharded-cluster-sample-mflix.yaml"),
-        name=MDB_RESOURCE_NAME,
-        namespace=namespace,
+def mdb(namespace: str, sharded_ca_configmap: str, helper: SearchDeploymentHelper) -> MongoDB:
+    return helper.create_sharded_mdb(
+        mongot_host_fn=lambda shard: search_resource_names.shard_proxy_service_host(
+            MDBS_RESOURCE_NAME, shard, namespace, ENVOY_PROXY_PORT
+        ),
     )
 
-    if try_load(resource):
-        return resource
 
-    # Configure OpsManager/CloudManager connection
-    resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
-
-    # Build shardOverrides configuration with search parameters for each shard
-    # Each shard needs to point to its own Envoy proxy service
-    shard_overrides = []
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        # Envoy proxy service name follows the pattern: <search-name>-search-0-<shard-name>-proxy-svc
-        proxy_host = search_resource_names.shard_proxy_service_host(
-            MDBS_RESOURCE_NAME, shard_name, namespace, ENVOY_PROXY_PORT
-        )
-
-        shard_overrides.append(
-            {
-                "shardNames": [shard_name],
-                "additionalMongodConfig": {
-                    "setParameter": {
-                        "mongotHost": proxy_host,
-                        "searchIndexManagementHostAndPort": proxy_host,
-                        "skipAuthenticationToSearchIndexManagementServer": False,
-                        "skipAuthenticationToMongot": False,
-                        "searchTLSMode": "requireTLS",
-                        "useGrpcForSearch": True,
-                    }
-                },
-            }
-        )
-
-    resource["spec"]["shardOverrides"] = shard_overrides
-
-    # Configure mongos with search parameters pointing to first shard's Envoy proxy
-    first_shard_name = f"{MDB_RESOURCE_NAME}-0"
-    mongos_proxy_host = search_resource_names.shard_proxy_service_host(
-        MDBS_RESOURCE_NAME, first_shard_name, namespace, ENVOY_PROXY_PORT
+@fixture(scope="function")
+def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoDBSearch:
+    return helper.mdbs_for_ext_sharded_source(
+        mongot_user_name=MONGOT_USER_NAME,
+        lb_endpoint=f"{MDBS_RESOURCE_NAME}-search-0-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}",
     )
 
-    # Initialize mongos spec if not present
-    if "mongos" not in resource["spec"]:
-        resource["spec"]["mongos"] = {}
 
-    resource["spec"]["mongos"]["additionalMongodConfig"] = {
-        "setParameter": {
-            "mongotHost": mongos_proxy_host,
-            "searchIndexManagementHostAndPort": mongos_proxy_host,
-            "skipAuthenticationToSearchIndexManagementServer": False,
-            "skipAuthenticationToMongot": False,
-            "searchTLSMode": "requireTLS",
-            "useGrpcForSearch": True,
-        }
-    }
-
-    return resource
+@fixture(scope="function")
+def admin_user(helper: SearchDeploymentHelper) -> MongoDBUser:
+    return helper.admin_user_resource(ADMIN_USER_NAME)
 
 
 @fixture(scope="function")
-def mdbs(namespace: str, mdb: MongoDB) -> MongoDBSearch:
-    """Fixture for MongoDBSearch with external sharded source configuration.
-
-    This fixture dynamically builds the spec.source.external.shardedCluster configuration
-    based on the deployed MongoDB sharded cluster, treating it as an external source.
-    """
-    resource = MongoDBSearch.from_yaml(
-        yaml_fixture("search-sharded-external-mongod.yaml"),
-        namespace=namespace,
-        name=MDBS_RESOURCE_NAME,
-    )
-
-    if try_load(resource):
-        return resource
-
-    # Build the external sharded source configuration dynamically
-    # Router hosts (mongos endpoints)
-    router_hosts = [
-        f"{MDB_RESOURCE_NAME}-mongos-{i}.{MDB_RESOURCE_NAME}-svc.{namespace}.svc.cluster.local:27017"
-        for i in range(MONGOS_COUNT)
-    ]
-
-    # Shard configurations
-    shards = []
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        shard_hosts = [
-            f"{shard_name}-{member}.{MDB_RESOURCE_NAME}-sh.{namespace}.svc.cluster.local:27017"
-            for member in range(MONGODS_PER_SHARD)
-        ]
-        shards.append(
-            {
-                "shardName": shard_name,
-                "hosts": shard_hosts,
-            }
-        )
-
-    # Set the external sharded source configuration
-    resource["spec"]["source"] = {
-        "username": MONGOT_USER_NAME,
-        "passwordSecretRef": {
-            "name": f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
-            "key": "password",
-        },
-        "external": {
-            "shardedCluster": {
-                "router": {
-                    "hosts": router_hosts,
-                },
-                "shards": shards,
-            },
-            "tls": {
-                "ca": {
-                    "name": CA_CONFIGMAP_NAME,
-                },
-            },
-        },
-    }
-
-    # Build the lb configuration with endpoint template for Envoy proxy
-    resource["spec"]["lb"] = {
-        "mode": "Unmanaged",
-        "endpoint": f"{MDBS_RESOURCE_NAME}-search-0-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}",
-    }
-
-    return resource
+def user(helper: SearchDeploymentHelper) -> MongoDBUser:
+    return helper.user_resource(USER_NAME)
 
 
 @fixture(scope="function")
-def admin_user(namespace: str) -> MongoDBUser:
-    return make_admin_user(namespace, MDB_RESOURCE_NAME, ADMIN_USER_NAME)
-
-
-@fixture(scope="function")
-def user(namespace: str) -> MongoDBUser:
-    return make_user(namespace, MDB_RESOURCE_NAME, USER_NAME)
-
-
-@fixture(scope="function")
-def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
-    return make_mongot_user(namespace, mdbs, MDB_RESOURCE_NAME, MONGOT_USER_NAME)
+def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
+    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
@@ -271,20 +150,8 @@ def test_create_ops_manager(namespace: str):
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
-def test_install_tls_certificates(namespace: str, mdb: MongoDB, issuer: str):
-    """Install TLS certificates for sharded cluster."""
-    mongos_service_dns = f"{MDB_RESOURCE_NAME}-svc.{namespace}.svc.cluster.local"
-    create_sharded_cluster_certs(
-        namespace=namespace,
-        resource_name=MDB_RESOURCE_NAME,
-        shards=SHARD_COUNT,
-        mongod_per_shard=MONGODS_PER_SHARD,
-        config_servers=CONFIG_SERVER_COUNT,
-        mongos=MONGOS_COUNT,
-        secret_prefix="mdb-sh-",
-        mongos_service_dns_names=[mongos_service_dns],
-    )
-    logger.info("✓ Sharded cluster TLS certificates created")
+def test_install_tls_certificates(helper: SearchDeploymentHelper, mdb: MongoDB, issuer: str):
+    helper.install_sharded_tls_certificates()
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
@@ -296,36 +163,18 @@ def test_create_sharded_cluster(mdb: MongoDB):
 
 @mark.e2e_search_sharded_enterprise_external_mongod
 def test_create_users(
-    namespace: str,
+    helper: SearchDeploymentHelper,
     admin_user: MongoDBUser,
     user: MongoDBUser,
     mongot_user: MongoDBUser,
     mdb: MongoDB,
 ):
-    """Test user creation for the sharded cluster."""
-    create_or_update_secret(
-        namespace,
-        name=admin_user["spec"]["passwordSecretKeyRef"]["name"],
-        data={"password": ADMIN_USER_PASSWORD},
+    helper.deploy_users(
+        admin_user, ADMIN_USER_PASSWORD,
+        user, USER_PASSWORD,
+        mongot_user, MONGOT_USER_PASSWORD,
+        use_create=True,
     )
-    admin_user.create()
-    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
-
-    create_or_update_secret(
-        namespace,
-        name=user["spec"]["passwordSecretKeyRef"]["name"],
-        data={"password": USER_PASSWORD},
-    )
-    user.create()
-    user.assert_reaches_phase(Phase.Updated, timeout=300)
-
-    create_or_update_secret(
-        namespace,
-        name=mongot_user["spec"]["passwordSecretKeyRef"]["name"],
-        data={"password": MONGOT_USER_PASSWORD},
-    )
-    mongot_user.create()
-    # Don't wait for mongot user - it needs searchCoordinator role from Search CR
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod
