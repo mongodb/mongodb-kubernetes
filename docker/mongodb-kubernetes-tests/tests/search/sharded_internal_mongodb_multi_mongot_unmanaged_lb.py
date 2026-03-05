@@ -175,9 +175,12 @@ def test_create_users(
     mdb: MongoDB,
 ):
     helper.deploy_users(
-        admin_user, ADMIN_USER_PASSWORD,
-        user, USER_PASSWORD,
-        mongot_user, MONGOT_USER_PASSWORD,
+        admin_user,
+        ADMIN_USER_PASSWORD,
+        user,
+        USER_PASSWORD,
+        mongot_user,
+        MONGOT_USER_PASSWORD,
     )
 
 

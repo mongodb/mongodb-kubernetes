@@ -9,8 +9,7 @@ Deployment configuration:
 import pymongo
 import pymongo.errors
 import yaml
-from kubetester.kubetester import KubernetesTester
-from kubetester.kubetester import run_periodically
+from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -133,9 +132,12 @@ def test_create_users(
     mdb: MongoDB,
 ):
     helper.deploy_users(
-        admin_user, ADMIN_USER_PASSWORD,
-        user, USER_PASSWORD,
-        mongot_user, MONGOT_USER_PASSWORD,
+        admin_user,
+        ADMIN_USER_PASSWORD,
+        user,
+        USER_PASSWORD,
+        mongot_user,
+        MONGOT_USER_PASSWORD,
     )
 
 
