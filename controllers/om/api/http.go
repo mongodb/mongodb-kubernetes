@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -222,17 +221,15 @@ func (client *Client) authorizeRequest(method, hostname, path string, request *r
 	}
 
 	if resp.StatusCode != http.StatusUnauthorized {
-		statusCode := resp.StatusCode
-		return &apierror.Error{
-			Status: &statusCode,
-			Detail: fmt.Sprintf(
+		return apierror.New(
+			xerrors.Errorf(
 				"Received status code '%v' (%v) but expected the '%d', requested url: %v",
 				resp.StatusCode,
 				resp.Status,
 				http.StatusUnauthorized,
 				digestRequest.URL,
 			),
-		}
+		)
 	}
 	digestParts := digestParts(resp)
 	digestAuth := getDigestAuthorization(digestParts, method, path, client.username, client.password)

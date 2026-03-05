@@ -13,6 +13,13 @@ spec:
 
   backup:
     enabled: true
+    s3Stores:
+      - name: s3Store1
+        s3SecretRef:
+          name: meta-om-s3-secret
+        pathStyleAccessEnabled: true
+        s3BucketEndpoint: s3.us-east-1.amazonaws.com
+        s3BucketName: placeholder
 
   configuration:
     automation.versions.source: mongodb

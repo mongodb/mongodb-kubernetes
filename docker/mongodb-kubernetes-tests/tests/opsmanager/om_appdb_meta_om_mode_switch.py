@@ -1,11 +1,13 @@
 from typing import Optional
 
 from kubetester import create_or_update_secret, read_secret, try_load
+from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import get_central_cluster_client
+from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 
 """
 Tests the AppDB headless → online mode switch.
@@ -30,7 +32,22 @@ META_OM_CREDS_SECRET = "meta-om-creds"
 META_OM_PROJECT_NAME = "primary-appdb"
 SAMPLE_MDB_NAME = "mdb-primary-managed"
 
+META_OM_S3_SECRET_NAME = "meta-om-s3-secret"
+META_OM_OPLOG_SECRET_NAME = "meta-om-s3-secret-oplog"
+
 AGENT_CONTAINER_NAME = "mongodb-agent"
+
+
+@fixture(scope="module")
+def meta_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+    create_aws_secret(aws_s3_client, META_OM_S3_SECRET_NAME, namespace)
+    yield from create_s3_bucket(aws_s3_client, "meta-om-s3")
+
+
+@fixture(scope="module")
+def meta_oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+    create_aws_secret(aws_s3_client, META_OM_OPLOG_SECRET_NAME, namespace)
+    yield from create_s3_bucket(aws_s3_client, "meta-om-oplog")
 
 
 @fixture(scope="module")
@@ -54,12 +71,14 @@ def meta_ops_manager(
     namespace: str,
     custom_version: Optional[str],
     custom_appdb_version: str,
+    meta_s3_bucket: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_appdb_switch_meta_om.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
+    resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = meta_s3_bucket
 
     try_load(resource)
     return resource
@@ -107,6 +126,27 @@ class TestMetaOMCreation:
         meta_ops_manager.update()
         meta_ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         meta_ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        meta_ops_manager.backup_status().assert_reaches_phase(
+            Phase.Pending,
+            msg_regexp="Oplog Store configuration is required for backup",
+            timeout=300,
+        )
+
+    def test_meta_om_backup_running(self, meta_ops_manager: MongoDBOpsManager, meta_oplog_s3_bucket: str):
+        meta_ops_manager.load()
+        meta_ops_manager["spec"]["backup"]["s3OpLogStores"] = [
+            {
+                "name": "s3OplogStore1",
+                "s3SecretRef": {
+                    "name": META_OM_OPLOG_SECRET_NAME,
+                },
+                "pathStyleAccessEnabled": True,
+                "s3BucketEndpoint": "s3.us-east-1.amazonaws.com",
+                "s3BucketName": meta_oplog_s3_bucket,
+            }
+        ]
+        meta_ops_manager.update()
+        meta_ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=500)
 
     def test_meta_om_healthiness(self, meta_ops_manager: MongoDBOpsManager):
         meta_ops_manager.get_om_tester().assert_healthiness()
