@@ -16,9 +16,6 @@ operator:
   # Name of the operator image
   operator_image_name: mongodb-kubernetes
 
-  # Name of the deployment of the operator pod
-  deployment_name: mongodb-kubernetes-operator
-
   # Version of mongodb-kubernetes-operator
   version: 1.7.0
 
