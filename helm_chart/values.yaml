@@ -224,3 +224,4 @@ search:
   name: mongodb-search
   # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
   version: 0.60.1
+  envoyImage: envoyproxy/envoy:v1.31-latest

@@ -409,7 +409,8 @@ func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
 		return err
 	}
 
-	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr); err != nil {
+	envoyImage := env.ReadOrDefault("MDB_ENVOY_IMAGE", "envoyproxy/envoy:v1.31-latest")
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage); err != nil {
 		return err
 	}
 
