@@ -1,3 +1,4 @@
+import os
 import subprocess
 
 import yaml
@@ -9,7 +10,7 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
-MIGRATE_TOOL = "kubectl-mongodb"
+MIGRATE_TOOL = os.getenv("KUBECTL_MONGODB_PATH", "kubectl-mongodb")
 MIGRATE_FLAGS = ["--config-map-name", "my-project", "--secret-name", "my-credentials"]
 RS_NAME = "vm-mongodb-rs"
 
@@ -53,16 +54,17 @@ def mdb_migration(namespace: str) -> MongoDB:
     if try_load(resource):
         return resource
 
-    generate = subprocess.run(
-        [MIGRATE_TOOL, "migrate", "generate", *MIGRATE_FLAGS, "--namespace", namespace],
-        capture_output=True,
-        text=True,
-    )
-    if generate.returncode != 0:
-        raise RuntimeError(f"migrate generate failed:\n{generate.stderr}")
-    print(generate.stderr)
+    try:
+        output = subprocess.check_output(
+            [MIGRATE_TOOL, "migrate", "generate", *MIGRATE_FLAGS, "--namespace", namespace],
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        print(f"migrate generate failed: {exc.stderr}")
+        raise exc
 
-    resource.backing_obj = yaml.safe_load(generate.stdout)
+    resource.backing_obj = yaml.safe_load(output)
     resource.update()
     return resource
 

@@ -1322,8 +1322,8 @@ def run_kube_config_creation_tool(
     member_clusters_str = ",".join(member_clusters)
     args = [
         os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
+            "KUBECTL_MONGODB_PATH",
+            "kubectl-mongodb",
         ),
         "multicluster",
         "setup",
@@ -1401,8 +1401,8 @@ def run_multi_cluster_recovery_tool(
     member_clusters_str = ",".join(member_clusters)
     args = [
         os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
+            "KUBECTL_MONGODB_PATH",
+            "kubectl-mongodb",
         ),
         "multicluster",
         "recover",
