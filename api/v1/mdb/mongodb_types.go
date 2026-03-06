@@ -366,7 +366,9 @@ type MongoDbStatus struct {
 	Link                                   string                                     `json:"link,omitempty"`
 	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
 	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
-	Migration                              *status.MigrationStatus                    `json:"migration,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type BackupMode string
@@ -1306,9 +1308,10 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
 		m.Status.Link = option.(status.BaseUrlOption).BaseUrl
 	}
-	if option, exists := status.GetOption(statusOptions, status.MigrationStatusOption{}); exists {
-		migration := option.(status.MigrationStatusOption).Migration
-		m.Status.Migration = &migration
+	if option, exists := status.GetOption(statusOptions, status.MigrationConditionOption{}); exists {
+		c := option.(status.MigrationConditionOption).Condition
+		c.ObservedGeneration = m.GetGeneration()
+		setCondition(&m.Status.Conditions, c)
 	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
@@ -1338,6 +1341,26 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 			m.Status.ShardCount = m.Spec.ShardCount
 		}
 	}
+}
+
+// setCondition sets or updates a condition by type (replaces existing with same type).
+// LastTransitionTime is only updated when Status or Reason changes.
+// Conditions are additive by nature per type so NetworkConditions is one.
+func setCondition(conditions *[]metav1.Condition, c metav1.Condition) {
+	if conditions == nil {
+		return
+	}
+	for i := range *conditions {
+		if (*conditions)[i].Type == c.Type {
+			existing := &(*conditions)[i]
+			if existing.Status == c.Status && existing.Reason == c.Reason {
+				c.LastTransitionTime = existing.LastTransitionTime
+			}
+			(*conditions)[i] = c
+			return
+		}
+	}
+	*conditions = append(*conditions, c)
 }
 
 func (m *MongoDB) SetWarnings(warnings []status.Warning, _ ...status.Option) {
