@@ -361,7 +361,7 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop:
-              - ALL
+                - ALL
           env:
             - name: OPERATOR_ENV
               value: prod
