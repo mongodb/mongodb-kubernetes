@@ -366,7 +366,9 @@ type MongoDbStatus struct {
 	Link                                   string                                     `json:"link,omitempty"`
 	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
 	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
-	Conditions                             []metav1.Condition                         `json:"conditions,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type BackupMode string
@@ -1308,6 +1310,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 	if option, exists := status.GetOption(statusOptions, status.MigrationConditionOption{}); exists {
 		c := option.(status.MigrationConditionOption).Condition
+		c.ObservedGeneration = m.GetGeneration()
 		setCondition(&m.Status.Conditions, c)
 	}
 	switch m.Spec.ResourceType {
@@ -1341,12 +1344,18 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 }
 
 // setCondition sets or updates a condition by type (replaces existing with same type).
+// LastTransitionTime is only updated when Status or Reason changes.
+// Conditions are additive by nature per type so NetworkConditions is one.
 func setCondition(conditions *[]metav1.Condition, c metav1.Condition) {
 	if conditions == nil {
 		return
 	}
 	for i := range *conditions {
 		if (*conditions)[i].Type == c.Type {
+			existing := &(*conditions)[i]
+			if existing.Status == c.Status && existing.Reason == c.Reason {
+				c.LastTransitionTime = existing.LastTransitionTime
+			}
 			(*conditions)[i] = c
 			return
 		}

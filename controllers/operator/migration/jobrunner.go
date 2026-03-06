@@ -61,7 +61,7 @@ func RunConnectivityJob(ctx context.Context, kubeClient client.Client, template 
 	shouldCreate := len(jobs) == 0 || (!finishedAt.IsZero() && time.Since(finishedAt) >= FailedJobRetention)
 	if shouldCreate {
 		toCreate := newUniqueJob(template, replicaSetName)
-		if err := kubeClient.Create(ctx, toCreate); err != nil {
+		if err := kubeClient.Create(ctx, toCreate); err == nil {
 			return mdbstatus.MigrationPhaseConnectivityCheckRunning, "", "", nil
 		}
 	}
