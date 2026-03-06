@@ -909,13 +909,12 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 			)),
 		)
 	default:
-		updateResult, updateErr := r.updateStatus(ctx,
+		if updateResult, updateErr := r.updateStatus(ctx,
 			workflow.Failed(fmt.Errorf("%s: %s", result.Reason, result.Message)),
 			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
 				mdbstatus.MigrationPhaseConnectivityCheckFailed, result.Reason, result.Message,
 			)),
-		)
-		if updateErr != nil {
+		); updateErr != nil {
 			return updateResult, updateErr
 		}
 		// Requeue after 5 minutes to retry once connectivity issues may be resolved.

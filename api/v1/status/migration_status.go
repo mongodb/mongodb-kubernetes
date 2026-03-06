@@ -18,6 +18,9 @@ const (
 
 // MigrationCondition returns a metav1.Condition for the migration connectivity check.
 // Passed -> True, Failed -> False, Running -> Unknown.
+//
+// Unknown when running follows standard Kubernetes condition semantics: True = condition
+// satisfied, False = not satisfied, Unknown = outcome not yet known (verification in progress).
 func MigrationCondition(phase MigrationPhase, reason, message string) metav1.Condition {
 	status := metav1.ConditionUnknown
 	switch phase {
