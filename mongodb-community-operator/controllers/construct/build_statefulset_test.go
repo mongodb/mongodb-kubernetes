@@ -8,6 +8,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
@@ -65,7 +66,7 @@ func TestManagedSecurityContext(t *testing.T) {
 
 func TestMongod_Container(t *testing.T) {
 	const mongodbImageMock = "fake-mongodbImage"
-	c := container.New(mongodbContainer(mongodbImageMock, []corev1.VolumeMount{}, mdbv1.NewMongodConfiguration(), false))
+	c := container.New(mongodbContainer(mongodbImageMock, []corev1.VolumeMount{}, mdbv1.NewMongodConfiguration(), false, nil))
 
 	t.Run("Has correct Env vars", func(t *testing.T) {
 		assert.Len(t, c.Env, 1)
@@ -173,4 +174,30 @@ func assertContainsVolumeMountWithName(t *testing.T, mounts []corev1.VolumeMount
 		}
 	}
 	assert.True(t, found, "Mounts should have contained a mount with name %s, but didn't. Actual mounts: %v", name, mounts)
+}
+
+func TestCustomResources(t *testing.T) {
+	t.Run("Custom resources are applied to containers", func(t *testing.T) {
+		customResources := &corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+			},
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+			},
+		}
+
+		c := container.New(mongodbContainer("test-image", []corev1.VolumeMount{}, mdbv1.NewMongodConfiguration(), false, customResources))
+		assert.Equal(t, customResources.Limits[corev1.ResourceCPU], c.Resources.Limits[corev1.ResourceCPU])
+		assert.Equal(t, customResources.Limits[corev1.ResourceMemory], c.Resources.Limits[corev1.ResourceMemory])
+		assert.Equal(t, customResources.Requests[corev1.ResourceCPU], c.Resources.Requests[corev1.ResourceCPU])
+		assert.Equal(t, customResources.Requests[corev1.ResourceMemory], c.Resources.Requests[corev1.ResourceMemory])
+	})
+
+	t.Run("Nil resources use defaults", func(t *testing.T) {
+		c := container.New(mongodbContainer("test-image", []corev1.VolumeMount{}, mdbv1.NewMongodConfiguration(), false, nil))
+		assert.Equal(t, resourcerequirements.Defaults(), c.Resources)
+	})
 }
