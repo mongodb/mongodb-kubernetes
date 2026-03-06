@@ -19,8 +19,7 @@ import pymongo
 import pymongo.errors
 import yaml
 from kubernetes import client
-from kubetester import create_or_update_secret, get_service, read_configmap, try_load
-from kubetester.certs import create_sharded_cluster_certs
+from kubetester import get_service, read_configmap, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
@@ -35,6 +34,7 @@ from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
 from tests.common.search.envoy_helpers import EnvoyProxy
 from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
+from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
@@ -77,6 +77,15 @@ def sharded_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
 
 
 @fixture(scope="function")
+def helper(namespace: str) -> SearchDeploymentHelper:
+    return SearchDeploymentHelper(
+        namespace=namespace,
+        mdb_resource_name=MDB_RESOURCE_NAME,
+        mdbs_resource_name=MDBS_RESOURCE_NAME,
+    )
+
+
+@fixture(scope="function")
 def envoy(namespace: str) -> EnvoyProxy:
     return EnvoyProxy(
         namespace=namespace,
@@ -91,29 +100,12 @@ def envoy(namespace: str) -> EnvoyProxy:
 
 
 @fixture(scope="function")
-def mdb(namespace: str, sharded_ca_configmap: str) -> MongoDB:
-    """Fixture for sharded MongoDB cluster with TLS enabled."""
-    resource = MongoDB.from_yaml(
-        yaml_fixture("enterprise-sharded-cluster-sample-mflix.yaml"),
-        name=MDB_RESOURCE_NAME,
-        namespace=namespace,
-    )
-
-    if try_load(resource):
-        return resource
-
-    # Configure OpsManager/CloudManager connection
-    resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
-
-    return resource
+def mdb(namespace: str, sharded_ca_configmap: str, helper: SearchDeploymentHelper) -> MongoDB:
+    return helper.create_sharded_mdb()
 
 
 @fixture(scope="function")
 def mdbs(namespace: str) -> MongoDBSearch:
-    """Fixture for MongoDBSearch with sharded external LB configuration.
-
-    Uses per-shard TLS with certsSecretPrefix and endpoint template with {shardName} placeholder.
-    """
     resource = MongoDBSearch.from_yaml(
         yaml_fixture("search-sharded-external-lb.yaml"),
         namespace=namespace,
@@ -123,7 +115,6 @@ def mdbs(namespace: str) -> MongoDBSearch:
     if try_load(resource):
         return resource
 
-    # Replace NAMESPACE placeholder in endpoint template URL with actual namespace
     spec = resource["spec"]
     if "lb" in spec and "endpoint" in spec["lb"]:
         spec["lb"]["endpoint"] = spec["lb"]["endpoint"].replace("NAMESPACE", namespace)
@@ -132,18 +123,18 @@ def mdbs(namespace: str) -> MongoDBSearch:
 
 
 @fixture(scope="function")
-def admin_user(namespace: str) -> MongoDBUser:
-    return make_admin_user(namespace, MDB_RESOURCE_NAME, ADMIN_USER_NAME)
+def admin_user(helper: SearchDeploymentHelper) -> MongoDBUser:
+    return helper.admin_user_resource(ADMIN_USER_NAME)
 
 
 @fixture(scope="function")
-def user(namespace: str) -> MongoDBUser:
-    return make_user(namespace, MDB_RESOURCE_NAME, USER_NAME)
+def user(helper: SearchDeploymentHelper) -> MongoDBUser:
+    return helper.user_resource(USER_NAME)
 
 
 @fixture(scope="function")
-def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
-    return make_mongot_user(namespace, mdbs, MDB_RESOURCE_NAME, MONGOT_USER_NAME)
+def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
+    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
@@ -164,27 +155,8 @@ def test_create_ops_manager(namespace: str):
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
-def test_install_tls_certificates(namespace: str, mdb: MongoDB, issuer: str):
-    """Install TLS certificates for sharded cluster."""
-    # Note: secret_prefix must include trailing hyphen to match the operator's expected format
-    # Operator generates: {certsSecretPrefix}-{resource_name}-{shard_idx}-cert
-    # e.g., mdb-sh-mdb-sh-0-cert
-    #
-    # IMPORTANT: For Search with sharded clusters, the mongot needs to connect to the mongos
-    # service (mdb-sh-svc.mongodb-test.svc.cluster.local). The certificate must include this
-    # service DNS name as a Subject Alternative Name (SAN).
-    mongos_service_dns = f"{MDB_RESOURCE_NAME}-svc.{namespace}.svc.cluster.local"
-    create_sharded_cluster_certs(
-        namespace=namespace,
-        resource_name=MDB_RESOURCE_NAME,
-        shards=SHARD_COUNT,
-        mongod_per_shard=MONGODS_PER_SHARD,
-        config_servers=CONFIG_SERVER_COUNT,
-        mongos=MONGOS_COUNT,
-        secret_prefix="mdb-sh-",
-        mongos_service_dns_names=[mongos_service_dns],
-    )
-    logger.info("✓ Sharded cluster TLS certificates created")
+def test_install_tls_certificates(helper: SearchDeploymentHelper, mdb: MongoDB, issuer: str):
+    helper.install_sharded_tls_certificates()
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
@@ -196,36 +168,20 @@ def test_create_sharded_cluster(mdb: MongoDB):
 
 @mark.e2e_search_sharded_enterprise_external_lb
 def test_create_users(
-    namespace: str,
+    helper: SearchDeploymentHelper,
     admin_user: MongoDBUser,
     user: MongoDBUser,
     mongot_user: MongoDBUser,
     mdb: MongoDB,
 ):
-    """Test user creation for the sharded cluster."""
-    create_or_update_secret(
-        namespace,
-        name=admin_user["spec"]["passwordSecretKeyRef"]["name"],
-        data={"password": ADMIN_USER_PASSWORD},
+    helper.deploy_users(
+        admin_user,
+        ADMIN_USER_PASSWORD,
+        user,
+        USER_PASSWORD,
+        mongot_user,
+        MONGOT_USER_PASSWORD,
     )
-    admin_user.update()
-    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
-
-    create_or_update_secret(
-        namespace,
-        name=user["spec"]["passwordSecretKeyRef"]["name"],
-        data={"password": USER_PASSWORD},
-    )
-    user.update()
-    user.assert_reaches_phase(Phase.Updated, timeout=300)
-
-    create_or_update_secret(
-        namespace,
-        name=mongot_user["spec"]["passwordSecretKeyRef"]["name"],
-        data={"password": MONGOT_USER_PASSWORD},
-    )
-    mongot_user.update()
-    # Don't wait for mongot user - it needs searchCoordinator role from Search CR
 
 
 @mark.e2e_search_sharded_enterprise_external_lb
