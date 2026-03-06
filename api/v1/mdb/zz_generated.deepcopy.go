@@ -22,10 +22,11 @@ package mdb
 
 import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	apiv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -426,7 +427,7 @@ func (in *DbCommonSpec) DeepCopyInto(out *DbCommonSpec) {
 	}
 	if in.Prometheus != nil {
 		in, out := &in.Prometheus, &out.Prometheus
-		*out = new(v1.Prometheus)
+		*out = new(apiv1.Prometheus)
 		**out = **in
 	}
 	if in.StatefulSetConfiguration != nil {
@@ -914,10 +915,12 @@ func (in *MongoDbStatus) DeepCopyInto(out *MongoDbStatus) {
 		*out = make([]status.Warning, len(*in))
 		copy(*out, *in)
 	}
-	if in.Migration != nil {
-		in, out := &in.Migration, &out.Migration
-		*out = new(status.MigrationStatus)
-		**out = **in
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]v1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 }
 
