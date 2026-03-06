@@ -34,7 +34,7 @@ func newTestReplicaSet() mdbv1.MongoDBCommunity {
 
 func TestMultipleCalls_DoNotCauseSideEffects(t *testing.T) {
 	mdb := newTestReplicaSet()
-	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage", true, "")
+	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage", true, "", nil, nil)
 	sts := &appsv1.StatefulSet{}
 
 	t.Run("1st Call", func(t *testing.T) {
@@ -55,7 +55,7 @@ func TestManagedSecurityContext(t *testing.T) {
 	t.Setenv(podtemplatespec.ManagedSecurityContextEnv, "true")
 
 	mdb := newTestReplicaSet()
-	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage", true, "")
+	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage", true, "", nil, nil)
 
 	sts := &appsv1.StatefulSet{}
 	stsFunc(sts)
