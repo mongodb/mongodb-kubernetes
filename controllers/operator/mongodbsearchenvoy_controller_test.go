@@ -23,11 +23,8 @@ func testRoute(shardName string) shardRoute {
 	}
 }
 
-func testCA() caConfig {
-	return caConfig{
-		ConfigMapName: "test-ca",
-		Key:           "ca-pem",
-	}
+func testCAKeyName() string {
+	return "ca-pem"
 }
 
 func unmarshalBootstrap(t *testing.T, jsonStr string) *bootstrapv3.Bootstrap {
@@ -39,14 +36,14 @@ func unmarshalBootstrap(t *testing.T, jsonStr string) *bootstrapv3.Bootstrap {
 }
 
 func TestBuildEnvoyConfigJSON_OutputIsValidJSON(t *testing.T) {
-	result, err := buildEnvoyConfigJSON([]shardRoute{testRoute("mdb-sh-0")}, false, testCA())
+	result, err := buildEnvoyConfigJSON([]shardRoute{testRoute("mdb-sh-0")}, false, testCAKeyName())
 	require.NoError(t, err)
 	assert.True(t, json.Valid([]byte(result)), "output should be valid JSON")
 }
 
 func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	result, err := buildEnvoyConfigJSON([]shardRoute{route}, false, testCA())
+	result, err := buildEnvoyConfigJSON([]shardRoute{route}, false, testCAKeyName())
 	require.NoError(t, err)
 
 	bootstrap := unmarshalBootstrap(t, result)
@@ -109,8 +106,8 @@ func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 
 func TestBuildEnvoyConfigJSON_SingleShard_WithTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	ca := testCA()
-	result, err := buildEnvoyConfigJSON([]shardRoute{route}, true, ca)
+	caKeyName := testCAKeyName()
+	result, err := buildEnvoyConfigJSON([]shardRoute{route}, true, caKeyName)
 	require.NoError(t, err)
 
 	bootstrap := unmarshalBootstrap(t, result)
@@ -135,7 +132,7 @@ func TestBuildEnvoyConfigJSON_SingleShard_WithTLS(t *testing.T) {
 
 	valCtx := downstreamTLS.CommonTlsContext.GetValidationContext()
 	require.NotNil(t, valCtx)
-	assert.Equal(t, envoyCACertPath+"/"+ca.Key, valCtx.TrustedCa.GetFilename())
+	assert.Equal(t, envoyCACertPath+"/"+caKeyName, valCtx.TrustedCa.GetFilename())
 
 	// Cluster has upstream TLS
 	cluster := bootstrap.StaticResources.Clusters[0]
@@ -161,7 +158,7 @@ func TestBuildEnvoyConfigJSON_MultipleShards(t *testing.T) {
 		{ShardName: "mdb-sh-2", ShardNameSafe: "mdb_sh_2", SNIHostname: "shard2.ns.svc.cluster.local", UpstreamHost: "mongot2.ns.svc.cluster.local", UpstreamPort: 27028},
 	}
 
-	result, err := buildEnvoyConfigJSON(routes, false, testCA())
+	result, err := buildEnvoyConfigJSON(routes, false, testCAKeyName())
 	require.NoError(t, err)
 
 	bootstrap := unmarshalBootstrap(t, result)
@@ -184,7 +181,7 @@ func TestBuildEnvoyConfigJSON_MultipleShards(t *testing.T) {
 
 func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	cluster, err := buildCluster(route, false, testCA())
+	cluster, err := buildCluster(route, false, testCAKeyName())
 	require.NoError(t, err)
 
 	// Verify deprecated fields are NOT set
