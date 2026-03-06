@@ -159,14 +159,14 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	rs := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(8, "my-rs"))
 	checkNumberOfVotingMembers(t, rs, 8, 8)
 
-	omDeployment.MergeReplicaSet(rs, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rs, nil, nil, nil, zap.S())
 	checkNumberOfVotingMembers(t, rs, 7, 8)
 
 	// Now OM user "has changed" votes for some of the members - this must stay the same after merge
 	omDeployment.GetReplicaSets()[0].Members()[2].setVotes(0).setPriority(0)
 	omDeployment.GetReplicaSets()[0].Members()[4].setVotes(0).setPriority(0)
 
-	omDeployment.MergeReplicaSet(rs, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rs, nil, nil, nil, zap.S())
 	checkNumberOfVotingMembers(t, rs, 5, 8)
 
 	// Now operator scales up by one - the "OM votes" should not suffer, but total number of votes will increase by one
@@ -174,7 +174,7 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	rsToMerge.Rs.Members()[2].setVotes(0).setPriority(0)
 	rsToMerge.Rs.Members()[4].setVotes(0).setPriority(0)
 	rsToMerge.Rs.Members()[7].setVotes(0).setPriority(0)
-	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, nil, zap.S())
 	checkNumberOfVotingMembers(t, rs, 6, 9)
 
 	// Now operator scales up by two - the "OM votes" should not suffer, but total number of votes will increase by one
@@ -183,7 +183,7 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	rsToMerge.Rs.Members()[2].setVotes(0).setPriority(0)
 	rsToMerge.Rs.Members()[4].setVotes(0).setPriority(0)
 
-	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, nil, zap.S())
 	checkNumberOfVotingMembers(t, rs, 7, 11)
 	assert.Equal(t, 0, omDeployment.GetReplicaSets()[0].Members()[2].Votes())
 	assert.Equal(t, 0, omDeployment.GetReplicaSets()[0].Members()[4].Votes())
@@ -195,11 +195,11 @@ func TestGetAllProcessNames_MergedReplicaSetsAndShardedClusters(t *testing.T) {
 	d := NewDeployment()
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	assert.Equal(t, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, d.GetAllProcessNames())
 
 	rs1 := buildRsByProcesses("another-rs", createReplicaSetProcessesCount(5, "another-rs"))
-	d.MergeReplicaSet(rs1, nil, nil, zap.S())
+	d.MergeReplicaSet(rs1, nil, nil, nil, zap.S())
 
 	assert.Equal(
 		t,
@@ -290,14 +290,14 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 
 	excessProcesses := d.GetNumberOfExcessProcesses("my-rs")
 	// There's only one resource in this deployment
 	assert.Equal(t, 0, excessProcesses)
 
 	rs1 := buildRsByProcesses("my-rs-second", createReplicaSetProcessesCount(3, "my-rs-second"))
-	d.MergeReplicaSet(rs1, nil, nil, zap.S())
+	d.MergeReplicaSet(rs1, nil, nil, nil, zap.S())
 	excessProcesses = d.GetNumberOfExcessProcesses("my-rs")
 
 	// another replica set was added to the deployment. 3 processes do not belong to this one
@@ -388,7 +388,7 @@ func TestIsShardOf(t *testing.T) {
 func TestProcessBelongsToReplicaSet(t *testing.T) {
 	d := NewDeployment()
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 
 	assert.True(t, d.ProcessBelongsToResource("my-rs-0", "my-rs"))
 	assert.True(t, d.ProcessBelongsToResource("my-rs-1", "my-rs"))
@@ -454,7 +454,7 @@ func TestDeploymentMinimumMajorVersion(t *testing.T) {
 	d0 := NewDeployment()
 	rs0Processes := createReplicaSetProcessesCount(3, "my-rs")
 	rs0 := buildRsByProcesses("my-rs", rs0Processes)
-	d0.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d0.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 
 	assert.Equal(t, uint64(3), d0.MinimumMajorVersion())
 
@@ -462,14 +462,14 @@ func TestDeploymentMinimumMajorVersion(t *testing.T) {
 	rs1Processes := createReplicaSetProcessesCount(3, "my-rs")
 	rs1Processes[0]["featureCompatibilityVersion"] = "2.4"
 	rs1 := buildRsByProcesses("my-rs", rs1Processes)
-	d1.MergeReplicaSet(rs1, nil, nil, zap.S())
+	d1.MergeReplicaSet(rs1, nil, nil, nil, zap.S())
 
 	assert.Equal(t, uint64(2), d1.MinimumMajorVersion())
 
 	d2 := NewDeployment()
 	rs2Processes := createReplicaSetProcessesCountEnt(3, "my-rs")
 	rs2 := buildRsByProcesses("my-rs", rs2Processes)
-	d2.MergeReplicaSet(rs2, nil, nil, zap.S())
+	d2.MergeReplicaSet(rs2, nil, nil, nil, zap.S())
 
 	assert.Equal(t, uint64(3), d2.MinimumMajorVersion())
 }
@@ -493,7 +493,7 @@ func TestConfigureMonitoring(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
 
 	expectedMonitoringVersions := []interface{}{
@@ -512,7 +512,7 @@ func TestConfigureMonitoringTls(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	d.ConfigureMonitoring(zap.S(), true, util.CAFilePathInContainer)
 
 	expectedAdditionalParams := map[string]string{
@@ -536,7 +536,7 @@ func TestConfigureMonitoringTLSDisable(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	d.ConfigureMonitoring(zap.S(), true, util.CAFilePathInContainer)
 
 	// verify TLS is present in additionalParams
@@ -565,7 +565,7 @@ func TestConfigureBackup(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	d.ConfigureBackup(zap.S())
 
 	expectedBackupVersions := []interface{}{
@@ -738,7 +738,7 @@ func createSpecificNumberOfShardsAndMongods(countShards, countMongods int, name 
 		rsName := fmt.Sprintf("%s-%d", name, i)
 		options := make([]automationconfig.MemberOptions, countMongods)
 		shards[i] = NewReplicaSetWithProcesses(
-			NewReplicaSet(rsName, "3.6.3"),
+			NewReplicaSet(rsName, "", "3.6.3"),
 			createReplicaSetProcessesCount(countMongods, rsName),
 			options,
 		)
@@ -749,7 +749,7 @@ func createSpecificNumberOfShardsAndMongods(countShards, countMongods int, name 
 func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProcesses {
 	options := make([]automationconfig.MemberOptions, len(processes))
 	return NewReplicaSetWithProcesses(
-		NewReplicaSet(rsName, "3.6.3"),
+		NewReplicaSet(rsName, "", "3.6.3"),
 		processes,
 		options,
 	)
@@ -799,7 +799,7 @@ func createReplicaSetProcessesCountEnt(count int, rsName string) []Process {
 func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
 	options := make([]automationconfig.MemberOptions, 3)
 	replicaSetWithProcesses := NewReplicaSetWithProcesses(
-		NewReplicaSet(name, "3.6.3"),
+		NewReplicaSet(name, "", "3.6.3"),
 		createReplicaSetProcesses(name),
 		options,
 	)
@@ -815,7 +815,7 @@ func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
 func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithProcesses {
 	options := make([]automationconfig.MemberOptions, count)
 	replicaSetWithProcesses := NewReplicaSetWithProcesses(
-		NewReplicaSet(name, "3.6.3"),
+		NewReplicaSet(name, "", "3.6.3"),
 		createReplicaSetProcessesCount(count, name),
 		options,
 	)
@@ -830,7 +830,7 @@ func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithPr
 
 func mergeReplicaSet(d Deployment, rsName string, rsProcesses []Process) ReplicaSetWithProcesses {
 	rs := buildRsByProcesses(rsName, rsProcesses)
-	d.MergeReplicaSet(rs, nil, nil, zap.S())
+	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
 	return rs
 }
 
