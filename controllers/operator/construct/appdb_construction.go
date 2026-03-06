@@ -712,12 +712,19 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 				volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 			}
 
+			metaOMEnvVarsModification := container.NOOP()
+			if opts.MetaOM.Enabled {
+				// Remove headless-mode vars injected by community code; they must be absent in online mode.
+				metaOMEnvVarsModification = container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv)
+			}
+
 			container.Apply(
 				container.WithVolumeMounts(volumeMounts),
 				container.WithCommand(monitoringCommand),
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*NewDefaultPodSpecWrapper(*appDB.PodSpec))),
 				container.WithVolumeMounts(monitoringMounts),
 				container.WithEnvs(appdbContainerEnv(appDB)...),
+				metaOMEnvVarsModification,
 				container.WithEnvs(readinessEnvironmentVariablesToEnvVars(appDB.AutomationAgent.ReadinessProbe.EnvironmentVariables)...),
 			)(monitoringContainer)
 			podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, *monitoringContainer)
