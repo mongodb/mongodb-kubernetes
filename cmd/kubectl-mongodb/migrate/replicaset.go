@@ -4,6 +4,9 @@ import (
 	"fmt"
 
 	"github.com/spf13/cast"
+
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 func getSlice(m map[string]interface{}, key string) []interface{} {
@@ -34,17 +37,12 @@ func buildProcessMap(processes []interface{}) (map[string]map[string]interface{}
 
 // extractMemberInfo reads version, FCV, and per-member metadata from the
 // automation config. Each member becomes an ExternalMember entry.
-func extractMemberInfo(members []interface{}, processMap map[string]map[string]interface{}) ([]ExternalMember, string, string, error) {
+func extractMemberInfo(members []om.ReplicaSetMember, processMap map[string]map[string]interface{}) ([]ExternalMember, string, string, error) {
 	var externalMembers []ExternalMember
 	var version, fcv string
 
 	for i, m := range members {
-		member, ok := m.(map[string]interface{})
-		if !ok {
-			return nil, "", "", fmt.Errorf("member at index %d is not a valid map", i)
-		}
-
-		host := cast.ToString(member["host"])
+		host := m.Name()
 		if host == "" {
 			return nil, "", "", fmt.Errorf("member at index %d has no host field", i)
 		}
@@ -59,12 +57,7 @@ func extractMemberInfo(members []interface{}, processMap map[string]map[string]i
 			return nil, "", "", fmt.Errorf("process %q has no hostname field", host)
 		}
 
-		port := 0
-		if args, ok := proc["args2_6"].(map[string]interface{}); ok {
-			if net, ok := args["net"].(map[string]interface{}); ok {
-				port = cast.ToInt(net["port"])
-			}
-		}
+		port := maputil.ReadMapValueAsInt(proc, "args2_6", "net", "port")
 		if port == 0 {
 			return nil, "", "", fmt.Errorf("process %q has no port configured in args2_6.net.port", host)
 		}
@@ -80,29 +73,33 @@ func extractMemberInfo(members []interface{}, processMap map[string]map[string]i
 			ProcessID:   host,
 			Hostname:    hostname,
 			Port:        port,
-			Votes:       cast.ToInt(member["votes"]),
-			Priority:    cast.ToFloat32(member["priority"]),
-			ArbiterOnly: cast.ToBool(member["arbiterOnly"]),
+			Votes:       m.Votes(),
+			Priority:    m.Priority(),
+			ArbiterOnly: cast.ToBool(m["arbiterOnly"]),
 		})
 	}
 
 	return externalMembers, version, fcv, nil
 }
 
-func getFirstReplicaSet(d map[string]interface{}) (map[string]interface{}, error) {
+func getFirstReplicaSet(d map[string]interface{}) (om.ReplicaSet, error) {
 	replicaSets := getReplicaSets(d)
 	if len(replicaSets) == 0 {
 		return nil, fmt.Errorf("no replica sets found in the automation config")
 	}
-	rsMap, ok := replicaSets[0].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("first replica set entry is not a valid map")
-	}
-	return rsMap, nil
+	return replicaSets[0], nil
 }
 
-func getReplicaSets(d map[string]interface{}) []interface{} {
-	return getSlice(d, "replicaSets")
+func getReplicaSets(d map[string]interface{}) []om.ReplicaSet {
+	raw := getSlice(d, "replicaSets")
+	if len(raw) == 0 {
+		return nil
+	}
+	result := make([]om.ReplicaSet, len(raw))
+	for i, v := range raw {
+		result[i] = om.NewReplicaSetFromInterface(v)
+	}
+	return result
 }
 
 // ExternalMember holds the identifying information for a replica set member

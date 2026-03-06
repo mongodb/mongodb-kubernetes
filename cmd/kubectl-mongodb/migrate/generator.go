@@ -40,12 +40,12 @@ func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, s
 		return "", "", xerrors.Errorf("error reading replica set: %w", err)
 	}
 
-	rsName := cast.ToString(rs["_id"])
+	rsName := rs.Name()
 	if rsName == "" {
 		return "", "", xerrors.Errorf("replica set has no _id field")
 	}
 
-	members := getSlice(rs, "members")
+	members := rs.Members()
 	processes := getSlice(ac.Deployment, "processes")
 	processMap, err := buildProcessMap(processes)
 	if err != nil {
@@ -99,7 +99,7 @@ func buildMongoDBSpec(
 	opts GenerateOptions,
 	ac *om.AutomationConfig,
 	processMap map[string]map[string]interface{},
-	members []interface{},
+	members []om.ReplicaSetMember,
 ) (mdbv1.MongoDbSpec, error) {
 	memberCount := len(externalMembers)
 
@@ -168,11 +168,7 @@ func buildMongoDBSpec(
 		spec.Agent = agentConfig
 	}
 
-	memberConfig, err := buildMemberConfig(members)
-	if err != nil {
-		return mdbv1.MongoDbSpec{}, fmt.Errorf("error building member config: %w", err)
-	}
-	spec.MemberConfig = memberConfig
+	spec.MemberConfig = buildMemberConfig(members)
 
 	return spec, nil
 }
@@ -251,7 +247,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 // buildMemberConfig creates MemberOptions for each member with votes=0 and
 // priority="0" (draining policy for external members being transitioned).
 // Tags are preserved from the automation config.
-func buildMemberConfig(members []interface{}) ([]automationconfig.MemberOptions, error) {
+func buildMemberConfig(members []om.ReplicaSetMember) []automationconfig.MemberOptions {
 	config := make([]automationconfig.MemberOptions, len(members))
 
 	for i, m := range members {
@@ -261,11 +257,7 @@ func buildMemberConfig(members []interface{}) ([]automationconfig.MemberOptions,
 			Priority: &p,
 		}
 
-		member, ok := m.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("member at index %d is not a valid map", i)
-		}
-		if tagsRaw, ok := member["tags"].(map[string]interface{}); ok && len(tagsRaw) > 0 {
+		if tagsRaw, ok := m["tags"].(map[string]interface{}); ok && len(tagsRaw) > 0 {
 			tags := make(map[string]string, len(tagsRaw))
 			for k, val := range tagsRaw {
 				tags[k] = cast.ToString(val)
@@ -273,7 +265,7 @@ func buildMemberConfig(members []interface{}) ([]automationconfig.MemberOptions,
 			config[i].Tags = tags
 		}
 	}
-	return config, nil
+	return config
 }
 
 // marshalCRToYAML marshals a Kubernetes resource to YAML, stripping only the

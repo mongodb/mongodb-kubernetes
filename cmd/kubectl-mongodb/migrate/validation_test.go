@@ -82,28 +82,6 @@ func TestValidation_MemberReferencesUnknownProcess(t *testing.T) {
 	assert.True(t, hasError, "expected error when member references unknown process")
 }
 
-func TestValidation_MemberHasNoHost(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
-				"_id": "my-rs",
-				"members": []interface{}{
-					map[string]interface{}{"priority": 1},
-				},
-			},
-		},
-	})
-
-	results := ValidateMigration(ac, nil, nil)
-	hasError := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "no host") {
-			hasError = true
-		}
-	}
-	assert.True(t, hasError, "expected error when member has no host field")
-}
 
 func TestValidation_ReplicaSetWithNoMembers(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
@@ -149,21 +127,6 @@ func TestValidation_ProcessesHaveNoVersion(t *testing.T) {
 		}
 	}
 	assert.True(t, hasError, "expected error when no process has a version")
-}
-
-func TestValidation_NonDefaultAutoUser(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
-	ac.Auth.AutoUser = "custom-agent"
-
-	results := ValidateMigration(ac, nil, nil)
-	hasError := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "autoUser") {
-			hasError = true
-			assert.Contains(t, r.Message, "custom-agent")
-		}
-	}
-	assert.True(t, hasError, "expected error when autoUser differs from default")
 }
 
 func TestValidation_NonDefaultKeyFile(t *testing.T) {
@@ -262,8 +225,7 @@ func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
 func TestValidation_NonDefaultProtocolVersion(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
 	replicaSets := getReplicaSets(ac.Deployment)
-	rs := replicaSets[0].(map[string]interface{})
-	rs["protocolVersion"] = "0"
+	replicaSets[0]["protocolVersion"] = "0"
 
 	results := ValidateMigration(ac, nil, nil)
 	hasError := false

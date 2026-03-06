@@ -10,6 +10,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
+	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 )
 
 func TestBuildAuthModes_FromDeploymentAuthMechanisms(t *testing.T) {
@@ -151,7 +152,7 @@ func TestIsTLSEnabled_TLSMode(t *testing.T) {
 		{"allowSSL", "allowSSL", true},
 		{"allowTLS", "allowTLS", true},
 		{"disabled", "disabled", false},
-		{"empty", "", false},
+		{"empty defaults to require", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -195,7 +196,7 @@ func TestIsTLSEnabled_NoNet(t *testing.T) {
 
 func TestBuildSecurity_NilAuth(t *testing.T) {
 	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{}
+	members := []om.ReplicaSetMember{}
 
 	result, err := buildSecurity(nil, processMap, members, nil, nil)
 	require.NoError(t, err)
@@ -205,7 +206,7 @@ func TestBuildSecurity_NilAuth(t *testing.T) {
 func TestBuildSecurity_AuthDisabled(t *testing.T) {
 	auth := &om.Auth{Disabled: true}
 	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{}
+	members := []om.ReplicaSetMember{}
 
 	result, err := buildSecurity(auth, processMap, members, nil, nil)
 	require.NoError(t, err)
@@ -218,7 +219,7 @@ func TestBuildSecurity_AuthEnabled(t *testing.T) {
 		DeploymentAuthMechanisms: []string{"SCRAM-SHA-256"},
 	}
 	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{}
+	members := []om.ReplicaSetMember{}
 
 	result, err := buildSecurity(auth, processMap, members, nil, nil)
 	require.NoError(t, err)
@@ -242,8 +243,8 @@ func TestBuildSecurity_TLSAndAuth(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	result, err := buildSecurity(auth, processMap, members, nil, nil)
@@ -269,8 +270,8 @@ func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	result, err := buildSecurity(auth, processMap, members, nil, nil)
@@ -280,19 +281,11 @@ func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
 	assert.Equal(t, "X509", result.Authentication.InternalCluster)
 }
 
-func TestBuildSecurity_InvalidMember(t *testing.T) {
-	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{"not-a-map"}
-
-	_, err := buildSecurity(nil, processMap, members, nil, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not a valid map")
-}
 
 func TestBuildSecurity_MissingProcess(t *testing.T) {
 	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{
-		map[string]interface{}{"host": "missing-host"},
+	members := []om.ReplicaSetMember{
+		{"host": "missing-host"},
 	}
 
 	_, err := buildSecurity(nil, processMap, members, nil, nil)
@@ -310,8 +303,8 @@ func TestExtractAdditionalMongodConfig_NonDefaultPort(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -333,8 +326,8 @@ func TestExtractAdditionalMongodConfig_DefaultPort(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -359,8 +352,8 @@ func TestExtractAdditionalMongodConfig_WiredTigerCache(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -380,8 +373,8 @@ func TestExtractAdditionalMongodConfig_NoArgs(t *testing.T) {
 	processMap := map[string]map[string]interface{}{
 		"host-0": {},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	_, err := extractAdditionalMongodConfig(processMap, members)
@@ -391,26 +384,18 @@ func TestExtractAdditionalMongodConfig_NoArgs(t *testing.T) {
 
 func TestExtractAdditionalMongodConfig_NoMembers(t *testing.T) {
 	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{}
+	members := []om.ReplicaSetMember{}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
 	require.NoError(t, err)
 	assert.Nil(t, config)
 }
 
-func TestExtractAdditionalMongodConfig_InvalidMember(t *testing.T) {
-	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{"not-a-map"}
-
-	_, err := extractAdditionalMongodConfig(processMap, members)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not a valid map")
-}
 
 func TestExtractAdditionalMongodConfig_MissingProcess(t *testing.T) {
 	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{
-		map[string]interface{}{"host": "missing-host"},
+	members := []om.ReplicaSetMember{
+		{"host": "missing-host"},
 	}
 
 	_, err := extractAdditionalMongodConfig(processMap, members)
@@ -431,8 +416,8 @@ func TestExtractAdditionalMongodConfig_SetParameter(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -458,8 +443,8 @@ func TestExtractAdditionalMongodConfig_OplogSizeMB(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -486,8 +471,8 @@ func TestExtractAdditionalMongodConfig_AuditLog(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -520,8 +505,8 @@ func TestExtractInternalClusterAuthMode(t *testing.T) {
 					},
 				},
 			}
-			members := []interface{}{
-				map[string]interface{}{"host": "host-0"},
+			members := []om.ReplicaSetMember{
+				{"host": "host-0"},
 			}
 			result, err := extractInternalClusterAuthMode(processMap, members)
 			require.NoError(t, err)
@@ -540,8 +525,8 @@ func TestExtractInternalClusterAuthMode_KeyFileNotSupported(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 	_, err := extractInternalClusterAuthMode(processMap, members)
 	assert.Error(t, err)
@@ -559,26 +544,19 @@ func TestExtractInternalClusterAuthMode_UnsupportedMode(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 	_, err := extractInternalClusterAuthMode(processMap, members)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported clusterAuthMode")
 }
 
-func TestExtractInternalClusterAuthMode_InvalidMember(t *testing.T) {
-	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{"not-a-map"}
-	_, err := extractInternalClusterAuthMode(processMap, members)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not a valid map")
-}
 
 func TestExtractInternalClusterAuthMode_MissingProcess(t *testing.T) {
 	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{
-		map[string]interface{}{"host": "missing-host"},
+	members := []om.ReplicaSetMember{
+		{"host": "missing-host"},
 	}
 	_, err := extractInternalClusterAuthMode(processMap, members)
 	assert.Error(t, err)
@@ -695,8 +673,8 @@ func TestExtractAdditionalMongodConfig_DbPathNotExtracted(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -713,8 +691,8 @@ func TestExtractAdditionalMongodConfig_DefaultDbPath(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -734,8 +712,8 @@ func TestExtractAdditionalMongodConfig_SystemLogNotExtracted(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -754,8 +732,8 @@ func TestExtractAdditionalMongodConfig_TLSModePrefer(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -780,8 +758,8 @@ func TestExtractAdditionalMongodConfig_TLSModeRequireNotIncluded(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -799,8 +777,8 @@ func TestExtractAgentConfig_LogRotate(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	agentConfig, err := extractAgentConfig(processMap, members)
@@ -820,8 +798,8 @@ func TestExtractAgentConfig_AuditLogRotate(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	agentConfig, err := extractAgentConfig(processMap, members)
@@ -835,8 +813,8 @@ func TestExtractAgentConfig_NoLogRotate(t *testing.T) {
 	processMap := map[string]map[string]interface{}{
 		"host-0": {},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	agentConfig, err := extractAgentConfig(processMap, members)
@@ -845,19 +823,11 @@ func TestExtractAgentConfig_NoLogRotate(t *testing.T) {
 	assert.Nil(t, agentConfig.Mongod.AuditLogRotate)
 }
 
-func TestExtractAgentConfig_InvalidMember(t *testing.T) {
-	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{"not-a-map"}
-
-	_, err := extractAgentConfig(processMap, members)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not a valid map")
-}
 
 func TestExtractAgentConfig_MissingProcess(t *testing.T) {
 	processMap := map[string]map[string]interface{}{}
-	members := []interface{}{
-		map[string]interface{}{"host": "missing-host"},
+	members := []om.ReplicaSetMember{
+		{"host": "missing-host"},
 	}
 
 	_, err := extractAgentConfig(processMap, members)
@@ -871,8 +841,8 @@ func TestExtractAgentConfig_MalformedLogRotate(t *testing.T) {
 			"logRotate": "not-a-map",
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	_, err := extractAgentConfig(processMap, members)
@@ -892,8 +862,8 @@ func TestExtractAgentConfig_SystemLog(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	agentConfig, err := extractAgentConfig(processMap, members)
@@ -908,8 +878,8 @@ func TestExtractAgentConfig_SystemLogNoArgs(t *testing.T) {
 	processMap := map[string]map[string]interface{}{
 		"host-0": {},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	agentConfig, err := extractAgentConfig(processMap, members)
@@ -932,8 +902,8 @@ func TestExtractAgentConfig_SystemLogAndLogRotate(t *testing.T) {
 			},
 		},
 	}
-	members := []interface{}{
-		map[string]interface{}{"host": "host-0"},
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
 	}
 
 	agentConfig, err := extractAgentConfig(processMap, members)
@@ -944,20 +914,20 @@ func TestExtractAgentConfig_SystemLogAndLogRotate(t *testing.T) {
 	assert.Equal(t, "500", agentConfig.Mongod.LogRotate.SizeThresholdMB)
 }
 
-func TestExtractTLSMode(t *testing.T) {
+func TestGetTLSModeFromMongodConfig(t *testing.T) {
 	tests := []struct {
 		name     string
 		args     map[string]interface{}
-		expected string
+		expected pkgtls.Mode
 	}{
 		{"tls mode", map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{"mode": "preferSSL"}}}, "preferSSL"},
 		{"ssl mode", map[string]interface{}{"net": map[string]interface{}{"ssl": map[string]interface{}{"mode": "requireSSL"}}}, "requireSSL"},
-		{"no net", map[string]interface{}{}, ""},
-		{"empty tls", map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{}}}, ""},
+		{"no net defaults to require", map[string]interface{}{}, pkgtls.Require},
+		{"empty tls defaults to require", map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{}}}, pkgtls.Require},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, extractTLSMode(tt.args))
+			assert.Equal(t, tt.expected, pkgtls.GetTLSModeFromMongodConfig(tt.args))
 		})
 	}
 }
@@ -1026,9 +996,9 @@ func TestExtractPrometheusConfig_MalformedNotMap(t *testing.T) {
 	deployment := om.Deployment{
 		"prometheus": "not-a-map",
 	}
-	_, err := extractPrometheusConfig(deployment)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not a valid map")
+	assert.Panics(t, func() {
+		_, _ = extractPrometheusConfig(deployment)
+	})
 }
 
 func TestExtractPrometheusConfig_EnabledNoUsername(t *testing.T) {

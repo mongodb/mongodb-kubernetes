@@ -7,7 +7,9 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 type Severity string
@@ -23,7 +25,6 @@ type ValidationResult struct {
 }
 
 var (
-	defaultAutoUser               = util.AutomationAgentName
 	defaultKeyFile                = util.AutomationAgentKeyFilePathInContainer
 	defaultKeyFileWindows         = util.AutomationAgentWindowsKeyFilePath
 	defaultCAFilePath             = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
@@ -58,7 +59,7 @@ func ValidateMigration(ac *om.AutomationConfig, monitoringConfig *om.MonitoringA
 	return results
 }
 
-// validateAuth checks auth-level fields (autoUser, keyFile, keyFileWindows)
+// validateAuth checks auth-level fields (keyFile, keyFileWindows)
 // against operator-hardcoded defaults.
 func validateAuth(auth *om.Auth) []ValidationResult {
 	if auth == nil || auth.Disabled {
@@ -67,12 +68,6 @@ func validateAuth(auth *om.Auth) []ValidationResult {
 
 	var results []ValidationResult
 
-	if auth.AutoUser != "" && auth.AutoUser != defaultAutoUser {
-		results = append(results, ValidationResult{
-			Severity: SeverityError,
-			Message:  fmt.Sprintf("auth.autoUser is %q but the operator defaults to %q; this is not yet configurable through the generated CR", auth.AutoUser, defaultAutoUser),
-		})
-	}
 	if auth.KeyFile != "" && auth.KeyFile != defaultKeyFile {
 		results = append(results, ValidationResult{
 			Severity: SeverityError,
@@ -171,12 +166,7 @@ func validateLDAP(l *ldap.Ldap) []ValidationResult {
 // validateProjectOptions checks project-level AC fields (e.g. downloadBase)
 // against operator-hardcoded defaults.
 func validateProjectOptions(d map[string]interface{}) []ValidationResult {
-	options, ok := d["options"].(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	downloadBase := cast.ToString(options["downloadBase"])
+	downloadBase := maputil.ReadMapValueAsString(d, "options", "downloadBase")
 	if downloadBase != "" && downloadBase != defaultDownloadBase {
 		return []ValidationResult{{
 			Severity: SeverityError,
@@ -269,17 +259,8 @@ func checkProcessesHaveVersion(d map[string]interface{}, processMap map[string]m
 		return nil
 	}
 
-	rsMap, ok := replicaSets[0].(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	for _, m := range getSlice(rsMap, "members") {
-		member, ok := m.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		proc, ok := processMap[cast.ToString(member["host"])]
+	for _, m := range replicaSets[0].Members() {
+		proc, ok := processMap[m.Name()]
 		if !ok {
 			continue
 		}
@@ -322,30 +303,13 @@ func checkNonDefaultDbPath(d map[string]interface{}, processMap map[string]map[s
 		return nil
 	}
 
-	rsMap, ok := replicaSets[0].(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	for _, m := range getSlice(rsMap, "members") {
-		member, ok := m.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		host := cast.ToString(member["host"])
+	for _, m := range replicaSets[0].Members() {
+		host := m.Name()
 		proc, ok := processMap[host]
 		if !ok {
 			continue
 		}
-		args, ok := proc["args2_6"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		storage, ok := args["storage"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		dbPath := cast.ToString(storage["dbPath"])
+		dbPath := maputil.ReadMapValueAsString(proc, "args2_6", "storage", "dbPath")
 		if dbPath != "" && dbPath != util.PvcMountPathData {
 			return []ValidationResult{{
 				Severity: SeverityWarning,
@@ -363,16 +327,22 @@ func checkTLSAllowMode(d map[string]interface{}) []ValidationResult {
 			continue
 		}
 		name := cast.ToString(proc["name"])
-		args, ok := proc["args2_6"].(map[string]interface{})
-		if !ok {
+		args := maputil.ReadMapValueAsMap(proc, "args2_6")
+		if args == nil {
 			continue
 		}
 
-		mode := extractTLSMode(args)
-		if mode == "allowTLS" || mode == "allowSSL" {
+		if !hasTLSSection(args) || pkgtls.GetTLSModeFromMongodConfig(args) == pkgtls.Disabled {
 			return []ValidationResult{{
 				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("process %q has TLS mode %q; the generated CR sets spec.security.tls.enabled with net.tls.mode in additionalMongodConfig to preserve this mode, but consider upgrading to requireTLS before migration", name, mode),
+				Message:  fmt.Sprintf("process %q has no TLS configured; the operator requires net.tls.mode to be explicitly set — you must add spec.additionalMongodConfig.net.tls.mode: \"disabled\" to the generated CR before applying it to the cluster", name),
+			}}
+		}
+		mode := pkgtls.GetTLSModeFromMongodConfig(args)
+		if mode == pkgtls.Allow || mode == "allowSSL" {
+			return []ValidationResult{{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("process %q has TLS mode %q; the generated CR sets spec.security.tls.enabled with net.tls.mode in additionalMongodConfig to preserve this mode, but consider upgrading to requireTLS before migration", name, string(mode)),
 			}}
 		}
 	}
@@ -387,18 +357,14 @@ func checkTLSPaths(d map[string]interface{}) []ValidationResult {
 			continue
 		}
 		name := cast.ToString(proc["name"])
-		args, ok := proc["args2_6"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		net, ok := args["net"].(map[string]interface{})
-		if !ok {
+		net := maputil.ReadMapValueAsMap(proc, "args2_6", "net")
+		if net == nil {
 			continue
 		}
 
 		for _, tlsKey := range []string{"tls", "ssl"} {
-			tlsSection, ok := net[tlsKey].(map[string]interface{})
-			if !ok {
+			tlsSection := maputil.ReadMapValueAsMap(net, tlsKey)
+			if tlsSection == nil {
 				continue
 			}
 
@@ -438,15 +404,7 @@ func checkShardingClusterRole(d map[string]interface{}) []ValidationResult {
 			continue
 		}
 		name := cast.ToString(proc["name"])
-		args, ok := proc["args2_6"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		sharding, ok := args["sharding"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		role := cast.ToString(sharding["clusterRole"])
+		role := maputil.ReadMapValueAsString(proc, "args2_6", "sharding", "clusterRole")
 		if role != "" {
 			results = append(results, ValidationResult{
 				Severity: SeverityError,
@@ -487,11 +445,7 @@ func countDeployments(d map[string]interface{}) int {
 
 	independentRSCount := 0
 	for _, rs := range getReplicaSets(d) {
-		rsMap, ok := rs.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if !shardRSNames[cast.ToString(rsMap["_id"])] {
+		if !shardRSNames[rs.Name()] {
 			independentRSCount++
 		}
 	}
@@ -512,12 +466,8 @@ func checkReplicaSetsExist(d map[string]interface{}) []ValidationResult {
 func checkReplicaSetProtocolVersion(d map[string]interface{}) []ValidationResult {
 	var results []ValidationResult
 	for _, rs := range getReplicaSets(d) {
-		rsMap, ok := rs.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		rsID := cast.ToString(rsMap["_id"])
-		pv := cast.ToString(rsMap["protocolVersion"])
+		rsID := rs.Name()
+		pv := cast.ToString(rs["protocolVersion"])
 		if pv != "" && pv != defaultProtocolVersion {
 			results = append(results, ValidationResult{
 				Severity: SeverityError,
@@ -536,12 +486,8 @@ func checkMembersReferenceProcesses(d map[string]interface{}, processMap map[str
 
 	var results []ValidationResult
 	for _, rs := range replicaSets {
-		rsMap, ok := rs.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		rsID := cast.ToString(rsMap["_id"])
-		members := getSlice(rsMap, "members")
+		rsID := rs.Name()
+		members := rs.Members()
 
 		if len(members) == 0 {
 			results = append(results, ValidationResult{
@@ -551,22 +497,9 @@ func checkMembersReferenceProcesses(d map[string]interface{}, processMap map[str
 			continue
 		}
 
-		for i, m := range members {
-			member, ok := m.(map[string]interface{})
-			if !ok {
-				results = append(results, ValidationResult{
-					Severity: SeverityError,
-					Message:  fmt.Sprintf("member at index %d in replica set %q is not a valid entry", i, rsID),
-				})
-				continue
-			}
-			host := cast.ToString(member["host"])
-			if host == "" {
-				results = append(results, ValidationResult{
-					Severity: SeverityError,
-					Message:  fmt.Sprintf("member at index %d in replica set %q has no host field", i, rsID),
-				})
-			} else if _, ok := processMap[host]; !ok {
+		for _, m := range members {
+			host := m.Name()
+			if _, ok := processMap[host]; !ok {
 				results = append(results, ValidationResult{
 					Severity: SeverityError,
 					Message:  fmt.Sprintf("member %q in replica set %q references a process not found in the automation config", host, rsID),
@@ -580,37 +513,26 @@ func checkMembersReferenceProcesses(d map[string]interface{}, processMap map[str
 func checkMemberPreservedFields(d map[string]interface{}) []ValidationResult {
 	var results []ValidationResult
 	for _, rs := range getReplicaSets(d) {
-		rsMap, ok := rs.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		rsID := cast.ToString(rsMap["_id"])
+		rsID := rs.Name()
 
-		for _, m := range getSlice(rsMap, "members") {
-			member, ok := m.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			host := cast.ToString(member["host"])
-			if host == "" {
-				host = fmt.Sprintf("index %d", cast.ToInt(member["_id"]))
-			}
+		for _, m := range rs.Members() {
+			host := m.Name()
 
-			if delay := cast.ToInt(member["slaveDelay"]); delay > 0 {
+			if delay := cast.ToInt(m["slaveDelay"]); delay > 0 {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
 					Message:  fmt.Sprintf("member %q in replica set %q has slaveDelay=%d; this value is preserved while the member remains external but will be lost when the member transitions to operator-managed", host, rsID, delay),
 				})
 			}
 
-			if hidden, ok := member["hidden"]; ok && cast.ToBool(hidden) {
+			if hidden, ok := m["hidden"]; ok && cast.ToBool(hidden) {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
 					Message:  fmt.Sprintf("member %q in replica set %q is hidden; this value is preserved while the member remains external but will be lost when the member transitions to operator-managed", host, rsID),
 				})
 			}
 
-			if _, ok := member["horizons"]; ok {
+			if _, ok := m["horizons"]; ok {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
 					Message:  fmt.Sprintf("member %q in replica set %q has horizons configured; horizons are VM-specific and will be overwritten by the operator for Kubernetes-managed members", host, rsID),

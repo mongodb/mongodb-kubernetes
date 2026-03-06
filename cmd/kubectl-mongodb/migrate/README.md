@@ -57,7 +57,7 @@ sections to CR fields. Each category appears as a section header comment
 | `auth.autoAuthMechanism`        | —                                                 | Preserved      | Read-only; derived from `autoAuthMechanisms`             |
 | `auth.authoritativeSet`         | `spec.security.authentication.ignoreUnknownUsers` | **Must match** | Value is inverted in CR                                  |
 | `auth.disabled`                 | `spec.security.authentication.enabled`            | **Must match** | Value is inverted in CR                                  |
-| `auth.autoUser`                 | —                                                 | **Blocker**    | Hardcodes `mms-automation-agent`; error if different     |
+| `auth.autoUser`                 | `spec.security.authentication.agents.automationUserName` | Extracted | Mapped to CR; defaults to `mms-automation-agent`   |
 | `auth.autoPwd`                  | —                                                 | Preserved      | Reads existing AC value; regenerated only if empty       |
 | `auth.newAutoPwd`               | —                                                 | Preserved      | Never modified; round-trips via `omitempty` merge        |
 | `auth.key`                      | —                                                 | Preserved      | Only regenerated if empty or placeholder                 |
@@ -291,7 +291,6 @@ All fields that block migration if their existing AC value is incompatible with 
 
 | AC Field                             | Expected Value                                                     | Constant                                    |
 | ------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------- |
-| `auth.autoUser`                      | `mms-automation-agent`                                             | `util.AutomationAgentName`                  |
 | `auth.keyFile`                       | `/var/lib/mongodb-mms-automation/keyfile`                          | `util.AutomationAgentKeyFilePathInContainer`|
 | `auth.keyFileWindows`                | `%SystemDrive%\MMSAutomation\versions\keyfile`                     | `util.AutomationAgentWindowsKeyFilePath`    |
 | `args2_6.net.tls.certificateKeyFile` | `/mongodb-automation/server.pem`                                   | `util.PEMKeyFilePathInContainer`            |

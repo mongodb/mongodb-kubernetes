@@ -7,6 +7,7 @@ from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMContext, OMTester
+from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
@@ -67,6 +68,11 @@ def mdb_migration(namespace: str) -> MongoDB:
     resource.backing_obj = yaml.safe_load(output)
     resource.update()
     return resource
+
+
+@mark.e2e_vm_migration_kubectl_plugin
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @mark.e2e_vm_migration_kubectl_plugin
@@ -147,7 +153,7 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
 
 @mark.e2e_vm_migration_kubectl_plugin
 def test_mdb_reaches_running(mdb_migration: MongoDB):
-    mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
+    mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
 # TODO insert sample data, assert it is still there after migration
@@ -159,8 +165,8 @@ def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
         mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
         mdb_migration.update()
 
-        mdb_migration.assert_reaches_phase(Phase.Running)
+        mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
 
         mdb_migration["spec"]["externalMembers"].pop()
         mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
+        mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)

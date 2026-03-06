@@ -13,7 +13,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 // buildSecurity assembles the top-level spec.security block by inspecting
@@ -21,7 +23,7 @@ import (
 func buildSecurity(
 	auth *om.Auth,
 	processMap map[string]map[string]interface{},
-	members []interface{},
+	members []om.ReplicaSetMember,
 	acLdap *ldap.Ldap,
 	oidcConfigs []oidc.ProviderConfig,
 ) (*mdbv1.Security, error) {
@@ -57,7 +59,7 @@ func buildSecurity(
 func buildAuthenticationConfig(
 	auth *om.Auth,
 	processMap map[string]map[string]interface{},
-	members []interface{},
+	members []om.ReplicaSetMember,
 	acLdap *ldap.Ldap,
 	oidcConfigs []oidc.ProviderConfig,
 ) (*mdbv1.Authentication, error) {
@@ -91,6 +93,10 @@ func buildAuthenticationConfig(
 		if crOIDC := convertOIDCConfigs(oidcConfigs); len(crOIDC) > 0 {
 			authConfig.OIDCProviderConfigs = crOIDC
 		}
+	}
+
+	if auth.AutoUser != "" && auth.AutoUser != util.AutomationAgentUserName {
+		authConfig.Agents.AutomationUserName = auth.AutoUser
 	}
 
 	return authConfig, nil
@@ -149,26 +155,14 @@ func mapMechanismToAuthMode(mech string) (mdbv1.AuthMode, bool) {
 // extractInternalClusterAuthMode reads security.clusterAuthMode from the
 // first member's process args2_6 and maps it to
 // spec.security.authentication.internalCluster.
-func extractInternalClusterAuthMode(processMap map[string]map[string]interface{}, members []interface{}) (string, error) {
+func extractInternalClusterAuthMode(processMap map[string]map[string]interface{}, members []om.ReplicaSetMember) (string, error) {
 	for i, m := range members {
-		member, ok := m.(map[string]interface{})
-		if !ok {
-			return "", fmt.Errorf("member at index %d is not a valid map", i)
-		}
-		host := cast.ToString(member["host"])
+		host := m.Name()
 		proc, ok := processMap[host]
 		if !ok {
 			return "", fmt.Errorf("process %q referenced by member at index %d not found", host, i)
 		}
-		args, ok := proc["args2_6"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		sec, ok := args["security"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if mode := cast.ToString(sec["clusterAuthMode"]); mode != "" {
+		if mode := maputil.ReadMapValueAsString(proc, "args2_6", "security", "clusterAuthMode"); mode != "" {
 			return mapClusterAuthMode(mode)
 		}
 	}
@@ -188,13 +182,9 @@ func mapClusterAuthMode(mode string) (string, error) {
 
 // isTLSEnabledForAnyMember returns true if at least one replica set member
 // has a non-disabled TLS mode in its process args2_6.
-func isTLSEnabledForAnyMember(processMap map[string]map[string]interface{}, members []interface{}) (bool, error) {
+func isTLSEnabledForAnyMember(processMap map[string]map[string]interface{}, members []om.ReplicaSetMember) (bool, error) {
 	for i, m := range members {
-		member, ok := m.(map[string]interface{})
-		if !ok {
-			return false, fmt.Errorf("member at index %d is not a valid map", i)
-		}
-		host := cast.ToString(member["host"])
+		host := m.Name()
 		proc, ok := processMap[host]
 		if !ok {
 			return false, fmt.Errorf("process %q referenced by member at index %d not found", host, i)
@@ -206,33 +196,25 @@ func isTLSEnabledForAnyMember(processMap map[string]map[string]interface{}, memb
 	return false, nil
 }
 
-// isTLSEnabled returns true if the process has any non-disabled TLS mode.
-// The operator only reads net.tls.mode from additionalMongodConfig when
-// spec.security.tls.enabled is true, so any TLS mode (require, prefer,
-// allow) must result in tls.enabled=true in the CR.
+// isTLSEnabled returns true if the process has an explicit non-disabled TLS mode.
 func isTLSEnabled(process map[string]interface{}) bool {
-	args, ok := process["args2_6"].(map[string]interface{})
-	if !ok {
+	args := maputil.ReadMapValueAsMap(process, "args2_6")
+	if args == nil {
 		return false
 	}
-	mode := extractTLSMode(args)
-	return mode != "" && mode != "disabled"
+	// GetTLSModeFromMongodConfig defaults to Require when no mode is set,
+	// but that only applies when TLS is already known to be enabled.
+	// Here we need to detect presence: if args2_6 has no net.tls/ssl section
+	// at all, TLS is not configured.
+	if !hasTLSSection(args) {
+		return false
+	}
+	return pkgtls.GetTLSModeFromMongodConfig(args) != pkgtls.Disabled
 }
 
-func extractTLSMode(args map[string]interface{}) string {
-	if net, ok := args["net"].(map[string]interface{}); ok {
-		if tls, ok := net["tls"].(map[string]interface{}); ok {
-			if mode := cast.ToString(tls["mode"]); mode != "" {
-				return mode
-			}
-		}
-		if ssl, ok := net["ssl"].(map[string]interface{}); ok {
-			if mode := cast.ToString(ssl["mode"]); mode != "" {
-				return mode
-			}
-		}
-	}
-	return ""
+func hasTLSSection(args map[string]interface{}) bool {
+	return maputil.ReadMapValueAsMap(args, "net", "tls") != nil ||
+		maputil.ReadMapValueAsMap(args, "net", "ssl") != nil
 }
 
 // extractCustomRoles returns the custom MongoDB roles defined in the deployment.
@@ -247,14 +229,9 @@ func extractCustomRoles(d om.Deployment) []mdbv1.MongoDBRole {
 // extractPrometheusConfig reads the Prometheus section from the deployment
 // and maps it to the CR's spec.prometheus block.
 func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
-	promRaw, ok := d["prometheus"]
-	if !ok || promRaw == nil {
+	promMap := maputil.ReadMapValueAsMap(d, "prometheus")
+	if promMap == nil {
 		return nil, nil
-	}
-
-	promMap, ok := promRaw.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("prometheus config is present but is not a valid map")
 	}
 
 	if !cast.ToBool(promMap["enabled"]) {
@@ -375,22 +352,18 @@ func convertOIDCConfigs(configs []oidc.ProviderConfig) []mdbv1.OIDCProviderConfi
 // extractAdditionalMongodConfig reads user-facing mongod options from the first
 // member's args2_6 and maps them to spec.additionalMongodConfig. Fields the
 // operator fully owns (dbPath, systemLog, replication.replSetName) are excluded.
-func extractAdditionalMongodConfig(processMap map[string]map[string]interface{}, members []interface{}) (*mdbv1.AdditionalMongodConfig, error) {
+func extractAdditionalMongodConfig(processMap map[string]map[string]interface{}, members []om.ReplicaSetMember) (*mdbv1.AdditionalMongodConfig, error) {
 	if len(members) == 0 {
 		return nil, nil
 	}
 
-	member, ok := members[0].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("member at index 0 is not a valid map")
-	}
-	host := cast.ToString(member["host"])
+	host := members[0].Name()
 	proc, ok := processMap[host]
 	if !ok {
 		return nil, fmt.Errorf("process %q referenced by member at index 0 not found", host)
 	}
-	args, ok := proc["args2_6"].(map[string]interface{})
-	if !ok {
+	args := maputil.ReadMapValueAsMap(proc, "args2_6")
+	if args == nil {
 		return nil, fmt.Errorf("process %q has no args2_6 configuration", host)
 	}
 
@@ -410,24 +383,21 @@ func extractAdditionalMongodConfig(processMap map[string]map[string]interface{},
 }
 
 func extractNetConfig(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {
-	net, ok := args["net"].(map[string]interface{})
-	if !ok {
+	if maputil.ReadMapValueAsMap(args, "net") == nil {
 		return false
 	}
 
 	hasConfig := false
 
-	if port := cast.ToInt(net["port"]); port != 0 && port != util.MongoDbDefaultPort {
+	if port := maputil.ReadMapValueAsInt(args, "net", "port"); port != 0 && port != util.MongoDbDefaultPort {
 		config.AddOption("net.port", port)
 		hasConfig = true
 	}
-	if compression, ok := net["compression"].(map[string]interface{}); ok {
-		if compressors, ok := compression["compressors"]; ok {
-			config.AddOption("net.compression.compressors", compressors)
-			hasConfig = true
-		}
+	if compressors := maputil.ReadMapValueAsInterface(args, "net", "compression", "compressors"); compressors != nil {
+		config.AddOption("net.compression.compressors", compressors)
+		hasConfig = true
 	}
-	if maxConns := cast.ToInt(net["maxIncomingConnections"]); maxConns != 0 {
+	if maxConns := maputil.ReadMapValueAsInt(args, "net", "maxIncomingConnections"); maxConns != 0 {
 		config.AddOption("net.maxIncomingConnections", maxConns)
 		hasConfig = true
 	}
@@ -436,57 +406,43 @@ func extractNetConfig(args map[string]interface{}, config *mdbv1.AdditionalMongo
 }
 
 func extractStorageConfig(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {
-	storage, ok := args["storage"].(map[string]interface{})
-	if !ok {
+	if maputil.ReadMapValueAsMap(args, "storage") == nil {
 		return false
 	}
 
 	hasConfig := false
 
-	if engine := cast.ToString(storage["engine"]); engine != "" && engine != "wiredTiger" {
+	if engine := maputil.ReadMapValueAsString(args, "storage", "engine"); engine != "" && engine != "wiredTiger" {
 		config.AddOption("storage.engine", engine)
 		hasConfig = true
 	}
-	if dirPerDB, ok := storage["directoryPerDB"]; ok {
-		config.AddOption("storage.directoryPerDB", dirPerDB)
+	if v := maputil.ReadMapValueAsInterface(args, "storage", "directoryPerDB"); v != nil {
+		config.AddOption("storage.directoryPerDB", v)
 		hasConfig = true
 	}
-	if journal, ok := storage["journal"].(map[string]interface{}); ok {
-		if enabled, ok := journal["enabled"]; ok {
-			config.AddOption("storage.journal.enabled", enabled)
-			hasConfig = true
-		}
+	if v := maputil.ReadMapValueAsInterface(args, "storage", "journal", "enabled"); v != nil {
+		config.AddOption("storage.journal.enabled", v)
+		hasConfig = true
 	}
-
-	if wt, ok := storage["wiredTiger"].(map[string]interface{}); ok {
-		if ec, ok := wt["engineConfig"].(map[string]interface{}); ok {
-			if v, ok := ec["cacheSizeGB"]; ok {
-				config.AddOption("storage.wiredTiger.engineConfig.cacheSizeGB", v)
-				hasConfig = true
-			}
-			if v, ok := ec["journalCompressor"]; ok {
-				config.AddOption("storage.wiredTiger.engineConfig.journalCompressor", v)
-				hasConfig = true
-			}
-		}
-		if cc, ok := wt["collectionConfig"].(map[string]interface{}); ok {
-			if v, ok := cc["blockCompressor"]; ok {
-				config.AddOption("storage.wiredTiger.collectionConfig.blockCompressor", v)
-				hasConfig = true
-			}
-		}
+	if v := maputil.ReadMapValueAsInterface(args, "storage", "wiredTiger", "engineConfig", "cacheSizeGB"); v != nil {
+		config.AddOption("storage.wiredTiger.engineConfig.cacheSizeGB", v)
+		hasConfig = true
+	}
+	if v := maputil.ReadMapValueAsInterface(args, "storage", "wiredTiger", "engineConfig", "journalCompressor"); v != nil {
+		config.AddOption("storage.wiredTiger.engineConfig.journalCompressor", v)
+		hasConfig = true
+	}
+	if v := maputil.ReadMapValueAsInterface(args, "storage", "wiredTiger", "collectionConfig", "blockCompressor"); v != nil {
+		config.AddOption("storage.wiredTiger.collectionConfig.blockCompressor", v)
+		hasConfig = true
 	}
 
 	return hasConfig
 }
 
 func extractReplicationConfig(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {
-	repl, ok := args["replication"].(map[string]interface{})
-	if !ok {
-		return false
-	}
-	if oplogSizeMB, ok := repl["oplogSizeMB"]; ok {
-		config.AddOption("replication.oplogSizeMB", oplogSizeMB)
+	if v := maputil.ReadMapValueAsInterface(args, "replication", "oplogSizeMB"); v != nil {
+		config.AddOption("replication.oplogSizeMB", v)
 		return true
 	}
 	return false
@@ -508,29 +464,26 @@ func extractGenericSections(args map[string]interface{}, config *mdbv1.Additiona
 }
 
 // extractNonDefaultTLSMode adds the TLS mode to additionalMongodConfig when
-// it differs from the operator's default (requireTLS). The operator reads
-// this value via pkg/tls.GetTLSModeFromMongodConfig when tls.enabled=true.
+// it differs from the operator's default (requireTLS). Modes "disabled" and
+// empty are excluded: the customer must explicitly add
+// net.tls.mode: "disabled" to the CR before applying.
 func extractNonDefaultTLSMode(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {
-	mode := extractTLSMode(args)
-	if mode != "" && mode != "requireSSL" && mode != "requireTLS" {
-		config.AddOption("net.tls.mode", mode)
-		return true
+	mode := pkgtls.GetTLSModeFromMongodConfig(args)
+	if mode == pkgtls.Disabled || mode == pkgtls.Require || mode == "requireSSL" {
+		return false
 	}
-	return false
+	config.AddOption("net.tls.mode", string(mode))
+	return true
 }
 
 // extractAgentConfig reads logRotate, auditLogRotate, and systemLog from
 // process entries and maps them to spec.agent.mongod.
-func extractAgentConfig(processMap map[string]map[string]interface{}, members []interface{}) (mdbv1.AgentConfig, error) {
+func extractAgentConfig(processMap map[string]map[string]interface{}, members []om.ReplicaSetMember) (mdbv1.AgentConfig, error) {
 	var agentConfig mdbv1.AgentConfig
 	hasConfig := false
 
 	for i, m := range members {
-		member, ok := m.(map[string]interface{})
-		if !ok {
-			return mdbv1.AgentConfig{}, fmt.Errorf("member at index %d is not a valid map", i)
-		}
-		host := cast.ToString(member["host"])
+		host := m.Name()
 		proc, ok := processMap[host]
 		if !ok {
 			return mdbv1.AgentConfig{}, fmt.Errorf("process %q referenced by member at index %d not found", host, i)
@@ -598,12 +551,8 @@ func extractLogRotate(proc map[string]interface{}, key string) (*automationconfi
 }
 
 func extractSystemLog(proc map[string]interface{}) *automationconfig.SystemLog {
-	args, ok := proc["args2_6"].(map[string]interface{})
-	if !ok {
-		return nil
-	}
-	sysLog, ok := args["systemLog"].(map[string]interface{})
-	if !ok {
+	sysLog := maputil.ReadMapValueAsMap(proc, "args2_6", "systemLog")
+	if sysLog == nil {
 		return nil
 	}
 
