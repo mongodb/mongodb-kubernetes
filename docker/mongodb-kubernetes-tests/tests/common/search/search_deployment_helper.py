@@ -194,16 +194,13 @@ class SearchDeploymentHelper:
         user_password: str,
         mongot_user: MongoDBUser,
         mongot_password: str,
-        use_create: bool = False,
     ):
-        method = "create" if use_create else "update"
-
         create_or_update_secret(
             self.namespace,
             name=admin_user["spec"]["passwordSecretKeyRef"]["name"],
             data={"password": admin_password},
         )
-        getattr(admin_user, method)()
+        admin_user.update()
         admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
         create_or_update_secret(
@@ -211,7 +208,7 @@ class SearchDeploymentHelper:
             name=user["spec"]["passwordSecretKeyRef"]["name"],
             data={"password": user_password},
         )
-        getattr(user, method)()
+        user.update()
         user.assert_reaches_phase(Phase.Updated, timeout=300)
 
         create_or_update_secret(
@@ -219,7 +216,7 @@ class SearchDeploymentHelper:
             name=mongot_user["spec"]["passwordSecretKeyRef"]["name"],
             data={"password": mongot_password},
         )
-        getattr(mongot_user, method)()
+        mongot_user.update()
         # Don't wait for mongot user — needs searchCoordinator role from Search CR
 
     def install_sharded_tls_certificates(self, secret_prefix: str = "mdb-sh-"):

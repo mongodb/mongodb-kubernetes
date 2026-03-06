@@ -175,7 +175,6 @@ def test_create_users(
         USER_PASSWORD,
         mongot_user,
         MONGOT_USER_PASSWORD,
-        use_create=True,
     )
 
 
