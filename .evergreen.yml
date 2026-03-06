@@ -823,6 +823,15 @@ task_groups:
       - e2e_replica_set_agent_flags_and_readinessProbe
     <<: *teardown_group
 
+  - name: e2e_vm_migration_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_vm_migration
+      - e2e_vm_migration_kubectl_plugin
+    <<: *teardown_group
+
   # This task group mostly duplicates tests running in e2e_mdb_kind_ubi_cloudqa
   # This is mostly a smoke test, so we execute only a few essential ones.
   - name: e2e_mdb_openshift_ubi_cloudqa_task_group
@@ -1322,6 +1331,15 @@ buildvariants:
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
+
+  - name: e2e_vm_migration_kind_ubi_cloudqa
+    display_name: e2e_vm_migration_kind_ubi_cloudqa
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    run_on:
+      - ubuntu2404-medium
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_vm_migration_task_group
 
   - name: e2e_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
