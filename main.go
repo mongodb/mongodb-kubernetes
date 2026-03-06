@@ -451,7 +451,7 @@ func getMemberClusters(ctx context.Context, cfg *rest.Config, currentNamespace s
 }
 
 func isInLocalMode() bool {
-	return operatorEnvironments[1] == env.ReadOrPanic(util.OmOperatorEnv)
+	return util.OperatorEnvironmentLocal == util.OperatorEnvironment(env.ReadOrDefault(util.OmOperatorEnv, util.OperatorEnvironmentProd.String()))
 }
 
 // setupWebhook sets up the validation webhook for MongoDB resources in order
@@ -494,6 +494,16 @@ func setupWebhook(ctx context.Context, cfg *rest.Config, log *zap.SugaredLogger,
 }
 
 func initializeEnvironment() {
+	// loading environment variables from env file, for development only
+	envFile := ".generated/context.operator.env"
+	if _, err := os.Stat(envFile); err == nil {
+		if err := godotenv.Load(envFile); err != nil {
+			log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
+		} else {
+			log.Infof("Loaded environment variables from %s", envFile)
+		}
+	}
+
 	omOperatorEnv := getOperatorEnv()
 
 	initEnvVariables()
