@@ -3,7 +3,7 @@
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator
+  name: mongodb-kubernetes-operator-mongodb
   namespace: mongodb
 rules:
   - apiGroups:
@@ -85,12 +85,12 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator
+  name: mongodb-kubernetes-operator-mongodb
   namespace: mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-kubernetes-operator
+  name: mongodb-kubernetes-operator-mongodb
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
@@ -127,7 +127,7 @@ subjects:
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-pvc-resize
+  name: mongodb-kubernetes-operator-mongodb-pvc-resize
   namespace: mongodb
 rules:
   - apiGroups:
@@ -146,12 +146,12 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-pvc-resize-binding
+  name: mongodb-kubernetes-operator-mongodb-pvc-resize-binding
   namespace: mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-kubernetes-operator-pvc-resize
+  name: mongodb-kubernetes-operator-mongodb-pvc-resize
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
@@ -162,7 +162,7 @@ subjects:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-cluster-telemetry
+  name: mongodb-kubernetes-operator-mongodb-cluster-telemetry
 rules:
   # Non-resource URL permissions
   - nonResourceURLs:
@@ -194,7 +194,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: mongodb-kubernetes-operator-cluster-telemetry
+  name: mongodb-kubernetes-operator-mongodb-cluster-telemetry
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
