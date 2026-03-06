@@ -123,10 +123,17 @@ type LoadBalancerConfig struct {
 	Envoy *EnvoyConfig `json:"envoy,omitempty"`
 }
 
-// EnvoyConfig contains configuration for operator-managed Envoy load balancer
-// Placeholder for future Envoy configuration options
+// EnvoyConfig contains configuration for the operator-managed Envoy load balancer.
 type EnvoyConfig struct {
-	// Placeholder for future Envoy configuration
+	// Image is the container image for the Envoy proxy.
+	// Overrides the operator-level default (MDB_ENVOY_IMAGE env var).
+	// +optional
+	Image string `json:"image,omitempty"`
+	// ResourceRequirements for the Envoy container.
+	// When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.
+	// When set, replaces the defaults entirely.
+	// +optional
+	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
 }
 
 type EmbeddingConfig struct {
