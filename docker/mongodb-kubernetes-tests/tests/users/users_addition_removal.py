@@ -2,13 +2,8 @@ import pytest
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.x509.oid import NameOID
-from kubetester import find_fixture
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    Certificate,
-    create_agent_tls_certs,
-    create_mongodb_tls_certs,
-)
+from kubetester import find_fixture, try_load
+from kubetester.certs import ISSUER_CA_NAME, Certificate, create_agent_tls_certs, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
@@ -43,14 +38,16 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 @pytest.fixture(scope="module")
 def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("test-x509-rs.yaml"), namespace=namespace)
-    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.create()
+    resource = MongoDB.from_yaml(load_fixture("test-x509-rs.yaml"), namespace=namespace)
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_tls_x509_users_addition_removal
 class TestReplicaSetUpgradeToTLSWithX509Project(KubernetesTester):
     def test_mdb_resource_running(self, mdb: MongoDB):
+        mdb.update()
         mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_certificates_have_sane_subject(self, namespace):

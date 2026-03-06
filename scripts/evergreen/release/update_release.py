@@ -4,6 +4,7 @@ import json
 import logging
 import os
 
+import semver
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,9 @@ def update_release_json():
     newest_operator_version = data["mongodbOperator"]
     update_operator_related_versions(data, newest_operator_version)
 
+    # Adds mapping between latest major version of OM and agent to the release.json
+    update_latest_om_agent_mapping(data)
+
     with open(release, "w") as f:
         json.dump(
             data,
@@ -38,6 +42,48 @@ def update_release_json():
             indent=2,
         )
         f.write("\n")
+
+
+def update_latest_om_agent_mapping(data):
+    """
+    Updates the 'latestOpsManagerAgentMapping' in release.json with
+    newly released Ops Manager version and its corresponding Agent version.
+
+    If a OM's major version entry already exists, it updates the 'opsManagerVersion'
+    for that entry. Otherwise, it adds a new entry for the major version.
+
+    Args:
+        data (dict): The complete configuration dictionary.
+    """
+
+    # since we don't really know which OM version was released (OM is not alway release in semver increasing order),
+    # we will have to check all the highest version of every major version in supportedImages.ops-manager.versions
+    # and for those will have to make sure we have respective entry in latestOpsManagerAgentMapping.
+    om_versions = data["supportedImages"]["ops-manager"]["versions"]
+    # highest_versions_map is just going to have major version and and it's respective highest full version
+    # {6: Version(major=6, minor=0, patch=27, prerelease=None, build=None), 7: Version(major=7, minor=0, patch=20, prerelease=None, build=None), 8: Version(major=8, minor=0, patch=18, prerelease=None, build=None)}
+    highest_om_version_by_major = {}
+    for version in om_versions:
+        ver = semver.Version.parse(version)
+        if ver.major not in highest_om_version_by_major or ver > highest_om_version_by_major[ver.major]:
+            highest_om_version_by_major[ver.major] = ver
+
+    # final_output iterates over highest_versions_map and creates a list with OM Version and respective agent version
+    final_output = []
+    for major in sorted(highest_om_version_by_major.keys()):
+        version_obj = highest_om_version_by_major[major]
+        om_version = str(version_obj)
+        agent_mapping = data["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"]
+        final_output.append(
+            {
+                str(major): {
+                    "opsManagerVersion": om_version,
+                    "agentVersion": agent_mapping[om_version]["agent_version"],
+                },
+            }
+        )
+
+    data["latestOpsManagerAgentMapping"] = final_output
 
 
 def update_operator_related_versions(release: dict, version: str):
@@ -50,7 +96,6 @@ def update_operator_related_versions(release: dict, version: str):
     keys_to_update_with_current_version = [
         "initDatabaseVersion",
         "initOpsManagerVersion",
-        "initAppDbVersion",
         "databaseImageVersion",
     ]
 
@@ -61,7 +106,6 @@ def update_operator_related_versions(release: dict, version: str):
         "mongodb-kubernetes",
         "init-ops-manager",
         "init-database",
-        "init-appdb",
         "database",
     ]
 

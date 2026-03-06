@@ -1,5 +1,6 @@
 import kubernetes
 import kubernetes.client
+import pytest
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
@@ -111,9 +112,12 @@ def test_scale_down_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_clu
     )
     ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
-    # TODO: AppDB does not remove hostnames when scaling down https://jira.mongodb.org/browse/CLOUDP-306333
-    # ops_manager.assert_appdb_preferred_hostnames_are_added()
-    # ops_manager.assert_appdb_hostnames_are_set_correctly()
+
+
+@mark.e2e_multi_cluster_appdb
+def test_hosts_removed_after_scale_down_one_cluster(ops_manager: MongoDBOpsManager):
+    """Verifies that scaled-down AppDB hosts are removed from OM monitoring."""
+    ops_manager.assert_appdb_hostnames_are_correct()
 
 
 @mark.e2e_multi_cluster_appdb
@@ -147,6 +151,14 @@ def test_add_cluster_to_cluster_spec(ops_manager: MongoDBOpsManager, appdb_membe
 
 @mark.e2e_multi_cluster_appdb
 def test_remove_cluster_from_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
+    # Before removing, we need to scale down the cluster to zero
+    ops_manager.load()
+    cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 0, 1])
+    ops_manager.update()
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+
+    # Now we can remove the cluster from the spec
     ops_manager.load()
     cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names[1:]
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 1])

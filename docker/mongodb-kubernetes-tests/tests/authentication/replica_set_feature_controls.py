@@ -4,7 +4,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import OPERATOR_NAME
+from tests.constants import OPERATOR_NAME
 
 
 @fixture(scope="function")
@@ -13,15 +13,13 @@ def replicaset(namespace: str) -> MongoDB:
         yaml_fixture("replica-set-basic.yaml"),
         namespace=namespace,
     )
-    if try_load(resource):
-        return resource
-
-    resource.update()
+    try_load(resource)
     return resource
 
 
 @mark.e2e_feature_controls_authentication
 def test_replicaset_reaches_running_phase(replicaset: MongoDB):
+    replicaset.update()
     replicaset.assert_reaches_phase(Phase.Running, ignore_errors=True)
 
 

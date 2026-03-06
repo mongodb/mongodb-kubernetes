@@ -22,9 +22,6 @@ MONGO_URI_VOLUME_MOUNT_PATH = "/mongodb-ops-manager/.mongodb-mms-connection-stri
 def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_secure_config.yaml"), namespace=namespace)
 
-    if try_load(resource):
-        return resource
-
     create_or_update_secret(
         namespace,
         "my-password",
@@ -41,8 +38,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    resource.update()
-
+    try_load(resource)
     return resource
 
 
@@ -76,6 +72,7 @@ def blockstore_replica_set(ops_manager, custom_mdb_version) -> MongoDB:
 
 @pytest.mark.e2e_om_ops_manager_secure_config
 def test_om_creation(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 

@@ -14,4 +14,8 @@ type ResourceOwner interface {
 type ObjectOwner interface {
 	ResourceOwner
 	client.Object
+	// GetKind returns the Kind of the resource. This is needed because
+	// when objects are retrieved from the Kubernetes API, the TypeMeta
+	// (which contains Kind and APIVersion) is not populated.
+	GetKind() string
 }

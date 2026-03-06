@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -24,10 +25,11 @@ const stateKey = "state"
 // It handles serialization/deserialization of any deployment state structure of type S.
 // The deployment state is saved to a config map <resourceName>-state in the resource's namespace in the operator's cluster.
 type StateStore[S any] struct {
-	namespace    string
-	resourceName string
-	ownerLabels  map[string]string
-	client       kubernetesClient.Client
+	namespace       string
+	resourceName    string
+	ownerLabels     map[string]string
+	ownerReferences []metav1.OwnerReference
+	client          kubernetesClient.Client
 
 	data map[string]string
 }
@@ -35,14 +37,16 @@ type StateStore[S any] struct {
 // NewStateStore constructs a new instance of the StateStore.
 // It is intended to be instantiated with each execution of the Reconcile method and therefore it is not
 // designed to be thread safe.
-// - ownerName is used in the config map label to identify the owner of the config map. For AppDB it is the Ops Manager resource name
-func NewStateStore[S any](owner v1.ResourceOwner, client kubernetesClient.Client) *StateStore[S] {
+// - owner provides the namespace, name, and labels for the config map
+// - ownerReferences are set on the config map to enable garbage collection when the owner is deleted
+func NewStateStore[S any](owner v1.ResourceOwner, ownerReferences []metav1.OwnerReference, client kubernetesClient.Client) *StateStore[S] {
 	return &StateStore[S]{
-		namespace:    owner.GetNamespace(),
-		resourceName: owner.GetName(),
-		ownerLabels:  owner.GetOwnerLabels(),
-		client:       client,
-		data:         map[string]string{},
+		namespace:       owner.GetNamespace(),
+		resourceName:    owner.GetName(),
+		ownerLabels:     owner.GetOwnerLabels(),
+		ownerReferences: ownerReferences,
+		client:          client,
+		data:            map[string]string{},
 	}
 }
 
@@ -60,6 +64,7 @@ func (s *StateStore[S]) write(ctx context.Context, log *zap.SugaredLogger) error
 	dataCM := configmap.Builder().
 		SetName(s.getStateConfigMapName()).
 		SetLabels(s.ownerLabels).
+		SetOwnerReferences(s.ownerReferences).
 		SetNamespace(s.namespace).
 		SetData(s.data).
 		Build()

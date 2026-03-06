@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base32"
+	"encoding/json"
 	"fmt"
 	"strings"
 
+	semver "github.com/Masterminds/semver/v3"
 	"github.com/ghodss/yaml"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -27,6 +29,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/tls"
@@ -42,6 +45,26 @@ const (
 		"The operator will ignore this resource: it will not reconcile or reconfigure the workload. " +
 		"Existing deployments will continue to run, but cannot be managed by the operator. " +
 		"To regain operator management, you must delete and recreate the MongoDBSearch resource."
+
+	// embeddingKeyFilePath is the path that is used in mongot config to specify the api keys
+	// this where query and index keys would be available.
+	embeddingKeyFilePath   = "/etc/mongot/secrets"
+	embeddingKeyVolumeName = "auto-embedding-api-keys"
+
+	indexingKeyName = "indexing-key"
+	queryKeyName    = "query-key"
+
+	apiKeysTempVolumeName = "api-keys-config"
+	// To overcome the strict requirement of api keys having 0400 permission we mount the api keys
+	// to a temp location apiKeysTempVolumeMount and then copy it to correct location embeddingKeyFilePath,
+	// changing the permission to 0400.
+	apiKeysTempVolumeMount = "/tmp/auto-embedding-api-keys"
+
+	// is the minimum search image version that is required to enable the auto embeddings for vector search
+	minSearchImageVersionForEmbedding = "0.60.0"
+
+	// autoEmbeddingDetailsAnnKey has the annotation key that would be added to search pod with emebdding API Key secret hash
+	autoEmbeddingDetailsAnnKey = "autoEmbeddingDetailsHash"
 )
 
 type OperatorSearchConfig struct {
@@ -76,7 +99,7 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
 		return workflow.Failed(err)
 	}
-	return workflow.OK()
+	return workflowStatus
 }
 
 func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
@@ -87,7 +110,9 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if err := r.ValidateSearchImageVersion(); err != nil {
+	version := r.getMongotVersion()
+
+	if err := r.ValidateSearchImageVersion(version); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -117,8 +142,13 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
 
+	embeddingConfigMongotModification, embeddingConfigStsModification, err := r.ensureEmbeddingConfig(ctx, log)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
 	// the egress TLS modification needs to always be applied after the ingress one, because it toggles mTLS based on the mode set by the ingress modification
-	configHash, err := r.ensureMongotConfig(ctx, log, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification)
+	configHash, err := r.ensureMongotConfig(ctx, log, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -129,15 +159,26 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		},
 	))
 
-	if err := r.createOrUpdateStatefulSet(ctx, log, CreateSearchStatefulSetFunc(r.mdbSearch, r.db, r.buildImageString()), configHashModification, keyfileStsModification, ingressTlsStsModification, egressTlsStsModification); err != nil {
+	image, version := r.searchImageAndVersion()
+	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
+		log,
+		CreateSearchStatefulSetFunc(r.mdbSearch, r.db, fmt.Sprintf("%s:%s", image, version)),
+		configHashModification,
+		keyfileStsModification,
+		ingressTlsStsModification,
+		egressTlsStsModification,
+		embeddingConfigStsModification,
+	)
+	if err != nil {
 		return workflow.Failed(err)
 	}
 
-	if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, r.mdbSearch.StatefulSetNamespacedName().Name, r.client); !statefulSetStatus.IsOK() {
+	expectedGeneration := mutatedSts.GetGeneration()
+	if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, r.mdbSearch.StatefulSetNamespacedName().Name, expectedGeneration, r.client); !statefulSetStatus.IsOK() {
 		return statefulSetStatus
 	}
 
-	return workflow.OK()
+	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
 }
 
 // This is called only if the wireproto server is enabled, to set up they keyfile necessary for authentication.
@@ -159,15 +200,15 @@ func (r *MongoDBSearchReconcileHelper) ensureSourceKeyfile(ctx context.Context, 
 	), nil
 }
 
-func (r *MongoDBSearchReconcileHelper) buildImageString() string {
+func (r *MongoDBSearchReconcileHelper) searchImageAndVersion() (string, string) {
 	imageVersion := r.mdbSearch.Spec.Version
 	if imageVersion == "" {
 		imageVersion = r.operatorSearchConfig.SearchVersion
 	}
-	return fmt.Sprintf("%s/%s:%s", r.operatorSearchConfig.SearchRepo, r.operatorSearchConfig.SearchName, imageVersion)
+	return fmt.Sprintf("%s/%s", r.operatorSearchConfig.SearchRepo, r.operatorSearchConfig.SearchName), imageVersion
 }
 
-func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, modifications ...statefulset.Modification) error {
+func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, modifications ...statefulset.Modification) (*appsv1.StatefulSet, error) {
 	stsName := r.mdbSearch.StatefulSetNamespacedName()
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, sts, func() error {
@@ -175,12 +216,12 @@ func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Con
 		return nil
 	})
 	if err != nil {
-		return xerrors.Errorf("error creating/updating search statefulset %v: %w", stsName, err)
+		return nil, xerrors.Errorf("error creating/updating search statefulset %v: %w", stsName, err)
 	}
 
 	log.Debugf("Search statefulset %s CreateOrUpdate result: %s", stsName, op)
 
-	return nil
+	return sts, nil
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, search *searchv1.MongoDBSearch) error {
@@ -229,6 +270,110 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	return hashBytes(configData), nil
 }
 
+// EnsureEmbeddingAPIKeySecret makes sure that the scret that is provided in MDBSearch resource
+// for embedding model's keys is present and has expected keys.
+func ensureEmbeddingAPIKeySecret(ctx context.Context, client secret.Getter, secretObj client.ObjectKey) (string, error) {
+	data, err := secret.ReadByteData(ctx, client, secretObj)
+	if err != nil {
+		return "", err
+	}
+
+	if _, ok := data[indexingKeyName]; !ok {
+		return "", fmt.Errorf(`Required key "%s" is not present in the Secret %s/%s`, indexingKeyName, secretObj.Namespace, secretObj.Name)
+	}
+	if _, ok := data[queryKeyName]; !ok {
+		return "", fmt.Errorf(`Required key "%s" is not present in the Secret %s/%s`, queryKeyName, secretObj.Namespace, secretObj.Name)
+	}
+
+	d, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+
+	return hashBytes(d), nil
+}
+
+func validateSearchVesionForEmbedding(version string, log *zap.SugaredLogger) error {
+	searchVersion, err := semver.NewVersion(version)
+	if err != nil {
+		log.Debugf("Failed getting semver of search image version. Version %s doesn't seem to be valid semver.", version)
+		return nil
+	}
+	minAllowedVersion, _ := semver.NewVersion(minSearchImageVersionForEmbedding)
+
+	if a := searchVersion.Compare(minAllowedVersion); a == -1 {
+		return xerrors.Errorf("The MongoDB search version %s doesn't support auto embeddings. Please use version %s or newer.", version, minSearchImageVersionForEmbedding)
+	}
+	return nil
+}
+
+// ensureEmbeddingConfig returns the mongot config and stateful set modification function based on the values provided in the search CR, it
+// also returns the hash of the secret that has the embedding API keys so that if the keys are changed the search pod is automatically restarted.
+func (r *MongoDBSearchReconcileHelper) ensureEmbeddingConfig(ctx context.Context, log *zap.SugaredLogger) (mongot.Modification, statefulset.Modification, error) {
+	if r.mdbSearch.Spec.AutoEmbedding == nil {
+		return mongot.NOOP(), statefulset.NOOP(), nil
+	}
+
+	// If AutoEmbedding is not nil, it's safe to assume that EmbeddingModelAPIKeySecret would be provided because we have marked it
+	// a required field.
+	apiKeySecretHash, err := ensureEmbeddingAPIKeySecret(ctx, r.client, client.ObjectKey{
+		Name:      r.mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name,
+		Namespace: r.mdbSearch.Namespace,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, version := r.searchImageAndVersion()
+	if err := validateSearchVesionForEmbedding(version, log); err != nil {
+		return nil, nil, err
+	}
+
+	autoEmbeddingViewWriterTrue := true
+	mongotModification := func(config *mongot.Config) {
+		config.Embedding = &mongot.EmbeddingConfig{
+			IndexingKeyFile: fmt.Sprintf("%s/%s", embeddingKeyFilePath, indexingKeyName),
+			QueryKeyFile:    fmt.Sprintf("%s/%s", embeddingKeyFilePath, queryKeyName),
+		}
+
+		// Since MCK right now installs search with one replica only it's safe to alway set IsAutoEmbeddingViewWriter to true.
+		// Once we start supporting multiple mongot instances, we need to figure this out and then set here.
+		config.Embedding.IsAutoEmbeddingViewWriter = &autoEmbeddingViewWriterTrue
+
+		if r.mdbSearch.Spec.AutoEmbedding.ProviderEndpoint != "" {
+			config.Embedding.ProviderEndpoint = r.mdbSearch.Spec.AutoEmbedding.ProviderEndpoint
+		}
+	}
+	readOnlyByOwnerPermission := int32(400)
+	apiKeyVolume := statefulset.CreateVolumeFromSecret(embeddingKeyVolumeName, r.mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, statefulset.WithSecretDefaultMode(&readOnlyByOwnerPermission))
+	apiKeyVolumeMount := statefulset.CreateVolumeMount(embeddingKeyVolumeName, apiKeysTempVolumeMount, statefulset.WithReadOnly(true))
+
+	emptyDirVolume := statefulset.CreateVolumeFromEmptyDir(apiKeysTempVolumeName)
+	emptyDirVolumeMount := statefulset.CreateVolumeMount(apiKeysTempVolumeName, embeddingKeyFilePath)
+
+	stsModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+		podtemplatespec.WithVolume(apiKeyVolume),
+		podtemplatespec.WithVolumeMounts(MongotContainerName, apiKeyVolumeMount),
+		podtemplatespec.WithVolume(emptyDirVolume),
+		podtemplatespec.WithVolumeMounts(MongotContainerName, emptyDirVolumeMount),
+		podtemplatespec.WithContainer(MongotContainerName, setupMongotContainerArgsForAPIKeys()),
+		podtemplatespec.WithAnnotations(map[string]string{
+			autoEmbeddingDetailsAnnKey: apiKeySecretHash,
+		}),
+	))
+	return mongotModification, stsModification, nil
+}
+
+func setupMongotContainerArgsForAPIKeys() container.Modification {
+	// Since API keys are expected to have 0400 permission, add the arg into the search container to make
+	// sure we copy the api keys from temp location (apiKeysTempVolumeMount) to correct location (embeddingKeyFilePath)
+	// with correct permissions.
+	// Directly setting the permission in the volume doesn't work because volumes are mounted as symlinks and they would have diff permissions,
+	// using subpath kind of resolves the probelm but because of fsGroup that we set K8s makes sure that the file is group readable,
+	// and that's why the file permissions still don't become 0400 (it's -r--r-----). That's why copying is necessary.
+	return prependCommand(sensitiveFilePermissionsForAPIKeys(apiKeysTempVolumeMount, embeddingKeyFilePath, "0400"))
+}
+
 func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
 	if r.mdbSearch.Spec.Security.TLS == nil {
 		return mongot.NOOP(), statefulset.NOOP(), nil
@@ -272,7 +417,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 
 	mongotModification := func(config *mongot.Config) {
 		config.SyncSource.ReplicaSet.TLS = ptr.To(true)
-		config.SyncSource.CertificateAuthorityFile = ptr.To(tls.CAMountPath + "/" + tlsSourceConfig.CAFileName)
+		config.SyncSource.CertificateAuthorityFile = ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName)
 
 		// if the gRPC server is configured to accept TLS connections then toggle mTLS as well
 		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
@@ -312,7 +457,7 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		SetLabels(labels).
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetClusterIP("None").
-		SetPublishNotReadyAddresses(true).
+		SetPublishNotReadyAddresses(false).
 		SetOwnerReferences(search.GetOwnerReferences())
 
 	if search.IsWireprotoEnabled() {
@@ -331,12 +476,14 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		TargetPort: intstr.FromInt32(search.GetMongotGrpcPort()),
 	})
 
-	serviceBuilder.AddPort(&corev1.ServicePort{
-		Name:       "metrics",
-		Protocol:   corev1.ProtocolTCP,
-		Port:       search.GetMongotMetricsPort(),
-		TargetPort: intstr.FromInt32(search.GetMongotMetricsPort()),
-	})
+	if prometheus := search.GetPrometheus(); prometheus != nil {
+		serviceBuilder.AddPort(&corev1.ServicePort{
+			Name:       "prometheus",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       prometheus.GetPort(),
+			TargetPort: intstr.FromInt32(prometheus.GetPort()),
+		})
+	}
 
 	serviceBuilder.AddPort(&corev1.ServicePort{
 		Name:       "healthcheck",
@@ -385,10 +532,14 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 				},
 			}
 		}
-		config.Metrics = mongot.ConfigMetrics{
-			Enabled: true,
-			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotMetricsPort()),
+
+		if prometheus := search.GetPrometheus(); prometheus != nil {
+			config.Metrics = mongot.ConfigMetrics{
+				Enabled: true,
+				Address: fmt.Sprintf("0.0.0.0:%d", prometheus.GetPort()),
+			}
 		}
+
 		config.HealthCheck = mongot.ConfigHealthCheck{
 			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
 		}
@@ -449,9 +600,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
-	version := r.getMongotImage()
-
+func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.Contains(version, unsupportedSearchVersion) {
 		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
 	}
@@ -459,14 +608,15 @@ func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
+func (r *MongoDBSearchReconcileHelper) getMongotVersion() string {
 	version := strings.TrimSpace(r.mdbSearch.Spec.Version)
 	if version != "" {
 		return version
 	}
 
-	if r.operatorSearchConfig.SearchVersion != "" {
-		return r.operatorSearchConfig.SearchVersion
+	version = strings.TrimSpace(r.operatorSearchConfig.SearchVersion)
+	if version != "" {
+		return version
 	}
 
 	if r.mdbSearch.Spec.StatefulSetConfiguration == nil {
@@ -475,8 +625,27 @@ func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
 
 	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
 		if container.Name == MongotContainerName {
-			return container.Image
+			return extractImageTag(container.Image)
 		}
+	}
+
+	return ""
+}
+
+func extractImageTag(image string) string {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return ""
+	}
+
+	if at := strings.Index(image, "@"); at != -1 {
+		image = image[:at]
+	}
+
+	lastSlash := strings.LastIndex(image, "/")
+	lastColon := strings.LastIndex(image, ":")
+	if lastColon > lastSlash {
+		return image[lastColon+1:]
 	}
 
 	return ""

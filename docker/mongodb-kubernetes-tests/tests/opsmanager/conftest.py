@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 
 import os
+import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
+import boto3
+from botocore.exceptions import ClientError
 from kubernetes import client
-from kubetester import get_pod_when_ready
+from kubetester import create_or_update_secret, get_pod_when_ready
 from kubetester.helm import helm_install_from_chart
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
@@ -114,6 +117,49 @@ def mino_operator_install(
     )
 
 
+def _wait_for_minio_buckets(
+    endpoint: str,
+    bucket_names: List[str],
+    access_key: str = "minio",
+    secret_key: str = "minio123",
+    timeout: int = 500,
+    interval: int = 10,
+    issuer_ca_filepath: Optional[str] = os.getenv("MINIO_ISSUER_CA_FILEPATH", None),
+):
+    """Poll S3/MinIO until all buckets are accessible or timeout is reached.
+
+    Pod readiness does not guarantee bucket provisioning is complete. This
+    function bridges the gap by probing headBucket() with retry/backoff,
+    mirroring the exact check OpsManager performs when saving S3 store config.
+    """
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=f"https://{endpoint}",
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        verify=issuer_ca_filepath,
+    )
+
+    deadline = time.time() + timeout
+    pending = set(bucket_names)
+
+    while time.time() < deadline:
+        for bucket in list(pending):
+            try:
+                s3.head_bucket(Bucket=bucket)
+                print(f"MinIO bucket '{bucket}' is accessible")
+                pending.discard(bucket)
+            except ClientError as e:
+                code = e.response["Error"]["Code"]
+                print(f"MinIO bucket '{bucket}' not ready (HTTP {code}), retrying in {interval}s...")
+        if not pending:
+            print(f"All MinIO buckets accessible: {bucket_names}")
+            return
+        time.sleep(interval)
+
+    raise TimeoutError(f"MinIO buckets still inaccessible after {timeout}s: {pending}")
+
+
 def mino_tenant_install(
     namespace: str,
     tenant_name: str = MINIO_TENANT,
@@ -121,14 +167,38 @@ def mino_tenant_install(
     cluster_name: Optional[str] = None,
     helm_args: Dict[str, str] = None,
     version="5.0.6",
+    issuer_ca_filepath: Optional[str] = os.getenv("MINIO_ISSUER_CA_FILEPATH", None),
 ):
     if cluster_name is not None:
         os.environ["HELM_KUBECONTEXT"] = cluster_name
+
+    if helm_args is None:
+        helm_args = {}
 
     # check if the minio pod exists, if not do a helm upgrade
     pods = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(namespace, label_selector=f"app=minio")
     if not pods.items:
         print(f"Performing helm upgrade of minio-tenant")
+
+        # Provide the test CA to the MinIO operator so it can trust the MinIO server's
+        # TLS cert when creating buckets. Without this, the operator fails with
+        # "x509: certificate signed by unknown authority" and buckets are never created.
+        #
+        # We use ca-tls.crt (the bare test CA) rather than issuer_ca_filepath
+        # (ca-tls-full-chain.crt). The full-chain file bundles extra MongoDB CDN certs that
+        # have since expired. The MinIO operator (Go x509) marks the entire secret as expired
+        # if any cert inside it is expired, so even the still-valid test CA would be skipped.
+        if issuer_ca_filepath is not None:
+            ca_cert_path = Path(issuer_ca_filepath).parent / "ca-tls.crt"
+            with open(ca_cert_path) as f:
+                ca_cert = f.read()
+            create_or_update_secret(
+                namespace=namespace,
+                name="minio-ca-cert",
+                data={"public.crt": ca_cert},
+                api_client=cluster_client,
+            )
+            helm_args["tenant.certificate.externalCaCertSecret[0].name"] = "minio-ca-cert"
 
         path = f"{Path(__file__).parent}/fixtures/minio/values-tenant.yaml"
         helm_install_from_chart(
@@ -144,6 +214,14 @@ def mino_tenant_install(
         print(f"Minio tenant already installed, skipping helm installation!")
 
     get_pod_when_ready(namespace, f"app=minio", api_client=cluster_client)
+    # Wait for MinIO bucket provisioning (pod ready ≠ buckets ready)
+    # MinIO creates the buckets async via a kubernetes Job after the tenant pod is running,
+    # so we need to wait for the buckets to be accessible before proceeding with tests that depend on them.
+    _wait_for_minio_buckets(
+        endpoint=f"minio.{namespace}.svc.cluster.local",
+        bucket_names=["s3-store-bucket", "oplog-s3-bucket"],
+        issuer_ca_filepath=issuer_ca_filepath,
+    )
 
 
 def get_appdb_member_cluster_names():

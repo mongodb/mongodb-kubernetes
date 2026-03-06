@@ -61,8 +61,10 @@ spec:
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           {{- end }}
-          {{- if .Values.multiCluster.clusters }}
           volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: webhook-server-dir
+          {{- if .Values.multiCluster.clusters }}
             - mountPath: /etc/config/kubeconfig
               name: kube-config-volume
           {{- end }}
@@ -156,13 +158,11 @@ spec:
     {{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}
     {{- $agentImageRepository := "MDB_AGENT_IMAGE_REPOSITORY" -}}
     {{- $initOpsManagerImageRepositoryEnv := "INIT_OPS_MANAGER_IMAGE_REPOSITORY" -}}
-    {{- $initAppDbImageRepositoryEnv := "INIT_APPDB_IMAGE_REPOSITORY" -}}
     {{- $agentImageEnv := "AGENT_IMAGE" -}}
     {{- $mongodbImageEnv := "MONGODB_IMAGE" -}}
     {{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") -}}
     {{- $databaseVersion := print .Values.database.version (.Values.build | default "") -}}
     {{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") -}}
-    {{- $initAppDbVersion := print .Values.initAppDb.version (.Values.build | default "") -}}
     {{- $agentVersion := .Values.agent.version }}
             - name: IMAGE_PULL_POLICY
               value: {{ .Values.registry.pullPolicy }}
@@ -182,11 +182,6 @@ spec:
               value: {{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}
             - name: INIT_OPS_MANAGER_VERSION
               value: {{ $initOpsManagerVersion | quote }}
-            # AppDB
-            - name: {{ $initAppDbImageRepositoryEnv }}
-              value: {{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}
-            - name: INIT_APPDB_VERSION
-              value: {{ $initAppDbVersion | quote }}
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: {{ .Values.registry.pullPolicy }}
             - name: {{ $agentImageEnv }}
@@ -197,12 +192,6 @@ spec:
               value: {{ .Values.mongodb.name }}
             - name: MONGODB_REPO_URL
               value: {{ .Values.mongodb.repo }}
-            - name: MDB_IMAGE_TYPE
-              {{- if eq .Values.operator.mdbDefaultArchitecture "static" }}
-              value: "ubi9"
-              {{- else }}
-              value: {{ .Values.mongodb.imageType }}
-              {{- end }}
     {{- if eq .Values.mongodb.appdbAssumeOldFormat true }}
             - name: MDB_APPDB_ASSUME_OLD_FORMAT
               value: 'true'
@@ -218,6 +207,10 @@ spec:
     {{- if not .Values.operator.webhook.registerConfiguration }}
             - name: MDB_WEBHOOK_REGISTER_CONFIGURATION
               value: "false"
+    {{- end }}
+    {{- if .Values.operator.webhook.name }}
+            - name: MDB_WEBHOOK_NAME
+              value: {{ .Values.operator.webhook.name | quote }}
     {{- end }}
     {{- if .Values.operator.maxConcurrentReconciles }}
             - name: MDB_MAX_CONCURRENT_RECONCILES
@@ -250,8 +243,6 @@ spec:
               value: "{{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}:{{ $initDatabaseVersion }}"
             - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $initOpsManagerVersion | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}:{{ $initOpsManagerVersion }}"
-            - name: RELATED_IMAGE_{{ $initAppDbImageRepositoryEnv }}_{{ $initAppDbVersion | replace "." "_" | replace "-" "_" }}
-              value: "{{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}:{{ $initAppDbVersion }}"
       {{- range $version := .Values.relatedImages.agent }}
             - name: RELATED_IMAGE_{{ $agentImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ $version }}"
@@ -284,13 +275,15 @@ spec:
               value: '{{ (splitn "=" 2 .)._1 }}'
       {{- end }}
     {{- end }}
-{{- if .Values.multiCluster.clusters }}
       volumes:
+        - name: webhook-server-dir
+          emptyDir: {}
+        {{- if .Values.multiCluster.clusters }}
         - name: kube-config-volume
           secret:
             defaultMode: 420
             secretName: {{ .Values.multiCluster.kubeConfigSecretName }}
-{{- end }}
+        {{- end }}
 
 {{- with .Values.operator }}
   {{- with .nodeSelector }}

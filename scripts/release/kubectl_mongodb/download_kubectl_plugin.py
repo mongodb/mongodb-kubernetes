@@ -6,17 +6,10 @@ from botocore.exceptions import ClientError
 
 from lib.base_logger import logger
 from scripts.release.argparse_utils import get_scenario_from_arg
-from scripts.release.build.build_info import (
-    KUBECTL_PLUGIN_BINARY,
-    load_build_info,
-)
+from scripts.release.build.build_info import KUBECTL_PLUGIN_BINARY, load_build_info
 from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS, BuildScenario
 from scripts.release.build.image_build_configuration import SUPPORTED_PLATFORMS
-from scripts.release.kubectl_mongodb.build_kubectl_plugin import (
-    kubectl_plugin_name,
-    parse_platform,
-    s3_path,
-)
+from scripts.release.kubectl_mongodb.build_kubectl_plugin import kubectl_plugin_name, parse_platform, s3_path
 from scripts.release.kubectl_mongodb.utils import create_s3_client
 
 KUBECTL_MONGODB_PLUGIN_BIN_PATH = "bin/kubectl-mongodb"
@@ -41,12 +34,18 @@ def download_kubectl_plugin_from_s3(
         # change the file's permissions to make file executable
         os.chmod(local_path, 0o755)
 
-        if copy_to_bin_path:
-            shutil.copyfile(local_path, KUBECTL_MONGODB_PLUGIN_BIN_PATH)
+        logger.info(f"Successfully downloaded artifact to {local_path}")
 
-        logger.info(
-            f"Successfully downloaded artifact to {local_path}{f" and {KUBECTL_MONGODB_PLUGIN_BIN_PATH}" if copy_to_bin_path else ""}"
-        )
+        if copy_to_bin_path:
+            kubectl_mongodb_workdir_path = os.path.join(os.getenv("workdir", ""), KUBECTL_MONGODB_PLUGIN_BIN_PATH)
+            # copy content, stat-info (mode too), timestamps..
+            shutil.copy2(local_path, kubectl_mongodb_workdir_path)
+            # preserve owner and group
+            st = os.stat(local_path)
+            os.chown(kubectl_mongodb_workdir_path, st.st_uid, st.st_gid)
+
+            logger.info(f"Copied kubectl-mongodb plugin to {kubectl_mongodb_workdir_path} for tests usage")
+
     except ClientError as e:
         if e.response["Error"]["Code"] == "404":
             raise Exception(f"Artifact not found at s3://{s3_bucket}/{s3_plugin_path}: {e}")

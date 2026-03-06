@@ -73,6 +73,14 @@ func (m *MultiReplicaSetBuilder) SetSecurity(s *mdbv1.Security) *MultiReplicaSet
 	return m
 }
 
+func (m *MultiReplicaSetBuilder) SetRoles(roles []mdbv1.MongoDBRole) *MultiReplicaSetBuilder {
+	if m.Spec.Security == nil {
+		m.Spec.Security = &mdbv1.Security{}
+	}
+	m.Spec.Security.Roles = roles
+	return m
+}
+
 func (m *MultiReplicaSetBuilder) SetRoleRefs(roleRefs []mdbv1.MongoDBRoleRef) *MultiReplicaSetBuilder {
 	if m.Spec.Security == nil {
 		m.Spec.Security = &mdbv1.Security{}

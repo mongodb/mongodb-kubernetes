@@ -2,10 +2,12 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -81,7 +83,7 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	require.NoError(t, err)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
-	assert.Len(t, mock.GetMapForObject(c, &corev1.Secret{}), 2)
+	assert.Len(t, mock.GetMapForObject(c, &corev1.Secret{}), 3)
 	assert.Len(t, mock.GetMapForObject(c, &corev1.Service{}), 3)
 	assert.Len(t, mock.GetMapForObject(c, &appsv1.StatefulSet{}), 4)
 	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ConfigRsName()), t), int32(sc.Spec.ConfigServerCount))
@@ -197,7 +199,7 @@ func TestShardedClusterRace(t *testing.T) {
 		WithObjects(mock.GetDefaultResources()...).
 		Build()
 
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, nil, omConnectionFactory.GetConnectionFunc)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", nil, omConnectionFactory.GetConnectionFunc)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc1, sc2, sc3)
 }
@@ -328,98 +330,100 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 }
 
 func TestReconcilePVCResizeShardedCluster(t *testing.T) {
-	ctx := context.Background()
-	// First creation
-	sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
-	persistence := common.Persistence{
-		SingleConfig: &common.PersistenceConfig{
-			Storage: "1Gi",
-		},
-	}
-	sc.Spec.Persistent = util.BooleanRef(true)
-	sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
-	sc.Spec.ShardPodSpec.Persistence = &persistence
-	reconciler, _, c, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil)
-	assert.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		// First creation
+		sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
+		persistence := common.Persistence{
+			SingleConfig: &common.PersistenceConfig{
+				Storage: "1Gi",
+			},
+		}
+		sc.Spec.Persistent = util.BooleanRef(true)
+		sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
+		sc.Spec.ShardPodSpec.Persistence = &persistence
+		reconciler, _, c, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil)
+		assert.NoError(t, err)
 
-	// first, we create the shardedCluster with sts and pvc,
-	// no resize happening, even after running reconcile multiple times
-	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
-	testNoResize(t, c, ctx, sc)
+		// first, we create the shardedCluster with sts and pvc,
+		// no resize happening, even after running reconcile multiple times
+		checkReconcileSuccessful(ctx, t, reconciler, sc, c)
+		testNoResize(t, c, ctx, sc)
 
-	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
-	testNoResize(t, c, ctx, sc)
+		checkReconcileSuccessful(ctx, t, reconciler, sc, c)
+		testNoResize(t, c, ctx, sc)
 
-	createdConfigPVCs, createdSharded0PVCs, createdSharded1PVCs := getPVCs(t, c, ctx, sc)
+		createdConfigPVCs, createdSharded0PVCs, createdSharded1PVCs := getPVCs(t, c, ctx, sc)
 
-	newSize := "2Gi"
-	// increasing the storage now and start a new reconciliation
-	persistence.SingleConfig.Storage = newSize
+		newSize := "2Gi"
+		// increasing the storage now and start a new reconciliation
+		persistence.SingleConfig.Storage = newSize
 
-	sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
-	sc.Spec.ShardPodSpec.Persistence = &persistence
-	err = c.Update(ctx, sc)
-	assert.NoError(t, err)
+		sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
+		sc.Spec.ShardPodSpec.Persistence = &persistence
+		err = c.Update(ctx, sc)
+		assert.NoError(t, err)
 
-	_, e := reconciler.Reconcile(ctx, requestFromObject(sc))
-	assert.NoError(t, e)
+		_, e := reconciler.Reconcile(ctx, requestFromObject(sc))
+		assert.NoError(t, e)
 
-	// its only one sts in the pvc status, since we haven't started the next one yet
-	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: test.SCBuilderDefaultName + "-config"}})
+		// its only one sts in the pvc status, since we haven't started the next one yet
+		testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: test.SCBuilderDefaultName + "-config"}})
 
-	testPVCSizeHasIncreased(t, c, ctx, newSize, test.SCBuilderDefaultName+"-config")
+		testPVCSizeHasIncreased(t, c, ctx, newSize, test.SCBuilderDefaultName+"-config")
 
-	// Running the same resize makes no difference, we are still resizing
-	_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
-	assert.NoError(t, e)
+		// Running the same resize makes no difference, we are still resizing
+		_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
+		assert.NoError(t, e)
 
-	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: test.SCBuilderDefaultName + "-config"}})
+		testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: test.SCBuilderDefaultName + "-config"}})
 
-	for _, claim := range createdConfigPVCs {
-		setPVCWithUpdatedResource(ctx, t, c, &claim)
-	}
+		for _, claim := range createdConfigPVCs {
+			setPVCWithUpdatedResource(ctx, t, c, &claim)
+		}
 
-	// Running reconcile again should go into orphan
-	_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
-	assert.NoError(t, e)
+		// Running reconcile again should go into orphan
+		_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
+		assert.NoError(t, e)
 
-	// the second pvc is now getting resized
-	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-config"},
-		{Phase: pvc.PhasePVCResize, StatefulsetName: sc.Name + "-0"},
+		// the second pvc is now getting resized
+		testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
+			{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-config"},
+			{Phase: pvc.PhasePVCResize, StatefulsetName: sc.Name + "-0"},
+		})
+		testPVCSizeHasIncreased(t, c, ctx, newSize, sc.Name+"-0")
+		testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-config")
+
+		for _, claim := range createdSharded0PVCs {
+			setPVCWithUpdatedResource(ctx, t, c, &claim)
+		}
+
+		// Running reconcile again second pvcState should go into orphan, third one should start
+		_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
+		assert.NoError(t, e)
+
+		testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
+			{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-config"},
+			{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-0"},
+			{Phase: pvc.PhasePVCResize, StatefulsetName: sc.Name + "-1"},
+		})
+		testPVCSizeHasIncreased(t, c, ctx, newSize, sc.Name+"-1")
+		testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-0")
+
+		for _, claim := range createdSharded1PVCs {
+			setPVCWithUpdatedResource(ctx, t, c, &claim)
+		}
+
+		// We move from resize → orphaned and in the final call in the reconciling to running and
+		// remove the PVCs.
+		_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
+		assert.NoError(t, err)
+
+		// We are now in the running phase, since all statefulsets have finished resizing; therefore,
+		// no pvc phase is shown anymore
+		testMDBStatus(t, c, ctx, sc, status.PhaseRunning, nil)
+		testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-1")
 	})
-	testPVCSizeHasIncreased(t, c, ctx, newSize, sc.Name+"-0")
-	testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-config")
-
-	for _, claim := range createdSharded0PVCs {
-		setPVCWithUpdatedResource(ctx, t, c, &claim)
-	}
-
-	// Running reconcile again second pvcState should go into orphan, third one should start
-	_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
-	assert.NoError(t, e)
-
-	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-config"},
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-0"},
-		{Phase: pvc.PhasePVCResize, StatefulsetName: sc.Name + "-1"},
-	})
-	testPVCSizeHasIncreased(t, c, ctx, newSize, sc.Name+"-1")
-	testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-0")
-
-	for _, claim := range createdSharded1PVCs {
-		setPVCWithUpdatedResource(ctx, t, c, &claim)
-	}
-
-	// We move from resize → orphaned and in the final call in the reconciling to running and
-	// remove the PVCs.
-	_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
-	assert.NoError(t, err)
-
-	// We are now in the running phase, since all statefulsets have finished resizing; therefore,
-	// no pvc phase is shown anymore
-	testMDBStatus(t, c, ctx, sc, status.PhaseRunning, nil)
-	testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-1")
 }
 
 func testStatefulsetHasAnnotationAndCorrectSize(t *testing.T, c client.Client, ctx context.Context, namespace, stsName string) {
@@ -1051,7 +1055,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 	sc := test.DefaultClusterBuilder().RemoveAuth().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, nil, omConnectionFactory.GetConnectionFunc)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", nil, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1252,7 +1256,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, nil, omConnectionFactory.GetConnectionFunc)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", nil, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1675,7 +1679,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 		Finalizing:      false,
 	})
 	assert.NoError(t, err)
-	d.AddMonitoringAndBackup(zap.S(), sh.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	d.ConfigureMonitoringAndBackup(zap.S(), sh.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 	return d
 }
 
@@ -1689,8 +1693,8 @@ func defaultShardedClusterReconciler(ctx context.Context, imageUrls images.Image
 }
 
 func newShardedClusterReconcilerFromResource(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
+	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1872,6 +1876,57 @@ func TestSingleClusterShardedScalingWithOverrides(t *testing.T) {
 			SingleClusterShardedScalingWithOverridesTestCase(t, tc)
 		})
 	}
+}
+
+func TestSharderClusterRoleAnnotationIsSet(t *testing.T) {
+	ctx := context.Background()
+
+	role := mdbv1.MongoDBRole{
+		Role: "embedded-role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+
+	sc := test.DefaultClusterBuilder().SetRoles([]mdbv1.MongoDBRole{role}).Build()
+	reconciler, _, cl, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil)
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+
+	// Assert that the roles are saved in the state configmap
+	configMapName := fmt.Sprintf("%s-state", sc.Name)
+	stateConfigMap := &corev1.ConfigMap{}
+	err = cl.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: sc.Namespace}, stateConfigMap)
+	require.NoError(t, err)
+
+	deploymentState := ShardedClusterDeploymentState{}
+	err = json.Unmarshal([]byte(stateConfigMap.Data[stateKey]), &deploymentState)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"embedded-role@admin"}, deploymentState.LastConfiguredRoles)
+
+	roles := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 1)
+
+	sc.GetSecurity().Roles = []mdbv1.MongoDBRole{}
+	err = cl.Update(ctx, sc)
+	assert.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+
+	// Assert that the state configmap is updated and role is removed
+	stateConfigMap = &corev1.ConfigMap{}
+	err = cl.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: sc.Namespace}, stateConfigMap)
+	require.NoError(t, err)
+
+	deploymentState = ShardedClusterDeploymentState{}
+	err = json.Unmarshal([]byte(stateConfigMap.Data[stateKey]), &deploymentState)
+	require.NoError(t, err)
+	assert.Equal(t, []string{}, deploymentState.LastConfiguredRoles)
+
+	roles = omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetRoles()
+	assert.Len(t, roles, 0)
 }
 
 func generateHostsWithDistributionSingleCluster(stsName string, namespace string, memberCount int, clusterDomain string, externalClusterDomain string) ([]string, []string) {

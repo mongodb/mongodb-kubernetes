@@ -6,12 +6,12 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
-    OPERATOR_NAME,
     assert_log_rotation_backup_monitoring,
     assert_log_rotation_process,
     is_multi_cluster,
     setup_log_rotate_for_agents,
 )
+from tests.constants import OPERATOR_NAME
 from tests.shardedcluster.conftest import enable_multi_cluster_deployment
 
 
@@ -21,9 +21,6 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
         yaml_fixture("sharded-cluster-mongod-options.yaml"),
         namespace=namespace,
     )
-
-    if try_load(resource):
-        return resource
 
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
@@ -38,7 +35,8 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
             configsrv_members_array=[1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
@@ -48,6 +46,7 @@ def test_install_operator(operator: Operator):
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
 def test_sharded_cluster_created(sc: MongoDB):
+    sc.update()
     sc.assert_reaches_phase(Phase.Running, timeout=1000)
 
 

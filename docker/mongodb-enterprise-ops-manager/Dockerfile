@@ -1,6 +1,6 @@
 # Build compilable stuff
 
-FROM public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
+FROM public.ecr.aws/docker/library/golang:1.25 AS readiness_builder
 COPY . /go/src/github.com/mongodb/mongodb-kubernetes
 WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes
 

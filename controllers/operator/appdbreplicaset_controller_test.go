@@ -3,10 +3,10 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -54,7 +54,6 @@ func init() {
 
 // getReleaseJsonPath searches for a specified target directory by traversing the directory tree backwards from the current working directory
 func getReleaseJsonPath() (string, error) {
-	repositoryRootDirName := "mongodb-kubernetes"
 	releaseFileName := "release.json"
 
 	currentDir, err := os.Getwd()
@@ -62,7 +61,7 @@ func getReleaseJsonPath() (string, error) {
 		return "", err
 	}
 	for currentDir != "/" {
-		if strings.HasSuffix(currentDir, repositoryRootDirName) {
+		if _, err := os.Stat(filepath.Join(currentDir, releaseFileName)); !errors.Is(err, os.ErrNotExist) {
 			return filepath.Join(currentDir, releaseFileName), nil
 		}
 		currentDir = filepath.Dir(currentDir)
@@ -344,6 +343,19 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 
 		hosts, _ := omConnectionFactory.GetConnection().GetHosts()
 		assert.Len(t, hosts.Results, 5)
+	})
+
+	t.Run("Ensure hosts are removed when scaled down", func(t *testing.T) {
+		opsManager.Spec.AppDB.Members = 3
+		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+
+		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
+		err = reconciler.registerAppDBHostsWithProject(hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		assert.NoError(t, err)
+
+		// After scale-down, hosts should be removed from monitoring
+		hosts, _ := omConnectionFactory.GetConnection().GetHosts()
+		assert.Len(t, hosts.Results, 3, "Expected 3 hosts after scaling down from 5 to 3 members")
 	})
 }
 
@@ -1353,13 +1365,13 @@ func checkDeploymentEqualToPublished(t *testing.T, expected automationconfig.Aut
 
 func newAppDbReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, omConnectionFactoryFunc om.ConnectionFactory, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	commonController := NewReconcileCommonController(ctx, c)
-	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, nil, zap.S())
+	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, nil, log, kube.BaseOwnerReference(opsManager))
 }
 
 func newAppDbMultiReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]client.Client, log *zap.SugaredLogger, omConnectionFactoryFunc om.ConnectionFactory) (*ReconcileAppDbReplicaSet, error) {
 	_ = c.Update(ctx, opsManager)
 	commonController := NewReconcileCommonController(ctx, c)
-	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, memberClusterMap, log)
+	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, memberClusterMap, log, kube.BaseOwnerReference(opsManager))
 }
 
 func TestChangingFCVAppDB(t *testing.T) {
@@ -1457,4 +1469,78 @@ func createRunningAppDB(ctx context.Context, t *testing.T, startingMembers int, 
 	ok, _ := workflow.OK().ReconcileResult()
 	assert.Equal(t, ok, res)
 	return reconciler
+}
+
+// TestClearTLSParams tests CLOUDP-351614 fix:
+// When TLS is disabled on AppDB, TLS-specific params should be cleared from
+// the monitoring config's additionalParams to prevent the monitoring agent
+// from trying to use certificate files that no longer exist.
+func TestClearTLSParams(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          map[string]string
+		expectedOutput map[string]string
+	}{
+		{
+			name:           "nil map",
+			input:          nil,
+			expectedOutput: nil,
+		},
+		{
+			name:           "empty map",
+			input:          map[string]string{},
+			expectedOutput: map[string]string{},
+		},
+		{
+			name: "only TLS params",
+			input: map[string]string{
+				"useSslForAllConnections":      "true",
+				"sslTrustedServerCertificates": "/some/path/ca.pem",
+				"sslClientCertificate":         "/some/path/cert.pem",
+			},
+			expectedOutput: map[string]string{},
+		},
+		{
+			name: "mixed params - TLS and non-TLS",
+			input: map[string]string{
+				"useSslForAllConnections":      "true",
+				"sslTrustedServerCertificates": "/some/path/ca.pem",
+				"sslClientCertificate":         "/some/path/cert.pem",
+				"someOtherParam":               "someValue",
+				"anotherParam":                 "anotherValue",
+			},
+			expectedOutput: map[string]string{
+				"someOtherParam": "someValue",
+				"anotherParam":   "anotherValue",
+			},
+		},
+		{
+			name: "only non-TLS params",
+			input: map[string]string{
+				"someOtherParam": "someValue",
+				"anotherParam":   "anotherValue",
+			},
+			expectedOutput: map[string]string{
+				"someOtherParam": "someValue",
+				"anotherParam":   "anotherValue",
+			},
+		},
+		{
+			name: "partial TLS params",
+			input: map[string]string{
+				"useSslForAllConnections": "true",
+				"someOtherParam":          "someValue",
+			},
+			expectedOutput: map[string]string{
+				"someOtherParam": "someValue",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			om.ClearTLSParams(tt.input)
+			assert.Equal(t, tt.expectedOutput, tt.input)
+		})
+	}
 }

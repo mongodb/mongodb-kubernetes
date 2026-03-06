@@ -333,7 +333,7 @@ func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberCl
 // toOmUser converts a MongoDBUser specification and optional password into an
 // automation config MongoDB user. If the user has no password then a blank
 // password should be provided.
-func toOmUser(spec userv1.MongoDBUserSpec, password string) (om.MongoDBUser, error) {
+func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationConfig) (om.MongoDBUser, error) {
 	user := om.MongoDBUser{
 		Database:                   spec.Database,
 		Username:                   spec.Username,
@@ -344,7 +344,7 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string) (om.MongoDBUser, err
 
 	// only specify password if we're dealing with non-x509 users
 	if spec.Database != authentication.ExternalDB {
-		if err := authentication.ConfigureScramCredentials(&user, password); err != nil {
+		if err := authentication.ConfigureScramCredentials(&user, password, ac); err != nil {
 			return om.MongoDBUser{}, xerrors.Errorf("error generating SCRAM credentials: %w", err)
 		}
 	}
@@ -385,7 +385,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 			auth.RemoveUser(user.Status.Username, user.Status.Database)
 		}
 
-		desiredUser, err := toOmUser(user.Spec, password)
+		desiredUser, err := toOmUser(user.Spec, password, ac)
 		if err != nil {
 			return err
 		}
@@ -421,16 +421,16 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 }
 
 func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
-	desiredUser, err := toOmUser(user.Spec, "")
-	if err != nil {
-		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
-	}
-
 	shouldRetry := false
 	updateFunction := func(ac *om.AutomationConfig) error {
 		if !externalAuthMechanismsAvailable(ac.Auth.DeploymentAuthMechanisms) {
 			shouldRetry = true
 			return xerrors.Errorf("no external authentication mechanisms (LDAP or x509) have been configured")
+		}
+
+		desiredUser, err := toOmUser(user.Spec, "", ac)
+		if err != nil {
+			return xerrors.Errorf("errorr updating user %w", err)
 		}
 
 		auth := ac.Auth
@@ -442,7 +442,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 		return nil
 	}
 
-	err = conn.ReadUpdateAutomationConfig(updateFunction, log)
+	err := conn.ReadUpdateAutomationConfig(updateFunction, log)
 	if err != nil {
 		if shouldRetry {
 			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()).WithRetry(10), log)

@@ -4,7 +4,7 @@ kind: MongoDB
 metadata:
   name: ${MDB_RESOURCE_NAME}
 spec:
-  members: 3
+  members: ${MDB_MEMBERS}
   version: ${MDB_VERSION}
   type: ReplicaSet
   opsManager:
@@ -17,6 +17,10 @@ spec:
       ignoreUnknownUsers: true
       modes:
       - SCRAM
+    certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
+    tls:
+      enabled: true
+      ca: ${MDB_TLS_CA_CONFIGMAP}
   agent:
     logLevel: INFO
   podSpec:

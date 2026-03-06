@@ -1,11 +1,10 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
-from scripts.release.build.image_build_process import ImageBuilder
 from scripts.release.build.build_scenario import BuildScenario
+from scripts.release.build.image_build_process import ImageBuilder
 
-SUPPORTED_PLATFORMS = ["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64", "linux/s390x",
-                       "linux/ppc64le"]
+SUPPORTED_PLATFORMS = ["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64", "linux/s390x", "linux/ppc64le"]
 
 
 @dataclass
@@ -24,9 +23,8 @@ class ImageBuildConfiguration:
     # Agent specific
     parallel: bool = False
     parallel_factor: int = 0
-    all_agents: bool = False
-    currently_used_agents: bool = False
     architecture_suffix: bool = False
+    agent_tools_version: Optional[str] = None  # Explicit tools version for agent builds
 
     def is_release_scenario(self) -> bool:
         return self.scenario == BuildScenario.RELEASE

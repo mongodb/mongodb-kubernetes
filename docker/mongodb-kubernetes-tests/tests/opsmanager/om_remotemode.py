@@ -2,6 +2,7 @@ import time
 from typing import Any, Dict, Optional
 
 import yaml
+from kubetester import try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
@@ -106,7 +107,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
-    om.update()
+    try_load(om)
     return om
 
 
@@ -117,7 +118,8 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
         namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
     resource.set_version(custom_mdb_version)
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -128,11 +130,13 @@ def replica_set_ent(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_v
         name="the-replica-set-ent",
     ).configure(ops_manager, "my-other-replica-set")
     resource.set_version(ensure_ent_version(custom_mdb_version))
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_om_remotemode
 def test_appdb(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
     assert ops_manager.appdb_status().get_members() == 3
 
@@ -169,7 +173,9 @@ def test_update_om_version_manifest(ops_manager: MongoDBOpsManager):
 @mark.e2e_om_remotemode
 def test_replica_sets_reaches_running_phase(replica_set: MongoDB, replica_set_ent: MongoDB):
     """Doing this in parallel for faster success"""
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    replica_set_ent.update()
     replica_set_ent.assert_reaches_phase(Phase.Running, timeout=300)
 
 

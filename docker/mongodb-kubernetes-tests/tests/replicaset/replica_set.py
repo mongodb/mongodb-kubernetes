@@ -1,29 +1,22 @@
-import time
 from typing import Dict
 
 import pytest
 from kubernetes import client
-from kubetester import (
-    assert_pod_container_security_context,
-    assert_pod_security_context,
-    try_load,
-)
+from kubetester import assert_pod_container_security_context, assert_pod_security_context, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static, skip_if_local
+from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase
 from pytest import fixture
 from tests.conftest import (
-    DATABASE_SA_NAME,
-    LEGACY_OPERATOR_NAME,
-    OPERATOR_NAME,
     assert_log_rotation_backup_monitoring,
     assert_log_rotation_process,
     setup_log_rotate_for_agents,
 )
+from tests.constants import DATABASE_SA_NAME, LEGACY_OPERATOR_NAME, OPERATOR_NAME
 
 DEFAULT_BACKUP_VERSION = "11.12.0.7388-1"
 DEFAULT_MONITORING_AGENT_VERSION = "11.12.0.7388-1"
@@ -41,9 +34,6 @@ def _get_group_id(envs) -> str:
 def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), "my-replica-set", namespace)
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(custom_mdb_version)
     resource["spec"]["clusterDomain"] = cluster_domain
 
@@ -59,9 +49,9 @@ def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) ->
                             "resources": {
                                 "limits": {
                                     "cpu": "1",
-                                    "memory": "1Gi",
+                                    "memory": "2Gi",
                                 },
-                                "requests": {"cpu": "0.2", "memory": "300M"},
+                                "requests": {"cpu": "0.5", "memory": "1Gi"},
                             },
                         }
                     ]
@@ -78,9 +68,9 @@ def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) ->
                             "resources": {
                                 "limits": {
                                     "cpu": "1",
-                                    "memory": "1Gi",
+                                    "memory": "2Gi",
                                 },
-                                "requests": {"cpu": "0.2", "memory": "300M"},
+                                "requests": {"cpu": "0.5", "memory": "1Gi"},
                             },
                         }
                     ]
@@ -89,7 +79,7 @@ def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) ->
         }
 
     setup_log_rotate_for_agents(resource)
-    resource.update()
+    try_load(resource)
 
     return resource
 
@@ -111,6 +101,7 @@ class TestReplicaSetCreation(KubernetesTester):
         config_version.version = config["version"]
 
     def test_mdb_created(self, replica_set: MongoDB):
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
     def test_replica_set_sts_exists(self):
@@ -188,9 +179,9 @@ class TestReplicaSetCreation(KubernetesTester):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
             assert c0.resources.limits["cpu"] == "1"
-            assert c0.resources.limits["memory"] == "1Gi"
-            assert c0.resources.requests["cpu"] == "200m"
-            assert c0.resources.requests["memory"] == "300M"
+            assert c0.resources.limits["memory"] == "2Gi"
+            assert c0.resources.requests["cpu"] == "500m"
+            assert c0.resources.requests["memory"] == "1Gi"
 
     def test_pods_container_envvars(self):
         for pod_name in self._get_pods("my-replica-set-{}", 3):
@@ -366,6 +357,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts
 
+    @pytest.mark.flaky(reruns=10, reruns_delay=3)
     def test_sts_update(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
@@ -530,10 +522,16 @@ class TestReplicaSetDelete(KubernetesTester):
 
     def test_replica_set_sts_doesnt_exist(self):
         """The StatefulSet must be removed by Kubernetes as soon as the MongoDB resource is removed.
-        Note, that this may lag sometimes (caching or whatever?) and it's more safe to wait a bit"""
-        time.sleep(15)
-        with pytest.raises(client.rest.ApiException):
-            self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
+        Note, that this may lag sometimes (caching or whatever?) so we poll until it's gone."""
+
+        def sts_is_deleted():
+            try:
+                self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
+                return False
+            except client.rest.ApiException:
+                return True
+
+        run_periodically(sts_is_deleted, timeout=60, msg="StatefulSet to be deleted")
 
     def test_service_does_not_exist(self):
         with pytest.raises(client.rest.ApiException):

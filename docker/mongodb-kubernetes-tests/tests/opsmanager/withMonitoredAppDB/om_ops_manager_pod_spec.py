@@ -15,7 +15,8 @@ from kubetester.kubetester import is_default_architecture_static
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import APPDB_SA_NAME, OM_SA_NAME, is_multi_cluster
+from tests.conftest import is_multi_cluster
+from tests.constants import APPDB_SA_NAME, OM_SA_NAME
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
@@ -26,15 +27,13 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
         yaml_fixture("om_ops_manager_pod_spec.yaml"), namespace=namespace
     )
 
-    if try_load(om):
-        return om
-
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
+    try_load(om)
     return om
 
 

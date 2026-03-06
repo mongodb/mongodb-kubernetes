@@ -223,8 +223,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			resourceType:        mdbv1.ReplicaSet,
 			authModes:           []string{"SCRAM-SHA-256"},
 			internalClusterAuth: "X509",
-			expectError:         true,
-			expectedErrMsg:      "MongoDBSearch does not support X.509 internal cluster authentication",
+			expectError:         false,
 		},
 		{
 			name:                "Valid internal cluster auth - empty",

@@ -1,6 +1,6 @@
 import tempfile
 
-from kubetester import create_secret, delete_secret, find_fixture, read_secret
+from kubetester import create_secret, delete_secret, find_fixture, read_secret, try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, generate_cert
 from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
@@ -112,7 +112,8 @@ def replica_set(
         "automationUserName": "mms-automation-agent",
     }
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -138,6 +139,7 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: L
 @mark.e2e_replica_set_ldap_agent_client_certs
 @mark.usefixtures("ldap_mongodb_agent_user", "ldap_user_mongodb")
 def test_replica_set(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400, ignore_errors=True)
 
 

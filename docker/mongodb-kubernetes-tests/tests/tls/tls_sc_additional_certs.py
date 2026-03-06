@@ -46,9 +46,6 @@ def server_certs(issuer: str, namespace: str):
 def sc(namespace: str, server_certs: str, issuer_ca_configmap: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("test-tls-sc-additional-domains.yaml"), namespace=namespace)
 
-    if try_load(resource):
-        return resource
-
     resource.set_architecture_annotation()
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
@@ -61,7 +58,8 @@ def sc(namespace: str, server_certs: str, issuer_ca_configmap: str, custom_mdb_v
             configsrv_members_array=[1, 1, 1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_tls_sc_additional_certs
@@ -72,6 +70,7 @@ def test_install_operator(operator: Operator):
 @pytest.mark.e2e_tls_sc_additional_certs
 class TestShardedClusterWithAdditionalCertDomains:
     def test_sharded_cluster_running(self, sc: MongoDB):
+        sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
     @skip_if_local

@@ -13,18 +13,6 @@ tasks:
         vars:
           image_name: operator
 
-  # Releases init images to Quay
-  - name: release_init_appdb
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_login
-      - func: pipeline
-        vars:
-          image_name: init-appdb
-
   - name: release_init_database
     tags: [ "image_release" ]
     allowed_requesters: [ "patch", "github_tag" ]
@@ -115,6 +103,12 @@ tasks:
       - func: install_macos_notarization_service
       - func: release_kubectl_mongodb_plugin
 
+  - name: add_releaseinfo_to_github_assets
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: add_releaseinfo_to_github_assets
+
   - name: create_chart_release_pr
     tags: [ "helm_chart_release_pr" ]
     commands:
@@ -144,12 +138,23 @@ buildvariants:
     max_hosts: -1
     tasks:
       - name: release_operator
-      - name: release_init_appdb
       - name: release_init_database
       - name: release_init_ops_manager
       - name: release_database
       - name: release_readiness_probe
       - name: release_version_upgrade_hook
+
+  - name: add_releaseinfo_to_github_assets
+    display_name: add_releaseinfo_to_github_assets
+    tags: ["release"]
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: ["patch", "github_tag"]
+    depends_on:
+      - name: "*"
+        variant: release_images
+    tasks:
+      - name: add_releaseinfo_to_github_assets
 
   - name: preflight_release_images
     display_name: preflight_release_images
@@ -214,6 +219,8 @@ buildvariants:
     depends_on:
       - name: release_kubectl_mongodb_plugin
         variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
     tasks:
       - name: build_test_image
 
@@ -228,6 +235,8 @@ buildvariants:
     depends_on:
       - name: release_kubectl_mongodb_plugin
         variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
     tasks:
       - name: build_test_image_ibm_power
 
@@ -245,6 +254,8 @@ buildvariants:
     depends_on:
       - name: release_kubectl_mongodb_plugin
         variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
     tasks:
       - name: build_test_image_ibm_z
 
@@ -258,6 +269,8 @@ buildvariants:
     depends_on:
       - name: release_kubectl_mongodb_plugin
         variant: release_kubectl_mongodb_plugin
+      - name: release_chart_to_oci_registry
+        variant: release_chart_to_oci_registry
     tasks:
       - name: build_test_image_arm
 

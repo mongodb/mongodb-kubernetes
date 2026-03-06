@@ -3,7 +3,7 @@ from typing import Dict, Optional
 import pytest
 from kubeobject import CustomObject
 from kubernetes import client
-from kubetester import create_or_update_configmap, read_configmap
+from kubetester import create_or_update_configmap, read_configmap, try_load
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import ensure_nested_objects
 from kubetester.kubetester import fixture as yaml_fixture
@@ -13,13 +13,12 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from tests import test_logger
 from tests.conftest import (
-    LEGACY_OPERATOR_NAME,
-    OPERATOR_NAME,
     get_central_cluster_client,
     get_default_operator,
     install_legacy_deployment_state_meko,
     log_deployments_info,
 )
+from tests.constants import LEGACY_OPERATOR_NAME, OPERATOR_NAME
 from tests.upgrades import downscale_operator_deployment
 
 MDB_RESOURCE = "sh001-base"
@@ -87,7 +86,8 @@ def sharded_cluster(
     resource["spec"]["persistent"] = True
     resource.configure_custom_tls(issuer_ca_configmap, CERT_PREFIX)
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
@@ -101,6 +101,7 @@ class TestShardedClusterDeployment:
         install_legacy_deployment_state_meko(namespace, managed_security_context, operator_installation_config)
 
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=350)
 
     def test_scale_up_sharded_cluster(self, sharded_cluster: MongoDB):

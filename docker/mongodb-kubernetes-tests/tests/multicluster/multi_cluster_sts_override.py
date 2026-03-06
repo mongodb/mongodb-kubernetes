@@ -3,6 +3,7 @@ from typing import List
 import kubernetes
 import pytest
 from kubernetes import client
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
@@ -25,7 +26,8 @@ def mongodb_multi(
     resource.set_version(custom_mdb_version)
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_multi_sts_override
@@ -35,6 +37,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_sts_override
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

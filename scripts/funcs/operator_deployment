@@ -9,10 +9,10 @@ get_operator_helm_values() {
 
   declare -a config=(
     "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
+    "buildScenario=${BUILD_SCENARIO:-}"
     "registry.operator=${OPERATOR_REGISTRY}"
     "registry.imagePullSecrets=image-registries-secret"
     "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY}"
-    "registry.initAppDb=${INIT_APPDB_REGISTRY}"
     "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
     "registry.agent=${MDB_AGENT_REGISTRY}"
     "registry.opsManager=${OPS_MANAGER_REGISTRY}"
@@ -21,12 +21,10 @@ get_operator_helm_values() {
     "database.name=${database_name:=mongodb-kubernetes-database}"
     "operator.version=${OPERATOR_VERSION}"
     "initOpsManager.version=${INIT_OPS_MANAGER_VERSION}"
-    "initAppDb.version=${INIT_APPDB_VERSION}"
     "initDatabase.version=${INIT_DATABASE_VERSION}"
     "database.version=${DATABASE_VERSION}"
     "agent.version=${AGENT_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
-    "mongodb.imageType=${MDB_IMAGE_TYPE:-ubi8}"
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
     "operator.enablePVCResize=${MDB_ENABLE_PVC_RESIZE:-true}"
     # only send the telemetry to the backend on a specific variant, thus default to false
@@ -92,6 +90,10 @@ get_operator_helm_values() {
 
   if [[ "${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE:-}" != "" ]]; then
     config+=("operator.webhook.installClusterRole=${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE}")
+  fi
+
+  if [[ "${MDB_WEBHOOK_NAME:-}" != "" ]]; then
+    config+=("operator.webhook.name=${MDB_WEBHOOK_NAME}")
   fi
 
   echo "${config[@]}"

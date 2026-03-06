@@ -34,20 +34,14 @@ def mdb(namespace: str) -> MongoDB:
         name=MDB_RESOURCE_NAME,
         namespace=namespace,
     )
-
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 
 @fixture(scope="function")
 def mdbs(namespace: str) -> MongoDBSearch:
     resource = MongoDBSearch.from_yaml(yaml_fixture("search-minimal.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME)
-
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 
@@ -56,26 +50,18 @@ def admin_user(namespace: str) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(
         yaml_fixture("mongodbuser-mdb-admin.yaml"), namespace=namespace, name=ADMIN_USER_NAME
     )
-
-    if try_load(resource):
-        return resource
-
     resource["spec"]["username"] = resource.name
     resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
+    try_load(resource)
     return resource
 
 
 @fixture(scope="function")
 def user(namespace: str) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(yaml_fixture("mongodbuser-mdb-user.yaml"), namespace=namespace, name=USER_NAME)
-
-    if try_load(resource):
-        return resource
-
     resource["spec"]["username"] = resource.name
     resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
+    try_load(resource)
     return resource
 
 
@@ -86,13 +72,9 @@ def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
         namespace=namespace,
         name=f"{mdbs.name}-{MONGOT_USER_NAME}",
     )
-
-    if try_load(resource):
-        return resource
-
     resource["spec"]["username"] = MONGOT_USER_NAME
     resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
+    try_load(resource)
     return resource
 
 
@@ -115,19 +97,19 @@ def test_create_users(
     create_or_update_secret(
         namespace, name=admin_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": ADMIN_USER_PASSWORD}
     )
-    admin_user.create()
+    admin_user.update()
     admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
         namespace, name=user["spec"]["passwordSecretKeyRef"]["name"], data={"password": USER_PASSWORD}
     )
-    user.create()
+    user.update()
     user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
         namespace, name=mongot_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": MONGOT_USER_PASSWORD}
     )
-    mongot_user.create()
+    mongot_user.update()
     # we deliberately don't wait for this user to be ready, because to be reconciled successfully it needs the searchCoordinator role
     # which the ReplicaSet reconciler will only define in the automation config after the MongoDBSearch resource is created.
 

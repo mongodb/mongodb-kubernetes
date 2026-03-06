@@ -8,14 +8,14 @@ export CTX_CLUSTER3=${CTX_CLUSTER3:-e2e.cluster3.mongokubernetes.com}
 export VERSION=${VERSION:-1.12.8}
 
 IS_KIND="false"
-if [[ $CTX_CLUSTER1 = kind* ]]; then
+if [[ ${CTX_CLUSTER1} = kind* ]]; then
   IS_KIND="true"
 fi
 
 source multi_cluster/tools/download_istio.sh
 
 #
-cd istio-${VERSION}
+cd "istio-${VERSION}"
 ## perform cleanup prior to install
 bin/istioctl x uninstall --context="${CTX_CLUSTER1}" --purge --skip-confirmation &
 bin/istioctl x uninstall --context="${CTX_CLUSTER2}" --purge --skip-confirmation &
@@ -40,28 +40,28 @@ kubectl --context="${CTX_CLUSTER1}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER1}" create ns istio-system
 kubectl --context="${CTX_CLUSTER1}" label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
 kubectl --context="${CTX_CLUSTER1}" create secret generic cacerts -n istio-system \
-  --from-file=${CTX_CLUSTER1}/ca-cert.pem \
-  --from-file=${CTX_CLUSTER1}/ca-key.pem \
-  --from-file=${CTX_CLUSTER1}/root-cert.pem \
-  --from-file=${CTX_CLUSTER1}/cert-chain.pem
+  --from-file="${CTX_CLUSTER1}/ca-cert.pem" \
+  --from-file="${CTX_CLUSTER1}/ca-key.pem" \
+  --from-file="${CTX_CLUSTER1}/root-cert.pem" \
+  --from-file="${CTX_CLUSTER1}/cert-chain.pem"
 
 kubectl --context="${CTX_CLUSTER2}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER2}" create ns istio-system
 kubectl --context="${CTX_CLUSTER2}" label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
 kubectl --context="${CTX_CLUSTER2}" create secret generic cacerts -n istio-system \
-  --from-file=${CTX_CLUSTER2}/ca-cert.pem \
-  --from-file=${CTX_CLUSTER2}/ca-key.pem \
-  --from-file=${CTX_CLUSTER2}/root-cert.pem \
-  --from-file=${CTX_CLUSTER2}/cert-chain.pem
+  --from-file="${CTX_CLUSTER2}/ca-cert.pem" \
+  --from-file="${CTX_CLUSTER2}/ca-key.pem" \
+  --from-file="${CTX_CLUSTER2}/root-cert.pem" \
+  --from-file="${CTX_CLUSTER2}/cert-chain.pem"
 
 kubectl --context="${CTX_CLUSTER3}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER3}" create ns istio-system
 kubectl --context="${CTX_CLUSTER3}" label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
 kubectl --context="${CTX_CLUSTER3}" create secret generic cacerts -n istio-system \
-  --from-file=${CTX_CLUSTER3}/ca-cert.pem \
-  --from-file=${CTX_CLUSTER3}/ca-key.pem \
-  --from-file=${CTX_CLUSTER3}/root-cert.pem \
-  --from-file=${CTX_CLUSTER3}/cert-chain.pem
+  --from-file="${CTX_CLUSTER3}/ca-cert.pem" \
+  --from-file="${CTX_CLUSTER3}/ca-key.pem" \
+  --from-file="${CTX_CLUSTER3}/root-cert.pem" \
+  --from-file="${CTX_CLUSTER3}/cert-chain.pem"
 popd
 
 # install IstioOperator in clusters
@@ -145,43 +145,49 @@ wait
 CLUSTER_1_ADDITIONAL_OPTS=""
 CLUSTER_2_ADDITIONAL_OPTS=""
 CLUSTER_3_ADDITIONAL_OPTS=""
-if [[ $IS_KIND == "true" ]]; then
-  CLUSTER_1_ADDITIONAL_OPTS="--server https://$(kubectl --context=${CTX_CLUSTER1} get node e2e-cluster-1-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
-  CLUSTER_2_ADDITIONAL_OPTS="--server https://$(kubectl --context=${CTX_CLUSTER2} get node e2e-cluster-2-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
-  CLUSTER_3_ADDITIONAL_OPTS="--server https://$(kubectl --context=${CTX_CLUSTER3} get node e2e-cluster-3-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
+if [[ ${IS_KIND} == "true" ]]; then
+  CLUSTER_1_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER1}" get node e2e-cluster-1-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
+  CLUSTER_2_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER2}" get node e2e-cluster-2-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
+  CLUSTER_3_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER3}" get node e2e-cluster-3-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
 fi
 
 # enable endpoint discovery
+# shellcheck disable=SC2086 # CLUSTER_X_ADDITIONAL_OPTS must not be quoted - empty string breaks istioctl
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER1}" \
   -n istio-system \
   --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER2}"
 
+# shellcheck disable=SC2086
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER1}" \
   -n istio-system \
   --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER3}"
 
+# shellcheck disable=SC2086
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER2}" \
   -n istio-system \
   --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER1}"
 
+# shellcheck disable=SC2086
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER2}" \
   -n istio-system \
   --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER3}"
 
+# shellcheck disable=SC2086
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER3}" \
   -n istio-system \
   --name=cluster3 ${CLUSTER_3_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER1}"
 
+# shellcheck disable=SC2086
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER3}" \
   -n istio-system \

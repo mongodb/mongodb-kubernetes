@@ -19,9 +19,6 @@ tasks:
           image_name: mongodb-kubernetes
       - func: preflight_image
         vars:
-          image_name: init-appdb
-      - func: preflight_image
-        vars:
           image_name: init-database
       - func: preflight_image
         vars:
@@ -66,25 +63,25 @@ tasks:
     tags: [ "code_snippets" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
   - name: task_gke_multi_cluster_no_mesh_snippets
     tags: [ "code_snippets" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
   - name: task_kind_search_community_snippets
     tags: [ "code_snippets", "patch-run" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
   - name: task_kind_search_enterprise_snippets
     tags: [ "code_snippets", "patch-run" ]
     commands:
       - func: test_code_snippets
-      - func: sample_commit_output
+      - func: archive_snippets_output
 
 ## Below are only e2e runs for .evergreen.yml ##
 
@@ -690,6 +687,46 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_sharded_cluster_scram_sha_256_switch_project
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_scram_sha_1_switch_project
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_x509_switch_project
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_scram_sha_256_switch_project
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_scram_sha_1_switch_project
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_x509_switch_project
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_ldap_switch_project
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_ldap_switch_project
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   # TODO: not used in any variant
   - name: e2e_replica_set_scram_x509_internal_cluster
     tags: [ "patch-run" ]
@@ -821,6 +858,11 @@ tasks:
       - func: e2e_test
 
   - name: e2e_om_ops_manager_backup_restore
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_backup_object_lock
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1283,6 +1325,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_search_community_auto_embedding
+    tags: ["patch-run"]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_community_tls
     tags: ["patch-run"]
     commands:
@@ -1304,6 +1351,11 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_enterprise_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_enterprise_x509_cluster_auth
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

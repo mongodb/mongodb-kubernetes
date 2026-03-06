@@ -23,12 +23,7 @@ from tests import test_logger
 
 from .mongodb_common import MongoDBCommon
 from .mongodb_utils_state import in_desired_state
-from .mongotester import (
-    MongoTester,
-    ReplicaSetTester,
-    ShardedClusterTester,
-    StandaloneTester,
-)
+from .mongotester import MongoTester, ReplicaSetTester, ShardedClusterTester, StandaloneTester
 from .opsmanager import MongoDBOpsManager
 from .phase import Phase
 

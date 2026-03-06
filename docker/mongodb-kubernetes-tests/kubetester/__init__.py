@@ -11,10 +11,7 @@ from kubetester.kubetester import run_periodically
 
 # Re-exports
 from .kubetester import fixture as find_fixture
-from .security_context import (
-    assert_pod_container_security_context,
-    assert_pod_security_context,
-)
+from .security_context import assert_pod_container_security_context, assert_pod_security_context
 
 
 def create_secret(

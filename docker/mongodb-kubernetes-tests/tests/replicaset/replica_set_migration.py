@@ -20,12 +20,10 @@ def mdb(namespace, custom_mdb_version: str):
         name=MDB_RESOURCE_NAME,
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
 
+    try_load(resource)
     return resource
 
 
@@ -36,14 +34,7 @@ def mongo_tester(mdb: MongoDB):
 
 @fixture(scope="module")
 def mdb_health_checker(mongo_tester: MongoTester) -> MongoDBBackgroundTester:
-    return MongoDBBackgroundTester(
-        mongo_tester,
-        allowed_sequential_failures=1,
-        health_function_params={
-            "attempts": 1,
-            "write_concern": pymongo.WriteConcern(w="majority"),
-        },
-    )
+    return MongoDBBackgroundTester(mongo_tester)
 
 
 @pytest.mark.e2e_replica_set_migration

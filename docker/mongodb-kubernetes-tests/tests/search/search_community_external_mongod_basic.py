@@ -33,9 +33,6 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     mongot_host = f"{MDBS_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27028"
     if "additionalMongodConfig" not in resource["spec"]:
         resource["spec"]["additionalMongodConfig"] = {}
@@ -52,6 +49,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         }
     )
 
+    try_load(resource)
     return resource
 
 
@@ -71,7 +69,6 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
         "source": {
             "external": {
                 "hostAndPorts": seeds,
-                "keyfileSecretRef": {"name": f"{mdbc.name}-keyfile", "key": "keyfile"},
             },
             "passwordSecretRef": {"name": f"{MDBC_RESOURCE_NAME}-{MONGOT_USER_NAME}-password", "key": "password"},
             "username": MONGOT_USER_NAME,

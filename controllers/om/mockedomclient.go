@@ -377,8 +377,16 @@ func (oc *MockedOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *A
 	return err
 }
 
-func (oc *MockedOmConnection) AddHost(host host.Host) error {
-	oc.hostResults.Results = append(oc.hostResults.Results, host)
+func (oc *MockedOmConnection) AddHost(h host.Host) error {
+	// Generate a unique ID if not provided (similar to AddHosts)
+	if h.Id == "" {
+		if oc.agentHostnameMap == nil {
+			oc.agentHostnameMap = map[string]struct{}{}
+		}
+		h.Id = strconv.Itoa(len(oc.hostResults.Results))
+		oc.agentHostnameMap[h.Hostname] = struct{}{}
+	}
+	oc.hostResults.Results = append(oc.hostResults.Results, h)
 	return nil
 }
 
@@ -738,7 +746,11 @@ func (oc *MockedOmConnection) CheckResourcesAndBackupDeleted(t *testing.T, resou
 	assert.Empty(t, oc.deployment.getShardedClusters())
 	assert.Empty(t, oc.deployment.getMonitoringVersions())
 	assert.Empty(t, oc.deployment.getBackupVersions())
-	assert.Empty(t, oc.hostResults.Results)
+
+	hosts, err := oc.GetHosts()
+	assert.NoError(t, err)
+	assert.NotNil(t, hosts)
+	assert.Empty(t, hosts.Results)
 
 	if resourceName != "" {
 		assert.NotEmpty(t, oc.BackupHostClusters)
@@ -931,6 +943,16 @@ func (oc *MockedOmConnection) AddPreferredHostname(agentApiKey string, value str
 	})
 
 	return nil
+}
+
+func (oc *MockedOmConnection) AddRole(role mdbv1.MongoDBRole) {
+	roles := oc.deployment.GetRoles()
+	roles = append(roles, role)
+	oc.deployment.SetRoles(roles)
+}
+
+func (oc *MockedOmConnection) GetRoles() []mdbv1.MongoDBRole {
+	return oc.deployment.GetRoles()
 }
 
 // updateAutoAuthMechanism simulates the changes made by Ops Manager and the agents in deciding which

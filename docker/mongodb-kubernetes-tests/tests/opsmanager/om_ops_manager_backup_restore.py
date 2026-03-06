@@ -15,11 +15,7 @@ from pymongo import ReadPreference
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 from tests.conftest import assert_data_got_restored, is_multi_cluster
-from tests.opsmanager.om_ops_manager_backup import (
-    S3_SECRET_NAME,
-    create_aws_secret,
-    create_s3_bucket,
-)
+from tests.opsmanager.om_ops_manager_backup import S3_SECRET_NAME, create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 """
@@ -62,7 +58,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -124,6 +120,7 @@ def mdb_latest_project(ops_manager: MongoDBOpsManager) -> OMTester:
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         """creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required."""
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,

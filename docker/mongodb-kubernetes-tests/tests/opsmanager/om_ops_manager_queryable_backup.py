@@ -20,7 +20,8 @@ from kubetester.om_queryable_backups import generate_queryable_pem
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import AWS_REGION, is_multi_cluster
+from tests.conftest import is_multi_cluster
+from tests.constants import AWS_REGION
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 

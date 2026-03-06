@@ -8,10 +8,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.shardedcluster.conftest import (
-    enable_multi_cluster_deployment,
-    get_mongos_service_names,
-)
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_mongos_service_names
 
 MDB_RESOURCE_NAME = "test-tls-base-sc-require-ssl"
 
@@ -43,9 +40,6 @@ def server_certs(issuer: str, namespace: str):
 def sc(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("test-tls-base-sc-require-ssl-custom-ca.yaml"), namespace=namespace)
 
-    if try_load(resource):
-        return resource
-
     resource.set_architecture_annotation()
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
 
@@ -57,7 +51,8 @@ def sc(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
             configsrv_members_array=[1, 1, 1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_sharded_cluster_tls_require_custom_ca
@@ -68,6 +63,7 @@ def test_install_operator(operator: Operator):
 @pytest.mark.e2e_sharded_cluster_tls_require_custom_ca
 class TestClusterWithTLSCreation:
     def test_sharded_cluster_running(self, sc: MongoDB):
+        sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
     @skip_if_local
@@ -77,7 +73,7 @@ class TestClusterWithTLSCreation:
         tester.assert_connectivity()
 
     @skip_if_local
-    def test_mongos_are_not_reachable_with_no_ssl(self, sc: MongoDB):
+    def test_mongos_are_not_reachable_without_ssl(self, sc: MongoDB):
         service_names = get_mongos_service_names(sc)
         tester = sc.tester(use_ssl=False, service_names=service_names)
         tester.assert_no_connection()
@@ -85,7 +81,7 @@ class TestClusterWithTLSCreation:
 
 @pytest.mark.e2e_sharded_cluster_tls_require_custom_ca
 class TestCertificateIsRenewed:
-    def test_mdb_reconciles_succesfully(self, sc: MongoDB, namespace: str):
+    def test_mdb_reconciles_successfully(self, sc: MongoDB, namespace: str):
         cert = Certificate(name=f"{MDB_RESOURCE_NAME}-0-cert", namespace=namespace).load()
         cert["spec"]["dnsNames"].append("foo")
         cert.update()
@@ -98,7 +94,7 @@ class TestCertificateIsRenewed:
         tester.assert_connectivity()
 
     @skip_if_local
-    def test_mongos_are_not_reachable_with_no_ssl(
+    def test_mongos_are_not_reachable_without_ssl(
         self,
         sc: MongoDB,
     ):

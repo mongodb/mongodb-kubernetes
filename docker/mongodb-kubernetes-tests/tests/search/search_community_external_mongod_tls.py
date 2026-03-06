@@ -37,9 +37,6 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     mongot_host = f"{MDBS_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27028"
     if "additionalMongodConfig" not in resource["spec"]:
         resource["spec"]["additionalMongodConfig"] = {}
@@ -62,6 +59,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         "caCertificateSecretRef": {"name": TLS_SECRET_NAME},
     }
 
+    try_load(resource)
     return resource
 
 
@@ -73,9 +71,7 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
+    try_load(resource)
     return resource
 
 
@@ -137,7 +133,6 @@ def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
     mdbs["spec"]["source"] = {
         "external": {
             "hostAndPorts": seeds,
-            "keyfileSecretRef": {"name": f"{mdbc.name}-keyfile"},
             "tls": {
                 "ca": {"name": f"{mdbc.name}-ca"},
             },

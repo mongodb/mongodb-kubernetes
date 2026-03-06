@@ -2,6 +2,7 @@ from typing import List
 
 import kubernetes
 import yaml
+from kubetester import try_load
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -99,7 +100,8 @@ def mongodb_multi(
         },
     }
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_multi_cluster_split_horizon
@@ -112,6 +114,7 @@ def test_deploy_mongodb_multi_with_tls(
     mongodb_multi: MongoDBMulti,
     namespace: str,
 ):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

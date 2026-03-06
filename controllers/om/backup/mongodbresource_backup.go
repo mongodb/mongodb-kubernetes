@@ -106,9 +106,9 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 
 // ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.
 func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater) (workflow.Status, []status.Option) {
-	result := workflow.OK()
-
 	for _, config := range projectConfigs {
+		var result workflow.Status = workflow.OK()
+
 		desiredConfig.ClusterId = config.ClusterId
 
 		cluster, err := configReadUpdater.ReadHostCluster(config.ClusterId)
@@ -146,7 +146,7 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 
 		intermediateStepRequired := desiredStatus != desiredConfig.Status
 		if intermediateStepRequired {
-			result.Requeue()
+			result = workflow.Pending("Backup configuration %s requires intermediate step to reach desired status", config.ClusterId).Requeue()
 		}
 
 		desiredConfig.Status = desiredStatus
@@ -202,10 +202,11 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 		if err != nil {
 			return workflow.Failed(err), nil
 		}
+
 		return result, backupOpts
 	}
 
-	return result, nil
+	return workflow.OK(), nil
 }
 
 func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {

@@ -17,6 +17,7 @@ cache
 **/__pycache__
 **/myenv
 **/venv*/
+venv
 *.bak
 **/pytest_cache/
 tmp/*
@@ -55,6 +56,7 @@ bundle
 .DS_Store
 cover.out
 result.suite
+*result.xml
 # loadtesting binary
 production_notes/cmd/runtest/runtest
 production_notes/helm_charts/opsmanager/charts/
@@ -66,8 +68,7 @@ _.yaml
 
 # Things we built or download for the e2e tests & local dev
 /mongodb-kubernetes
-multi-cluster-kube-config-creator
-multi-cluster-kube-config-creator_linux
+multi-cluster-kube-config-creator*
 istio-*
 .multi_cluster_local_test_files
 csi-driver-host-path-*
@@ -94,3 +95,5 @@ logs
 
 # locally packaged chart
 mongodb-kubernetes-*.tgz
+
+scripts/code_snippets/tests/outputs/*

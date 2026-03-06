@@ -1,3 +1,4 @@
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
@@ -11,11 +12,13 @@ def replica_set(namespace: str) -> MongoDB:
         namespace=namespace,
         name="replica-set-status",
     )
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_replica_set_statefulset_status
 def test_replica_set_reaches_pending_phase(replica_set: MongoDB):
+    replica_set.update()
     replica_set.wait_for(
         lambda s: s.get_status_resources_not_ready() is not None,
         timeout=150,

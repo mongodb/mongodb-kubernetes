@@ -3,13 +3,7 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester import (
-    create_or_update_configmap,
-    random_k8s_name,
-    read_configmap,
-    try_load,
-    wait_until,
-)
+from kubetester import create_or_update_configmap, random_k8s_name, read_configmap, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
@@ -87,13 +81,11 @@ def server_certs(
 
 @pytest.fixture(scope="function")
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
-    if try_load(mongodb_multi_unmarshalled):
-        return mongodb_multi_unmarshalled
-
     # remove the last element, we are only starting with 2 clusters we will scale up the 3rd one later.
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
     # remove one member from the first cluster to start with 2 members
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"][0]["members"] = 2
+    try_load(mongodb_multi_unmarshalled)
     return mongodb_multi_unmarshalled
 
 

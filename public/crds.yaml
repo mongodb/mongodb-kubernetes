@@ -4043,6 +4043,10 @@ spec:
       jsonPath: .status.phase
       name: Phase
       type: string
+    - description: MongoDB Search version reconciled by the operator.
+      jsonPath: .status.version
+      name: Version
+      type: string
     - description: The time since the MongoDB resource was created.
       jsonPath: .metadata.creationTimestamp
       name: Age
@@ -4070,6 +4074,32 @@ spec:
             type: object
           spec:
             properties:
+              autoEmbedding:
+                description: |-
+                  Configure MongoDB Search's automatic generation of vector embeddings using an embedding model service.
+                  `embedding` field of mongot config is generated using the values provided here.
+                properties:
+                  embeddingModelAPIKeySecret:
+                    description: |-
+                      EmbeddingModelAPIKeySecret would have the name of the secret that has two keys
+                      query-key and indexing-key for embedding model's API keys.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  providerEndpoint:
+                    type: string
+                required:
+                - embeddingModelAPIKeySecret
+                type: object
               logLevel:
                 description: Configure verbosity of mongot logs. Defaults to INFO
                   if not set.
@@ -4127,6 +4157,18 @@ spec:
                       storageClass:
                         type: string
                     type: object
+                type: object
+              prometheus:
+                description: Configure prometheus metrics endpoint in mongot. If not
+                  set, the metrics endpoint will be disabled.
+                properties:
+                  port:
+                    default: 9946
+                    description: Port where metrics endpoint will be exposed on. Defaults
+                      to 9946.
+                    maximum: 65535
+                    minimum: 0
+                    type: integer
                 type: object
               resourceRequirements:
                 description: Configure resource requests and limits for the MongoDB
@@ -5844,6 +5886,11 @@ spec:
                           type: object
                         name:
                           type: string
+                        objectLockEnabled:
+                          description: |-
+                            ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
+                            This should be enabled to leverage Immutable Backups.
+                          type: boolean
                         pathStyleAccessEnabled:
                           type: boolean
                         s3BucketEndpoint:
@@ -5936,6 +5983,11 @@ spec:
                           type: object
                         name:
                           type: string
+                        objectLockEnabled:
+                          description: |-
+                            ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
+                            This should be enabled to leverage Immutable Backups.
+                          type: boolean
                         pathStyleAccessEnabled:
                           type: boolean
                         s3BucketEndpoint:

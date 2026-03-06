@@ -81,7 +81,7 @@ class TestMultipleRunning0(KubernetesTester):
     """
 
     @skip_if_local()
-    def test_mdb_ssl_enabled_is_not_reachable_with_no_ssl(self):
+    def test_mdb_ssl_enabled_is_not_reachable_without_ssl(self):
         mongo_tester = ReplicaSetTester(mdb_resources["ssl_enabled"], 3)
         mongo_tester.assert_no_connection()
 
@@ -91,7 +91,7 @@ class TestMultipleRunning0(KubernetesTester):
         mongo_tester.assert_connectivity()
 
     @skip_if_local()
-    def test_mdb_ssl_disabled_is_reachable_with_no_ssl(self):
+    def test_mdb_ssl_disabled_is_reachable_without_ssl(self):
         mongo_tester = ReplicaSetTester(mdb_resources["ssl_disabled"], 3)
         mongo_tester.assert_connectivity()
 

@@ -54,6 +54,7 @@ import (
 	rbacv1beta1 "k8s.io/client-go/kubernetes/typed/rbac/v1beta1"
 	resourcev1alpha3 "k8s.io/client-go/kubernetes/typed/resource/v1alpha3"
 	resourcev1beta1 "k8s.io/client-go/kubernetes/typed/resource/v1beta1"
+	resourcev1beta2 "k8s.io/client-go/kubernetes/typed/resource/v1beta2"
 	schedulingv1 "k8s.io/client-go/kubernetes/typed/scheduling/v1"
 	schedulingv1alpha1 "k8s.io/client-go/kubernetes/typed/scheduling/v1alpha1"
 	schedulingv1beta1 "k8s.io/client-go/kubernetes/typed/scheduling/v1beta1"
@@ -93,6 +94,10 @@ func (k *KubeClientContainer) ResourceV1alpha3() resourcev1alpha3.ResourceV1alph
 }
 
 func (k *KubeClientContainer) ResourceV1beta1() resourcev1beta1.ResourceV1beta1Interface {
+	panic("implement me")
+}
+
+func (k *KubeClientContainer) ResourceV1beta2() resourcev1beta2.ResourceV1beta2Interface {
 	panic("implement me")
 }
 

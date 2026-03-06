@@ -16,8 +16,6 @@ TEST_DATABASE = "myDB"
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("oidc/replica-set-m2m-user.yaml"), namespace=namespace)
-    if try_load(resource):
-        return resource
 
     oidc_provider_configs = resource.get_oidc_provider_configs()
     oidc_provider_configs[0]["clientId"] = oidc.get_cognito_workload_client_id()
@@ -26,18 +24,18 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
     resource.set_oidc_provider_configs(oidc_provider_configs)
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
 def oidc_user(namespace) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(find_fixture("oidc/oidc-user.yaml"), namespace=namespace)
-    if try_load(resource):
-        return resource
 
     resource["spec"]["username"] = f"OIDC-test-user/{oidc.get_cognito_workload_user_id()}"
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 # Tests that one Workload Group membership works as expected.
@@ -45,9 +43,11 @@ def oidc_user(namespace) -> MongoDBUser:
 class TestCreateOIDCReplicaset(KubernetesTester):
 
     def test_create_replicaset(self, replica_set: MongoDB):
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
     def test_create_user(self, oidc_user: MongoDBUser):
+        oidc_user.update()
         oidc_user.assert_reaches_phase(Phase.Updated, timeout=400)
 
     def test_assert_connectivity(self, replica_set: MongoDB):

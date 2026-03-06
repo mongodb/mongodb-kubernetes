@@ -10,19 +10,14 @@ operator:
   # Values are "static" and "non-static:
   mdbDefaultArchitecture: non-static
 
-  baseName: mongodb-kubernetes
-
   # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
   name: mongodb-kubernetes-operator
 
   # Name of the operator image
   operator_image_name: mongodb-kubernetes
 
-  # Name of the deployment of the operator pod
-  deployment_name: mongodb-kubernetes-operator
-
   # Version of mongodb-kubernetes-operator
-  version: 1.5.0
+  version: 1.7.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -119,6 +114,13 @@ operator:
     #  - ValidatingWebhookConfigurations will be managed by the operator.
     registerConfiguration: true
 
+    # name: Custom name for the ValidatingWebhookConfiguration resource.
+    # Default (when not set): "mdbpolicy.mongodb.com"
+    # Use this to allow multiple operator instances on the same cluster.
+    # Example:
+    #   name: "mdbpolicy.my-namespace.mongodb.com"
+    name: ''
+
   telemetry:
     collection:
       clusters: {}
@@ -135,11 +137,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.5.0
+  version: 1.7.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.5.0
+  version: 1.7.0
 
 ## Ops Manager
 opsManager:
@@ -147,12 +149,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.5.0
-
-## Application Database
-initAppDb:
-  name: mongodb-kubernetes-init-appdb
-  version: 1.5.0
+  version: 1.7.0
 
 agent:
   name: mongodb-agent
@@ -172,7 +169,6 @@ mongodb:
   name: mongodb-enterprise-server
   repo: quay.io/mongodb
   appdbAssumeOldFormat: false
-  imageType: ubi8
 
 ## Registry
 registry:
@@ -184,7 +180,6 @@ registry:
   initDatabase: quay.io/mongodb
   initOpsManager: quay.io/mongodb
   opsManager: quay.io/mongodb
-  initAppDb: quay.io/mongodb
   agent: quay.io/mongodb
 
   # This is only used by the MongoDBCommunity resource reconciler - START
@@ -234,4 +229,4 @@ search:
   repo: quay.io/mongodb
   name: mongodb-search
   # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
-  version: 0.53.1
+  version: 0.60.1

@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Generate Release Notes
-        run: python -m scripts.release.release_notes -s $RELEASE_INITIAL_COMMIT_SHA -v $RELEASE_INITIAL_VERSION -o release_notes_tmp.md
+        run: python -m scripts.release.release_notes -s $RELEASE_INITIAL_COMMIT_SHA -v $RELEASE_INITIAL_VERSION -o release_notes_preview.md
         env:
           # We can not use environments set via GitHub UI because they will
           # not be available in the pull requests running from forks.
@@ -40,8 +40,9 @@ jobs:
       - name: Add disclaimer to release notes preview for Pull Requests
         if: github.event_name == 'pull_request'
         run: |
-          echo -e "_:warning: (this preview might not be accurate if the PR is not rebased on current master branch)_\n" > release_notes_preview.md
-          cat release_notes_tmp.md >> release_notes_preview.md
+          echo -e "_:warning: (this preview might not be accurate if the PR is not rebased on current master branch)_\n" > release_notes_tmp.md
+          cat release_notes_preview.md >> release_notes_tmp.md
+          mv -f release_notes_tmp.md release_notes_preview.md
       - name: Summarize results
         run: cat release_notes_preview.md >> $GITHUB_STEP_SUMMARY
       - name: Update PR comment

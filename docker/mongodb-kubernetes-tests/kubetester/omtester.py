@@ -15,12 +15,7 @@ import pytest
 import requests
 import semver
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import (
-    KubernetesTester,
-    build_agent_auth,
-    build_auth,
-    run_periodically,
-)
+from kubetester.kubetester import KubernetesTester, build_agent_auth, build_auth, run_periodically
 from kubetester.mongotester import BackgroundHealthChecker
 from kubetester.om_queryable_backups import OMQueryableBackup
 from opentelemetry import trace

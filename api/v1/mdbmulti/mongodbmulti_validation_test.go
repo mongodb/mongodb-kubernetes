@@ -1,6 +1,7 @@
 package mdbmulti
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -12,7 +13,11 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 )
 
+var ctx = context.Background()
+var validator = &MongoDBMultiClusterValidator{}
+
 func TestUniqueClusterNames(t *testing.T) {
+	ctx := context.Background()
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 	mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{
 		{
@@ -28,8 +33,8 @@ func TestUniqueClusterNames(t *testing.T) {
 			Members:     1,
 		},
 	}
-
-	_, err := mrs.ValidateCreate()
+	validator := &MongoDBMultiClusterValidator{}
+	_, err := validator.ValidateCreate(ctx, mrs)
 	assert.ErrorContains(t, err, "Multiple clusters with the same name (abc) are not allowed")
 }
 
@@ -54,7 +59,7 @@ func TestUniqueExternalDomains(t *testing.T) {
 		},
 	}
 
-	_, err := mrs.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, mrs)
 	assert.ErrorContains(t, err, "Multiple member clusters with the same externalDomain (test) are not allowed")
 }
 
@@ -79,7 +84,7 @@ func TestAllExternalDomainsSet(t *testing.T) {
 		},
 	}
 
-	_, err := mrs.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, mrs)
 	assert.ErrorContains(t, err, "The externalDomain is not set for member cluster: 2")
 }
 
@@ -100,7 +105,7 @@ func TestMongoDBMultiValidattionHorzonsWithoutTLS(t *testing.T) {
 		},
 	}
 
-	_, err := mrs.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, mrs)
 	assert.ErrorContains(t, err, "TLS must be enabled in order to use replica set horizons")
 }
 
@@ -116,7 +121,7 @@ func TestSpecProjectOnlyOneValue(t *testing.T) {
 		ClusterName: "foo",
 	}}
 
-	_, err := mrs.ValidateCreate()
+	_, err := validator.ValidateCreate(ctx, mrs)
 	assert.NoError(t, err)
 }
 
