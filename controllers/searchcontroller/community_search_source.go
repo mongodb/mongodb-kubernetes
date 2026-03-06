@@ -10,6 +10,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -24,7 +25,10 @@ type CommunitySearchSource struct {
 	*mdbcv1.MongoDBCommunity
 }
 
-func (r *CommunitySearchSource) HostSeeds() []string {
+func (r *CommunitySearchSource) HostSeeds(shardName string) []string {
+	if shardName != "" {
+		panic("shardName is not supported for replica set")
+	}
 	seeds := make([]string, r.Spec.Members)
 	clusterDomain := r.Spec.GetClusterDomain()
 	for i := range seeds {
@@ -58,6 +62,10 @@ func (r *CommunitySearchSource) TLSConfig() *TLSSourceConfig {
 		CAVolume:         volume,
 		ResourcesToWatch: watchedResources,
 	}
+}
+
+func (r *CommunitySearchSource) ResourceType() mdbv1.ResourceType {
+	return mdbv1.ReplicaSet
 }
 
 func (r *CommunitySearchSource) Validate() error {

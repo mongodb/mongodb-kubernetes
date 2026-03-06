@@ -999,8 +999,21 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 
 // applySearchParametersForShards applies search parameters for each shard and mongos in the sharded cluster.
 // This configures:
-// 1. Per-shard mongod search parameters pointing to the shard-local mongot service
-// 2. Mongos search parameters pointing to the first shard's mongot service
+// 1. Per-shard mongod search parameters (when unmanaged or managed LB is configured)
+// 2. Mongos search parameters (always, when a MongoDBSearch resource exists)
+//
+// For sharded clusters with unmanaged LB (spec.lb.mode == Unmanaged):
+//   - spec.lb.endpoint contains a template with {shardName} placeholder
+//   - Each shard resolves its endpoint by substituting {shardName} with the actual shard name
+//
+// For sharded clusters with managed LB (spec.lb.mode == Managed):
+//   - Each shard's mongod points to the operator-managed envoy proxy service
+//
+// For mongos (always configured when MongoDBSearch exists):
+// - mongotHost: host:port of the first shard's mongot server
+// - searchIndexManagementHostAndPort: same as mongotHost
+// - useGrpcForSearch: true (required for mongot)
+// - searchTLSMode: TLS mode for mongot connections
 func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx context.Context, log *zap.SugaredLogger) {
 	sc := r.sc
 
@@ -1012,25 +1025,44 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 
 	log.Infof("Applying search parameters from MongoDBSearch %s", search.NamespacedName())
 
-	// Collect shard names
-	shardNames := sc.ShardRsNames()
+	shardNames := sc.ShardNames()
 
-	// Apply per-shard search configuration to each shard
-	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
-		shardName := shardNames[shardIdx]
-		shardConfig := r.desiredShardsConfiguration[shardIdx]
-
-		if shardConfig.AdditionalMongodConfig == nil {
-			shardConfig.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
+	// Apply per-shard search configuration when LB is configured (unmanaged or managed)
+	if search.IsShardedUnmanagedLB() || search.IsLBModeManaged() {
+		// Validate unmanaged LB endpoint configuration
+		if search.IsShardedUnmanagedLB() {
+			shardedSource := searchcontroller.NewShardedEnterpriseSearchSource(sc, search)
+			if err := shardedSource.Validate(); err != nil {
+				log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
+				return
+			}
 		}
 
-		searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain())
-		shardConfig.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
+		lbMode := "managed"
+		if search.IsShardedUnmanagedLB() {
+			lbMode = "unmanaged"
+		}
+		log.Infof("Applying per-shard search overrides (%s LB mode)", lbMode)
 
-		log.Debugf("Applied search config for shard %s: mongotHost=%v", shardName, searchMongodConfig["setParameter"])
+		// Apply search configuration to each shard
+		for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+			shardName := shardNames[shardIdx]
+			shardConfig := r.desiredShardsConfiguration[shardIdx]
+
+			if shardConfig.AdditionalMongodConfig == nil {
+				shardConfig.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
+			}
+
+			// Get the per-shard search mongod config parameters
+			searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain())
+			shardConfig.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
+
+			log.Debugf("Applied search config for shard %s: mongotHost=%v", shardName, searchMongodConfig["setParameter"])
+		}
 	}
 
-	// Apply search configuration to mongos
+	// Always apply search configuration to mongos when a MongoDBSearch resource exists
+	// Mongos needs search parameters to route search queries to mongot
 	if r.desiredMongosConfiguration.AdditionalMongodConfig == nil {
 		r.desiredMongosConfiguration.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
@@ -1062,7 +1094,15 @@ func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx co
 		log.Warnf("Found multiple MongoDBSearch resources for sharded cluster %s, using the first one", sc.Name)
 	}
 
-	return &searchList.Items[0]
+	search := &searchList.Items[0]
+
+	// Validate the search spec
+	if err := search.ValidateSpec(); err != nil {
+		log.Warnf("MongoDBSearch %s validation failed: %v", search.NamespacedName(), err)
+		return nil
+	}
+
+	return search
 }
 
 func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) workflow.Status {

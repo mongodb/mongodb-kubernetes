@@ -9,7 +9,10 @@ from tests import test_logger
 logger = test_logger.get_test_logger(__name__)
 
 TOOLS_POD_NAME = "mongodb-tools-pod"
-TOOLS_POD_IMAGE = "mongodb/mongodb-community-server:8.0-ubi9"
+# pinning to specific hash as there was a regression in recently published images
+TOOLS_POD_IMAGE = (
+    "quay.io/mongodb/mongodb-community-server@sha256:4be3e7a6568e467a21c093f34ddedf0a7d35c244ead410d687e9eb50ac46be25"
+)
 
 
 class ToolsPod:
@@ -27,6 +30,7 @@ class ToolsPod:
             self.core_v1.connect_get_namespaced_pod_exec,
             self.pod_name,
             self.namespace,
+            container="mongodb-tools",
             command=cmd,
             stderr=True,
             stdin=False,
@@ -54,6 +58,7 @@ class ToolsPod:
             self.core_v1.connect_get_namespaced_pod_exec,
             self.pod_name,
             self.namespace,
+            container="mongodb-tools",
             command=exec_command,
             stderr=True,
             stdin=True,

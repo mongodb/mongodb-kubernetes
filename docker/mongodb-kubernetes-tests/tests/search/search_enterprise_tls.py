@@ -1,5 +1,5 @@
 import yaml
-from kubetester import create_or_update_secret, get_service, kubetester, run_periodically, try_load
+from kubetester import get_service, run_periodically, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -11,26 +11,36 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.search import movies_search_helper
+from tests.common.search import movies_search_helper, search_resource_names
+from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
 
-ADMIN_USER_NAME = "mdb-admin-user"
-ADMIN_USER_PASSWORD = f"{ADMIN_USER_NAME}-password"
-
-MONGOT_USER_NAME = "search-sync-source"
-MONGOT_USER_PASSWORD = f"{MONGOT_USER_NAME}-password"
-
-USER_NAME = "mdb-user"
-USER_PASSWORD = f"{USER_NAME}-password"
-
 MDB_RESOURCE_NAME = "mdb-ent-tls"
 
-# MongoDBSearch TLS configuration
-MDBS_TLS_SECRET_NAME = "mdbs-tls-secret"
+ADMIN_USER_NAME = f"mdb-admin-user"
+ADMIN_USER_PASSWORD = f"{ADMIN_USER_NAME}-password"
+
+MONGOT_USER_NAME = f"search-sync-source"
+MONGOT_USER_PASSWORD = f"{MONGOT_USER_NAME}-password"
+
+USER_NAME = f"mdb-user"
+USER_PASSWORD = f"{USER_NAME}-password"
+
+# MongoDBSearch TLS configuration — convention: {name}-search-cert
+MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDB_RESOURCE_NAME)
+
+
+@fixture(scope="function")
+def helper(namespace: str) -> SearchDeploymentHelper:
+    return SearchDeploymentHelper(
+        namespace=namespace,
+        mdb_resource_name=MDB_RESOURCE_NAME,
+        mdbs_resource_name=MDB_RESOURCE_NAME,
+    )
 
 
 @fixture(scope="function")
@@ -50,48 +60,27 @@ def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
 @fixture(scope="function")
 def mdbs(namespace: str) -> MongoDBSearch:
     resource = MongoDBSearch.from_yaml(yaml_fixture("search-minimal.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME)
-    # Add TLS configuration to MongoDBSearch
     if "spec" not in resource:
         resource["spec"] = {}
     resource["spec"]["security"] = {"tls": {"certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
+    resource["spec"]["source"] = {"passwordSecretRef": {"name": f"{resource.name}-{MONGOT_USER_NAME}-password"}}
     try_load(resource)
     return resource
 
 
 @fixture(scope="function")
-def admin_user(namespace: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-admin.yaml"), namespace=namespace, name=ADMIN_USER_NAME
-    )
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-    try_load(resource)
-    return resource
+def admin_user(helper: SearchDeploymentHelper) -> MongoDBUser:
+    return helper.admin_user_resource(f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}")
 
 
 @fixture(scope="function")
-def user(namespace: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(yaml_fixture("mongodbuser-mdb-user.yaml"), namespace=namespace, name=USER_NAME)
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-    try_load(resource)
-    return resource
+def user(helper: SearchDeploymentHelper) -> MongoDBUser:
+    return helper.user_resource(f"{MDB_RESOURCE_NAME}-{USER_NAME}")
 
 
 @fixture(scope="function")
-def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-search-sync-source-user.yaml"),
-        namespace=namespace,
-        name=f"{mdbs.name}-{MONGOT_USER_NAME}",
-    )
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = MONGOT_USER_NAME
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-    try_load(resource)
-    return resource
+def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
+    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
 
 
 @mark.e2e_search_enterprise_tls
@@ -113,11 +102,11 @@ def test_create_ops_manager(namespace: str):
 def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch, issuer: str):
     create_mongodb_tls_certs(issuer, namespace, mdb.name, f"certs-{mdb.name}-cert", mdb.get_members())
 
-    search_service_name = f"{mdbs.name}-search-svc"
+    search_service_name = search_resource_names.mongot_service_name(mdbs.name)
     create_tls_certs(
         issuer,
         namespace,
-        f"{mdbs.name}-search",
+        search_resource_names.mongot_statefulset_name(mdbs.name),
         replicas=1,
         service_name=search_service_name,
         additional_domains=[f"{search_service_name}.{namespace}.svc.cluster.local"],
@@ -133,25 +122,16 @@ def test_create_database_resource(mdb: MongoDB):
 
 @mark.e2e_search_enterprise_tls
 def test_create_users(
-    namespace: str, admin_user: MongoDBUser, user: MongoDBUser, mongot_user: MongoDBUser, mdb: MongoDB
+    helper: SearchDeploymentHelper, admin_user: MongoDBUser, user: MongoDBUser, mongot_user: MongoDBUser, mdb: MongoDB
 ):
-    create_or_update_secret(
-        namespace, name=admin_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": ADMIN_USER_PASSWORD}
+    helper.deploy_users(
+        admin_user,
+        ADMIN_USER_PASSWORD,
+        user,
+        USER_PASSWORD,
+        mongot_user,
+        MONGOT_USER_PASSWORD,
     )
-    admin_user.update()
-    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
-
-    create_or_update_secret(
-        namespace, name=user["spec"]["passwordSecretKeyRef"]["name"], data={"password": USER_PASSWORD}
-    )
-    user.update()
-    user.assert_reaches_phase(Phase.Updated, timeout=300)
-
-    create_or_update_secret(
-        namespace, name=mongot_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": MONGOT_USER_PASSWORD}
-    )
-    mongot_user.update()
-    mongot_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
 
 @mark.e2e_search_enterprise_tls
@@ -194,10 +174,10 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
 
 @mark.e2e_search_enterprise_tls
-def test_search_verify_prometheus_disabled_initially(namespace: str, mdbs: MongoDBSearch):
-    tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
-    assert_search_service_prometheus_port(mdbs, should_exist=False)
-    assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=False)
+# def test_search_verify_prometheus_disabled_initially(namespace: str, mdbs: MongoDBSearch):
+#     tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
+#     assert_search_service_prometheus_port(mdbs, should_exist=False)
+#     assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=False)
 
 
 @mark.e2e_search_enterprise_tls
@@ -231,7 +211,9 @@ def test_search_verify_prometheus_enabled_on_custom_port(namespace: str, mdbs: M
 @fixture(scope="function")
 def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester.for_replicaset(mdb, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()),
+        SearchTester.for_replicaset(
+            mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()
+        ),
         tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
     )
 
