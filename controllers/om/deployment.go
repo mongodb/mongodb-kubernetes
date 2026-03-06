@@ -879,6 +879,19 @@ func (d Deployment) getProcessesHostNames(names []string) []string {
 	return ans
 }
 
+// GetHostnamePortsForProcessNames returns hostname:port for each process name by looking up
+// the process in the automation config. Used when externalMembers in the CR only specify
+// process IDs; the automation config holds the actual hostnames and ports.
+func (d Deployment) GetHostnamePortsForProcessNames(processNames []string) []string {
+	result := make([]string, 0, len(processNames))
+	for _, name := range processNames {
+		if p := d.getProcessByName(name); p != nil {
+			result = append(result, fmt.Sprintf("%s:%d", p.HostName(), p.Port()))
+		}
+	}
+	return result
+}
+
 func (d Deployment) setProcesses(processes []Process) {
 	d["processes"] = processes
 }
