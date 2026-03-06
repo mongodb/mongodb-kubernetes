@@ -644,6 +644,84 @@ func TestValidateSearchResource(t *testing.T) {
 	}
 }
 
+func TestEnsureMongotConfig_PerPodEmbeddingModes(t *testing.T) {
+	cases := []struct {
+		name                  string
+		perPodEmbeddingConfig bool
+		expectedKeys          []string
+		notExpectedKeys       []string
+	}{
+		{
+			name:                  "single config mode",
+			perPodEmbeddingConfig: false,
+			expectedKeys:          []string{MongotConfigFilename},
+			notExpectedKeys:       []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename},
+		},
+		{
+			name:                  "per-pod config mode",
+			perPodEmbeddingConfig: true,
+			expectedKeys:          []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename},
+			notExpectedKeys:       []string{MongotConfigFilename},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", "test-ns")
+			fakeClient := newTestFakeClient(search)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
+			cmName := search.MongotConfigConfigMapNamespacedName()
+
+			embeddingMod := func(c *mongot.Config) {
+				c.Embedding = &mongot.EmbeddingConfig{IsAutoEmbeddingViewWriter: ptr.To(true)}
+			}
+			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), cmName, tc.perPodEmbeddingConfig, embeddingMod)
+			require.NoError(t, err)
+
+			cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
+			require.NoError(t, err)
+
+			for _, key := range tc.expectedKeys {
+				assert.Contains(t, cm.Data, key)
+			}
+			for _, key := range tc.notExpectedKeys {
+				assert.NotContains(t, cm.Data, key)
+			}
+
+			// Verify leader/follower IsAutoEmbeddingViewWriter values for per-pod mode
+			if tc.perPodEmbeddingConfig {
+				var leaderConfig, followerConfig mongot.Config
+				require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigLeaderFilename]), &leaderConfig))
+				require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigFollowerFilename]), &followerConfig))
+				assert.True(t, *leaderConfig.Embedding.IsAutoEmbeddingViewWriter)
+				assert.False(t, *followerConfig.Embedding.IsAutoEmbeddingViewWriter)
+			}
+		})
+	}
+}
+
+func TestCreateSearchStatefulSetFunc_ConfigMounting(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns")
+	labels := map[string]string{"app": "test-svc"}
+
+	// Single config: SubPath mount, simple command
+	sts := &appsv1.StatefulSet{}
+	CreateSearchStatefulSetFunc(search, "sts", "ns", "svc", "cm", labels, "img:v1", false)(sts)
+	container := sts.Spec.Template.Spec.Containers[0]
+
+	assert.Contains(t, container.Args[1], MongotConfigPath)
+	assert.NotContains(t, container.Args[1], "ORDINAL")
+
+	// Per-pod config: directory mount, ordinal script
+	sts = &appsv1.StatefulSet{}
+	CreateSearchStatefulSetFunc(search, "sts", "ns", "svc", "cm", labels, "img:v1", true)(sts)
+	container = sts.Spec.Template.Spec.Containers[0]
+
+	assert.Contains(t, container.Args[1], "ORDINAL=${HOSTNAME##*-}")
+	assert.Contains(t, container.Args[1], MongotConfigLeaderFilename)
+	assert.Contains(t, container.Args[1], MongotConfigFollowerFilename)
+}
+
 func TestGetMongodConfigParametersForShard(t *testing.T) {
 	tests := []struct {
 		name           string
