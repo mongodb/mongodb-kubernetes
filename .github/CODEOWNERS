@@ -1,3 +1,8 @@
 * @mongodb/kubernetes-hosted @mongodb/mck-atlas-team
 
 /changelog/ @mongodb/kubernetes-hosted @vinilage
+
+# Temporary code owners for the duration of installation UX project.
+# People listed here will be added as reviewers to be informed of
+# changes to Helm chart which drives all of our installation methods.
+/helm_chart/ @m1kola @mircea-cosbuc @roothorp
