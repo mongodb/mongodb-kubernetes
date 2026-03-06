@@ -75,6 +75,9 @@ type MongoDBSearchSpec struct {
 	// `embedding` field of mongot config is generated using the values provided here.
 	// +optional
 	AutoEmbedding *EmbeddingConfig `json:"autoEmbedding,omitempty"`
+	// JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
+	// +optional
+	JVMFlags []string `json:"jvmFlags,omitempty"`
 }
 
 type EmbeddingConfig struct {

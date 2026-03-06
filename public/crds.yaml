@@ -4100,6 +4100,12 @@ spec:
                 required:
                 - embeddingModelAPIKeySecret
                 type: object
+              jvmFlags:
+                description: JVMFlags can be used to set the `--jvm-flags` option
+                  for the search (mongot) processes.
+                items:
+                  type: string
+                type: array
               logLevel:
                 description: Configure verbosity of mongot logs. Defaults to INFO
                   if not set.
