@@ -433,6 +433,8 @@ spec:
               value: "mongodb-search"
             - name: MDB_SEARCH_VERSION
               value: "0.60.1"
+            - name: MDB_ENVOY_IMAGE
+              value: "envoyproxy/envoy:v1.31-latest"
       volumes:
         - name: webhook-server-dir
           emptyDir: {}

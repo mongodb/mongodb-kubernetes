@@ -98,25 +98,17 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 }
 
 func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
-	// Resolve the source database for this Search instance.
-	// If .spec.source.external is defined immediately return the external search source.
-	// Otherwise, read .spec.source.mongodbResourceRef or use the implicit database resource name (same as the Search resource's name).
-	// Try to get a MongoDB CR with the computed name and return the enterprise search source if successful.
-	// Otherwise, try to get a MongoDBCommunity CR with the same name and return the community search source.
-	// If everything fails just error out and the controller will retry reconciliation.
+	return getSearchSource(ctx, kubeClient, r.watch, search, log)
+}
 
+// getSearchSource resolves the source database for a MongoDBSearch resource.
+// Shared by both the main search controller and the Envoy controller.
+func getSearchSource(ctx context.Context, kubeClient client.Client, watcher *watch.ResourceWatcher, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
 	if search.IsExternalMongoDBSource() {
 		externalSpec := search.Spec.Source.ExternalMongoDBSource
-
-		// Sharded external source
 		if search.IsExternalSourceSharded() {
-			return searchcontroller.NewShardedExternalSearchSource(
-				search.Namespace,
-				externalSpec,
-			), nil
+			return searchcontroller.NewShardedExternalSearchSource(search.Namespace, externalSpec), nil
 		}
-
-		// Replica set external source (existing behavior)
 		return searchcontroller.NewExternalSearchSource(search.Namespace, externalSpec), nil
 	}
 
@@ -134,7 +126,7 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 			return nil, xerrors.Errorf("error getting MongoDB %s: %w", sourceName, err)
 		}
 	} else {
-		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
+		watcher.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
 		if mdb.GetResourceType() == mdbv1.ShardedCluster {
 			return searchcontroller.NewShardedInternalSearchSource(mdb, search), nil
 		}
@@ -147,7 +139,7 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 			return nil, xerrors.Errorf("error getting MongoDBCommunity %s: %w", sourceName, err)
 		}
 	} else {
-		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, "MongoDBCommunity", search.NamespacedName())
+		watcher.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, "MongoDBCommunity", search.NamespacedName())
 		return searchcontroller.NewCommunityResourceSearchSource(mdbc), nil
 	}
 
