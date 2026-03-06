@@ -1,8 +1,9 @@
+{{ $ns := include "mongodb-kubernetes-operator.namespace" .  -}}
 {{ if .Values.operator.createOperatorServiceAccount }}
-{{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
+{{- $watchNamespace := list $ns }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
-{{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq }}
+{{- $watchNamespace = concat $watchNamespace (list $ns) | uniq }}
 {{- end }}
 
 {{- $roleScope := "Role" -}}
@@ -13,9 +14,9 @@
 kind: {{ $roleScope }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}
+  name: {{ .Values.operator.name }}-{{ $ns }}
 {{- if eq $roleScope "Role" }}
-  namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
+  namespace: {{ $ns }}
 {{- end }}
 rules:
   - apiGroups:
@@ -115,16 +116,16 @@ kind: RoleBinding
 {{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ $.Values.operator.name }}
+  name: {{ $.Values.operator.name }}-{{ $ns }}
   {{ $namespaceBlock }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: {{ $roleScope }}
-  name: {{ $.Values.operator.name }}
+  name: {{ $.Values.operator.name }}-{{ $ns }}
 subjects:
   - kind: ServiceAccount
     name: {{ $.Values.operator.name }}
-    namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
+    namespace: {{ $ns }}
 {{- end }}
 
 {{- end }}
