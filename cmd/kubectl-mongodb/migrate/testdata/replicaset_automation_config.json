@@ -86,7 +86,7 @@
         "net": {
           "port": 27017,
           "tls": {
-            "PEMKeyFile": "/etc/ssl/server.pem",
+            "PEMKeyFile": "/mongodb-automation/server.pem",
             "mode": "requireSSL"
           }
         },
@@ -134,7 +134,7 @@
         "net": {
           "port": 27017,
           "tls": {
-            "PEMKeyFile": "/etc/ssl/server.pem",
+            "PEMKeyFile": "/mongodb-automation/server.pem",
             "mode": "requireSSL"
           }
         },
@@ -173,7 +173,7 @@
         "net": {
           "port": 27017,
           "tls": {
-            "PEMKeyFile": "/etc/ssl/server.pem",
+            "PEMKeyFile": "/mongodb-automation/server.pem",
             "mode": "requireSSL"
           }
         },

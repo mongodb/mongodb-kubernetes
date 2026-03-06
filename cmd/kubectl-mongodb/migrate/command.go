@@ -88,6 +88,17 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	}
 
 	if len(userCRs) > 0 {
+		needsSecrets := false
+		for _, u := range userCRs {
+			if u.NeedsPassword {
+				needsSecrets = true
+				break
+			}
+		}
+		if needsSecrets && kubeClient == nil {
+			return xerrors.Errorf("user CRs require password secrets but no Kubernetes client is available; check your kubeconfig")
+		}
+
 		scanner := bufio.NewScanner(os.Stdin)
 
 		for _, u := range userCRs {

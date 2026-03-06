@@ -198,7 +198,10 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 		}
 
 		needsPassword := user.Database != "$external"
-		crName := normalizeK8sName(user.Username)
+		crName, err := normalizeK8sName(user.Username)
+		if err != nil {
+			return nil, xerrors.Errorf("error normalizing username %q: %w", user.Username, err)
+		}
 		passwordSecretName := crName + "-password"
 
 		roles, err := convertRoles(user.Roles)
@@ -273,10 +276,9 @@ func buildMemberConfig(members []interface{}) ([]automationconfig.MemberOptions,
 	return config, nil
 }
 
-// marshalCRToYAML marshals a Kubernetes resource to YAML, stripping fields
-// that are artifacts of using the full CRD struct: the "status" block,
-// "creationTimestamp: null", and any zero-value / empty nested fields that
-// the struct emits because their JSON tags lack omitempty.
+// marshalCRToYAML marshals a Kubernetes resource to YAML, stripping only the
+// "status" block and "creationTimestamp: null" that are artifacts of using
+// the full CRD struct.
 func marshalCRToYAML(obj interface{}) (string, error) {
 	jsonBytes, err := json.Marshal(obj)
 	if err != nil {
@@ -290,49 +292,11 @@ func marshalCRToYAML(obj interface{}) (string, error) {
 	if meta, ok := m["metadata"].(map[string]interface{}); ok {
 		delete(meta, "creationTimestamp")
 	}
-	pruneEmptyValues(m)
 	out, err := yaml.Marshal(m)
 	if err != nil {
 		return "", err
 	}
 	return string(out), nil
-}
-
-// pruneEmptyValues recursively removes null, empty string, zero numeric,
-// and empty container values from a map. Array elements are left intact to
-// preserve intentionally set zero values (e.g. votes: 0 in memberConfig).
-func pruneEmptyValues(m map[string]interface{}) {
-	for k, v := range m {
-		if isZeroValue(v) {
-			delete(m, k)
-			continue
-		}
-		if sub, ok := v.(map[string]interface{}); ok {
-			pruneEmptyValues(sub)
-			if len(sub) == 0 {
-				delete(m, k)
-			}
-		}
-	}
-}
-
-func isZeroValue(v interface{}) bool {
-	switch val := v.(type) {
-	case nil:
-		return true
-	case string:
-		return val == ""
-	case float64:
-		return val == 0
-	case bool:
-		return false
-	case []interface{}:
-		return len(val) == 0
-	case map[string]interface{}:
-		return len(val) == 0
-	default:
-		return false
-	}
 }
 
 func convertRoles(roles []*om.Role) ([]userv1.Role, error) {

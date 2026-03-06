@@ -241,7 +241,14 @@ func TestNormalizeK8sName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.expected, normalizeK8sName(tt.input))
+			result, err := normalizeK8sName(tt.input)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestNormalizeK8sName_InvalidInput(t *testing.T) {
+	_, err := normalizeK8sName("---")
+	assert.Error(t, err)
 }

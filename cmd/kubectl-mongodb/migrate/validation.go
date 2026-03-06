@@ -39,9 +39,15 @@ var (
 // is validated independently; structural errors in one category do not block
 // validation of others.
 func ValidateMigration(ac *om.AutomationConfig, monitoringConfig *om.MonitoringAgentConfig, backupConfig *om.BackupAgentConfig) []ValidationResult {
-	processMap, _ := buildProcessMap(getSlice(ac.Deployment, "processes"))
-
 	var results []ValidationResult
+
+	processMap, err := buildProcessMap(getSlice(ac.Deployment, "processes"))
+	if err != nil {
+		results = append(results, ValidationResult{
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("cannot build process map: %v", err),
+		})
+	}
 	results = append(results, validateAuth(ac.Auth)...)
 	results = append(results, validateTLS(ac.AgentSSL)...)
 	results = append(results, validateAgentConfig(monitoringConfig, backupConfig)...)
@@ -396,18 +402,20 @@ func checkTLSPaths(d map[string]interface{}) []ValidationResult {
 				continue
 			}
 
-			if certKey := cast.ToString(tlsSection["certificateKeyFile"]); certKey != "" && certKey != util.PEMKeyFilePathInContainer {
-				if pemKey := cast.ToString(tlsSection["PEMKeyFile"]); pemKey != "" && pemKey != util.PEMKeyFilePathInContainer {
-					results = append(results, ValidationResult{
-						Severity: SeverityError,
-						Message:  fmt.Sprintf("process %q has net.%s.PEMKeyFile %q but the operator defaults to %q; the certificate path will change after migration", name, tlsKey, pemKey, util.PEMKeyFilePathInContainer),
-					})
-				} else {
-					results = append(results, ValidationResult{
-						Severity: SeverityError,
-						Message:  fmt.Sprintf("process %q has net.%s.certificateKeyFile %q but the operator defaults to %q; the certificate path will change after migration", name, tlsKey, certKey, util.PEMKeyFilePathInContainer),
-					})
-				}
+			certKey := cast.ToString(tlsSection["certificateKeyFile"])
+			pemKey := cast.ToString(tlsSection["PEMKeyFile"])
+
+			if certKey != "" && certKey != util.PEMKeyFilePathInContainer {
+				results = append(results, ValidationResult{
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("process %q has net.%s.certificateKeyFile %q but the operator defaults to %q; the certificate path will change after migration", name, tlsKey, certKey, util.PEMKeyFilePathInContainer),
+				})
+			}
+			if pemKey != "" && pemKey != util.PEMKeyFilePathInContainer {
+				results = append(results, ValidationResult{
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("process %q has net.%s.PEMKeyFile %q but the operator defaults to %q; the certificate path will change after migration", name, tlsKey, pemKey, util.PEMKeyFilePathInContainer),
+				})
 			}
 
 			expectedClusterFile := fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, name)

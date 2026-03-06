@@ -87,7 +87,7 @@ sections to CR fields. Each category appears as a section header comment
 
 ### 3. Monitoring Agent Config
 
-`**monitoringVersions`** is a per-host array in the AC. The operator adds/removes entries
+**`monitoringVersions`** is a per-host array in the AC. The operator adds/removes entries
 automatically based on the processes in the deployment. These are not exposed in the CR.
 
 `**monitoringAgentConfig**` is a separate OM API object with agent-level settings.
@@ -109,7 +109,7 @@ automatically based on the processes in the deployment. These are not exposed in
 
 ### 4. Backup Agent Config
 
-`**backupVersions`** is a per-host array in the AC. The operator adds/removes entries
+**`backupVersions`** is a per-host array in the AC. The operator adds/removes entries
 automatically based on the processes in the deployment. These are not exposed in the CR.
 
 `**backupAgentConfig**` is a separate OM API object with agent-level settings.
@@ -301,9 +301,9 @@ All fields that block migration if their existing AC value is incompatible with 
 | `args2_6.net.tls.clusterFile`        | `/mongodb-automation/cluster-auth/<processName>-pem`               | `util.InternalClusterAuthMountPath`         |
 | `args2_6.net.ssl.clusterFile`        | `/mongodb-automation/cluster-auth/<processName>-pem`               | `util.InternalClusterAuthMountPath`         |
 | `tls.autoPEMKeyFilePath`             | *(must not be set)*                                                | —                                           |
-| `tls.CAFilePath`                     | `/mongodb-automation/tls/ca/ca-pem`                                | `util.TLSCaMountPath`                       |
-| `monitoringAgentConfig.logPath`      | `/var/log/mongodb-mms-automation/monitoring-agent.log`             | `util.PvcMountPathLogs`                     |
-| `backupAgentConfig.logPath`          | `/var/log/mongodb-mms-automation/backup-agent.log`                 | `util.PvcMountPathLogs`                     |
+| `tls.CAFilePath`                     | `/mongodb-automation/tls/ca/ca-pem`                                | `util.TLSCaMountPath + "/ca-pem"`           |
+| `monitoringAgentConfig.logPath`      | `/var/log/mongodb-mms-automation/monitoring-agent.log`             | `util.PvcMountPathLogs + "/monitoring-agent.log"` |
+| `backupAgentConfig.logPath`          | `/var/log/mongodb-mms-automation/backup-agent.log`                 | `util.PvcMountPathLogs + "/backup-agent.log"` |
 | `options.downloadBase`               | `/var/lib/mongodb-mms-automation`                                  | `util.PvcMmsMountPath`                      |
 | `processes[].processType`            | `mongod`                                                           | —                                           |
 | `processes[].authSchemaVersion`      | `5`                                                                | `om.CalculateAuthSchemaVersion()`           |
