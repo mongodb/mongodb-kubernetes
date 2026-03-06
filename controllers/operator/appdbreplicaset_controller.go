@@ -725,7 +725,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Could not save deployment state: %w", err)), log, omStatusOption)
 	}
 
-	if podVars.ProjectID == "" && opsManager.Spec.AppDB.ManagedByMetaOM == nil {
+	if podVars.ProjectID == "" {
 		// this doesn't requeue the reconciliation immediately, the calling OM controller
 		// requeues after Ops Manager has been fully configured.
 		log.Infof("Requeuing reconciliation to configure Monitoring in Ops Manager.")
@@ -2330,6 +2330,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileManagedByMetaOM(
 		}
 	}
 
+	// This is most important part with updating the headless Automation Config to be accepted by OpsManager API
 	stripUnsupportedACFields(metaAC)
 	metaAC.Deployment.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), appdbCAFilePath)
 	metaAC.AgentSSL.CAFilePath = util.MergoDelete

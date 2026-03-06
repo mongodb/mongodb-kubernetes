@@ -108,9 +108,6 @@ class OMTester(object):
         if self.context.project_id is None:
             self.context.project_id = self.find_group_id()
 
-    def set_project_id(self, project_id: str):
-        self.context.project_id = project_id
-
     def get_project_events(self):
         return self.om_request("get", f"/groups/{self.context.project_id}/events")
 
@@ -497,15 +494,6 @@ class OMTester(object):
     def api_read_backup_configs(self) -> List:
         return self.om_request("get", f"/groups/{self.context.project_id}/backupConfigs").json()["results"]
 
-    def api_configure_backup_group(self):
-        """Ensures the group backup config exists for this project by calling PUT
-        /admin/backup/groups/{groupId} with empty filters (use any available daemon/store).
-        This mirrors what the Go operator's ensureGroupConfig does before enabling backup.
-        Without this, OM may return 'A running backup agent is required' even when agents
-        are in STANDBY, because OM has no group-level backup config initialized."""
-        payload = {"labelFilter": [], "syncStoreFilter": []}
-        self.om_request("put", f"/admin/backup/groups/{self.context.project_id}", json_object=payload)
-
     def api_enable_backup(self, timeout: int = 300):
         """Waits for the cluster to register in backupConfigs and backup agents to be ready,
         initializes the group backup config, then retries PATCH statusName=STARTED with the
@@ -517,6 +505,11 @@ class OMTester(object):
 
         run_periodically(fn=wait_for_backup_config, timeout=timeout)
 
+        def wait_for_backup_agents():
+            return len(self.api_read_backup_agents()) > 0
+
+        run_periodically(fn=wait_for_backup_agents, timeout=timeout)
+
         configs = self.api_read_backup_configs()
         cluster_id = configs[0]["clusterId"]
         # Use the full backup config payload (mirrors UpdateBackupConfig in the Go operator).
@@ -524,8 +517,6 @@ class OMTester(object):
         backup_config["statusName"] = BackupStatus.STARTED
         backup_config["storageEngineName"] = "WIRED_TIGER"
         backup_config["syncSource"] = "PRIMARY"
-        backup_config["encryptionEnabled"] = False
-        backup_config["excludedNamespaces"] = []
         backup_config["groupId"] = self.context.project_id
 
         def patch_backup_started():
@@ -613,8 +604,7 @@ class OMTester(object):
         return self._read_agents("AUTOMATION")
 
     def api_read_backup_agents(self) -> List:
-        agents = self._read_agents("BACKUP")
-        return agents
+        return self._read_agents("BACKUP")
 
     def _read_agents(self, agent_type: str, page_num: int = 1):
         return self.om_request(

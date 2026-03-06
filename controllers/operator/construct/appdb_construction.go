@@ -394,29 +394,25 @@ func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
 // Instead of reading a local -cluster file (headless), the agent connects directly to Meta OM
 // via -mmsBaseUrl. The API key is read at runtime from the mounted secret file and exported as
 // $AGENT_API_KEY by the GetMongodbUserCommandWithAPIKeyExport preamble.
-// extraParams are merged in last, allowing CR-level overrides.
 func onlineAutomationAgentCommand(withStatic bool, logLevel mdbcv1.LogLevel, logFile string, maxLogFileDurationHrs int, server, groupID string, extraParams mdbv1.StartupParameters) []string {
-	agentLogOptions := ""
-	if logFile == "/dev/stdout" {
-		agentLogOptions += " -logLevel " + string(logLevel)
-	} else {
-		agentLogOptions += " -logFile " + logFile + " -logLevel " + string(logLevel) + " -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHrs)
-	}
+	agentOptions := " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
+	agentOptions += " -logFile " + logFile + " -logLevel " + string(logLevel) + " -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHrs)
 
 	params := mdbv1.StartupParameters{
 		"mmsBaseUrl": server,
 		"mmsGroupId": groupID,
 		"mmsApiKey":  "${AGENT_API_KEY}",
 	}
+
 	for k, v := range extraParams {
 		params[k] = v
 	}
 
 	cmd := construct.GetMongodbUserCommandWithAPIKeyExport(withStatic) +
 		construct.BaseAgentCommand() +
-		agentCommonOptions +
-		agentLogOptions +
+		agentOptions +
 		params.ToCommandLineArgs()
+
 	return []string{"/bin/bash", "-c", cmd}
 }
 
@@ -456,15 +452,13 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 			opts.MetaOM.GroupID,
 			appDb.AutomationAgent.StartupParameters,
 		)
+		idx := len(automationAgentCommand) - 1
+		automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
 	} else {
 		automationAgentCommand = construct.AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations), true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
 		idx := len(automationAgentCommand) - 1
 		automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 		automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
-	}
-
-	if opts.MetaOM.Enabled {
-		automationAgentCommand[len(automationAgentCommand)-1] += overrideLocalHostFlag(appDb, externalDomain)
 	}
 
 	acVersionConfigMapVolume := statefulset.CreateVolumeFromConfigMap("automation-config-goal-version", opsManager.Spec.AppDB.AutomationConfigConfigMapName())
@@ -490,6 +484,12 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 			Name:      "agent-downloads",
 			MountPath: "/var/lib/mongodb-mms-automation/downloads",
 		})
+	}
+
+	metaOMEnvVarsModification := container.NOOP()
+	if opts.MetaOM.Enabled {
+		// Remove headless-mode vars injected by community code; they must be absent in online mode.
+		metaOMEnvVarsModification = container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv)
 	}
 
 	// Here we ask to create init containers which also creates required volumes.
@@ -521,7 +521,8 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				podtemplatespec.WithContainer(construct.AgentName,
 					container.Apply(
 						container.WithCommand(automationAgentCommand),
-						appdbContainerEnv(*appDb, opts),
+						container.WithEnvs(appdbContainerEnv(*appDb)...),
+						metaOMEnvVarsModification,
 						container.WithVolumeMounts(append([]corev1.VolumeMount{acVersionMount}, metaOMVolumeMounts...)),
 					),
 				),
@@ -606,15 +607,16 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 		monitoringACFunc = podtemplatespec.WithVolume(monitoringAcVolume)
 	}
 	// Construct the command by concatenating:
-	// 1. The base command preamble - exports the agent API key from the mounted secret file.
+	// 1. The base command - from community
 	command := construct.GetMongodbUserCommandWithAPIKeyExport(isStatic)
 	command += "agent/mongodb-agent"
 	command += " -healthCheckFilePath=" + monitoringAgentHealthStatusFilePathValue
 	command += " -serveStatusPort=5001"
 	command += getMonitoringAgentLogOptions(appDB)
 
-	// 2. Always use a local cluster file (headless AC reading from secret).
-	// In MetaOM mode also add -mmsBaseUrl so the agent sends data to Meta OM.
+	// 2. Add the cluster config file path
+	// If we are using k8s secrets, this is the same as community (and the same as the other agent container)
+	// But this is not possible in vault so we need two separate paths
 	if vault.IsVaultSecretBackend() {
 		command += " -cluster=/var/lib/automation/config/" + util.AppDBMonitoringAutomationConfigKey
 	} else {
@@ -709,12 +711,13 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 				// AGENT_API_KEY volume
 				volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 			}
+
 			container.Apply(
 				container.WithVolumeMounts(volumeMounts),
 				container.WithCommand(monitoringCommand),
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*NewDefaultPodSpecWrapper(*appDB.PodSpec))),
 				container.WithVolumeMounts(monitoringMounts),
-				appdbContainerEnv(appDB, opts),
+				container.WithEnvs(appdbContainerEnv(appDB)...),
 				container.WithEnvs(readinessEnvironmentVariablesToEnvVars(appDB.AutomationAgent.ReadinessProbe.EnvironmentVariables)...),
 			)(monitoringContainer)
 			podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, *monitoringContainer)
@@ -722,34 +725,27 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	)
 }
 
-// appdbContainerEnv returns a container.Modification that applies the correct env vars for the AppDB
-// agent container. When MetaOM.Enabled is true, online mode vars are set and headless-mode vars
-// (injected unconditionally by community code) are removed. Otherwise headless mode vars are set.
-func appdbContainerEnv(appDbSpec om.AppDBSpec, opts AppDBStatefulSetOptions) container.Modification {
-	common := []corev1.EnvVar{
+// appdbContainerEnv returns the set of env var needed by the AppDB.
+func appdbContainerEnv(appDbSpec om.AppDBSpec) []corev1.EnvVar {
+	envVars := []corev1.EnvVar{
 		{
 			Name:      podNamespaceEnv,
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}},
+		},
+		{
+			Name:  automationConfigMapEnv,
+			Value: appDbSpec.Name() + "-config",
+		},
+		{
+			Name:  headlessAgentEnv,
+			Value: "true",
 		},
 		{
 			Name:  clusterDomainEnv,
 			Value: appDbSpec.ClusterDomain,
 		},
 	}
-
-	if opts.MetaOM.Enabled {
-		return container.Apply(
-			container.WithEnvs(common...),
-			// Remove headless-mode vars injected by community code; they must be absent in online mode.
-			// mmsGroupId and mmsApiKey are passed as explicit command-line params instead of env vars.
-			container.WithoutEnvs(headlessAgentEnv, automationConfigMapEnv),
-		)
-	}
-	// Headless mode: keep existing behavior.
-	return container.WithEnvs(append(common,
-		corev1.EnvVar{Name: automationConfigMapEnv, Value: appDbSpec.Name() + "-config"},
-		corev1.EnvVar{Name: headlessAgentEnv, Value: "true"},
-	)...)
+	return envVars
 }
 
 // Configure the -overrideLocalHost parameter which controls how the automation agent instances identify themselves. For multi-cluster deployments:
