@@ -7,22 +7,41 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ghodss/yaml"
+	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
+	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	endpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	routev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	routerv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
+	tlsinspectorv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/tls_inspector/v3"
+	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	upstreamhttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,9 +51,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+// TODO: in this controller, when writing code, keep in mind that we will want to re-use the "config generation" logic
+//  later in a kubectl plugin, so that users can generate the appropriate config themselves with the CLI tool, when
+//  they are deploying their own LB
+
 // Some of these variables can be exposed as configuration to the user
 const (
-	envoyImage    = "envoyproxy/envoy:v1.31-latest"
 	envoyReplicas = int32(1)
 
 	envoyProxyPort = 27029
@@ -49,6 +71,8 @@ const (
 	envoyCAKey = "ca-pem"
 
 	envoyConfigHashAnnotation = "mongodb.com/envoy-config-hash"
+
+	labelName = "search-proxy"
 )
 
 // shardRoute defines the routing information for a single shard in the Envoy config.
@@ -60,21 +84,17 @@ type shardRoute struct {
 	UpstreamPort  int32  // typically 27028
 }
 
-// caConfig holds CA certificate reference info.
-type caConfig struct {
-	ConfigMapName string // name of the ConfigMap containing the CA
-	Key           string // key within the ConfigMap (e.g., "ca-pem")
-}
-
 type MongoDBSearchEnvoyReconciler struct {
-	kubeClient kubernetesClient.Client
-	watch      *watch.ResourceWatcher
+	kubeClient        kubernetesClient.Client
+	watch             *watch.ResourceWatcher
+	defaultEnvoyImage string
 }
 
-func newMongoDBSearchEnvoyReconciler(client client.Client) *MongoDBSearchEnvoyReconciler {
+func newMongoDBSearchEnvoyReconciler(client client.Client, defaultEnvoyImage string) *MongoDBSearchEnvoyReconciler {
 	return &MongoDBSearchEnvoyReconciler{
-		kubeClient: kubernetesClient.NewClient(client),
-		watch:      watch.NewResourceWatcher(),
+		kubeClient:        kubernetesClient.NewClient(client),
+		watch:             watch.NewResourceWatcher(),
+		defaultEnvoyImage: defaultEnvoyImage,
 	}
 }
 
@@ -95,43 +115,43 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return reconcile.Result{}, nil
 	}
 
-	// Fetch the referenced MongoDB resource
-	mdb, err := r.getSourceMongoDB(ctx, mdbSearch, log)
+	// Resolve the source database (shared with the main search controller).
+	searchSource, err := getSearchSource(ctx, r.kubeClient, r.watch, mdbSearch, log)
 	if err != nil {
 		return reconcile.Result{RequeueAfter: 10 * time.Second}, err
 	}
 
-	// Validate: must be a sharded cluster for the scope of this POC
-	if mdb.Spec.GetResourceType() != mdbv1.ShardedCluster {
-		log.Warnf("Managed LB requires a ShardedCluster source, got %s", mdb.Spec.GetResourceType())
+	// Managed LB requires a sharded cluster source
+	shardedSource, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment)
+	if !ok {
+		log.Info("Managed LB for non-sharded sources not yet supported")
 		return reconcile.Result{}, nil
 	}
 
-	if mdb.Spec.ShardCount <= 0 {
-		log.Warn("ShardCount is 0, nothing to deploy")
+	shardNames := shardedSource.GetShardNames()
+	if len(shardNames) == 0 {
+		log.Warn("No shards configured, nothing to deploy")
 		return reconcile.Result{}, nil
 	}
 
-	// Resolve CA config from MongoDB TLS settings
-	ca := r.resolveCAConfig(mdbSearch, mdb)
+	tlsCfg := searchSource.TLSConfig()
+	routes := buildShardRoutesFromNames(mdbSearch, shardNames)
 
-	// Build per-shard routing information
-	routes := r.buildShardRoutes(mdbSearch, mdb)
-
-	// Generate Envoy config YAML
-	envoyYAML, err := buildEnvoyConfigYAML(routes, mdbSearch.IsTLSConfigured(), ca)
+	// Generate Envoy config JSON
+	caKeyName := caKeyNameFromTLSConfig(tlsCfg)
+	envoyJSON, err := buildEnvoyConfigJSON(routes, mdbSearch.IsTLSConfigured(), caKeyName)
 	if err != nil {
-		log.Errorf("Failed to build Envoy config YAML: %s", err)
+		log.Errorf("Failed to build Envoy config JSON: %s", err)
 		return reconcile.Result{}, err
 	}
 
 	// Ensure ConfigMap
-	if err := r.ensureConfigMap(ctx, mdbSearch, envoyYAML, log); err != nil {
+	if err := r.ensureConfigMap(ctx, mdbSearch, envoyJSON, log); err != nil {
 		return reconcile.Result{}, err
 	}
 
 	// Ensure Deployment
-	if err := r.ensureDeployment(ctx, mdbSearch, envoyYAML, ca, log); err != nil {
+	if err := r.ensureDeployment(ctx, mdbSearch, envoyJSON, tlsCfg, log); err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -153,50 +173,23 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	return reconcile.Result{}, nil
 }
 
-// getSourceMongoDB fetches the MongoDB CR referenced by the MongoDBSearch resource.
-func (r *MongoDBSearchEnvoyReconciler) getSourceMongoDB(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (*mdbv1.MongoDB, error) {
-	resourceRef := search.GetMongoDBResourceRef()
-	if resourceRef == nil {
-		return nil, fmt.Errorf("MongoDBSearch source MongoDB resource reference is not set")
+// caKeyNameFromTLSConfig returns the CA key filename for Envoy config file paths.
+func caKeyNameFromTLSConfig(tlsCfg *searchcontroller.TLSSourceConfig) string {
+	if tlsCfg != nil {
+		return tlsCfg.CAFileName
 	}
-
-	sourceName := types.NamespacedName{Namespace: search.GetNamespace(), Name: resourceRef.Name}
-	log.Infof("Looking up MongoDB source %s for Envoy LB", sourceName)
-
-	mdb := &mdbv1.MongoDB{}
-	if err := r.kubeClient.Get(ctx, sourceName, mdb); err != nil {
-		return nil, fmt.Errorf("error getting MongoDB %s: %w", sourceName, err)
-	}
-
-	r.watch.AddWatchedResourceIfNotAdded(resourceRef.Name, resourceRef.Namespace, watch.MongoDB, search.NamespacedName())
-	return mdb, nil
+	return envoyCAKey
 }
 
-// resolveCAConfig determines the CA ConfigMap name and key from the MongoDB TLS configuration.
-func (r *MongoDBSearchEnvoyReconciler) resolveCAConfig(search *searchv1.MongoDBSearch, mdb *mdbv1.MongoDB) caConfig {
-	tlsConfig := mdb.Spec.GetTLSConfig()
-	if tlsConfig != nil && tlsConfig.CA != "" {
-		return caConfig{
-			ConfigMapName: tlsConfig.CA,
-			Key:           envoyCAKey,
-		}
-	}
-
-	// Fallback: convention-based CA name
-	return caConfig{
-		ConfigMapName: search.Name + "-ca",
-		Key:           envoyCAKey,
-	}
-}
-
-// buildShardRoutes builds per-shard routing information from the MongoDB and MongoDBSearch resources.
-func (r *MongoDBSearchEnvoyReconciler) buildShardRoutes(search *searchv1.MongoDBSearch, mdb *mdbv1.MongoDB) []shardRoute {
-	routes := make([]shardRoute, 0, mdb.Spec.ShardCount)
+// buildShardRoutesFromNames builds per-shard routing information from shard names.
+// Works for both internal MongoDB CRs and external sources since it only
+// depends on the MongoDBSearch resource and a list of shard names.
+func buildShardRoutesFromNames(search *searchv1.MongoDBSearch, shardNames []string) []shardRoute {
+	routes := make([]shardRoute, 0, len(shardNames))
 	namespace := search.Namespace
 	mongotPort := search.GetMongotGrpcPort()
 
-	for i := 0; i < mdb.Spec.ShardCount; i++ {
-		shardName := mdb.ShardRsName(i)
+	for _, shardName := range shardNames {
 		proxyServiceName := search.LoadBalancerProxyServiceNameForShard(shardName)
 		mongotServiceName := search.MongotServiceForShard(shardName).Name
 
@@ -213,7 +206,7 @@ func (r *MongoDBSearchEnvoyReconciler) buildShardRoutes(search *searchv1.MongoDB
 }
 
 // ensureConfigMap creates or updates the Envoy ConfigMap.
-func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, envoyYAML string, log *zap.SugaredLogger) error {
+func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON string, log *zap.SugaredLogger) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      search.LoadBalancerConfigMapName(),
@@ -223,7 +216,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.kubeClient, cm, func() error {
 		cm.Labels = envoyLabels(search)
-		cm.Data = map[string]string{"envoy.yaml": envoyYAML}
+		cm.Data = map[string]string{"envoy.json": envoyJSON}
 		return controllerutil.SetOwnerReference(search, cm, r.kubeClient.Scheme())
 	})
 	if err != nil {
@@ -235,11 +228,14 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 }
 
 // ensureDeployment creates or updates the Envoy Deployment.
-func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyYAML string, ca caConfig, log *zap.SugaredLogger) error {
-	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(envoyYAML)))
+func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON string, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
+	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(envoyJSON)))
 	replicas := envoyReplicas
 	labels := envoyLabels(search)
 	tlsEnabled := search.IsTLSConfigured()
+	image := r.envoyContainerImage(search)
+	resources := envoyResourceRequirements(search)
+	managedSecurityContext := envvar.ReadBool(podtemplatespec.ManagedSecurityContextEnv) // nolint:forbidigo
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -263,7 +259,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 						envoyConfigHashAnnotation: configHash,
 					},
 				},
-				Spec: buildEnvoyPodSpec(search, ca, tlsEnabled),
+				Spec: buildEnvoyPodSpec(search, tlsCfg, tlsEnabled, image, resources, managedSecurityContext),
 			},
 		}
 
@@ -278,7 +274,8 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 }
 
 // buildEnvoyPodSpec builds the PodSpec for the Envoy Deployment.
-func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, ca caConfig, tlsEnabled bool) corev1.PodSpec {
+// tlsCfg may be nil if TLS is not configured on the source.
+func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, tlsCfg *searchcontroller.TLSSourceConfig, tlsEnabled bool, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
 	volumes := []corev1.Volume{
 		{
 			Name: "envoy-config",
@@ -294,7 +291,17 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, ca caConfig, tlsEnabled b
 		{Name: "envoy-config", MountPath: envoyConfigPath, ReadOnly: true},
 	}
 
-	if tlsEnabled {
+	if tlsEnabled && tlsCfg != nil {
+		// Use the CA volume from TLSSourceConfig directly (already ConfigMap or Secret).
+		// Add Items to project only the CA key into the mount path.
+		caVolume := tlsCfg.CAVolume
+		caVolume.Name = "ca-cert"
+		if caVolume.Secret != nil {
+			caVolume.Secret.Items = []corev1.KeyToPath{{Key: tlsCfg.CAFileName, Path: tlsCfg.CAFileName}}
+		} else if caVolume.ConfigMap != nil {
+			caVolume.ConfigMap.Items = []corev1.KeyToPath{{Key: tlsCfg.CAFileName, Path: tlsCfg.CAFileName}}
+		}
+
 		volumes = append(volumes,
 			corev1.Volume{
 				Name: "envoy-server-cert",
@@ -308,15 +315,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, ca caConfig, tlsEnabled b
 					Secret: &corev1.SecretVolumeSource{SecretName: search.LoadBalancerClientCert().Name},
 				},
 			},
-			corev1.Volume{
-				Name: "ca-cert",
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{Name: ca.ConfigMapName},
-						Items:                []corev1.KeyToPath{{Key: ca.Key, Path: ca.Key}},
-					},
-				},
-			},
+			caVolume,
 		)
 
 		volumeMounts = append(volumeMounts,
@@ -326,27 +325,29 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, ca caConfig, tlsEnabled b
 		)
 	}
 
+	var podSecurityContext *corev1.PodSecurityContext
+	var containerSecurityContext *corev1.SecurityContext
+	if !managedSecurityContext {
+		psc := podtemplatespec.DefaultPodSecurityContext()
+		podSecurityContext = &psc
+		csc := container.DefaultSecurityContext()
+		containerSecurityContext = &csc
+	}
+
 	return corev1.PodSpec{
+		SecurityContext: podSecurityContext,
 		Containers: []corev1.Container{
 			{
 				Name:    "envoy",
-				Image:   envoyImage,
+				Image:   image,
 				Command: []string{"/usr/local/bin/envoy"},
-				Args:    []string{"-c", "/etc/envoy/envoy.yaml", "--log-level", "info"},
+				Args:    []string{"-c", "/etc/envoy/envoy.json", "--log-level", "info"},
 				Ports: []corev1.ContainerPort{
 					{Name: "grpc", ContainerPort: envoyProxyPort},
 					{Name: "admin", ContainerPort: envoyAdminPort},
 				},
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("100m"),
-						corev1.ResourceMemory: resource.MustParse("128Mi"),
-					},
-					Limits: corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("500m"),
-						corev1.ResourceMemory: resource.MustParse("512Mi"),
-					},
-				},
+				Resources:       resources,
+				SecurityContext: containerSecurityContext,
 				ReadinessProbe: &corev1.Probe{
 					ProbeHandler: corev1.ProbeHandler{
 						HTTPGet: &corev1.HTTPGetAction{
@@ -364,6 +365,41 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, ca caConfig, tlsEnabled b
 	}
 }
 
+// envoyContainerImage returns the envoy image using the priority:
+// CRD field > operator env var default > hardcoded constant.
+func (r *MongoDBSearchEnvoyReconciler) envoyContainerImage(search *searchv1.MongoDBSearch) string {
+	if search.Spec.LoadBalancer != nil &&
+		search.Spec.LoadBalancer.Envoy != nil &&
+		search.Spec.LoadBalancer.Envoy.Image != "" {
+		return search.Spec.LoadBalancer.Envoy.Image
+	}
+	return r.defaultEnvoyImage
+}
+
+// envoyResourceRequirements returns user-specified resource requirements
+// or the defaults (100m/128Mi requests, 500m/512Mi limits).
+func envoyResourceRequirements(search *searchv1.MongoDBSearch) corev1.ResourceRequirements {
+	if search.Spec.LoadBalancer != nil &&
+		search.Spec.LoadBalancer.Envoy != nil &&
+		search.Spec.LoadBalancer.Envoy.ResourceRequirements != nil {
+		return *search.Spec.LoadBalancer.Envoy.ResourceRequirements
+	}
+	return defaultEnvoyResourceRequirements()
+}
+
+func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+}
+
 // ensureProxyService creates or updates a per-shard proxy Service pointing to Envoy.
 func (r *MongoDBSearchEnvoyReconciler) ensureProxyService(ctx context.Context, search *searchv1.MongoDBSearch, shardName string, log *zap.SugaredLogger) error {
 	serviceName := search.LoadBalancerProxyServiceNameForShard(shardName)
@@ -378,7 +414,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureProxyService(ctx context.Context, s
 	_, err := controllerutil.CreateOrUpdate(ctx, r.kubeClient, svc, func() error {
 		svc.Labels = map[string]string{
 			"app":          search.LoadBalancerDeploymentName(),
-			"component":    "search-proxy",
+			"component":    labelName,
 			"target-shard": shardName,
 		}
 		svc.Spec = corev1.ServiceSpec{
@@ -409,7 +445,7 @@ func (r *MongoDBSearchEnvoyReconciler) cleanupStaleProxyServices(ctx context.Con
 		client.InNamespace(search.Namespace),
 		client.MatchingLabels{
 			"app":       search.LoadBalancerDeploymentName(),
-			"component": "search-proxy",
+			"component": labelName,
 		},
 	)
 	if err != nil {
@@ -434,7 +470,7 @@ func (r *MongoDBSearchEnvoyReconciler) cleanupStaleProxyServices(ctx context.Con
 func envoyLabels(search *searchv1.MongoDBSearch) map[string]string {
 	return map[string]string{
 		"app":       search.LoadBalancerDeploymentName(),
-		"component": "search-proxy",
+		"component": labelName,
 	}
 }
 
@@ -446,282 +482,76 @@ func envoyPodLabels(search *searchv1.MongoDBSearch) map[string]string {
 }
 
 // ============================================================================
-// Envoy Config Structs
-// ============================================================================
-//
-// These types model the Envoy v3 bootstrap configuration as Go structs.
-// They are marshaled to YAML via github.com/ghodss/yaml (already used in
-// this codebase) to produce the envoy.yaml stored in the ConfigMap.
-//
-// Only the subset of the Envoy API needed for SNI-based L7 gRPC routing
-// is modeled here. The canonical reference is:
-// https://www.envoyproxy.io/docs/envoy/v1.31.0/api-v3/config/bootstrap/v3/bootstrap.proto
-
-// envoyBootstrapConfig is the top-level Envoy bootstrap configuration.
-type envoyBootstrapConfig struct {
-	Admin           envoyAdmin           `json:"admin"`
-	StaticResources envoyStaticResources `json:"static_resources"`
-	LayeredRuntime  envoyLayeredRuntime  `json:"layered_runtime"`
-}
-
-type envoyAdmin struct {
-	Address envoyAddress `json:"address"`
-}
-
-type envoyStaticResources struct {
-	Listeners []envoyListener `json:"listeners"`
-	Clusters  []envoyCluster  `json:"clusters"`
-}
-
-// --- Listener types ---
-
-type envoyListener struct {
-	Name            string                `json:"name"`
-	Address         envoyAddress          `json:"address"`
-	ListenerFilters []envoyListenerFilter `json:"listener_filters"`
-	FilterChains    []envoyFilterChain    `json:"filter_chains"`
-}
-
-type envoyAddress struct {
-	SocketAddress envoySocketAddress `json:"socket_address"`
-}
-
-type envoySocketAddress struct {
-	Address   string `json:"address"`
-	PortValue int32  `json:"port_value"`
-}
-
-type envoyListenerFilter struct {
-	Name        string                 `json:"name"`
-	TypedConfig map[string]interface{} `json:"typed_config"`
-}
-
-type envoyFilterChain struct {
-	FilterChainMatch *envoyFilterChainMatch `json:"filter_chain_match,omitempty"`
-	Filters          []envoyNetworkFilter   `json:"filters"`
-	TransportSocket  *envoyTransportSocket  `json:"transport_socket,omitempty"`
-}
-
-type envoyFilterChainMatch struct {
-	ServerNames []string `json:"server_names"`
-}
-
-type envoyNetworkFilter struct {
-	Name        string      `json:"name"`
-	TypedConfig interface{} `json:"typed_config"`
-}
-
-// envoyHCMConfig is the HttpConnectionManager typed_config.
-type envoyHCMConfig struct {
-	Type                 string             `json:"@type"`
-	StatPrefix           string             `json:"stat_prefix"`
-	CodecType            string             `json:"codec_type"`
-	RouteConfig          envoyRouteConfig   `json:"route_config"`
-	HTTPFilters          []envoyHTTPFilter  `json:"http_filters"`
-	HTTP2ProtocolOptions *envoyHTTP2Options `json:"http2_protocol_options,omitempty"`
-	StreamIdleTimeout    string             `json:"stream_idle_timeout,omitempty"`
-	RequestTimeout       string             `json:"request_timeout,omitempty"`
-}
-
-type envoyRouteConfig struct {
-	Name         string             `json:"name"`
-	VirtualHosts []envoyVirtualHost `json:"virtual_hosts"`
-}
-
-type envoyVirtualHost struct {
-	Name    string       `json:"name"`
-	Domains []string     `json:"domains"`
-	Routes  []envoyRoute `json:"routes"`
-}
-
-type envoyRoute struct {
-	Match envoyRouteMatch  `json:"match"`
-	Route envoyRouteAction `json:"route"`
-}
-
-type envoyRouteMatch struct {
-	Prefix string                 `json:"prefix"`
-	GRPC   map[string]interface{} `json:"grpc,omitempty"`
-}
-
-type envoyRouteAction struct {
-	Cluster string `json:"cluster"`
-	Timeout string `json:"timeout,omitempty"`
-}
-
-type envoyHTTPFilter struct {
-	Name        string                 `json:"name"`
-	TypedConfig map[string]interface{} `json:"typed_config"`
-}
-
-type envoyHTTP2Options struct {
-	InitialConnectionWindowSize int `json:"initial_connection_window_size,omitempty"`
-	InitialStreamWindowSize     int `json:"initial_stream_window_size,omitempty"`
-}
-
-// --- TLS types ---
-
-type envoyTransportSocket struct {
-	Name        string      `json:"name"`
-	TypedConfig interface{} `json:"typed_config"`
-}
-
-type envoyDownstreamTLSContext struct {
-	Type                     string                `json:"@type"`
-	CommonTLSContext         envoyCommonTLSContext `json:"common_tls_context"`
-	RequireClientCertificate bool                  `json:"require_client_certificate"`
-}
-
-type envoyUpstreamTLSContext struct {
-	Type             string                `json:"@type"`
-	CommonTLSContext envoyCommonTLSContext `json:"common_tls_context"`
-	SNI              string                `json:"sni,omitempty"`
-}
-
-type envoyCommonTLSContext struct {
-	TLSCertificates   []envoyTLSCertificate   `json:"tls_certificates"`
-	ValidationContext *envoyValidationContext `json:"validation_context,omitempty"`
-	TLSParams         *envoyTLSParams         `json:"tls_params,omitempty"`
-	ALPNProtocols     []string                `json:"alpn_protocols,omitempty"`
-}
-
-type envoyTLSCertificate struct {
-	CertificateChain envoyDataSource `json:"certificate_chain"`
-	PrivateKey       envoyDataSource `json:"private_key"`
-}
-
-type envoyValidationContext struct {
-	TrustedCA envoyDataSource `json:"trusted_ca"`
-}
-
-type envoyTLSParams struct {
-	TLSMinimumProtocolVersion string `json:"tls_minimum_protocol_version,omitempty"`
-	TLSMaximumProtocolVersion string `json:"tls_maximum_protocol_version,omitempty"`
-}
-
-type envoyDataSource struct {
-	Filename string `json:"filename"`
-}
-
-// --- Cluster types ---
-
-type envoyCluster struct {
-	Name                      string                    `json:"name"`
-	Type                      string                    `json:"type"`
-	LBPolicy                  string                    `json:"lb_policy"`
-	HTTP2ProtocolOptions      *envoyHTTP2Options        `json:"http2_protocol_options,omitempty"`
-	LoadAssignment            envoyLoadAssignment       `json:"load_assignment"`
-	CircuitBreakers           *envoyCircuitBreakers     `json:"circuit_breakers,omitempty"`
-	TransportSocket           *envoyTransportSocket     `json:"transport_socket,omitempty"`
-	UpstreamConnectionOptions *envoyUpstreamConnOptions `json:"upstream_connection_options,omitempty"`
-	CommonHTTPProtocolOptions *envoyCommonHTTPOptions   `json:"common_http_protocol_options,omitempty"`
-}
-
-type envoyLoadAssignment struct {
-	ClusterName string               `json:"cluster_name"`
-	Endpoints   []envoyEndpointGroup `json:"endpoints"`
-}
-
-type envoyEndpointGroup struct {
-	LBEndpoints []envoyLBEndpoint `json:"lb_endpoints"`
-}
-
-type envoyLBEndpoint struct {
-	Endpoint envoyEndpoint `json:"endpoint"`
-}
-
-type envoyEndpoint struct {
-	Address envoyAddress `json:"address"`
-}
-
-type envoyCircuitBreakers struct {
-	Thresholds []envoyCircuitBreakerThreshold `json:"thresholds"`
-}
-
-type envoyCircuitBreakerThreshold struct {
-	Priority           string `json:"priority"`
-	MaxConnections     int    `json:"max_connections"`
-	MaxPendingRequests int    `json:"max_pending_requests"`
-	MaxRequests        int    `json:"max_requests"`
-	MaxRetries         int    `json:"max_retries"`
-}
-
-type envoyUpstreamConnOptions struct {
-	TCPKeepalive envoyTCPKeepalive `json:"tcp_keepalive"`
-}
-
-type envoyTCPKeepalive struct {
-	KeepaliveTime     int `json:"keepalive_time"`
-	KeepaliveInterval int `json:"keepalive_interval"`
-	KeepaliveProbes   int `json:"keepalive_probes"`
-}
-
-type envoyCommonHTTPOptions struct {
-	IdleTimeout string `json:"idle_timeout"`
-}
-
-// --- Runtime types ---
-
-type envoyLayeredRuntime struct {
-	Layers []envoyRuntimeLayer `json:"layers"`
-}
-
-type envoyRuntimeLayer struct {
-	Name        string                 `json:"name"`
-	StaticLayer map[string]interface{} `json:"static_layer"`
-}
-
-// ============================================================================
 // Envoy Config Builder
 // ============================================================================
 
-// buildEnvoyConfigYAML builds the Envoy bootstrap configuration from structured
-// types and marshals it to YAML.
-func buildEnvoyConfigYAML(routes []shardRoute, tlsEnabled bool, ca caConfig) (string, error) {
-	config := buildEnvoyBootstrapConfig(routes, tlsEnabled, ca)
-
-	data, err := yaml.Marshal(config)
+// buildEnvoyConfigJSON builds the Envoy bootstrap configuration using
+// go-control-plane protobuf types and marshals it to JSON.
+func buildEnvoyConfigJSON(routes []shardRoute, tlsEnabled bool, caKeyName string) (string, error) {
+	config, err := buildEnvoyBootstrapConfig(routes, tlsEnabled, caKeyName)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal Envoy config to YAML: %w", err)
+		return "", fmt.Errorf("failed to build Envoy bootstrap config: %w", err)
+	}
+
+	marshaler := protojson.MarshalOptions{
+		UseProtoNames: true, // snake_case field names (matches Envoy expectations)
+		Indent:        "  ",
+	}
+	data, err := marshaler.Marshal(config)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal Envoy config to JSON: %w", err)
 	}
 
 	return string(data), nil
 }
 
-// buildEnvoyBootstrapConfig constructs the full Envoy bootstrap configuration struct.
-func buildEnvoyBootstrapConfig(routes []shardRoute, tlsEnabled bool, ca caConfig) envoyBootstrapConfig {
-	filterChains := make([]envoyFilterChain, 0, len(routes))
-	clusters := make([]envoyCluster, 0, len(routes))
+// buildEnvoyBootstrapConfig constructs the full Envoy bootstrap protobuf.
+func buildEnvoyBootstrapConfig(routes []shardRoute, tlsEnabled bool, caKeyName string) (*bootstrapv3.Bootstrap, error) {
+	filterChains := make([]*listenerv3.FilterChain, 0, len(routes))
+	clusters := make([]*clusterv3.Cluster, 0, len(routes))
 
 	for _, route := range routes {
-		filterChains = append(filterChains, buildFilterChain(route, tlsEnabled, ca))
-		clusters = append(clusters, buildCluster(route, tlsEnabled, ca))
+		fc, err := buildFilterChain(route, tlsEnabled, caKeyName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build filter chain for shard %s: %w", route.ShardName, err)
+		}
+		filterChains = append(filterChains, fc)
+
+		cl, err := buildCluster(route, tlsEnabled, caKeyName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build cluster for shard %s: %w", route.ShardName, err)
+		}
+		clusters = append(clusters, cl)
 	}
 
-	return envoyBootstrapConfig{
-		Admin: envoyAdmin{
-			Address: envoyAddress{
-				SocketAddress: envoySocketAddress{
-					Address:   "0.0.0.0",
-					PortValue: envoyAdminPort,
-				},
-			},
+	tlsInspectorCfg, err := anypb.New(&tlsinspectorv3.TlsInspector{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal TLS inspector config: %w", err)
+	}
+
+	runtimeStruct, err := structpb.NewStruct(map[string]interface{}{
+		"overload": map[string]interface{}{
+			"global_downstream_max_connections": 50000,
 		},
-		StaticResources: envoyStaticResources{
-			Listeners: []envoyListener{
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to build runtime struct: %w", err)
+	}
+
+	return &bootstrapv3.Bootstrap{
+		Admin: &bootstrapv3.Admin{
+			Address: socketAddress("0.0.0.0", uint32(envoyAdminPort)),
+		},
+		StaticResources: &bootstrapv3.Bootstrap_StaticResources{
+			Listeners: []*listenerv3.Listener{
 				{
-					Name: "mongod_listener",
-					Address: envoyAddress{
-						SocketAddress: envoySocketAddress{
-							Address:   "0.0.0.0",
-							PortValue: envoyProxyPort,
-						},
-					},
-					ListenerFilters: []envoyListenerFilter{
+					Name:    "mongod_listener",
+					Address: socketAddress("0.0.0.0", uint32(envoyProxyPort)),
+					ListenerFilters: []*listenerv3.ListenerFilter{
 						{
-							Name: "envoy.filters.listener.tls_inspector",
-							TypedConfig: map[string]interface{}{
-								"@type": "type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector",
+							Name: wellknown.TLSInspector,
+							ConfigType: &listenerv3.ListenerFilter_TypedConfig{
+								TypedConfig: tlsInspectorCfg,
 							},
 						},
 					},
@@ -730,130 +560,60 @@ func buildEnvoyBootstrapConfig(routes []shardRoute, tlsEnabled bool, ca caConfig
 			},
 			Clusters: clusters,
 		},
-		LayeredRuntime: envoyLayeredRuntime{
-			Layers: []envoyRuntimeLayer{
+		LayeredRuntime: &bootstrapv3.LayeredRuntime{
+			Layers: []*bootstrapv3.RuntimeLayer{
 				{
 					Name: "static_layer",
-					StaticLayer: map[string]interface{}{
-						"overload": map[string]interface{}{
-							"global_downstream_max_connections": 50000,
-						},
+					LayerSpecifier: &bootstrapv3.RuntimeLayer_StaticLayer{
+						StaticLayer: runtimeStruct,
 					},
 				},
+			},
+		},
+	}, nil
+}
+
+// socketAddress builds an Envoy Address with a TCP socket.
+func socketAddress(addr string, port uint32) *corev3.Address {
+	return &corev3.Address{
+		Address: &corev3.Address_SocketAddress{
+			SocketAddress: &corev3.SocketAddress{
+				Address:       addr,
+				PortSpecifier: &corev3.SocketAddress_PortValue{PortValue: port},
 			},
 		},
 	}
 }
 
 // buildFilterChain builds a single SNI-matched filter chain for one shard.
-func buildFilterChain(route shardRoute, tlsEnabled bool, ca caConfig) envoyFilterChain {
+func buildFilterChain(route shardRoute, tlsEnabled bool, caKeyName string) (*listenerv3.FilterChain, error) {
 	clusterName := fmt.Sprintf("mongot_%s_cluster", route.ShardNameSafe)
 
-	hcm := envoyHCMConfig{
-		Type:       "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
+	routerFilterCfg, err := anypb.New(&routerv3.Router{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal router filter config: %w", err)
+	}
+
+	hcm := &hcmv3.HttpConnectionManager{
 		StatPrefix: fmt.Sprintf("ingress_%s", route.ShardNameSafe),
-		CodecType:  "AUTO",
-		RouteConfig: envoyRouteConfig{
-			Name: fmt.Sprintf("%s_route", route.ShardNameSafe),
-			VirtualHosts: []envoyVirtualHost{
-				{
-					Name:    fmt.Sprintf("mongot_%s_backend", route.ShardNameSafe),
-					Domains: []string{"*"},
-					Routes: []envoyRoute{
-						{
-							Match: envoyRouteMatch{
-								Prefix: "/",
-								GRPC:   map[string]interface{}{},
-							},
-							Route: envoyRouteAction{
-								Cluster: clusterName,
-								Timeout: "300s",
-							},
-						},
-					},
-				},
-			},
-		},
-		HTTPFilters: []envoyHTTPFilter{
-			{
-				Name: "envoy.filters.http.router",
-				TypedConfig: map[string]interface{}{
-					"@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router",
-				},
-			},
-		},
-		HTTP2ProtocolOptions: &envoyHTTP2Options{
-			InitialConnectionWindowSize: 1048576,
-			InitialStreamWindowSize:     1048576,
-		},
-		StreamIdleTimeout: "300s",
-		RequestTimeout:    "300s",
-	}
-
-	chain := envoyFilterChain{
-		FilterChainMatch: &envoyFilterChainMatch{
-			ServerNames: []string{route.SNIHostname},
-		},
-		Filters: []envoyNetworkFilter{
-			{
-				Name:        "envoy.filters.network.http_connection_manager",
-				TypedConfig: hcm,
-			},
-		},
-	}
-
-	if tlsEnabled {
-		chain.TransportSocket = &envoyTransportSocket{
-			Name: "envoy.transport_sockets.tls",
-			TypedConfig: envoyDownstreamTLSContext{
-				Type: "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext",
-				CommonTLSContext: envoyCommonTLSContext{
-					TLSCertificates: []envoyTLSCertificate{
-						{
-							CertificateChain: envoyDataSource{Filename: envoyServerCertPath + "/tls.crt"},
-							PrivateKey:       envoyDataSource{Filename: envoyServerCertPath + "/tls.key"},
-						},
-					},
-					ValidationContext: &envoyValidationContext{
-						TrustedCA: envoyDataSource{Filename: envoyCACertPath + "/" + ca.Key},
-					},
-					TLSParams: &envoyTLSParams{
-						TLSMinimumProtocolVersion: "TLSv1_2",
-						TLSMaximumProtocolVersion: "TLSv1_2",
-					},
-					ALPNProtocols: []string{"h2"},
-				},
-				RequireClientCertificate: true,
-			},
-		}
-	}
-
-	return chain
-}
-
-// buildCluster builds a single upstream cluster for one shard.
-func buildCluster(route shardRoute, tlsEnabled bool, ca caConfig) envoyCluster {
-	clusterName := fmt.Sprintf("mongot_%s_cluster", route.ShardNameSafe)
-
-	cluster := envoyCluster{
-		Name:     clusterName,
-		Type:     "STRICT_DNS",
-		LBPolicy: "ROUND_ROBIN",
-		HTTP2ProtocolOptions: &envoyHTTP2Options{
-			InitialConnectionWindowSize: 1048576,
-			InitialStreamWindowSize:     1048576,
-		},
-		LoadAssignment: envoyLoadAssignment{
-			ClusterName: clusterName,
-			Endpoints: []envoyEndpointGroup{
-				{
-					LBEndpoints: []envoyLBEndpoint{
-						{
-							Endpoint: envoyEndpoint{
-								Address: envoyAddress{
-									SocketAddress: envoySocketAddress{
-										Address:   route.UpstreamHost,
-										PortValue: route.UpstreamPort,
+		CodecType:  hcmv3.HttpConnectionManager_AUTO,
+		RouteSpecifier: &hcmv3.HttpConnectionManager_RouteConfig{
+			RouteConfig: &routev3.RouteConfiguration{
+				Name: fmt.Sprintf("%s_route", route.ShardNameSafe),
+				VirtualHosts: []*routev3.VirtualHost{
+					{
+						Name:    fmt.Sprintf("mongot_%s_backend", route.ShardNameSafe),
+						Domains: []string{"*"},
+						Routes: []*routev3.Route{
+							{
+								Match: &routev3.RouteMatch{
+									PathSpecifier: &routev3.RouteMatch_Prefix{Prefix: "/"},
+									Grpc:          &routev3.RouteMatch_GrpcRouteMatchOptions{},
+								},
+								Action: &routev3.Route_Route{
+									Route: &routev3.RouteAction{
+										ClusterSpecifier: &routev3.RouteAction_Cluster{Cluster: clusterName},
+										Timeout:          durationpb.New(300 * time.Second),
 									},
 								},
 							},
@@ -862,63 +622,212 @@ func buildCluster(route shardRoute, tlsEnabled bool, ca caConfig) envoyCluster {
 				},
 			},
 		},
-		CircuitBreakers: &envoyCircuitBreakers{
-			Thresholds: []envoyCircuitBreakerThreshold{
-				{
-					Priority:           "DEFAULT",
-					MaxConnections:     1024,
-					MaxPendingRequests: 1024,
-					MaxRequests:        1024,
-					MaxRetries:         3,
-				},
+		HttpFilters: []*hcmv3.HttpFilter{
+			{
+				Name:       wellknown.Router,
+				ConfigType: &hcmv3.HttpFilter_TypedConfig{TypedConfig: routerFilterCfg},
 			},
 		},
-		UpstreamConnectionOptions: &envoyUpstreamConnOptions{
-			TCPKeepalive: envoyTCPKeepalive{
-				KeepaliveTime:     10,
-				KeepaliveInterval: 3,
-				KeepaliveProbes:   3,
-			},
+		Http2ProtocolOptions: &corev3.Http2ProtocolOptions{
+			InitialConnectionWindowSize: wrapperspb.UInt32(1048576),
+			InitialStreamWindowSize:     wrapperspb.UInt32(1048576),
 		},
-		CommonHTTPProtocolOptions: &envoyCommonHTTPOptions{
-			IdleTimeout: "300s",
+		StreamIdleTimeout: durationpb.New(300 * time.Second),
+		RequestTimeout:    durationpb.New(300 * time.Second),
+	}
+
+	hcmAny, err := anypb.New(hcm)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal HCM config: %w", err)
+	}
+
+	chain := &listenerv3.FilterChain{
+		FilterChainMatch: &listenerv3.FilterChainMatch{
+			ServerNames: []string{route.SNIHostname},
+		},
+		Filters: []*listenerv3.Filter{
+			{
+				Name:       wellknown.HTTPConnectionManager,
+				ConfigType: &listenerv3.Filter_TypedConfig{TypedConfig: hcmAny},
+			},
 		},
 	}
 
 	if tlsEnabled {
-		cluster.TransportSocket = &envoyTransportSocket{
-			Name: "envoy.transport_sockets.tls",
-			TypedConfig: envoyUpstreamTLSContext{
-				Type: "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext",
-				CommonTLSContext: envoyCommonTLSContext{
-					TLSCertificates: []envoyTLSCertificate{
-						{
-							CertificateChain: envoyDataSource{Filename: envoyClientCertPath + "/tls.crt"},
-							PrivateKey:       envoyDataSource{Filename: envoyClientCertPath + "/tls.key"},
-						},
-					},
-					ValidationContext: &envoyValidationContext{
-						TrustedCA: envoyDataSource{Filename: envoyCACertPath + "/" + ca.Key},
-					},
-					ALPNProtocols: []string{"h2"},
-				},
-				SNI: route.UpstreamHost,
-			},
+		ts, err := buildDownstreamTLSTransportSocket(caKeyName)
+		if err != nil {
+			return nil, err
 		}
+		chain.TransportSocket = ts
 	}
 
-	return cluster
+	return chain, nil
+}
+
+// buildCluster builds a single upstream cluster for one shard.
+func buildCluster(route shardRoute, tlsEnabled bool, caKeyName string) (*clusterv3.Cluster, error) {
+	clusterName := fmt.Sprintf("mongot_%s_cluster", route.ShardNameSafe)
+
+	upstreamHTTPOpts, err := anypb.New(&upstreamhttpv3.HttpProtocolOptions{
+		CommonHttpProtocolOptions: &corev3.HttpProtocolOptions{
+			IdleTimeout: durationpb.New(300 * time.Second),
+		},
+		UpstreamProtocolOptions: &upstreamhttpv3.HttpProtocolOptions_ExplicitHttpConfig_{
+			ExplicitHttpConfig: &upstreamhttpv3.HttpProtocolOptions_ExplicitHttpConfig{
+				ProtocolConfig: &upstreamhttpv3.HttpProtocolOptions_ExplicitHttpConfig_Http2ProtocolOptions{
+					Http2ProtocolOptions: &corev3.Http2ProtocolOptions{
+						InitialConnectionWindowSize: wrapperspb.UInt32(1048576),
+						InitialStreamWindowSize:     wrapperspb.UInt32(1048576),
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal upstream HTTP protocol options: %w", err)
+	}
+
+	cluster := &clusterv3.Cluster{
+		Name:                 clusterName,
+		ClusterDiscoveryType: &clusterv3.Cluster_Type{Type: clusterv3.Cluster_STRICT_DNS},
+		LbPolicy:             clusterv3.Cluster_ROUND_ROBIN,
+		TypedExtensionProtocolOptions: map[string]*anypb.Any{
+			"envoy.extensions.upstreams.http.v3.HttpProtocolOptions": upstreamHTTPOpts,
+		},
+		LoadAssignment: &endpointv3.ClusterLoadAssignment{
+			ClusterName: clusterName,
+			Endpoints: []*endpointv3.LocalityLbEndpoints{
+				{
+					LbEndpoints: []*endpointv3.LbEndpoint{
+						{
+							HostIdentifier: &endpointv3.LbEndpoint_Endpoint{
+								Endpoint: &endpointv3.Endpoint{
+									Address: socketAddress(route.UpstreamHost, uint32(route.UpstreamPort)),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		CircuitBreakers: &clusterv3.CircuitBreakers{
+			Thresholds: []*clusterv3.CircuitBreakers_Thresholds{
+				{
+					Priority:           corev3.RoutingPriority_DEFAULT,
+					MaxConnections:     wrapperspb.UInt32(1024),
+					MaxPendingRequests: wrapperspb.UInt32(1024),
+					MaxRequests:        wrapperspb.UInt32(1024),
+					MaxRetries:         wrapperspb.UInt32(3),
+				},
+			},
+		},
+		UpstreamConnectionOptions: &clusterv3.UpstreamConnectionOptions{
+			TcpKeepalive: &corev3.TcpKeepalive{
+				KeepaliveTime:     wrapperspb.UInt32(10),
+				KeepaliveInterval: wrapperspb.UInt32(3),
+				KeepaliveProbes:   wrapperspb.UInt32(3),
+			},
+		},
+	}
+
+	if tlsEnabled {
+		ts, err := buildUpstreamTLSTransportSocket(route, caKeyName)
+		if err != nil {
+			return nil, err
+		}
+		cluster.TransportSocket = ts
+	}
+
+	return cluster, nil
+}
+
+// buildDownstreamTLSTransportSocket builds the TLS transport socket for the listener (downstream).
+func buildDownstreamTLSTransportSocket(caKeyName string) (*corev3.TransportSocket, error) {
+	downstreamTLS := &tlsv3.DownstreamTlsContext{
+		CommonTlsContext: &tlsv3.CommonTlsContext{
+			TlsCertificates: []*tlsv3.TlsCertificate{
+				{
+					CertificateChain: &corev3.DataSource{
+						Specifier: &corev3.DataSource_Filename{Filename: envoyServerCertPath + "/tls.crt"},
+					},
+					PrivateKey: &corev3.DataSource{
+						Specifier: &corev3.DataSource_Filename{Filename: envoyServerCertPath + "/tls.key"},
+					},
+				},
+			},
+			ValidationContextType: &tlsv3.CommonTlsContext_ValidationContext{
+				ValidationContext: &tlsv3.CertificateValidationContext{
+					TrustedCa: &corev3.DataSource{
+						Specifier: &corev3.DataSource_Filename{Filename: envoyCACertPath + "/" + caKeyName},
+					},
+				},
+			},
+			TlsParams: &tlsv3.TlsParameters{
+				TlsMinimumProtocolVersion: tlsv3.TlsParameters_TLSv1_2,
+				TlsMaximumProtocolVersion: tlsv3.TlsParameters_TLSv1_2,
+			},
+			AlpnProtocols: []string{"h2"},
+		},
+		RequireClientCertificate: wrapperspb.Bool(true),
+	}
+
+	tlsAny, err := anypb.New(downstreamTLS)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal downstream TLS context: %w", err)
+	}
+
+	return &corev3.TransportSocket{
+		Name:       wellknown.TransportSocketTLS,
+		ConfigType: &corev3.TransportSocket_TypedConfig{TypedConfig: tlsAny},
+	}, nil
+}
+
+// buildUpstreamTLSTransportSocket builds the TLS transport socket for clusters (upstream).
+func buildUpstreamTLSTransportSocket(route shardRoute, caKeyName string) (*corev3.TransportSocket, error) {
+	upstreamTLS := &tlsv3.UpstreamTlsContext{
+		CommonTlsContext: &tlsv3.CommonTlsContext{
+			TlsCertificates: []*tlsv3.TlsCertificate{
+				{
+					CertificateChain: &corev3.DataSource{
+						Specifier: &corev3.DataSource_Filename{Filename: envoyClientCertPath + "/tls.crt"},
+					},
+					PrivateKey: &corev3.DataSource{
+						Specifier: &corev3.DataSource_Filename{Filename: envoyClientCertPath + "/tls.key"},
+					},
+				},
+			},
+			ValidationContextType: &tlsv3.CommonTlsContext_ValidationContext{
+				ValidationContext: &tlsv3.CertificateValidationContext{
+					TrustedCa: &corev3.DataSource{
+						Specifier: &corev3.DataSource_Filename{Filename: envoyCACertPath + "/" + caKeyName},
+					},
+				},
+			},
+			AlpnProtocols: []string{"h2"},
+		},
+		Sni: route.UpstreamHost,
+	}
+
+	tlsAny, err := anypb.New(upstreamTLS)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal upstream TLS context: %w", err)
+	}
+
+	return &corev3.TransportSocket{
+		Name:       wellknown.TransportSocketTLS,
+		ConfigType: &corev3.TransportSocket_TypedConfig{TypedConfig: tlsAny},
+	}, nil
 }
 
 // ============================================================================
 // Controller Registration
 // ============================================================================
 
-func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager) error {
+func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string) error {
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.
 
-	r := newMongoDBSearchEnvoyReconciler(kubernetesClient.NewClient(mgr.GetClient()))
+	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("mongodbsearchenvoy").
@@ -926,8 +835,6 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager) e
 		For(&searchv1.MongoDBSearch{}).
 		Watches(&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}).
 		Watches(&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}).
-		Watches(&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}).
-		Watches(&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Service{}).
