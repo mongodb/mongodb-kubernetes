@@ -510,6 +510,12 @@ func (s *MongoDBSearch) HasMultipleReplicas() bool {
 	return s.GetReplicas() > 1
 }
 
+// IsMultiMongotWithEmbedding returns true when auto-embedding is configured AND replicas > 1.
+// This indicates that per-pod mongot configuration is needed with leader/follower designation.
+func (s *MongoDBSearch) IsMultiMongotWithEmbedding() bool {
+	return s.Spec.AutoEmbedding != nil && s.HasMultipleReplicas()
+}
+
 func (s *MongoDBSearch) MongotStatefulSetForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{Name: fmt.Sprintf("%s-search-0-%s", s.Name, shardName), Namespace: s.Namespace}
 }

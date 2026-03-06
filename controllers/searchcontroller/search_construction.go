@@ -24,7 +24,10 @@ import (
 const (
 	MongotContainerName          = "mongot"
 	MongotConfigFilename         = "config.yml"
-	MongotConfigPath             = "/mongot/" + MongotConfigFilename
+	MongotConfigLeaderFilename   = "config-leader.yml"
+	MongotConfigFollowerFilename = "config-follower.yml"
+	MongotConfigDirPath          = "/mongot"
+	MongotConfigPath             = MongotConfigDirPath + "/" + MongotConfigFilename
 	MongotDataPath               = "/mongot/data"
 	MongotKeyfileFilename        = "keyfile"
 	MongotKeyfilePath            = "/mongot/" + MongotKeyfileFilename
@@ -66,7 +69,9 @@ type TLSSourceConfig struct {
 
 // CreateSearchStatefulSetFunc returns a statefulset.Modification that configures a mongot StatefulSet.
 // It works for both non-sharded and per-shard deployments, the caller is responsible for providing the appropriate names.
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string) statefulset.Modification {
+// When perPodEmbeddingConfig is true, the ConfigMap is mounted as a directory and an entrypoint script
+// selects the appropriate config file (leader vs follower) based on the pod's ordinal.
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, perPodEmbeddingConfig bool) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -81,7 +86,16 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
 
 	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap(mongotConfigVolumeName, configMapName)
-	mongotConfigVolumeMount := statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
+
+	// When perPodEmbeddingConfig is true, mount the ConfigMap as a directory so the entrypoint script
+	// can select the appropriate config file based on pod ordinal.
+	// When false, use SubPath to mount only the single config file.
+	var mongotConfigVolumeMount corev1.VolumeMount
+	if perPodEmbeddingConfig {
+		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigDirPath, statefulset.WithReadOnly(true))
+	} else {
+		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
+	}
 
 	var persistenceConfig *common.PersistenceConfig
 	if mdbSearch.Spec.Persistence != nil && mdbSearch.Spec.Persistence.SingleConfig != nil {
@@ -122,7 +136,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
-				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
+				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage, perPodEmbeddingConfig)),
 			),
 		),
 	}
@@ -158,8 +172,18 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 	)
 }
 
-func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string) container.Modification {
+func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string, perPodEmbeddingConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+
+	// When perPodEmbeddingConfig is true, use an entrypoint script that selects the config file
+	// based on the pod's ordinal (pod-0 is leader, others are followers).
+	var mongotStartCommand string
+	if perPodEmbeddingConfig {
+		mongotStartCommand = mongotPerPodConfigStartCommand()
+	} else {
+		mongotStartCommand = fmt.Sprintf("/mongot-community/mongot --config %s", MongotConfigPath)
+	}
+
 	return container.Apply(
 		container.WithName(MongotContainerName),
 		container.WithImage(searchImage),
@@ -171,11 +195,23 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 		container.WithCommand([]string{"sh"}),
 		container.WithArgs([]string{
 			"-c",
-			"/mongot-community/mongot --config /mongot/config.yml",
+			mongotStartCommand,
 		}),
 		prependCommand(sensitiveFilePermissionsWorkaround(MongotSourceUserPasswordPath, TempSourceUserPasswordPath, "0600")),
 		containerSecurityContext,
 	)
+}
+
+// mongotPerPodConfigStartCommand returns the shell script that selects the appropriate
+// config file based on the pod's ordinal. Pod-0 (leader) uses config-leader.yml,
+// all other pods (followers) use config-follower.yml.
+func mongotPerPodConfigStartCommand() string {
+	// Uses shell arithmetic: (ORDINAL > 0) evaluates to 1 for followers, 0 for leader
+	// Array-style selection: configs[0]=leader, configs[1]=follower
+	return fmt.Sprintf(`ORDINAL=${HOSTNAME##*-}
+CONFIGS=("%s" "%s")
+/mongot-community/mongot --config %s/${CONFIGS[$((ORDINAL > 0))]}`,
+		MongotConfigLeaderFilename, MongotConfigFollowerFilename, MongotConfigDirPath)
 }
 
 func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {

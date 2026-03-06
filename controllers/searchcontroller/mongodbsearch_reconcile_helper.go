@@ -161,8 +161,11 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 		return workflow.Failed(err)
 	}
 
+	// Determine if per-pod embedding config is needed (multi-replica with auto-embedding)
+	perPodEmbeddingConfig := r.mdbSearch.IsMultiMongotWithEmbedding()
+
 	// the egress TLS modification needs to always be applied after the ingress one, because it toggles mTLS based on the mode set by the ingress modification
-	configHash, err := r.ensureMongotConfig(ctx, log, r.mdbSearch.MongotConfigConfigMapNamespacedName(), createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+	configHash, err := r.ensureMongotConfig(ctx, log, r.mdbSearch.MongotConfigConfigMapNamespacedName(), perPodEmbeddingConfig, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -180,7 +183,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		stsNsName,
-		CreateSearchStatefulSetFunc(r.mdbSearch, stsNsName.Name, stsNsName.Namespace, svcName, r.mdbSearch.MongotConfigConfigMapNamespacedName().Name, labels, fmt.Sprintf("%s:%s", image, version)),
+		CreateSearchStatefulSetFunc(r.mdbSearch, stsNsName.Name, stsNsName.Namespace, svcName, r.mdbSearch.MongotConfigConfigMapNamespacedName().Name, labels, fmt.Sprintf("%s:%s", image, version), perPodEmbeddingConfig),
 		configHashModification,
 		keyfileStsModification,
 		ingressTlsStsModification,
@@ -227,6 +230,9 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		return workflow.Failed(err)
 	}
 
+	// Determine if per-pod embedding config is needed (multi-replica with auto-embedding)
+	perPodEmbeddingConfig := r.mdbSearch.IsMultiMongotWithEmbedding()
+
 	image, imageVersion := r.searchImageAndVersion()
 	searchImage := fmt.Sprintf("%s:%s", image, imageVersion)
 
@@ -246,7 +252,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		}
 
 		shardMongotConfig := createMongotConfigForShard(r.mdbSearch, shardedSource, shardName)
-		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), perPodEmbeddingConfig, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -262,7 +268,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 			shardLog,
 			shardStsNsName,
-			CreateSearchStatefulSetFunc(r.mdbSearch, shardStsNsName.Name, r.mdbSearch.Namespace, shardSvcName.Name, r.mdbSearch.MongotConfigMapForShard(shardName).Name, shardLabels, searchImage),
+			CreateSearchStatefulSetFunc(r.mdbSearch, shardStsNsName.Name, r.mdbSearch.Namespace, shardSvcName.Name, r.mdbSearch.MongotConfigMapForShard(shardName).Name, shardLabels, searchImage, perPodEmbeddingConfig),
 			configHashModification,
 			keyfileStsModification,
 			ingressTlsStsModification,
@@ -370,31 +376,111 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, cmName types.NamespacedName, modifications ...mongot.Modification) (string, error) {
+// ensureMongotConfig creates or updates the mongot ConfigMap with the appropriate configuration.
+// When perPodEmbeddingConfig is true, it generates two config files (leader and follower) with
+// different IsAutoEmbeddingViewWriter values. When false, it generates a single config file.
+func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, cmName types.NamespacedName, perPodEmbeddingConfig bool, modifications ...mongot.Modification) (string, error) {
 	mongotConfig := mongot.Config{}
 	mongot.Apply(modifications...)(&mongotConfig)
-	configData, err := yaml.Marshal(mongotConfig)
+
+	// Build config entries based on mode
+	configEntries, keysToRemove, err := buildMongotConfigEntries(mongotConfig, perPodEmbeddingConfig)
 	if err != nil {
 		return "", err
 	}
 
+	// Create or update the ConfigMap
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName.Name, Namespace: cmName.Namespace}, Data: map[string]string{}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, cm, func() error {
 		resourceVersion := cm.ResourceVersion
-
-		cm.Data[MongotConfigFilename] = string(configData)
-
+		for key, data := range configEntries {
+			cm.Data[key] = string(data)
+		}
+		for _, key := range keysToRemove {
+			delete(cm.Data, key)
+		}
 		cm.ResourceVersion = resourceVersion
-
 		return controllerutil.SetOwnerReference(r.mdbSearch, cm, r.client.Scheme())
 	})
 	if err != nil {
 		return "", err
 	}
 
-	log.Debugf("Updated mongot config yaml config map: %v (%s) with the following configuration: %s", cmName, op, string(configData))
+	// Log and compute hash
+	configHash := computeConfigHash(configEntries)
+	log.Debugf("Updated mongot config ConfigMap %v (%s) with keys: %v", cmName, op, configEntryKeys(configEntries))
 
-	return hashBytes(configData), nil
+	return configHash, nil
+}
+
+// buildMongotConfigEntries generates the ConfigMap entries based on the configuration mode.
+// Returns a map of filename->yaml data, keys to remove, and any error.
+func buildMongotConfigEntries(config mongot.Config, perPodEmbeddingConfig bool) (map[string][]byte, []string, error) {
+	if perPodEmbeddingConfig {
+		return buildPerPodConfigEntries(config)
+	}
+	return buildSingleConfigEntry(config)
+}
+
+// buildPerPodConfigEntries creates leader and follower config entries for multi-replica embedding mode.
+func buildPerPodConfigEntries(config mongot.Config) (map[string][]byte, []string, error) {
+	// Leader config (IsAutoEmbeddingViewWriter=true) - already set by ensureEmbeddingConfig
+	leaderData, err := yaml.Marshal(config)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Follower config (IsAutoEmbeddingViewWriter=false)
+	followerConfig := config
+	if config.Embedding != nil {
+		embeddingCopy := *config.Embedding
+		embeddingCopy.IsAutoEmbeddingViewWriter = ptr.To(false)
+		followerConfig.Embedding = &embeddingCopy
+	}
+	followerData, err := yaml.Marshal(followerConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	entries := map[string][]byte{
+		MongotConfigLeaderFilename:   leaderData,
+		MongotConfigFollowerFilename: followerData,
+	}
+	keysToRemove := []string{MongotConfigFilename}
+	return entries, keysToRemove, nil
+}
+
+// buildSingleConfigEntry creates a single config entry for standard mode.
+func buildSingleConfigEntry(config mongot.Config) (map[string][]byte, []string, error) {
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	entries := map[string][]byte{MongotConfigFilename: data}
+	keysToRemove := []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename}
+	return entries, keysToRemove, nil
+}
+
+// computeConfigHash computes a combined hash of all config entries.
+func computeConfigHash(entries map[string][]byte) string {
+	var allData []byte
+	// Process in deterministic order for consistent hashing
+	for _, key := range []string{MongotConfigFilename, MongotConfigLeaderFilename, MongotConfigFollowerFilename} {
+		if data, ok := entries[key]; ok {
+			allData = append(allData, data...)
+		}
+	}
+	return hashBytes(allData)
+}
+
+// configEntryKeys returns the keys from config entries for logging.
+func configEntryKeys(entries map[string][]byte) []string {
+	keys := make([]string, 0, len(entries))
+	for k := range entries {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // mongotServicePorts returns the common service ports (grpc, prometheus, healthcheck) for any mongot deployment.
