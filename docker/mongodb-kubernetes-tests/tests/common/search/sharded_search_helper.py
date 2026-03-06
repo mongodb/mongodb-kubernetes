@@ -1,12 +1,6 @@
-from kubernetes import client
-from kubetester import create_or_update_configmap, create_or_update_secret, try_load
+from kubetester import create_or_update_configmap, create_or_update_secret
 from kubetester.certs import create_tls_certs
-from kubetester.kubetester import KubernetesTester
-from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
-from kubetester.mongodb_search import MongoDBSearch
-from kubetester.mongodb_user import MongoDBUser
 from tests import test_logger
 from tests.common.search import search_resource_names
 from tests.common.search.search_tester import SearchTester
@@ -56,60 +50,11 @@ def create_per_shard_search_tls_certs(
     logger.info(f"✓ All {shard_count} per-shard Search TLS certificates created")
 
 
-def make_admin_user(
-    namespace: str,
-    mdb_resource_name: str,
-    admin_user_name: str,
-) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-admin.yaml"),
-        namespace=namespace,
-        name=admin_user_name,
-    )
-
-    if try_load(resource):
-        return resource
-
-    resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-
-    return resource
-
-
 def get_search_tester(mdb: MongoDB, username: str, password: str, use_ssl: bool = False) -> SearchTester:
     """Replaces both get_admin_search_tester and get_user_search_tester.
     Callers just pass the appropriate credentials."""
     ca_path = get_issuer_ca_filepath() if use_ssl else None
     return SearchTester.for_sharded(mdb, username, password, use_ssl=use_ssl, ca_path=ca_path)
-
-
-def make_user(namespace: str, mdb_resource_name: str, user_name: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-mdb-user.yaml"),
-        namespace=namespace,
-        name=user_name,
-    )
-    if try_load(resource):
-        return resource
-    resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
-    resource["spec"]["username"] = resource.name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-    return resource
-
-
-def make_mongot_user(namespace: str, mdbs: MongoDBSearch, mdb_resource_name: str, mongot_user_name: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodbuser-search-sync-source-user.yaml"),
-        namespace=namespace,
-        name=f"{mdbs.name}-{mongot_user_name}",
-    )
-    if try_load(resource):
-        return resource
-    resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
-    resource["spec"]["username"] = mongot_user_name
-    resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
-    return resource
 
 
 def create_sharded_ca(issuer_ca_filepath: str, namespace: str, ca_configmap_name: str) -> str:
