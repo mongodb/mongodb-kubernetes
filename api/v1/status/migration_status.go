@@ -4,8 +4,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Condition type for migration (connectivity validation) dry run.
-const ConditionNetworkConnectivityVerified = "NetworkConnectivityVerified"
+// ConditionNetworkConnectivityVerification Condition type for migration (connectivity validation) dry run.
+const ConditionNetworkConnectivityVerification = "NetworkConnectivityVerification"
 
 // MigrationPhase describes the current phase of a connectivity validation dry run.
 type MigrationPhase string
@@ -27,7 +27,7 @@ func MigrationCondition(phase MigrationPhase, reason, message string) metav1.Con
 		status = metav1.ConditionFalse
 	}
 	return metav1.Condition{
-		Type:               ConditionNetworkConnectivityVerified,
+		Type:               ConditionNetworkConnectivityVerification,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,

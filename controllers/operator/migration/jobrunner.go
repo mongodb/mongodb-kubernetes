@@ -3,12 +3,11 @@ package migration
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
@@ -16,84 +15,77 @@ import (
 )
 
 const (
-	ConnectivityCheckReplicaSetLabel = "mongodb.k8s.io/connectivity-check-replica-set"
-	ConnectivityCheckDryRunLabel     = "mongodb.k8s.io/connectivity-check-dry-run"
-	OperatorManagedByLabel           = "app.kubernetes.io/managed-by"
-	OperatorManagedByValue           = "mongodb-kubernetes-operator"
-	FailedJobRetention               = 5 * time.Minute
+	FailedJobRetention = 5 * time.Minute
 )
 
-// RunConnectivityJob lists connectivity-check Jobs for this replica set, then:
-// - If any Job succeeded → Passed.
-// - If any Job is still running → Running.
-// - Else (none or all failed): create a new Job if none exist or the most recent failure was FailedJobRetention ago; return Failed.
-// Failed Jobs are never deleted so logs remain for debugging.
-func RunConnectivityJob(ctx context.Context, kubeClient client.Client, template *batchv1.Job) (phase mdbstatus.MigrationPhase, reason, message string, err error) {
-	replicaSetName := strings.TrimSuffix(template.Name, "-connectivity-check")
+// ConnectivityJobResult is the return type of RunConnectivityJob. When Err is non-nil, Phase, Reason, and Message are still set for the condition.
+type ConnectivityJobResult struct {
+	Phase   mdbstatus.MigrationPhase
+	Reason  string
+	Message string
+	Err     error
+}
 
-	var list batchv1.JobList
-	if err := kubeClient.List(ctx, &list,
-		client.InNamespace(template.Namespace),
-		client.MatchingLabels{ConnectivityCheckReplicaSetLabel: replicaSetName},
-	); err != nil {
-		return mdbstatus.MigrationPhaseConnectivityCheckFailed, "", "", fmt.Errorf("listing connectivity jobs: %w", err)
-	}
-
-	jobs := list.Items
-	for i := range jobs { // TODO: check that logic
-		if jobs[i].Status.Succeeded > 0 {
-			_, r, m := migration.NetworkConditionFromExitCode(migration.ExitSuccess)
-			return mdbstatus.MigrationPhaseConnectivityCheckPassed, r, m, nil
+// RunConnectivityJob uses a single fixed-name Job per replica set (template.Name). It Gets that Job, then:
+// - No job → create from template, return Running.
+// - Job succeeded → Passed.
+// - Job still running → Running.
+// - Job failed → return Failed with reason/message; after FailedJobRetention, delete the job and create a new one, return Running.
+func RunConnectivityJob(ctx context.Context, kubeClient client.Client, template *batchv1.Job) ConnectivityJobResult {
+	key := client.ObjectKey{Namespace: template.Namespace, Name: template.Name}
+	var job batchv1.Job
+	if err := kubeClient.Get(ctx, key, &job); err != nil {
+		if !errors.IsNotFound(err) {
+			return ConnectivityJobResult{
+				Phase:   mdbstatus.MigrationPhaseConnectivityCheckFailed,
+				Reason:  "GetJobFailed",
+				Message: err.Error(),
+				Err:     fmt.Errorf("getting connectivity job: %w", err),
+			}
 		}
-		if jobs[i].Status.Failed == 0 {
-			return mdbstatus.MigrationPhaseConnectivityCheckRunning, "", "", nil
+		toCreate := template.DeepCopy()
+		if err := kubeClient.Create(ctx, toCreate); err != nil {
+			return ConnectivityJobResult{
+				Phase:   mdbstatus.MigrationPhaseConnectivityCheckFailed,
+				Reason:  "CreateJobFailed",
+				Message: err.Error(),
+				Err:     fmt.Errorf("creating connectivity job: %w", err),
+			}
 		}
+		return ConnectivityJobResult{Phase: mdbstatus.MigrationPhaseConnectivityCheckRunning}
 	}
 
-	// None or all failed: maybe create a new run, then return Failed
-	var exitCode int32 = migration.ExitUnknown
-	var finishedAt time.Time
-	if j := newestJob(jobs); j != nil {
-		exitCode, finishedAt = jobPodOutcome(ctx, kubeClient, j)
+	if job.Status.Succeeded > 0 {
+		_, r, m := migration.NetworkConditionFromExitCode(migration.ExitSuccess)
+		return ConnectivityJobResult{Phase: mdbstatus.MigrationPhaseConnectivityCheckPassed, Reason: r, Message: m}
 	}
+	if job.Status.Failed == 0 {
+		return ConnectivityJobResult{Phase: mdbstatus.MigrationPhaseConnectivityCheckRunning}
+	}
+
+	exitCode, finishedAt := jobPodOutcome(ctx, kubeClient, &job)
 	_, r, m := migration.NetworkConditionFromExitCode(exitCode)
-
-	shouldCreate := len(jobs) == 0 || (!finishedAt.IsZero() && time.Since(finishedAt) >= FailedJobRetention)
-	if shouldCreate {
-		toCreate := newUniqueJob(template, replicaSetName)
-		if err := kubeClient.Create(ctx, toCreate); err == nil {
-			return mdbstatus.MigrationPhaseConnectivityCheckRunning, "", "", nil
+	if !finishedAt.IsZero() && time.Since(finishedAt) >= FailedJobRetention {
+		if err := kubeClient.Delete(ctx, &job); err != nil && !errors.IsNotFound(err) {
+			return ConnectivityJobResult{
+				Phase:   mdbstatus.MigrationPhaseConnectivityCheckFailed,
+				Reason:  "DeleteJobFailed",
+				Message: err.Error(),
+				Err:     fmt.Errorf("deleting failed connectivity job: %w", err),
+			}
 		}
-	}
-	return mdbstatus.MigrationPhaseConnectivityCheckFailed, r, m, nil
-}
-
-// newestJob returns the Job in the slice with the latest CreationTimestamp, or nil if empty.
-func newestJob(jobs []batchv1.Job) *batchv1.Job {
-	if len(jobs) == 0 {
-		return nil
-	}
-	out := &jobs[0]
-	for i := 1; i < len(jobs); i++ {
-		if jobs[i].CreationTimestamp.After(out.CreationTimestamp.Time) {
-			out = &jobs[i]
+		toCreate := template.DeepCopy()
+		if err := kubeClient.Create(ctx, toCreate); err != nil {
+			return ConnectivityJobResult{
+				Phase:   mdbstatus.MigrationPhaseConnectivityCheckFailed,
+				Reason:  "CreateJobFailed",
+				Message: err.Error(),
+				Err:     fmt.Errorf("creating connectivity job: %w", err),
+			}
 		}
+		return ConnectivityJobResult{Phase: mdbstatus.MigrationPhaseConnectivityCheckRunning}
 	}
-	return out
-}
-
-// newUniqueJob returns a copy of the template with a unique name (timestamp suffix) and labels set.
-func newUniqueJob(template *batchv1.Job, replicaSetName string) *batchv1.Job {
-	j := template.DeepCopy()
-	j.Name = template.Name + "-" + strconv.FormatInt(time.Now().Unix(), 10)
-	j.ResourceVersion = ""
-	if j.Labels == nil {
-		j.Labels = make(map[string]string)
-	}
-	j.Labels[ConnectivityCheckReplicaSetLabel] = replicaSetName
-	j.Labels[ConnectivityCheckDryRunLabel] = "true"
-	j.Labels[OperatorManagedByLabel] = OperatorManagedByValue
-	return j
+	return ConnectivityJobResult{Phase: mdbstatus.MigrationPhaseConnectivityCheckFailed, Reason: r, Message: m}
 }
 
 // jobPodOutcome lists the Job's pods once and returns the connectivity-validator container's exit code and finished time.

@@ -3,6 +3,7 @@ package migration
 import (
 	"strings"
 
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -12,12 +13,13 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-// credentialVolumeNames are the volume names used by the STS for agent/internal cluster auth.
-// The Job reuses the same volumes so the connectivity validator sees the same mounts.
-var credentialVolumeNames = map[string]struct{}{
-	util.AgentSecretName: {},
-	util.ClusterFileName: {},
-}
+// Labels for connectivity validation Jobs (used by both Job build and jobrunner).
+const (
+	ConnectivityCheckReplicaSetLabel = "mongodb.k8s.io/connectivity-check-replica-set"
+	ConnectivityCheckDryRunLabel     = "mongodb.k8s.io/connectivity-check-dry-run"
+	OperatorManagedByLabel           = "app.kubernetes.io/managed-by"
+	OperatorManagedByValue           = "mongodb-kubernetes-operator"
+)
 
 // JobConfig holds what the operator knows at Job-creation time.
 type JobConfig struct {
@@ -33,54 +35,25 @@ type JobConfig struct {
 	KeyfileSecretRef string
 }
 
-// BuildJob returns a batch/v1 Job spec for the connectivity validator.
-func BuildJob(cfg JobConfig) *batchv1.Job {
-	backoffLimit := int32(0)
-	return &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cfg.Name + "-connectivity-check",
-			Namespace: cfg.Namespace,
-		},
-		Spec: batchv1.JobSpec{
-			BackoffLimit: &backoffLimit,
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
-					Containers: []corev1.Container{{
-						Name:            "connectivity-validator",
-						Image:           cfg.OperatorImage,
-						ImagePullPolicy: corev1.PullAlways,
-						Command:         []string{"/usr/local/bin/connectivity-validator"},
-						Env:             buildEnvVars(cfg),
-					}},
-				},
-			},
-		},
-	}
-}
-
-func buildEnvVars(cfg JobConfig) []corev1.EnvVar {
-	return []corev1.EnvVar{
-		{Name: "CONNECTION_STRING", Value: cfg.ConnectionString},
-		{Name: "AUTH_MECHANISM", Value: cfg.AuthMechanism},
-		{Name: "EXTERNAL_MEMBERS", Value: strings.Join(cfg.ExternalMembers, " ")},
-	}
-}
-
-// credentialsVolumesAndMountsFromStatefulSet returns the volumes and volume mounts from the
-// StatefulSet pod template that are used for credentials (agent cert, internal cluster auth).
-// The Job uses the same so the connectivity validator sees the same paths as the database pods.
-func credentialsVolumesAndMountsFromStatefulSet(sts *appsv1.StatefulSet) ([]corev1.Volume, []corev1.VolumeMount) {
+// volumesAndMountsFromStatefulSet returns volumes and volume mounts from the StatefulSet pod
+// template, excluding any volume that uses a PersistentVolumeClaim (e.g. data, logs). The Job
+// cannot use PVCs, so we only copy volumes that are backed by Secret, ConfigMap, etc.
+func volumesAndMountsFromStatefulSet(sts *appsv1.StatefulSet) ([]corev1.Volume, []corev1.VolumeMount) {
 	var vols []corev1.Volume
 	for _, v := range sts.Spec.Template.Spec.Volumes {
-		if _, ok := credentialVolumeNames[v.Name]; ok {
-			vols = append(vols, v)
+		if v.PersistentVolumeClaim != nil {
+			continue
 		}
+		vols = append(vols, v)
+	}
+	volumeNames := make(map[string]struct{})
+	for i := range vols {
+		volumeNames[vols[i].Name] = struct{}{}
 	}
 	var mounts []corev1.VolumeMount
 	if len(sts.Spec.Template.Spec.Containers) > 0 {
 		for _, m := range sts.Spec.Template.Spec.Containers[0].VolumeMounts {
-			if _, ok := credentialVolumeNames[m.Name]; ok {
+			if _, ok := volumeNames[m.Name]; ok {
 				mounts = append(mounts, m)
 			}
 		}
@@ -93,7 +66,7 @@ func credentialsVolumesAndMountsFromStatefulSet(sts *appsv1.StatefulSet) ([]core
 // agentCertHash is the hash key of the agent cert PEM file (path becomes AgentCertMountPath/hash).
 // internalClusterCertPath is the full path used for internal cluster auth (e.g. InternalClusterAuthMountPath+hash for X509).
 func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operatorImage, connectionString string, externalMembers []string, currentAgentAuthMode, agentCertHash, internalClusterCertPath string) *batchv1.Job {
-	volumes, volumeMounts := credentialsVolumesAndMountsFromStatefulSet(sts)
+	volumes, volumeMounts := volumesAndMountsFromStatefulSet(sts)
 	security := rs.GetSecurity()
 	agentMechanism := security.GetAgentMechanism(currentAgentAuthMode)
 
@@ -120,7 +93,7 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 	}
 
 	backoffLimit := int32(0)
-	return &batchv1.Job{
+	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      rs.Name + "-connectivity-check",
 			Namespace: rs.Namespace,
@@ -143,4 +116,15 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 			},
 		},
 	}
+
+	if job.Labels == nil {
+		job.Labels = make(map[string]string)
+	}
+	job.Labels[ConnectivityCheckReplicaSetLabel] = rs.Name
+	job.Labels[ConnectivityCheckDryRunLabel] = "true"
+	job.Labels[OperatorManagedByLabel] = OperatorManagedByValue
+
+	job.OwnerReferences = kube.BaseOwnerReference(rs)
+
+	return job
 }

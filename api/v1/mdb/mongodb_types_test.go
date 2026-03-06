@@ -475,7 +475,7 @@ func TestUpdateStatus_AppliesMigrationCondition_WithObservedGeneration(t *testin
 	)))
 	assert.Len(t, m.Status.Conditions, 1)
 	c := m.Status.Conditions[0]
-	assert.Equal(t, status.ConditionNetworkConnectivityVerified, c.Type)
+	assert.Equal(t, status.ConditionNetworkConnectivityVerification, c.Type)
 	assert.Equal(t, int64(5), c.ObservedGeneration)
 	assert.Equal(t, "NetworkValidationPassed", c.Reason)
 	assert.Equal(t, metav1.ConditionTrue, c.Status)

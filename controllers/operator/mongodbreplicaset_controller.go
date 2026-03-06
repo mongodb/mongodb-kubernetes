@@ -880,49 +880,43 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	}
 	connectionString := fmt.Sprintf("mongodb://%s/?replicaSet=%s", strings.Join(hostnamePorts, ","), replicaSetName) // TODO: in later iterations of the project we should use the connection string from the secret, which also pertains user access
 	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, internalClusterCertPath)
-	if job.Labels == nil {
-		job.Labels = make(map[string]string)
-	}
-	job.Labels[opMigration.ConnectivityCheckReplicaSetLabel] = rs.Name
-	job.Labels[opMigration.ConnectivityCheckDryRunLabel] = "true"
-	job.Labels[opMigration.OperatorManagedByLabel] = opMigration.OperatorManagedByValue
 
-	phase, reason, message, runErr := opMigration.RunConnectivityJob(ctx, r.reconciler.client, job)
-	if runErr != nil {
+	result := opMigration.RunConnectivityJob(ctx, r.reconciler.client, job)
+	if result.Err != nil {
 		return r.updateStatus(ctx,
-			workflow.Failed(fmt.Errorf("connectivity dry run: %w", runErr)),
+			workflow.Failed(fmt.Errorf("connectivity dry run: %w", result.Err)),
 			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckFailed, "JobError", runErr.Error(),
+				result.Phase, result.Reason, result.Message,
 			)),
 		)
 	}
 
-	log.Infow("[DRY-RUN CONNECTIVITY] Job status", "phase", phase, "reason", reason, "message", message)
+	log.Infow("[DRY-RUN CONNECTIVITY] Job status", "phase", result.Phase, "reason", result.Reason, "message", result.Message)
 
-	switch phase {
+	switch result.Phase {
 	case mdbstatus.MigrationPhaseConnectivityCheckRunning:
 		return r.updateStatus(ctx,
-			workflow.Pending("Connectivity validation job is running, will recheck shortly").WithRetry(30),
+			workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", opMigration.AnnotationDryRun).WithRetry(30),
 			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
 				mdbstatus.MigrationPhaseConnectivityCheckRunning, "Running", "Connectivity validation Job is in progress",
 			)),
 		)
 	case mdbstatus.MigrationPhaseConnectivityCheckPassed:
 		return r.updateStatus(ctx,
-			workflow.OK(),
+			workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", opMigration.AnnotationDryRun),
 			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckPassed, reason, message,
+				mdbstatus.MigrationPhaseConnectivityCheckPassed, result.Reason, result.Message,
 			)),
 		)
-	default: // ConnectivityCheckFailed
-		result, updateErr := r.updateStatus(ctx,
-			workflow.Failed(fmt.Errorf("%s: %s", reason, message)),
+	default:
+		updateResult, updateErr := r.updateStatus(ctx,
+			workflow.Failed(fmt.Errorf("%s: %s", result.Reason, result.Message)),
 			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckFailed, reason, message,
+				mdbstatus.MigrationPhaseConnectivityCheckFailed, result.Reason, result.Message,
 			)),
 		)
 		if updateErr != nil {
-			return result, updateErr
+			return updateResult, updateErr
 		}
 		// Requeue after 5 minutes to retry once connectivity issues may be resolved.
 		return reconcile.Result{RequeueAfter: 5 * time.Minute}, nil
