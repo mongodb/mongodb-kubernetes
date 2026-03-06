@@ -219,6 +219,77 @@ class SearchDeploymentHelper:
         mongot_user.update()
         # Don't wait for mongot user — needs searchCoordinator role from Search CR
 
+    def create_replicaset_mdb(
+        self,
+        mongot_host: Optional[str] = None,
+        set_tls_ca: bool = False,
+        issuer_ca_configmap: Optional[str] = None,
+        tls_cert_prefix: Optional[str] = None,
+    ) -> MongoDB:
+        resource = MongoDB.from_yaml(
+            yaml_fixture("enterprise-replicaset-sample-mflix.yaml"),
+            name=self.mdb_resource_name,
+            namespace=self.namespace,
+        )
+
+        if try_load(resource):
+            return resource
+
+        resource.configure(om=get_ops_manager(self.namespace), project_name=self.mdb_resource_name)
+
+        if issuer_ca_configmap and tls_cert_prefix:
+            resource.configure_custom_tls(issuer_ca_configmap, tls_cert_prefix)
+
+        if set_tls_ca:
+            resource["spec"]["security"]["tls"]["ca"] = self.ca_configmap_name
+
+        if mongot_host is not None:
+            if "additionalMongodConfig" not in resource["spec"]:
+                resource["spec"]["additionalMongodConfig"] = {}
+            resource["spec"]["additionalMongodConfig"]["setParameter"] = {
+                "mongotHost": mongot_host,
+                "searchIndexManagementHostAndPort": mongot_host,
+                "skipAuthenticationToSearchIndexManagementServer": False,
+                "skipAuthenticationToMongot": False,
+                "searchTLSMode": "requireTLS",
+                "useGrpcForSearch": True,
+            }
+
+        return resource
+
+    def mdbs_for_ext_rs_source(
+        self,
+        mongot_user_name: str,
+        rs_members: int = 3,
+    ) -> MongoDBSearch:
+        resource = MongoDBSearch.from_yaml(
+            yaml_fixture("search-minimal.yaml"),
+            namespace=self.namespace,
+            name=self.mdbs_resource_name,
+        )
+
+        if try_load(resource):
+            return resource
+
+        seeds = [
+            f"{self.mdb_resource_name}-{i}.{self.mdb_resource_name}-svc.{self.namespace}.svc.cluster.local:27017"
+            for i in range(rs_members)
+        ]
+
+        resource["spec"]["source"] = {
+            "username": mongot_user_name,
+            "passwordSecretRef": {
+                "name": f"{self.mdbs_resource_name}-{mongot_user_name}-password",
+                "key": "password",
+            },
+            "external": {
+                "hostAndPorts": seeds,
+                "tls": {"ca": {"name": self.ca_configmap_name}},
+            },
+        }
+
+        return resource
+
     def install_sharded_tls_certificates(self, secret_prefix: str = "mdb-sh-"):
         mongos_service_dns = f"{self.mdb_resource_name}-svc.{self.namespace}.svc.cluster.local"
         create_sharded_cluster_certs(
