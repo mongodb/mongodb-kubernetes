@@ -74,8 +74,8 @@ ENVOY_PROXY_PORT = 27029
 ENVOY_ADMIN_PORT = 9901
 
 # Resource names
-MDB_RESOURCE_NAME = "mdb-sh"           # MongoDB resource
-MDBS_RESOURCE_NAME = "mdb-sh-search"   # MongoDBSearch resource (different name since external)
+MDB_RESOURCE_NAME = "mdb-sh"  # MongoDB resource
+MDBS_RESOURCE_NAME = "mdb-sh-search"  # MongoDBSearch resource (different name since external)
 SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
