@@ -81,18 +81,8 @@ test -f "docker/mongodb-kubernetes-tests/.test_identifiers" && rm "docker/mongod
 # Ensure database pod service accounts exist in each watched namespace
 # regardless of DEPLOY_OPERATOR setting (the Helm chart only creates them
 # when DEPLOY_OPERATOR=true, but they're required even for local operator runs).
-(
-  _ns_list="${WATCH_NAMESPACE:-${NAMESPACE}}"
-  if [[ "${_ns_list}" == "*" ]]; then
-    _ns_list="${NAMESPACE}"
-  fi
-  for ns in ${_ns_list//,/ }; do
-    kubectl create serviceaccount mongodb-kubernetes-database-pods \
-      -n "$ns" --dry-run=client -o yaml | kubectl apply -f -
-    kubectl create serviceaccount mongodb-kubernetes-appdb \
-      -n "$ns" --dry-run=client -o yaml | kubectl apply -f -
-  done
-) 2>&1 | prepend "ensure service accounts"
+kubectl create serviceaccount mongodb-kubernetes-database-pods -n "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+kubectl create serviceaccount mongodb-kubernetes-appdb -n "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 
 (
   if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
