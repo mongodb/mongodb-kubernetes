@@ -178,8 +178,11 @@ def test_migration_dry_run_connectivity_passes(mdb_migration_dry_run: MongoDB):
     mdb_migration_dry_run.wait_for(migration_connectivity_passed, timeout=300, should_raise=True)
 
     # Remove dry-run annotation so later tests (test_mdb_reaches_running, test_promote_and_prune) reconcile normally.
+    # Use backing object so we mutate what update() will send. JSON merge patch only removes keys when set to null.
     mdb_migration_dry_run.load()
-    if mdb_migration_dry_run["metadata"]["annotations"].pop(MIGRATION_DRY_RUN_ANNOTATION, None) is not None:
+    ann = mdb_migration_dry_run.backing_obj.get("metadata").get("annotations")
+    if ann is not None and MIGRATION_DRY_RUN_ANNOTATION in ann:
+        ann[MIGRATION_DRY_RUN_ANNOTATION] = None
         mdb_migration_dry_run.update()
 
 
