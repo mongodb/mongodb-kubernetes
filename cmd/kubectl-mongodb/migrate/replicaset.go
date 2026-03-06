@@ -1,100 +1,10 @@
 package migrate
 
 import (
-	"sort"
+	"fmt"
 
 	"github.com/spf13/cast"
 )
-
-type ExternalMember struct {
-	Hostname    string  `json:"hostname"`
-	Port        int     `json:"port"`
-	Votes       int     `json:"votes"`
-	Priority    float32 `json:"priority"`
-	ArbiterOnly bool    `json:"arbiterOnly,omitempty"`
-}
-
-func findReplicaSet(ac map[string]interface{}) map[string]interface{} {
-	replicaSets, _ := discoverReplicaSets(ac)
-	if len(replicaSets) == 0 {
-		return nil
-	}
-	rsMap, ok := replicaSets[0].(map[string]interface{})
-	if !ok {
-		return nil
-	}
-	return rsMap
-}
-
-func discoverReplicaSets(ac map[string]interface{}) ([]interface{}, bool) {
-	replicaSets := getSlice(ac, "replicaSets")
-	if len(replicaSets) > 0 {
-		return replicaSets, false
-	}
-
-	inferred := inferReplicaSetsFromProcesses(getSlice(ac, "processes"))
-	if len(inferred) > 0 {
-		return inferred, true
-	}
-
-	return nil, false
-}
-
-func inferReplicaSetsFromProcesses(processes []interface{}) []interface{} {
-	membersByRS := map[string][]interface{}{}
-
-	for _, p := range processes {
-		proc, ok := p.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		processType := cast.ToString(proc["processType"])
-		if processType != "" && processType != "mongod" {
-			continue
-		}
-
-		host := cast.ToString(proc["name"])
-		if host == "" {
-			continue
-		}
-
-		rsName := "standalone"
-		if args, ok := proc["args2_6"].(map[string]interface{}); ok {
-			if replication, ok := args["replication"].(map[string]interface{}); ok {
-				if name := cast.ToString(replication["replSetName"]); name != "" {
-					rsName = name
-				}
-			}
-		}
-
-		member := map[string]interface{}{
-			"host":     host,
-			"votes":    1,
-			"priority": 1,
-		}
-		membersByRS[rsName] = append(membersByRS[rsName], member)
-	}
-
-	if len(membersByRS) == 0 {
-		return nil
-	}
-
-	rsNames := make([]string, 0, len(membersByRS))
-	for name := range membersByRS {
-		rsNames = append(rsNames, name)
-	}
-	sort.Strings(rsNames)
-
-	replicaSets := make([]interface{}, 0, len(rsNames))
-	for _, name := range rsNames {
-		replicaSets = append(replicaSets, map[string]interface{}{
-			"_id":     name,
-			"members": membersByRS[name],
-		})
-	}
-	return replicaSets
-}
 
 func getSlice(m map[string]interface{}, key string) []interface{} {
 	if v, ok := m[key]; ok {
@@ -105,65 +15,103 @@ func getSlice(m map[string]interface{}, key string) []interface{} {
 	return nil
 }
 
-func buildProcessMap(processes []interface{}) map[string]map[string]interface{} {
-	processMap := make(map[string]map[string]interface{})
-	for _, p := range processes {
+// buildProcessMap indexes all processes by name for O(1) lookups.
+func buildProcessMap(processes []interface{}) (map[string]map[string]interface{}, error) {
+	processMap := make(map[string]map[string]interface{}, len(processes))
+	for i, p := range processes {
 		proc, ok := p.(map[string]interface{})
 		if !ok {
-			continue
+			return nil, fmt.Errorf("process at index %d is not a valid map", i)
 		}
 		name := cast.ToString(proc["name"])
-		if name != "" {
-			processMap[name] = proc
+		if name == "" {
+			return nil, fmt.Errorf("process at index %d has no name field", i)
 		}
+		processMap[name] = proc
 	}
-	return processMap
+	return processMap, nil
 }
 
-func extractMemberInfo(members []interface{}, processMap map[string]map[string]interface{}) ([]ExternalMember, string, string) {
+// extractMemberInfo reads version, FCV, and per-member metadata from the
+// automation config. Each member becomes an ExternalMember entry.
+func extractMemberInfo(members []interface{}, processMap map[string]map[string]interface{}) ([]ExternalMember, string, string, error) {
 	var externalMembers []ExternalMember
-	version := ""
-	fcv := ""
+	var version, fcv string
 
-	for _, m := range members {
+	for i, m := range members {
 		member, ok := m.(map[string]interface{})
 		if !ok {
-			continue
+			return nil, "", "", fmt.Errorf("member at index %d is not a valid map", i)
 		}
 
 		host := cast.ToString(member["host"])
-		votes := cast.ToInt(member["votes"])
-		priority := cast.ToFloat32(member["priority"])
-		arbiterOnly := cast.ToBool(member["arbiterOnly"])
+		if host == "" {
+			return nil, "", "", fmt.Errorf("member at index %d has no host field", i)
+		}
 
-		port := 27017
-		hostname := host
+		proc, ok := processMap[host]
+		if !ok {
+			return nil, "", "", fmt.Errorf("process %q referenced by member at index %d not found in the automation config", host, i)
+		}
 
-		if proc, ok := processMap[host]; ok {
-			hostname = cast.ToString(proc["hostname"])
-			if args, ok := proc["args2_6"].(map[string]interface{}); ok {
-				if net, ok := args["net"].(map[string]interface{}); ok {
-					if p := cast.ToInt(net["port"]); p != 0 {
-						port = p
-					}
-				}
+		hostname := cast.ToString(proc["hostname"])
+		if hostname == "" {
+			return nil, "", "", fmt.Errorf("process %q has no hostname field", host)
+		}
+
+		port := 0
+		if args, ok := proc["args2_6"].(map[string]interface{}); ok {
+			if net, ok := args["net"].(map[string]interface{}); ok {
+				port = cast.ToInt(net["port"])
 			}
-			if version == "" {
-				version = cast.ToString(proc["version"])
-			}
-			if fcv == "" {
-				fcv = cast.ToString(proc["featureCompatibilityVersion"])
-			}
+		}
+		if port == 0 {
+			return nil, "", "", fmt.Errorf("process %q has no port configured in args2_6.net.port", host)
+		}
+
+		if version == "" {
+			version = cast.ToString(proc["version"])
+		}
+		if fcv == "" {
+			fcv = cast.ToString(proc["featureCompatibilityVersion"])
 		}
 
 		externalMembers = append(externalMembers, ExternalMember{
+			ProcessID:   host,
 			Hostname:    hostname,
 			Port:        port,
-			Votes:       votes,
-			Priority:    priority,
-			ArbiterOnly: arbiterOnly,
+			Votes:       cast.ToInt(member["votes"]),
+			Priority:    cast.ToFloat32(member["priority"]),
+			ArbiterOnly: cast.ToBool(member["arbiterOnly"]),
 		})
 	}
 
-	return externalMembers, version, fcv
+	return externalMembers, version, fcv, nil
+}
+
+func getFirstReplicaSet(d map[string]interface{}) (map[string]interface{}, error) {
+	replicaSets := getReplicaSets(d)
+	if len(replicaSets) == 0 {
+		return nil, fmt.Errorf("no replica sets found in the automation config")
+	}
+	rsMap, ok := replicaSets[0].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("first replica set entry is not a valid map")
+	}
+	return rsMap, nil
+}
+
+func getReplicaSets(d map[string]interface{}) []interface{} {
+	return getSlice(d, "replicaSets")
+}
+
+// ExternalMember holds the identifying information for a replica set member
+// that is still running on a VM during the migration.
+type ExternalMember struct {
+	ProcessID   string  `json:"processId"`
+	Hostname    string  `json:"hostname"`
+	Port        int     `json:"port"`
+	Votes       int     `json:"votes"`
+	Priority    float32 `json:"priority"`
+	ArbiterOnly bool    `json:"arbiterOnly,omitempty"`
 }

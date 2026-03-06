@@ -43,13 +43,65 @@ func TestGenerateMongoDBCR_BasicReplicaSet(t *testing.T) {
 	assert.Contains(t, yamlOutput, `priority: "0"`)
 	assert.Contains(t, yamlOutput, "enabled: true")
 	assert.Contains(t, yamlOutput, "SCRAM-SHA-256")
-	assert.Contains(t, yamlOutput, "# externalMembers will be populated by the operator")
-	assert.Contains(t, yamlOutput, "vm-mongo-0.prod.example.com")
-	assert.Contains(t, yamlOutput, "vm-mongo-1.prod.example.com")
-	assert.Contains(t, yamlOutput, "vm-mongo-2.prod.example.com")
-	assert.Contains(t, yamlOutput, "#     votes: 1")
-	assert.Contains(t, yamlOutput, "#     priority: 2")
 	assert.Contains(t, yamlOutput, "cacheSizeGB")
+
+	// externalMembers should be a real spec field with process IDs
+	assert.Contains(t, yamlOutput, "externalMembers:")
+	assert.Contains(t, yamlOutput, "- my-rs-0")
+	assert.Contains(t, yamlOutput, "- my-rs-1")
+	assert.Contains(t, yamlOutput, "- my-rs-2")
+
+	// internal cluster auth from args2_6.security.clusterAuthMode
+	assert.Contains(t, yamlOutput, "internalCluster: X509")
+
+	// additionalMongodConfig should include setParameter, oplogSizeMB (but not dbPath or systemLog)
+	assert.Contains(t, yamlOutput, "setParameter")
+	assert.Contains(t, yamlOutput, "authenticationMechanisms")
+	assert.Contains(t, yamlOutput, "oplogSizeMB")
+	assert.NotContains(t, yamlOutput, "dbPath", "dbPath should not be in additionalMongodConfig; operator always overwrites it")
+
+	// systemLog should be in agent.mongod.systemLog, not additionalMongodConfig
+	assert.Contains(t, yamlOutput, "path: /var/log/mongodb/mongod.log")
+
+	// member tags should be carried over
+	assert.Contains(t, yamlOutput, "region: us-east-1")
+	assert.Contains(t, yamlOutput, "use: analytics")
+	assert.Contains(t, yamlOutput, "region: us-west-2")
+
+	// custom MongoDB roles
+	assert.Contains(t, yamlOutput, "role: appReadOnly")
+	assert.Contains(t, yamlOutput, "db: myapp")
+	assert.Contains(t, yamlOutput, "find")
+
+	// logRotate should be extracted into agent config
+	assert.Contains(t, yamlOutput, "sizeThresholdMB")
+	assert.Contains(t, yamlOutput, "timeThresholdHrs")
+
+	// resource name matches RS name, so no override needed
+	assert.NotContains(t, yamlOutput, "replicaSetNameOverride")
+
+	// status should not appear in generated YAML
+	assert.NotContains(t, yamlOutput, "status")
+
+	// horizons are NOT extracted (operator overwrites them on K8s members)
+	assert.NotContains(t, yamlOutput, "replicaSetHorizons")
+
+	// LDAP from fixture
+	assert.Contains(t, yamlOutput, "bindQueryUser: cn=admin,dc=example,dc=com")
+	assert.Contains(t, yamlOutput, "ldap-bind-query-password")
+	assert.Contains(t, yamlOutput, "ldap-ca")
+	assert.Contains(t, yamlOutput, "ldap1.example.com:636")
+	assert.Contains(t, yamlOutput, "ldap2.example.com:636")
+	assert.Contains(t, yamlOutput, "transportSecurity: tls")
+
+	// OIDC from fixture
+	assert.Contains(t, yamlOutput, "configurationName: okta")
+	assert.Contains(t, yamlOutput, "issuerURI: https://dev-123456.okta.com/oauth2/default")
+	assert.Contains(t, yamlOutput, "audience: api://mongodb-cluster")
+
+	// auth modes should include LDAP and X509 from deploymentAuthMechanisms
+	assert.Contains(t, yamlOutput, "- LDAP")
+	assert.Contains(t, yamlOutput, "- X509")
 }
 
 func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
@@ -65,6 +117,7 @@ func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, yamlOutput, "name: custom-name")
+	assert.Contains(t, yamlOutput, "replicaSetNameOverride: my-rs")
 }
 
 func TestGenerateMongoDBCR_NoReplicaSet(t *testing.T) {
@@ -80,24 +133,7 @@ func TestGenerateMongoDBCR_NoReplicaSet(t *testing.T) {
 
 	_, _, err := GenerateMongoDBCR(ac, opts)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no replica set found")
-}
-
-func TestGenerateMongoDBCR_StandaloneFromProcesses(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "standalone_automation_config.json")
-
-	opts := GenerateOptions{
-		CredentialsSecretName: "my-credentials",
-		ConfigMapName:         "my-om-config",
-	}
-
-	yamlOutput, _, err := GenerateMongoDBCR(ac, opts)
-	require.NoError(t, err)
-
-	assert.Contains(t, yamlOutput, "name: standalone")
-	assert.Contains(t, yamlOutput, "members: 1")
-	assert.Contains(t, yamlOutput, "type: ReplicaSet")
-	assert.Contains(t, yamlOutput, "standalone-0.example.com")
+	assert.Contains(t, err.Error(), "no replica sets found")
 }
 
 func TestGenerateMongoDBCR_ShardedTopology(t *testing.T) {
@@ -113,8 +149,8 @@ func TestGenerateMongoDBCR_ShardedTopology(t *testing.T) {
 
 	assert.Contains(t, yamlOutput, "name: shard-rs")
 	assert.Contains(t, yamlOutput, "members: 2")
-	assert.Contains(t, yamlOutput, "shard-a.example.com")
-	assert.Contains(t, yamlOutput, "shard-b.example.com")
+	assert.Contains(t, yamlOutput, "- shard-rs-0")
+	assert.Contains(t, yamlOutput, "- shard-rs-1")
 }
 
 func TestGenerateMongoDBCR_ConfigMapRefName(t *testing.T) {
@@ -151,7 +187,7 @@ func TestGenerateUserCRs_ScramAndExternal(t *testing.T) {
 
 	users, err := GenerateUserCRs(ac, "my-rs")
 	require.NoError(t, err)
-	require.Len(t, users, 2, "expected 2 users (automation agent should be skipped)")
+	require.Len(t, users, 3, "expected 3 users (automation agent should be skipped)")
 
 	scramUser := users[0]
 	assert.Equal(t, "app-user", scramUser.Username)
@@ -173,6 +209,13 @@ func TestGenerateUserCRs_ScramAndExternal(t *testing.T) {
 	assert.Contains(t, x509User.YAML, "kind: MongoDBUser")
 	assert.Contains(t, x509User.YAML, "db: $external")
 	assert.NotContains(t, x509User.YAML, "app-user-password")
+
+	ldapUser := users[2]
+	assert.Equal(t, "ldap-reader", ldapUser.Username)
+	assert.Equal(t, "$external", ldapUser.Database)
+	assert.False(t, ldapUser.NeedsPassword)
+	assert.Contains(t, ldapUser.YAML, "kind: MongoDBUser")
+	assert.Contains(t, ldapUser.YAML, "db: $external")
 }
 
 func TestGenerateUserCRs_SkipsAutomationAgent(t *testing.T) {
@@ -182,16 +225,8 @@ func TestGenerateUserCRs_SkipsAutomationAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, u := range users {
-		assert.NotEqual(t, "mms-automation", u.Username)
+		assert.NotEqual(t, "mms-automation-agent", u.Username)
 	}
-}
-
-func TestGenerateUserCRs_NoUsers(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "standalone_automation_config.json")
-
-	users, err := GenerateUserCRs(ac, "standalone")
-	require.NoError(t, err)
-	assert.Empty(t, users)
 }
 
 func TestNormalizeK8sName(t *testing.T) {

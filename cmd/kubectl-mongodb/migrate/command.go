@@ -18,17 +18,18 @@ import (
 const defaultNamespace = "default"
 
 var (
-	configMapName      string
-	configMapNamespace string
-	secretName         string
-	secretNamespace    string
+	configMapName string
+	secretName    string
+	namespace     string
 )
 
 var MigrateCmd = &cobra.Command{
 	Use:   "migrate",
 	Short: "Migrate MongoDB deployments to Kubernetes",
-	Long: `Validates an Ops Manager automation config and generates MongoDB/MongoDBUser
-Kubernetes CRs for migrating existing deployments to the operator.
+	Long: `Generates MongoDB/MongoDBUser Kubernetes CRs from an Ops Manager automation
+config for migrating existing deployments to the operator. The automation
+config is validated automatically before generation; if any blockers are
+found the command fails without producing output.
 
 Requires a ConfigMap (baseUrl, orgId, projectName) and a Secret (publicKey,
 privateKey) in the same format used by the operator.`,
@@ -36,53 +37,18 @@ privateKey) in the same format used by the operator.`,
 
 func init() {
 	MigrateCmd.PersistentFlags().StringVar(&configMapName, "config-map-name", "", "Name of the ConfigMap containing the OM URL and project ID (required)")
-	MigrateCmd.PersistentFlags().StringVar(&configMapNamespace, "config-map-namespace", defaultNamespace, "Namespace of the ConfigMap. Uses default if not provided")
 	MigrateCmd.PersistentFlags().StringVar(&secretName, "secret-name", "", "Name of the Secret containing the OM API credentials (required)")
-	MigrateCmd.PersistentFlags().StringVar(&secretNamespace, "secret-namespace", defaultNamespace, "Namespace of the Secret. Uses default if not provided")
+	MigrateCmd.PersistentFlags().StringVar(&namespace, "namespace", defaultNamespace, "Namespace of the ConfigMap and Secret")
 	_ = MigrateCmd.MarkPersistentFlagRequired("config-map-name")
 	_ = MigrateCmd.MarkPersistentFlagRequired("secret-name")
 
-	MigrateCmd.AddCommand(validateCmd)
 	MigrateCmd.AddCommand(generateCmd)
-}
-
-var validateCmd = &cobra.Command{
-	Use:   "validate",
-	Short: "Validate automation config for migration",
-	RunE:  runValidate,
 }
 
 var generateCmd = &cobra.Command{
 	Use:   "generate",
-	Short: "Generate MongoDB and MongoDBUser CRs from automation config",
+	Short: "Validate automation config and generate MongoDB/MongoDBUser CRs",
 	RunE:  runGenerate,
-}
-
-func runValidate(cmd *cobra.Command, _ []string) error {
-	ctx := cmd.Context()
-	conn, _, err := prepareConnection(ctx)
-	if err != nil {
-		return err
-	}
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		return xerrors.Errorf("error reading automation config: %w", err)
-	}
-
-	blockers := ValidateMigrationBlockers(ac)
-	errorCount := 0
-	for _, b := range blockers {
-		fmt.Fprintf(os.Stderr, "[%s] %s\n", b.Severity, b.Message)
-		if b.Severity == SeverityError {
-			errorCount++
-		}
-	}
-
-	if errorCount > 0 {
-		return xerrors.Errorf("validation failed: %d error(s) found", errorCount)
-	}
-	fmt.Fprintln(os.Stderr, "Validation complete. No blockers found.")
-	return nil
 }
 
 func runGenerate(cmd *cobra.Command, _ []string) error {
@@ -94,6 +60,16 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
+	}
+
+	monitoringConfig, backupConfig, err := readAgentConfigs(conn)
+	if err != nil {
+		return err
+	}
+
+	results := ValidateMigration(ac, monitoringConfig, backupConfig)
+	if errorCount := printValidationResults(results); errorCount > 0 {
+		return xerrors.Errorf("validation failed: %d error(s) found; fix the issues above before generating CRs", errorCount)
 	}
 
 	opts := GenerateOptions{
@@ -113,10 +89,6 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 
 	if len(userCRs) > 0 {
 		scanner := bufio.NewScanner(os.Stdin)
-		ns := secretNamespace
-		if ns == "" {
-			ns = defaultNamespace
-		}
 
 		for _, u := range userCRs {
 			if u.NeedsPassword && kubeClient != nil {
@@ -137,7 +109,7 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 				sec := corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      u.PasswordSecret,
-						Namespace: ns,
+						Namespace: namespace,
 					},
 					StringData: map[string]string{
 						"password": password,
@@ -146,7 +118,7 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 				if err := kubeClient.CreateSecret(ctx, sec); err != nil {
 					return xerrors.Errorf("error creating password secret %q for user %q: %w", u.PasswordSecret, u.Username, err)
 				}
-				fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", u.PasswordSecret, ns)
+				fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", u.PasswordSecret, namespace)
 			}
 
 			fmt.Printf("---\n%s", u.YAML)
@@ -154,4 +126,15 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	}
 
 	return nil
+}
+
+func printValidationResults(results []ValidationResult) int {
+	errorCount := 0
+	for _, r := range results {
+		fmt.Fprintf(os.Stderr, "[%s] %s\n", r.Severity, r.Message)
+		if r.Severity == SeverityError {
+			errorCount++
+		}
+	}
+	return errorCount
 }

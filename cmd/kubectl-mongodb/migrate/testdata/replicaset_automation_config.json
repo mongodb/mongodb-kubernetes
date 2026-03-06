@@ -2,7 +2,7 @@
   "auth": {
     "usersWanted": [
       {
-        "user": "mms-automation",
+        "user": "mms-automation-agent",
         "db": "admin",
         "roles": [{"role": "root", "db": "admin"}],
         "mechanisms": ["SCRAM-SHA-256"],
@@ -32,16 +32,54 @@
         "scramSha256Creds": null,
         "scramSha1Creds": null,
         "authenticationRestrictions": []
+      },
+      {
+        "user": "ldap-reader",
+        "db": "$external",
+        "roles": [
+          {"role": "read", "db": "reporting"}
+        ],
+        "mechanisms": [],
+        "scramSha256Creds": null,
+        "scramSha1Creds": null,
+        "authenticationRestrictions": []
       }
     ],
     "usersDeleted": [],
     "disabled": false,
     "authoritativeSet": false,
+    "deploymentAuthMechanisms": ["SCRAM-SHA-256", "MONGODB-X509", "PLAIN"],
     "autoAuthMechanisms": ["SCRAM-SHA-256"],
     "autoAuthMechanism": "SCRAM-SHA-256",
-    "autoUser": "mms-automation",
+    "autoUser": "mms-automation-agent",
     "autoAuthRestrictions": []
   },
+  "ldap": {
+    "bindMethod": "simple",
+    "bindQueryUser": "cn=admin,dc=example,dc=com",
+    "bindQueryPassword": "ldap-s3cret",
+    "servers": "ldap1.example.com:636, ldap2.example.com:636",
+    "transportSecurity": "tls",
+    "validateLDAPServerConfig": true,
+    "authzQueryTemplate": "{USER}?memberOf?base",
+    "userToDNMapping": "[{\"match\":\"(.+)\",\"substitution\":\"uid={0},ou=users,dc=example,dc=com\"}]",
+    "timeoutMS": 10000,
+    "userCacheInvalidationInterval": 30,
+    "CAFileContents": "-----BEGIN CERTIFICATE-----\nMIIBxTCCAWugAwIBAgIUFakeCAContentsForTesting=\n-----END CERTIFICATE-----"
+  },
+  "oidcProviderConfigs": [
+    {
+      "authNamePrefix": "okta",
+      "audience": "api://mongodb-cluster",
+      "issuerUri": "https://dev-123456.okta.com/oauth2/default",
+      "clientId": "0oa1abc2def3ghi4j567",
+      "requestedScopes": ["openid", "profile", "groups"],
+      "userClaim": "sub",
+      "groupsClaim": "groups",
+      "supportsHumanFlows": true,
+      "useAuthorizationClaim": true
+    }
+  ],
   "processes": [
     {
       "args2_6": {
@@ -53,7 +91,11 @@
           }
         },
         "replication": {
-          "replSetName": "my-rs"
+          "replSetName": "my-rs",
+          "oplogSizeMB": 2048
+        },
+        "security": {
+          "clusterAuthMode": "x509"
         },
         "storage": {
           "dbPath": "/data/db",
@@ -66,11 +108,23 @@
         "systemLog": {
           "destination": "file",
           "path": "/var/log/mongodb/mongod.log"
+        },
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256,PLAIN"
         }
       },
       "authSchemaVersion": 5,
       "featureCompatibilityVersion": "7.0",
       "hostname": "vm-mongo-0.prod.example.com",
+      "logRotate": {
+        "sizeThresholdMB": 1000,
+        "timeThresholdHrs": 24,
+        "numUncompressed": 5
+      },
+      "auditLogRotate": {
+        "sizeThresholdMB": 500,
+        "timeThresholdHrs": 48
+      },
       "name": "my-rs-0",
       "processType": "mongod",
       "version": "7.0.12-ent"
@@ -85,7 +139,11 @@
           }
         },
         "replication": {
-          "replSetName": "my-rs"
+          "replSetName": "my-rs",
+          "oplogSizeMB": 2048
+        },
+        "security": {
+          "clusterAuthMode": "x509"
         },
         "storage": {
           "dbPath": "/data/db",
@@ -98,6 +156,9 @@
         "systemLog": {
           "destination": "file",
           "path": "/var/log/mongodb/mongod.log"
+        },
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256,PLAIN"
         }
       },
       "authSchemaVersion": 5,
@@ -117,7 +178,11 @@
           }
         },
         "replication": {
-          "replSetName": "my-rs"
+          "replSetName": "my-rs",
+          "oplogSizeMB": 2048
+        },
+        "security": {
+          "clusterAuthMode": "x509"
         },
         "storage": {
           "dbPath": "/data/db",
@@ -130,6 +195,9 @@
         "systemLog": {
           "destination": "file",
           "path": "/var/log/mongodb/mongod.log"
+        },
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256,PLAIN"
         }
       },
       "authSchemaVersion": 5,
@@ -148,19 +216,33 @@
           "_id": 0,
           "host": "my-rs-0",
           "priority": 2,
-          "votes": 1
+          "votes": 1,
+          "tags": {"region": "us-east-1", "use": "analytics"},
+          "horizons": {
+            "external": "rs0.external.example.com:27017",
+            "internal": "rs0.internal.example.com:27017"
+          }
         },
         {
           "_id": 1,
           "host": "my-rs-1",
           "priority": 1,
-          "votes": 1
+          "votes": 1,
+          "tags": {"region": "us-west-2"},
+          "horizons": {
+            "external": "rs1.external.example.com:27017",
+            "internal": "rs1.internal.example.com:27017"
+          }
         },
         {
           "_id": 2,
           "host": "my-rs-2",
           "priority": 1,
-          "votes": 1
+          "votes": 1,
+          "horizons": {
+            "external": "rs2.external.example.com:27017",
+            "internal": "rs2.internal.example.com:27017"
+          }
         }
       ],
       "protocolVersion": "1"
@@ -168,7 +250,7 @@
   ],
   "sharding": [],
   "tls": {
-    "CAFilePath": "/etc/ssl/ca.pem",
+    "CAFilePath": "/mongodb-automation/tls/ca/ca-pem",
     "clientCertificateMode": "OPTIONAL"
   },
   "mongoDbVersions": [],
@@ -177,6 +259,19 @@
   "options": {
     "downloadBase": "/var/lib/mongodb-mms-automation"
   },
-  "roles": [],
-  "oidcProviderConfigs": []
+  "roles": [
+    {
+      "role": "appReadOnly",
+      "db": "myapp",
+      "privileges": [
+        {
+          "actions": ["find", "listCollections"],
+          "resource": {"db": "myapp", "collection": ""}
+        }
+      ],
+      "roles": [
+        {"role": "read", "db": "myapp"}
+      ]
+    }
+  ]
 }

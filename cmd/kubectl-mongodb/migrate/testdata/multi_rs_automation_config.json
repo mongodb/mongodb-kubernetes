@@ -1,0 +1,51 @@
+{
+  "processes": [
+    {
+      "args2_6": {
+        "net": { "port": 27017 },
+        "replication": { "replSetName": "rs-alpha" },
+        "storage": { "dbPath": "/data/db" }
+      },
+      "hostname": "alpha-0.example.com",
+      "name": "rs-alpha-0",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    },
+    {
+      "args2_6": {
+        "net": { "port": 27017 },
+        "replication": { "replSetName": "rs-beta" },
+        "storage": { "dbPath": "/data/db" }
+      },
+      "hostname": "beta-0.example.com",
+      "name": "rs-beta-0",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "rs-alpha",
+      "members": [
+        { "_id": 0, "host": "rs-alpha-0", "priority": 1, "votes": 1 }
+      ],
+      "protocolVersion": "1"
+    },
+    {
+      "_id": "rs-beta",
+      "members": [
+        { "_id": 0, "host": "rs-beta-0", "priority": 1, "votes": 1 }
+      ],
+      "protocolVersion": "1"
+    }
+  ],
+  "sharding": [],
+  "mongoDbVersions": [],
+  "monitoringVersions": [],
+  "backupVersions": [],
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation"
+  },
+  "roles": [],
+  "oidcProviderConfigs": []
+}

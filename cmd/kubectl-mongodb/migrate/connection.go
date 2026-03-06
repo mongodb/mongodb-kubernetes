@@ -51,15 +51,15 @@ func prepareConnection(ctx context.Context) (om.Connection, kubernetesClient.Cli
 
 func readConfigAndCredentials(ctx context.Context, kubeClient kubernetesClient.Client, log *zap.SugaredLogger) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
 	const unset = ""
-	config, err := project.ReadProjectConfig(ctx, kubeClient, kube.ObjectKey(configMapNamespace, configMapName), unset)
+	config, err := project.ReadProjectConfig(ctx, kubeClient, kube.ObjectKey(namespace, configMapName), unset)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("error reading project config: %w", err)
 	}
 	if config.ProjectName == "" {
-		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("ConfigMap %s/%s does not contain a projectName", configMapNamespace, configMapName)
+		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("ConfigMap %s/%s does not contain a projectName", namespace, configMapName)
 	}
 	secretClient := secrets.SecretClient{KubeClient: kubeClient}
-	credentials, err := project.ReadCredentials(ctx, secretClient, kube.ObjectKey(secretNamespace, secretName), log)
+	credentials, err := project.ReadCredentials(ctx, secretClient, kube.ObjectKey(namespace, secretName), log)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("error reading credentials secret: %w", err)
 	}
@@ -160,6 +160,18 @@ func resolveProjectInOrg(conn om.Connection, projectName string, organization *o
 		return nil, xerrors.Errorf("found more than one project with name %s in organization %s (%s): %s", projectName, organization.ID, organization.Name, strings.Join(names, ", "))
 	}
 	return nil, nil
+}
+
+func readAgentConfigs(conn om.Connection) (*om.MonitoringAgentConfig, *om.BackupAgentConfig, error) {
+	monitoringConfig, err := conn.ReadMonitoringAgentConfig()
+	if err != nil {
+		return nil, nil, xerrors.Errorf("error reading monitoring agent config: %w", err)
+	}
+	backupConfig, err := conn.ReadBackupAgentConfig()
+	if err != nil {
+		return nil, nil, xerrors.Errorf("error reading backup agent config: %w", err)
+	}
+	return monitoringConfig, backupConfig, nil
 }
 
 func newKubeClient() (kubernetesClient.Client, error) {
