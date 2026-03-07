@@ -34,7 +34,7 @@ S3_SECRET_NAME = "my-s3-secret"
 OPLOG_RS_NAME = "my-mongodb-oplog"
 
 
-def certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str:
+def replica_set_certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str:
     secret_name = random_k8s_name(resource_name + "-") + "-prometheus-cert"
 
     return create_mongodb_tls_certs(
@@ -140,7 +140,7 @@ def ops_manager(
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
 
-    prom_cert_secret = certs_for_prometheus(issuer, namespace, om.name + "-db")
+    prom_cert_secret = replica_set_certs_for_prometheus(issuer, namespace, om.name + "-db")
     store_secret_in_vault(
         vault_namespace,
         vault_name,
@@ -413,13 +413,13 @@ def test_om_created(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_vault_setup_om_backup
-def test_prometheus_endpoint_works_on_every_pod_on_appdb(ops_manager: MongoDB):
+def test_prometheus_endpoint_works_on_every_pod_on_appdb(ops_manager: MongoDB, issuer_ca_filepath: str):
     auth = ("prom-user", "prom-password")
     name = ops_manager.name + "-db"
 
     for idx in range(ops_manager["spec"]["applicationDatabase"]["members"]):
         url = f"https://{name}-{idx}.{name}-svc.{ops_manager.namespace}.svc.cluster.local:9216/metrics"
-        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+        assert https_endpoint_is_reachable(url, auth, tls_verify=issuer_ca_filepath)
 
 
 @mark.e2e_vault_setup_om_backup

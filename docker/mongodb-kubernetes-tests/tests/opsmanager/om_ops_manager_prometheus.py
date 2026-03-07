@@ -2,7 +2,7 @@ import time
 
 from kubernetes import client
 from kubetester import create_or_update_secret, random_k8s_name, try_load
-from kubetester.certs import create_mongodb_tls_certs
+from kubetester.certs import create_mongodb_sharded_tls_certs, create_mongodb_tls_certs
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -15,7 +15,7 @@ from tests.conftest import is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
-def certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str:
+def replica_set_certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str:
     secret_name = random_k8s_name(resource_name + "-") + "-cert"
 
     return create_mongodb_tls_certs(
@@ -23,6 +23,19 @@ def certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str
         namespace,
         resource_name,
         secret_name,
+    )
+
+
+def sharded_certs_for_prometheus(issuer: str, namespace: str, resource: MongoDB) -> str:
+    return create_mongodb_sharded_tls_certs(
+        issuer,
+        namespace,
+        resource.name,
+        random_k8s_name(resource.name + "-") + "-cert",
+        shards=resource["spec"]["shardCount"],
+        mongod_per_shard=resource["spec"]["mongodsPerShardCount"],
+        config_servers=resource["spec"]["configServerCount"],
+        mongos=resource["spec"]["mongosCount"],
     )
 
 
@@ -47,7 +60,7 @@ def ops_manager(
 
     create_or_update_secret(namespace, "appdb-prom-secret", {"password": "prom-password"})
 
-    prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name + "-db")
+    prom_cert_secret = replica_set_certs_for_prometheus(issuer, namespace, resource.name + "-db")
     resource["spec"]["applicationDatabase"]["prometheus"] = {
         "username": "prom-user",
         "passwordSecretRef": {"name": "appdb-prom-secret"},
@@ -69,7 +82,7 @@ def sharded_cluster(ops_manager: MongoDBOpsManager, namespace: str, issuer: str,
         yaml_fixture("sharded-cluster.yaml"),
         namespace=namespace,
     )
-    prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name)
+    prom_cert_secret = sharded_certs_for_prometheus(issuer, namespace, resource)
 
     create_or_update_secret(namespace, "cluster-secret", {"password": "cluster-prom-password"})
 
@@ -103,7 +116,7 @@ def replica_set(
 
     resource = generic_replicaset(namespace, custom_mdb_version, "replica-set-with-prom", ops_manager)
 
-    prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name)
+    prom_cert_secret = replica_set_certs_for_prometheus(issuer, namespace, resource.name)
     resource["spec"]["prometheus"] = {
         "username": "prom-user",
         "passwordSecretRef": {
@@ -130,7 +143,7 @@ def test_create_replica_set(replica_set: MongoDB):
 
 
 @mark.e2e_om_ops_manager_prometheus
-def test_prometheus_endpoint_works_on_every_pod(replica_set: MongoDB, namespace: str):
+def test_prometheus_endpoint_works_on_every_pod(replica_set: MongoDB, namespace: str, issuer_ca_filepath: str):
     members = replica_set["spec"]["members"]
     name = replica_set.name
 
@@ -138,7 +151,7 @@ def test_prometheus_endpoint_works_on_every_pod(replica_set: MongoDB, namespace:
 
     for idx in range(members):
         member_url = f"https://{name}-{idx}.{name}-svc.{namespace}.svc.cluster.local:9216/metrics"
-        assert https_endpoint_is_reachable(member_url, auth, tls_verify=False)
+        assert https_endpoint_is_reachable(member_url, auth, tls_verify=issuer_ca_filepath)
 
 
 @mark.e2e_om_ops_manager_prometheus
@@ -152,7 +165,9 @@ def test_prometheus_can_change_credentials(replica_set: MongoDB):
 
 
 @mark.e2e_om_ops_manager_prometheus
-def test_prometheus_endpoint_works_on_every_pod_with_changed_username(replica_set: MongoDB, namespace: str):
+def test_prometheus_endpoint_works_on_every_pod_with_changed_username(
+    replica_set: MongoDB, namespace: str, issuer_ca_filepath: str
+):
     members = replica_set["spec"]["members"]
     name = replica_set.name
 
@@ -160,7 +175,7 @@ def test_prometheus_endpoint_works_on_every_pod_with_changed_username(replica_se
 
     for idx in range(members):
         member_url = f"https://{name}-{idx}.{name}-svc.{namespace}.svc.cluster.local:9216/metrics"
-        assert https_endpoint_is_reachable(member_url, auth, tls_verify=False)
+        assert https_endpoint_is_reachable(member_url, auth, tls_verify=issuer_ca_filepath)
 
 
 @mark.e2e_om_ops_manager_prometheus
@@ -170,7 +185,9 @@ def test_create_sharded_cluster(sharded_cluster: MongoDB):
 
 
 @mark.e2e_om_ops_manager_prometheus
-def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(sharded_cluster: MongoDB, namespace: str):
+def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(
+    sharded_cluster: MongoDB, namespace: str, issuer_ca_filepath: str
+):
     """
     Checks that all of the Prometheus endpoints that we expect are up and listening.
     """
@@ -182,19 +199,19 @@ def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(sharded_cluster: 
     mongos_count = sharded_cluster["spec"]["mongosCount"]
     for idx in range(mongos_count):
         url = f"https://{name}-mongos-{idx}.{name}-svc.{namespace}.svc.cluster.local:{port}/metrics"
-        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+        assert https_endpoint_is_reachable(url, auth, tls_verify=issuer_ca_filepath)
 
     shard_count = sharded_cluster["spec"]["shardCount"]
     mongodbs_per_shard_count = sharded_cluster["spec"]["mongodsPerShardCount"]
     for shard in range(shard_count):
         for mongodb in range(mongodbs_per_shard_count):
             url = f"https://{name}-{shard}-{mongodb}.{name}-sh.{namespace}.svc.cluster.local:{port}/metrics"
-            assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+            assert https_endpoint_is_reachable(url, auth, tls_verify=issuer_ca_filepath)
 
     config_server_count = sharded_cluster["spec"]["configServerCount"]
     for idx in range(config_server_count):
         url = f"https://{name}-config-{idx}.{name}-cs.{namespace}.svc.cluster.local:{port}/metrics"
-        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+        assert https_endpoint_is_reachable(url, auth, tls_verify=issuer_ca_filepath)
 
 
 @mark.e2e_om_ops_manager_prometheus
@@ -227,13 +244,13 @@ def test_sharded_cluster_service_has_been_updated_with_prometheus_port(replica_s
 
 
 @mark.e2e_om_ops_manager_prometheus
-def test_prometheus_endpoint_works_on_every_pod_on_appdb(ops_manager: MongoDB):
+def test_prometheus_endpoint_works_on_every_pod_on_appdb(ops_manager: MongoDB, issuer_ca_filepath: str):
     auth = ("prom-user", "prom-password")
     name = ops_manager.name + "-db"
 
     for idx in range(ops_manager["spec"]["applicationDatabase"]["members"]):
         url = f"https://{name}-{idx}.{name}-svc.{ops_manager.namespace}.svc.cluster.local:9216/metrics"
-        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+        assert https_endpoint_is_reachable(url, auth, tls_verify=issuer_ca_filepath)
 
     assert_mongodb_prometheus_port_exist(name + "-svc", ops_manager.namespace, 9216)
 
