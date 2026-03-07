@@ -146,3 +146,9 @@ func WithAgentDebugImage(debugImage string) func(options *construct.DatabaseStat
 		options.AgentDebugImage = debugImage
 	}
 }
+
+func WithBackupHostnameOverride(backupHostnameOverride bool) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.EnableBackupHostnameOverride = backupHostnameOverride
+	}
+}

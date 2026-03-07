@@ -70,6 +70,7 @@ type MockedOmConnection struct {
 
 	ReadAutomationStatusFunc func() (*AutomationStatus, error)
 	ReadAutomationAgentsFunc func(int) (Paginated, error)
+	ReadBackupAgentsFunc     func(int) (Paginated, error)
 
 	numRequestsSent         int
 	AgentAPIKey             string
@@ -488,6 +489,14 @@ func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, erro
 	}
 
 	return AutomationAgentStatusResponse{AutomationAgents: results}, nil
+}
+
+func (oc *MockedOmConnection) ReadBackupAgents(pageNum int) (Paginated, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadBackupAgents))
+	if oc.ReadBackupAgentsFunc != nil {
+		return oc.ReadBackupAgentsFunc(pageNum)
+	}
+	return AutomationAgentStatusResponse{OMPaginated: OMPaginated{TotalCount: 0}}, nil
 }
 
 func (oc *MockedOmConnection) GetHosts() (*host.Result, error) {
@@ -916,6 +925,10 @@ func (oc *MockedOmConnection) OpsManagerVersion() versionutil.OpsManagerVersion 
 		return oc.context.Version
 	}
 	return versionutil.OpsManagerVersion{VersionString: "7.0.0"}
+}
+
+func (oc *MockedOmConnection) SetOMVersion(version string) {
+	oc.context.Version = versionutil.OpsManagerVersion{VersionString: version}
 }
 
 func (oc *MockedOmConnection) GetPreferredHostnames(agentApiKey string) ([]PreferredHostname, error) {
