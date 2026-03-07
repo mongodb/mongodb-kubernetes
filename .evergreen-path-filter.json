@@ -1,0 +1,60 @@
+{
+  "scopes": {
+    "e2e_tests": {
+      "description": "Determines if e2e tests should run",
+      "trigger_patterns": [
+        "^controllers/",
+        "^pkg/",
+        "^mongodb-community-operator/",
+        "\\.go$",
+        "^go\\.mod$",
+        "^go\\.sum$",
+        "^test/e2e/",
+        "^scripts/evergreen/e2e/",
+        "^helm-charts/",
+        "^Dockerfile",
+        "^.*/Dockerfile",
+        "^scripts/release/",
+        "^scripts/dev/",
+        "^Makefile",
+        "^test/"
+      ]
+    },
+    "unit_tests": {
+      "description": "Determines if unit tests should run",
+      "trigger_patterns": [
+        "^controllers/",
+        "^pkg/",
+        "^mongodb-community-operator/",
+        "\\.go$",
+        "^go\\.mod$",
+        "^go\\.sum$",
+        "\\.py$",
+        "^requirements.*\\.txt$",
+        "^helm-charts/",
+        "^test/",
+        "^scripts/",
+        "^Makefile",
+        "^\\.evergreen.*\\.yml$",
+        "^\\.github/",
+        "^\\.pre-commit-config\\.yaml$"
+      ]
+    },
+    "build_images": {
+      "description": "Determines if image builds should run",
+      "trigger_patterns": [
+        "^Dockerfile",
+        "^.*/Dockerfile",
+        "^scripts/release/",
+        "^scripts/dev/",
+        "^controllers/",
+        "^pkg/",
+        "\\.go$",
+        "^go\\.mod$",
+        "^go\\.sum$",
+        "^Makefile",
+        "^release\\.json$"
+      ]
+    }
+  }
+}
