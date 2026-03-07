@@ -2,6 +2,7 @@ package search
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -15,6 +16,9 @@ import (
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 )
+
+// ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
+const ShardNamePlaceholder = "{shardName}"
 
 const (
 	MongotDefaultWireprotoPort      int32 = 27027
@@ -75,6 +79,76 @@ type MongoDBSearchSpec struct {
 	// `embedding` field of mongot config is generated using the values provided here.
 	// +optional
 	AutoEmbedding *EmbeddingConfig `json:"autoEmbedding,omitempty"`
+	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO LB).
+	// +optional
+	LoadBalancer *LoadBalancerConfig `json:"lb,omitempty"`
+}
+
+// LBMode defines the load balancer mode for Search
+// +kubebuilder:validation:Enum=Managed;Unmanaged
+type LBMode string
+
+const (
+	// LBModeManaged indicates operator-managed Envoy load balancer
+	LBModeManaged LBMode = "Managed"
+	// LBModeUnmanaged indicates user-provided external L7 load balancer (BYO LB)
+	LBModeUnmanaged LBMode = "Unmanaged"
+)
+
+// LoadBalancerConfig configures how mongod/mongos connect to mongot
+type LoadBalancerConfig struct {
+	// Mode specifies the load balancer mode: Managed (operator-managed) or Unmanaged (BYO L7 LB)
+	// +kubebuilder:validation:Required
+	Mode LBMode `json:"mode"`
+	// Envoy contains configuration for operator-managed Envoy load balancer
+	// +optional
+	Envoy *EnvoyConfig `json:"envoy,omitempty"`
+	// External contains configuration for user-provided external L7 load balancer
+	// +optional
+	External *ExternalLBConfig `json:"external,omitempty"`
+}
+
+// EnvoyConfig contains configuration for operator-managed Envoy load balancer
+// Placeholder for future Envoy configuration options
+type EnvoyConfig struct {
+	// Placeholder for future Envoy configuration
+}
+
+// ExternalLBConfig contains configuration for user-provided external L7 load balancer
+type ExternalLBConfig struct {
+	// Endpoint is the LB endpoint for ReplicaSet or a template for sharded clusters.
+	// For sharded clusters, use {shardName} as a placeholder that will be substituted
+	// with the actual shard name. Example: "lb-{shardName}.example.com:27028"
+	// TODO move it to spec.lb
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+	// DEPRECATED: Use Endpoint with {shardName} template instead.
+	// Sharded contains per-shard LB endpoint configuration for sharded clusters.
+	// If both Endpoint (with template) and Sharded.Endpoints are specified,
+	// Endpoint template takes precedence.
+	// +optional
+	Sharded *ShardedExternalLBConfig `json:"sharded,omitempty"`
+}
+
+// ShardedExternalLBConfig contains per-shard LB endpoint configuration
+// TODO remove it
+type ShardedExternalLBConfig struct {
+	// Endpoints is a list of per-shard LB endpoints
+	// +kubebuilder:validation:MinItems=1
+	Endpoints []ShardEndpoint `json:"endpoints"`
+}
+
+// ShardEndpoint maps a shard name to its external LB endpoint
+type ShardEndpoint struct {
+	// ShardName is the logical shard name (e.g., "my-cluster-0")
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ShardName string `json:"shardName"`
+	// Endpoint is the external LB host:port for this shard's mongot pool
+	// The hostname is typically used as SNI by the external LB to route to the correct shard-local mongot
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Endpoint string `json:"endpoint"`
 }
 
 type EmbeddingConfig struct {
@@ -94,6 +168,15 @@ type MongoDBSource struct {
 	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
 	// +optional
 	Username *string `json:"username,omitempty"`
+	// Replicas is the number of mongot pods to deploy.
+	// For ReplicaSet source: this many mongot pods total.
+	// For Sharded source: this many mongot pods per shard.
+	// When Replicas > 1, a load balancer configuration (lb.mode: Unmanaged with lb.external.endpoint)
+	// is required to distribute traffic across mongot instances.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=1
+	Replicas int `json:"replicas,omitempty"`
 }
 
 type ExternalMongoDBSource struct {
@@ -120,7 +203,14 @@ type TLS struct {
 	// CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
 	// The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
 	// This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
-	CertificateKeySecret corev1.LocalObjectReference `json:"certificateKeySecretRef"`
+	// If both CertificateKeySecret.Name and CertsSecretPrefix are specified, CertificateKeySecret.Name takes precedence.
+	// +optional
+	CertificateKeySecret corev1.LocalObjectReference `json:"certificateKeySecretRef,omitempty"`
+	// CertsSecretPrefix is a prefix used to derive the TLS secret name.
+	// When set, the operator will look for a secret named "{prefix}-{resourceName}-search-cert".
+	// If CertificateKeySecret.Name is also specified, it takes precedence over this field.
+	// +optional
+	CertsSecretPrefix string `json:"certsSecretPrefix,omitempty"`
 }
 
 type MongoDBSearchStatus struct {
@@ -251,15 +341,68 @@ func (s *MongoDBSearch) GetMongotGrpcPort() int32 {
 	return MongotDefaultGrpcPort
 }
 
-// TLSSecretNamespacedName will get the namespaced name of the Secret containing the server certificate and key
+// TLSSecretNamespacedName will get the namespaced name of the Secret containing the server certificate and key.
+// Precedence:
+//  1. CertificateKeySecret.Name - explicit secret name
+//  2. CertsSecretPrefix - uses pattern {prefix}-{resourceName}-search-cert
+//  3. Default - uses pattern {resourceName}-search-cert
 func (s *MongoDBSearch) TLSSecretNamespacedName() types.NamespacedName {
-	return types.NamespacedName{Name: s.Spec.Security.TLS.CertificateKeySecret.Name, Namespace: s.Namespace}
+	// Explicit name takes precedence
+	if s.Spec.Security.TLS.CertificateKeySecret.Name != "" {
+		return types.NamespacedName{Name: s.Spec.Security.TLS.CertificateKeySecret.Name, Namespace: s.Namespace}
+	}
+
+	// Prefix-based naming: {prefix}-{resourceName}-search-cert
+	if s.Spec.Security.TLS.CertsSecretPrefix != "" {
+		secretName := fmt.Sprintf("%s-%s-search-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name)
+		return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
+	}
+
+	// Default naming: {resourceName}-search-cert
+	secretName := fmt.Sprintf("%s-search-cert", s.Name)
+	return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
 }
 
 // TLSOperatorSecretNamespacedName will get the namespaced name of the Secret created by the operator
 // containing the combined certificate and key.
 func (s *MongoDBSearch) TLSOperatorSecretNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-certificate-key", Namespace: s.Namespace}
+}
+
+// IsSharedTLSCertificate returns true if all shards should use the same TLS certificate.
+// This is the case when CertificateKeySecret.Name is explicitly set.
+// When false, per-shard certificates are used (one certificate per shard).
+func (s *MongoDBSearch) IsSharedTLSCertificate() bool {
+	if s.Spec.Security.TLS == nil {
+		return false
+	}
+	return s.Spec.Security.TLS.CertificateKeySecret.Name != ""
+}
+
+// TLSSecretNamespacedNameForShard returns the namespaced name of the TLS source secret for a specific shard.
+// This is used in per-shard TLS mode for sharded clusters.
+// Naming pattern:
+//   - With prefix: {prefix}-{shardName}-search-cert
+//   - Without prefix: {shardName}-search-cert
+func (s *MongoDBSearch) TLSSecretNamespacedNameForShard(shardName string) types.NamespacedName {
+	var secretName string
+	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
+		secretName = fmt.Sprintf("%s-%s-search-cert", s.Spec.Security.TLS.CertsSecretPrefix, shardName)
+	} else {
+		secretName = fmt.Sprintf("%s-search-cert", shardName)
+	}
+	return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
+}
+
+// TLSOperatorSecretNamespacedNameForShard returns the namespaced name of the operator-managed TLS secret
+// for a specific shard. This is the secret created by the operator containing the combined certificate and key.
+func (s *MongoDBSearch) TLSOperatorSecretNamespacedNameForShard(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-certificate-key", shardName), Namespace: s.Namespace}
+}
+
+// IsTLSConfigured returns true if TLS is enabled (TLS struct is present)
+func (s *MongoDBSearch) IsTLSConfigured() bool {
+	return s.Spec.Security.TLS != nil
 }
 
 func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
@@ -295,4 +438,116 @@ func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
 
 func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 	return s.Spec.Prometheus
+}
+
+func (s *MongoDBSearch) IsExternalLBMode() bool {
+	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Mode == LBModeUnmanaged
+}
+
+// IsReplicaSetExternalLB returns true if this is a ReplicaSet external LB configuration.
+// An endpoint with a template placeholder ({shardName}) is NOT considered a ReplicaSet endpoint.
+func (s *MongoDBSearch) IsReplicaSetExternalLB() bool {
+	return s.IsExternalLBMode() &&
+		s.Spec.LoadBalancer.External != nil &&
+		s.Spec.LoadBalancer.External.Endpoint != "" &&
+		!s.HasEndpointTemplate()
+}
+
+func (s *MongoDBSearch) GetReplicaSetExternalLBEndpoint() string {
+	if !s.IsReplicaSetExternalLB() {
+		return ""
+	}
+	return s.Spec.LoadBalancer.External.Endpoint
+}
+
+// HasEndpointTemplate returns true if the endpoint contains the {shardName} template placeholder
+func (s *MongoDBSearch) HasEndpointTemplate() bool {
+	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.External == nil {
+		return false
+	}
+	return strings.Contains(s.Spec.LoadBalancer.External.Endpoint, ShardNamePlaceholder)
+}
+
+// IsShardedExternalLB returns true if this is a sharded external LB configuration.
+// This can be either via endpoint template or legacy per-shard endpoints array.
+func (s *MongoDBSearch) IsShardedExternalLB() bool {
+	if !s.IsExternalLBMode() || s.Spec.LoadBalancer.External == nil {
+		return false
+	}
+	// Template format takes precedence
+	if s.HasEndpointTemplate() {
+		return true
+	}
+	// Legacy format: explicit per-shard endpoints
+	return s.Spec.LoadBalancer.External.Sharded != nil &&
+		len(s.Spec.LoadBalancer.External.Sharded.Endpoints) > 0
+}
+
+// GetEndpointForShard returns the endpoint for a specific shard.
+// If using template format, substitutes {shardName} with the actual shard name.
+// If using legacy format, looks up the shard in the endpoints array.
+func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
+	if !s.IsShardedExternalLB() {
+		return ""
+	}
+	// Template format takes precedence
+	if s.HasEndpointTemplate() {
+		return strings.ReplaceAll(s.Spec.LoadBalancer.External.Endpoint, ShardNamePlaceholder, shardName)
+	}
+	// Legacy format: look up in endpoints array
+	for _, e := range s.Spec.LoadBalancer.External.Sharded.Endpoints {
+		if e.ShardName == shardName {
+			return e.Endpoint
+		}
+	}
+	return ""
+}
+
+func (s *MongoDBSearch) GetShardEndpointMap() map[string]string {
+	result := make(map[string]string)
+	if !s.IsShardedExternalLB() {
+		return result
+	}
+	// Note: This only works for legacy format. For template format, use GetEndpointForShard()
+	if s.Spec.LoadBalancer.External.Sharded != nil {
+		for _, e := range s.Spec.LoadBalancer.External.Sharded.Endpoints {
+			result[e.ShardName] = e.Endpoint
+		}
+	}
+	return result
+}
+
+func (s *MongoDBSearch) GetReplicas() int {
+	if s.Spec.Source != nil && s.Spec.Source.Replicas > 0 {
+		return s.Spec.Source.Replicas
+	}
+	return 1
+}
+
+func (s *MongoDBSearch) HasMultipleReplicas() bool {
+	return s.GetReplicas() > 1
+}
+
+func (s *MongoDBSearch) ShardMongotStatefulSetName(shardName string) string {
+	return fmt.Sprintf("%s-mongot-%s", s.Name, shardName)
+}
+
+func (s *MongoDBSearch) ShardMongotStatefulSetNamespacedName(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: s.ShardMongotStatefulSetName(shardName), Namespace: s.Namespace}
+}
+
+func (s *MongoDBSearch) ShardMongotServiceName(shardName string) string {
+	return fmt.Sprintf("%s-mongot-%s-svc", s.Name, shardName)
+}
+
+func (s *MongoDBSearch) ShardMongotServiceNamespacedName(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: s.ShardMongotServiceName(shardName), Namespace: s.Namespace}
+}
+
+func (s *MongoDBSearch) ShardMongotConfigMapName(shardName string) string {
+	return fmt.Sprintf("%s-mongot-%s-config", s.Name, shardName)
+}
+
+func (s *MongoDBSearch) ShardMongotConfigMapNamespacedName(shardName string) types.NamespacedName {
+	return types.NamespacedName{Name: s.ShardMongotConfigMapName(shardName), Namespace: s.Namespace}
 }
