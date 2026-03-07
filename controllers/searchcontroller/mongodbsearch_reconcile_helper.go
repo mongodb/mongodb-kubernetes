@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	semver "github.com/Masterminds/semver/v3"
+	"github.com/Masterminds/semver/v3"
 	"github.com/ghodss/yaml"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -120,6 +120,22 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
+	if err := r.ValidateMultipleReplicasConfig(); err != nil {
+		return workflow.Failed(err)
+	}
+
+	// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
+	// For sharded clusters, deploy per-shard mongot StatefulSets, Services, and ConfigMaps.
+	if shardedSource, ok := r.db.(ShardedSearchSourceDBResource); ok {
+		return r.reconcileSharded(ctx, log, shardedSource, version)
+	}
+
+	// Non-sharded (ReplicaSet) reconciliation
+	return r.reconcileNonSharded(ctx, log, version)
+}
+
+// reconcileNonSharded handles reconciliation for non-sharded (ReplicaSet) MongoDB sources.
+func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, log *zap.SugaredLogger, version string) workflow.Status {
 	keyfileStsModification := statefulset.NOOP()
 	if r.mdbSearch.IsWireprotoEnabled() {
 		var err error
@@ -176,6 +192,91 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	expectedGeneration := mutatedSts.GetGeneration()
 	if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, r.mdbSearch.StatefulSetNamespacedName().Name, expectedGeneration, r.client); !statefulSetStatus.IsOK() {
 		return statefulSetStatus
+	}
+
+	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
+}
+
+// reconcileSharded handles reconciliation for sharded MongoDB clusters.
+// It deploys one mongot StatefulSet, Service, and ConfigMap per shard.
+//
+// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
+// - spec.lb.mode == External
+// - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
+// We map shardName -> endpoint and configure each mongod shard
+// to use its shard-local external LB endpoint for Search gRPC.
+func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log *zap.SugaredLogger, shardedSource ShardedSearchSourceDBResource, version string) workflow.Status {
+	log.Infof("Reconciling sharded MongoDBSearch with %d shards", shardedSource.GetShardCount())
+
+	keyfileStsModification := statefulset.NOOP()
+	if r.mdbSearch.IsWireprotoEnabled() {
+		var err error
+		keyfileStsModification, err = r.ensureSourceKeyfile(ctx, log)
+		if apierrors.IsNotFound(err) {
+			return workflow.Pending("Waiting for keyfile secret to be created")
+		} else if err != nil {
+			return workflow.Failed(err)
+		}
+	}
+
+	ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
+
+	embeddingConfigMongotModification, embeddingConfigStsModification, err := r.ensureEmbeddingConfig(ctx, log)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	image, imageVersion := r.searchImageAndVersion()
+	searchImage := fmt.Sprintf("%s:%s", image, imageVersion)
+
+	// Deploy per-shard mongot resources
+	shardNames := shardedSource.GetShardNames()
+	for shardIdx, shardName := range shardNames {
+		shardLog := log.With("shard", shardName, "shardIdx", shardIdx)
+		shardLog.Infof("Reconciling mongot for shard %s", shardName)
+
+		// Create per-shard Service
+		if err := r.ensureShardSearchService(ctx, shardName); err != nil {
+			return workflow.Failed(err)
+		}
+
+		// Create per-shard mongot config with shard-specific host seeds
+		shardMongotConfig := createShardMongotConfig(r.mdbSearch, shardedSource, shardIdx)
+		configHash, err := r.ensureShardMongotConfig(ctx, shardLog, shardName, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+		if err != nil {
+			return workflow.Failed(err)
+		}
+
+		configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
+			map[string]string{
+				"mongotConfigHash": configHash,
+			},
+		))
+
+		// Create per-shard StatefulSet
+		if err := r.createOrUpdateShardStatefulSet(ctx,
+			shardLog,
+			shardName,
+			CreateShardSearchStatefulSetFunc(r.mdbSearch, shardedSource, shardIdx, searchImage),
+			configHashModification,
+			keyfileStsModification,
+			ingressTlsStsModification,
+			egressTlsStsModification,
+			embeddingConfigStsModification,
+		); err != nil {
+			return workflow.Failed(err)
+		}
+
+		// Check StatefulSet status
+		stsName := r.mdbSearch.ShardMongotStatefulSetNamespacedName(shardName)
+		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, stsName.Name, r.client); !statefulSetStatus.IsOK() {
+			return statefulSetStatus
+		}
 	}
 
 	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
@@ -268,6 +369,179 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	log.Debugf("Updated mongot config yaml config map: %v (%s) with the following configuration: %s", cmName, op, string(configData))
 
 	return hashBytes(configData), nil
+}
+
+// ensureShardSearchService creates or updates the headless Service for a specific shard's mongot.
+// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
+// Each shard gets its own mongot Service for internal cluster communication.
+func (r *MongoDBSearchReconcileHelper) ensureShardSearchService(ctx context.Context, shardName string) error {
+	svcName := r.mdbSearch.ShardMongotServiceNamespacedName(shardName)
+	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName.Name, Namespace: svcName.Namespace}}
+	op, err := controllerutil.CreateOrUpdate(ctx, r.client, svc, func() error {
+		resourceVersion := svc.ResourceVersion
+		*svc = buildShardSearchHeadlessService(r.mdbSearch, shardName)
+		svc.ResourceVersion = resourceVersion
+		return controllerutil.SetOwnerReference(r.mdbSearch, svc, r.client.Scheme())
+	})
+	if err != nil {
+		return xerrors.Errorf("error creating/updating shard search service %v: %w", svcName, err)
+	}
+
+	zap.S().Debugf("Updated shard search service %v: %s", svcName, op)
+
+	return nil
+}
+
+// ensureShardMongotConfig creates or updates the ConfigMap for a specific shard's mongot configuration.
+// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
+// Each shard gets its own mongot ConfigMap with shard-specific host seeds.
+func (r *MongoDBSearchReconcileHelper) ensureShardMongotConfig(ctx context.Context, log *zap.SugaredLogger, shardName string, modifications ...mongot.Modification) (string, error) {
+	mongotConfig := mongot.Config{}
+	mongot.Apply(modifications...)(&mongotConfig)
+	configData, err := yaml.Marshal(mongotConfig)
+	if err != nil {
+		return "", err
+	}
+
+	cmName := r.mdbSearch.ShardMongotConfigMapNamespacedName(shardName)
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName.Name, Namespace: cmName.Namespace}, Data: map[string]string{}}
+	op, err := controllerutil.CreateOrUpdate(ctx, r.client, cm, func() error {
+		resourceVersion := cm.ResourceVersion
+
+		cm.Data[MongotConfigFilename] = string(configData)
+
+		cm.ResourceVersion = resourceVersion
+
+		return controllerutil.SetOwnerReference(r.mdbSearch, cm, r.client.Scheme())
+	})
+	if err != nil {
+		return "", err
+	}
+
+	log.Debugf("Updated shard mongot config yaml config map: %v (%s) with the following configuration: %s", cmName, op, string(configData))
+
+	return hashBytes(configData), nil
+}
+
+// createOrUpdateShardStatefulSet creates or updates the StatefulSet for a specific shard's mongot.
+// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
+// Each shard gets its own mongot StatefulSet.
+func (r *MongoDBSearchReconcileHelper) createOrUpdateShardStatefulSet(ctx context.Context, log *zap.SugaredLogger, shardName string, modifications ...statefulset.Modification) error {
+	stsName := r.mdbSearch.ShardMongotStatefulSetNamespacedName(shardName)
+	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
+	op, err := controllerutil.CreateOrUpdate(ctx, r.client, sts, func() error {
+		statefulset.Apply(modifications...)(sts)
+		return controllerutil.SetOwnerReference(r.mdbSearch, sts, r.client.Scheme())
+	})
+	if err != nil {
+		return xerrors.Errorf("error creating/updating shard search statefulset %v: %w", stsName, err)
+	}
+
+	log.Debugf("Shard search statefulset %s CreateOrUpdate result: %s", stsName, op)
+
+	return nil
+}
+
+// buildShardSearchHeadlessService builds a headless Service for a specific shard's mongot.
+func buildShardSearchHeadlessService(search *searchv1.MongoDBSearch, shardName string) corev1.Service {
+	svcName := search.ShardMongotServiceNamespacedName(shardName)
+	stsName := search.ShardMongotStatefulSetName(shardName)
+
+	labels := map[string]string{
+		"app":   svcName.Name,
+		"shard": shardName,
+	}
+
+	serviceBuilder := service.Builder().
+		SetName(svcName.Name).
+		SetNamespace(svcName.Namespace).
+		SetLabels(labels).
+		SetSelector(map[string]string{"app": stsName}).
+		SetClusterIP("None").
+		SetPublishNotReadyAddresses(true).
+		SetServiceType(corev1.ServiceTypeClusterIP).
+		SetOwnerReferences(search.GetOwnerReferences()).
+		AddPort(&corev1.ServicePort{
+			Name:       "mongot-grpc",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       search.GetMongotGrpcPort(),
+			TargetPort: intstr.FromInt32(search.GetMongotGrpcPort()),
+		})
+
+	if prometheus := search.GetPrometheus(); prometheus != nil {
+		serviceBuilder.AddPort(&corev1.ServicePort{
+			Name:       "prometheus",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       prometheus.GetPort(),
+			TargetPort: intstr.FromInt32(prometheus.GetPort()),
+		})
+	}
+
+	serviceBuilder.AddPort(&corev1.ServicePort{
+		Name:       "healthcheck",
+		Protocol:   corev1.ProtocolTCP,
+		Port:       search.GetMongotHealthCheckPort(),
+		TargetPort: intstr.FromInt32(search.GetMongotHealthCheckPort()),
+	})
+
+	return serviceBuilder.Build()
+}
+
+// createShardMongotConfig creates the mongot configuration for a specific shard.
+// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
+// Each shard's mongot connects to its own shard's mongod hosts.
+func createShardMongotConfig(search *searchv1.MongoDBSearch, shardedSource ShardedSearchSourceDBResource, shardIdx int) mongot.Modification {
+	return func(config *mongot.Config) {
+		hostAndPorts := shardedSource.HostSeedsForShard(shardIdx)
+
+		config.SyncSource = mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				HostAndPort:    hostAndPorts,
+				Username:       search.SourceUsername(),
+				PasswordFile:   TempSourceUserPasswordPath,
+				TLS:            ptr.To(false),
+				ReadPreference: ptr.To("secondaryPreferred"),
+				AuthSource:     ptr.To("admin"),
+			},
+			// Router configuration for mongos connection in sharded clusters
+			Router: &mongot.ConfigRouter{
+				HostAndPort:  shardedSource.MongosHostAndPort(),
+				Username:     search.SourceUsername(),
+				PasswordFile: TempSourceUserPasswordPath,
+				TLS:          ptr.To(false),
+			},
+		}
+		config.Storage = mongot.ConfigStorage{
+			DataPath: MongotDataPath,
+		}
+		config.Server = mongot.ConfigServer{
+			Grpc: &mongot.ConfigGrpc{
+				Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotGrpcPort()),
+				TLS: &mongot.ConfigGrpcTLS{
+					Mode: mongot.ConfigTLSModeDisabled,
+				},
+			},
+		}
+
+		// Configure prometheus metrics if enabled
+		if prometheus := search.GetPrometheus(); prometheus != nil {
+			config.Metrics = mongot.ConfigMetrics{
+				Enabled: true,
+				Address: fmt.Sprintf("0.0.0.0:%d", prometheus.GetPort()),
+			}
+		}
+
+		// Configure health check endpoint - required for mongot to start
+		config.HealthCheck = mongot.ConfigHealthCheck{
+			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
+		}
+
+		// Configure logging
+		config.Logging = mongot.ConfigLogging{
+			Verbosity: string(search.GetLogLevel()),
+			LogPath:   nil,
+		}
+	}
 }
 
 // EnsureEmbeddingAPIKeySecret makes sure that the scret that is provided in MDBSearch resource
@@ -379,19 +653,28 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
 
-	// TODO: validate that the certificate in the user-provided Secret in .spec.security.tls.certificateKeySecret is issued by the CA in the operator's CA Secret
-
 	certFileName, err := tls.EnsureTLSSecret(ctx, r.client, r.mdbSearch)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	// Determine TLS mode based on whether CA is configured for mTLS
+	tlsMode := mongot.ConfigTLSModeTLS
+	var caPath *string
+	if r.mdbSearch.IsMTLSEnabled() {
+		tlsMode = mongot.ConfigTLSModeMTLS
+		caPath = ptr.To(tls.IngressCAMountPath + "ca.crt")
+	}
+
 	mongotModification := func(config *mongot.Config) {
 		certPath := tls.OperatorSecretMountPath + certFileName
-		config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeTLS
+		config.Server.Grpc.TLS.Mode = tlsMode
 		config.Server.Grpc.TLS.CertificateKeyFile = ptr.To(certPath)
+		if caPath != nil {
+			config.Server.Grpc.TLS.CertificateAuthorityFile = caPath
+		}
 		if config.Server.Wireproto != nil {
-			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
+			config.Server.Wireproto.TLS.Mode = tlsMode
 			config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
 		}
 	}
@@ -399,10 +682,23 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	tlsSecret := r.mdbSearch.TLSOperatorSecretNamespacedName()
 	tlsVolume := statefulset.CreateVolumeFromSecret("tls", tlsSecret.Name)
 	tlsVolumeMount := statefulset.CreateVolumeMount("tls", tls.OperatorSecretMountPath, statefulset.WithReadOnly(true))
+
+	volumes := []corev1.Volume{tlsVolume}
+	volumeMounts := []corev1.VolumeMount{tlsVolumeMount}
+
+	// Add CA volume if mTLS is enabled
+	if r.mdbSearch.IsMTLSEnabled() {
+		caSecret := r.mdbSearch.TLSCASecretNamespacedName()
+		caVolume := statefulset.CreateVolumeFromSecret("ingress-ca", caSecret.Name)
+		caVolumeMount := statefulset.CreateVolumeMount("ingress-ca", tls.IngressCAMountPath, statefulset.WithReadOnly(true))
+		volumes = append(volumes, caVolume)
+		volumeMounts = append(volumeMounts, caVolumeMount)
+	}
+
 	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
-		podtemplatespec.WithVolume(tlsVolume),
+		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
-			container.WithVolumeMounts([]corev1.VolumeMount{tlsVolumeMount}),
+			container.WithVolumeMounts(volumeMounts),
 		)),
 	))
 
@@ -418,6 +714,11 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 	mongotModification := func(config *mongot.Config) {
 		config.SyncSource.ReplicaSet.TLS = ptr.To(true)
 		config.SyncSource.CertificateAuthorityFile = ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName)
+
+		// For sharded clusters, also enable TLS for the Router (mongos) connection
+		if config.SyncSource.Router != nil {
+			config.SyncSource.Router.TLS = ptr.To(true)
+		}
 
 		// if the gRPC server is configured to accept TLS connections then toggle mTLS as well
 		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
@@ -561,6 +862,49 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 			"mongotHost":                                      mongotHostAndPort(search, clusterDomain),
 			"searchIndexManagementHostAndPort":                mongotHostAndPort(search, clusterDomain),
 			"skipAuthenticationToSearchIndexManagementServer": false,
+			"skipAuthenticationToMongot":                      false,
+			"searchTLSMode":                                   string(searchTLSMode),
+			"useGrpcForSearch":                                !search.IsWireprotoEnabled(),
+		},
+	}
+}
+
+// GetMongodConfigParametersForShard returns the mongod configuration parameters for a specific shard
+// in a sharded cluster with external L7 LB.
+//
+// Sharded internal + external L7 LB (BYO per-shard LB) PoC:
+// - spec.lb.mode == External
+// - spec.lb.external.sharded.endpoints[].{shardName, endpoint}
+// We map shardName -> endpoint and configure each mongod shard
+// to use its shard-local external LB endpoint for Search gRPC.
+func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) map[string]any {
+	searchTLSMode := automationconfig.TLSModeDisabled
+	if search.Spec.Security.TLS != nil {
+		searchTLSMode = automationconfig.TLSModeRequired
+	}
+
+	// Determine the mongot endpoint for this shard
+	var mongotEndpoint string
+	if search.IsShardedExternalLB() {
+		// Use the external LB endpoint for this shard
+		endpointMap := search.GetShardEndpointMap()
+		if endpoint, ok := endpointMap[shardName]; ok {
+			mongotEndpoint = endpoint
+		} else {
+			// Fallback to internal service if no external endpoint configured
+			mongotEndpoint = shardMongotHostAndPort(search, shardName, clusterDomain)
+		}
+	} else {
+		// Use the internal shard-local mongot service
+		mongotEndpoint = shardMongotHostAndPort(search, shardName, clusterDomain)
+	}
+
+	return map[string]any{
+		"setParameter": map[string]any{
+			"mongotHost":                                      mongotEndpoint,
+			"searchIndexManagementHostAndPort":                mongotEndpoint,
+			"skipAuthenticationToSearchIndexManagementServer": false,
+			"skipAuthenticationToMongot":                      false,
 			"searchTLSMode":                                   string(searchTLSMode),
 			"useGrpcForSearch":                                !search.IsWireprotoEnabled(),
 		},
@@ -568,9 +912,70 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 }
 
 func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
+	// If external LB is configured for replica set, use the external endpoint
+	if search.IsReplicaSetExternalLB() {
+		return search.GetReplicaSetExternalLBEndpoint()
+	}
+
+	// Otherwise, use the internal service endpoint
 	svcName := search.SearchServiceNamespacedName()
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
+}
+
+// shardMongotHostAndPort returns the internal service endpoint for a shard's mongot deployment
+func shardMongotHostAndPort(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
+	svcName := search.ShardMongotServiceNamespacedName(shardName)
+	port := search.GetEffectiveMongotPort()
+	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
+}
+
+// GetMongosConfigParametersForSharded returns the mongos configuration parameters for a sharded cluster.
+// For sharded clusters, mongos needs search parameters to route search queries to mongot.
+//
+// Required mongos parameters:
+// - mongotHost: host:port of the mongot server (or L4/L7 LB fronting mongot)
+// - searchIndexManagementHostAndPort: host:port for create/update/drop search indexes (same as mongotHost)
+// - useGrpcForSearch: tells mongos to talk to mongot over the MongoDB gRPC protocol (must be true)
+//
+// For sharded clusters with external LB, we use the first shard's external endpoint as the mongos endpoint.
+// This is because mongos needs a single endpoint to route search queries.
+func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, shardNames []string, clusterDomain string) map[string]any {
+	searchTLSMode := automationconfig.TLSModeDisabled
+	if search.Spec.Security.TLS != nil {
+		searchTLSMode = automationconfig.TLSModeRequired
+	}
+
+	// Determine the mongot endpoint for mongos
+	// For sharded clusters, mongos uses the first shard's mongot endpoint
+	var mongotEndpoint string
+	if len(shardNames) > 0 {
+		firstShardName := shardNames[0]
+		if search.IsShardedExternalLB() {
+			// Use the external LB endpoint for the first shard
+			endpointMap := search.GetShardEndpointMap()
+			if endpoint, ok := endpointMap[firstShardName]; ok {
+				mongotEndpoint = endpoint
+			} else {
+				// Fallback to internal service if no external endpoint configured
+				mongotEndpoint = shardMongotHostAndPort(search, firstShardName, clusterDomain)
+			}
+		} else {
+			// Use the internal shard-local mongot service for the first shard
+			mongotEndpoint = shardMongotHostAndPort(search, firstShardName, clusterDomain)
+		}
+	}
+
+	return map[string]any{
+		"setParameter": map[string]any{
+			"mongotHost":                                      mongotEndpoint,
+			"searchIndexManagementHostAndPort":                mongotEndpoint,
+			"skipAuthenticationToSearchIndexManagementServer": false,
+			"skipAuthenticationToMongot":                      false,
+			"searchTLSMode":                                   string(searchTLSMode),
+			"useGrpcForSearch":                                true, // Must be true for mongot
+		},
+	}
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
@@ -603,6 +1008,37 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.Contains(version, unsupportedSearchVersion) {
 		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
+	}
+
+	return nil
+}
+
+// ValidateMultipleReplicasConfig validates that when multiple mongot replicas are configured,
+// an external load balancer endpoint is also configured to distribute traffic across the replicas.
+func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
+	if !r.mdbSearch.HasMultipleReplicas() {
+		return nil
+	}
+
+	// For sharded clusters, check if sharded external LB is configured
+	if _, ok := r.db.(ShardedSearchSourceDBResource); ok {
+		if !r.mdbSearch.IsShardedExternalLB() {
+			return xerrors.Errorf(
+				"multiple mongot replicas (%d) require external load balancer configuration; "+
+					"please configure spec.lb.mode=External with spec.lb.external.sharded.endpoints for sharded clusters",
+				r.mdbSearch.GetReplicas(),
+			)
+		}
+		return nil
+	}
+
+	// For replica sets, check if replica set external LB is configured
+	if !r.mdbSearch.IsReplicaSetExternalLB() {
+		return xerrors.Errorf(
+			"multiple mongot replicas (%d) require external load balancer configuration; "+
+				"please configure spec.lb.mode=External with spec.lb.external.endpoint",
+			r.mdbSearch.GetReplicas(),
+		)
 	}
 
 	return nil
