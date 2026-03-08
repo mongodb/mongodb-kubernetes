@@ -818,6 +818,7 @@ task_groups:
       - e2e_search_external_tls
       - e2e_search_enterprise_basic
       - e2e_search_external_rs_single_mongot
+      - e2e_search_sharded_internal_single_mongot
       - e2e_search_enterprise_tls
       - e2e_search_enterprise_x509_cluster_auth
       - e2e_search_sharded_external_mongod_single_mongot
@@ -850,6 +851,7 @@ task_groups:
       - e2e_search_external_tls
       - e2e_search_enterprise_basic
       - e2e_search_external_rs_single_mongot
+      - e2e_search_sharded_internal_single_mongot
       - e2e_search_enterprise_tls
       - e2e_search_enterprise_x509_cluster_auth
       - e2e_search_sharded_external_mongod_single_mongot
