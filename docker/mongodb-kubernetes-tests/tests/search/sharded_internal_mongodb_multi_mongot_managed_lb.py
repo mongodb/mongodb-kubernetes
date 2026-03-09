@@ -166,9 +166,7 @@ def test_create_users(
 @mark.e2e_search_sharded_enterprise_managed_lb
 def test_deploy_lb_certificates(namespace: str, issuer: str):
     """Create TLS certificates for the operator-managed load balancer."""
-    create_lb_certificates(
-        namespace, issuer, SHARD_COUNT, MDB_RESOURCE_NAME, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX
-    )
+    create_lb_certificates(namespace, issuer, SHARD_COUNT, MDB_RESOURCE_NAME, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
 
 
 @mark.e2e_search_sharded_enterprise_managed_lb
@@ -220,7 +218,10 @@ def test_wait_for_sharded_cluster_ready(mdb: MongoDB):
 @mark.e2e_search_sharded_enterprise_managed_lb
 def test_verify_mongod_parameters_per_shard(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     verify_sharded_mongod_parameters(
-        namespace, MDB_RESOURCE_NAME, mdbs.name, SHARD_COUNT,
+        namespace,
+        MDB_RESOURCE_NAME,
+        mdbs.name,
+        SHARD_COUNT,
         expected_host_fn=lambda shard: search_resource_names.shard_proxy_service_host(
             mdbs.name, shard, namespace, ENVOY_PROXY_PORT
         ),

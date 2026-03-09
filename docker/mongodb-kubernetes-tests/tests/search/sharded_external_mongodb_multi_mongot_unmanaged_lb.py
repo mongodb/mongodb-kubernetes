@@ -223,7 +223,10 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 @mark.e2e_search_sharded_enterprise_external_mongod
 def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     verify_sharded_mongod_parameters(
-        namespace, MDB_RESOURCE_NAME, mdbs.name, SHARD_COUNT,
+        namespace,
+        MDB_RESOURCE_NAME,
+        mdbs.name,
+        SHARD_COUNT,
         expected_host_fn=lambda shard: search_resource_names.shard_proxy_service_host(
             mdbs.name, shard, namespace, ENVOY_PROXY_PORT
         ),

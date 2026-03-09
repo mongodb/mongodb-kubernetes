@@ -179,7 +179,10 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 @mark.e2e_search_sharded_external_mongod_single_mongot
 def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     verify_sharded_mongod_parameters(
-        namespace, MDB_RESOURCE_NAME, mdbs.name, SHARD_COUNT,
+        namespace,
+        MDB_RESOURCE_NAME,
+        mdbs.name,
+        SHARD_COUNT,
         expected_host_fn=lambda shard: search_resource_names.shard_service_host(
             mdbs.name, shard, namespace, MONGOT_PORT
         ),
