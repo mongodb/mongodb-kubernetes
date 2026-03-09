@@ -647,21 +647,25 @@ func TestValidateSearchResource(t *testing.T) {
 func TestEnsureMongotConfig_PerPodEmbeddingModes(t *testing.T) {
 	cases := []struct {
 		name                  string
+		replicas              int
 		perPodEmbeddingConfig bool
 		expectedKeys          []string
 		notExpectedKeys       []string
 	}{
 		{
 			name:                  "single config mode",
+			replicas:              1,
 			perPodEmbeddingConfig: false,
 			expectedKeys:          []string{MongotConfigFilename},
 			notExpectedKeys:       []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename},
 		},
 		{
-			name:                  "per-pod config mode",
+			name:                  "per-pod config mode with 3 replicas",
+			replicas:              3,
 			perPodEmbeddingConfig: true,
-			expectedKeys:          []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename},
-			notExpectedKeys:       []string{MongotConfigFilename},
+			// All pod-name keys should be present
+			expectedKeys:    []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename, "test-search-search-0", "test-search-search-1", "test-search-search-2"},
+			notExpectedKeys: []string{MongotConfigFilename},
 		},
 	}
 
@@ -671,11 +675,12 @@ func TestEnsureMongotConfig_PerPodEmbeddingModes(t *testing.T) {
 			fakeClient := newTestFakeClient(search)
 			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
 			cmName := search.MongotConfigConfigMapNamespacedName()
+			stsName := search.StatefulSetNamespacedName().Name
 
 			embeddingMod := func(c *mongot.Config) {
 				c.Embedding = &mongot.EmbeddingConfig{IsAutoEmbeddingViewWriter: ptr.To(true)}
 			}
-			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), cmName, tc.perPodEmbeddingConfig, embeddingMod)
+			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, tc.replicas, tc.perPodEmbeddingConfig, embeddingMod)
 			require.NoError(t, err)
 
 			cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -688,13 +693,20 @@ func TestEnsureMongotConfig_PerPodEmbeddingModes(t *testing.T) {
 				assert.NotContains(t, cm.Data, key)
 			}
 
-			// Verify leader/follower IsAutoEmbeddingViewWriter values for per-pod mode
+			// Verify leader/follower IsAutoEmbeddingViewWriter values and pod-name roles for per-pod mode
 			if tc.perPodEmbeddingConfig {
 				var leaderConfig, followerConfig mongot.Config
 				require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigLeaderFilename]), &leaderConfig))
 				require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigFollowerFilename]), &followerConfig))
 				assert.True(t, *leaderConfig.Embedding.IsAutoEmbeddingViewWriter)
 				assert.False(t, *followerConfig.Embedding.IsAutoEmbeddingViewWriter)
+
+				// Verify pod-name keys: pod-0 is leader, all others are followers
+				assert.Equal(t, "leader", cm.Data["test-search-search-0"])
+				for i := 1; i < tc.replicas; i++ {
+					podName := fmt.Sprintf("test-search-search-%d", i)
+					assert.Equal(t, "follower", cm.Data[podName])
+				}
 			}
 		})
 	}
@@ -710,16 +722,18 @@ func TestCreateSearchStatefulSetFunc_ConfigMounting(t *testing.T) {
 	container := sts.Spec.Template.Spec.Containers[0]
 
 	assert.Contains(t, container.Args[1], MongotConfigPath)
-	assert.NotContains(t, container.Args[1], "ORDINAL")
+	assert.NotContains(t, container.Args[1], "ROLE=")
 
-	// Per-pod config: directory mount, ordinal script
+	// Per-pod config: directory mount, pod-name-based role lookup script
 	sts = &appsv1.StatefulSet{}
 	CreateSearchStatefulSetFunc(search, "sts", "ns", "svc", "cm", labels, "img:v1", true)(sts)
 	container = sts.Spec.Template.Spec.Containers[0]
 
-	assert.Contains(t, container.Args[1], "ORDINAL=${HOSTNAME##*-}")
-	assert.Contains(t, container.Args[1], MongotConfigLeaderFilename)
-	assert.Contains(t, container.Args[1], MongotConfigFollowerFilename)
+	// Verify the startup script reads role directly from pod-name file (no fallback logic)
+	assert.Contains(t, container.Args[1], "ROLE=$(cat")
+	assert.Contains(t, container.Args[1], "$(hostname)")
+	assert.Contains(t, container.Args[1], "config-${ROLE}.yml")
+	assert.NotContains(t, container.Args[1], "if [") // No conditional logic
 }
 
 func TestGetMongodConfigParametersForShard(t *testing.T) {

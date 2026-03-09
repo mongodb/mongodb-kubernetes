@@ -203,15 +203,12 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 }
 
 // mongotPerPodConfigStartCommand returns the shell script that selects the appropriate
-// config file based on the pod's ordinal. Pod-0 (leader) uses config-leader.yml,
-// all other pods (followers) use config-follower.yml.
+// config file based on pod name lookup. The ConfigMap contains an entry for each pod
+// with its role (leader/follower), so the script simply reads the role from the file.
 func mongotPerPodConfigStartCommand() string {
-	// Uses shell arithmetic: (ORDINAL > 0) evaluates to 1 for followers, 0 for leader
-	// Array-style selection: configs[0]=leader, configs[1]=follower
-	return fmt.Sprintf(`ORDINAL=${HOSTNAME##*-}
-CONFIGS=("%s" "%s")
-/mongot-community/mongot --config %s/${CONFIGS[$((ORDINAL > 0))]}`,
-		MongotConfigLeaderFilename, MongotConfigFollowerFilename, MongotConfigDirPath)
+	return fmt.Sprintf(`ROLE=$(cat "%s/$(hostname)")
+/mongot-community/mongot --config %s/config-${ROLE}.yml`,
+		MongotConfigDirPath, MongotConfigDirPath)
 }
 
 func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
