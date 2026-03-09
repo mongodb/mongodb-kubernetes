@@ -45,7 +45,7 @@ def test_mdb_is_reachable_without_ssl(mdb: MongoDB):
 @pytest.mark.e2e_replica_set_tls_require_upgrade
 def test_enables_TLS_replica_set(mdb: MongoDB, server_certs: str, issuer_ca_configmap: str):
     mdb.load()
-    mdb["spec"]["security"] = {"tls": {"enabled": True}, "ca": issuer_ca_configmap}
+    mdb["spec"]["security"] = {"tls": {"enabled": True, "ca": issuer_ca_configmap}}
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running)
 

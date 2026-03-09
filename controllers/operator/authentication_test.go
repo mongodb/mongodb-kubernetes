@@ -281,12 +281,13 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
 }
 
-func TestScramAgentUser_IsNotOverridden(t *testing.T) {
+func TestScramAgentUser_CRDIsSourceOfTruth(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().EnableSCRAM().Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		err := connection.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+			// Simulate a manually-set custom username in the automation config
 			ac.Auth.AutoUser = "my-custom-agent-name"
 			return nil
 		}, nil)
@@ -301,7 +302,9 @@ func TestScramAgentUser_IsNotOverridden(t *testing.T) {
 
 	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
 
-	assert.Equal(t, "my-custom-agent-name", ac.Auth.AutoUser)
+	// CRD is the source of truth - the default value from the CRD should override
+	// any manually-set value in the automation config
+	assert.Equal(t, util.AutomationAgentUserName, ac.Auth.AutoUser)
 }
 
 func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ReplicaSet(t *testing.T) {

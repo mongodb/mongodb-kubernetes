@@ -1073,7 +1073,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
-	agentCertHash, agentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertHash, agentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath, sc.GetSecurity())
 
 	opts = deploymentOptions{
 		podEnvVars:           podEnvVars,
