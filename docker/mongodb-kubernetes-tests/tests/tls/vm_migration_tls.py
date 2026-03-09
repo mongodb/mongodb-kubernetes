@@ -41,6 +41,10 @@ def _get_ca_bundle_content() -> str:
         path = getattr(paths, "cafile", None) or getattr(paths, "openssl_cafile", None)
     if not path:
         path = "/etc/ssl/certs/ca-certificates.crt"
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"No CA bundle found; tried certifi, ssl.get_default_verify_paths(), and {path}"
+        )
     with open(path, "r") as f:
         return f.read()
 

@@ -31,16 +31,16 @@ def vm_sts(namespace: str, om_tester: OMTester):
     with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
         sts_body = yaml.safe_load(f.read())
 
-        sts_body["spec"]["template"]["spec"]["containers"][0]["env"] = [
-            {"name": "MMS_GROUP_ID", "value": om_tester.context.project_id},
-            {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
-            {"name": "MMS_API_KEY", "value": om_tester.context.agent_api_key},
-        ]
-        # Allow VM agents to connect to Ops Manager (e.g. cloud-qa) when the cluster does not trust its CA.
-        # The agent requires the flag on the command line; env var alone is not enough.
-        cmd = sts_body["spec"]["template"]["spec"]["containers"][0]["command"]
-        if isinstance(cmd, list) and len(cmd) >= 3 and "-mmsApiKey=" in cmd[2]:
-            cmd[2] = cmd[2] + " -tlsRequireValidMMSServerCertificates=false"
+    sts_body["spec"]["template"]["spec"]["containers"][0]["env"] = [
+        {"name": "MMS_GROUP_ID", "value": om_tester.context.project_id},
+        {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
+        {"name": "MMS_API_KEY", "value": om_tester.context.agent_api_key},
+    ]
+    # Allow VM agents to connect to Ops Manager (e.g. cloud-qa) when the cluster does not trust its CA.
+    # The agent requires the flag on the command line; env var alone is not enough.
+    cmd = sts_body["spec"]["template"]["spec"]["containers"][0]["command"]
+    if isinstance(cmd, list) and len(cmd) >= 3 and "-mmsApiKey=" in cmd[2]:
+        cmd[2] = cmd[2] + " -tlsRequireValidMMSServerCertificates=false"
     KubernetesTester.create_or_update_statefulset(namespace, body=sts_body)
     return sts_body
 
