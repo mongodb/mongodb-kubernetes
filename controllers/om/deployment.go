@@ -150,13 +150,13 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 	// If the new replica set is bigger than old one - we need to copy first member to positions of new members so that
 	// they were merged with operator replica sets on next step
 	// (in case OM made any changes to existing processes - these changes must be propagated to new members).
-	//if r != nil && len(operatorRs.Rs.Members()) > len(r.Members()) {
-	//	if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.Members()), l); err != nil {
-	//		// I guess this error is not so serious to fail the whole process - RS will be scaled up anyway
-	//		log.Error("Failed to copy first process (so new replica set processes may miss Ops Manager changes done to "+
-	//			"existing replica set processes): %s", err)
-	//	}
-	//}
+	if r != nil && len(operatorRs.Rs.Members()) > len(r.Members()) {
+		if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.Members())-len(externalMembers), l); err != nil {
+			// I guess this error is not so serious to fail the whole process - RS will be scaled up anyway
+			log.Error("Failed to copy first process (so new replica set processes may miss Ops Manager changes done to "+
+				"existing replica set processes): %s", err)
+		}
+	}
 
 	// Merging all RS processes
 	for _, p := range operatorRs.Processes {
