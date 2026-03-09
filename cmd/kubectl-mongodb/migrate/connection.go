@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -175,11 +176,14 @@ func readAgentConfigs(conn om.Connection) (*om.MonitoringAgentConfig, *om.Backup
 }
 
 func newKubeClient() (kubernetesClient.Client, error) {
-	kubeConfigPath := common.LoadKubeConfigFilePath()
-	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfigPath}
-	restConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{}).ClientConfig()
+	restConfig, err := rest.InClusterConfig()
 	if err != nil {
-		return nil, err
+		kubeConfigPath := common.LoadKubeConfigFilePath()
+		loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfigPath}
+		restConfig, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{}).ClientConfig()
+		if err != nil {
+			return nil, err
+		}
 	}
 	cl, err := k8sClient.New(restConfig, k8sClient.Options{Scheme: scheme.Scheme})
 	if err != nil {

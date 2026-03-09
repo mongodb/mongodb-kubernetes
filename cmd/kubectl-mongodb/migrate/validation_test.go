@@ -463,3 +463,79 @@ func TestValidation_RequireTLS_NoWarning(t *testing.T) {
 	}
 }
 
+func TestValidation_NoTLS_Warning(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name":     "host-0",
+				"hostname": "host-0.example.com",
+				"version":  "6.0.5",
+				"args2_6": map[string]interface{}{
+					"net":     map[string]interface{}{"port": 27017},
+					"storage": map[string]interface{}{"dbPath": "/data"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id":             "my-rs",
+				"protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "host-0"},
+				},
+			},
+		},
+	})
+
+	results := ValidateMigration(ac, nil, nil)
+	hasNoTLSWarning := false
+	hasSecurityTLSWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "additionalMongodConfig.net.tls.mode") {
+			hasNoTLSWarning = true
+		}
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "spec.security.tls") {
+			hasSecurityTLSWarning = true
+		}
+	}
+	assert.True(t, hasNoTLSWarning, "expected warning about additionalMongodConfig.net.tls.mode for no-TLS deployment")
+	assert.True(t, hasSecurityTLSWarning, "expected warning about spec.security.tls for no-TLS deployment")
+}
+
+func TestValidation_TLSDisabled_Warning(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name":     "host-0",
+				"hostname": "host-0.example.com",
+				"version":  "6.0.5",
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{
+						"port": 27017,
+						"tls":  map[string]interface{}{"mode": "disabled"},
+					},
+					"storage": map[string]interface{}{"dbPath": "/data"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id":             "my-rs",
+				"protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "host-0"},
+				},
+			},
+		},
+	})
+
+	results := ValidateMigration(ac, nil, nil)
+	hasNoTLSWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "additionalMongodConfig.net.tls.mode") {
+			hasNoTLSWarning = true
+		}
+	}
+	assert.True(t, hasNoTLSWarning, "expected warning about TLS mode for disabled TLS")
+}
+

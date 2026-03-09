@@ -333,10 +333,16 @@ func checkTLSAllowMode(d map[string]interface{}) []ValidationResult {
 		}
 
 		if !hasTLSSection(args) || pkgtls.GetTLSModeFromMongodConfig(args) == pkgtls.Disabled {
-			return []ValidationResult{{
-				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("process %q has no TLS configured; the operator requires net.tls.mode to be explicitly set — you must add spec.additionalMongodConfig.net.tls.mode: \"disabled\" to the generated CR before applying it to the cluster", name),
-			}}
+			return []ValidationResult{
+				{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("process %q has no TLS configured; add spec.additionalMongodConfig.net.tls.mode: \"disabled\" to the generated CR before applying — the operator sends \"disabled\" to Ops Manager when TLS is not configured, so leaving it unset (null) is inconsistent and will cause a deployment change", name),
+				},
+				{
+					Severity: SeverityWarning,
+					Message:  "spec.security.tls is not set because the source deployment does not use TLS; do not add spec.security.tls.enabled: true unless you intend to enable TLS on all members",
+				},
+			}
 		}
 		mode := pkgtls.GetTLSModeFromMongodConfig(args)
 		if mode == pkgtls.Allow || mode == "allowSSL" {

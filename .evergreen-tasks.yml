@@ -303,6 +303,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_vm_migration_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   # TODO: not used in any variant
   - name: e2e_replication_state_awareness
     tags: [ "patch-run" ]
