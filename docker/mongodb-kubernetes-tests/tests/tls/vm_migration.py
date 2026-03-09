@@ -4,6 +4,7 @@ from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMContext, OMTester
+from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
@@ -41,7 +42,7 @@ def vm_service(namespace: str):
 
 
 @fixture(scope="module")
-def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts) -> MongoDB:
+def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
 
     if try_load(resource):
@@ -52,7 +53,14 @@ def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts) -> MongoDB:
 
     resource["spec"]["externalMembers"] = []
     for i in range(vm_sts["spec"]["replicas"]):
-        resource["spec"]["externalMembers"].append(f"{vm_sts['metadata']['name']}-{i}")
+        resource["spec"]["externalMembers"].append(
+            {
+                "processName": f"{vm_sts['metadata']['name']}-{i}",
+                "hostname": f"{vm_sts['metadata']['name']}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local",
+                "type": "mongod",
+                "replicaSetName": f"{vm_sts['metadata']['name']}-rs",
+            }
+        )
 
     resource["spec"]["memberConfig"] = []
     for i in range(resource.get_members()):
@@ -140,6 +148,11 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
         )
 
     om_tester.api_put_automation_config(ac)
+
+
+@mark.e2e_vm_migration
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @mark.e2e_vm_migration
