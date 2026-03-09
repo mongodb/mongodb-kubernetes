@@ -587,11 +587,19 @@ func (d Deployment) ProcessBelongsToResource(processName, resourceName string) b
 
 // GetNumberOfExcessProcesses calculates how many processes do not belong to
 // this resource.
-func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
+func (d Deployment) GetNumberOfExcessProcesses(resourceName string, replicaSetNameOverride string, externalMembers []string) int {
 	processNames := d.GetAllProcessNames()
 	excessProcesses := len(processNames)
+	externalMembersSet := merge.StringsToSet(externalMembers)
+
+	rsName := resourceName
+	if replicaSetNameOverride != "" {
+		rsName = replicaSetNameOverride
+	}
+
 	for _, p := range processNames {
-		if d.ProcessBelongsToResource(p, resourceName) {
+		_, isExternal := externalMembersSet[p]
+		if d.ProcessBelongsToResource(p, rsName) || isExternal {
 			excessProcesses -= 1
 		}
 	}

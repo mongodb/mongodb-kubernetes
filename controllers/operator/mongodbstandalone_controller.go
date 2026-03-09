@@ -184,7 +184,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 
 	r.SetupCommonWatchers(s, nil, nil, s.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, s.Name, log)
+	reconcileResult := checkIfHasExcessProcesses(conn, s.Name, "", nil, log)
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(ctx, s, reconcileResult, log)
 	}
@@ -356,7 +356,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	standaloneOmObject := createProcess(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s)
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			excessProcesses := d.GetNumberOfExcessProcesses(s.Name)
+			excessProcesses := d.GetNumberOfExcessProcesses(s.Name, "", nil)
 			if excessProcesses > 0 {
 				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
