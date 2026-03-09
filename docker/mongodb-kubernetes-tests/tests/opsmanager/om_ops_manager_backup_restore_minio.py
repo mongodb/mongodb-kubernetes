@@ -15,7 +15,7 @@ from kubetester.phase import Phase
 from pymongo import ReadPreference
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
-from tests.conftest import assert_data_got_restored, is_multi_cluster
+from tests.conftest import assert_data_got_restored, get_evergreen_task_id, is_multi_cluster
 from tests.opsmanager.conftest import mino_operator_install, mino_tenant_install
 from tests.opsmanager.om_ops_manager_backup import S3_SECRET_NAME
 from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import FIRST_PROJECT_RS_NAME, SECOND_PROJECT_RS_NAME
@@ -40,7 +40,11 @@ def ops_manager_certs(namespace: str, issuer: str, tenant_domains: List[str]):
 # To make it work, we generate these from our existing tls secret and copy them over.
 @fixture(scope="module")
 def copy_manager_certs_for_minio(namespace: str, ops_manager_certs: str, tenant_name: str) -> str:
-    create_or_update_namespace(tenant_name)
+    create_or_update_namespace(
+        tenant_name,
+        labels={"evg": "task"},
+        annotations={"evg/task": f"https://evergreen.mongodb.com/task/{get_evergreen_task_id()}"},
+    )
 
     data = read_secret(namespace, ops_manager_certs)
     crt = data["tls.crt"]

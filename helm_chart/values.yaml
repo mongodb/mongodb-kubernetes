@@ -10,16 +10,11 @@ operator:
   # Values are "static" and "non-static:
   mdbDefaultArchitecture: non-static
 
-  baseName: mongodb-kubernetes
-
   # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
   name: mongodb-kubernetes-operator
 
   # Name of the operator image
   operator_image_name: mongodb-kubernetes
-
-  # Name of the deployment of the operator pod
-  deployment_name: mongodb-kubernetes-operator
 
   # Version of mongodb-kubernetes-operator
   version: 1.7.0
