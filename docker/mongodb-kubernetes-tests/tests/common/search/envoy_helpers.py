@@ -17,9 +17,10 @@ class EnvoyProxy:
         self,
         namespace: str,
         ca_configmap_name: str,
-        mdb_resource_name: str,
         mdbs_resource_name: str,
-        shard_count: int,
+        shard_count: int = 0,
+        mdb_resource_name: str = "",
+        proxy_svc_name: str = "envoy-proxy-svc",
         name: str = "envoy-proxy",
         configmap_name: str = "envoy-config",
         mongot_port: int = 27028,
@@ -31,6 +32,7 @@ class EnvoyProxy:
         self.mdb_resource_name = mdb_resource_name
         self.mdbs_resource_name = mdbs_resource_name
         self.shard_count = shard_count
+        self.proxy_svc_name = proxy_svc_name
         self.name = name
         self.configmap_name = configmap_name
         self.mongot_port = mongot_port
@@ -44,10 +46,13 @@ class EnvoyProxy:
         logger.info("Creating Envoy proxy certificates...")
 
         additional_domains = []
-        for i in range(self.shard_count):
-            shard_name = self._shard_name(i)
-            proxy_svc = search_resource_names.shard_proxy_service_name(self.mdbs_resource_name, shard_name)
-            additional_domains.append(f"{proxy_svc}.{self.namespace}.svc.cluster.local")
+        if self.shard_count > 0:
+            for i in range(self.shard_count):
+                shard_name = self._shard_name(i)
+                proxy_svc = search_resource_names.shard_proxy_service_name(self.mdbs_resource_name, shard_name)
+                additional_domains.append(f"{proxy_svc}.{self.namespace}.svc.cluster.local")
+        else:
+            additional_domains.append(f"{self.proxy_svc_name}.{self.namespace}.svc.cluster.local")
         additional_domains.append(f"*.{self.namespace}.svc.cluster.local")
 
         create_tls_certs(
@@ -72,30 +77,21 @@ class EnvoyProxy:
         )
         logger.info("Envoy client certificate created")
 
-    def create_configmap(self):
-        filter_chains = ""
-        clusters = ""
-
-        for i in range(self.shard_count):
-            shard_name = self._shard_name(i)
-            proxy_svc = search_resource_names.shard_proxy_service_name(self.mdbs_resource_name, shard_name)
-            search_svc = search_resource_names.shard_service_name(self.mdbs_resource_name, shard_name)
-            cluster_name = f"mongot_{shard_name.replace('-', '_')}_cluster"
-
-            filter_chains += f"""
+    def _build_filter_chain(self, sni_host: str, stat_prefix: str, route_name: str, backend_name: str, cluster_name: str):
+        return f"""
         - filter_chain_match:
             server_names:
-            - "{proxy_svc}.{self.namespace}.svc.cluster.local"
+            - "{sni_host}"
           filters:
           - name: envoy.filters.network.http_connection_manager
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-              stat_prefix: ingress_{shard_name.replace('-', '_')}
+              stat_prefix: {stat_prefix}
               codec_type: AUTO
               route_config:
-                name: {shard_name}_route
+                name: {route_name}
                 virtual_hosts:
-                - name: mongot_{shard_name.replace('-', '_')}_backend
+                - name: {backend_name}
                   domains: ["*"]
                   routes:
                   - match:
@@ -133,7 +129,8 @@ class EnvoyProxy:
                 - "h2"
               require_client_certificate: true"""
 
-            clusters += f"""
+    def _build_cluster(self, cluster_name: str, backend_address: str):
+        return f"""
       - name: {cluster_name}
         type: STRICT_DNS
         lb_policy: ROUND_ROBIN
@@ -147,7 +144,7 @@ class EnvoyProxy:
             - endpoint:
                 address:
                   socket_address:
-                    address: {search_svc}.{self.namespace}.svc.cluster.local
+                    address: {backend_address}
                     port_value: {self.mongot_port}
         circuit_breakers:
           thresholds:
@@ -171,7 +168,7 @@ class EnvoyProxy:
                   filename: /etc/envoy/tls/ca/ca-pem
               alpn_protocols:
               - "h2"
-            sni: {search_svc}.{self.namespace}.svc.cluster.local
+            sni: {backend_address}
         upstream_connection_options:
           tcp_keepalive:
             keepalive_time: 10
@@ -179,6 +176,45 @@ class EnvoyProxy:
             keepalive_probes: 3
         common_http_protocol_options:
           idle_timeout: 300s"""
+
+    def _build_filter_chains_and_clusters(self):
+        filter_chains = ""
+        clusters = ""
+
+        if self.shard_count > 0:
+            for i in range(self.shard_count):
+                shard_name = self._shard_name(i)
+                proxy_svc = search_resource_names.shard_proxy_service_name(self.mdbs_resource_name, shard_name)
+                search_svc = search_resource_names.shard_service_name(self.mdbs_resource_name, shard_name)
+                cluster_name = f"mongot_{shard_name.replace('-', '_')}_cluster"
+                backend_address = f"{search_svc}.{self.namespace}.svc.cluster.local"
+
+                filter_chains += self._build_filter_chain(
+                    sni_host=f"{proxy_svc}.{self.namespace}.svc.cluster.local",
+                    stat_prefix=f"ingress_{shard_name.replace('-', '_')}",
+                    route_name=f"{shard_name}_route",
+                    backend_name=f"mongot_{shard_name.replace('-', '_')}_backend",
+                    cluster_name=cluster_name,
+                )
+                clusters += self._build_cluster(cluster_name, backend_address)
+        else:
+            search_svc = search_resource_names.mongot_service_name(self.mdbs_resource_name)
+            cluster_name = "mongot_cluster"
+            backend_address = f"{search_svc}.{self.namespace}.svc.cluster.local"
+
+            filter_chains += self._build_filter_chain(
+                sni_host=f"{self.proxy_svc_name}.{self.namespace}.svc.cluster.local",
+                stat_prefix="ingress_mongot",
+                route_name="mongot_route",
+                backend_name="mongot_backend",
+                cluster_name=cluster_name,
+            )
+            clusters += self._build_cluster(cluster_name, backend_address)
+
+        return filter_chains, clusters
+
+    def create_configmap(self):
+        filter_chains, clusters = self._build_filter_chains_and_clusters()
 
         envoy_config = f"""admin:
   address:
@@ -210,7 +246,10 @@ layered_runtime:
 """
 
         create_or_update_configmap(self.namespace, self.configmap_name, {"envoy.yaml": envoy_config})
-        logger.info(f"Envoy ConfigMap created with routing for {self.shard_count} shards")
+        if self.shard_count > 0:
+            logger.info(f"Envoy ConfigMap created with routing for {self.shard_count} shards")
+        else:
+            logger.info("Envoy ConfigMap created with routing to mongot service")
 
     def create_deployment(self):
         deployment = {
@@ -284,30 +323,34 @@ layered_runtime:
         except Exception as e:
             logger.info(f"Envoy Deployment may already exist: {e}")
 
+    def _create_service(self, svc_name: str, extra_labels: dict = None):
+        svc_labels = {"app": self.name}
+        if extra_labels:
+            svc_labels.update(extra_labels)
+        service = {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {"name": svc_name, "labels": svc_labels},
+            "spec": {
+                "type": "ClusterIP",
+                "selector": {"app": self.name},
+                "ports": [{"name": "grpc", "port": self.envoy_proxy_port, "targetPort": self.envoy_proxy_port}],
+            },
+        }
+        try:
+            KubernetesTester.create_service(self.namespace, service)
+            logger.info(f"Proxy Service {svc_name} created")
+        except Exception as e:
+            logger.info(f"Proxy Service {svc_name} may already exist: {e}")
+
     def create_services(self):
-        for i in range(self.shard_count):
-            shard_name = self._shard_name(i)
-            proxy_svc_name = search_resource_names.shard_proxy_service_name(self.mdbs_resource_name, shard_name)
-
-            service = {
-                "apiVersion": "v1",
-                "kind": "Service",
-                "metadata": {
-                    "name": proxy_svc_name,
-                    "labels": {"app": self.name, "target-shard": shard_name},
-                },
-                "spec": {
-                    "type": "ClusterIP",
-                    "selector": {"app": self.name},
-                    "ports": [{"name": "grpc", "port": self.envoy_proxy_port, "targetPort": self.envoy_proxy_port}],
-                },
-            }
-
-            try:
-                KubernetesTester.create_service(self.namespace, service)
-                logger.info(f"Proxy Service {proxy_svc_name} created")
-            except Exception as e:
-                logger.info(f"Proxy Service {proxy_svc_name} may already exist: {e}")
+        if self.shard_count > 0:
+            for i in range(self.shard_count):
+                shard_name = self._shard_name(i)
+                proxy_svc_name = search_resource_names.shard_proxy_service_name(self.mdbs_resource_name, shard_name)
+                self._create_service(proxy_svc_name, extra_labels={"target-shard": shard_name})
+        else:
+            self._create_service(self.proxy_svc_name)
 
     def wait_for_ready(self, timeout: int = 120):
         def check_envoy_ready():
