@@ -236,7 +236,11 @@ def verify_search_results_from_all_shards(search_tester: SearchTester):
     expected_docs = total_docs - 1
 
     def execute_all_docs_search():
-        results = movies_helper.wildcard_search_movies()
+        try:
+            results = movies_helper.wildcard_search_movies()
+        except pymongo.errors.OperationFailure as e:
+            logger.info(f"Search not ready yet: {e}")
+            return False, f"Search failed: {e}"
         search_count = len(results)
         logger.info(f"Search through mongos returned {search_count} documents")
 
