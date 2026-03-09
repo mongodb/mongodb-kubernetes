@@ -233,6 +233,8 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
     )
 
 
+# TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
+# to wait for to get the mongod/mongos config properly generated.
 @mark.e2e_search_sharded_enterprise_external_mongod
 def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
     verify_mongos_search_config(namespace, MDB_RESOURCE_NAME)

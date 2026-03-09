@@ -215,6 +215,8 @@ def test_wait_for_sharded_cluster_ready(mdb: MongoDB):
     mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
+# TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
+# to wait for to get the mongod/mongos config properly generated.
 @mark.e2e_search_sharded_enterprise_managed_lb
 def test_verify_mongod_parameters_per_shard(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     verify_sharded_mongod_parameters(
