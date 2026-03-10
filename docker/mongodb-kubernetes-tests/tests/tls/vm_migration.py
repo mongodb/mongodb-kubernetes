@@ -137,7 +137,7 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
 
         ac["replicaSets"][0]["members"].append(
             {
-                "_id": i+100,  # Temporarily avoid conflicts with member IDs created by operator
+                "_id": i + 100,  # Temporarily avoid conflicts with member IDs created by operator
                 "host": f"{vm_sts['metadata']['name']}-{i}",
                 "priority": 1,
                 "votes": 1,
