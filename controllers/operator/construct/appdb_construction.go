@@ -61,7 +61,9 @@ type AppDBStatefulSetOptions struct {
 }
 
 func getMonitoringAgentLogOptions(spec om.AppDBSpec) string {
-	return fmt.Sprintf(" -logFile=/var/log/mongodb-mms-automation/monitoring-agent.log -maxLogFileDurationHrs=%d -logLevel=%s", spec.GetAgentMaxLogFileDurationHours(), spec.GetAgentLogLevel())
+	agentConfig := spec.GetAgentConfig()
+	logFilePath := agentConfig.MonitoringAgent.GetLogFilePath()
+	return fmt.Sprintf(" -logFile=%s -maxLogFileDurationHrs=%d -logLevel=%s", logFilePath, spec.GetAgentMaxLogFileDurationHours(), spec.GetAgentLogLevel())
 }
 
 // getContainerIndexByName returns the index of a container with the given name in a slice of containers.

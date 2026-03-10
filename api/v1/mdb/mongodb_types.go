@@ -3,6 +3,7 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
@@ -632,12 +633,36 @@ type BackupAgent struct {
 	// +optional
 	// LogRotate configures log rotation for the BackupAgent processes
 	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Pattern=`^/.*`
+	// LogFilePath configures the log file path for the backup agent.
+	// Default: /var/log/mongodb-mms-automation/backup-agent.log
+	LogFilePath string `json:"logFilePath,omitempty"`
+}
+
+func (b *BackupAgent) GetLogFilePath() string {
+	if b == nil || b.LogFilePath == "" {
+		return path.Join(util.PvcMountPathLogs, "backup-agent.log")
+	}
+	return b.LogFilePath
 }
 
 type MonitoringAgent struct {
 	// +optional
-	// LogRotate configures log rotation for the BackupAgent processes
+	// LogRotate configures log rotation for the MonitoringAgent processes
 	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Pattern=`^/.*`
+	// LogFilePath configures the log file path for the monitoring agent.
+	// Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+	LogFilePath string `json:"logFilePath,omitempty"`
+}
+
+func (m *MonitoringAgent) GetLogFilePath() string {
+	if m == nil || m.LogFilePath == "" {
+		return path.Join(util.PvcMountPathLogs, "monitoring-agent.log")
+	}
+	return m.LogFilePath
 }
 
 type AgentConfig struct {
