@@ -8,7 +8,7 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
 install_uv() {
-    if command -v uv &> /dev/null; then
+    if command -v uv &> /dev/null && uv --version &> /dev/null; then
         echo "uv already available in PATH" >&2
         return 0
     fi

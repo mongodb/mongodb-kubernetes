@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 import boto3
 from botocore.exceptions import ClientError
 from kubernetes import client
-from kubetester import get_pod_when_ready
+from kubetester import create_or_update_secret, get_pod_when_ready
 from kubetester.helm import helm_install_from_chart
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
@@ -172,10 +172,33 @@ def mino_tenant_install(
     if cluster_name is not None:
         os.environ["HELM_KUBECONTEXT"] = cluster_name
 
+    if helm_args is None:
+        helm_args = {}
+
     # check if the minio pod exists, if not do a helm upgrade
     pods = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(namespace, label_selector=f"app=minio")
     if not pods.items:
         print(f"Performing helm upgrade of minio-tenant")
+
+        # Provide the test CA to the MinIO operator so it can trust the MinIO server's
+        # TLS cert when creating buckets. Without this, the operator fails with
+        # "x509: certificate signed by unknown authority" and buckets are never created.
+        #
+        # We use ca-tls.crt (the bare test CA) rather than issuer_ca_filepath
+        # (ca-tls-full-chain.crt). The full-chain file bundles extra MongoDB CDN certs that
+        # have since expired. The MinIO operator (Go x509) marks the entire secret as expired
+        # if any cert inside it is expired, so even the still-valid test CA would be skipped.
+        if issuer_ca_filepath is not None:
+            ca_cert_path = Path(issuer_ca_filepath).parent / "ca-tls.crt"
+            with open(ca_cert_path) as f:
+                ca_cert = f.read()
+            create_or_update_secret(
+                namespace=namespace,
+                name="minio-ca-cert",
+                data={"public.crt": ca_cert},
+                api_client=cluster_client,
+            )
+            helm_args["tenant.certificate.externalCaCertSecret[0].name"] = "minio-ca-cert"
 
         path = f"{Path(__file__).parent}/fixtures/minio/values-tenant.yaml"
         helm_install_from_chart(
