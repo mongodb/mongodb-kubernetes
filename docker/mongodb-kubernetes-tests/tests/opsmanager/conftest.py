@@ -180,9 +180,7 @@ def _create_minio_buckets(
             return
         time.sleep(interval)
     missing = set(bucket_names) - created
-    raise TimeoutError(
-        f"Could not create MinIO buckets within {timeout}s: missing {missing}"
-    )
+    raise TimeoutError(f"Could not create MinIO buckets within {timeout}s: missing {missing}")
 
 
 def _wait_for_minio_buckets(
