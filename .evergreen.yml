@@ -811,6 +811,8 @@ task_groups:
       - e2e_search_enterprise_basic
       - e2e_search_enterprise_tls
       - e2e_search_enterprise_x509_cluster_auth
+      # VM Migration
+      - e2e_vm_migration
     <<: *teardown_group
 
   # this task group contains just a one task, which is smoke testing whether the operator
@@ -2016,6 +2018,7 @@ buildvariants:
   - name: flaky_test_report
     display_name: "Flaky Test Weekly Report"
     cron: "0 9 * * 1"
+    allowed_requesters: [ "ad_hoc", "patch" ] # only run on cron jobs or manually via patches
     run_on:
       - ubuntu2404-small
     tasks:
