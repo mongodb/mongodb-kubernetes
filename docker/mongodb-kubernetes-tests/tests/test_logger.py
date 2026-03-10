@@ -4,11 +4,11 @@ import sys
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "DEBUG").upper()
 
-# Create handlers: all levels to stdout (so pytest/IntelliJ capture shows errors), WARNING+ also to stderr
+# Create handlers to output Debug and Info logs to stdout, and above to stderr
 # They are attached to each logger below
 stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_handler.setLevel(logging.DEBUG)
-# No filter on stdout so ERROR/WARNING are visible in captured output when running under pytest (e.g. in IntelliJ)
+stdout_handler.addFilter(lambda record: record.levelno <= logging.INFO)
 stderr_handler = logging.StreamHandler(sys.stderr)
 stderr_handler.setLevel(logging.WARNING)
 

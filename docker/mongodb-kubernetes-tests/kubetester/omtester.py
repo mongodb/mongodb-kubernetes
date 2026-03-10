@@ -127,9 +127,17 @@ class OMTester(object):
     def get_latest_backup_completion_time(self):
         return self.latest_backup_completion_time or 0
 
-    def create_restore_job_pit(self, pit_milliseconds: int, retry: int = 120):
-        """creates a restore job to restore the mongodb cluster to some version specified by the parameter."""
+    def create_restore_job_pit(
+        self, pit_milliseconds: int, retry: int = 120, timeout_seconds: int = 600
+    ):
+        """Creates a restore job to restore the mongodb cluster to some version specified by the parameter.
+
+        Retries on 409 Conflict or 'Invalid restore point' until the request succeeds or
+        timeout_seconds is reached (the API can return 409 temporarily until the restore point is available).
+        """
         cluster_id = self.get_backup_cluster_id()
+        start_time = time.time()
+        attempt = 0
         while retry > 0:
             try:
                 span = trace.get_current_span()
@@ -137,10 +145,22 @@ class OMTester(object):
                 self.api_create_restore_job_pit(cluster_id, pit_milliseconds)
                 return
             except Exception as e:
-                # this exception is usually raised for some time (some oplog slices not received or whatever)
-                # but eventually is gone and restore job is started.
-                if "Invalid restore point:" not in str(e):
+                elapsed = time.time() - start_time
+                if elapsed >= timeout_seconds:
+                    raise Exception(
+                        f"Failed to create PIT restore job after {timeout_seconds}s (last error: {e})"
+                    ) from e
+                # Retry on 409 Conflict or invalid restore point; both can clear once the restore point is ready.
+                error_str = str(e)
+                if " 409 " not in error_str and "Invalid restore point:" not in error_str:
                     raise e
+                attempt += 1
+                logger.info(
+                    "PIT restore returned 409 or invalid restore point (attempt %d, %.0fs elapsed), retrying: %s",
+                    attempt,
+                    elapsed,
+                    error_str[:200],
+                )
             retry -= 1
             time.sleep(1)
         raise Exception("Failed to create a restore job!")
