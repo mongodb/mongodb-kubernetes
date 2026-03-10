@@ -140,6 +140,9 @@ agent-image-slow:
 operator-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator -b patch -v $(DEV_VERSION)
 
+operator-image-staging:
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator -b staging -v $(DEV_VERSION)
+
 om-init-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py init-ops-manager -b patch -v $(DEV_VERSION)
 
@@ -333,6 +336,7 @@ define go-install-tool
 @[ -f $(1) ] || { \
 set -e ;\
 TMP_DIR=$$(mktemp -d) ;\
+cp $(PROJECT_DIR)/.tool-versions $$TMP_DIR/.tool-versions || true ;\
 cd $$TMP_DIR ;\
 go mod init tmp ;\
 echo "Downloading $(2)" ;\

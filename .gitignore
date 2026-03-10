@@ -24,6 +24,7 @@ cache
 **/__pycache__
 **/myenv
 **/venv*/
+venv
 *.bak
 **/pytest_cache/
 tmp/*
