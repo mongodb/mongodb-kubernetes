@@ -381,6 +381,7 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 // Also, it removes the tag ExternallyManaged from the project in this case as
 // the user may need to clean the resources from OM UI if they move the
 // resource to another project (as recommended by the migration instructions).
+// If there are any externalMembers set, we will ignore the excess processes which appear in this list, as those are expected to be there and should not block the reconciliation.
 func checkIfHasExcessProcesses(conn om.Connection, resourceName, replicaSetNameOverride string, externalMembers []string, log *zap.SugaredLogger) workflow.Status {
 	deployment, err := conn.ReadDeployment()
 	if err != nil {
