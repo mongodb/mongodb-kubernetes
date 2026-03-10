@@ -1672,6 +1672,9 @@ def configure_telemetry():
 # That's why we run our pytest last.
 @pytest.hookimpl(trylast=True)
 def pytest_configure(config):
+    # Suppress the OpenTelemetry SDK warnings caused by swapping these plugins
+    logging.getLogger("opentelemetry").setLevel(logging.ERROR)
+
     # Remove the default plugin if already registered
     for i, plugin_instance in enumerate(config.pluginmanager.get_plugins()):
         if isinstance(plugin_instance, OpenTelemetryPlugin):
