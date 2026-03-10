@@ -8,7 +8,16 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
 install_uv() {
-    if command -v uv &> /dev/null && uv --version &> /dev/null; then
+    if [[ "${RUNNING_IN_EVG:-}" == "true" ]]; then
+        # On Evergreen we always install uv, regardless of whether it's already available on the build host.
+        # That way we have consistent behavior across all build hosts and we can be sure that uv is always able to find the right Python version from the astral prebuilds.
+        echo "Running in Evergreen, forcing uv to install everything under ${PROJECT_DIR}" >&2
+        export UV_UNMANAGED_INSTALL="${PROJECT_DIR}/.uv/bin"
+        export UV_PYTHON_INSTALL_DIR=${PROJECT_DIR}/.uv/python
+        export UV_CACHE_DIR=${PROJECT_DIR}/.uv/cache
+        export UV_PYTHON_INSTALL_BIN=false
+        export PATH="${PROJECT_DIR}/.uv/bin:${PATH}"
+    elif command -v uv &> /dev/null && uv --version &> /dev/null; then
         echo "uv already available in PATH" >&2
         return 0
     fi
