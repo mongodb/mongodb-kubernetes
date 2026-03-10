@@ -102,7 +102,8 @@ class SearchDeploymentHelper:
         self,
         mongot_user_name: str,
         lb_endpoint: Optional[str] = None,
-        lb_mode: str = "Unmanaged",
+        lb_mode: Optional[str] = None,
+        replicas: Optional[int] = None,
     ) -> MongoDBSearch:
         resource = MongoDBSearch.from_yaml(
             yaml_fixture("search-sharded-external-mongod.yaml"),
@@ -142,8 +143,16 @@ class SearchDeploymentHelper:
             },
         }
 
-        if lb_endpoint:
-            resource["spec"]["lb"] = {"mode": lb_mode, "endpoint": lb_endpoint}
+        if lb_mode or lb_endpoint:
+            lb = {}
+            if lb_mode:
+                lb["mode"] = lb_mode
+            if lb_endpoint:
+                lb["endpoint"] = lb_endpoint
+            resource["spec"]["lb"] = lb
+
+        if replicas is not None:
+            resource["spec"]["replicas"] = replicas
 
         return resource
 
