@@ -824,6 +824,7 @@ task_groups:
       - e2e_search_sharded_external_mongod_single_mongot
       - e2e_search_sharded_enterprise_external_mongod
       - e2e_search_external_rs_multi_mongot_unmanaged_lb
+      - e2e_search_internal_rs_multi_mongot_unmanaged_lb
     <<: *teardown_group
 
   # MongoDBSearch tests that require a large instance (multiple mongots per shard:
@@ -858,6 +859,7 @@ task_groups:
       - e2e_search_sharded_external_mongod_single_mongot
       - e2e_search_sharded_enterprise_external_mongod
       - e2e_search_external_rs_multi_mongot_unmanaged_lb
+      - e2e_search_internal_rs_multi_mongot_unmanaged_lb
     <<: *teardown_group
 
   # Same as e2e_mdb_kind_search_large_task_group but for om80 variants.
