@@ -778,7 +778,10 @@ func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context
 			}
 			// This will migrate the deployment state to the new structure and this branch of code won't be executed again.
 			if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
-				return err
+				// The configmap might have been created by a parallel reconciliation loop
+				if !errors.IsAlreadyExists(err) {
+					return err
+				}
 			}
 		} else {
 			return err
