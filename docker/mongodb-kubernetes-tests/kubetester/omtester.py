@@ -127,9 +127,7 @@ class OMTester(object):
     def get_latest_backup_completion_time(self):
         return self.latest_backup_completion_time or 0
 
-    def create_restore_job_pit(
-        self, pit_milliseconds: int, retry: int = 120, timeout_seconds: int = 600
-    ):
+    def create_restore_job_pit(self, pit_milliseconds: int, retry: int = 120, timeout_seconds: int = 600):
         """Creates a restore job to restore the mongodb cluster to some version specified by the parameter.
 
         Retries on 409 Conflict or 'Invalid restore point' until the request succeeds or
