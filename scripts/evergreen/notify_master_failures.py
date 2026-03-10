@@ -8,6 +8,7 @@ and author information.
 
 The script runs after all other tasks complete via Evergreen's depends_on mechanism.
 It only runs on commit builds (not patches) - see .evergreen.yml for details.
+Copy projects (e.g. mongodb-kubernetes-migration) use early_exit_if_not_main_project in .evergreen.yml so this script only runs on the main project.
 
 Environment variables required:
 - EVERGREEN_USER: Evergreen API user

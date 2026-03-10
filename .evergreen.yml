@@ -618,7 +618,7 @@ tasks:
             - scripts/dev/release/1.2.0.clusterserviceversion.yaml
             - --verbose
 
-  # Notify Slack about build failures
+  # Notify Slack about build failures (main project only; notify_master_failures gates on ${project})
   # On patches: stdout only. On mainline: stdout + Slack
   - name: notify_master_build_status
     commands:
@@ -1998,6 +1998,7 @@ buildvariants:
   # depends_on with patch_optional:true generates phantom dependencies for tasks that
   # don't exist in the patch, causing the task to hang indefinitely.
   # Reference: https://github.com/10gen/ops-manager-kubernetes/pull/4038 (working example)
+  # Copy projects (e.g. mongodb-kubernetes-migration) skip via early_exit_if_not_main_project; only mongodb-kubernetes runs the notification.
   - name: notify_master_build_status
     display_name: notify_master_build_status
     # Only runs on commit builds (not patches) because of Evergreen bug DEVPROD-27436:

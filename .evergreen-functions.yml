@@ -833,15 +833,25 @@ functions:
           GH_TOKEN: ${GH_TOKEN}
         binary: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/promote_kubectl_plugin.py
 
-  # Notify Slack channel about master build failures
+  # Notify Slack channel about master build failures (only runs on main project mongodb-kubernetes; copy projects skip).
   notify_master_failures:
-    - command: subprocess.exec
+    - command: shell.exec
       type: setup
       params:
+        shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
+          - project
           - EVERGREEN_USER
           - EVERGREEN_API_KEY
           - SLACK_WEBHOOK_URL
           - version_id
-        binary: scripts/dev/run_python.sh scripts/evergreen/notify_master_failures.py
+        script: |
+          set -eu
+          echo "Evergreen project is: ${project}"
+          if [ "${project}" != "mongodb-kubernetes" ]; then
+            echo "Skipping: not mongodb-kubernetes (project=${project})"
+            exit 0
+          fi
+          echo "Running notify_master_failures..."
+          scripts/dev/run_python.sh scripts/evergreen/notify_master_failures.py
