@@ -114,7 +114,7 @@ def create_lb_certificates(
     logger.info(f"LB client certificate created: {lb_client_cert_name}")
 
 
-def create_sharded_ca(issuer_ca_filepath: str, namespace: str, ca_configmap_name: str) -> str:
+def create_issuer_ca(issuer_ca_filepath: str, namespace: str, ca_configmap_name: str) -> str:
     ca = open(issuer_ca_filepath).read()
     configmap_data = {"ca-pem": ca, "mms-ca.crt": ca}
     create_or_update_configmap(namespace, ca_configmap_name, configmap_data)

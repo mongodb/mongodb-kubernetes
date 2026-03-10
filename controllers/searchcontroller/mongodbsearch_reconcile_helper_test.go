@@ -241,6 +241,49 @@ func TestGetMongodConfigParameters_TransportAndPorts(t *testing.T) {
 	}
 }
 
+func TestGetMongodConfigParameters_ManagedLB(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-mongodb-search",
+			Namespace: "test",
+		},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Mode: searchv1.LBModeManaged,
+			},
+		},
+	}
+
+	clusterDomain := "cluster.local"
+	params := GetMongodConfigParameters(search, clusterDomain)
+
+	setParams := params["setParameter"].(map[string]any)
+
+	expectedEndpoint := "test-mongodb-search-search-lb-svc.test.svc.cluster.local:27029"
+	assert.Equal(t, expectedEndpoint, setParams["mongotHost"])
+	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
+	assert.Equal(t, true, setParams["useGrpcForSearch"])
+}
+
+func TestGetMongodConfigParameters_NoLB(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-mongodb-search",
+			Namespace: "test",
+		},
+	}
+
+	clusterDomain := "cluster.local"
+	params := GetMongodConfigParameters(search, clusterDomain)
+
+	setParams := params["setParameter"].(map[string]any)
+
+	// Without LB, should point directly to mongot headless service
+	expectedEndpoint := "test-mongodb-search-search-svc.test.svc.cluster.local:27028"
+	assert.Equal(t, expectedEndpoint, setParams["mongotHost"])
+	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
+}
+
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {
 	t.Helper()
 	svcName := mdbSearch.SearchServiceNamespacedName()

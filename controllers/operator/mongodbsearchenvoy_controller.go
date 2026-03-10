@@ -75,13 +75,14 @@ const (
 	labelName = "search-proxy"
 )
 
-// shardRoute defines the routing information for a single shard in the Envoy config.
-type shardRoute struct {
-	ShardName     string // e.g., "mdb-sh-0"
-	ShardNameSafe string // e.g., "mdb_sh_0" (hyphens replaced with underscores for Envoy identifiers)
-	SNIHostname   string // FQDN of the proxy service for SNI matching
-	UpstreamHost  string // FQDN of the mongot service
-	UpstreamPort  int32  // typically 27028
+// envoyRoute defines routing information for one Envoy entrypoint (one per shard, or one for RS).
+type envoyRoute struct {
+	Name             string // identifier: shard name (e.g., "mdb-sh-0") or "rs" for ReplicaSets
+	NameSafe         string // identifier safe for Envoy (hyphens replaced with underscores)
+	SNIHostname      string // FQDN of the proxy service for SNI matching
+	UpstreamHost     string // FQDN of the mongot headless service
+	UpstreamPort     int32  // typically 27028
+	ProxyServiceName string // name of the ClusterIP proxy Service for this route
 }
 
 type MongoDBSearchEnvoyReconciler struct {
@@ -121,25 +122,18 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return reconcile.Result{RequeueAfter: 10 * time.Second}, err
 	}
 
-	// Managed LB requires a sharded cluster source
-	shardedSource, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment)
-	if !ok {
-		log.Info("Managed LB for non-sharded sources not yet supported")
-		return reconcile.Result{}, nil
-	}
-
-	shardNames := shardedSource.GetShardNames()
-	if len(shardNames) == 0 {
-		log.Warn("No shards configured, nothing to deploy")
-		return reconcile.Result{}, nil
-	}
-
 	tlsCfg := searchSource.TLSConfig()
-	routes := buildShardRoutesFromNames(mdbSearch, shardNames)
+	tlsEnabled := mdbSearch.IsTLSConfigured()
+
+	routes := buildRoutes(mdbSearch, searchSource)
+	if len(routes) == 0 {
+		log.Warn("No routes to configure, nothing to deploy")
+		return reconcile.Result{}, nil
+	}
 
 	// Generate Envoy config JSON
 	caKeyName := caKeyNameFromTLSConfig(tlsCfg)
-	envoyJSON, err := buildEnvoyConfigJSON(routes, mdbSearch.IsTLSConfigured(), caKeyName)
+	envoyJSON, err := buildEnvoyConfigJSON(routes, tlsEnabled, caKeyName)
 	if err != nil {
 		log.Errorf("Failed to build Envoy config JSON: %s", err)
 		return reconcile.Result{}, err
@@ -155,17 +149,17 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return reconcile.Result{}, err
 	}
 
-	// Ensure per-shard proxy Services
-	currentShardNames := make(map[string]bool)
+	// Ensure proxy Services (one per route)
+	currentServiceNames := make(map[string]bool, len(routes))
 	for _, route := range routes {
-		currentShardNames[route.ShardName] = true
-		if err := r.ensureProxyService(ctx, mdbSearch, route.ShardName, log); err != nil {
+		currentServiceNames[route.ProxyServiceName] = true
+		if err := r.ensureProxyService(ctx, mdbSearch, route, log); err != nil {
 			return reconcile.Result{}, err
 		}
 	}
 
-	// Clean up stale proxy Services for removed shards
-	if err := r.cleanupStaleProxyServices(ctx, mdbSearch, currentShardNames, log); err != nil {
+	// Clean up stale proxy Services for removed routes
+	if err := r.cleanupStaleProxyServices(ctx, mdbSearch, currentServiceNames, log); err != nil {
 		log.Warnf("Failed to cleanup stale proxy services: %s", err)
 	}
 
@@ -181,11 +175,17 @@ func caKeyNameFromTLSConfig(tlsCfg *searchcontroller.TLSSourceConfig) string {
 	return envoyCAKey
 }
 
-// buildShardRoutesFromNames builds per-shard routing information from shard names.
-// Works for both internal MongoDB CRs and external sources since it only
-// depends on the MongoDBSearch resource and a list of shard names.
-func buildShardRoutesFromNames(search *searchv1.MongoDBSearch, shardNames []string) []shardRoute {
-	routes := make([]shardRoute, 0, len(shardNames))
+// buildRoutes returns the Envoy routes for the given topology.
+func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource) []envoyRoute {
+	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
+		return buildShardRoutes(search, shardedSource.GetShardNames())
+	}
+	return []envoyRoute{buildReplicaSetRoute(search)}
+}
+
+// buildShardRoutes builds per-shard routing information from shard names.
+func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string) []envoyRoute {
+	routes := make([]envoyRoute, 0, len(shardNames))
 	namespace := search.Namespace
 	mongotPort := search.GetMongotGrpcPort()
 
@@ -193,16 +193,33 @@ func buildShardRoutesFromNames(search *searchv1.MongoDBSearch, shardNames []stri
 		proxyServiceName := search.LoadBalancerProxyServiceNameForShard(shardName)
 		mongotServiceName := search.MongotServiceForShard(shardName).Name
 
-		routes = append(routes, shardRoute{
-			ShardName:     shardName,
-			ShardNameSafe: strings.ReplaceAll(shardName, "-", "_"),
-			SNIHostname:   fmt.Sprintf("%s.%s.svc.cluster.local", proxyServiceName, namespace),
-			UpstreamHost:  fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
-			UpstreamPort:  mongotPort,
+		routes = append(routes, envoyRoute{
+			Name:             shardName,
+			NameSafe:         strings.ReplaceAll(shardName, "-", "_"),
+			SNIHostname:      fmt.Sprintf("%s.%s.svc.cluster.local", proxyServiceName, namespace),
+			UpstreamHost:     fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
+			UpstreamPort:     mongotPort,
+			ProxyServiceName: proxyServiceName,
 		})
 	}
 
 	return routes
+}
+
+// buildReplicaSetRoute returns the single route for a ReplicaSet.
+func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
+	proxyServiceName := search.LoadBalancerServiceName()
+	mongotServiceName := search.SearchServiceNamespacedName().Name
+	namespace := search.Namespace
+
+	return envoyRoute{
+		Name:             "rs",
+		NameSafe:         "rs",
+		SNIHostname:      fmt.Sprintf("%s.%s.svc.cluster.local", proxyServiceName, namespace),
+		UpstreamHost:     fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
+		UpstreamPort:     search.GetMongotGrpcPort(),
+		ProxyServiceName: proxyServiceName,
+	}
 }
 
 // ensureConfigMap creates or updates the Envoy ConfigMap.
@@ -400,22 +417,19 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 	}
 }
 
-// ensureProxyService creates or updates a per-shard proxy Service pointing to Envoy.
-func (r *MongoDBSearchEnvoyReconciler) ensureProxyService(ctx context.Context, search *searchv1.MongoDBSearch, shardName string, log *zap.SugaredLogger) error {
-	serviceName := search.LoadBalancerProxyServiceNameForShard(shardName)
-
+// ensureProxyService creates or updates a proxy Service pointing to Envoy for a given route.
+func (r *MongoDBSearchEnvoyReconciler) ensureProxyService(ctx context.Context, search *searchv1.MongoDBSearch, route envoyRoute, log *zap.SugaredLogger) error {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceName,
+			Name:      route.ProxyServiceName,
 			Namespace: search.Namespace,
 		},
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.kubeClient, svc, func() error {
 		svc.Labels = map[string]string{
-			"app":          search.LoadBalancerDeploymentName(),
-			"component":    labelName,
-			"target-shard": shardName,
+			"app":       search.LoadBalancerDeploymentName(),
+			"component": labelName,
 		}
 		svc.Spec = corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeClusterIP,
@@ -431,15 +445,15 @@ func (r *MongoDBSearchEnvoyReconciler) ensureProxyService(ctx context.Context, s
 		return controllerutil.SetOwnerReference(search, svc, r.kubeClient.Scheme())
 	})
 	if err != nil {
-		return fmt.Errorf("failed to ensure proxy Service %s: %w", serviceName, err)
+		return fmt.Errorf("failed to ensure proxy Service %s: %w", route.ProxyServiceName, err)
 	}
 
-	log.Infof("Proxy Service %s ensured", serviceName)
+	log.Infof("Proxy Service %s ensured", route.ProxyServiceName)
 	return nil
 }
 
-// cleanupStaleProxyServices removes proxy Services for shards that no longer exist.
-func (r *MongoDBSearchEnvoyReconciler) cleanupStaleProxyServices(ctx context.Context, search *searchv1.MongoDBSearch, currentShardNames map[string]bool, log *zap.SugaredLogger) error {
+// cleanupStaleProxyServices removes proxy Services that no longer correspond to any current route.
+func (r *MongoDBSearchEnvoyReconciler) cleanupStaleProxyServices(ctx context.Context, search *searchv1.MongoDBSearch, currentServiceNames map[string]bool, log *zap.SugaredLogger) error {
 	serviceList := &corev1.ServiceList{}
 	err := r.kubeClient.List(ctx, serviceList,
 		client.InNamespace(search.Namespace),
@@ -454,9 +468,8 @@ func (r *MongoDBSearchEnvoyReconciler) cleanupStaleProxyServices(ctx context.Con
 
 	for i := range serviceList.Items {
 		svc := &serviceList.Items[i]
-		targetShard := svc.Labels["target-shard"]
-		if targetShard != "" && !currentShardNames[targetShard] {
-			log.Infof("Deleting stale proxy Service %s (shard %s removed)", svc.Name, targetShard)
+		if !currentServiceNames[svc.Name] {
+			log.Infof("Deleting stale proxy Service %s", svc.Name)
 			if err := r.kubeClient.Delete(ctx, svc); err != nil && !apiErrors.IsNotFound(err) {
 				return fmt.Errorf("failed to delete stale proxy Service %s: %w", svc.Name, err)
 			}
@@ -487,7 +500,7 @@ func envoyPodLabels(search *searchv1.MongoDBSearch) map[string]string {
 
 // buildEnvoyConfigJSON builds the Envoy bootstrap configuration using
 // go-control-plane protobuf types and marshals it to JSON.
-func buildEnvoyConfigJSON(routes []shardRoute, tlsEnabled bool, caKeyName string) (string, error) {
+func buildEnvoyConfigJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (string, error) {
 	config, err := buildEnvoyBootstrapConfig(routes, tlsEnabled, caKeyName)
 	if err != nil {
 		return "", fmt.Errorf("failed to build Envoy bootstrap config: %w", err)
@@ -506,27 +519,38 @@ func buildEnvoyConfigJSON(routes []shardRoute, tlsEnabled bool, caKeyName string
 }
 
 // buildEnvoyBootstrapConfig constructs the full Envoy bootstrap protobuf.
-func buildEnvoyBootstrapConfig(routes []shardRoute, tlsEnabled bool, caKeyName string) (*bootstrapv3.Bootstrap, error) {
+func buildEnvoyBootstrapConfig(routes []envoyRoute, tlsEnabled bool, caKeyName string) (*bootstrapv3.Bootstrap, error) {
 	filterChains := make([]*listenerv3.FilterChain, 0, len(routes))
 	clusters := make([]*clusterv3.Cluster, 0, len(routes))
 
 	for _, route := range routes {
 		fc, err := buildFilterChain(route, tlsEnabled, caKeyName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to build filter chain for shard %s: %w", route.ShardName, err)
+			return nil, fmt.Errorf("failed to build filter chain for route %s: %w", route.Name, err)
 		}
 		filterChains = append(filterChains, fc)
 
 		cl, err := buildCluster(route, tlsEnabled, caKeyName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to build cluster for shard %s: %w", route.ShardName, err)
+			return nil, fmt.Errorf("failed to build cluster for route %s: %w", route.Name, err)
 		}
 		clusters = append(clusters, cl)
 	}
 
-	tlsInspectorCfg, err := anypb.New(&tlsinspectorv3.TlsInspector{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal TLS inspector config: %w", err)
+	var listenerFilters []*listenerv3.ListenerFilter
+	if tlsEnabled {
+		tlsInspectorCfg, err := anypb.New(&tlsinspectorv3.TlsInspector{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal TLS inspector config: %w", err)
+		}
+		listenerFilters = []*listenerv3.ListenerFilter{
+			{
+				Name: wellknown.TLSInspector,
+				ConfigType: &listenerv3.ListenerFilter_TypedConfig{
+					TypedConfig: tlsInspectorCfg,
+				},
+			},
+		}
 	}
 
 	runtimeStruct, err := structpb.NewStruct(map[string]interface{}{
@@ -545,17 +569,10 @@ func buildEnvoyBootstrapConfig(routes []shardRoute, tlsEnabled bool, caKeyName s
 		StaticResources: &bootstrapv3.Bootstrap_StaticResources{
 			Listeners: []*listenerv3.Listener{
 				{
-					Name:    "mongod_listener",
-					Address: socketAddress("0.0.0.0", uint32(envoyProxyPort)),
-					ListenerFilters: []*listenerv3.ListenerFilter{
-						{
-							Name: wellknown.TLSInspector,
-							ConfigType: &listenerv3.ListenerFilter_TypedConfig{
-								TypedConfig: tlsInspectorCfg,
-							},
-						},
-					},
-					FilterChains: filterChains,
+					Name:            "mongod_listener",
+					Address:         socketAddress("0.0.0.0", uint32(envoyProxyPort)),
+					ListenerFilters: listenerFilters,
+					FilterChains:    filterChains,
 				},
 			},
 			Clusters: clusters,
@@ -585,9 +602,9 @@ func socketAddress(addr string, port uint32) *corev3.Address {
 	}
 }
 
-// buildFilterChain builds a single SNI-matched filter chain for one shard.
-func buildFilterChain(route shardRoute, tlsEnabled bool, caKeyName string) (*listenerv3.FilterChain, error) {
-	clusterName := fmt.Sprintf("mongot_%s_cluster", route.ShardNameSafe)
+// buildFilterChain builds a filter chain for one route.
+func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string) (*listenerv3.FilterChain, error) {
+	clusterName := fmt.Sprintf("mongot_%s_cluster", route.NameSafe)
 
 	routerFilterCfg, err := anypb.New(&routerv3.Router{})
 	if err != nil {
@@ -595,14 +612,14 @@ func buildFilterChain(route shardRoute, tlsEnabled bool, caKeyName string) (*lis
 	}
 
 	hcm := &hcmv3.HttpConnectionManager{
-		StatPrefix: fmt.Sprintf("ingress_%s", route.ShardNameSafe),
+		StatPrefix: fmt.Sprintf("ingress_%s", route.NameSafe),
 		CodecType:  hcmv3.HttpConnectionManager_AUTO,
 		RouteSpecifier: &hcmv3.HttpConnectionManager_RouteConfig{
 			RouteConfig: &routev3.RouteConfiguration{
-				Name: fmt.Sprintf("%s_route", route.ShardNameSafe),
+				Name: fmt.Sprintf("%s_route", route.NameSafe),
 				VirtualHosts: []*routev3.VirtualHost{
 					{
-						Name:    fmt.Sprintf("mongot_%s_backend", route.ShardNameSafe),
+						Name:    fmt.Sprintf("mongot_%s_backend", route.NameSafe),
 						Domains: []string{"*"},
 						Routes: []*routev3.Route{
 							{
@@ -642,9 +659,6 @@ func buildFilterChain(route shardRoute, tlsEnabled bool, caKeyName string) (*lis
 	}
 
 	chain := &listenerv3.FilterChain{
-		FilterChainMatch: &listenerv3.FilterChainMatch{
-			ServerNames: []string{route.SNIHostname},
-		},
 		Filters: []*listenerv3.Filter{
 			{
 				Name:       wellknown.HTTPConnectionManager,
@@ -654,6 +668,9 @@ func buildFilterChain(route shardRoute, tlsEnabled bool, caKeyName string) (*lis
 	}
 
 	if tlsEnabled {
+		chain.FilterChainMatch = &listenerv3.FilterChainMatch{
+			ServerNames: []string{route.SNIHostname},
+		}
 		ts, err := buildDownstreamTLSTransportSocket(caKeyName)
 		if err != nil {
 			return nil, err
@@ -664,9 +681,9 @@ func buildFilterChain(route shardRoute, tlsEnabled bool, caKeyName string) (*lis
 	return chain, nil
 }
 
-// buildCluster builds a single upstream cluster for one shard.
-func buildCluster(route shardRoute, tlsEnabled bool, caKeyName string) (*clusterv3.Cluster, error) {
-	clusterName := fmt.Sprintf("mongot_%s_cluster", route.ShardNameSafe)
+// buildCluster builds an upstream cluster for one route.
+func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*clusterv3.Cluster, error) {
+	clusterName := fmt.Sprintf("mongot_%s_cluster", route.NameSafe)
 
 	upstreamHTTPOpts, err := anypb.New(&upstreamhttpv3.HttpProtocolOptions{
 		CommonHttpProtocolOptions: &corev3.HttpProtocolOptions{
@@ -783,7 +800,7 @@ func buildDownstreamTLSTransportSocket(caKeyName string) (*corev3.TransportSocke
 }
 
 // buildUpstreamTLSTransportSocket builds the TLS transport socket for clusters (upstream).
-func buildUpstreamTLSTransportSocket(route shardRoute, caKeyName string) (*corev3.TransportSocket, error) {
+func buildUpstreamTLSTransportSocket(route envoyRoute, caKeyName string) (*corev3.TransportSocket, error) {
 	upstreamTLS := &tlsv3.UpstreamTlsContext{
 		CommonTlsContext: &tlsv3.CommonTlsContext{
 			TlsCertificates: []*tlsv3.TlsCertificate{

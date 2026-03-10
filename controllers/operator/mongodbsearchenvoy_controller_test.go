@@ -8,15 +8,17 @@ import (
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func testRoute(shardName string) shardRoute {
-	return shardRoute{
-		ShardName:     shardName,
-		ShardNameSafe: "mdb_sh_0",
+func testRoute(shardName string) envoyRoute {
+	return envoyRoute{
+		Name:     shardName,
+		NameSafe: "mdb_sh_0",
 		SNIHostname:   shardName + "-proxy.ns.svc.cluster.local",
 		UpstreamHost:  shardName + "-mongot.ns.svc.cluster.local",
 		UpstreamPort:  27028,
@@ -36,14 +38,14 @@ func unmarshalBootstrap(t *testing.T, jsonStr string) *bootstrapv3.Bootstrap {
 }
 
 func TestBuildEnvoyConfigJSON_OutputIsValidJSON(t *testing.T) {
-	result, err := buildEnvoyConfigJSON([]shardRoute{testRoute("mdb-sh-0")}, false, testCAKeyName())
+	result, err := buildEnvoyConfigJSON([]envoyRoute{testRoute("mdb-sh-0")}, false, testCAKeyName())
 	require.NoError(t, err)
 	assert.True(t, json.Valid([]byte(result)), "output should be valid JSON")
 }
 
 func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
-	result, err := buildEnvoyConfigJSON([]shardRoute{route}, false, testCAKeyName())
+	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, false, testCAKeyName())
 	require.NoError(t, err)
 
 	bootstrap := unmarshalBootstrap(t, result)
@@ -61,14 +63,13 @@ func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 	assert.Equal(t, "mongod_listener", listener.Name)
 	assert.Equal(t, uint32(envoyProxyPort), listener.Address.GetSocketAddress().GetPortValue())
 
-	// Listener filter (TLS Inspector)
-	require.Len(t, listener.ListenerFilters, 1)
-	assert.Contains(t, listener.ListenerFilters[0].Name, "tls_inspector")
+	// No TLS Inspector when TLS is disabled
+	assert.Empty(t, listener.ListenerFilters, "no TLS Inspector when TLS disabled")
 
 	// Filter chains
 	require.Len(t, listener.FilterChains, 1)
 	fc := listener.FilterChains[0]
-	assert.Equal(t, []string{route.SNIHostname}, fc.FilterChainMatch.ServerNames)
+	assert.Nil(t, fc.FilterChainMatch, "no SNI match when TLS disabled (default filter chain)")
 	assert.Nil(t, fc.TransportSocket, "no TLS transport socket when TLS disabled")
 
 	// Clusters
@@ -107,7 +108,7 @@ func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 func TestBuildEnvoyConfigJSON_SingleShard_WithTLS(t *testing.T) {
 	route := testRoute("mdb-sh-0")
 	caKeyName := testCAKeyName()
-	result, err := buildEnvoyConfigJSON([]shardRoute{route}, true, caKeyName)
+	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, true, caKeyName)
 	require.NoError(t, err)
 
 	bootstrap := unmarshalBootstrap(t, result)
@@ -151,32 +152,172 @@ func TestBuildEnvoyConfigJSON_SingleShard_WithTLS(t *testing.T) {
 	assert.Equal(t, envoyClientCertPath+"/tls.key", clientCert.PrivateKey.GetFilename())
 }
 
-func TestBuildEnvoyConfigJSON_MultipleShards(t *testing.T) {
-	routes := []shardRoute{
-		{ShardName: "mdb-sh-0", ShardNameSafe: "mdb_sh_0", SNIHostname: "shard0.ns.svc.cluster.local", UpstreamHost: "mongot0.ns.svc.cluster.local", UpstreamPort: 27028},
-		{ShardName: "mdb-sh-1", ShardNameSafe: "mdb_sh_1", SNIHostname: "shard1.ns.svc.cluster.local", UpstreamHost: "mongot1.ns.svc.cluster.local", UpstreamPort: 27028},
-		{ShardName: "mdb-sh-2", ShardNameSafe: "mdb_sh_2", SNIHostname: "shard2.ns.svc.cluster.local", UpstreamHost: "mongot2.ns.svc.cluster.local", UpstreamPort: 27028},
+func TestBuildEnvoyConfigJSON_MultipleShards_WithTLS(t *testing.T) {
+	routes := []envoyRoute{
+		{Name: "mdb-sh-0", NameSafe: "mdb_sh_0", SNIHostname: "shard0.ns.svc.cluster.local", UpstreamHost: "mongot0.ns.svc.cluster.local", UpstreamPort: 27028},
+		{Name: "mdb-sh-1", NameSafe: "mdb_sh_1", SNIHostname: "shard1.ns.svc.cluster.local", UpstreamHost: "mongot1.ns.svc.cluster.local", UpstreamPort: 27028},
+		{Name: "mdb-sh-2", NameSafe: "mdb_sh_2", SNIHostname: "shard2.ns.svc.cluster.local", UpstreamHost: "mongot2.ns.svc.cluster.local", UpstreamPort: 27028},
 	}
 
-	result, err := buildEnvoyConfigJSON(routes, false, testCAKeyName())
+	// Sharded clusters always require TLS for SNI-based routing
+	result, err := buildEnvoyConfigJSON(routes, true, testCAKeyName())
 	require.NoError(t, err)
 
 	bootstrap := unmarshalBootstrap(t, result)
+
+	// TLS Inspector present
+	require.Len(t, bootstrap.StaticResources.Listeners[0].ListenerFilters, 1)
+	assert.Contains(t, bootstrap.StaticResources.Listeners[0].ListenerFilters[0].Name, "tls_inspector")
 
 	require.Len(t, bootstrap.StaticResources.Listeners[0].FilterChains, 3)
 	require.Len(t, bootstrap.StaticResources.Clusters, 3)
 
 	for i, route := range routes {
 		fc := bootstrap.StaticResources.Listeners[0].FilterChains[i]
+		require.NotNil(t, fc.FilterChainMatch)
 		assert.Equal(t, []string{route.SNIHostname}, fc.FilterChainMatch.ServerNames)
+		assert.NotNil(t, fc.TransportSocket, "downstream TLS should be present")
 
 		cluster := bootstrap.StaticResources.Clusters[i]
-		expectedName := "mongot_" + route.ShardNameSafe + "_cluster"
+		expectedName := "mongot_" + route.NameSafe + "_cluster"
 		assert.Equal(t, expectedName, cluster.Name)
+		assert.NotNil(t, cluster.TransportSocket, "upstream TLS should be present")
 
 		ep := cluster.LoadAssignment.Endpoints[0].LbEndpoints[0].GetEndpoint()
 		assert.Equal(t, route.UpstreamHost, ep.Address.GetSocketAddress().GetAddress())
 	}
+}
+
+func TestBuildReplicaSetRoute(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mdb-search",
+			Namespace: "test-ns",
+		},
+	}
+
+	route := buildReplicaSetRoute(search)
+
+	assert.Equal(t, "rs", route.Name)
+	assert.Equal(t, "rs", route.NameSafe)
+	assert.Equal(t, "mdb-search-search-lb-svc.test-ns.svc.cluster.local", route.SNIHostname)
+	assert.Equal(t, "mdb-search-search-svc.test-ns.svc.cluster.local", route.UpstreamHost)
+	assert.Equal(t, int32(27028), route.UpstreamPort)
+}
+
+func TestBuildEnvoyConfigJSON_ReplicaSet_NoTLS(t *testing.T) {
+	route := envoyRoute{
+		Name:     "rs",
+		NameSafe: "rs",
+		SNIHostname:   "mdb-search-search-lb-svc.test-ns.svc.cluster.local",
+		UpstreamHost:  "mdb-search-search-svc.test-ns.svc.cluster.local",
+		UpstreamPort:  27028,
+	}
+
+	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, false, testCAKeyName())
+	require.NoError(t, err)
+
+	bootstrap := unmarshalBootstrap(t, result)
+
+	listener := bootstrap.StaticResources.Listeners[0]
+
+	// No TLS Inspector for non-TLS RS
+	assert.Empty(t, listener.ListenerFilters, "no TLS Inspector for non-TLS ReplicaSet")
+
+	// Single default filter chain (no SNI match)
+	require.Len(t, listener.FilterChains, 1)
+	fc := listener.FilterChains[0]
+	assert.Nil(t, fc.FilterChainMatch, "no SNI match for non-TLS ReplicaSet")
+	assert.Nil(t, fc.TransportSocket, "no downstream TLS for non-TLS ReplicaSet")
+
+	// Single cluster
+	require.Len(t, bootstrap.StaticResources.Clusters, 1)
+	cluster := bootstrap.StaticResources.Clusters[0]
+	assert.Equal(t, "mongot_rs_cluster", cluster.Name)
+	assert.Nil(t, cluster.TransportSocket, "no upstream TLS for non-TLS ReplicaSet")
+
+	ep := cluster.LoadAssignment.Endpoints[0].LbEndpoints[0].GetEndpoint()
+	assert.Equal(t, route.UpstreamHost, ep.Address.GetSocketAddress().GetAddress())
+	assert.Equal(t, uint32(route.UpstreamPort), ep.Address.GetSocketAddress().GetPortValue())
+}
+
+func TestBuildEnvoyConfigJSON_ReplicaSet_WithTLS(t *testing.T) {
+	route := envoyRoute{
+		Name:     "rs",
+		NameSafe: "rs",
+		SNIHostname:   "mdb-search-search-lb-svc.test-ns.svc.cluster.local",
+		UpstreamHost:  "mdb-search-search-svc.test-ns.svc.cluster.local",
+		UpstreamPort:  27028,
+	}
+
+	result, err := buildEnvoyConfigJSON([]envoyRoute{route}, true, testCAKeyName())
+	require.NoError(t, err)
+
+	bootstrap := unmarshalBootstrap(t, result)
+
+	listener := bootstrap.StaticResources.Listeners[0]
+
+	// TLS Inspector present for TLS RS
+	require.Len(t, listener.ListenerFilters, 1)
+	assert.Contains(t, listener.ListenerFilters[0].Name, "tls_inspector")
+
+	// Single filter chain with SNI match
+	require.Len(t, listener.FilterChains, 1)
+	fc := listener.FilterChains[0]
+	require.NotNil(t, fc.FilterChainMatch)
+	assert.Equal(t, []string{route.SNIHostname}, fc.FilterChainMatch.ServerNames)
+	assert.NotNil(t, fc.TransportSocket, "downstream TLS present for TLS ReplicaSet")
+
+	// Single cluster with upstream TLS
+	require.Len(t, bootstrap.StaticResources.Clusters, 1)
+	cluster := bootstrap.StaticResources.Clusters[0]
+	assert.Equal(t, "mongot_rs_cluster", cluster.Name)
+	assert.NotNil(t, cluster.TransportSocket, "upstream TLS present for TLS ReplicaSet")
+
+	// Verify upstream TLS SNI
+	upstreamTLS := &tlsv3.UpstreamTlsContext{}
+	err = cluster.TransportSocket.GetTypedConfig().UnmarshalTo(upstreamTLS)
+	require.NoError(t, err)
+	assert.Equal(t, route.UpstreamHost, upstreamTLS.Sni)
+}
+
+func TestBuildFilterChain_NoTLS_NoSNIMatch(t *testing.T) {
+	route := testRoute("test-shard")
+	chain, err := buildFilterChain(route, false, testCAKeyName())
+	require.NoError(t, err)
+
+	assert.Nil(t, chain.FilterChainMatch, "no SNI match when TLS disabled")
+	assert.Nil(t, chain.TransportSocket, "no transport socket when TLS disabled")
+	require.Len(t, chain.Filters, 1, "HCM filter should be present")
+}
+
+func TestBuildFilterChain_WithTLS_HasSNIMatch(t *testing.T) {
+	route := testRoute("test-shard")
+	chain, err := buildFilterChain(route, true, testCAKeyName())
+	require.NoError(t, err)
+
+	require.NotNil(t, chain.FilterChainMatch, "SNI match should be present with TLS")
+	assert.Equal(t, []string{route.SNIHostname}, chain.FilterChainMatch.ServerNames)
+	assert.NotNil(t, chain.TransportSocket, "transport socket should be present with TLS")
+}
+
+func TestBuildBootstrapConfig_NoTLS_NoTLSInspector(t *testing.T) {
+	route := testRoute("test-shard")
+	bootstrap, err := buildEnvoyBootstrapConfig([]envoyRoute{route}, false, testCAKeyName())
+	require.NoError(t, err)
+
+	listener := bootstrap.StaticResources.Listeners[0]
+	assert.Empty(t, listener.ListenerFilters, "no listener filters when TLS disabled")
+}
+
+func TestBuildBootstrapConfig_WithTLS_HasTLSInspector(t *testing.T) {
+	route := testRoute("test-shard")
+	bootstrap, err := buildEnvoyBootstrapConfig([]envoyRoute{route}, true, testCAKeyName())
+	require.NoError(t, err)
+
+	listener := bootstrap.StaticResources.Listeners[0]
+	require.Len(t, listener.ListenerFilters, 1)
+	assert.Contains(t, listener.ListenerFilters[0].Name, "tls_inspector")
 }
 
 func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {

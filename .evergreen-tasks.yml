@@ -1370,6 +1370,16 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_search_rs_enterprise_managed_lb
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_rs_external_managed_lb
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_sharded_enterprise_external_mongod
     tags: [ "patch-run" ]
     commands:
