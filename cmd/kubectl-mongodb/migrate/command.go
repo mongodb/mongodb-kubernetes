@@ -147,8 +147,8 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 					return xerrors.Errorf("error validating password for user %q: %w", u.Username, err)
 				}
 
-			sec := GeneratePasswordSecret(u.PasswordSecret, namespace, password)
-			if err := kubeClient.CreateSecret(ctx, sec); err != nil {
+				sec := GeneratePasswordSecret(u.PasswordSecret, namespace, password)
+				if err := kubeClient.CreateSecret(ctx, sec); err != nil {
 					return xerrors.Errorf("error creating password secret %q for user %q: %w", u.PasswordSecret, u.Username, err)
 				}
 				fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", u.PasswordSecret, namespace)

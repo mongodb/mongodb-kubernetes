@@ -829,8 +829,8 @@ task_groups:
     <<: *setup_and_teardown_task_cloudqa
     tasks:
       - e2e_vm_migration
-      - e2e_vm_migration_kubectl_plugin
-      - e2e_vm_migration_tls
+      - e2e_vm_migration_generate
+      - e2e_vm_migration_generate_tls
     <<: *teardown_group
 
   # This task group mostly duplicates tests running in e2e_mdb_kind_ubi_cloudqa

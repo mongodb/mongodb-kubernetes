@@ -298,12 +298,12 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_kubectl_plugin
+  - name: e2e_vm_migration_generate
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_tls
+  - name: e2e_vm_migration_generate_tls
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
