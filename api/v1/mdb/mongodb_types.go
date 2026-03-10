@@ -838,6 +838,11 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	return d.AdditionalMongodConfig
 }
 
+func (s *Security) GetTLSCAFilePath(defaultPath string) string {
+	if s == nil || s.TLSConfig == nil {
+		return defaultPath
+	}
+	return s.TLSConfig.GetCAFilePath(defaultPath)
 func (d *DbCommonSpec) GetExternalMembers() []ExternalMember {
 	return d.ExternalMembers
 }
@@ -1200,6 +1205,22 @@ type TLSConfig struct {
 	// CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
 	// used to validate the certificates created already.
 	CA string `json:"ca,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:Pattern=`^/.*`
+	// CAFilePath allows specifying a custom path for the CA certificate file instead of using the default
+	// ConfigMap mount path. If not specified, the default /mongodb-automation/tls/ca/ca-pem is used
+	// (or /mongodb-automation/ca.pem for AppDB). When set, the operator creates an additional mount at
+	// that path using subPath from the CA ConfigMap (tls.CA). The ConfigMap must have a key matching
+	// the filename (e.g. ca-pem).
+	CAFilePath string `json:"caFilePath,omitempty"`
+}
+
+func (t *TLSConfig) GetCAFilePath(defaultPath string) string {
+	if t == nil || t.CAFilePath == "" {
+		return defaultPath
+	}
+	return t.CAFilePath
 }
 
 func (m *MongoDbSpec) GetTLSConfig() *TLSConfig {
