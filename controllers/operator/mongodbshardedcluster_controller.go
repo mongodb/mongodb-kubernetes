@@ -3,6 +3,10 @@ package operator
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
+	"strings"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -19,9 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"slices"
-	"sort"
-	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -1003,7 +1004,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, sc.Name, log)
+	reconcileResult := checkIfHasExcessProcesses(conn, sc.Name, "", sc.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
 	}
@@ -1994,7 +1995,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			if sc.Spec.Security.GetInternalClusterAuthenticationMode() == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 			}
-			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name)
+			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name, "", sc.Spec.GetExternalMemberProcessNames())
 			if numberOfOtherMembers > 0 {
 				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
