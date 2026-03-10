@@ -70,6 +70,11 @@ ensure_required_python
 
 echo "Creating venv with Python ${PYTHON_VERSION} using uv..."
 uv venv venv --python "${PYTHON_VERSION}"
+
+# uv's python build statically link OpenSSL and that might get confused by the system-wide OpenSSL config.
+# see https://github.com/astral-sh/python-build-standalone/issues/999
+echo "export OPENSSL_CONF=/dev/null" >> venv/bin/activate
+
 source venv/bin/activate
 
 echo "Installing requirements.txt..."
