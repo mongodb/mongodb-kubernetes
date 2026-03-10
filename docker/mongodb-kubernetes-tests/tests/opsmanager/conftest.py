@@ -117,6 +117,74 @@ def mino_operator_install(
     )
 
 
+def _create_minio_buckets(
+    endpoint: str,
+    bucket_names: List[str],
+    access_key: str = "minio",
+    secret_key: str = "minio123",
+    timeout: int = 120,
+    interval: int = 5,
+    issuer_ca_filepath: Optional[str] = os.getenv("MINIO_ISSUER_CA_FILEPATH", None),
+) -> None:
+    """Create MinIO buckets via S3 API when the operator cannot (e.g. custom TLS).
+
+    The MinIO operator creates buckets by connecting to the tenant over HTTPS. When
+    the tenant uses custom certs (tls-ssl-minio) signed by the test CA, the operator
+    does not trust that CA and fails with "x509: certificate signed by unknown
+    authority". This helper creates the buckets from the test using the test CA for
+    verification, so the rest of the test can proceed.
+    """
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=f"https://{endpoint}",
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        verify=issuer_ca_filepath,
+    )
+    deadline = time.time() + timeout
+    created = set()
+    created_via_boto = set()
+    while time.time() < deadline:
+        for bucket in bucket_names:
+            if bucket in created:
+                continue
+            try:
+                s3.head_bucket(Bucket=bucket)
+                created.add(bucket)
+                print(f"MinIO bucket '{bucket}' already exists (created by MinIO operator)")
+            except ClientError as e:
+                code = e.response["Error"].get("Code", "")
+                if code in ("404", "NoSuchBucket"):
+                    try:
+                        s3.create_bucket(Bucket=bucket)
+                        created.add(bucket)
+                        created_via_boto.add(bucket)
+                        print(f"MinIO bucket '{bucket}' created via boto3")
+                    except ClientError as create_err:
+                        if create_err.response["Error"].get("Code") == "BucketAlreadyOwnedByYou":
+                            created.add(bucket)
+                            print(f"MinIO bucket '{bucket}' already exists (created by MinIO operator)")
+                        pass
+                else:
+                    raise
+            except Exception:
+                # Connection refused, SSL, timeout - MinIO may not be ready yet; retry
+                pass
+        if len(created) == len(bucket_names):
+            via_boto = sorted(created_via_boto)
+            via_minio = sorted(set(bucket_names) - created_via_boto)
+            if via_boto:
+                print(f"MinIO buckets created via boto3: {via_boto}")
+            if via_minio:
+                print(f"MinIO buckets already present (created by MinIO operator): {via_minio}")
+            return
+        time.sleep(interval)
+    missing = set(bucket_names) - created
+    raise TimeoutError(
+        f"Could not create MinIO buckets within {timeout}s: missing {missing}"
+    )
+
+
 def _wait_for_minio_buckets(
     endpoint: str,
     bucket_names: List[str],
@@ -214,12 +282,19 @@ def mino_tenant_install(
         print(f"Minio tenant already installed, skipping helm installation!")
 
     get_pod_when_ready(namespace, f"app=minio", api_client=cluster_client)
-    # Wait for MinIO bucket provisioning (pod ready ≠ buckets ready)
-    # MinIO creates the buckets async via a kubernetes Job after the tenant pod is running,
-    # so we need to wait for the buckets to be accessible before proceeding with tests that depend on them.
+    # Create buckets from the test so we don't rely on the operator. The operator creates
+    # buckets over HTTPS; with custom certs (tls-ssl-minio) it often fails with x509 or
+    # connection refused (race with MinIO readiness), so bucket creation is flaky. Creating
+    # them here with the test CA makes the test stable.
+    bucket_names = ["s3-store-bucket", "oplog-s3-bucket"]
+    _create_minio_buckets(
+        endpoint=f"minio.{namespace}.svc.cluster.local",
+        bucket_names=bucket_names,
+        issuer_ca_filepath=issuer_ca_filepath,
+    )
     _wait_for_minio_buckets(
         endpoint=f"minio.{namespace}.svc.cluster.local",
-        bucket_names=["s3-store-bucket", "oplog-s3-bucket"],
+        bucket_names=bucket_names,
         issuer_ca_filepath=issuer_ca_filepath,
     )
 
