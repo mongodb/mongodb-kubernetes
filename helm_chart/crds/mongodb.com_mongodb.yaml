@@ -857,7 +857,36 @@ spec:
                 type: object
               externalMembers:
                 items:
-                  type: string
+                  properties:
+                    hostname:
+                      description: Hostname contains the hostname and port of the
+                        external process, as it appears in the `processes` field in
+                        the AC.
+                      type: string
+                    processName:
+                      description: ProcessName contains the name of the external process
+                        as it appears in the `processes` field in the AC.
+                      type: string
+                    replicaSetName:
+                      description: |-
+                        ReplicaSetName is required only for mongod processes in a Sharded Cluster deployment
+                        It specifies the name of the Replica Set that the mongod process belongs to.
+                        This field will help to determine whether the mongod process belongs to the config server or a shard (and in which shard).
+                      type: string
+                    type:
+                      description: |-
+                        Type specifies the type of the external member, whether it's a mongod or mongos process.
+                        This field is not required when the deployment we migrate is a Replica Set since it only contains mongods.
+                        However, for a Sharded Cluster deployment, this field is required to distinguish between mongod and mongos processes in the cluster.
+                      enum:
+                      - mongod
+                      - mongos
+                      type: string
+                  required:
+                  - hostname
+                  - processName
+                  - type
+                  type: object
                 type: array
               featureCompatibilityVersion:
                 type: string
