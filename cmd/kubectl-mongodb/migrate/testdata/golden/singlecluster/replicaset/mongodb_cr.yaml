@@ -1,0 +1,149 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+  name: my-rs
+spec:
+  additionalMongodConfig:
+    auditLog:
+      destination: file
+      format: JSON
+      path: /var/log/mongodb/audit.json
+    net:
+      compression:
+        compressors: zlib,zstd
+      maxIncomingConnections: 512
+      port: 27018
+      tls:
+        mode: preferSSL
+    operationProfiling:
+      mode: slowOp
+      slowOpThresholdMs: 200
+    replication:
+      oplogSizeMB: 2048
+    setParameter:
+      authenticationMechanisms: SCRAM-SHA-256,PLAIN
+    storage:
+      directoryPerDB: true
+      journal:
+        enabled: true
+      wiredTiger:
+        collectionConfig:
+          blockCompressor: snappy
+        engineConfig:
+          cacheSizeGB: 1.5
+          journalCompressor: zlib
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      auditlogRotate:
+        includeAuditLogsWithMongoDBLogs: true
+        numTotal: 10
+        numUncompressed: 2
+        percentOfDiskspace: "0.4"
+        sizeThresholdMB: "500"
+        timeThresholdHrs: 48
+      logRotate:
+        includeAuditLogsWithMongoDBLogs: true
+        numTotal: 10
+        numUncompressed: 5
+        percentOfDiskspace: "0.4"
+        sizeThresholdMB: "1000"
+        timeThresholdHrs: 24
+      systemLog:
+        destination: file
+        logAppend: true
+        path: /var/log/mongodb/mongod.log
+  credentials: my-credentials
+  externalMembers:
+  - my-rs-0
+  - my-rs-1
+  - my-rs-2
+  featureCompatibilityVersion: "7.0"
+  memberConfig:
+  - priority: "0"
+    tags:
+      region: us-east-1
+      use: analytics
+    votes: 0
+  - priority: "0"
+    tags:
+      region: us-west-2
+    votes: 0
+  - priority: "0"
+    votes: 0
+  members: 3
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  prometheus:
+    metricsPath: /custom-metrics
+    passwordSecretRef:
+      key: password
+      name: prometheus-password
+    port: 9216
+    tlsSecretKeyRef:
+      name: prometheus-tls
+    username: prom-user
+  security:
+    authentication:
+      enabled: true
+      ignoreUnknownUsers: true
+      internalCluster: X509
+      ldap:
+        authzQueryTemplate: '{USER}?memberOf?base'
+        bindQueryPasswordSecretRef:
+          name: ldap-bind-query-password
+        bindQueryUser: cn=admin,dc=example,dc=com
+        caConfigMapRef:
+          key: ca.pem
+          name: ldap-ca
+        servers:
+        - ldap1.example.com:636
+        - ldap2.example.com:636
+        timeoutMS: 10000
+        transportSecurity: tls
+        userCacheInvalidationInterval: 30
+        userToDNMapping: '[{"match":"(.+)","substitution":"uid={0},ou=users,dc=example,dc=com"}]'
+        validateLDAPServerConfig: true
+      modes:
+      - SCRAM-SHA-256
+      - X509
+      - LDAP
+      - OIDC
+      oidcProviderConfigs:
+      - audience: api://mongodb-cluster
+        authorizationMethod: WorkforceIdentityFederation
+        authorizationType: GroupMembership
+        clientId: 0oa1abc2def3ghi4j567
+        configurationName: okta
+        groupsClaim: groups
+        issuerURI: https://dev-123456.okta.com/oauth2/default
+        requestedScopes:
+        - openid
+        - profile
+        - groups
+        userClaim: sub
+      - audience: api://mongodb-workload
+        authorizationMethod: WorkloadIdentityFederation
+        authorizationType: UserID
+        configurationName: azure-svc
+        issuerURI: https://login.microsoftonline.com/tenant-id/v2.0
+        userClaim: sub
+    roles:
+    - db: myapp
+      privileges:
+      - actions:
+        - find
+        - listCollections
+        resource:
+          db: myapp
+      role: appReadOnly
+      roles:
+      - db: myapp
+        role: read
+    tls:
+      enabled: true
+  type: ReplicaSet
+  version: 7.0.12-ent

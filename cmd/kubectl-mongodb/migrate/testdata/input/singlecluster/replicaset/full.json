@@ -1,4 +1,10 @@
 {
+  "agentVersion": {
+    "directoryUrl": "https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/automation-agent/qa/",
+    "name": "13.48.0.10348-1"
+  },
+  "atlasProxies": [],
+  "atlasUISes": [],
   "auth": {
     "usersWanted": [
       {
@@ -48,11 +54,34 @@
     "usersDeleted": [],
     "disabled": false,
     "authoritativeSet": false,
-    "deploymentAuthMechanisms": ["SCRAM-SHA-256", "MONGODB-X509", "PLAIN"],
+    "deploymentAuthMechanisms": ["SCRAM-SHA-256", "MONGODB-X509", "PLAIN", "MONGODB-OIDC"],
     "autoAuthMechanisms": ["SCRAM-SHA-256"],
     "autoAuthMechanism": "SCRAM-SHA-256",
     "autoUser": "mms-automation-agent",
     "autoAuthRestrictions": []
+  },
+  "backupVersions": [
+    {
+      "hostname": "vm-mongo-0.prod.example.com",
+      "name": "13.48.0.10348-1"
+    },
+    {
+      "hostname": "vm-mongo-1.prod.example.com",
+      "name": "13.48.0.10348-1"
+    },
+    {
+      "hostname": "vm-mongo-2.prod.example.com",
+      "name": "13.48.0.10348-1"
+    }
+  ],
+  "balancer": {},
+  "clusterWideConfigurations": {},
+  "cpsModules": [],
+  "dbCheckModules": [],
+  "filebeat": {},
+  "indexConfigs": [],
+  "kerberos": {
+    "serviceName": "mongodb"
   },
   "ldap": {
     "bindMethod": "simple",
@@ -67,6 +96,40 @@
     "userCacheInvalidationInterval": 30,
     "CAFileContents": "-----BEGIN CERTIFICATE-----\nMIIBxTCCAWugAwIBAgIUFakeCAContentsForTesting=\n-----END CERTIFICATE-----"
   },
+  "lifecycleManagementModules": [],
+  "maintainedEnvoys": [],
+  "maintainedMonarchComponents": [],
+  "maintainedMongotunes": [],
+  "maintainedRamis": [],
+  "mongoDbVersions": [
+    {
+      "builds": [
+        {
+          "architecture": "amd64",
+          "gitVersion": "abc123",
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-rhel80-7.0.12.tgz"
+        }
+      ],
+      "name": "7.0.12-ent"
+    }
+  ],
+  "mongosqlds": [],
+  "mongots": [],
+  "monitoringVersions": [
+    {
+      "hostname": "vm-mongo-0.prod.example.com",
+      "name": "13.48.0.10348-1"
+    },
+    {
+      "hostname": "vm-mongo-1.prod.example.com",
+      "name": "13.48.0.10348-1"
+    },
+    {
+      "hostname": "vm-mongo-2.prod.example.com",
+      "name": "13.48.0.10348-1"
+    }
+  ],
   "oidcProviderConfigs": [
     {
       "authNamePrefix": "okta",
@@ -78,17 +141,45 @@
       "groupsClaim": "groups",
       "supportsHumanFlows": true,
       "useAuthorizationClaim": true
+    },
+    {
+      "authNamePrefix": "azure-svc",
+      "audience": "api://mongodb-workload",
+      "issuerUri": "https://login.microsoftonline.com/tenant-id/v2.0",
+      "clientId": null,
+      "requestedScopes": [],
+      "userClaim": "sub",
+      "groupsClaim": null,
+      "supportsHumanFlows": false,
+      "useAuthorizationClaim": false
     }
   ],
+  "onlineArchiveModules": [],
+  "prometheus": {
+    "enabled": true,
+    "username": "prom-user",
+    "password": "prom-s3cret",
+    "listenAddress": "0.0.0.0:9216",
+    "metricsPath": "/custom-metrics",
+    "scheme": "https"
+  },
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation",
+    "downloadBaseWindows": "%SystemDrive%\\MMSAutomation\\versions"
+  },
   "processes": [
     {
       "args2_6": {
         "net": {
-          "port": 27017,
+          "port": 27018,
           "tls": {
             "PEMKeyFile": "/mongodb-automation/server.pem",
-            "mode": "requireSSL"
-          }
+            "mode": "preferSSL"
+          },
+          "compression": {
+            "compressors": "zlib,zstd"
+          },
+          "maxIncomingConnections": 512
         },
         "replication": {
           "replSetName": "my-rs",
@@ -99,31 +190,56 @@
         },
         "storage": {
           "dbPath": "/data/db",
+          "directoryPerDB": true,
+          "journal": {
+            "enabled": true
+          },
           "wiredTiger": {
             "engineConfig": {
-              "cacheSizeGB": 1.5
+              "cacheSizeGB": 1.5,
+              "journalCompressor": "zlib"
+            },
+            "collectionConfig": {
+              "blockCompressor": "snappy"
             }
           }
         },
         "systemLog": {
           "destination": "file",
-          "path": "/var/log/mongodb/mongod.log"
+          "path": "/var/log/mongodb/mongod.log",
+          "logAppend": true
         },
         "setParameter": {
           "authenticationMechanisms": "SCRAM-SHA-256,PLAIN"
+        },
+        "auditLog": {
+          "destination": "file",
+          "format": "JSON",
+          "path": "/var/log/mongodb/audit.json"
+        },
+        "operationProfiling": {
+          "mode": "slowOp",
+          "slowOpThresholdMs": 200
         }
+      },
+      "auditLogRotate": {
+        "numTotal": 10,
+        "numUncompressed": 2,
+        "percentOfDiskspace": 0.4,
+        "sizeThresholdMB": 500,
+        "timeThresholdHrs": 48,
+        "includeAuditLogsWithMongoDBLogs": true
       },
       "authSchemaVersion": 5,
       "featureCompatibilityVersion": "7.0",
       "hostname": "vm-mongo-0.prod.example.com",
       "logRotate": {
+        "numTotal": 10,
+        "numUncompressed": 5,
+        "percentOfDiskspace": 0.4,
         "sizeThresholdMB": 1000,
         "timeThresholdHrs": 24,
-        "numUncompressed": 5
-      },
-      "auditLogRotate": {
-        "sizeThresholdMB": 500,
-        "timeThresholdHrs": 48
+        "includeAuditLogsWithMongoDBLogs": true
       },
       "name": "my-rs-0",
       "processType": "mongod",
@@ -132,11 +248,15 @@
     {
       "args2_6": {
         "net": {
-          "port": 27017,
+          "port": 27018,
           "tls": {
             "PEMKeyFile": "/mongodb-automation/server.pem",
-            "mode": "requireSSL"
-          }
+            "mode": "preferSSL"
+          },
+          "compression": {
+            "compressors": "zlib,zstd"
+          },
+          "maxIncomingConnections": 512
         },
         "replication": {
           "replSetName": "my-rs",
@@ -147,23 +267,57 @@
         },
         "storage": {
           "dbPath": "/data/db",
+          "directoryPerDB": true,
+          "journal": {
+            "enabled": true
+          },
           "wiredTiger": {
             "engineConfig": {
-              "cacheSizeGB": 1.5
+              "cacheSizeGB": 1.5,
+              "journalCompressor": "zlib"
+            },
+            "collectionConfig": {
+              "blockCompressor": "snappy"
             }
           }
         },
         "systemLog": {
           "destination": "file",
-          "path": "/var/log/mongodb/mongod.log"
+          "path": "/var/log/mongodb/mongod.log",
+          "logAppend": true
         },
         "setParameter": {
           "authenticationMechanisms": "SCRAM-SHA-256,PLAIN"
+        },
+        "auditLog": {
+          "destination": "file",
+          "format": "JSON",
+          "path": "/var/log/mongodb/audit.json"
+        },
+        "operationProfiling": {
+          "mode": "slowOp",
+          "slowOpThresholdMs": 200
         }
+      },
+      "auditLogRotate": {
+        "numTotal": 10,
+        "numUncompressed": 2,
+        "percentOfDiskspace": 0.4,
+        "sizeThresholdMB": 500,
+        "timeThresholdHrs": 48,
+        "includeAuditLogsWithMongoDBLogs": true
       },
       "authSchemaVersion": 5,
       "featureCompatibilityVersion": "7.0",
       "hostname": "vm-mongo-1.prod.example.com",
+      "logRotate": {
+        "numTotal": 10,
+        "numUncompressed": 5,
+        "percentOfDiskspace": 0.4,
+        "sizeThresholdMB": 1000,
+        "timeThresholdHrs": 24,
+        "includeAuditLogsWithMongoDBLogs": true
+      },
       "name": "my-rs-1",
       "processType": "mongod",
       "version": "7.0.12-ent"
@@ -171,11 +325,15 @@
     {
       "args2_6": {
         "net": {
-          "port": 27017,
+          "port": 27018,
           "tls": {
             "PEMKeyFile": "/mongodb-automation/server.pem",
-            "mode": "requireSSL"
-          }
+            "mode": "preferSSL"
+          },
+          "compression": {
+            "compressors": "zlib,zstd"
+          },
+          "maxIncomingConnections": 512
         },
         "replication": {
           "replSetName": "my-rs",
@@ -186,23 +344,57 @@
         },
         "storage": {
           "dbPath": "/data/db",
+          "directoryPerDB": true,
+          "journal": {
+            "enabled": true
+          },
           "wiredTiger": {
             "engineConfig": {
-              "cacheSizeGB": 1.5
+              "cacheSizeGB": 1.5,
+              "journalCompressor": "zlib"
+            },
+            "collectionConfig": {
+              "blockCompressor": "snappy"
             }
           }
         },
         "systemLog": {
           "destination": "file",
-          "path": "/var/log/mongodb/mongod.log"
+          "path": "/var/log/mongodb/mongod.log",
+          "logAppend": true
         },
         "setParameter": {
           "authenticationMechanisms": "SCRAM-SHA-256,PLAIN"
+        },
+        "auditLog": {
+          "destination": "file",
+          "format": "JSON",
+          "path": "/var/log/mongodb/audit.json"
+        },
+        "operationProfiling": {
+          "mode": "slowOp",
+          "slowOpThresholdMs": 200
         }
+      },
+      "auditLogRotate": {
+        "numTotal": 10,
+        "numUncompressed": 2,
+        "percentOfDiskspace": 0.4,
+        "sizeThresholdMB": 500,
+        "timeThresholdHrs": 48,
+        "includeAuditLogsWithMongoDBLogs": true
       },
       "authSchemaVersion": 5,
       "featureCompatibilityVersion": "7.0",
       "hostname": "vm-mongo-2.prod.example.com",
+      "logRotate": {
+        "numTotal": 10,
+        "numUncompressed": 5,
+        "percentOfDiskspace": 0.4,
+        "sizeThresholdMB": 1000,
+        "timeThresholdHrs": 24,
+        "includeAuditLogsWithMongoDBLogs": true
+      },
       "name": "my-rs-2",
       "processType": "mongod",
       "version": "7.0.12-ent"
@@ -214,8 +406,12 @@
       "members": [
         {
           "_id": 0,
+          "arbiterOnly": false,
+          "buildIndexes": true,
+          "hidden": false,
           "host": "my-rs-0",
           "priority": 2,
+          "secondaryDelaySecs": 0,
           "votes": 1,
           "tags": {"region": "us-east-1", "use": "analytics"},
           "horizons": {
@@ -225,8 +421,12 @@
         },
         {
           "_id": 1,
+          "arbiterOnly": false,
+          "buildIndexes": true,
+          "hidden": false,
           "host": "my-rs-1",
           "priority": 1,
+          "secondaryDelaySecs": 0,
           "votes": 1,
           "tags": {"region": "us-west-2"},
           "horizons": {
@@ -236,8 +436,12 @@
         },
         {
           "_id": 2,
+          "arbiterOnly": false,
+          "buildIndexes": true,
+          "hidden": false,
           "host": "my-rs-2",
           "priority": 1,
+          "secondaryDelaySecs": 0,
           "votes": 1,
           "horizons": {
             "external": "rs2.external.example.com:27017",
@@ -248,17 +452,6 @@
       "protocolVersion": "1"
     }
   ],
-  "sharding": [],
-  "tls": {
-    "CAFilePath": "/mongodb-automation/tls/ca/ca-pem",
-    "clientCertificateMode": "OPTIONAL"
-  },
-  "mongoDbVersions": [],
-  "monitoringVersions": [],
-  "backupVersions": [],
-  "options": {
-    "downloadBase": "/var/lib/mongodb-mms-automation"
-  },
   "roles": [
     {
       "role": "appReadOnly",
@@ -273,5 +466,12 @@
         {"role": "read", "db": "myapp"}
       ]
     }
-  ]
+  ],
+  "serverlessStateCacheMaintainers": [],
+  "sharding": [],
+  "tls": {
+    "CAFilePath": "/mongodb-automation/tls/ca/ca-pem",
+    "clientCertificateMode": "OPTIONAL"
+  },
+  "version": 14
 }

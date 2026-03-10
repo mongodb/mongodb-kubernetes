@@ -1,6 +1,7 @@
 package migrate
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -270,6 +271,17 @@ func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 	return prom, nil
 }
 
+// IsPrometheusEnabled returns true when the AC has Prometheus monitoring
+// enabled with a username configured (i.e. the generated CR will reference
+// a prometheus-password Secret).
+func IsPrometheusEnabled(d om.Deployment) bool {
+	promMap := maputil.ReadMapValueAsMap(d, "prometheus")
+	if promMap == nil {
+		return false
+	}
+	return cast.ToBool(promMap["enabled"]) && cast.ToString(promMap["username"]) != ""
+}
+
 func parsePortFromListenAddress(addr string) int {
 	if i := strings.LastIndex(addr, ":"); i >= 0 {
 		return cast.ToInt(addr[i+1:])
@@ -349,37 +361,126 @@ func convertOIDCConfigs(configs []oidc.ProviderConfig) []mdbv1.OIDCProviderConfi
 	return out
 }
 
-// extractAdditionalMongodConfig reads user-facing mongod options from the first
-// member's args2_6 and maps them to spec.additionalMongodConfig. Fields the
-// operator fully owns (dbPath, systemLog, replication.replSetName) are excluded.
+// extractAdditionalMongodConfig reads user-facing mongod options from every
+// member's args2_6 and maps them to spec.additionalMongodConfig. Only fields
+// that have identical values across all members are included, since
+// Kubernetes applies additionalMongodConfig uniformly to every member.
+// Fields the operator fully owns (dbPath, systemLog, replication.replSetName)
+// are excluded.
 func extractAdditionalMongodConfig(processMap map[string]map[string]interface{}, members []om.ReplicaSetMember) (*mdbv1.AdditionalMongodConfig, error) {
 	if len(members) == 0 {
 		return nil, nil
 	}
 
-	host := members[0].Name()
-	proc, ok := processMap[host]
-	if !ok {
-		return nil, fmt.Errorf("process %q referenced by member at index 0 not found", host)
+	var allConfigs []map[string]interface{}
+	for i, m := range members {
+		host := m.Name()
+		proc, ok := processMap[host]
+		if !ok {
+			return nil, fmt.Errorf("process %q referenced by member at index %d not found", host, i)
+		}
+		args := maputil.ReadMapValueAsMap(proc, "args2_6")
+		if args == nil {
+			return nil, fmt.Errorf("process %q has no args2_6 configuration", host)
+		}
+
+		cfg := mdbv1.NewEmptyAdditionalMongodConfig()
+		extractNetConfig(args, cfg)
+		extractStorageConfig(args, cfg)
+		extractReplicationConfig(args, cfg)
+		extractGenericSections(args, cfg)
+		extractNonDefaultTLSMode(args, cfg)
+
+		allConfigs = append(allConfigs, cfg.ToMap())
 	}
-	args := maputil.ReadMapValueAsMap(proc, "args2_6")
-	if args == nil {
-		return nil, fmt.Errorf("process %q has no args2_6 configuration", host)
+
+	common := intersectConfigMaps(allConfigs)
+	if len(common) == 0 {
+		return nil, nil
 	}
 
 	config := mdbv1.NewEmptyAdditionalMongodConfig()
-	hasConfig := false
+	populateConfigFromMap(config, common, "")
+	return config, nil
+}
 
-	hasConfig = extractNetConfig(args, config) || hasConfig
-	hasConfig = extractStorageConfig(args, config) || hasConfig
-	hasConfig = extractReplicationConfig(args, config) || hasConfig
-	hasConfig = extractGenericSections(args, config) || hasConfig
-	hasConfig = extractNonDefaultTLSMode(args, config) || hasConfig
-
-	if hasConfig {
-		return config, nil
+// populateConfigFromMap recursively walks a nested map and calls AddOption
+// for each leaf value, preserving original Go types (no JSON roundtrip).
+func populateConfigFromMap(config *mdbv1.AdditionalMongodConfig, m map[string]interface{}, prefix string) {
+	for k, v := range m {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		if sub, ok := v.(map[string]interface{}); ok {
+			populateConfigFromMap(config, sub, key)
+		} else {
+			config.AddOption(key, v)
+		}
 	}
-	return nil, nil
+}
+
+// intersectConfigMaps returns a map containing only the keys and values
+// that are identical across all input maps. Nested maps are intersected
+// recursively; a nested key is kept only when all inputs agree on its value.
+func intersectConfigMaps(maps []map[string]interface{}) map[string]interface{} {
+	if len(maps) == 0 {
+		return nil
+	}
+	if len(maps) == 1 {
+		return maps[0]
+	}
+
+	result := make(map[string]interface{})
+	for key, firstVal := range maps[0] {
+		allPresent := true
+		for _, other := range maps[1:] {
+			if _, exists := other[key]; !exists {
+				allPresent = false
+				break
+			}
+		}
+		if !allPresent {
+			continue
+		}
+
+		firstSub, firstIsMap := firstVal.(map[string]interface{})
+		if firstIsMap {
+			subs := make([]map[string]interface{}, len(maps))
+			subs[0] = firstSub
+			allMaps := true
+			for i, other := range maps[1:] {
+				otherSub, ok := other[key].(map[string]interface{})
+				if !ok {
+					allMaps = false
+					break
+				}
+				subs[i+1] = otherSub
+			}
+			if !allMaps {
+				continue
+			}
+			sub := intersectConfigMaps(subs)
+			if len(sub) > 0 {
+				result[key] = sub
+			}
+		} else {
+			firstJSON, _ := json.Marshal(firstVal)
+			allEqual := true
+			for _, other := range maps[1:] {
+				otherJSON, _ := json.Marshal(other[key])
+				if string(firstJSON) != string(otherJSON) {
+					allEqual = false
+					break
+				}
+			}
+			if allEqual {
+				result[key] = firstVal
+			}
+		}
+	}
+
+	return result
 }
 
 func extractNetConfig(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {

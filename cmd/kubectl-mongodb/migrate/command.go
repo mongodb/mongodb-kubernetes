@@ -8,8 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
@@ -18,9 +16,10 @@ import (
 const defaultNamespace = "default"
 
 var (
-	configMapName string
-	secretName    string
-	namespace     string
+	configMapName     string
+	secretName        string
+	namespace         string
+	multiClusterNames string
 )
 
 var MigrateCmd = &cobra.Command{
@@ -39,6 +38,7 @@ func init() {
 	MigrateCmd.PersistentFlags().StringVar(&configMapName, "config-map-name", "", "Name of the ConfigMap containing the OM URL and project ID (required)")
 	MigrateCmd.PersistentFlags().StringVar(&secretName, "secret-name", "", "Name of the Secret containing the OM API credentials (required)")
 	MigrateCmd.PersistentFlags().StringVar(&namespace, "namespace", defaultNamespace, "Namespace of the ConfigMap and Secret")
+	MigrateCmd.PersistentFlags().StringVar(&multiClusterNames, "multi-cluster-names", "", "Comma-separated list of target cluster names (e.g., east1,west1); generates a MongoDBMultiCluster CR")
 	_ = MigrateCmd.MarkPersistentFlagRequired("config-map-name")
 	_ = MigrateCmd.MarkPersistentFlagRequired("secret-name")
 
@@ -76,11 +76,41 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 		CredentialsSecretName: secretName,
 		ConfigMapName:         configMapName,
 	}
-	yamlOut, resourceName, err := GenerateMongoDBCR(ac, opts)
+
+	if multiClusterNames != "" {
+		opts.MultiClusterNames = parseMultiClusterNames(multiClusterNames)
+	}
+
+	var yamlOut, resourceName string
+	if len(opts.MultiClusterNames) > 0 {
+		yamlOut, resourceName, err = GenerateMultiClusterCR(ac, opts)
+	} else {
+		yamlOut, resourceName, err = GenerateMongoDBCR(ac, opts)
+	}
 	if err != nil {
 		return xerrors.Errorf("error generating CR: %w", err)
 	}
 	fmt.Print(yamlOut)
+
+	if IsPrometheusEnabled(ac.Deployment) {
+		if kubeClient == nil {
+			return xerrors.Errorf("prometheus is enabled and requires a password secret but no Kubernetes client is available; check your kubeconfig")
+		}
+		scanner := bufio.NewScanner(os.Stdin)
+		fmt.Fprintf(os.Stderr, "Enter password for Prometheus user: ")
+		if !scanner.Scan() {
+			return xerrors.Errorf("error reading Prometheus password")
+		}
+		promPassword := strings.TrimSpace(scanner.Text())
+		if promPassword == "" {
+			return xerrors.Errorf("Prometheus password cannot be empty")
+		}
+		sec := GeneratePasswordSecret("prometheus-password", namespace, promPassword)
+		if err := kubeClient.CreateSecret(ctx, sec); err != nil {
+			return xerrors.Errorf("error creating Prometheus password secret: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", "prometheus-password", namespace)
+	}
 
 	userCRs, err := GenerateUserCRs(ac, resourceName)
 	if err != nil {
@@ -117,16 +147,8 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 					return xerrors.Errorf("error validating password for user %q: %w", u.Username, err)
 				}
 
-				sec := corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      u.PasswordSecret,
-						Namespace: namespace,
-					},
-					StringData: map[string]string{
-						"password": password,
-					},
-				}
-				if err := kubeClient.CreateSecret(ctx, sec); err != nil {
+			sec := GeneratePasswordSecret(u.PasswordSecret, namespace, password)
+			if err := kubeClient.CreateSecret(ctx, sec); err != nil {
 					return xerrors.Errorf("error creating password secret %q for user %q: %w", u.PasswordSecret, u.Username, err)
 				}
 				fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", u.PasswordSecret, namespace)
@@ -137,6 +159,17 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	}
 
 	return nil
+}
+
+func parseMultiClusterNames(raw string) []string {
+	var names []string
+	for _, s := range strings.Split(raw, ",") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			names = append(names, s)
+		}
+	}
+	return names
 }
 
 func printValidationResults(results []ValidationResult) int {

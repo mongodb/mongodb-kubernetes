@@ -1,6 +1,7 @@
 package migrate
 
 import (
+	"flag"
 	"os"
 	"strings"
 	"testing"
@@ -11,101 +12,319 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 )
 
+var updateGolden = flag.Bool("update-golden", false, "overwrite golden fixture files with current output")
+
 func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfig {
 	t.Helper()
-	data, err := os.ReadFile("testdata/" + filename)
+	data, err := os.ReadFile("testdata/input/" + filename)
 	require.NoError(t, err)
 	ac, err := om.BuildAutomationConfigFromBytes(data)
 	require.NoError(t, err)
 	return ac
 }
 
-func TestGenerateMongoDBCR_BasicReplicaSet(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
-
-	opts := GenerateOptions{
-		CredentialsSecretName: "my-credentials",
-		ConfigMapName:         "my-om-config",
+// TestFixtureMatch compares generated CR output byte-for-byte against golden
+// files. Each entry uses a distinct input JSON and produces a different kind of
+// output (single-cluster CR, multi-cluster CR, user CRs).
+//
+// To regenerate all golden files after an intentional change:
+//
+//	go test -run TestFixtureMatch -update-golden
+func TestFixtureMatch(t *testing.T) {
+	tests := []struct {
+		name       string
+		inputJSON  string
+		goldenYAML string
+		generate   func(t *testing.T, ac *om.AutomationConfig) string
+	}{
+		{
+			name:       "replicaset single-cluster CR",
+			inputJSON:  "singlecluster/replicaset/full.json",
+			goldenYAML: "singlecluster/replicaset/mongodb_cr.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
+					CredentialsSecretName: "my-credentials",
+					ConfigMapName:         "my-om-config",
+				})
+				require.NoError(t, err)
+				return out
+			},
+		},
+		{
+			name:       "5-member geo-distributed multi-cluster CR (2 clusters)",
+			inputJSON:  "multicluster/replicaset/simple.json",
+			goldenYAML: "multicluster/replicaset/2_clusters.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMultiClusterCR(ac, GenerateOptions{
+					CredentialsSecretName: "mc-credentials",
+					ConfigMapName:         "mc-om-config",
+					MultiClusterNames:     []string{"east1", "west1"},
+				})
+				require.NoError(t, err)
+				return out
+			},
+		},
+		{
+			name:       "5-member geo-distributed multi-cluster CR (3 clusters)",
+			inputJSON:  "multicluster/replicaset/simple.json",
+			goldenYAML: "multicluster/replicaset/3_clusters.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMultiClusterCR(ac, GenerateOptions{
+					CredentialsSecretName: "mc-credentials",
+					ConfigMapName:         "mc-om-config",
+					MultiClusterNames:     []string{"cluster-a", "cluster-b", "cluster-c"},
+				})
+				require.NoError(t, err)
+				return out
+			},
+		},
+		{
+			name:       "replicaset user CRs",
+			inputJSON:  "singlecluster/replicaset/full.json",
+			goldenYAML: "singlecluster/replicaset/user_crs.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				users, err := GenerateUserCRs(ac, "my-rs")
+				require.NoError(t, err)
+				var sb strings.Builder
+				for i, u := range users {
+					if i > 0 {
+						sb.WriteString("---\n")
+					}
+					sb.WriteString(u.YAML)
+				}
+				return sb.String()
+			},
+		},
+		{
+			name:       "SCRAM user password secrets",
+			inputJSON:  "singlecluster/replicaset/full.json",
+			goldenYAML: "singlecluster/replicaset/password_secrets.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				users, err := GenerateUserCRs(ac, "my-rs")
+				require.NoError(t, err)
+				var sb strings.Builder
+				first := true
+				for _, u := range users {
+					if !u.NeedsPassword {
+						continue
+					}
+					if !first {
+						sb.WriteString("---\n")
+					}
+					out, err := GeneratePasswordSecretYAML(u.PasswordSecret, "mongodb", "test-password")
+					require.NoError(t, err)
+					sb.WriteString(out)
+					first = false
+				}
+				return sb.String()
+			},
+		},
+		{
+			name:       "Prometheus password secret",
+			inputJSON:  "singlecluster/replicaset/full.json",
+			goldenYAML: "singlecluster/replicaset/prometheus_password.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				require.True(t, IsPrometheusEnabled(ac.Deployment), "expected prometheus to be enabled")
+				out, err := GeneratePasswordSecretYAML("prometheus-password", "mongodb", "prom-s3cret")
+				require.NoError(t, err)
+				return out
+			},
+		},
+		{
+			name:       "LDAP resources (Secret + ConfigMap)",
+			inputJSON:  "singlecluster/replicaset/full.json",
+			goldenYAML: "singlecluster/replicaset/ldap_resources.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				res, err := GenerateLdapResources(ac, "mongodb")
+				require.NoError(t, err)
+				require.NotNil(t, res)
+				var sb strings.Builder
+				sb.WriteString(res.BindQueryPasswordSecret)
+				sb.WriteString("---\n")
+				sb.WriteString(res.CAConfigMap)
+				return sb.String()
+			},
+		},
+		{
+			name:       "LDAP resources (Secret only, no CA)",
+			inputJSON:  "multicluster/replicaset/simple.json",
+			goldenYAML: "multicluster/replicaset/ldap_resources.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				res, err := GenerateLdapResources(ac, "mongodb")
+				require.NoError(t, err)
+				require.NotNil(t, res)
+				require.NotEmpty(t, res.BindQueryPasswordSecret)
+				require.Empty(t, res.CAConfigMap, "expected no CA ConfigMap when CAFileContents is absent")
+				return res.BindQueryPasswordSecret
+			},
+		},
+		{
+			name:       "heterogeneous processes — only common additionalMongodConfig fields",
+			inputJSON:  "singlecluster/replicaset/heterogeneous.json",
+			goldenYAML: "singlecluster/replicaset/heterogeneous_cr.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
+					CredentialsSecretName: "my-credentials",
+					ConfigMapName:         "my-om-config",
+				})
+				require.NoError(t, err)
+				return out
+			},
+		},
+		// --- tls/ ---
+		{
+			name:       "TLS requireSSL — TLS enabled, mode not in additionalMongodConfig",
+			inputJSON:  "singlecluster/replicaset/tls/require.json",
+			goldenYAML: "singlecluster/replicaset/tls/require_cr.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
+					CredentialsSecretName: "my-credentials",
+					ConfigMapName:         "my-om-config",
+				})
+				require.NoError(t, err)
+				return out
+			},
+		},
+		{
+			name:       "TLS allowTLS — TLS enabled, mode preserved in additionalMongodConfig",
+			inputJSON:  "singlecluster/replicaset/tls/allow.json",
+			goldenYAML: "singlecluster/replicaset/tls/allow_cr.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
+					CredentialsSecretName: "my-credentials",
+					ConfigMapName:         "my-om-config",
+				})
+				require.NoError(t, err)
+				return out
+			},
+		},
+		{
+			name:       "TLS disabled — no TLS section at all",
+			inputJSON:  "singlecluster/replicaset/tls/disabled.json",
+			goldenYAML: "singlecluster/replicaset/tls/disabled_cr.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
+					CredentialsSecretName: "my-credentials",
+					ConfigMapName:         "my-om-config",
+				})
+				require.NoError(t, err)
+				return out
+			},
+		},
+		// --- authentication/ ---
+		{
+			name:       "auth disabled — no security block",
+			inputJSON:  "singlecluster/replicaset/authentication/disabled.json",
+			goldenYAML: "singlecluster/replicaset/authentication/disabled_cr.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
+					CredentialsSecretName: "my-credentials",
+					ConfigMapName:         "my-om-config",
+				})
+				require.NoError(t, err)
+				return out
+			},
+		},
+		{
+			name:       "SCRAM-only auth — no TLS, no X509, no LDAP",
+			inputJSON:  "singlecluster/replicaset/authentication/scram_only.json",
+			goldenYAML: "singlecluster/replicaset/authentication/scram_only_cr.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
+					CredentialsSecretName: "my-credentials",
+					ConfigMapName:         "my-om-config",
+				})
+				require.NoError(t, err)
+				return out
+			},
+		},
+		{
+			name:       "SCRAM-only auth — user CRs",
+			inputJSON:  "singlecluster/replicaset/authentication/scram_only.json",
+			goldenYAML: "singlecluster/replicaset/authentication/scram_only_user_crs.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				users, err := GenerateUserCRs(ac, "scram-rs")
+				require.NoError(t, err)
+				var sb strings.Builder
+				for i, u := range users {
+					if i > 0 {
+						sb.WriteString("---\n")
+					}
+					sb.WriteString(u.YAML)
+				}
+				return sb.String()
+			},
+		},
+		{
+			name:       "X509 auth — X509 users + cluster auth",
+			inputJSON:  "singlecluster/replicaset/authentication/x509.json",
+			goldenYAML: "singlecluster/replicaset/authentication/x509_cr.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
+					CredentialsSecretName: "my-credentials",
+					ConfigMapName:         "my-om-config",
+				})
+				require.NoError(t, err)
+				return out
+			},
+		},
+		{
+			name:       "X509 auth — user CRs",
+			inputJSON:  "singlecluster/replicaset/authentication/x509.json",
+			goldenYAML: "singlecluster/replicaset/authentication/x509_user_crs.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				users, err := GenerateUserCRs(ac, "x509-rs")
+				require.NoError(t, err)
+				var sb strings.Builder
+				for i, u := range users {
+					if i > 0 {
+						sb.WriteString("---\n")
+					}
+					sb.WriteString(u.YAML)
+				}
+				return sb.String()
+			},
+		},
+		{
+			name:       "member options — hidden, slaveDelay, horizons, tags",
+			inputJSON:  "singlecluster/replicaset/member_options.json",
+			goldenYAML: "singlecluster/replicaset/member_options_cr.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
+					CredentialsSecretName: "my-credentials",
+					ConfigMapName:         "my-om-config",
+				})
+				require.NoError(t, err)
+				return out
+			},
+		},
 	}
 
-	yamlOutput, _, err := GenerateMongoDBCR(ac, opts)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ac := loadTestAutomationConfig(t, tt.inputJSON)
+			yamlOutput := tt.generate(t, ac)
 
-	assert.Contains(t, yamlOutput, "apiVersion: mongodb.com/v1")
-	assert.Contains(t, yamlOutput, "kind: MongoDB")
-	assert.Contains(t, yamlOutput, "name: my-rs")
-	assert.Contains(t, yamlOutput, "type: ReplicaSet")
-	assert.Contains(t, yamlOutput, `version: 7.0.12-ent`)
-	assert.Contains(t, yamlOutput, "featureCompatibilityVersion: \"7.0\"")
-	assert.Contains(t, yamlOutput, "members: 3")
-	assert.Contains(t, yamlOutput, "credentials: my-credentials")
-	assert.Contains(t, yamlOutput, "votes: 0")
-	assert.Contains(t, yamlOutput, `priority: "0"`)
-	assert.Contains(t, yamlOutput, "enabled: true")
-	assert.Contains(t, yamlOutput, "SCRAM-SHA-256")
-	assert.Contains(t, yamlOutput, "cacheSizeGB")
+			goldenPath := "testdata/golden/" + tt.goldenYAML
 
-	// externalMembers should be a real spec field with process IDs
-	assert.Contains(t, yamlOutput, "externalMembers:")
-	assert.Contains(t, yamlOutput, "- my-rs-0")
-	assert.Contains(t, yamlOutput, "- my-rs-1")
-	assert.Contains(t, yamlOutput, "- my-rs-2")
+			if *updateGolden {
+				err := os.WriteFile(goldenPath, []byte(yamlOutput), 0644)
+				require.NoError(t, err)
+				t.Logf("Updated golden file %s", goldenPath)
+				return
+			}
 
-	// internal cluster auth from args2_6.security.clusterAuthMode
-	assert.Contains(t, yamlOutput, "internalCluster: X509")
+			expected, err := os.ReadFile(goldenPath)
+			require.NoError(t, err, "golden file %s not found; run with -update-golden to create it", goldenPath)
 
-	// additionalMongodConfig should include setParameter, oplogSizeMB (but not dbPath or systemLog)
-	assert.Contains(t, yamlOutput, "setParameter")
-	assert.Contains(t, yamlOutput, "authenticationMechanisms")
-	assert.Contains(t, yamlOutput, "oplogSizeMB")
-	assert.NotContains(t, yamlOutput, "dbPath", "dbPath should not be in additionalMongodConfig; operator always overwrites it")
-
-	// systemLog should be in agent.mongod.systemLog, not additionalMongodConfig
-	assert.Contains(t, yamlOutput, "path: /var/log/mongodb/mongod.log")
-
-	// member tags should be carried over
-	assert.Contains(t, yamlOutput, "region: us-east-1")
-	assert.Contains(t, yamlOutput, "use: analytics")
-	assert.Contains(t, yamlOutput, "region: us-west-2")
-
-	// custom MongoDB roles
-	assert.Contains(t, yamlOutput, "role: appReadOnly")
-	assert.Contains(t, yamlOutput, "db: myapp")
-	assert.Contains(t, yamlOutput, "find")
-
-	// logRotate should be extracted into agent config
-	assert.Contains(t, yamlOutput, "sizeThresholdMB")
-	assert.Contains(t, yamlOutput, "timeThresholdHrs")
-
-	// resource name matches RS name, so no override needed
-	assert.NotContains(t, yamlOutput, "replicaSetNameOverride")
-
-	// status should not appear in generated YAML
-	assert.NotContains(t, yamlOutput, "status")
-
-	// horizons are NOT extracted (operator overwrites them on K8s members)
-	assert.NotContains(t, yamlOutput, "replicaSetHorizons")
-
-	// LDAP from fixture
-	assert.Contains(t, yamlOutput, "bindQueryUser: cn=admin,dc=example,dc=com")
-	assert.Contains(t, yamlOutput, "ldap-bind-query-password")
-	assert.Contains(t, yamlOutput, "ldap-ca")
-	assert.Contains(t, yamlOutput, "ldap1.example.com:636")
-	assert.Contains(t, yamlOutput, "ldap2.example.com:636")
-	assert.Contains(t, yamlOutput, "transportSecurity: tls")
-
-	// OIDC from fixture
-	assert.Contains(t, yamlOutput, "configurationName: okta")
-	assert.Contains(t, yamlOutput, "issuerURI: https://dev-123456.okta.com/oauth2/default")
-	assert.Contains(t, yamlOutput, "audience: api://mongodb-cluster")
-
-	// auth modes should include LDAP and X509 from deploymentAuthMechanisms
-	assert.Contains(t, yamlOutput, "- LDAP")
-	assert.Contains(t, yamlOutput, "- X509")
+			assert.Equal(t, string(expected), yamlOutput,
+				"generated output does not match golden file %s; run with -update-golden to accept changes", goldenPath)
+		})
+	}
 }
 
 func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 
 	opts := GenerateOptions{
 		ResourceName:          "custom-name",
@@ -118,6 +337,24 @@ func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 
 	assert.Contains(t, yamlOutput, "name: custom-name")
 	assert.Contains(t, yamlOutput, "replicaSetNameOverride: my-rs")
+}
+
+func TestGenerateMultiClusterCR_CustomResourceName(t *testing.T) {
+	ac := loadTestAutomationConfig(t, "multicluster/replicaset/simple.json")
+
+	opts := GenerateOptions{
+		ResourceName:          "custom-mc-name",
+		CredentialsSecretName: "mc-credentials",
+		ConfigMapName:         "mc-om-config",
+		MultiClusterNames:     []string{"east1", "west1"},
+	}
+
+	yamlOutput, resourceName, err := GenerateMultiClusterCR(ac, opts)
+	require.NoError(t, err)
+	assert.Equal(t, "custom-mc-name", resourceName)
+
+	assert.Contains(t, yamlOutput, "name: custom-mc-name")
+	assert.Contains(t, yamlOutput, "replicaSetNameOverride: geo-rs")
 }
 
 func TestGenerateMongoDBCR_NoReplicaSet(t *testing.T) {
@@ -136,96 +373,54 @@ func TestGenerateMongoDBCR_NoReplicaSet(t *testing.T) {
 	assert.Contains(t, err.Error(), "no replica sets found")
 }
 
-func TestGenerateMongoDBCR_ShardedTopology(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "sharded_with_rs_automation_config.json")
-
-	opts := GenerateOptions{
-		CredentialsSecretName: "my-credentials",
-		ConfigMapName:         "my-om-config",
+func TestDistributeMembers(t *testing.T) {
+	tests := []struct {
+		name        string
+		memberCount int
+		clusters    []string
+		expected    []int
+	}{
+		{
+			name:        "even split",
+			memberCount: 4,
+			clusters:    []string{"a", "b"},
+			expected:    []int{2, 2},
+		},
+		{
+			name:        "uneven split remainder to early clusters",
+			memberCount: 5,
+			clusters:    []string{"a", "b"},
+			expected:    []int{3, 2},
+		},
+		{
+			name:        "three clusters even",
+			memberCount: 3,
+			clusters:    []string{"a", "b", "c"},
+			expected:    []int{1, 1, 1},
+		},
+		{
+			name:        "three clusters remainder",
+			memberCount: 5,
+			clusters:    []string{"a", "b", "c"},
+			expected:    []int{2, 2, 1},
+		},
+		{
+			name:        "single cluster",
+			memberCount: 3,
+			clusters:    []string{"only"},
+			expected:    []int{3},
+		},
 	}
 
-	yamlOutput, _, err := GenerateMongoDBCR(ac, opts)
-	require.NoError(t, err)
-
-	assert.Contains(t, yamlOutput, "name: shard-rs")
-	assert.Contains(t, yamlOutput, "members: 2")
-	assert.Contains(t, yamlOutput, "- shard-rs-0")
-	assert.Contains(t, yamlOutput, "- shard-rs-1")
-}
-
-func TestGenerateMongoDBCR_ConfigMapRefName(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
-
-	opts := GenerateOptions{
-		CredentialsSecretName: "my-credentials",
-		ConfigMapName:         "my-om-project",
-	}
-
-	yamlOutput, _, err := GenerateMongoDBCR(ac, opts)
-	require.NoError(t, err)
-
-	assert.Contains(t, yamlOutput, "name: my-om-project")
-}
-
-func TestGenerateMongoDBCR_MemberConfigZeroVotes(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
-
-	opts := GenerateOptions{
-		CredentialsSecretName: "my-credentials",
-		ConfigMapName:         "my-om-config",
-	}
-
-	yamlOutput, _, err := GenerateMongoDBCR(ac, opts)
-	require.NoError(t, err)
-
-	memberConfigCount := strings.Count(yamlOutput, `votes: 0`)
-	assert.Equal(t, 3, memberConfigCount, "Expected 3 memberConfig entries with votes: 0")
-}
-
-func TestGenerateUserCRs_ScramAndExternal(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
-
-	users, err := GenerateUserCRs(ac, "my-rs")
-	require.NoError(t, err)
-	require.Len(t, users, 3, "expected 3 users (automation agent should be skipped)")
-
-	scramUser := users[0]
-	assert.Equal(t, "app-user", scramUser.Username)
-	assert.Equal(t, "admin", scramUser.Database)
-	assert.True(t, scramUser.NeedsPassword)
-	assert.Contains(t, scramUser.YAML, "kind: MongoDBUser")
-	assert.Contains(t, scramUser.YAML, "username: app-user")
-	assert.Contains(t, scramUser.YAML, "db: admin")
-	assert.Contains(t, scramUser.YAML, "name: my-rs")
-	assert.Contains(t, scramUser.YAML, "passwordSecretKeyRef")
-	assert.Contains(t, scramUser.YAML, "app-user-password")
-	assert.Contains(t, scramUser.YAML, "name: readWrite")
-	assert.Contains(t, scramUser.YAML, "name: read")
-
-	x509User := users[1]
-	assert.Equal(t, "CN=x509-client,O=MongoDB", x509User.Username)
-	assert.Equal(t, "$external", x509User.Database)
-	assert.False(t, x509User.NeedsPassword)
-	assert.Contains(t, x509User.YAML, "kind: MongoDBUser")
-	assert.Contains(t, x509User.YAML, "db: $external")
-	assert.NotContains(t, x509User.YAML, "app-user-password")
-
-	ldapUser := users[2]
-	assert.Equal(t, "ldap-reader", ldapUser.Username)
-	assert.Equal(t, "$external", ldapUser.Database)
-	assert.False(t, ldapUser.NeedsPassword)
-	assert.Contains(t, ldapUser.YAML, "kind: MongoDBUser")
-	assert.Contains(t, ldapUser.YAML, "db: $external")
-}
-
-func TestGenerateUserCRs_SkipsAutomationAgent(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
-
-	users, err := GenerateUserCRs(ac, "my-rs")
-	require.NoError(t, err)
-
-	for _, u := range users {
-		assert.NotEqual(t, "mms-automation-agent", u.Username)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := distributeMembers(tt.memberCount, tt.clusters)
+			require.Len(t, result, len(tt.clusters))
+			for i, item := range result {
+				assert.Equal(t, tt.clusters[i], item.ClusterName)
+				assert.Equal(t, tt.expected[i], item.Members, "cluster %s member count", tt.clusters[i])
+			}
+		})
 	}
 }
 

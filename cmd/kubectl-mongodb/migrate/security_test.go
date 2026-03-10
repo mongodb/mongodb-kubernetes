@@ -11,6 +11,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 func TestBuildAuthModes_FromDeploymentAuthMechanisms(t *testing.T) {
@@ -1079,6 +1080,545 @@ func TestExtractCustomRoles_Empty(t *testing.T) {
 	}
 	roles := extractCustomRoles(deployment)
 	assert.Nil(t, roles)
+}
+
+// --- Multi-member intersection tests ---
+// These tests verify that extractAdditionalMongodConfig only includes fields
+// that are identical across all members. Each test covers a specific field
+// from the extraction functions (extractNetConfig, extractStorageConfig,
+// extractReplicationConfig, extractGenericSections, extractNonDefaultTLSMode).
+
+func TestExtractAdditionalMongodConfig_MultiMember_SamePort_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
+		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.Equal(t, 27018, maputil.ReadMapValueAsInt(config.ToMap(), "net", "port"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentPort_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
+		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27019}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameCompressors_Included(t *testing.T) {
+	compressors := []interface{}{"snappy", "zstd"}
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"compression": map[string]interface{}{"compressors": compressors}}}},
+		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"compression": map[string]interface{}{"compressors": compressors}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.NotNil(t, maputil.ReadMapValueAsInterface(config.ToMap(), "net", "compression", "compressors"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentCompressors_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"compression": map[string]interface{}{"compressors": []interface{}{"snappy"}}}}},
+		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"compression": map[string]interface{}{"compressors": []interface{}{"zstd"}}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameMaxConns_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"maxIncomingConnections": 500}}},
+		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"maxIncomingConnections": 500}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.Equal(t, 500, maputil.ReadMapValueAsInt(config.ToMap(), "net", "maxIncomingConnections"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentMaxConns_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"maxIncomingConnections": 500}}},
+		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"maxIncomingConnections": 1000}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameStorageEngine_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"engine": "inMemory"}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"engine": "inMemory"}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.Equal(t, "inMemory", maputil.ReadMapValueAsString(config.ToMap(), "storage", "engine"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentStorageEngine_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"engine": "inMemory"}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"dbPath": "/data"}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config, "storage.engine differs (inMemory vs default wiredTiger)")
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameDirectoryPerDB_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"directoryPerDB": true}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"directoryPerDB": true}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.Equal(t, true, maputil.ReadMapValueAsInterface(config.ToMap(), "storage", "directoryPerDB"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentDirectoryPerDB_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"directoryPerDB": true}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"directoryPerDB": false}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameJournalEnabled_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"journal": map[string]interface{}{"enabled": true}}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"journal": map[string]interface{}{"enabled": true}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.Equal(t, true, maputil.ReadMapValueAsInterface(config.ToMap(), "storage", "journal", "enabled"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentJournalEnabled_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"journal": map[string]interface{}{"enabled": true}}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"journal": map[string]interface{}{"enabled": false}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameCacheSizeGB_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"cacheSizeGB": 2.0}}}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"cacheSizeGB": 2.0}}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.Equal(t, 2.0, maputil.ReadMapValueAsInterface(config.ToMap(), "storage", "wiredTiger", "engineConfig", "cacheSizeGB"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentCacheSizeGB_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"cacheSizeGB": 2.0}}}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"cacheSizeGB": 4.0}}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameJournalCompressor_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"journalCompressor": "zlib"}}}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"journalCompressor": "zlib"}}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.Equal(t, "zlib", maputil.ReadMapValueAsInterface(config.ToMap(), "storage", "wiredTiger", "engineConfig", "journalCompressor"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentJournalCompressor_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"journalCompressor": "zlib"}}}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"journalCompressor": "snappy"}}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameBlockCompressor_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"collectionConfig": map[string]interface{}{"blockCompressor": "zstd"}}}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"collectionConfig": map[string]interface{}{"blockCompressor": "zstd"}}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.Equal(t, "zstd", maputil.ReadMapValueAsInterface(config.ToMap(), "storage", "wiredTiger", "collectionConfig", "blockCompressor"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentBlockCompressor_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"collectionConfig": map[string]interface{}{"blockCompressor": "zstd"}}}}},
+		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"collectionConfig": map[string]interface{}{"blockCompressor": "snappy"}}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameOplogSizeMB_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"replication": map[string]interface{}{"oplogSizeMB": 2048}}},
+		"host-1": {"args2_6": map[string]interface{}{"replication": map[string]interface{}{"oplogSizeMB": 2048}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.Equal(t, 2048, maputil.ReadMapValueAsInterface(config.ToMap(), "replication", "oplogSizeMB"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentOplogSizeMB_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"replication": map[string]interface{}{"oplogSizeMB": 2048}}},
+		"host-1": {"args2_6": map[string]interface{}{"replication": map[string]interface{}{"oplogSizeMB": 4096}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameSetParameter_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"setParameter": map[string]interface{}{"authenticationMechanisms": "SCRAM-SHA-256"}}},
+		"host-1": {"args2_6": map[string]interface{}{"setParameter": map[string]interface{}{"authenticationMechanisms": "SCRAM-SHA-256"}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.Equal(t, "SCRAM-SHA-256", maputil.ReadMapValueAsInterface(config.ToMap(), "setParameter", "authenticationMechanisms"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentSetParameter_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"setParameter": map[string]interface{}{"authenticationMechanisms": "SCRAM-SHA-256"}}},
+		"host-1": {"args2_6": map[string]interface{}{"setParameter": map[string]interface{}{"authenticationMechanisms": "SCRAM-SHA-1"}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameAuditLog_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"auditLog": map[string]interface{}{"destination": "file", "format": "JSON"}}},
+		"host-1": {"args2_6": map[string]interface{}{"auditLog": map[string]interface{}{"destination": "file", "format": "JSON"}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	m := config.ToMap()
+	assert.Equal(t, "file", maputil.ReadMapValueAsInterface(m, "auditLog", "destination"))
+	assert.Equal(t, "JSON", maputil.ReadMapValueAsInterface(m, "auditLog", "format"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentAuditLogFormat_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"auditLog": map[string]interface{}{"destination": "file", "format": "JSON"}}},
+		"host-1": {"args2_6": map[string]interface{}{"auditLog": map[string]interface{}{"destination": "file", "format": "BSON"}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config, "auditLog.destination matches so it should be kept")
+	m := config.ToMap()
+	assert.Equal(t, "file", maputil.ReadMapValueAsInterface(m, "auditLog", "destination"))
+	assert.Nil(t, maputil.ReadMapValueAsInterface(m, "auditLog", "format"), "format differs and should be excluded")
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameOperationProfiling_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"operationProfiling": map[string]interface{}{"mode": "slowOp", "slowOpThresholdMs": 200}}},
+		"host-1": {"args2_6": map[string]interface{}{"operationProfiling": map[string]interface{}{"mode": "slowOp", "slowOpThresholdMs": 200}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	m := config.ToMap()
+	assert.Equal(t, "slowOp", maputil.ReadMapValueAsInterface(m, "operationProfiling", "mode"))
+	assert.Equal(t, 200, maputil.ReadMapValueAsInterface(m, "operationProfiling", "slowOpThresholdMs"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentOperationProfiling_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"operationProfiling": map[string]interface{}{"mode": "slowOp"}}},
+		"host-1": {"args2_6": map[string]interface{}{"operationProfiling": map[string]interface{}{"mode": "all"}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_SameTLSMode_Included(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{"mode": "preferSSL"}}}},
+		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{"mode": "preferSSL"}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	assert.Equal(t, "preferSSL", maputil.ReadMapValueAsInterface(config.ToMap(), "net", "tls", "mode"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_DifferentTLSMode_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{"mode": "preferSSL"}}}},
+		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{"mode": "allowTLS"}}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config)
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_FieldPresentOnlyInOne_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{
+			"storage": map[string]interface{}{"engine": "inMemory"},
+			"net":     map[string]interface{}{"port": 27017},
+		}},
+		"host-1": {"args2_6": map[string]interface{}{
+			"net": map[string]interface{}{"port": 27017},
+		}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config, "storage.engine is only on host-0, net.port is default 27017, nothing should be included")
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_MixedSameAndDifferent(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{
+			"net":     map[string]interface{}{"port": 27018, "maxIncomingConnections": 500},
+			"storage": map[string]interface{}{"engine": "inMemory"},
+		}},
+		"host-1": {"args2_6": map[string]interface{}{
+			"net":     map[string]interface{}{"port": 27018, "maxIncomingConnections": 1000},
+			"storage": map[string]interface{}{"dbPath": "/data"},
+		}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config, "net.port matches so should be included")
+	m := config.ToMap()
+
+	assert.Equal(t, 27018, maputil.ReadMapValueAsInt(m, "net", "port"), "same port should be kept")
+	assert.Nil(t, maputil.ReadMapValueAsInterface(m, "net", "maxIncomingConnections"), "different maxIncomingConnections should be excluded")
+	assert.Nil(t, maputil.ReadMapValueAsInterface(m, "storage", "engine"), "engine differs (inMemory vs absent) should be excluded")
+}
+
+func TestExtractAdditionalMongodConfig_ThreeMembers_AllSame_Included(t *testing.T) {
+	args := map[string]interface{}{
+		"net":     map[string]interface{}{"port": 27018},
+		"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"cacheSizeGB": 4.0}}},
+	}
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": args},
+		"host-1": {"args2_6": args},
+		"host-2": {"args2_6": args},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}, {"host": "host-2"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	m := config.ToMap()
+	assert.Equal(t, 27018, maputil.ReadMapValueAsInt(m, "net", "port"))
+	assert.Equal(t, 4.0, maputil.ReadMapValueAsInterface(m, "storage", "wiredTiger", "engineConfig", "cacheSizeGB"))
+}
+
+func TestExtractAdditionalMongodConfig_ThreeMembers_OneDiffers_Excluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
+		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
+		"host-2": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27019}}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}, {"host": "host-2"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config, "host-2 has a different port so net.port should be excluded")
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_AllFieldsSame_KitchenSink(t *testing.T) {
+	args := map[string]interface{}{
+		"net": map[string]interface{}{
+			"port":                  27018,
+			"maxIncomingConnections": 500,
+			"compression":           map[string]interface{}{"compressors": []interface{}{"snappy", "zstd"}},
+			"tls":                   map[string]interface{}{"mode": "preferSSL"},
+		},
+		"storage": map[string]interface{}{
+			"engine":         "inMemory",
+			"directoryPerDB": true,
+			"journal":        map[string]interface{}{"enabled": true},
+			"wiredTiger": map[string]interface{}{
+				"engineConfig":     map[string]interface{}{"cacheSizeGB": 2.0, "journalCompressor": "zlib"},
+				"collectionConfig": map[string]interface{}{"blockCompressor": "zstd"},
+			},
+		},
+		"replication":        map[string]interface{}{"oplogSizeMB": 2048},
+		"setParameter":       map[string]interface{}{"authenticationMechanisms": "SCRAM-SHA-256"},
+		"auditLog":           map[string]interface{}{"destination": "file", "format": "JSON"},
+		"operationProfiling": map[string]interface{}{"mode": "slowOp", "slowOpThresholdMs": 200},
+	}
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": args},
+		"host-1": {"args2_6": args},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	m := config.ToMap()
+
+	assert.Equal(t, 27018, maputil.ReadMapValueAsInt(m, "net", "port"))
+	assert.Equal(t, 500, maputil.ReadMapValueAsInt(m, "net", "maxIncomingConnections"))
+	assert.NotNil(t, maputil.ReadMapValueAsInterface(m, "net", "compression", "compressors"))
+	assert.Equal(t, "preferSSL", maputil.ReadMapValueAsInterface(m, "net", "tls", "mode"))
+	assert.Equal(t, "inMemory", maputil.ReadMapValueAsString(m, "storage", "engine"))
+	assert.Equal(t, true, maputil.ReadMapValueAsInterface(m, "storage", "directoryPerDB"))
+	assert.Equal(t, true, maputil.ReadMapValueAsInterface(m, "storage", "journal", "enabled"))
+	assert.Equal(t, 2.0, maputil.ReadMapValueAsInterface(m, "storage", "wiredTiger", "engineConfig", "cacheSizeGB"))
+	assert.Equal(t, "zlib", maputil.ReadMapValueAsInterface(m, "storage", "wiredTiger", "engineConfig", "journalCompressor"))
+	assert.Equal(t, "zstd", maputil.ReadMapValueAsInterface(m, "storage", "wiredTiger", "collectionConfig", "blockCompressor"))
+	assert.Equal(t, 2048, maputil.ReadMapValueAsInterface(m, "replication", "oplogSizeMB"))
+	assert.Equal(t, "SCRAM-SHA-256", maputil.ReadMapValueAsInterface(m, "setParameter", "authenticationMechanisms"))
+	assert.Equal(t, "file", maputil.ReadMapValueAsInterface(m, "auditLog", "destination"))
+	assert.Equal(t, "JSON", maputil.ReadMapValueAsInterface(m, "auditLog", "format"))
+	assert.Equal(t, "slowOp", maputil.ReadMapValueAsInterface(m, "operationProfiling", "mode"))
+	assert.Equal(t, 200, maputil.ReadMapValueAsInterface(m, "operationProfiling", "slowOpThresholdMs"))
+}
+
+func TestExtractAdditionalMongodConfig_MultiMember_AllFieldsDifferent_AllExcluded(t *testing.T) {
+	processMap := map[string]map[string]interface{}{
+		"host-0": {"args2_6": map[string]interface{}{
+			"net": map[string]interface{}{
+				"port":                  27018,
+				"maxIncomingConnections": 500,
+				"compression":           map[string]interface{}{"compressors": []interface{}{"snappy"}},
+				"tls":                   map[string]interface{}{"mode": "preferSSL"},
+			},
+			"storage": map[string]interface{}{
+				"engine":         "inMemory",
+				"directoryPerDB": true,
+				"journal":        map[string]interface{}{"enabled": true},
+				"wiredTiger": map[string]interface{}{
+					"engineConfig":     map[string]interface{}{"cacheSizeGB": 2.0, "journalCompressor": "zlib"},
+					"collectionConfig": map[string]interface{}{"blockCompressor": "zstd"},
+				},
+			},
+			"replication":        map[string]interface{}{"oplogSizeMB": 2048},
+			"setParameter":       map[string]interface{}{"authenticationMechanisms": "SCRAM-SHA-256"},
+			"auditLog":           map[string]interface{}{"destination": "file", "format": "JSON"},
+			"operationProfiling": map[string]interface{}{"mode": "slowOp", "slowOpThresholdMs": 200},
+		}},
+		"host-1": {"args2_6": map[string]interface{}{
+			"net": map[string]interface{}{
+				"port":                  27019,
+				"maxIncomingConnections": 1000,
+				"compression":           map[string]interface{}{"compressors": []interface{}{"zstd"}},
+				"tls":                   map[string]interface{}{"mode": "allowTLS"},
+			},
+			"storage": map[string]interface{}{
+				"directoryPerDB": false,
+				"journal":        map[string]interface{}{"enabled": false},
+				"wiredTiger": map[string]interface{}{
+					"engineConfig":     map[string]interface{}{"cacheSizeGB": 4.0, "journalCompressor": "snappy"},
+					"collectionConfig": map[string]interface{}{"blockCompressor": "snappy"},
+				},
+			},
+			"replication":        map[string]interface{}{"oplogSizeMB": 4096},
+			"setParameter":       map[string]interface{}{"authenticationMechanisms": "SCRAM-SHA-1"},
+			"auditLog":           map[string]interface{}{"destination": "syslog", "format": "BSON"},
+			"operationProfiling": map[string]interface{}{"mode": "all", "slowOpThresholdMs": 100},
+		}},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
+
+	config, err := extractAdditionalMongodConfig(processMap, members)
+	require.NoError(t, err)
+	assert.Nil(t, config, "every field differs so nothing should be included")
 }
 
 func strPtr(s string) *string {

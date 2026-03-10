@@ -1,10 +1,13 @@
 package migrate
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/spf13/cast"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
@@ -202,6 +205,7 @@ func validateReplicaSetConfig(d map[string]interface{}, processMap map[string]ma
 	results = append(results, checkReplicaSetsExist(d)...)
 	results = append(results, checkReplicaSetProtocolVersion(d)...)
 	results = append(results, checkMembersReferenceProcesses(d, processMap)...)
+	results = append(results, checkHeterogeneousProcessConfig(d, processMap)...)
 	results = append(results, checkMemberPreservedFields(d)...)
 
 	return results
@@ -514,6 +518,122 @@ func checkMembersReferenceProcesses(d map[string]interface{}, processMap map[str
 		}
 	}
 	return results
+}
+
+// checkHeterogeneousProcessConfig warns when replica set members have different
+// additionalMongodConfig-relevant settings. Only fields that end up in
+// spec.additionalMongodConfig are compared, since those must be uniform
+// across all members in Kubernetes. Operator-managed or per-process fields
+// (systemLog, TLS paths, security.clusterAuthMode, etc.) are excluded.
+//
+// Fields that differ between members are excluded from the generated CR
+// because Kubernetes applies additionalMongodConfig uniformly to every pod.
+// A warning is emitted for each excluded field so the user can review and
+// reconcile the processes before migration.
+func checkHeterogeneousProcessConfig(d map[string]interface{}, processMap map[string]map[string]interface{}) []ValidationResult {
+	replicaSets := getReplicaSets(d)
+	if len(replicaSets) == 0 || processMap == nil {
+		return nil
+	}
+
+	members := replicaSets[0].Members()
+	if len(members) < 2 {
+		return nil
+	}
+
+	var allFlat []map[string]string
+	for _, m := range members {
+		host := m.Name()
+		proc, ok := processMap[host]
+		if !ok {
+			continue
+		}
+		args := maputil.ReadMapValueAsMap(proc, "args2_6")
+		if args == nil {
+			continue
+		}
+		cfg := mdbv1.NewEmptyAdditionalMongodConfig()
+		extractNetConfig(args, cfg)
+		extractStorageConfig(args, cfg)
+		extractReplicationConfig(args, cfg)
+		extractGenericSections(args, cfg)
+		extractNonDefaultTLSMode(args, cfg)
+		allFlat = append(allFlat, flattenConfigToKeyValues(cfg.ToMap(), ""))
+	}
+
+	if len(allFlat) < 2 {
+		return nil
+	}
+
+	allKeys := collectAllKeys(allFlat)
+
+	var results []ValidationResult
+	for _, key := range allKeys {
+		if !isConsistentAcrossMembers(allFlat, key) {
+			results = append(results, ValidationResult{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("additionalMongodConfig field %q differs between processes in the replica set; this field will be excluded from the generated CR because Kubernetes applies it uniformly to all members — reconcile the processes before migration or set it manually after", key),
+			})
+		}
+	}
+	return results
+}
+
+// flattenConfigToKeyValues recursively walks a nested map and produces a flat
+// map of dotted keys to JSON-serialized leaf values (e.g. "storage.engine" → "\"inMemory\"").
+func flattenConfigToKeyValues(m map[string]interface{}, prefix string) map[string]string {
+	result := make(map[string]string)
+	for k, v := range m {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		if sub, ok := v.(map[string]interface{}); ok {
+			for sk, sv := range flattenConfigToKeyValues(sub, key) {
+				result[sk] = sv
+			}
+		} else {
+			b, _ := json.Marshal(v)
+			result[key] = string(b)
+		}
+	}
+	return result
+}
+
+// collectAllKeys returns a sorted deduplicated list of all keys across all
+// flat config maps.
+func collectAllKeys(allFlat []map[string]string) []string {
+	seen := map[string]bool{}
+	for _, flat := range allFlat {
+		for k := range flat {
+			seen[k] = true
+		}
+	}
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// isConsistentAcrossMembers returns true if every member has the same
+// serialized value for the given key (or the key is absent in all).
+func isConsistentAcrossMembers(allFlat []map[string]string, key string) bool {
+	var refVal string
+	refSet := false
+	for _, flat := range allFlat {
+		val, exists := flat[key]
+		if !refSet {
+			refVal = val
+			refSet = exists
+			continue
+		}
+		if exists != refSet || val != refVal {
+			return false
+		}
+	}
+	return true
 }
 
 func checkMemberPreservedFields(d map[string]interface{}) []ValidationResult {

@@ -1,0 +1,183 @@
+{
+  "auth": {
+    "usersWanted": [],
+    "usersDeleted": [],
+    "disabled": true,
+    "authoritativeSet": false,
+    "deploymentAuthMechanisms": [],
+    "autoAuthMechanisms": [],
+    "autoAuthMechanism": "",
+    "autoUser": "",
+    "autoAuthRestrictions": []
+  },
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation"
+  },
+  "processes": [
+    {
+      "args2_6": {
+        "net": {
+          "port": 27018,
+          "maxIncomingConnections": 512,
+          "compression": {
+            "compressors": "zlib,zstd"
+          }
+        },
+        "replication": {
+          "replSetName": "hetero-rs",
+          "oplogSizeMB": 2048
+        },
+        "storage": {
+          "dbPath": "/data",
+          "engine": "inMemory",
+          "directoryPerDB": true,
+          "wiredTiger": {
+            "engineConfig": {
+              "cacheSizeGB": 2.0,
+              "journalCompressor": "zlib"
+            },
+            "collectionConfig": {
+              "blockCompressor": "snappy"
+            }
+          }
+        },
+        "systemLog": {
+          "destination": "file",
+          "path": "/var/log/mongodb/mongod0.log"
+        },
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256"
+        },
+        "auditLog": {
+          "destination": "file",
+          "format": "JSON",
+          "path": "/var/log/mongodb/audit0.json"
+        },
+        "operationProfiling": {
+          "mode": "slowOp",
+          "slowOpThresholdMs": 200
+        }
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "vm-0.example.com",
+      "name": "hetero-rs-0",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {
+          "port": 27018,
+          "maxIncomingConnections": 512,
+          "compression": {
+            "compressors": "zlib,zstd"
+          }
+        },
+        "replication": {
+          "replSetName": "hetero-rs",
+          "oplogSizeMB": 2048
+        },
+        "storage": {
+          "dbPath": "/data",
+          "directoryPerDB": true,
+          "wiredTiger": {
+            "engineConfig": {
+              "cacheSizeGB": 4.0,
+              "journalCompressor": "zlib"
+            },
+            "collectionConfig": {
+              "blockCompressor": "zstd"
+            }
+          }
+        },
+        "systemLog": {
+          "destination": "file",
+          "path": "/var/log/mongodb/mongod1.log"
+        },
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256"
+        },
+        "auditLog": {
+          "destination": "file",
+          "format": "BSON",
+          "path": "/var/log/mongodb/audit1.bson"
+        },
+        "operationProfiling": {
+          "mode": "all",
+          "slowOpThresholdMs": 100
+        }
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "vm-1.example.com",
+      "name": "hetero-rs-1",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {
+          "port": 27018,
+          "maxIncomingConnections": 1024,
+          "compression": {
+            "compressors": "zlib,zstd"
+          }
+        },
+        "replication": {
+          "replSetName": "hetero-rs",
+          "oplogSizeMB": 2048
+        },
+        "storage": {
+          "dbPath": "/data",
+          "directoryPerDB": false,
+          "wiredTiger": {
+            "engineConfig": {
+              "cacheSizeGB": 2.0,
+              "journalCompressor": "snappy"
+            },
+            "collectionConfig": {
+              "blockCompressor": "snappy"
+            }
+          }
+        },
+        "systemLog": {
+          "destination": "file",
+          "path": "/var/log/mongodb/mongod2.log"
+        },
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256"
+        },
+        "auditLog": {
+          "destination": "file",
+          "format": "JSON",
+          "path": "/var/log/mongodb/audit2.json"
+        },
+        "operationProfiling": {
+          "mode": "slowOp",
+          "slowOpThresholdMs": 200
+        }
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "vm-2.example.com",
+      "name": "hetero-rs-2",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "hetero-rs",
+      "members": [
+        {"_id": 0, "host": "hetero-rs-0", "priority": 2, "votes": 1},
+        {"_id": 1, "host": "hetero-rs-1", "priority": 1, "votes": 1},
+        {"_id": 2, "host": "hetero-rs-2", "priority": 1, "votes": 1}
+      ],
+      "protocolVersion": "1"
+    }
+  ],
+  "roles": [],
+  "sharding": [],
+  "version": 1
+}

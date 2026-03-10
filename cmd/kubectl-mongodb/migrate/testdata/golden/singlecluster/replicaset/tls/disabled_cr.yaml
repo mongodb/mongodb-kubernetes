@@ -1,0 +1,38 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+  name: notls-rs
+spec:
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  credentials: my-credentials
+  externalMembers:
+  - notls-rs-0
+  - notls-rs-1
+  - notls-rs-2
+  memberConfig:
+  - priority: "0"
+    votes: 0
+  - priority: "0"
+    votes: 0
+  - priority: "0"
+    votes: 0
+  members: 3
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      enabled: true
+      ignoreUnknownUsers: true
+      modes:
+      - SCRAM-SHA-256
+  type: ReplicaSet
+  version: 8.0.4-ent

@@ -11,7 +11,7 @@ import (
 )
 
 func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 
 	results := ValidateMigration(ac, nil, nil)
 	for _, r := range results {
@@ -20,7 +20,7 @@ func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
 }
 
 func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "multi_rs_automation_config.json")
+	ac := loadTestAutomationConfig(t, "multi_replicaset.json")
 
 	results := ValidateMigration(ac, nil, nil)
 	hasMultipleDeploymentsError := false
@@ -34,7 +34,7 @@ func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
 }
 
 func TestValidation_OneDeploymentPerProject_SingleSharded(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "sharded_with_rs_automation_config.json")
+	ac := loadTestAutomationConfig(t, "sharded_cluster.json")
 
 	results := ValidateMigration(ac, nil, nil)
 	for _, r := range results {
@@ -130,7 +130,7 @@ func TestValidation_ProcessesHaveNoVersion(t *testing.T) {
 }
 
 func TestValidation_NonDefaultKeyFile(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	ac.Auth.KeyFile = "/custom/path/keyfile"
 
 	results := ValidateMigration(ac, nil, nil)
@@ -145,7 +145,7 @@ func TestValidation_NonDefaultKeyFile(t *testing.T) {
 }
 
 func TestValidation_NonDefaultAutoPEMKeyFilePath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	ac.AgentSSL.AutoPEMKeyFilePath = "/etc/mongodb-mms/agent.pem"
 
 	results := ValidateMigration(ac, nil, nil)
@@ -160,7 +160,7 @@ func TestValidation_NonDefaultAutoPEMKeyFilePath(t *testing.T) {
 }
 
 func TestValidation_NonDefaultCAFilePath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	ac.AgentSSL.CAFilePath = "/etc/ssl/ca.pem"
 
 	results := ValidateMigration(ac, nil, nil)
@@ -175,7 +175,7 @@ func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 }
 
 func TestValidation_NonDefaultDownloadBase(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	options := ac.Deployment["options"].(map[string]interface{})
 	options["downloadBase"] = "/opt/mongodb/automation"
 	ac.Deployment["options"] = options
@@ -192,7 +192,7 @@ func TestValidation_NonDefaultDownloadBase(t *testing.T) {
 }
 
 func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	ac.Auth.KeyFileWindows = "C:\\custom\\keyfile"
 
 	results := ValidateMigration(ac, nil, nil)
@@ -206,7 +206,7 @@ func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
 }
 
 func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	processes := getSlice(ac.Deployment, "processes")
 	proc := processes[0].(map[string]interface{})
 	proc["authSchemaVersion"] = 3
@@ -223,7 +223,7 @@ func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
 }
 
 func TestValidation_NonDefaultProtocolVersion(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	replicaSets := getReplicaSets(ac.Deployment)
 	replicaSets[0]["protocolVersion"] = "0"
 
@@ -239,7 +239,7 @@ func TestValidation_NonDefaultProtocolVersion(t *testing.T) {
 }
 
 func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	monitoringConfig := &om.MonitoringAgentConfig{
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/monitoring.log"},
 	}
@@ -256,7 +256,7 @@ func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
 }
 
 func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	backupConfig := &om.BackupAgentConfig{
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/backup.log"},
 	}
@@ -273,7 +273,7 @@ func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
 }
 
 func TestValidation_ValidConfig_NoErrors(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 
 	results := ValidateMigration(ac, nil, nil)
 	for _, r := range results {
@@ -282,7 +282,7 @@ func TestValidation_ValidConfig_NoErrors(t *testing.T) {
 }
 
 func TestValidation_LdapBindMethodSASL(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	ac.Ldap = &ldap.Ldap{
 		Servers:    "ldap.example.com:636",
 		BindMethod: "sasl",
@@ -301,7 +301,7 @@ func TestValidation_LdapBindMethodSASL(t *testing.T) {
 }
 
 func TestValidation_LdapBindMethodSimple_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	ac.Ldap = &ldap.Ldap{
 		Servers:    "ldap.example.com:636",
 		BindMethod: "simple",
@@ -316,7 +316,7 @@ func TestValidation_LdapBindMethodSimple_NoWarning(t *testing.T) {
 }
 
 func TestValidation_LdapCaFileContents(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	ac.Ldap = &ldap.Ldap{
 		Servers:        "ldap.example.com:636",
 		CaFileContents: "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
@@ -335,7 +335,7 @@ func TestValidation_LdapCaFileContents(t *testing.T) {
 }
 
 func TestValidation_LdapNoCaFileContents_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	ac.Ldap = &ldap.Ldap{
 		Servers: "ldap.example.com:636",
 	}
@@ -349,7 +349,7 @@ func TestValidation_LdapNoCaFileContents_NoWarning(t *testing.T) {
 }
 
 func TestValidation_NilLdap_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	ac.Ldap = nil
 
 	results := ValidateMigration(ac, nil, nil)
@@ -361,7 +361,7 @@ func TestValidation_NilLdap_NoWarning(t *testing.T) {
 }
 
 func TestValidation_NonDefaultDbPath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	processes := getSlice(ac.Deployment, "processes")
 	proc := processes[0].(map[string]interface{})
 	args := proc["args2_6"].(map[string]interface{})
@@ -412,7 +412,7 @@ func TestValidation_DefaultDbPath_NoWarning(t *testing.T) {
 }
 
 func TestValidation_AllowTLSMode(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	processes := getSlice(ac.Deployment, "processes")
 	proc := processes[0].(map[string]interface{})
 	args := proc["args2_6"].(map[string]interface{})
@@ -433,7 +433,7 @@ func TestValidation_AllowTLSMode(t *testing.T) {
 }
 
 func TestValidation_AllowSSLMode(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	processes := getSlice(ac.Deployment, "processes")
 	proc := processes[0].(map[string]interface{})
 	args := proc["args2_6"].(map[string]interface{})
@@ -453,7 +453,7 @@ func TestValidation_AllowSSLMode(t *testing.T) {
 }
 
 func TestValidation_RequireTLS_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "replicaset_automation_config.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 
 	results := ValidateMigration(ac, nil, nil)
 	for _, r := range results {
@@ -537,5 +537,231 @@ func TestValidation_TLSDisabled_Warning(t *testing.T) {
 		}
 	}
 	assert.True(t, hasNoTLSWarning, "expected warning about TLS mode for disabled TLS")
+}
+
+func TestValidation_HeterogeneousProcessConfig_Warning(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name":    "rs-0",
+				"version": "7.0.0",
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27018},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+					"storage":     map[string]interface{}{"dbPath": "/data"},
+				},
+			},
+			map[string]interface{}{
+				"name":    "rs-1",
+				"version": "7.0.0",
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27019},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+					"storage":     map[string]interface{}{"dbPath": "/data"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id":             "my-rs",
+				"protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "rs-0"},
+					map[string]interface{}{"host": "rs-1"},
+				},
+			},
+		},
+	})
+
+	results := ValidateMigration(ac, nil, nil)
+	hasPortWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "net.port") && strings.Contains(r.Message, "excluded") {
+			hasPortWarning = true
+		}
+	}
+	assert.True(t, hasPortWarning, "expected warning about net.port being excluded when processes have different ports")
+}
+
+func TestValidation_HomogeneousProcessConfig_NoWarning(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name":    "rs-0",
+				"version": "7.0.0",
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27018},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+					"storage":     map[string]interface{}{"dbPath": "/data1"},
+				},
+			},
+			map[string]interface{}{
+				"name":    "rs-1",
+				"version": "7.0.0",
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27018},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+					"storage":     map[string]interface{}{"dbPath": "/data2"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id":             "my-rs",
+				"protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "rs-0"},
+					map[string]interface{}{"host": "rs-1"},
+				},
+			},
+		},
+	})
+
+	results := ValidateMigration(ac, nil, nil)
+	for _, r := range results {
+		if strings.Contains(r.Message, "excluded") && strings.Contains(r.Message, "additionalMongodConfig") {
+			t.Errorf("unexpected heterogeneous config warning: %s", r.Message)
+		}
+	}
+}
+
+func TestValidation_HeterogeneousStorageEngine_Warning(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name":    "rs-0",
+				"version": "8.0.4-ent",
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27017},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+					"storage":     map[string]interface{}{"dbPath": "/data", "engine": "inMemory"},
+				},
+			},
+			map[string]interface{}{
+				"name":    "rs-1",
+				"version": "8.0.4-ent",
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27017},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+					"storage":     map[string]interface{}{"dbPath": "/data"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id":             "my-rs",
+				"protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "rs-0"},
+					map[string]interface{}{"host": "rs-1"},
+				},
+			},
+		},
+	})
+
+	results := ValidateMigration(ac, nil, nil)
+	hasEngineWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "storage.engine") && strings.Contains(r.Message, "excluded") {
+			hasEngineWarning = true
+		}
+	}
+	assert.True(t, hasEngineWarning, "expected warning about storage.engine being excluded when one process has inMemory and another has default wiredTiger")
+}
+
+func TestValidation_HeterogeneousConfig_MultipleFields_Warning(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name":    "rs-0",
+				"version": "8.0.4-ent",
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27018},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+					"storage":     map[string]interface{}{"dbPath": "/data", "engine": "inMemory"},
+				},
+			},
+			map[string]interface{}{
+				"name":    "rs-1",
+				"version": "8.0.4-ent",
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27019},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+					"storage":     map[string]interface{}{"dbPath": "/data"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id":             "my-rs",
+				"protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "rs-0"},
+					map[string]interface{}{"host": "rs-1"},
+				},
+			},
+		},
+	})
+
+	results := ValidateMigration(ac, nil, nil)
+	excludedFields := map[string]bool{}
+	for _, r := range results {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "excluded") {
+			if strings.Contains(r.Message, "net.port") {
+				excludedFields["net.port"] = true
+			}
+			if strings.Contains(r.Message, "storage.engine") {
+				excludedFields["storage.engine"] = true
+			}
+		}
+	}
+	assert.True(t, excludedFields["net.port"], "expected warning about net.port being excluded")
+	assert.True(t, excludedFields["storage.engine"], "expected warning about storage.engine being excluded")
+}
+
+func TestValidation_DifferentOperatorManagedFields_NoWarning(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name":    "rs-0",
+				"version": "7.0.0",
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27017},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+					"storage":     map[string]interface{}{"dbPath": "/data"},
+					"systemLog":   map[string]interface{}{"destination": "file", "path": "/var/log/rs-0.log"},
+					"security":    map[string]interface{}{"clusterAuthMode": "x509"},
+				},
+			},
+			map[string]interface{}{
+				"name":    "rs-1",
+				"version": "7.0.0",
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27017},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+					"storage":     map[string]interface{}{"dbPath": "/data"},
+					"systemLog":   map[string]interface{}{"destination": "file", "path": "/var/log/rs-1.log"},
+					"security":    map[string]interface{}{"clusterAuthMode": "x509"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id":             "my-rs",
+				"protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "rs-0"},
+					map[string]interface{}{"host": "rs-1"},
+				},
+			},
+		},
+	})
+
+	results := ValidateMigration(ac, nil, nil)
+	for _, r := range results {
+		if strings.Contains(r.Message, "excluded") && strings.Contains(r.Message, "additionalMongodConfig") {
+			t.Errorf("processes differ only in operator-managed fields (systemLog, security) but got heterogeneous warning: %s", r.Message)
+		}
+	}
 }
 

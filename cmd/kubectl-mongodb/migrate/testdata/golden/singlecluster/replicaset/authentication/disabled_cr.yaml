@@ -1,0 +1,32 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+  name: minimal-rs
+spec:
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  credentials: my-credentials
+  externalMembers:
+  - minimal-rs-0
+  - minimal-rs-1
+  - minimal-rs-2
+  memberConfig:
+  - priority: "0"
+    votes: 0
+  - priority: "0"
+    votes: 0
+  - priority: "0"
+    votes: 0
+  members: 3
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  type: ReplicaSet
+  version: 8.0.4-ent
