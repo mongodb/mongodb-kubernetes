@@ -292,13 +292,13 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 
-	excessProcesses := d.GetNumberOfExcessProcesses("my-rs")
+	excessProcesses := d.GetNumberOfExcessProcesses("my-rs", "", nil)
 	// There's only one resource in this deployment
 	assert.Equal(t, 0, excessProcesses)
 
 	rs1 := buildRsByProcesses("my-rs-second", createReplicaSetProcessesCount(3, "my-rs-second"))
 	d.MergeReplicaSet(rs1, nil, nil, nil, zap.S())
-	excessProcesses = d.GetNumberOfExcessProcesses("my-rs")
+	excessProcesses = d.GetNumberOfExcessProcesses("my-rs", "", nil)
 
 	// another replica set was added to the deployment. 3 processes do not belong to this one
 	assert.Equal(t, 3, excessProcesses)
@@ -315,18 +315,18 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 
 	_, err := d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
-	excessProcesses = d.GetNumberOfExcessProcesses("my-rs")
+	excessProcesses = d.GetNumberOfExcessProcesses("my-rs", "", nil)
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
 	assert.Equal(t, 18, excessProcesses)
 
 	// This unknown process does not belong in here
-	excessProcesses = d.GetNumberOfExcessProcesses("some-unknown-name")
+	excessProcesses = d.GetNumberOfExcessProcesses("some-unknown-name", "", nil)
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
 	assert.Equal(t, 21, excessProcesses)
 
-	excessProcesses = d.GetNumberOfExcessProcesses("sc001")
+	excessProcesses = d.GetNumberOfExcessProcesses("sc001", "", nil)
 	// There are 6 processes that do not belong to the sc001 sharded cluster
 	assert.Equal(t, 6, excessProcesses)
 }
@@ -347,7 +347,7 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 3)
 	assert.Len(t, d.GetReplicaSets(), 4)
-	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001"))
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", "", nil))
 
 	// Now we are "scaling down" the sharded cluster - so junk replica sets will appear - this is still ok
 	twoShards := createShards("sc001")[0:2]
@@ -365,7 +365,7 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 2)
 	assert.Len(t, d.GetReplicaSets(), 4)
 
-	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001"))
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", "", nil))
 }
 
 func TestIsShardOf(t *testing.T) {

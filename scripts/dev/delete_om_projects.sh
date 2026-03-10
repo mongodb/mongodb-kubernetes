@@ -32,10 +32,31 @@ delete_project() {
 
 delete_project "${NAMESPACE}"
 
+# Delete resource-specific projects (e.g. mongodb-test-mdb-sh) that the operator
+# creates when a MongoDB CR uses a custom project name. Without this, stale
+# automation configs persist in Cloud Manager across test runs, causing cert
+# hash mismatches that deadlock the agent.
+delete_projects_with_prefix() {
+  local prefix=$1
+  echo "Listing projects with prefix '${prefix}-' to clean up"
+  local projects
+  projects=$(curl -s -u "${OM_USER}:${OM_API_KEY}" --digest \
+    "${OM_HOST}/api/public/v1.0/groups?itemsPerPage=100" \
+    | jq -r ".results[]? | select(.name | startswith(\"${prefix}-\")) | .name") || true
+  if [[ -z "${projects}" ]]; then
+    echo "No prefixed projects found"
+    return
+  fi
+  for project_name in ${projects}; do
+    delete_project "${project_name}" || true
+  done
+}
+
+delete_projects_with_prefix "${NAMESPACE}"
+
 if [[ "${WATCH_NAMESPACE:-}" != "" && "${WATCH_NAMESPACE:-}" != "*" ]]; then
   for ns in ${WATCH_NAMESPACE/,// }; do
     delete_project "${ns}" || true
+    delete_projects_with_prefix "${ns}" || true
   done
 fi
-
-

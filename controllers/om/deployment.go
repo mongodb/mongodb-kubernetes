@@ -16,6 +16,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -150,13 +151,13 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 	// If the new replica set is bigger than old one - we need to copy first member to positions of new members so that
 	// they were merged with operator replica sets on next step
 	// (in case OM made any changes to existing processes - these changes must be propagated to new members).
-	//if r != nil && len(operatorRs.Rs.Members()) > len(r.Members()) {
-	//	if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.Members()), l); err != nil {
-	//		// I guess this error is not so serious to fail the whole process - RS will be scaled up anyway
-	//		log.Error("Failed to copy first process (so new replica set processes may miss Ops Manager changes done to "+
-	//			"existing replica set processes): %s", err)
-	//	}
-	//}
+	if r != nil && len(operatorRs.Rs.Members()) > len(r.Members()) {
+		if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.Members())-len(externalMembers), l); err != nil {
+			// I guess this error is not so serious to fail the whole process - RS will be scaled up anyway
+			log.Error("Failed to copy first process (so new replica set processes may miss Ops Manager changes done to "+
+				"existing replica set processes): %s", err)
+		}
+	}
 
 	// Merging all RS processes
 	for _, p := range operatorRs.Processes {
@@ -587,11 +588,19 @@ func (d Deployment) ProcessBelongsToResource(processName, resourceName string) b
 
 // GetNumberOfExcessProcesses calculates how many processes do not belong to
 // this resource.
-func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
+func (d Deployment) GetNumberOfExcessProcesses(resourceName string, replicaSetNameOverride string, externalMembers []string) int {
 	processNames := d.GetAllProcessNames()
 	excessProcesses := len(processNames)
+	externalMembersSet := merge.StringsToSet(externalMembers)
+
+	rsName := resourceName
+	if replicaSetNameOverride != "" {
+		rsName = replicaSetNameOverride
+	}
+
 	for _, p := range processNames {
-		if d.ProcessBelongsToResource(p, resourceName) {
+		_, isExternal := externalMembersSet[p]
+		if d.ProcessBelongsToResource(p, rsName) || isExternal {
 			excessProcesses -= 1
 		}
 	}

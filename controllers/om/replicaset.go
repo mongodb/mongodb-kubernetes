@@ -181,7 +181,7 @@ func (r ReplicaSet) addMember(process Process, id string, options automationconf
 	rsMember := ReplicaSetMember{}
 	rsMember["_id"] = id
 	if id == "" {
-		rsMember["_id"] = lastIndex + 51
+		rsMember["_id"] = lastIndex + 1
 	}
 	rsMember["host"] = process.Name()
 

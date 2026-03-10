@@ -381,12 +381,13 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 // Also, it removes the tag ExternallyManaged from the project in this case as
 // the user may need to clean the resources from OM UI if they move the
 // resource to another project (as recommended by the migration instructions).
-func checkIfHasExcessProcesses(conn om.Connection, resourceName string, log *zap.SugaredLogger) workflow.Status {
+// If there are any externalMembers set, we will ignore the excess processes which appear in this list, as those are expected to be there and should not block the reconciliation.
+func checkIfHasExcessProcesses(conn om.Connection, resourceName, replicaSetNameOverride string, externalMembers []string, log *zap.SugaredLogger) workflow.Status {
 	deployment, err := conn.ReadDeployment()
 	if err != nil {
 		return workflow.Failed(err)
 	}
-	excessProcesses := deployment.GetNumberOfExcessProcesses(resourceName)
+	excessProcesses := deployment.GetNumberOfExcessProcesses(resourceName, replicaSetNameOverride, externalMembers)
 	if excessProcesses == 0 {
 		// cluster is empty or this resource is the only one living on it
 		return workflow.OK()
@@ -544,7 +545,11 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		clientCerts = util.RequireClientCertificates
 	}
 
-	scramAgentUserName := ar.GetSecurity().Authentication.Agents.GetAutomationUserName()
+	scramAgentUserName := util.AutomationAgentUserName
+	// only use the default name if there is not already a configured username
+	if ac.Auth.AutoUser != "" && ac.Auth.AutoUser != scramAgentUserName {
+		scramAgentUserName = ac.Auth.AutoUser
+	}
 
 	authOpts := authentication.Options{
 		Mechanisms:         mdbv1.ConvertAuthModesToStrings(ar.GetSecurity().Authentication.Modes),
@@ -613,7 +618,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 
 			authOpts.AutoPwd = autoConfigPassword
 			userOpts := authentication.UserOptions{}
-			agentName := ar.GetSecurity().Authentication.Agents.GetAutomationUserName()
+			agentName := ar.GetSecurity().Authentication.Agents.AutomationUserName
 			userOpts.AutomationSubject = agentName
 			authOpts.UserOptions = userOpts
 		}
@@ -1075,7 +1080,7 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 	//	return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes/current/tutorial/migrate-to-single-resource )")
 	//}
 
-	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, spec.ExternalMembers, log)
+	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, spec.GetExternalMemberProcessNames(), log)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
