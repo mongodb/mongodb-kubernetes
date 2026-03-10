@@ -359,8 +359,10 @@ class OMTester(object):
         ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(status_code, datetime.now())
 
     def om_request(self, method, path, json_object: Optional[Dict] = None, retries=3, agent_endpoint=False):
-        """performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
-        '/api../v1.0' as the method does it internally."""
+        """Performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
+        '/api../v1.0' as the method does it internally.
+
+        Only retries on 5xx server errors. Raises for any non-2xx status (3xx, 4xx, 5xx after retries exhausted)."""
         span = trace.get_current_span()
 
         headers = {"Content-Type": "application/json"}
@@ -383,47 +385,43 @@ class OMTester(object):
         sanitized_path = pattern.sub("/{id}", path)
         span.set_attribute(key=f"mck.om.request.resource", value=sanitized_path)
 
-        def om_request():
-            try:
-                response = session.request(
-                    url=endpoint,
-                    method=method,
-                    auth=auth,
-                    headers=headers,
-                    json=json_object,
-                    timeout=30,
-                    verify=False,
-                )
-            except Exception as e:
-                print("failed connecting to om")
-                raise e
-
+        retry_count = retries
+        while True:
+            response = session.request(
+                url=endpoint,
+                method=method,
+                auth=auth,
+                headers=headers,
+                json=json_object,
+                timeout=30,
+                verify=False,
+            )
             span.set_attribute(key=f"mck.om.request.duration", value=time.time() - start_time)
             span.set_attribute(key=f"mck.om.request.fullpath", value=path)
 
-            if response.status_code >= 300:
-                raise Exception(
-                    "Error sending request to Ops Manager API. {} ({}).\n Request details: {} {} (data: {})".format(
-                        response.status_code, response.text, method, endpoint, json_object
-                    )
+            # Only retry on 5xx server errors; for 3xx/4xx raise immediately, for 2xx return
+            if 500 <= response.status_code < 600 and retry_count > 0:
+                print(
+                    f"Ops Manager API returned {response.status_code}, retrying ({retries - retry_count + 1}/{retries})"
                 )
-            return response
-
-        retry_count = retries
-        last_exception = Exception("Failed unexpectedly while retrying OM request")
-        while retry_count >= 0:
-            try:
-                resp = om_request()
                 span.set_attribute(key=f"mck.om.request.retries", value=retries - retry_count)
-                return resp
-            except Exception as e:
-                print(f"Encountered exception: {e} on retry number {retries - retry_count}")
-                span.set_attribute(key=f"mck.om.request.exception", value=str(e))
-                last_exception = e
-                time.sleep(1)
                 retry_count -= 1
-
-        raise last_exception
+                time.sleep(1)
+                continue
+            span.set_attribute(key=f"mck.om.request.retries", value=retries - retry_count)
+            if response.status_code >= 300:
+                message = "Error sending request to Ops Manager API. {} ({}).\n Request details: {} {}".format(
+                    response.status_code,
+                    response.text,
+                    method,
+                    endpoint,
+                )
+                logger.error(message)
+                # Include the response body in the exception message so callers
+                # can inspect it (e.g. PIT restore helpers looking for 409/invalid restore point)
+                # and implement their own retry/timeout logic.
+                raise Exception(message)
+            return response
 
     def get_feature_controls(self):
         return self.om_request("get", f"/groups/{self.context.project_id}/controlledFeature").json()
