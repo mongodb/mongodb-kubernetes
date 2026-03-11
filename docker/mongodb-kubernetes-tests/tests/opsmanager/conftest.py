@@ -3,7 +3,7 @@
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import boto3
 from botocore.exceptions import ClientError
@@ -117,21 +117,16 @@ def mino_operator_install(
     )
 
 
-def _wait_for_minio_buckets(
+def _create_minio_buckets(
     endpoint: str,
     bucket_names: List[str],
     access_key: str = "minio",
     secret_key: str = "minio123",
-    timeout: int = 500,
-    interval: int = 10,
+    timeout: int = 120,
+    interval: int = 5,
     issuer_ca_filepath: Optional[str] = os.getenv("MINIO_ISSUER_CA_FILEPATH", None),
-):
-    """Poll S3/MinIO until all buckets are accessible or timeout is reached.
-
-    Pod readiness does not guarantee bucket provisioning is complete. This
-    function bridges the gap by probing headBucket() with retry/backoff,
-    mirroring the exact check OpsManager performs when saving S3 store config.
-    """
+) -> None:
+    """Ensure MinIO buckets exist via S3 API (create if missing). Uses test CA when tenant has custom TLS."""
     s3 = boto3.client(
         "s3",
         endpoint_url=f"https://{endpoint}",
@@ -139,25 +134,32 @@ def _wait_for_minio_buckets(
         aws_secret_access_key=secret_key,
         verify=issuer_ca_filepath,
     )
-
+    target: Set[str] = set(bucket_names)
+    ready: Set[str] = set()
     deadline = time.time() + timeout
-    pending = set(bucket_names)
 
     while time.time() < deadline:
-        for bucket in list(pending):
+        for bucket in bucket_names:
+            if bucket in ready:
+                continue
             try:
                 s3.head_bucket(Bucket=bucket)
-                print(f"MinIO bucket '{bucket}' is accessible")
-                pending.discard(bucket)
+                ready.add(bucket)
             except ClientError as e:
-                code = e.response["Error"]["Code"]
-                print(f"MinIO bucket '{bucket}' not ready (HTTP {code}), retrying in {interval}s...")
-        if not pending:
-            print(f"All MinIO buckets accessible: {bucket_names}")
+                if e.response["Error"].get("Code") in ("404", "NoSuchBucket"):
+                    try:
+                        s3.create_bucket(Bucket=bucket)
+                        ready.add(bucket)
+                    except ClientError as ce:
+                        if ce.response["Error"].get("Code") == "BucketAlreadyOwnedByYou":
+                            ready.add(bucket)
+            except Exception:
+                pass  # MinIO not ready (connection/SSL), retry
+        if ready >= target:
             return
         time.sleep(interval)
 
-    raise TimeoutError(f"MinIO buckets still inaccessible after {timeout}s: {pending}")
+    raise TimeoutError(f"Could not create MinIO buckets within {timeout}s: missing {target - ready}")
 
 
 def mino_tenant_install(
@@ -214,10 +216,9 @@ def mino_tenant_install(
         print(f"Minio tenant already installed, skipping helm installation!")
 
     get_pod_when_ready(namespace, f"app=minio", api_client=cluster_client)
-    # Wait for MinIO bucket provisioning (pod ready ≠ buckets ready)
-    # MinIO creates the buckets async via a kubernetes Job after the tenant pod is running,
-    # so we need to wait for the buckets to be accessible before proceeding with tests that depend on them.
-    _wait_for_minio_buckets(
+    # Ensure buckets exist from the test so we don't rely on the operator (custom TLS often
+    # breaks operator bucket creation). Retries until all buckets are created/accessible.
+    _create_minio_buckets(
         endpoint=f"minio.{namespace}.svc.cluster.local",
         bucket_names=["s3-store-bucket", "oplog-s3-bucket"],
         issuer_ca_filepath=issuer_ca_filepath,
