@@ -12,7 +12,6 @@ from kubetester import create_or_update_secret, get_pod_when_ready
 from kubetester.helm import helm_install_from_chart
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
-
 from tests import test_logger
 from tests.conftest import is_multi_cluster
 
