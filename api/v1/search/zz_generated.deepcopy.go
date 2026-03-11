@@ -24,7 +24,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -303,6 +303,11 @@ func (in *MongoDBSearchSpec) DeepCopyInto(out *MongoDBSearchSpec) {
 		in, out := &in.LoadBalancer, &out.LoadBalancer
 		*out = new(LoadBalancerConfig)
 		(*in).DeepCopyInto(*out)
+	}
+	if in.JVMFlags != nil {
+		in, out := &in.JVMFlags, &out.JVMFlags
+		*out = make([]string, len(*in))
+		copy(*out, *in)
 	}
 }
 

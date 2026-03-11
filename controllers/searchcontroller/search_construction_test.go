@@ -11,13 +11,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
 
-type mockSearchSource struct{}
-
-func (m *mockSearchSource) KeyfileSecretName() string   { return "" }
-func (m *mockSearchSource) TLSConfig() *TLSSourceConfig { return nil }
-func (m *mockSearchSource) HostSeeds() []string         { return []string{"host1:27017"} }
-func (m *mockSearchSource) Validate() error             { return nil }
-
 func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 	testCases := []struct {
 		name             string
@@ -49,7 +42,7 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 				s.Spec.JVMFlags = tc.jvmFlags
 			})
 
-			stsModification := CreateSearchStatefulSetFunc(search, &mockSearchSource{}, "mongot:latest")
+			stsModification := CreateSearchStatefulSetFunc(search, "", "", "", "", nil, "mongot:latest")
 			sts := statefulset.New(stsModification)
 
 			// Find the mongot container
