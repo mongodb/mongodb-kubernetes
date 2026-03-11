@@ -852,7 +852,9 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	// Apply search parameters for shards if a MongoDBSearch resource is configured
 	// This implements the sharded internal + unmanaged L7 LB (BYO per-shard LB)
-	r.applySearchParametersForShards(ctx, log)
+	if err := r.applySearchParametersForShards(ctx, log); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
 
 	// After processing normal validations, we check for conflicting scale-up and scale-down operations within the same
 	// reconciliation cycle. If both scaling directions are detected, we block the reconciliation.
@@ -1001,13 +1003,17 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 // This configures:
 // 1. Per-shard mongod search parameters pointing to the shard-local mongot service
 // 2. Mongos search parameters pointing to the first shard's mongot service
-func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx context.Context, log *zap.SugaredLogger) {
+func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx context.Context, log *zap.SugaredLogger) error {
 	sc := r.sc
 
-	search := r.lookupCorrespondingSearchResource(ctx, log)
+	search, err := r.lookupCorrespondingSearchResource(ctx)
+	if err != nil {
+		return err
+	}
+
 	if search == nil {
 		log.Debugf("No MongoDBSearch resource found for sharded cluster, skipping search overrides")
-		return
+		return nil
 	}
 
 	log.Infof("Applying search parameters from MongoDBSearch %s", search.NamespacedName())
@@ -1039,30 +1045,31 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 	r.desiredMongosConfiguration.AdditionalMongodConfig.AddOption("setParameter", searchMongosConfig["setParameter"])
 
 	log.Infof("Applied search config for mongos: mongotHost=%v", searchMongosConfig["setParameter"])
+	return nil
 }
 
 // lookupCorrespondingSearchResource finds the MongoDBSearch resource that references this sharded cluster.
-func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx context.Context, log *zap.SugaredLogger) *searchv1.MongoDBSearch {
+func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx context.Context) (*searchv1.MongoDBSearch, error) {
 	sc := r.sc
 
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.commonController.client.List(ctx, searchList, &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, sc.GetNamespace()+"/"+sc.GetName()),
 	}); err != nil {
-		log.Debugf("Failed to list MongoDBSearch resources: %v", err)
-		return nil
+		return nil, xerrors.Errorf("Failed to list MongoDBSearch resources: %v", err)
+	}
+
+	// this MDB resource is not referred in any of the search resoruces
+	if len(searchList.Items) == 0 {
+		return nil, nil
 	}
 
 	// Validate that there is exactly one MongoDBSearch pointing to this resource
-	if len(searchList.Items) == 0 {
-		return nil
-	}
-
 	if len(searchList.Items) > 1 {
-		log.Warnf("Found multiple MongoDBSearch resources for sharded cluster %s, using the first one", sc.Name)
+		return nil, xerrors.Errorf("Found multiple MongoDBSearch resources referred in sharded cluster %s/%s", sc.Namespace, sc.Name)
 	}
 
-	return &searchList.Items[0]
+	return &searchList.Items[0], nil
 }
 
 func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) workflow.Status {

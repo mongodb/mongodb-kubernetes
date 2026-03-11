@@ -136,7 +136,7 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 	} else {
 		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
 		if mdb.GetResourceType() == mdbv1.ShardedCluster {
-			return searchcontroller.NewShardedEnterpriseSearchSource(mdb, search), nil
+			return searchcontroller.NewShardedInternalSearchSource(mdb, search), nil
 		}
 		return searchcontroller.NewEnterpriseResourceSearchSource(mdb), nil
 	}
