@@ -159,6 +159,8 @@ func caKeyNameFromTLSConfig(tlsCfg *searchcontroller.TLSSourceConfig) string {
 }
 
 // buildRoutes returns the Envoy routes for the given topology.
+// It is the single topology-aware path in the controller. Everything downstream (config generation,
+// Service creation, cleanup) is topology-agnostic, using the envoyRoute data structure only.
 func buildRoutes(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource) []envoyRoute {
 	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
 		return buildShardRoutes(search, shardedSource.GetShardNames())
