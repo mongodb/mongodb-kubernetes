@@ -1148,16 +1148,23 @@ func attachACSnapshotHook(ctx context.Context, client kubernetesClient.Client, c
 	}
 	cmName := resourceName + "-ac-snapshot"
 
-	// Seed from existing ConfigMap so steps from previous reconciles are preserved.
+	// Seed from existing ConfigMap so steps and previous-state carry over across reconciles.
 	accumulated := make(map[string]string)
+	var previous om.Deployment
 	existing := corev1.ConfigMap{}
 	if err := client.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, &existing); err == nil {
 		for k, v := range existing.Data {
-			accumulated[k] = v
+			if k == "_previous" {
+				dep := om.Deployment{}
+				if jsonErr := json.Unmarshal([]byte(v), &dep); jsonErr == nil {
+					previous = dep
+				}
+			} else {
+				accumulated[k] = v
+			}
 		}
 	}
 
-	var previous om.Deployment
 	step := len(accumulated) // Continue numbering after existing steps.
 	hConn.SetPUTHook(func(path string, body []byte) {
 		// Only capture the main automationConfig endpoint, not sub-endpoints
@@ -1190,6 +1197,17 @@ func attachACSnapshotHook(ctx context.Context, client kubernetesClient.Client, c
 			previous = copied
 		}
 		accumulated[fmt.Sprintf("step-%03d", step)] = string(data)
+		// Persist the last-seen deployment (with ignored fields stripped) so the next reconcile
+		// can diff against it without hitting the 1 MiB ConfigMap limit.
+		stripped := make(om.Deployment, len(dep))
+		for k, v := range dep {
+			if _, ok := acSnapshotIgnoredFields[strings.ToLower(k)]; !ok {
+				stripped[k] = v
+			}
+		}
+		if prevData, marshalErr := json.Marshal(stripped); marshalErr == nil {
+			accumulated["_previous"] = string(prevData)
+		}
 		cm := corev1.ConfigMap{}
 		cm.Name = cmName
 		cm.Namespace = namespace
