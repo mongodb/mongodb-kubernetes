@@ -6,6 +6,8 @@ Deployment configuration:
   - MongoDBSearch: referencing external mongodb, one instance of mongot deployed per shard
 """
 
+import pymongo
+import pymongo.errors
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
