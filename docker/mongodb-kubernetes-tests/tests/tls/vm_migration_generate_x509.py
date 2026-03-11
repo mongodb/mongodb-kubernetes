@@ -11,7 +11,17 @@ Then runs ``migrate generate`` to produce the CR and verifies:
   - spec.security.authentication.modes: [X509]
   - No internalCluster field (keyFile is the default)
   - Full promote-and-prune lifecycle
+
+NOTE: The operator's reconciliation overwrites global ``tls.CAFilePath`` and
+``tls.autoPEMKeyFilePath`` with paths specific to operator-managed pods.  The
+VM pods therefore mount certs at **both** the original paths (used by the AC
+during steps 1-3) and the operator's paths so that VM agents keep working
+after the merge.
 """
+
+import base64
+import hashlib
+import json
 
 import yaml
 from cryptography import x509 as crypto_x509
@@ -39,6 +49,45 @@ CA_PEM_PATH = "/mongodb-ca/ca.pem"
 AGENT_PEM_PATH = "/mongodb-agent/agent.pem"
 OPERATOR_CERT_SECRET = f"{RS_NAME}-cert"
 AGENT_COMBINED_PEM_SECRET = "agent-certs-combined"
+AGENT_CERT_OPERATOR_SECRET = "vm-agent-cert-operator-path"
+
+
+# ---------------------------------------------------------------------------
+# PEM hash helpers — mirror controllers/operator/pem/pem_collection.go
+# ---------------------------------------------------------------------------
+
+def _split_pem_blocks(data: str) -> list[str]:
+    """Split PEM data into individual BEGIN/END blocks (mirrors Go separatePemFile)."""
+    blocks: list[str] = []
+    current = ""
+    for line in data.split("\n"):
+        if line.startswith("-----END"):
+            blocks.append(current + line + "\n")
+            current = ""
+            continue
+        current += line + "\n"
+    return blocks
+
+
+def _compute_pem_hash(secret_data: dict) -> str:
+    """Compute the PEM-collection SHA-256 / base32 hash the operator uses as cert filename.
+
+    Mirrors controllers/operator/pem/pem_collection.go  Collection.GetHash().
+    """
+    pem_files: dict[str, dict] = {}
+    for key, value in secret_data.items():
+        if isinstance(value, bytes):
+            value = value.decode("utf-8")
+        cert, private_key = "", ""
+        for block in _split_pem_blocks(value):
+            if "BEGIN CERTIFICATE" in block:
+                cert += block
+            elif "PRIVATE KEY" in block:
+                private_key = block
+        pem_files[key] = {"certificate": cert, "privateKey": private_key}
+    json_bytes = json.dumps(pem_files, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = hashlib.sha256(json_bytes).digest()
+    return base64.b32encode(digest).decode("utf-8").rstrip("=")
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +136,33 @@ def vm_agent_combined_pem(namespace: str, vm_agent_certs: str) -> tuple:
 
 
 @fixture(scope="module")
+def vm_agent_cert_operator_path(namespace: str, vm_agent_certs: str) -> tuple:
+    """Create a secret with the combined agent PEM keyed by the operator's hash filename.
+
+    The operator sets ``tls.autoPEMKeyFilePath`` to
+    ``/mongodb-automation/agent-certs/<hash>`` where ``<hash>`` is a
+    base32-encoded SHA-256 of the PEM collection JSON.  We replicate the hash
+    here and mount the secret at the matching path so VM agents keep working
+    after the operator overwrites the global config.
+
+    Returns (secret_name, pem_hash).
+    """
+    data = read_secret(namespace, vm_agent_certs)
+    pem_hash = _compute_pem_hash(data)
+
+    cert_pem = data.get("tls.crt", b"")
+    key_pem = data.get("tls.key", b"")
+    if isinstance(cert_pem, bytes):
+        cert_pem = cert_pem.decode("utf-8")
+    if isinstance(key_pem, bytes):
+        key_pem = key_pem.decode("utf-8")
+
+    combined_pem = cert_pem + key_pem
+    create_or_update_secret(namespace, AGENT_CERT_OPERATOR_SECRET, {pem_hash: combined_pem})
+    return AGENT_CERT_OPERATOR_SECRET, pem_hash
+
+
+@fixture(scope="module")
 def vm_server_combined_pem(namespace: str, vm_server_certs: str) -> str:
     """Combined cert+key PEM secret for mongod certificateKeyFile."""
     data = read_secret(namespace, vm_server_certs)
@@ -106,9 +182,19 @@ def vm_sts(
     om_tester: OMTester,
     vm_server_certs: str,
     vm_agent_combined_pem: tuple,
+    vm_agent_cert_operator_path: tuple,
     vm_server_combined_pem: str,
 ):
-    """Deploy VM StatefulSet with cert volumes (server PEM + CA + agent PEM)."""
+    """Deploy VM StatefulSet with cert volumes.
+
+    Certs are mounted at *two* sets of paths:
+      - Original paths (``/mongodb-ca``, ``/mongodb-agent``) used by the AC
+        during the initial no-auth → TLS → X509 steps.
+      - Operator paths (``/mongodb-automation/tls/ca/ca-pem``,
+        ``/mongodb-automation/agent-certs/<hash>``) so VM agents keep working
+        after the operator overwrites global ``tls.CAFilePath`` and
+        ``tls.autoPEMKeyFilePath``.
+    """
     from kubetester.kubetester import fixture as yaml_fixture
 
     with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
@@ -119,6 +205,9 @@ def vm_sts(
         {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
         {"name": "MMS_API_KEY", "value": om_tester.context.agent_api_key},
     ]
+
+    agent_secret_name, _ = vm_agent_combined_pem
+    operator_agent_secret, pem_hash = vm_agent_cert_operator_path
 
     volumes = sts_body["spec"]["template"]["spec"].get("volumes") or []
     volumes.append(
@@ -139,7 +228,15 @@ def vm_sts(
             },
         }
     )
-    agent_secret_name, _ = vm_agent_combined_pem
+    volumes.append(
+        {
+            "name": "ca-cert-operator-path",
+            "configMap": {
+                "name": "issuer-ca",
+                "items": [{"key": "ca-pem", "path": "ca-pem"}],
+            },
+        }
+    )
     volumes.append(
         {
             "name": "agent-cert",
@@ -149,12 +246,22 @@ def vm_sts(
             },
         }
     )
+    volumes.append(
+        {
+            "name": "agent-cert-operator-path",
+            "secret": {
+                "secretName": operator_agent_secret,
+            },
+        }
+    )
     sts_body["spec"]["template"]["spec"]["volumes"] = volumes
 
     mounts = sts_body["spec"]["template"]["spec"]["containers"][0].get("volumeMounts") or []
-    mounts.append({"name": "mongodb-certs", "mountPath": "/mongodb-automation", "readOnly": True})
+    mounts.append({"name": "mongodb-certs", "mountPath": "/mongodb-automation/server.pem", "subPath": "server.pem", "readOnly": True})
     mounts.append({"name": "ca-cert", "mountPath": "/mongodb-ca", "readOnly": True})
+    mounts.append({"name": "ca-cert-operator-path", "mountPath": "/mongodb-automation/tls/ca", "readOnly": True})
     mounts.append({"name": "agent-cert", "mountPath": "/mongodb-agent", "readOnly": True})
+    mounts.append({"name": "agent-cert-operator-path", "mountPath": "/mongodb-automation/agent-certs", "readOnly": True})
     sts_body["spec"]["template"]["spec"]["containers"][0]["volumeMounts"] = mounts
 
     KubernetesTester.create_or_update_statefulset(namespace, body=sts_body)
@@ -229,7 +336,7 @@ def _build_processes(vm_sts, vm_service, namespace, mdb_version, tls):
         )
         members.append(
             {
-                "_id": i,
+                "_id": i + 100,
                 "host": process_name,
                 "priority": 1,
                 "votes": 1,
