@@ -161,13 +161,13 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 		return workflow.Failed(err)
 	}
 
-	// Determine if per-pod embedding config is needed (multi-replica with auto-embedding)
-	perPodEmbeddingConfig := r.mdbSearch.IsMultiMongotWithEmbedding()
+	// Determine if per-pod config is needed (when auto-embedding is configured)
+	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 	stsNsName := r.mdbSearch.StatefulSetNamespacedName()
 	replicas := r.mdbSearch.GetReplicas()
 
 	// the egress TLS modification needs to always be applied after the ingress one, because it toggles mTLS based on the mode set by the ingress modification
-	configHash, err := r.ensureMongotConfig(ctx, log, r.mdbSearch.MongotConfigConfigMapNamespacedName(), stsNsName.Name, replicas, perPodEmbeddingConfig, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+	configHash, err := r.ensureMongotConfig(ctx, log, r.mdbSearch.MongotConfigConfigMapNamespacedName(), stsNsName.Name, replicas, usePerPodConfig, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -184,7 +184,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		stsNsName,
-		CreateSearchStatefulSetFunc(r.mdbSearch, stsNsName.Name, stsNsName.Namespace, svcName, r.mdbSearch.MongotConfigConfigMapNamespacedName().Name, labels, fmt.Sprintf("%s:%s", image, version), perPodEmbeddingConfig),
+		CreateSearchStatefulSetFunc(r.mdbSearch, stsNsName.Name, stsNsName.Namespace, svcName, r.mdbSearch.MongotConfigConfigMapNamespacedName().Name, labels, fmt.Sprintf("%s:%s", image, version), usePerPodConfig),
 		configHashModification,
 		keyfileStsModification,
 		ingressTlsStsModification,
@@ -231,8 +231,8 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		return workflow.Failed(err)
 	}
 
-	// Determine if per-pod embedding config is needed (multi-replica with auto-embedding)
-	perPodEmbeddingConfig := r.mdbSearch.IsMultiMongotWithEmbedding()
+	// Determine if per-pod config is needed (when auto-embedding is configured)
+	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 	replicas := r.mdbSearch.GetReplicas()
 
 	image, imageVersion := r.searchImageAndVersion()
@@ -255,7 +255,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 
 		shardStsNsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
 		shardMongotConfig := createMongotConfigForShard(r.mdbSearch, shardedSource, shardName)
-		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), shardStsNsName.Name, replicas, perPodEmbeddingConfig, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), shardStsNsName.Name, replicas, usePerPodConfig, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -269,7 +269,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 			shardLog,
 			shardStsNsName,
-			CreateSearchStatefulSetFunc(r.mdbSearch, shardStsNsName.Name, r.mdbSearch.Namespace, shardSvcName.Name, r.mdbSearch.MongotConfigMapForShard(shardName).Name, shardLabels, searchImage, perPodEmbeddingConfig),
+			CreateSearchStatefulSetFunc(r.mdbSearch, shardStsNsName.Name, r.mdbSearch.Namespace, shardSvcName.Name, r.mdbSearch.MongotConfigMapForShard(shardName).Name, shardLabels, searchImage, usePerPodConfig),
 			configHashModification,
 			keyfileStsModification,
 			ingressTlsStsModification,
@@ -378,17 +378,17 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 }
 
 // ensureMongotConfig creates or updates the mongot ConfigMap with the appropriate configuration.
-// When perPodEmbeddingConfig is true, it generates two config files (leader and follower) with
+// When usePerPodConfig is true, it generates two config files (leader and follower) with
 // different IsAutoEmbeddingViewWriter values, plus pod-name keys for role lookup.
 // When false, it generates a single config file.
 // stsName is the StatefulSet name, used to generate pod names for role designation.
 // replicas is the number of pods in the StatefulSet.
-func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, cmName types.NamespacedName, stsName string, replicas int, perPodEmbeddingConfig bool, modifications ...mongot.Modification) (string, error) {
+func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, cmName types.NamespacedName, stsName string, replicas int, usePerPodConfig bool, modifications ...mongot.Modification) (string, error) {
 	mongotConfig := mongot.Config{}
 	mongot.Apply(modifications...)(&mongotConfig)
 
 	// Build config entries based on mode
-	configEntries, keysToRemove, err := buildMongotConfigEntries(mongotConfig, perPodEmbeddingConfig, stsName, replicas)
+	configEntries, keysToRemove, err := buildMongotConfigEntries(mongotConfig, usePerPodConfig, stsName, replicas)
 	if err != nil {
 		return "", err
 	}
@@ -419,15 +419,16 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 
 // buildMongotConfigEntries generates the ConfigMap entries based on the configuration mode.
 // Returns a map of filename->yaml data, keys to remove, and any error.
-// When perPodEmbeddingConfig is true, stsName and replicas are used to generate pod-name keys for role designation.
-func buildMongotConfigEntries(config mongot.Config, perPodEmbeddingConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
-	if perPodEmbeddingConfig {
+// When usePerPodConfig is true, stsName and replicas are used to generate pod-name keys for role designation.
+func buildMongotConfigEntries(config mongot.Config, usePerPodConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
+	if usePerPodConfig {
 		return buildPerPodConfigEntries(config, stsName, replicas)
 	}
 	return buildSingleConfigEntry(config)
 }
 
-// buildPerPodConfigEntries creates leader and follower config entries for multi-replica embedding mode.
+// buildPerPodConfigEntries creates leader and follower config entries when auto-embedding is enabled.
+// Pod-0 is designated as leader (IsAutoEmbeddingViewWriter=true), all others are followers.
 // It adds a pod-name key for each pod (e.g., "test-search-search-0": "leader", "test-search-search-1": "follower").
 func buildPerPodConfigEntries(config mongot.Config, stsName string, replicas int) (map[string][]byte, []string, error) {
 	// Leader config (IsAutoEmbeddingViewWriter=true) - already set by ensureEmbeddingConfig
@@ -479,10 +480,13 @@ func buildSingleConfigEntry(config mongot.Config) (map[string][]byte, []string, 
 	return entries, keysToRemove, nil
 }
 
-// computeConfigHash computes a combined hash of all config entries.
+// computeConfigHash computes a combined hash of config file contents only.
+// Pod-name keys (e.g., "my-search-0": "leader") are intentionally excluded because
+// changes to them (e.g., scaling up/down) don't require existing pods to restart.
+// New pods will read their role from the ConfigMap on startup.
 func computeConfigHash(entries map[string][]byte) string {
 	var allData []byte
-	// Process in deterministic order for consistent hashing
+	// Process config files only, in deterministic order for consistent hashing
 	for _, key := range []string{MongotConfigFilename, MongotConfigLeaderFilename, MongotConfigFollowerFilename} {
 		if data, ok := entries[key]; ok {
 			allData = append(allData, data...)
