@@ -150,14 +150,22 @@ def _create_minio_buckets(
                 s3.create_bucket(Bucket=bucket)
                 ready.add(bucket)
             except ClientError as ce:
-                code = ce.response["Error"].get("Code")
-                if code in ("BucketAlreadyExists", "BucketAlreadyOwnedByYou"):
+                # boto3 ClientError.response: ResponseMetadata.HTTPStatusCode, Error.Code
+                # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/error-handling.html
+                # MinIO/S3 use HTTP 409 for bucket-already-exists.
+                status_code = ce.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                message_code = ce.response.get("Error", {}).get("Code", "")
+                if status_code == 409:
+                    logger.debug(
+                        "MinIO bucket %s already exists (HTTP %s, Code=%s), treating as success",
+                        bucket,
+                        status_code,
+                        message_code,
+                    )
                     ready.add(bucket)
-                else:
-                    raise
             except Exception as e:
                 logger.debug("MinIO bucket create failed for %s (will retry): %s", bucket, e)
-                # MinIO not ready (connection/SSL), retry
+                # MinIO not ready (connection/SSL) or transient S3 errors, retry
         if ready >= target:
             return
         time.sleep(interval)
