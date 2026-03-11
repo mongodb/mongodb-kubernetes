@@ -1,9 +1,4 @@
-import pymongo
-import pymongo.errors
-import yaml
-from kubetester import run_periodically
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
-from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -13,7 +8,8 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
-from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
+from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters, verify_vector_search
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_sharded_ca
@@ -150,24 +146,7 @@ def test_wait_for_database_resource_ready(mdb: MongoDB):
 
 @mark.e2e_search_external_rs_single_mongot
 def test_wait_for_mongod_parameters(mdb: MongoDB):
-    def check_mongod_parameters():
-        parameters_are_set = True
-        pod_parameters = []
-        for idx in range(mdb.get_members()):
-            mongod_config = yaml.safe_load(
-                KubernetesTester.run_command_in_pod_container(
-                    f"{mdb.name}-{idx}", mdb.namespace, ["cat", "/data/automation-mongod.conf"]
-                )
-            )
-            set_parameter = mongod_config.get("setParameter", {})
-            parameters_are_set = parameters_are_set and (
-                "mongotHost" in set_parameter and "searchIndexManagementHostAndPort" in set_parameter
-            )
-            pod_parameters.append(f"pod {idx} setParameter: {set_parameter}")
-
-        return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
-
-    run_periodically(check_mongod_parameters, timeout=600)
+    verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members())
 
 
 @fixture(scope="function")
@@ -198,23 +177,4 @@ def test_vector_search(mdb: MongoDB):
     search_tester = SearchTester.for_replicaset(
         mdb, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()
     )
-    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
-    emb_helper.create_vector_search_index()
-    emb_helper.wait_for_vector_search_index()
-
-    query_vector = emb_helper.generate_query_vector("war movies")
-    total_docs = emb_helper.count_documents_with_embeddings()
-
-    # wait_for_vector_search_index checks that the index reports ready, but mongot may
-    # still be in INITIAL_SYNC. The retry loop below handles that by catching OperationFailure.
-    def verify_vector_search():
-        try:
-            results = emb_helper.vector_search(query_vector, limit=total_docs)
-            count = len(results)
-            if count > 0:
-                return True, f"Vector search returned {count} results"
-            return False, "Vector search returned no results"
-        except pymongo.errors.OperationFailure as e:
-            return False, f"Vector search failed: {e}"
-
-    run_periodically(verify_vector_search, timeout=120, sleep_time=5, msg="vector search")
+    verify_vector_search(search_tester)
