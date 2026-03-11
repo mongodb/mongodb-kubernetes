@@ -41,6 +41,16 @@ rules:
       - delete
       - update
   - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - delete
+  - apiGroups:
       - ''
     resources:
       - pods

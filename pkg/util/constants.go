@@ -194,12 +194,16 @@ const (
 	MemberListConfigMapName          = OperatorName + "-member-list"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
-	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"
-	CurrentNamespace                 = "NAMESPACE"
-	OperatorNameEnv                  = "OPERATOR_NAME"
-	WatchNamespace                   = "WATCH_NAMESPACE"
-	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
-	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
+	// OperatorImageEnv is the env variable that holds the full image reference for the running operator.
+	// The connectivity-validator binary is compiled into the same image, so this image is used for migration Jobs.
+	// includes the version
+	OperatorImageEnv              = "OPERATOR_IMAGE"
+	ManagedSecurityContextEnv     = "MANAGED_SECURITY_CONTEXT"
+	CurrentNamespace              = "NAMESPACE"
+	OperatorNameEnv               = "OPERATOR_NAME"
+	WatchNamespace                = "WATCH_NAMESPACE"
+	OpsManagerMonitorAppDB        = "OPS_MANAGER_MONITOR_APPDB"
+	MongodbCommunityAgentImageEnv = "MDB_COMMUNITY_AGENT_IMAGE"
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
