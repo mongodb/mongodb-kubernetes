@@ -4152,17 +4152,17 @@ spec:
                                     only the result of this request.
                                   type: string
                               required:
-                                - name
+                              - name
                               type: object
                             type: array
                             x-kubernetes-list-map-keys:
-                              - name
+                            - name
                             x-kubernetes-list-type: map
                           limits:
                             additionalProperties:
                               anyOf:
-                                - type: integer
-                                - type: string
+                              - type: integer
+                              - type: string
                               pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                               x-kubernetes-int-or-string: true
                             description: |-
@@ -4172,8 +4172,8 @@ spec:
                           requests:
                             additionalProperties:
                               anyOf:
-                                - type: integer
-                                - type: string
+                              - type: integer
+                              - type: string
                               pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                               x-kubernetes-int-or-string: true
                             description: |-
