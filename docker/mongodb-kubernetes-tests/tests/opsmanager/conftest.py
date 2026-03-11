@@ -3,7 +3,7 @@
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import boto3
 from botocore.exceptions import ClientError
@@ -126,14 +126,7 @@ def _create_minio_buckets(
     interval: int = 5,
     issuer_ca_filepath: Optional[str] = os.getenv("MINIO_ISSUER_CA_FILEPATH", None),
 ) -> None:
-    """Create MinIO buckets via S3 API when the operator cannot (e.g. custom TLS).
-
-    The MinIO operator creates buckets by connecting to the tenant over HTTPS. When
-    the tenant uses custom certs (tls-ssl-minio) signed by the test CA, the operator
-    does not trust that CA and fails with "x509: certificate signed by unknown
-    authority". This helper creates the buckets from the test using the test CA for
-    verification, so the rest of the test can proceed.
-    """
+    """Ensure MinIO buckets exist via S3 API (create if missing). Uses test CA when tenant has custom TLS."""
     s3 = boto3.client(
         "s3",
         endpoint_url=f"https://{endpoint}",
@@ -141,89 +134,32 @@ def _create_minio_buckets(
         aws_secret_access_key=secret_key,
         verify=issuer_ca_filepath,
     )
+    target: Set[str] = set(bucket_names)
+    ready: Set[str] = set()
     deadline = time.time() + timeout
-    created = set()
-    created_via_boto = set()
+
     while time.time() < deadline:
         for bucket in bucket_names:
-            if bucket in created:
+            if bucket in ready:
                 continue
             try:
                 s3.head_bucket(Bucket=bucket)
-                created.add(bucket)
-                print(f"MinIO bucket '{bucket}' already exists (created by MinIO operator)")
+                ready.add(bucket)
             except ClientError as e:
-                code = e.response["Error"].get("Code", "")
-                if code in ("404", "NoSuchBucket"):
+                if e.response["Error"].get("Code") in ("404", "NoSuchBucket"):
                     try:
                         s3.create_bucket(Bucket=bucket)
-                        created.add(bucket)
-                        created_via_boto.add(bucket)
-                        print(f"MinIO bucket '{bucket}' created via boto3")
-                    except ClientError as create_err:
-                        if create_err.response["Error"].get("Code") == "BucketAlreadyOwnedByYou":
-                            created.add(bucket)
-                            print(f"MinIO bucket '{bucket}' already exists (created by MinIO operator)")
-                        pass
-                else:
-                    raise
+                        ready.add(bucket)
+                    except ClientError as ce:
+                        if ce.response["Error"].get("Code") == "BucketAlreadyOwnedByYou":
+                            ready.add(bucket)
             except Exception:
-                # Connection refused, SSL, timeout - MinIO may not be ready yet; retry
-                pass
-        if len(created) == len(bucket_names):
-            via_boto = sorted(created_via_boto)
-            via_minio = sorted(set(bucket_names) - created_via_boto)
-            if via_boto:
-                print(f"MinIO buckets created via boto3: {via_boto}")
-            if via_minio:
-                print(f"MinIO buckets already present (created by MinIO operator): {via_minio}")
-            return
-        time.sleep(interval)
-    missing = set(bucket_names) - created
-    raise TimeoutError(f"Could not create MinIO buckets within {timeout}s: missing {missing}")
-
-
-def _wait_for_minio_buckets(
-    endpoint: str,
-    bucket_names: List[str],
-    access_key: str = "minio",
-    secret_key: str = "minio123",
-    timeout: int = 500,
-    interval: int = 10,
-    issuer_ca_filepath: Optional[str] = os.getenv("MINIO_ISSUER_CA_FILEPATH", None),
-):
-    """Poll S3/MinIO until all buckets are accessible or timeout is reached.
-
-    Pod readiness does not guarantee bucket provisioning is complete. This
-    function bridges the gap by probing headBucket() with retry/backoff,
-    mirroring the exact check OpsManager performs when saving S3 store config.
-    """
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=f"https://{endpoint}",
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        verify=issuer_ca_filepath,
-    )
-
-    deadline = time.time() + timeout
-    pending = set(bucket_names)
-
-    while time.time() < deadline:
-        for bucket in list(pending):
-            try:
-                s3.head_bucket(Bucket=bucket)
-                print(f"MinIO bucket '{bucket}' is accessible")
-                pending.discard(bucket)
-            except ClientError as e:
-                code = e.response["Error"]["Code"]
-                print(f"MinIO bucket '{bucket}' not ready (HTTP {code}), retrying in {interval}s...")
-        if not pending:
-            print(f"All MinIO buckets accessible: {bucket_names}")
+                pass  # MinIO not ready (connection/SSL), retry
+        if ready >= target:
             return
         time.sleep(interval)
 
-    raise TimeoutError(f"MinIO buckets still inaccessible after {timeout}s: {pending}")
+    raise TimeoutError(f"Could not create MinIO buckets within {timeout}s: missing {target - ready}")
 
 
 def mino_tenant_install(
@@ -280,19 +216,11 @@ def mino_tenant_install(
         print(f"Minio tenant already installed, skipping helm installation!")
 
     get_pod_when_ready(namespace, f"app=minio", api_client=cluster_client)
-    # Create buckets from the test so we don't rely on the operator. The operator creates
-    # buckets over HTTPS; with custom certs (tls-ssl-minio) it often fails with x509 or
-    # connection refused (race with MinIO readiness), so bucket creation is flaky. Creating
-    # them here with the test CA makes the test stable.
-    bucket_names = ["s3-store-bucket", "oplog-s3-bucket"]
+    # Ensure buckets exist from the test so we don't rely on the operator (custom TLS often
+    # breaks operator bucket creation). Retries until all buckets are created/accessible.
     _create_minio_buckets(
         endpoint=f"minio.{namespace}.svc.cluster.local",
-        bucket_names=bucket_names,
-        issuer_ca_filepath=issuer_ca_filepath,
-    )
-    _wait_for_minio_buckets(
-        endpoint=f"minio.{namespace}.svc.cluster.local",
-        bucket_names=bucket_names,
+        bucket_names=["s3-store-bucket", "oplog-s3-bucket"],
         issuer_ca_filepath=issuer_ca_filepath,
     )
 
