@@ -14,6 +14,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -163,16 +164,39 @@ func resolveProjectInOrg(conn om.Connection, projectName string, organization *o
 	return nil, nil
 }
 
-func readAgentConfigs(conn om.Connection) (*om.MonitoringAgentConfig, *om.BackupAgentConfig, error) {
+// AgentConfigs holds the deployment-level agent configuration read from
+// the OM API. These endpoints return uniform settings that the operator
+// writes back, unlike per-process fields which can differ between hosts.
+type AgentConfigs struct {
+	MonitoringConfig *om.MonitoringAgentConfig
+	BackupConfig     *om.BackupAgentConfig
+	SystemLogRotate  *automationconfig.AcLogRotate
+	AuditLogRotate   *automationconfig.AcLogRotate
+}
+
+func readAgentConfigs(conn om.Connection) (*AgentConfigs, error) {
 	monitoringConfig, err := conn.ReadMonitoringAgentConfig()
 	if err != nil {
-		return nil, nil, xerrors.Errorf("error reading monitoring agent config: %w", err)
+		return nil, xerrors.Errorf("error reading monitoring agent config: %w", err)
 	}
 	backupConfig, err := conn.ReadBackupAgentConfig()
 	if err != nil {
-		return nil, nil, xerrors.Errorf("error reading backup agent config: %w", err)
+		return nil, xerrors.Errorf("error reading backup agent config: %w", err)
 	}
-	return monitoringConfig, backupConfig, nil
+	systemLogRotate, err := conn.ReadProcessLogRotation()
+	if err != nil {
+		return nil, xerrors.Errorf("error reading system log rotate config: %w", err)
+	}
+	auditLogRotate, err := conn.ReadAuditLogRotation()
+	if err != nil {
+		return nil, xerrors.Errorf("error reading audit log rotate config: %w", err)
+	}
+	return &AgentConfigs{
+		MonitoringConfig: monitoringConfig,
+		BackupConfig:     backupConfig,
+		SystemLogRotate:  systemLogRotate,
+		AuditLogRotate:   auditLogRotate,
+	}, nil
 }
 
 func newKubeClient() (kubernetesClient.Client, error) {

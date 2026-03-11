@@ -14,9 +14,18 @@ spec:
         path: /var/log/mongodb/mongod.log
   credentials: my-credentials
   externalMembers:
-  - tls-rs-0
-  - tls-rs-1
-  - tls-rs-2
+  - hostname: vm-0.example.com:27017
+    processName: tls-rs-0
+    replicaSetName: tls-rs
+    type: mongod
+  - hostname: vm-1.example.com:27017
+    processName: tls-rs-1
+    replicaSetName: tls-rs
+    type: mongod
+  - hostname: vm-2.example.com:27017
+    processName: tls-rs-2
+    replicaSetName: tls-rs
+    type: mongod
   featureCompatibilityVersion: "7.0"
   memberConfig:
   - priority: "0"
@@ -31,6 +40,8 @@ spec:
       name: my-om-config
   security:
     authentication:
+      agents:
+        mode: SCRAM-SHA-256
       enabled: true
       ignoreUnknownUsers: true
       internalCluster: X509

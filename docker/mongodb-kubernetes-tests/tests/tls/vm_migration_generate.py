@@ -16,7 +16,7 @@ full promote-and-prune lifecycle.
 
 import yaml
 from kubetester import get_statefulset, try_load
-from kubetester.kubetester import KubernetesTester, fcv_from_version
+from kubetester.kubetester import KubernetesTester, ensure_ent_version, fcv_from_version
 from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
@@ -56,6 +56,7 @@ def vm_service(namespace: str):
 
 def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mdb_version: str):
     """Set up a SCRAM-authenticated replica set with users, roles, and rich mongod config."""
+    mdb_version = ensure_ent_version(mdb_version)
     ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
         return
@@ -73,9 +74,9 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                 "mechanisms": ["SCRAM-SHA-256"],
                 "scramSha256Creds": {
                     "iterationCount": 15000,
-                    "salt": "dGVzdHNhbHQ=",
-                    "serverKey": "c2VydmVya2V5",
-                    "storedKey": "c3RvcmVka2V5",
+                    "salt": "VvGtJFS/4euDEKqliOPW6idGBu4SMey5HgtRoQ==",
+                    "serverKey": "xsHGbx5OJnYtZS19a4EboChhlD3mhDt7qOJss+FrShY=",
+                    "storedKey": "1z/5Z7A5mlHt5lu/ZXUig5bwrBfOn3tzqTzn93Bf/Oo=",
                 },
                 "authenticationRestrictions": [],
             },
@@ -89,9 +90,9 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                 "mechanisms": ["SCRAM-SHA-256"],
                 "scramSha256Creds": {
                     "iterationCount": 15000,
-                    "salt": "YXBwc2FsdA==",
-                    "serverKey": "YXBwc2VydmVy",
-                    "storedKey": "YXBwc3RvcmVk",
+                    "salt": "wksiNA03uUywS7DhdN062N8rpp2wgN535t9V+A==",
+                    "serverKey": "QWoYhFkf0f5fo3zM11wFVXw6eEDtWToNg3aCurCmIww=",
+                    "storedKey": "kQXatG95rq6ZysZFr00M8hK0kN13VuxX1pV3xxUpYSE=",
                 },
                 "authenticationRestrictions": [],
             },
@@ -102,9 +103,9 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                 "mechanisms": ["SCRAM-SHA-256"],
                 "scramSha256Creds": {
                     "iterationCount": 15000,
-                    "salt": "cmVwc2FsdA==",
-                    "serverKey": "cmVwc2VydmVy",
-                    "storedKey": "cmVwc3RvcmVk",
+                    "salt": "Usm13I846IhrVWvzO1BCXn17qe2tWMHP+GXtKg==",
+                    "serverKey": "0mGWp+V4qze1mWdoQLhss0OvL5smZ1VfineTeRYw4qE=",
+                    "storedKey": "fLNS6LPqK12byCGG6wFexh5eNpniyAWouhKhaqODt7g=",
                 },
                 "authenticationRestrictions": [],
             },
@@ -117,6 +118,10 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
         "autoAuthMechanism": "SCRAM-SHA-256",
         "autoUser": "mms-automation-agent",
         "autoAuthRestrictions": [],
+        "autoPwd": "mms-automation-agent-password",
+        "key": "bXlrZXlmaWxlY29udGVudHM=",
+        "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
+        "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
     }
 
     ac["roles"] = [
@@ -167,7 +172,6 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                     "numUncompressed": 5,
                     "numTotal": 10,
                     "percentOfDiskspace": 0.4,
-                    "includeAuditLogsWithMongoDBLogs": True,
                 },
                 "auditLogRotate": {
                     "sizeThresholdMB": 500,
@@ -175,7 +179,6 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                     "numUncompressed": 2,
                     "numTotal": 10,
                     "percentOfDiskspace": 0.4,
-                    "includeAuditLogsWithMongoDBLogs": True,
                 },
                 "authSchemaVersion": 5,
                 "featureCompatibilityVersion": fcv_from_version(mdb_version),
@@ -206,7 +209,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                     "auditLog": {
                         "destination": "file",
                         "format": "JSON",
-                        "path": "/var/log/mongodb/audit.json",
+                        "path": "/var/log/mongodb-mms-automation/mongodb-audit-changed.log",
                     },
                 },
             }
@@ -240,7 +243,7 @@ def mdb_migration(namespace: str, om_tester: OMTester) -> MongoDB:
         passwords=[APP_USER_PASSWORD, REPORTING_USER_PASSWORD],
     )
 
-    resource.backing_obj = yaml.safe_load(output)
+    resource.backing_obj = next(yaml.safe_load_all(output))
     resource.backing_obj.setdefault("spec", {}).setdefault(
         "additionalMongodConfig", {}
     ).setdefault("net", {}).setdefault("tls", {})["mode"] = "disabled"

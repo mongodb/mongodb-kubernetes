@@ -55,11 +55,24 @@ spec:
         destination: file
         logAppend: true
         path: /var/log/mongodb/mongod.log
+    monitoringAgent:
+      logRotate:
+        sizeThresholdMB: 500
+        timeThresholdHrs: 12
   credentials: my-credentials
   externalMembers:
-  - my-rs-0
-  - my-rs-1
-  - my-rs-2
+  - hostname: vm-mongo-0.prod.example.com:27018
+    processName: my-rs-0
+    replicaSetName: my-rs
+    type: mongod
+  - hostname: vm-mongo-1.prod.example.com:27018
+    processName: my-rs-1
+    replicaSetName: my-rs
+    type: mongod
+  - hostname: vm-mongo-2.prod.example.com:27018
+    processName: my-rs-2
+    replicaSetName: my-rs
+    type: mongod
   featureCompatibilityVersion: "7.0"
   memberConfig:
   - priority: "0"
@@ -88,6 +101,8 @@ spec:
     username: prom-user
   security:
     authentication:
+      agents:
+        mode: SCRAM-SHA-256
       enabled: true
       ignoreUnknownUsers: true
       internalCluster: X509

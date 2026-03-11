@@ -3,7 +3,7 @@ kind: MongoDB
 metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
-  name: x509-rs
+  name: x509only-rs
 spec:
   agent:
     maxLogFileDurationHours: 0
@@ -11,22 +11,22 @@ spec:
       systemLog:
         destination: file
         logAppend: false
-        path: /var/log/mongodb/mongod.log
+        path: /data/mongodb.log
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27017
-    processName: x509-rs-0
-    replicaSetName: x509-rs
+    processName: x509only-rs-0
+    replicaSetName: x509only-rs
     type: mongod
   - hostname: vm-1.example.com:27017
-    processName: x509-rs-1
-    replicaSetName: x509-rs
+    processName: x509only-rs-1
+    replicaSetName: x509only-rs
     type: mongod
   - hostname: vm-2.example.com:27017
-    processName: x509-rs-2
-    replicaSetName: x509-rs
+    processName: x509only-rs-2
+    replicaSetName: x509only-rs
     type: mongod
-  featureCompatibilityVersion: "8.0"
+  featureCompatibilityVersion: "7.0"
   memberConfig:
   - priority: "0"
     votes: 0
@@ -41,14 +41,12 @@ spec:
   security:
     authentication:
       agents:
-        mode: SCRAM-SHA-256
+        automationUserName: CN=mms-automation-agent,OU=ENG,O=MongoDB,L=NY,ST=NY,C=US
+        mode: X509
       enabled: true
-      ignoreUnknownUsers: true
-      internalCluster: X509
       modes:
-      - SCRAM-SHA-256
       - X509
     tls:
       enabled: true
   type: ReplicaSet
-  version: 8.0.4-ent
+  version: 7.0.12

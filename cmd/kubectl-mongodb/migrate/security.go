@@ -23,7 +23,7 @@ import (
 // TLS state, authentication mechanisms, LDAP, and OIDC from the automation config.
 func buildSecurity(
 	auth *om.Auth,
-	processMap map[string]map[string]interface{},
+	processMap map[string]om.Process,
 	members []om.ReplicaSetMember,
 	acLdap *ldap.Ldap,
 	oidcConfigs []oidc.ProviderConfig,
@@ -59,7 +59,7 @@ func buildSecurity(
 
 func buildAuthenticationConfig(
 	auth *om.Auth,
-	processMap map[string]map[string]interface{},
+	processMap map[string]om.Process,
 	members []om.ReplicaSetMember,
 	acLdap *ldap.Ldap,
 	oidcConfigs []oidc.ProviderConfig,
@@ -94,6 +94,10 @@ func buildAuthenticationConfig(
 		if crOIDC := convertOIDCConfigs(oidcConfigs); len(crOIDC) > 0 {
 			authConfig.OIDCProviderConfigs = crOIDC
 		}
+	}
+
+	if agentMode, ok := mapMechanismToAuthMode(auth.AutoAuthMechanism); ok {
+		authConfig.Agents.Mode = string(agentMode)
 	}
 
 	if auth.AutoUser != "" && auth.AutoUser != util.AutomationAgentUserName {
@@ -156,14 +160,14 @@ func mapMechanismToAuthMode(mech string) (mdbv1.AuthMode, bool) {
 // extractInternalClusterAuthMode reads security.clusterAuthMode from the
 // first member's process args2_6 and maps it to
 // spec.security.authentication.internalCluster.
-func extractInternalClusterAuthMode(processMap map[string]map[string]interface{}, members []om.ReplicaSetMember) (string, error) {
+func extractInternalClusterAuthMode(processMap map[string]om.Process, members []om.ReplicaSetMember) (string, error) {
 	for i, m := range members {
 		host := m.Name()
 		proc, ok := processMap[host]
 		if !ok {
 			return "", fmt.Errorf("process %q referenced by member at index %d not found", host, i)
 		}
-		if mode := maputil.ReadMapValueAsString(proc, "args2_6", "security", "clusterAuthMode"); mode != "" {
+		if mode := proc.ClusterAuthMode(); mode != "" {
 			return mapClusterAuthMode(mode)
 		}
 	}
@@ -183,7 +187,7 @@ func mapClusterAuthMode(mode string) (string, error) {
 
 // isTLSEnabledForAnyMember returns true if at least one replica set member
 // has a non-disabled TLS mode in its process args2_6.
-func isTLSEnabledForAnyMember(processMap map[string]map[string]interface{}, members []om.ReplicaSetMember) (bool, error) {
+func isTLSEnabledForAnyMember(processMap map[string]om.Process, members []om.ReplicaSetMember) (bool, error) {
 	for i, m := range members {
 		host := m.Name()
 		proc, ok := processMap[host]
@@ -198,9 +202,9 @@ func isTLSEnabledForAnyMember(processMap map[string]map[string]interface{}, memb
 }
 
 // isTLSEnabled returns true if the process has an explicit non-disabled TLS mode.
-func isTLSEnabled(process map[string]interface{}) bool {
-	args := maputil.ReadMapValueAsMap(process, "args2_6")
-	if args == nil {
+func isTLSEnabled(process om.Process) bool {
+	args := process.Args()
+	if len(args) == 0 {
 		return false
 	}
 	// GetTLSModeFromMongodConfig defaults to Require when no mode is set,
@@ -247,7 +251,7 @@ func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 	prom := &mdbcv1.Prometheus{
 		Username: username,
 		PasswordSecretRef: mdbcv1.SecretKeyReference{
-			Name: "prometheus-password",
+			Name: PrometheusPasswordSecretName,
 			Key:  "password",
 		},
 	}
@@ -265,7 +269,7 @@ func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 	}
 
 	if cast.ToString(promMap["scheme"]) == "https" {
-		prom.TLSSecretRef = mdbcv1.SecretKeyReference{Name: "prometheus-tls"}
+		prom.TLSSecretRef = mdbcv1.SecretKeyReference{Name: PrometheusTLSSecretName}
 	}
 
 	return prom, nil
@@ -319,13 +323,13 @@ func convertLdapConfig(l *ldap.Ldap) *mdbv1.Ldap {
 	}
 
 	if l.BindQueryUser != "" {
-		cr.BindQuerySecretRef = mdbv1.SecretRef{Name: "ldap-bind-query-password"}
+		cr.BindQuerySecretRef = mdbv1.SecretRef{Name: LdapBindQuerySecretName}
 	}
 
 	if l.CaFileContents != "" {
 		cr.CAConfigMapRef = &corev1.ConfigMapKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: "ldap-ca"},
-			Key:                  "ca.pem",
+			LocalObjectReference: corev1.LocalObjectReference{Name: LdapCAConfigMapName},
+			Key:                  LdapCAKey,
 		}
 	}
 
@@ -367,7 +371,7 @@ func convertOIDCConfigs(configs []oidc.ProviderConfig) []mdbv1.OIDCProviderConfi
 // Kubernetes applies additionalMongodConfig uniformly to every member.
 // Fields the operator fully owns (dbPath, systemLog, replication.replSetName)
 // are excluded.
-func extractAdditionalMongodConfig(processMap map[string]map[string]interface{}, members []om.ReplicaSetMember) (*mdbv1.AdditionalMongodConfig, error) {
+func extractAdditionalMongodConfig(processMap map[string]om.Process, members []om.ReplicaSetMember) (*mdbv1.AdditionalMongodConfig, error) {
 	if len(members) == 0 {
 		return nil, nil
 	}
@@ -379,8 +383,8 @@ func extractAdditionalMongodConfig(processMap map[string]map[string]interface{},
 		if !ok {
 			return nil, fmt.Errorf("process %q referenced by member at index %d not found", host, i)
 		}
-		args := maputil.ReadMapValueAsMap(proc, "args2_6")
-		if args == nil {
+		args := proc.Args()
+		if len(args) == 0 {
 			return nil, fmt.Errorf("process %q has no args2_6 configuration", host)
 		}
 
@@ -577,11 +581,18 @@ func extractNonDefaultTLSMode(args map[string]interface{}, config *mdbv1.Additio
 	return true
 }
 
-// extractAgentConfig reads logRotate, auditLogRotate, and systemLog from
-// process entries and maps them to spec.agent.mongod.
-func extractAgentConfig(processMap map[string]map[string]interface{}, members []om.ReplicaSetMember) (mdbv1.AgentConfig, error) {
-	var agentConfig mdbv1.AgentConfig
-	hasConfig := false
+// extractAgentConfig reads logRotate and auditLogRotate from the deployment-level
+// OM API endpoints (systemLogRotateConfig, auditLogRotateConfig), monitoring agent
+// logRotate from the monitoringAgentConfig endpoint, and systemLog from processes.
+// On VMs these settings can differ per-host, but the OM endpoints return the
+// deployment-level values that the operator writes back uniformly.
+func extractAgentConfig(processMap map[string]om.Process, members []om.ReplicaSetMember, configs *AgentConfigs) (mdbv1.AgentConfig, error) {
+	if len(members) == 0 {
+		return mdbv1.AgentConfig{}, nil
+	}
+
+	var systemLogMaps []map[string]interface{}
+	allHaveSL := true
 
 	for i, m := range members {
 		host := m.Name()
@@ -590,75 +601,71 @@ func extractAgentConfig(processMap map[string]map[string]interface{}, members []
 			return mdbv1.AgentConfig{}, fmt.Errorf("process %q referenced by member at index %d not found", host, i)
 		}
 
-		lr, err := extractLogRotate(proc, "logRotate")
-		if err != nil {
-			return mdbv1.AgentConfig{}, fmt.Errorf("error extracting logRotate for process %q: %w", host, err)
+		sysLog := maputil.ReadMapValueAsMap(proc.Args(), "systemLog")
+		if len(sysLog) > 0 {
+			systemLogMaps = append(systemLogMaps, sysLog)
+		} else {
+			allHaveSL = false
 		}
-		if lr != nil {
-			agentConfig.Mongod.LogRotate = lr
-			hasConfig = true
-		}
+	}
 
-		alr, err := extractLogRotate(proc, "auditLogRotate")
-		if err != nil {
-			return mdbv1.AgentConfig{}, fmt.Errorf("error extracting auditLogRotate for process %q: %w", host, err)
-		}
-		if alr != nil {
-			agentConfig.Mongod.AuditLogRotate = alr
-			hasConfig = true
-		}
+	var agentConfig mdbv1.AgentConfig
 
-		if sysLog := extractSystemLog(proc); sysLog != nil {
-			agentConfig.Mongod.SystemLog = sysLog
-			hasConfig = true
-		}
+	if configs != nil {
+		agentConfig.Mongod.LogRotate = crdLogRotateFromAc(configs.SystemLogRotate)
+		agentConfig.Mongod.AuditLogRotate = crdLogRotateFromAc(configs.AuditLogRotate)
+		agentConfig.MonitoringAgent.LogRotate = monitoringLogRotateFromMap(configs.MonitoringConfig)
+	}
 
-		if hasConfig {
-			break
-		}
+	if allHaveSL && len(systemLogMaps) > 0 {
+		common := intersectConfigMaps(systemLogMaps)
+		agentConfig.Mongod.SystemLog = systemLogFromMap(common)
 	}
 
 	return agentConfig, nil
 }
 
-func extractLogRotate(proc map[string]interface{}, key string) (*automationconfig.CrdLogRotate, error) {
-	lrRaw, ok := proc[key]
-	if !ok || lrRaw == nil {
-		return nil, nil
-	}
-	lrMap, ok := lrRaw.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("%s is present but is not a valid map", key)
-	}
-	if len(lrMap) == 0 {
-		return nil, nil
-	}
-
-	sizeThresholdMB := cast.ToString(lrMap["sizeThresholdMB"])
-	timeThresholdHrs := cast.ToInt(lrMap["timeThresholdHrs"])
-	if sizeThresholdMB == "" && timeThresholdHrs == 0 {
-		return nil, nil
-	}
-
-	lr := &automationconfig.CrdLogRotate{
-		SizeThresholdMB:    sizeThresholdMB,
-		PercentOfDiskspace: cast.ToString(lrMap["percentOfDiskspace"]),
-	}
-	lr.TimeThresholdHrs = timeThresholdHrs
-	lr.NumUncompressed = cast.ToInt(lrMap["numUncompressed"])
-	lr.NumTotal = cast.ToInt(lrMap["numTotal"])
-	lr.IncludeAuditLogsWithMongoDBLogs = cast.ToBool(lrMap["includeAuditLogsWithMongoDBLogs"])
-	return lr, nil
-}
-
-func extractSystemLog(proc map[string]interface{}) *automationconfig.SystemLog {
-	sysLog := maputil.ReadMapValueAsMap(proc, "args2_6", "systemLog")
-	if sysLog == nil {
+// monitoringLogRotateFromMap extracts logRotate from the monitoringAgentConfig
+// endpoint response and returns it as a LogRotateForBackupAndMonitoring.
+func monitoringLogRotateFromMap(config *om.MonitoringAgentConfig) *mdbv1.LogRotateForBackupAndMonitoring {
+	if config == nil {
 		return nil
 	}
+	lr, ok := config.BackingMap["logRotate"].(map[string]interface{})
+	if !ok || len(lr) == 0 {
+		return nil
+	}
+	size := cast.ToInt(lr["sizeThresholdMB"])
+	timeHrs := cast.ToInt(lr["timeThresholdHrs"])
+	if size == 0 && timeHrs == 0 {
+		return nil
+	}
+	return &mdbv1.LogRotateForBackupAndMonitoring{
+		SizeThresholdMB:  size,
+		TimeThresholdHrs: timeHrs,
+	}
+}
 
-	dest := cast.ToString(sysLog["destination"])
-	logPath := cast.ToString(sysLog["path"])
+// crdLogRotateFromAc converts an AcLogRotate (agent representation with float64
+// thresholds) into a CrdLogRotate (CRD representation with string thresholds).
+func crdLogRotateFromAc(ac *automationconfig.AcLogRotate) *automationconfig.CrdLogRotate {
+	if ac == nil || (ac.SizeThresholdMB == 0 && ac.TimeThresholdHrs == 0) {
+		return nil
+	}
+	return &automationconfig.CrdLogRotate{
+		LogRotate:          ac.LogRotate,
+		SizeThresholdMB:    cast.ToString(ac.SizeThresholdMB),
+		PercentOfDiskspace: cast.ToString(ac.PercentOfDiskspace),
+	}
+}
+
+// systemLogFromMap reconstructs a SystemLog from an intersected config map.
+func systemLogFromMap(m map[string]interface{}) *automationconfig.SystemLog {
+	if len(m) == 0 {
+		return nil
+	}
+	dest := cast.ToString(m["destination"])
+	logPath := cast.ToString(m["path"])
 	if dest == "" && logPath == "" {
 		return nil
 	}
@@ -666,6 +673,7 @@ func extractSystemLog(proc map[string]interface{}) *automationconfig.SystemLog {
 	return &automationconfig.SystemLog{
 		Destination: automationconfig.Destination(dest),
 		Path:        logPath,
-		LogAppend:   cast.ToBool(sysLog["logAppend"]),
+		LogAppend:   cast.ToBool(m["logAppend"]),
 	}
 }
+

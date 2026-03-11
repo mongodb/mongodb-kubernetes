@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 var updateGolden = flag.Bool("update-golden", false, "overwrite golden fixture files with current output")
@@ -45,6 +46,7 @@ func TestFixtureMatch(t *testing.T) {
 				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
 					ConfigMapName:         "my-om-config",
+					AgentConfigs:          fullTestAgentConfigs(),
 				})
 				require.NoError(t, err)
 				return out
@@ -59,6 +61,7 @@ func TestFixtureMatch(t *testing.T) {
 					CredentialsSecretName: "mc-credentials",
 					ConfigMapName:         "mc-om-config",
 					MultiClusterNames:     []string{"east1", "west1"},
+					AgentConfigs:          multiClusterTestAgentConfigs(),
 				})
 				require.NoError(t, err)
 				return out
@@ -73,6 +76,7 @@ func TestFixtureMatch(t *testing.T) {
 					CredentialsSecretName: "mc-credentials",
 					ConfigMapName:         "mc-om-config",
 					MultiClusterNames:     []string{"cluster-a", "cluster-b", "cluster-c"},
+					AgentConfigs:          multiClusterTestAgentConfigs(),
 				})
 				require.NoError(t, err)
 				return out
@@ -256,7 +260,7 @@ func TestFixtureMatch(t *testing.T) {
 			},
 		},
 		{
-			name:       "X509 auth — X509 users + cluster auth",
+			name:       "SCRAM+X509 auth — dual modes, X509 cluster auth",
 			inputJSON:  "singlecluster/replicaset/authentication/x509.json",
 			goldenYAML: "singlecluster/replicaset/authentication/x509_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
@@ -269,7 +273,7 @@ func TestFixtureMatch(t *testing.T) {
 			},
 		},
 		{
-			name:       "X509 auth — user CRs",
+			name:       "SCRAM+X509 auth — user CRs",
 			inputJSON:  "singlecluster/replicaset/authentication/x509.json",
 			goldenYAML: "singlecluster/replicaset/authentication/x509_user_crs.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
@@ -283,6 +287,19 @@ func TestFixtureMatch(t *testing.T) {
 					sb.WriteString(u.YAML)
 				}
 				return sb.String()
+			},
+		},
+		{
+			name:       "X509-only auth — single mode, keyFile internal cluster",
+			inputJSON:  "singlecluster/replicaset/authentication/x509_only.json",
+			goldenYAML: "singlecluster/replicaset/authentication/x509_only_cr.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
+					CredentialsSecretName: "my-credentials",
+					ConfigMapName:         "my-om-config",
+				})
+				require.NoError(t, err)
+				return out
 			},
 		},
 		{
@@ -446,4 +463,103 @@ func TestNormalizeK8sName(t *testing.T) {
 func TestNormalizeK8sName_InvalidInput(t *testing.T) {
 	_, err := normalizeK8sName("---")
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "---", "error should contain original input")
+}
+
+func TestDistributeMembers_EmptyClusterNames(t *testing.T) {
+	result := distributeMembers(3, nil)
+	assert.Nil(t, result)
+
+	result = distributeMembers(3, []string{})
+	assert.Nil(t, result)
+}
+
+func TestGenerateMultiClusterCR_EmptyClusterNames(t *testing.T) {
+	ac := loadTestAutomationConfig(t, "multicluster/replicaset/simple.json")
+	_, _, err := GenerateMultiClusterCR(ac, GenerateOptions{
+		CredentialsSecretName: "creds",
+		ConfigMapName:         "cfg",
+		MultiClusterNames:     []string{},
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one cluster name")
+}
+
+func TestGenerateUserCRs_DuplicateNormalizedNames(t *testing.T) {
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
+	ac.Auth.Users = append(ac.Auth.Users,
+		&om.MongoDBUser{Username: "App_User", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
+		&om.MongoDBUser{Username: "app.user", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
+	)
+
+	_, err := GenerateUserCRs(ac, "my-rs")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "normalize to the same Kubernetes name")
+}
+
+func TestBuildProcessMap_DuplicateNames(t *testing.T) {
+	processes := []om.Process{
+		{"name": "host-0"},
+		{"name": "host-0"},
+	}
+	_, err := buildProcessMap(processes)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate process name")
+}
+
+func multiClusterTestAgentConfigs() *AgentConfigs {
+	return &AgentConfigs{
+		SystemLogRotate: &automationconfig.AcLogRotate{
+			LogRotate: automationconfig.LogRotate{
+				TimeThresholdHrs: 1,
+				NumUncompressed:  2,
+				NumTotal:         10,
+			},
+			SizeThresholdMB:    100,
+			PercentOfDiskspace: 0.4,
+		},
+		AuditLogRotate: &automationconfig.AcLogRotate{
+			LogRotate: automationconfig.LogRotate{
+				TimeThresholdHrs: 1,
+				NumUncompressed:  2,
+				NumTotal:         10,
+			},
+			SizeThresholdMB:    100,
+			PercentOfDiskspace: 0.4,
+		},
+	}
+}
+
+func fullTestAgentConfigs() *AgentConfigs {
+	return &AgentConfigs{
+		SystemLogRotate: &automationconfig.AcLogRotate{
+			LogRotate: automationconfig.LogRotate{
+				TimeThresholdHrs:                24,
+				NumUncompressed:                 5,
+				NumTotal:                        10,
+				IncludeAuditLogsWithMongoDBLogs: true,
+			},
+			SizeThresholdMB:    1000,
+			PercentOfDiskspace: 0.4,
+		},
+		AuditLogRotate: &automationconfig.AcLogRotate{
+			LogRotate: automationconfig.LogRotate{
+				TimeThresholdHrs:                48,
+				NumUncompressed:                 2,
+				NumTotal:                        10,
+				IncludeAuditLogsWithMongoDBLogs: true,
+			},
+			SizeThresholdMB:    500,
+			PercentOfDiskspace: 0.4,
+		},
+		MonitoringConfig: &om.MonitoringAgentConfig{
+			MonitoringAgentTemplate: &om.MonitoringAgentTemplate{},
+			BackingMap: map[string]interface{}{
+				"logRotate": map[string]interface{}{
+					"sizeThresholdMB":  500.0,
+					"timeThresholdHrs": 12,
+				},
+			},
+		},
+	}
 }

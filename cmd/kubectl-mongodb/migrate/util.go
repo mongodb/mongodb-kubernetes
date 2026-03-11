@@ -27,13 +27,14 @@ func normalizeK8sName(name string) (string, error) {
 		return name, nil
 	}
 
+	original := name
 	name = strings.ToLower(name)
 	name = reNonAlphanumDash.ReplaceAllString(name, "-")
 	name = reMultipleDash.ReplaceAllString(name, "-")
 	name = strings.Trim(name, "-")
 
 	if name == "" {
-		return "", fmt.Errorf("cannot normalize %q to a valid Kubernetes name: no alphanumeric characters", name)
+		return "", fmt.Errorf("cannot normalize %q to a valid Kubernetes name: no alphanumeric characters", original)
 	}
 
 	if len(name) > validation.DNS1123SubdomainMaxLength {

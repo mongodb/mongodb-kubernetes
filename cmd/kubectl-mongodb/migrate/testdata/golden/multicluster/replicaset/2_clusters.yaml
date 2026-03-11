@@ -57,11 +57,26 @@ spec:
     members: 2
   credentials: mc-credentials
   externalMembers:
-  - geo-rs-0
-  - geo-rs-1
-  - geo-rs-2
-  - geo-rs-3
-  - geo-rs-4
+  - hostname: mongo-0.dc1.example.com:27017
+    processName: geo-rs-0
+    replicaSetName: geo-rs
+    type: mongod
+  - hostname: mongo-1.dc1.example.com:27017
+    processName: geo-rs-1
+    replicaSetName: geo-rs
+    type: mongod
+  - hostname: mongo-2.dc2.example.com:27017
+    processName: geo-rs-2
+    replicaSetName: geo-rs
+    type: mongod
+  - hostname: mongo-3.dc2.example.com:27017
+    processName: geo-rs-3
+    replicaSetName: geo-rs
+    type: mongod
+  - hostname: mongo-4.dc3.example.com:27017
+    processName: geo-rs-4
+    replicaSetName: geo-rs
+    type: mongod
   featureCompatibilityVersion: "8.0"
   opsManager:
     configMapRef:
@@ -76,6 +91,7 @@ spec:
     authentication:
       agents:
         automationUserName: custom-automation-agent
+        mode: SCRAM-SHA-256
       enabled: true
       ldap:
         authzQueryTemplate: '{USER}?memberOf?base'

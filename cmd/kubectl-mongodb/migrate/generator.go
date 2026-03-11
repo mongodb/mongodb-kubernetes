@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cast"
-	"golang.org/x/xerrors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
@@ -18,12 +17,22 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-// GenerateOptions holds parameters for CR generation that come from CLI flags.
+const (
+	PrometheusPasswordSecretName = "prometheus-password"
+	PrometheusTLSSecretName      = "prometheus-tls"
+	LdapBindQuerySecretName      = "ldap-bind-query-password"
+	LdapCAConfigMapName          = "ldap-ca"
+	LdapCAKey                    = "ca.pem"
+)
+
+// GenerateOptions holds parameters for CR generation that come from CLI flags
+// and deployment-level agent configuration read from the OM API.
 type GenerateOptions struct {
 	ResourceName          string
 	CredentialsSecretName string
 	ConfigMapName         string
 	MultiClusterNames     []string
+	AgentConfigs          *AgentConfigs
 }
 
 // UserCROutput holds the generated YAML and metadata for a single MongoDBUser CR.
@@ -40,24 +49,23 @@ type UserCROutput struct {
 func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
 	rs, err := getFirstReplicaSet(ac.Deployment)
 	if err != nil {
-		return "", "", xerrors.Errorf("error reading replica set: %w", err)
+		return "", "", fmt.Errorf("error reading replica set: %w", err)
 	}
 
 	rsName := rs.Name()
 	if rsName == "" {
-		return "", "", xerrors.Errorf("replica set has no _id field")
+		return "", "", fmt.Errorf("replica set has no _id field")
 	}
 
 	members := rs.Members()
-	processes := getSlice(ac.Deployment, "processes")
-	processMap, err := buildProcessMap(processes)
+	processMap, err := buildProcessMap(ac.Deployment.GetProcesses())
 	if err != nil {
-		return "", "", xerrors.Errorf("error building process map: %w", err)
+		return "", "", fmt.Errorf("error building process map: %w", err)
 	}
 
 	externalMembers, version, fcv, err := extractMemberInfo(members, processMap)
 	if err != nil {
-		return "", "", xerrors.Errorf("error extracting member info: %w", err)
+		return "", "", fmt.Errorf("error extracting member info: %w", err)
 	}
 
 	resourceName := opts.ResourceName
@@ -67,7 +75,7 @@ func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, s
 
 	spec, err := buildMongoDBSpec(version, fcv, externalMembers, rsName, resourceName, opts, ac, processMap, members)
 	if err != nil {
-		return "", "", xerrors.Errorf("error building MongoDB spec: %w", err)
+		return "", "", fmt.Errorf("error building MongoDB spec: %w", err)
 	}
 
 	cr := mdbv1.MongoDB{
@@ -86,7 +94,7 @@ func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, s
 
 	out, err := marshalCRToYAML(cr)
 	if err != nil {
-		return "", "", xerrors.Errorf("error marshalling CR to YAML: %w", err)
+		return "", "", fmt.Errorf("error marshalling CR to YAML: %w", err)
 	}
 
 	return out, resourceName, nil
@@ -96,26 +104,29 @@ func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, s
 // automation config and the list of target cluster names.
 // Members are distributed as evenly as possible across the clusters.
 func GenerateMultiClusterCR(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
+	if len(opts.MultiClusterNames) == 0 {
+		return "", "", fmt.Errorf("multi-cluster generation requires at least one cluster name")
+	}
+
 	rs, err := getFirstReplicaSet(ac.Deployment)
 	if err != nil {
-		return "", "", xerrors.Errorf("error reading replica set: %w", err)
+		return "", "", fmt.Errorf("error reading replica set: %w", err)
 	}
 
 	rsName := rs.Name()
 	if rsName == "" {
-		return "", "", xerrors.Errorf("replica set has no _id field")
+		return "", "", fmt.Errorf("replica set has no _id field")
 	}
 
 	members := rs.Members()
-	processes := getSlice(ac.Deployment, "processes")
-	processMap, err := buildProcessMap(processes)
+	processMap, err := buildProcessMap(ac.Deployment.GetProcesses())
 	if err != nil {
-		return "", "", xerrors.Errorf("error building process map: %w", err)
+		return "", "", fmt.Errorf("error building process map: %w", err)
 	}
 
 	externalMembers, version, fcv, err := extractMemberInfo(members, processMap)
 	if err != nil {
-		return "", "", xerrors.Errorf("error extracting member info: %w", err)
+		return "", "", fmt.Errorf("error extracting member info: %w", err)
 	}
 
 	resourceName := opts.ResourceName
@@ -125,7 +136,7 @@ func GenerateMultiClusterCR(ac *om.AutomationConfig, opts GenerateOptions) (stri
 
 	spec, err := buildMultiClusterSpec(version, fcv, externalMembers, rsName, resourceName, opts, ac, processMap, members)
 	if err != nil {
-		return "", "", xerrors.Errorf("error building MongoDBMultiCluster spec: %w", err)
+		return "", "", fmt.Errorf("error building MongoDBMultiCluster spec: %w", err)
 	}
 
 	cr := mdbmulti.MongoDBMultiCluster{
@@ -144,7 +155,7 @@ func GenerateMultiClusterCR(ac *om.AutomationConfig, opts GenerateOptions) (stri
 
 	out, err := marshalCRToYAML(cr)
 	if err != nil {
-		return "", "", xerrors.Errorf("error marshalling CR to YAML: %w", err)
+		return "", "", fmt.Errorf("error marshalling CR to YAML: %w", err)
 	}
 
 	return out, resourceName, nil
@@ -154,19 +165,14 @@ func GenerateMultiClusterCR(ac *om.AutomationConfig, opts GenerateOptions) (stri
 // across the provided target clusters.
 func buildMultiClusterSpec(
 	version, fcv string,
-	externalMembers []ExternalMember,
+	externalMembers []mdbv1.ExternalMember,
 	rsName, resourceName string,
 	opts GenerateOptions,
 	ac *om.AutomationConfig,
-	processMap map[string]map[string]interface{},
+	processMap map[string]om.Process,
 	members []om.ReplicaSetMember,
 ) (mdbmulti.MongoDBMultiSpec, error) {
 	memberCount := len(externalMembers)
-
-	processIDs := make([]string, memberCount)
-	for i, em := range externalMembers {
-		processIDs[i] = em.ProcessID
-	}
 
 	clusterSpecList := distributeMembers(memberCount, opts.MultiClusterNames)
 	clusterMemberConfig := distributeMemberConfig(members, opts.MultiClusterNames)
@@ -188,7 +194,7 @@ func buildMultiClusterSpec(
 				},
 				Credentials: opts.CredentialsSecretName,
 			},
-			ExternalMembers: processIDs,
+			ExternalMembers: externalMembers,
 		},
 		ClusterSpecList: clusterSpecList,
 	}
@@ -226,11 +232,11 @@ func buildMultiClusterSpec(
 	}
 	spec.AdditionalMongodConfig = additionalConfig
 
-	agentConfig, err := extractAgentConfig(processMap, members)
+	agentConfig, err := extractAgentConfig(processMap, members, opts.AgentConfigs)
 	if err != nil {
 		return mdbmulti.MongoDBMultiSpec{}, fmt.Errorf("error extracting agent config: %w", err)
 	}
-	if agentConfig.Mongod.HasLoggingConfigured() {
+	if agentConfig.Mongod.HasLoggingConfigured() || agentConfig.MonitoringAgent.LogRotate != nil {
 		spec.Agent = agentConfig
 	}
 
@@ -241,6 +247,9 @@ func buildMultiClusterSpec(
 // given cluster names. Extra members go to the earlier clusters.
 func distributeMembers(memberCount int, clusterNames []string) mdbv1.ClusterSpecList {
 	n := len(clusterNames)
+	if n == 0 {
+		return nil
+	}
 	base := memberCount / n
 	remainder := memberCount % n
 
@@ -262,8 +271,11 @@ func distributeMembers(memberCount int, clusterNames []string) mdbv1.ClusterSpec
 // the member distribution in distributeMembers. Each member gets votes=0 and
 // priority="0" (draining policy). Tags are preserved from the automation config.
 func distributeMemberConfig(members []om.ReplicaSetMember, clusterNames []string) [][]automationconfig.MemberOptions {
-	allConfig := buildMemberConfig(members)
 	n := len(clusterNames)
+	if n == 0 {
+		return nil
+	}
+	allConfig := buildMemberConfig(members)
 	memberCount := len(allConfig)
 	base := memberCount / n
 	remainder := memberCount % n
@@ -286,19 +298,14 @@ func distributeMemberConfig(members []om.ReplicaSetMember, clusterNames []string
 // the automation config.
 func buildMongoDBSpec(
 	version, fcv string,
-	externalMembers []ExternalMember,
+	externalMembers []mdbv1.ExternalMember,
 	rsName, resourceName string,
 	opts GenerateOptions,
 	ac *om.AutomationConfig,
-	processMap map[string]map[string]interface{},
+	processMap map[string]om.Process,
 	members []om.ReplicaSetMember,
 ) (mdbv1.MongoDbSpec, error) {
 	memberCount := len(externalMembers)
-
-	processIDs := make([]string, memberCount)
-	for i, em := range externalMembers {
-		processIDs[i] = em.ProcessID
-	}
 
 	spec := mdbv1.MongoDbSpec{
 		DbCommonSpec: mdbv1.DbCommonSpec{
@@ -314,7 +321,7 @@ func buildMongoDBSpec(
 				},
 				Credentials: opts.CredentialsSecretName,
 			},
-			ExternalMembers: processIDs,
+			ExternalMembers: externalMembers,
 		},
 		Members: memberCount,
 	}
@@ -352,11 +359,11 @@ func buildMongoDBSpec(
 	}
 	spec.AdditionalMongodConfig = additionalConfig
 
-	agentConfig, err := extractAgentConfig(processMap, members)
+	agentConfig, err := extractAgentConfig(processMap, members, opts.AgentConfigs)
 	if err != nil {
 		return mdbv1.MongoDbSpec{}, fmt.Errorf("error extracting agent config: %w", err)
 	}
-	if agentConfig.Mongod.HasLoggingConfigured() {
+	if agentConfig.Mongod.HasLoggingConfigured() || agentConfig.MonitoringAgent.LogRotate != nil {
 		spec.Agent = agentConfig
 	}
 
@@ -372,13 +379,14 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 		return nil, nil
 	}
 
+	seenCRNames := map[string]string{}
 	var results []UserCROutput
 	for i, user := range ac.Auth.Users {
 		if user == nil {
-			return nil, xerrors.Errorf("user at index %d is nil", i)
+			return nil, fmt.Errorf("user at index %d is nil", i)
 		}
 		if user.Username == "" {
-			return nil, xerrors.Errorf("user at index %d has an empty username", i)
+			return nil, fmt.Errorf("user at index %d has an empty username", i)
 		}
 
 		if user.Username == ac.Auth.AutoUser && user.Database == util.DefaultUserDatabase {
@@ -388,13 +396,17 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 		needsPassword := user.Database != "$external"
 		crName, err := normalizeK8sName(user.Username)
 		if err != nil {
-			return nil, xerrors.Errorf("error normalizing username %q: %w", user.Username, err)
+			return nil, fmt.Errorf("error normalizing username %q: %w", user.Username, err)
 		}
+		if prev, exists := seenCRNames[crName]; exists {
+			return nil, fmt.Errorf("users %q and %q normalize to the same Kubernetes name %q; rename one before migration", prev, user.Username, crName)
+		}
+		seenCRNames[crName] = user.Username
 		passwordSecretName := crName + "-password"
 
 		roles, err := convertRoles(user.Roles)
 		if err != nil {
-			return nil, xerrors.Errorf("error converting roles for user %q: %w", user.Username, err)
+			return nil, fmt.Errorf("error converting roles for user %q: %w", user.Username, err)
 		}
 
 		spec := userv1.MongoDBUserSpec{
@@ -421,7 +433,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 			Spec:       spec,
 		})
 		if err != nil {
-			return nil, xerrors.Errorf("error marshalling MongoDBUser CR for %q: %w", user.Username, err)
+			return nil, fmt.Errorf("error marshalling MongoDBUser CR for %q: %w", user.Username, err)
 		}
 
 		results = append(results, UserCROutput{
@@ -482,7 +494,7 @@ func GenerateLdapResources(ac *om.AutomationConfig, namespace string) (*LdapReso
 				Kind:       "Secret",
 			},
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "ldap-bind-query-password",
+				Name:      LdapBindQuerySecretName,
 				Namespace: namespace,
 			},
 			StringData: map[string]string{
@@ -491,7 +503,7 @@ func GenerateLdapResources(ac *om.AutomationConfig, namespace string) (*LdapReso
 		}
 		out, err := marshalCRToYAML(sec)
 		if err != nil {
-			return nil, xerrors.Errorf("error marshalling LDAP bind query secret: %w", err)
+			return nil, fmt.Errorf("error marshalling LDAP bind query secret: %w", err)
 		}
 		res.BindQueryPasswordSecret = out
 		hasResources = true
@@ -504,16 +516,16 @@ func GenerateLdapResources(ac *om.AutomationConfig, namespace string) (*LdapReso
 				Kind:       "ConfigMap",
 			},
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "ldap-ca",
+				Name:      LdapCAConfigMapName,
 				Namespace: namespace,
 			},
 			Data: map[string]string{
-				"ca.pem": ac.Ldap.CaFileContents,
+				LdapCAKey: ac.Ldap.CaFileContents,
 			},
 		}
 		out, err := marshalCRToYAML(cm)
 		if err != nil {
-			return nil, xerrors.Errorf("error marshalling LDAP CA configmap: %w", err)
+			return nil, fmt.Errorf("error marshalling LDAP CA configmap: %w", err)
 		}
 		res.CAConfigMap = out
 		hasResources = true
@@ -631,3 +643,4 @@ func convertRoles(roles []*om.Role) ([]userv1.Role, error) {
 	}
 	return out, nil
 }
+

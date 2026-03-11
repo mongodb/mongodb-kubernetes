@@ -45,7 +45,7 @@ var (
 func ValidateMigration(ac *om.AutomationConfig, monitoringConfig *om.MonitoringAgentConfig, backupConfig *om.BackupAgentConfig) []ValidationResult {
 	var results []ValidationResult
 
-	processMap, err := buildProcessMap(getSlice(ac.Deployment, "processes"))
+	processMap, err := buildProcessMap(ac.Deployment.GetProcesses())
 	if err != nil {
 		results = append(results, ValidationResult{
 			Severity: SeverityError,
@@ -62,7 +62,7 @@ func ValidateMigration(ac *om.AutomationConfig, monitoringConfig *om.MonitoringA
 	return results
 }
 
-// validateAuth checks auth-level fields (keyFile, keyFileWindows)
+// validateAuth checks auth-level fields (keyFile, keyFileWindows, autoUser)
 // against operator-hardcoded defaults.
 func validateAuth(auth *om.Auth) []ValidationResult {
 	if auth == nil || auth.Disabled {
@@ -70,6 +70,29 @@ func validateAuth(auth *om.Auth) []ValidationResult {
 	}
 
 	var results []ValidationResult
+
+	if auth.AutoUser == "" {
+		results = append(results, ValidationResult{
+			Severity: SeverityError,
+			Message:  "auth.autoUser is empty but auth is enabled; the operator requires an automation agent user",
+		})
+	} else if auth.AutoAuthMechanism != "MONGODB-X509" {
+		// X509 agents authenticate with their certificate subject DN,
+		// not a database user in usersWanted.
+		found := false
+		for _, u := range auth.Users {
+			if u != nil && u.Username == auth.AutoUser && u.Database == util.DefaultUserDatabase {
+				found = true
+				break
+			}
+		}
+		if !found {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("auth.autoUser is %q but no matching entry exists in auth.usersWanted (db: %q); the automation agent will fail to authenticate after migration", auth.AutoUser, util.DefaultUserDatabase),
+			})
+		}
+	}
 
 	if auth.KeyFile != "" && auth.KeyFile != defaultKeyFile {
 		results = append(results, ValidationResult{
@@ -98,14 +121,14 @@ func validateTLS(agentSSL *om.AgentSSL) []ValidationResult {
 
 	if agentSSL.AutoPEMKeyFilePath != "" {
 		results = append(results, ValidationResult{
-			Severity: SeverityError,
-			Message:  fmt.Sprintf("tls.autoPEMKeyFilePath is %q but the operator manages this path automatically; spec.security.authentication.agents.agentCertificatePath is not yet available", agentSSL.AutoPEMKeyFilePath),
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("tls.autoPEMKeyFilePath is %q; the operator will overwrite this path automatically during reconciliation", agentSSL.AutoPEMKeyFilePath),
 		})
 	}
 	if agentSSL.CAFilePath != "" && agentSSL.CAFilePath != defaultCAFilePath {
 		results = append(results, ValidationResult{
-			Severity: SeverityError,
-			Message:  fmt.Sprintf("tls.CAFilePath is %q but the operator defaults to %q; spec.security.tls.caFilePath is not yet available", agentSSL.CAFilePath, defaultCAFilePath),
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("tls.CAFilePath is %q but the operator defaults to %q; the operator will overwrite this path during reconciliation", agentSSL.CAFilePath, defaultCAFilePath),
 		})
 	}
 
@@ -168,7 +191,7 @@ func validateLDAP(l *ldap.Ldap) []ValidationResult {
 
 // validateProjectOptions checks project-level AC fields (e.g. downloadBase)
 // against operator-hardcoded defaults.
-func validateProjectOptions(d map[string]interface{}) []ValidationResult {
+func validateProjectOptions(d om.Deployment) []ValidationResult {
 	downloadBase := maputil.ReadMapValueAsString(d, "options", "downloadBase")
 	if downloadBase != "" && downloadBase != defaultDownloadBase {
 		return []ValidationResult{{
@@ -181,7 +204,7 @@ func validateProjectOptions(d map[string]interface{}) []ValidationResult {
 
 // validateProcessConfig checks all process-level fields: structure and identity,
 // version compatibility, and args2_6 settings (dbPath, TLS mode/paths, sharding).
-func validateProcessConfig(d map[string]interface{}, processMap map[string]map[string]interface{}) []ValidationResult {
+func validateProcessConfig(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
 	var results []ValidationResult
 
 	results = append(results, checkProcessesAreValid(d)...)
@@ -198,7 +221,7 @@ func validateProcessConfig(d map[string]interface{}, processMap map[string]map[s
 // validateReplicaSetConfig checks replica set topology: single deployment per
 // project, protocol version, member→process references, and member-level fields
 // that are preserved or lost during migration (slaveDelay, hidden, horizons).
-func validateReplicaSetConfig(d map[string]interface{}, processMap map[string]map[string]interface{}) []ValidationResult {
+func validateReplicaSetConfig(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
 	var results []ValidationResult
 
 	results = append(results, checkOneDeploymentPerProject(d)...)
@@ -206,13 +229,15 @@ func validateReplicaSetConfig(d map[string]interface{}, processMap map[string]ma
 	results = append(results, checkReplicaSetProtocolVersion(d)...)
 	results = append(results, checkMembersReferenceProcesses(d, processMap)...)
 	results = append(results, checkHeterogeneousProcessConfig(d, processMap)...)
+	results = append(results, checkHeterogeneousAgentConfig(d, processMap)...)
+	results = append(results, checkVersionConsistency(d, processMap)...)
 	results = append(results, checkMemberPreservedFields(d)...)
 
 	return results
 }
 
-func checkProcessesAreValid(d map[string]interface{}) []ValidationResult {
-	processes := getSlice(d, "processes")
+func checkProcessesAreValid(d om.Deployment) []ValidationResult {
+	processes := d.GetProcesses()
 	if len(processes) == 0 {
 		return []ValidationResult{{
 			Severity: SeverityError,
@@ -221,15 +246,7 @@ func checkProcessesAreValid(d map[string]interface{}) []ValidationResult {
 	}
 
 	var results []ValidationResult
-	for i, p := range processes {
-		proc, ok := p.(map[string]interface{})
-		if !ok {
-			results = append(results, ValidationResult{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("process at index %d is not a valid entry", i),
-			})
-			continue
-		}
+	for i, proc := range processes {
 		name := cast.ToString(proc["name"])
 		if name == "" {
 			results = append(results, ValidationResult{
@@ -257,8 +274,8 @@ func checkProcessesAreValid(d map[string]interface{}) []ValidationResult {
 	return results
 }
 
-func checkProcessesHaveVersion(d map[string]interface{}, processMap map[string]map[string]interface{}) []ValidationResult {
-	replicaSets := getReplicaSets(d)
+func checkProcessesHaveVersion(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+	replicaSets := d.GetReplicaSets()
 	if len(replicaSets) == 0 || processMap == nil {
 		return nil
 	}
@@ -279,13 +296,9 @@ func checkProcessesHaveVersion(d map[string]interface{}, processMap map[string]m
 	}}
 }
 
-func checkAuthSchemaVersion(d map[string]interface{}) []ValidationResult {
+func checkAuthSchemaVersion(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
-	for _, p := range getSlice(d, "processes") {
-		proc, ok := p.(map[string]interface{})
-		if !ok {
-			continue
-		}
+	for _, proc := range d.GetProcesses() {
 		name := cast.ToString(proc["name"])
 
 		if v, ok := proc["authSchemaVersion"]; ok {
@@ -301,8 +314,8 @@ func checkAuthSchemaVersion(d map[string]interface{}) []ValidationResult {
 	return results
 }
 
-func checkNonDefaultDbPath(d map[string]interface{}, processMap map[string]map[string]interface{}) []ValidationResult {
-	replicaSets := getReplicaSets(d)
+func checkNonDefaultDbPath(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+	replicaSets := d.GetReplicaSets()
 	if len(replicaSets) == 0 || processMap == nil {
 		return nil
 	}
@@ -313,7 +326,7 @@ func checkNonDefaultDbPath(d map[string]interface{}, processMap map[string]map[s
 		if !ok {
 			continue
 		}
-		dbPath := maputil.ReadMapValueAsString(proc, "args2_6", "storage", "dbPath")
+		dbPath := proc.DbPath()
 		if dbPath != "" && dbPath != util.PvcMountPathData {
 			return []ValidationResult{{
 				Severity: SeverityWarning,
@@ -324,50 +337,46 @@ func checkNonDefaultDbPath(d map[string]interface{}, processMap map[string]map[s
 	return nil
 }
 
-func checkTLSAllowMode(d map[string]interface{}) []ValidationResult {
-	for _, p := range getSlice(d, "processes") {
-		proc, ok := p.(map[string]interface{})
-		if !ok {
-			continue
-		}
+func checkTLSAllowMode(d om.Deployment) []ValidationResult {
+	var results []ValidationResult
+	noTLSReported := false
+
+	for _, proc := range d.GetProcesses() {
 		name := cast.ToString(proc["name"])
-		args := maputil.ReadMapValueAsMap(proc, "args2_6")
-		if args == nil {
+		args := proc.Args()
+		if len(args) == 0 {
 			continue
 		}
 
 		if !hasTLSSection(args) || pkgtls.GetTLSModeFromMongodConfig(args) == pkgtls.Disabled {
-			return []ValidationResult{
-				{
+			if !noTLSReported {
+				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
 					Message:  fmt.Sprintf("process %q has no TLS configured; add spec.additionalMongodConfig.net.tls.mode: \"disabled\" to the generated CR before applying — the operator sends \"disabled\" to Ops Manager when TLS is not configured, so leaving it unset (null) is inconsistent and will cause a deployment change", name),
-				},
-				{
+				}, ValidationResult{
 					Severity: SeverityWarning,
 					Message:  "spec.security.tls is not set because the source deployment does not use TLS; do not add spec.security.tls.enabled: true unless you intend to enable TLS on all members",
-				},
+				})
+				noTLSReported = true
 			}
+			continue
 		}
 		mode := pkgtls.GetTLSModeFromMongodConfig(args)
 		if mode == pkgtls.Allow || mode == "allowSSL" {
-			return []ValidationResult{{
+			results = append(results, ValidationResult{
 				Severity: SeverityWarning,
 				Message:  fmt.Sprintf("process %q has TLS mode %q; the generated CR sets spec.security.tls.enabled with net.tls.mode in additionalMongodConfig to preserve this mode, but consider upgrading to requireTLS before migration", name, string(mode)),
-			}}
+			})
 		}
 	}
-	return nil
+	return results
 }
 
-func checkTLSPaths(d map[string]interface{}) []ValidationResult {
+func checkTLSPaths(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
-	for _, p := range getSlice(d, "processes") {
-		proc, ok := p.(map[string]interface{})
-		if !ok {
-			continue
-		}
+	for _, proc := range d.GetProcesses() {
 		name := cast.ToString(proc["name"])
-		net := maputil.ReadMapValueAsMap(proc, "args2_6", "net")
+		net := maputil.ReadMapValueAsMap(proc.Args(), "net")
 		if net == nil {
 			continue
 		}
@@ -406,15 +415,11 @@ func checkTLSPaths(d map[string]interface{}) []ValidationResult {
 	return results
 }
 
-func checkShardingClusterRole(d map[string]interface{}) []ValidationResult {
+func checkShardingClusterRole(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
-	for _, p := range getSlice(d, "processes") {
-		proc, ok := p.(map[string]interface{})
-		if !ok {
-			continue
-		}
+	for _, proc := range d.GetProcesses() {
 		name := cast.ToString(proc["name"])
-		role := maputil.ReadMapValueAsString(proc, "args2_6", "sharding", "clusterRole")
+		role := maputil.ReadMapValueAsString(proc.Args(), "sharding", "clusterRole")
 		if role != "" {
 			results = append(results, ValidationResult{
 				Severity: SeverityError,
@@ -425,7 +430,7 @@ func checkShardingClusterRole(d map[string]interface{}) []ValidationResult {
 	return results
 }
 
-func checkOneDeploymentPerProject(d map[string]interface{}) []ValidationResult {
+func checkOneDeploymentPerProject(d om.Deployment) []ValidationResult {
 	count := countDeployments(d)
 	if count <= 1 {
 		return nil
@@ -436,35 +441,28 @@ func checkOneDeploymentPerProject(d map[string]interface{}) []ValidationResult {
 	}}
 }
 
-func countDeployments(d map[string]interface{}) int {
-	sharding := getSlice(d, "sharding")
-	shardedCount := len(sharding)
+func countDeployments(d om.Deployment) int {
+	shardedClusters := d.GetShardedClusters()
 
 	shardRSNames := map[string]bool{}
-	for _, s := range sharding {
-		sMap, ok := s.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		for _, sh := range getSlice(sMap, "shards") {
-			if shMap, ok := sh.(map[string]interface{}); ok {
-				shardRSNames[cast.ToString(shMap["_id"])] = true
-			}
+	for _, sc := range shardedClusters {
+		for _, sh := range sc.Shards() {
+			shardRSNames[sh.Id()] = true
 		}
 	}
 
 	independentRSCount := 0
-	for _, rs := range getReplicaSets(d) {
+	for _, rs := range d.GetReplicaSets() {
 		if !shardRSNames[rs.Name()] {
 			independentRSCount++
 		}
 	}
 
-	return shardedCount + independentRSCount
+	return len(shardedClusters) + independentRSCount
 }
 
-func checkReplicaSetsExist(d map[string]interface{}) []ValidationResult {
-	if len(getReplicaSets(d)) == 0 {
+func checkReplicaSetsExist(d om.Deployment) []ValidationResult {
+	if len(d.GetReplicaSets()) == 0 {
 		return []ValidationResult{{
 			Severity: SeverityError,
 			Message:  "automation config contains no replicaSets; only replica set deployments can be migrated",
@@ -473,9 +471,9 @@ func checkReplicaSetsExist(d map[string]interface{}) []ValidationResult {
 	return nil
 }
 
-func checkReplicaSetProtocolVersion(d map[string]interface{}) []ValidationResult {
+func checkReplicaSetProtocolVersion(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
-	for _, rs := range getReplicaSets(d) {
+	for _, rs := range d.GetReplicaSets() {
 		rsID := rs.Name()
 		pv := cast.ToString(rs["protocolVersion"])
 		if pv != "" && pv != defaultProtocolVersion {
@@ -488,8 +486,8 @@ func checkReplicaSetProtocolVersion(d map[string]interface{}) []ValidationResult
 	return results
 }
 
-func checkMembersReferenceProcesses(d map[string]interface{}, processMap map[string]map[string]interface{}) []ValidationResult {
-	replicaSets := getReplicaSets(d)
+func checkMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+	replicaSets := d.GetReplicaSets()
 	if len(replicaSets) == 0 || processMap == nil {
 		return nil
 	}
@@ -530,8 +528,8 @@ func checkMembersReferenceProcesses(d map[string]interface{}, processMap map[str
 // because Kubernetes applies additionalMongodConfig uniformly to every pod.
 // A warning is emitted for each excluded field so the user can review and
 // reconcile the processes before migration.
-func checkHeterogeneousProcessConfig(d map[string]interface{}, processMap map[string]map[string]interface{}) []ValidationResult {
-	replicaSets := getReplicaSets(d)
+func checkHeterogeneousProcessConfig(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+	replicaSets := d.GetReplicaSets()
 	if len(replicaSets) == 0 || processMap == nil {
 		return nil
 	}
@@ -548,8 +546,8 @@ func checkHeterogeneousProcessConfig(d map[string]interface{}, processMap map[st
 		if !ok {
 			continue
 		}
-		args := maputil.ReadMapValueAsMap(proc, "args2_6")
-		if args == nil {
+		args := proc.Args()
+		if len(args) == 0 {
 			continue
 		}
 		cfg := mdbv1.NewEmptyAdditionalMongodConfig()
@@ -636,9 +634,155 @@ func isConsistentAcrossMembers(allFlat []map[string]string, key string) bool {
 	return true
 }
 
-func checkMemberPreservedFields(d map[string]interface{}) []ValidationResult {
+// checkVersionConsistency warns when members in the first replica set have
+// different MongoDB versions or featureCompatibilityVersions. The generated
+// CR uses the version from the first member, so mismatches should be reconciled.
+func checkVersionConsistency(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+	replicaSets := d.GetReplicaSets()
+	if len(replicaSets) == 0 || processMap == nil {
+		return nil
+	}
+
+	members := replicaSets[0].Members()
+	versions := map[string]bool{}
+	fcvs := map[string]bool{}
+
+	for _, m := range members {
+		proc, ok := processMap[m.Name()]
+		if !ok {
+			continue
+		}
+		if v := cast.ToString(proc["version"]); v != "" {
+			versions[v] = true
+		}
+		if f := proc.FeatureCompatibilityVersion(); f != "" {
+			fcvs[f] = true
+		}
+	}
+
 	var results []ValidationResult
-	for _, rs := range getReplicaSets(d) {
+	if len(versions) > 1 {
+		keys := sortedMapKeys(versions)
+		results = append(results, ValidationResult{
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("members in the replica set have different MongoDB versions %v; the generated CR will use the version from the first member — reconcile versions before migration", keys),
+		})
+	}
+	if len(fcvs) > 1 {
+		keys := sortedMapKeys(fcvs)
+		results = append(results, ValidationResult{
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("members in the replica set have different featureCompatibilityVersions %v; the generated CR will use the FCV from the first member", keys),
+		})
+	}
+	return results
+}
+
+func sortedMapKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// checkHeterogeneousAgentConfig warns when replica set members have different
+// agent-level config (logRotate, auditLogRotate, systemLog). These fields are
+// applied uniformly by the operator, so only identical values across all
+// members are included in the generated CR.
+func checkHeterogeneousAgentConfig(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+	replicaSets := d.GetReplicaSets()
+	if len(replicaSets) == 0 || processMap == nil {
+		return nil
+	}
+
+	members := replicaSets[0].Members()
+	if len(members) < 2 {
+		return nil
+	}
+
+	type agentCfg struct {
+		logRotate      map[string]interface{}
+		auditLogRotate map[string]interface{}
+		systemLog      map[string]interface{}
+	}
+
+	var configs []agentCfg
+	for _, m := range members {
+		proc, ok := processMap[m.Name()]
+		if !ok {
+			continue
+		}
+
+		var cfg agentCfg
+		if lr := proc.GetLogRotate(); len(lr) > 0 {
+			cfg.logRotate = lr
+		}
+		if alr := proc.GetAuditLogRotate(); len(alr) > 0 {
+			cfg.auditLogRotate = alr
+		}
+		cfg.systemLog = maputil.ReadMapValueAsMap(proc.Args(), "systemLog")
+		configs = append(configs, cfg)
+	}
+
+	if len(configs) < 2 {
+		return nil
+	}
+
+	var results []ValidationResult
+
+	checkSection := func(sectionName string, extract func(agentCfg) map[string]interface{}) {
+		var maps []map[string]interface{}
+		allHave := true
+		noneHave := true
+		for _, c := range configs {
+			m := extract(c)
+			if len(m) > 0 {
+				maps = append(maps, m)
+				noneHave = false
+			} else {
+				allHave = false
+			}
+		}
+
+		if noneHave {
+			return
+		}
+
+		if !allHave {
+			results = append(results, ValidationResult{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("%s is present on some processes but not all; it will be excluded from the generated CR because Kubernetes applies agent config uniformly to all members", sectionName),
+			})
+			return
+		}
+
+		allFlat := make([]map[string]string, len(maps))
+		for i, m := range maps {
+			allFlat[i] = flattenConfigToKeyValues(m, "")
+		}
+		allKeys := collectAllKeys(allFlat)
+		for _, key := range allKeys {
+			if !isConsistentAcrossMembers(allFlat, key) {
+				results = append(results, ValidationResult{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("%s field %q differs between processes in the replica set; this field will be excluded from the generated CR", sectionName, key),
+				})
+			}
+		}
+	}
+
+	checkSection("logRotate", func(c agentCfg) map[string]interface{} { return c.logRotate })
+	checkSection("auditLogRotate", func(c agentCfg) map[string]interface{} { return c.auditLogRotate })
+	checkSection("systemLog", func(c agentCfg) map[string]interface{} { return c.systemLog })
+
+	return results
+}
+
+func checkMemberPreservedFields(d om.Deployment) []ValidationResult {
+	var results []ValidationResult
+	for _, rs := range d.GetReplicaSets() {
 		rsID := rs.Name()
 
 		for _, m := range rs.Members() {

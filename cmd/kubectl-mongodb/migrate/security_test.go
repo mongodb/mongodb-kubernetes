@@ -9,6 +9,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
@@ -196,7 +197,7 @@ func TestIsTLSEnabled_NoNet(t *testing.T) {
 }
 
 func TestBuildSecurity_NilAuth(t *testing.T) {
-	processMap := map[string]map[string]interface{}{}
+	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{}
 
 	result, err := buildSecurity(nil, processMap, members, nil, nil)
@@ -206,7 +207,7 @@ func TestBuildSecurity_NilAuth(t *testing.T) {
 
 func TestBuildSecurity_AuthDisabled(t *testing.T) {
 	auth := &om.Auth{Disabled: true}
-	processMap := map[string]map[string]interface{}{}
+	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{}
 
 	result, err := buildSecurity(auth, processMap, members, nil, nil)
@@ -219,7 +220,7 @@ func TestBuildSecurity_AuthEnabled(t *testing.T) {
 		Disabled:                 false,
 		DeploymentAuthMechanisms: []string{"SCRAM-SHA-256"},
 	}
-	processMap := map[string]map[string]interface{}{}
+	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{}
 
 	result, err := buildSecurity(auth, processMap, members, nil, nil)
@@ -235,7 +236,7 @@ func TestBuildSecurity_TLSAndAuth(t *testing.T) {
 		Disabled:                 false,
 		DeploymentAuthMechanisms: []string{"MONGODB-X509"},
 	}
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net": map[string]interface{}{
@@ -262,7 +263,7 @@ func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
 		Disabled:                 false,
 		DeploymentAuthMechanisms: []string{"SCRAM-SHA-256"},
 	}
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"security": map[string]interface{}{
@@ -284,7 +285,7 @@ func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
 
 
 func TestBuildSecurity_MissingProcess(t *testing.T) {
-	processMap := map[string]map[string]interface{}{}
+	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{
 		{"host": "missing-host"},
 	}
@@ -295,7 +296,7 @@ func TestBuildSecurity_MissingProcess(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_NonDefaultPort(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net": map[string]interface{}{
@@ -318,7 +319,7 @@ func TestExtractAdditionalMongodConfig_NonDefaultPort(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_DefaultPort(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net": map[string]interface{}{
@@ -337,7 +338,7 @@ func TestExtractAdditionalMongodConfig_DefaultPort(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_WiredTigerCache(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net": map[string]interface{}{
@@ -371,7 +372,7 @@ func TestExtractAdditionalMongodConfig_WiredTigerCache(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_NoArgs(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {},
 	}
 	members := []om.ReplicaSetMember{
@@ -384,7 +385,7 @@ func TestExtractAdditionalMongodConfig_NoArgs(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_NoMembers(t *testing.T) {
-	processMap := map[string]map[string]interface{}{}
+	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{}
 
 	config, err := extractAdditionalMongodConfig(processMap, members)
@@ -394,7 +395,7 @@ func TestExtractAdditionalMongodConfig_NoMembers(t *testing.T) {
 
 
 func TestExtractAdditionalMongodConfig_MissingProcess(t *testing.T) {
-	processMap := map[string]map[string]interface{}{}
+	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{
 		{"host": "missing-host"},
 	}
@@ -405,7 +406,7 @@ func TestExtractAdditionalMongodConfig_MissingProcess(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_SetParameter(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net": map[string]interface{}{
@@ -431,7 +432,7 @@ func TestExtractAdditionalMongodConfig_SetParameter(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_OplogSizeMB(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net": map[string]interface{}{
@@ -458,7 +459,7 @@ func TestExtractAdditionalMongodConfig_OplogSizeMB(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_AuditLog(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net": map[string]interface{}{
@@ -497,7 +498,7 @@ func TestExtractInternalClusterAuthMode(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			processMap := map[string]map[string]interface{}{
+			processMap := map[string]om.Process{
 				"host-0": {
 					"args2_6": map[string]interface{}{
 						"security": map[string]interface{}{
@@ -517,7 +518,7 @@ func TestExtractInternalClusterAuthMode(t *testing.T) {
 }
 
 func TestExtractInternalClusterAuthMode_KeyFileNotSupported(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"security": map[string]interface{}{
@@ -536,7 +537,7 @@ func TestExtractInternalClusterAuthMode_KeyFileNotSupported(t *testing.T) {
 }
 
 func TestExtractInternalClusterAuthMode_UnsupportedMode(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"security": map[string]interface{}{
@@ -555,7 +556,7 @@ func TestExtractInternalClusterAuthMode_UnsupportedMode(t *testing.T) {
 
 
 func TestExtractInternalClusterAuthMode_MissingProcess(t *testing.T) {
-	processMap := map[string]map[string]interface{}{}
+	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{
 		{"host": "missing-host"},
 	}
@@ -666,7 +667,7 @@ func TestConvertOIDCConfigs(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_DbPathNotExtracted(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net":     map[string]interface{}{"port": 27017},
@@ -684,7 +685,7 @@ func TestExtractAdditionalMongodConfig_DbPathNotExtracted(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_DefaultDbPath(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net":     map[string]interface{}{"port": 27017},
@@ -702,7 +703,7 @@ func TestExtractAdditionalMongodConfig_DefaultDbPath(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_SystemLogNotExtracted(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net": map[string]interface{}{"port": 27017},
@@ -723,7 +724,7 @@ func TestExtractAdditionalMongodConfig_SystemLogNotExtracted(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_TLSModePrefer(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net": map[string]interface{}{
@@ -749,7 +750,7 @@ func TestExtractAdditionalMongodConfig_TLSModePrefer(t *testing.T) {
 }
 
 func TestExtractAdditionalMongodConfig_TLSModeRequireNotIncluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net": map[string]interface{}{
@@ -768,21 +769,24 @@ func TestExtractAdditionalMongodConfig_TLSModeRequireNotIncluded(t *testing.T) {
 	assert.Nil(t, config)
 }
 
-func TestExtractAgentConfig_LogRotate(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
-		"host-0": {
-			"logRotate": map[string]interface{}{
-				"sizeThresholdMB":  1000.0,
-				"timeThresholdHrs": 24,
-				"numUncompressed":  5,
-			},
-		},
+func TestExtractAgentConfig_LogRotateFromEndpoint(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {},
 	}
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
+	configs := &AgentConfigs{
+		SystemLogRotate: &automationconfig.AcLogRotate{
+			LogRotate: automationconfig.LogRotate{
+				TimeThresholdHrs: 24,
+				NumUncompressed:  5,
+			},
+			SizeThresholdMB: 1000,
+		},
+	}
 
-	agentConfig, err := extractAgentConfig(processMap, members)
+	agentConfig, err := extractAgentConfig(processMap, members, configs)
 	require.NoError(t, err)
 	require.NotNil(t, agentConfig.Mongod.LogRotate)
 	assert.Equal(t, "1000", agentConfig.Mongod.LogRotate.SizeThresholdMB)
@@ -790,69 +794,75 @@ func TestExtractAgentConfig_LogRotate(t *testing.T) {
 	assert.Equal(t, 5, agentConfig.Mongod.LogRotate.NumUncompressed)
 }
 
-func TestExtractAgentConfig_AuditLogRotate(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
-		"host-0": {
-			"auditLogRotate": map[string]interface{}{
-				"sizeThresholdMB":  500.0,
-				"timeThresholdHrs": 48,
-			},
-		},
+func TestExtractAgentConfig_AuditLogRotateFromEndpoint(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {},
 	}
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
+	configs := &AgentConfigs{
+		AuditLogRotate: &automationconfig.AcLogRotate{
+			LogRotate: automationconfig.LogRotate{
+				TimeThresholdHrs: 48,
+			},
+			SizeThresholdMB: 500,
+		},
+	}
 
-	agentConfig, err := extractAgentConfig(processMap, members)
+	agentConfig, err := extractAgentConfig(processMap, members, configs)
 	require.NoError(t, err)
 	require.NotNil(t, agentConfig.Mongod.AuditLogRotate)
 	assert.Equal(t, "500", agentConfig.Mongod.AuditLogRotate.SizeThresholdMB)
 	assert.Equal(t, 48, agentConfig.Mongod.AuditLogRotate.TimeThresholdHrs)
 }
 
-func TestExtractAgentConfig_NoLogRotate(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+func TestExtractAgentConfig_NilAgentConfigs(t *testing.T) {
+	processMap := map[string]om.Process{
 		"host-0": {},
 	}
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members)
+	agentConfig, err := extractAgentConfig(processMap, members, nil)
 	require.NoError(t, err)
 	assert.Nil(t, agentConfig.Mongod.LogRotate)
 	assert.Nil(t, agentConfig.Mongod.AuditLogRotate)
+	assert.Nil(t, agentConfig.MonitoringAgent.LogRotate)
 }
 
-
 func TestExtractAgentConfig_MissingProcess(t *testing.T) {
-	processMap := map[string]map[string]interface{}{}
+	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{
 		{"host": "missing-host"},
 	}
 
-	_, err := extractAgentConfig(processMap, members)
+	_, err := extractAgentConfig(processMap, members, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestExtractAgentConfig_MalformedLogRotate(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
-		"host-0": {
-			"logRotate": "not-a-map",
-		},
+func TestExtractAgentConfig_EmptyEndpointData(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {},
 	}
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
+	configs := &AgentConfigs{
+		SystemLogRotate: &automationconfig.AcLogRotate{},
+		AuditLogRotate:  &automationconfig.AcLogRotate{},
+	}
 
-	_, err := extractAgentConfig(processMap, members)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not a valid map")
+	cfg, err := extractAgentConfig(processMap, members, configs)
+	assert.NoError(t, err)
+	assert.Nil(t, cfg.Mongod.LogRotate)
+	assert.Nil(t, cfg.Mongod.AuditLogRotate)
 }
 
 func TestExtractAgentConfig_SystemLog(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"systemLog": map[string]interface{}{
@@ -867,7 +877,7 @@ func TestExtractAgentConfig_SystemLog(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members)
+	agentConfig, err := extractAgentConfig(processMap, members, nil)
 	require.NoError(t, err)
 	require.NotNil(t, agentConfig.Mongod.SystemLog)
 	assert.Equal(t, "file", string(agentConfig.Mongod.SystemLog.Destination))
@@ -876,20 +886,20 @@ func TestExtractAgentConfig_SystemLog(t *testing.T) {
 }
 
 func TestExtractAgentConfig_SystemLogNoArgs(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {},
 	}
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members)
+	agentConfig, err := extractAgentConfig(processMap, members, nil)
 	require.NoError(t, err)
 	assert.Nil(t, agentConfig.Mongod.SystemLog)
 }
 
 func TestExtractAgentConfig_SystemLogAndLogRotate(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"systemLog": map[string]interface{}{
@@ -897,22 +907,119 @@ func TestExtractAgentConfig_SystemLogAndLogRotate(t *testing.T) {
 					"path":        "/dev/log",
 				},
 			},
-			"logRotate": map[string]interface{}{
-				"sizeThresholdMB":  500.0,
-				"timeThresholdHrs": 24,
-			},
 		},
 	}
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
+	configs := &AgentConfigs{
+		SystemLogRotate: &automationconfig.AcLogRotate{
+			LogRotate: automationconfig.LogRotate{
+				TimeThresholdHrs: 24,
+			},
+			SizeThresholdMB: 500,
+		},
+	}
 
-	agentConfig, err := extractAgentConfig(processMap, members)
+	agentConfig, err := extractAgentConfig(processMap, members, configs)
 	require.NoError(t, err)
 	require.NotNil(t, agentConfig.Mongod.SystemLog)
 	assert.Equal(t, "syslog", string(agentConfig.Mongod.SystemLog.Destination))
 	require.NotNil(t, agentConfig.Mongod.LogRotate)
 	assert.Equal(t, "500", agentConfig.Mongod.LogRotate.SizeThresholdMB)
+}
+
+func TestExtractAgentConfig_SystemLogIntersectsAcrossMembers(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {
+			"args2_6": map[string]interface{}{
+				"systemLog": map[string]interface{}{
+					"destination": "file",
+					"path":        "/var/log/mongod0.log",
+					"logAppend":   true,
+				},
+			},
+		},
+		"host-1": {
+			"args2_6": map[string]interface{}{
+				"systemLog": map[string]interface{}{
+					"destination": "file",
+					"path":        "/var/log/mongod1.log",
+					"logAppend":   true,
+				},
+			},
+		},
+	}
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
+		{"host": "host-1"},
+	}
+
+	agentConfig, err := extractAgentConfig(processMap, members, nil)
+	require.NoError(t, err)
+
+	require.NotNil(t, agentConfig.Mongod.SystemLog)
+	assert.Equal(t, "file", string(agentConfig.Mongod.SystemLog.Destination), "destination should be kept (same)")
+	assert.Empty(t, agentConfig.Mongod.SystemLog.Path, "path should be dropped (differs)")
+	assert.True(t, agentConfig.Mongod.SystemLog.LogAppend, "logAppend should be kept (same)")
+}
+
+func TestExtractAgentConfig_MonitoringLogRotateFromEndpoint(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {},
+	}
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
+	}
+	configs := &AgentConfigs{
+		MonitoringConfig: &om.MonitoringAgentConfig{
+			MonitoringAgentTemplate: &om.MonitoringAgentTemplate{},
+			BackingMap: map[string]interface{}{
+				"logRotate": map[string]interface{}{
+					"sizeThresholdMB":  500.0,
+					"timeThresholdHrs": 12,
+				},
+			},
+		},
+	}
+
+	agentConfig, err := extractAgentConfig(processMap, members, configs)
+	require.NoError(t, err)
+	require.NotNil(t, agentConfig.MonitoringAgent.LogRotate)
+	assert.Equal(t, 500, agentConfig.MonitoringAgent.LogRotate.SizeThresholdMB)
+	assert.Equal(t, 12, agentConfig.MonitoringAgent.LogRotate.TimeThresholdHrs)
+}
+
+func TestExtractAgentConfig_MonitoringLogRotateNil(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {},
+	}
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
+	}
+
+	agentConfig, err := extractAgentConfig(processMap, members, nil)
+	require.NoError(t, err)
+	assert.Nil(t, agentConfig.MonitoringAgent.LogRotate)
+}
+
+func TestExtractAgentConfig_MonitoringLogRotateEmpty(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {},
+	}
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
+	}
+	configs := &AgentConfigs{
+		MonitoringConfig: &om.MonitoringAgentConfig{
+			MonitoringAgentTemplate: &om.MonitoringAgentTemplate{},
+			BackingMap:              map[string]interface{}{},
+		},
+	}
+
+	agentConfig, err := extractAgentConfig(processMap, members, configs)
+	require.NoError(t, err)
+	assert.Nil(t, agentConfig.MonitoringAgent.LogRotate)
 }
 
 func TestGetTLSModeFromMongodConfig(t *testing.T) {
@@ -1089,7 +1196,7 @@ func TestExtractCustomRoles_Empty(t *testing.T) {
 // extractReplicationConfig, extractGenericSections, extractNonDefaultTLSMode).
 
 func TestExtractAdditionalMongodConfig_MultiMember_SamePort_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
 		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
 	}
@@ -1102,7 +1209,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SamePort_Included(t *testing.
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentPort_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
 		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27019}}},
 	}
@@ -1115,7 +1222,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentPort_Excluded(t *tes
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameCompressors_Included(t *testing.T) {
 	compressors := []interface{}{"snappy", "zstd"}
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"compression": map[string]interface{}{"compressors": compressors}}}},
 		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"compression": map[string]interface{}{"compressors": compressors}}}},
 	}
@@ -1128,7 +1235,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameCompressors_Included(t *t
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentCompressors_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"compression": map[string]interface{}{"compressors": []interface{}{"snappy"}}}}},
 		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"compression": map[string]interface{}{"compressors": []interface{}{"zstd"}}}}},
 	}
@@ -1140,7 +1247,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentCompressors_Excluded
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameMaxConns_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"maxIncomingConnections": 500}}},
 		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"maxIncomingConnections": 500}}},
 	}
@@ -1153,7 +1260,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameMaxConns_Included(t *test
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentMaxConns_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"maxIncomingConnections": 500}}},
 		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"maxIncomingConnections": 1000}}},
 	}
@@ -1165,7 +1272,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentMaxConns_Excluded(t 
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameStorageEngine_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"engine": "inMemory"}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"engine": "inMemory"}}},
 	}
@@ -1178,7 +1285,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameStorageEngine_Included(t 
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentStorageEngine_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"engine": "inMemory"}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"dbPath": "/data"}}},
 	}
@@ -1190,7 +1297,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentStorageEngine_Exclud
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameDirectoryPerDB_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"directoryPerDB": true}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"directoryPerDB": true}}},
 	}
@@ -1203,7 +1310,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameDirectoryPerDB_Included(t
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentDirectoryPerDB_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"directoryPerDB": true}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"directoryPerDB": false}}},
 	}
@@ -1215,7 +1322,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentDirectoryPerDB_Exclu
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameJournalEnabled_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"journal": map[string]interface{}{"enabled": true}}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"journal": map[string]interface{}{"enabled": true}}}},
 	}
@@ -1228,7 +1335,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameJournalEnabled_Included(t
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentJournalEnabled_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"journal": map[string]interface{}{"enabled": true}}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"journal": map[string]interface{}{"enabled": false}}}},
 	}
@@ -1240,7 +1347,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentJournalEnabled_Exclu
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameCacheSizeGB_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"cacheSizeGB": 2.0}}}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"cacheSizeGB": 2.0}}}}},
 	}
@@ -1253,7 +1360,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameCacheSizeGB_Included(t *t
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentCacheSizeGB_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"cacheSizeGB": 2.0}}}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"cacheSizeGB": 4.0}}}}},
 	}
@@ -1265,7 +1372,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentCacheSizeGB_Excluded
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameJournalCompressor_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"journalCompressor": "zlib"}}}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"journalCompressor": "zlib"}}}}},
 	}
@@ -1278,7 +1385,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameJournalCompressor_Include
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentJournalCompressor_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"journalCompressor": "zlib"}}}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"journalCompressor": "snappy"}}}}},
 	}
@@ -1290,7 +1397,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentJournalCompressor_Ex
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameBlockCompressor_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"collectionConfig": map[string]interface{}{"blockCompressor": "zstd"}}}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"collectionConfig": map[string]interface{}{"blockCompressor": "zstd"}}}}},
 	}
@@ -1303,7 +1410,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameBlockCompressor_Included(
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentBlockCompressor_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"collectionConfig": map[string]interface{}{"blockCompressor": "zstd"}}}}},
 		"host-1": {"args2_6": map[string]interface{}{"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"collectionConfig": map[string]interface{}{"blockCompressor": "snappy"}}}}},
 	}
@@ -1315,7 +1422,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentBlockCompressor_Excl
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameOplogSizeMB_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"replication": map[string]interface{}{"oplogSizeMB": 2048}}},
 		"host-1": {"args2_6": map[string]interface{}{"replication": map[string]interface{}{"oplogSizeMB": 2048}}},
 	}
@@ -1328,7 +1435,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameOplogSizeMB_Included(t *t
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentOplogSizeMB_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"replication": map[string]interface{}{"oplogSizeMB": 2048}}},
 		"host-1": {"args2_6": map[string]interface{}{"replication": map[string]interface{}{"oplogSizeMB": 4096}}},
 	}
@@ -1340,7 +1447,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentOplogSizeMB_Excluded
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameSetParameter_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"setParameter": map[string]interface{}{"authenticationMechanisms": "SCRAM-SHA-256"}}},
 		"host-1": {"args2_6": map[string]interface{}{"setParameter": map[string]interface{}{"authenticationMechanisms": "SCRAM-SHA-256"}}},
 	}
@@ -1353,7 +1460,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameSetParameter_Included(t *
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentSetParameter_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"setParameter": map[string]interface{}{"authenticationMechanisms": "SCRAM-SHA-256"}}},
 		"host-1": {"args2_6": map[string]interface{}{"setParameter": map[string]interface{}{"authenticationMechanisms": "SCRAM-SHA-1"}}},
 	}
@@ -1365,7 +1472,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentSetParameter_Exclude
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameAuditLog_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"auditLog": map[string]interface{}{"destination": "file", "format": "JSON"}}},
 		"host-1": {"args2_6": map[string]interface{}{"auditLog": map[string]interface{}{"destination": "file", "format": "JSON"}}},
 	}
@@ -1380,7 +1487,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameAuditLog_Included(t *test
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentAuditLogFormat_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"auditLog": map[string]interface{}{"destination": "file", "format": "JSON"}}},
 		"host-1": {"args2_6": map[string]interface{}{"auditLog": map[string]interface{}{"destination": "file", "format": "BSON"}}},
 	}
@@ -1395,7 +1502,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentAuditLogFormat_Exclu
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameOperationProfiling_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"operationProfiling": map[string]interface{}{"mode": "slowOp", "slowOpThresholdMs": 200}}},
 		"host-1": {"args2_6": map[string]interface{}{"operationProfiling": map[string]interface{}{"mode": "slowOp", "slowOpThresholdMs": 200}}},
 	}
@@ -1410,7 +1517,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameOperationProfiling_Includ
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentOperationProfiling_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"operationProfiling": map[string]interface{}{"mode": "slowOp"}}},
 		"host-1": {"args2_6": map[string]interface{}{"operationProfiling": map[string]interface{}{"mode": "all"}}},
 	}
@@ -1422,7 +1529,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentOperationProfiling_E
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SameTLSMode_Included(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{"mode": "preferSSL"}}}},
 		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{"mode": "preferSSL"}}}},
 	}
@@ -1435,7 +1542,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SameTLSMode_Included(t *testi
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_DifferentTLSMode_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{"mode": "preferSSL"}}}},
 		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{"mode": "allowTLS"}}}},
 	}
@@ -1447,7 +1554,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_DifferentTLSMode_Excluded(t *
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_FieldPresentOnlyInOne_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{
 			"storage": map[string]interface{}{"engine": "inMemory"},
 			"net":     map[string]interface{}{"port": 27017},
@@ -1464,7 +1571,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_FieldPresentOnlyInOne_Exclude
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_MixedSameAndDifferent(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{
 			"net":     map[string]interface{}{"port": 27018, "maxIncomingConnections": 500},
 			"storage": map[string]interface{}{"engine": "inMemory"},
@@ -1491,7 +1598,7 @@ func TestExtractAdditionalMongodConfig_ThreeMembers_AllSame_Included(t *testing.
 		"net":     map[string]interface{}{"port": 27018},
 		"storage": map[string]interface{}{"wiredTiger": map[string]interface{}{"engineConfig": map[string]interface{}{"cacheSizeGB": 4.0}}},
 	}
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": args},
 		"host-1": {"args2_6": args},
 		"host-2": {"args2_6": args},
@@ -1507,7 +1614,7 @@ func TestExtractAdditionalMongodConfig_ThreeMembers_AllSame_Included(t *testing.
 }
 
 func TestExtractAdditionalMongodConfig_ThreeMembers_OneDiffers_Excluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
 		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
 		"host-2": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27019}}},
@@ -1541,7 +1648,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_AllFieldsSame_KitchenSink(t *
 		"auditLog":           map[string]interface{}{"destination": "file", "format": "JSON"},
 		"operationProfiling": map[string]interface{}{"mode": "slowOp", "slowOpThresholdMs": 200},
 	}
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": args},
 		"host-1": {"args2_6": args},
 	}
@@ -1571,7 +1678,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_AllFieldsSame_KitchenSink(t *
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_AllFieldsDifferent_AllExcluded(t *testing.T) {
-	processMap := map[string]map[string]interface{}{
+	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{
 			"net": map[string]interface{}{
 				"port":                  27018,

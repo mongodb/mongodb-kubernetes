@@ -1,0 +1,100 @@
+{
+  "auth": {
+    "usersWanted": [],
+    "usersDeleted": [],
+    "disabled": false,
+    "authoritativeSet": true,
+    "deploymentAuthMechanisms": ["MONGODB-X509"],
+    "autoAuthMechanisms": ["MONGODB-X509"],
+    "autoAuthMechanism": "MONGODB-X509",
+    "autoUser": "CN=mms-automation-agent,OU=ENG,O=MongoDB,L=NY,ST=NY,C=US",
+    "autoAuthRestrictions": [],
+    "key": "dGVzdC1rZXlmaWxlLWNvbnRlbnQ=",
+    "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
+    "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile"
+  },
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation"
+  },
+  "processes": [
+    {
+      "args2_6": {
+        "net": {
+          "port": 27017,
+          "tls": {
+            "mode": "requireTLS",
+            "certificateKeyFile": "/mongodb-automation/server.pem"
+          }
+        },
+        "replication": {"replSetName": "x509only-rs"},
+        "storage": {"dbPath": "/data"},
+        "systemLog": {"destination": "file", "path": "/data/mongodb.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "vm-0.example.com",
+      "name": "x509only-rs-0",
+      "processType": "mongod",
+      "version": "7.0.12"
+    },
+    {
+      "args2_6": {
+        "net": {
+          "port": 27017,
+          "tls": {
+            "mode": "requireTLS",
+            "certificateKeyFile": "/mongodb-automation/server.pem"
+          }
+        },
+        "replication": {"replSetName": "x509only-rs"},
+        "storage": {"dbPath": "/data"},
+        "systemLog": {"destination": "file", "path": "/data/mongodb.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "vm-1.example.com",
+      "name": "x509only-rs-1",
+      "processType": "mongod",
+      "version": "7.0.12"
+    },
+    {
+      "args2_6": {
+        "net": {
+          "port": 27017,
+          "tls": {
+            "mode": "requireTLS",
+            "certificateKeyFile": "/mongodb-automation/server.pem"
+          }
+        },
+        "replication": {"replSetName": "x509only-rs"},
+        "storage": {"dbPath": "/data"},
+        "systemLog": {"destination": "file", "path": "/data/mongodb.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "vm-2.example.com",
+      "name": "x509only-rs-2",
+      "processType": "mongod",
+      "version": "7.0.12"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "x509only-rs",
+      "members": [
+        {"_id": 0, "host": "x509only-rs-0", "priority": 1, "votes": 1},
+        {"_id": 1, "host": "x509only-rs-1", "priority": 1, "votes": 1},
+        {"_id": 2, "host": "x509only-rs-2", "priority": 1, "votes": 1}
+      ],
+      "protocolVersion": "1"
+    }
+  ],
+  "roles": [],
+  "sharding": [],
+  "tls": {
+    "CAFilePath": "/mongodb-ca/ca.pem",
+    "autoPEMKeyFilePath": "/mongodb-agent/agent.pem",
+    "clientCertificateMode": "REQUIRE"
+  },
+  "version": 1
+}

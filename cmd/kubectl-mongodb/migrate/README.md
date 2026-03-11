@@ -90,21 +90,24 @@ sections to CR fields. Each category appears as a section header comment
 **`monitoringVersions`** is a per-host array in the AC. The operator adds/removes entries
 automatically based on the processes in the deployment. These are not exposed in the CR.
 
-`**monitoringAgentConfig**` is a separate OM API object with agent-level settings.
+**`monitoringAgentConfig`** is a separate OM API endpoint
+(`GET /automationConfig/monitoringAgentConfig`) with deployment-level agent settings.
+The migration tool reads `logRotate` from this endpoint directly instead of from the
+per-host `monitoringVersions` array, since the operator writes back to this same endpoint.
 
 
-| AC Field                                | CR Field | Impact      | Notes                                              |
-| --------------------------------------- | -------- | ----------- | -------------------------------------------------- |
-| `monitoringVersions[]`                  | —        | Managed     | Operator adds/removes per-host entries             |
-| `monitoringVersions[].hostname`         | —        | Managed     | Matched to processes by hostname                   |
-| `monitoringVersions[].name`             | —        | Managed     | Operator uses default agent version                |
-| `monitoringVersions[].additionalParams` | —        | Managed     | TLS params set from CR TLS config                  |
-| `monitoringAgentConfig.username`        | —        | Managed     | Set based on auth mode (x509 / LDAP)               |
-| `monitoringAgentConfig.password`        | —        | Managed     | Set for LDAP auth; managed via K8s secret          |
-| `monitoringAgentConfig.sslPEMKeyFile`   | —        | Managed     | Set when x509 is enabled                           |
-| `monitoringAgentConfig.ldapGroupDN`     | —        | Managed     | Set when LDAP is enabled                           |
-| `monitoringAgentConfig.logPath`         | —        | **Blocker** | Operator hardcodes path; error if AC path differs  |
-| `monitoringAgentConfig.logRotate`       | —        | Managed     | Set from CR agent config if provided               |
+| AC Field                                | CR Field                                    | Impact      | Notes                                              |
+| --------------------------------------- | ------------------------------------------- | ----------- | -------------------------------------------------- |
+| `monitoringVersions[]`                  | —                                           | Managed     | Operator adds/removes per-host entries             |
+| `monitoringVersions[].hostname`         | —                                           | Managed     | Matched to processes by hostname                   |
+| `monitoringVersions[].name`             | —                                           | Managed     | Operator uses default agent version                |
+| `monitoringVersions[].additionalParams` | —                                           | Managed     | TLS params set from CR TLS config                  |
+| `monitoringAgentConfig.username`        | —                                           | Managed     | Set based on auth mode (x509 / LDAP)               |
+| `monitoringAgentConfig.password`        | —                                           | Managed     | Set for LDAP auth; managed via K8s secret          |
+| `monitoringAgentConfig.sslPEMKeyFile`   | —                                           | Managed     | Set when x509 is enabled                           |
+| `monitoringAgentConfig.ldapGroupDN`     | —                                           | Managed     | Set when LDAP is enabled                           |
+| `monitoringAgentConfig.logPath`         | —                                           | **Blocker** | Operator hardcodes path; error if AC path differs  |
+| `monitoringAgentConfig.logRotate`       | `spec.agent.monitoringAgent.logRotate`      | **Must match** | Read from endpoint; operator writes same endpoint |
 
 
 ### 4. Backup Agent Config
@@ -112,7 +115,8 @@ automatically based on the processes in the deployment. These are not exposed in
 **`backupVersions`** is a per-host array in the AC. The operator adds/removes entries
 automatically based on the processes in the deployment. These are not exposed in the CR.
 
-`**backupAgentConfig**` is a separate OM API object with agent-level settings.
+**`backupAgentConfig`** is a separate OM API endpoint
+(`GET /automationConfig/backupAgentConfig`) with deployment-level agent settings.
 
 
 | AC Field                          | CR Field | Impact      | Notes                                              |
@@ -239,20 +243,29 @@ automatically based on the processes in the deployment. These are not exposed in
 
 #### 10D. Log Rotation
 
+On VMs, `processes[]` and `monitoringVersions[]` are per-host arrays where each
+mongod or monitoring agent can be configured independently. On Kubernetes, the
+operator exposes a single set of configuration that applies uniformly to all
+processes. The migration tool reads log rotation from the OM deployment-level
+API endpoints (`systemLogRotateConfig`, `auditLogRotateConfig`) instead of
+per-process fields, since these endpoints return the uniform values that the
+operator writes back. `systemLog` is still extracted from per-process `args2_6`
+with intersection (only fields identical across all members are kept).
+
 If omitted from CR, existing config is preserved.
 
-| AC Field                                                | CR Field                                                      | Impact         | Notes                    |
-| ------------------------------------------------------- | ------------------------------------------------------------- | -------------- | ------------------------ |
-| `processes[].logRotate.sizeThresholdMB`                 | `spec.agent.mongod.logRotate.sizeThresholdMB`                 | **Must match** | —                        |
-| `processes[].logRotate.timeThresholdHrs`                | `spec.agent.mongod.logRotate.timeThresholdHrs`                | **Must match** | —                        |
-| `processes[].logRotate.numUncompressed`                 | `spec.agent.mongod.logRotate.numUncompressed`                 | **Must match** | —                        |
-| `processes[].logRotate.numTotal`                        | `spec.agent.mongod.logRotate.numTotal`                        | **Must match** | —                        |
-| `processes[].logRotate.percentOfDiskspace`              | `spec.agent.mongod.logRotate.percentOfDiskspace`              | **Must match** | —                        |
-| `processes[].logRotate.includeAuditLogsWithMongoDBLogs` | `spec.agent.mongod.logRotate.includeAuditLogsWithMongoDBLogs` | **Must match** | —                        |
-| `processes[].auditLogRotate.*`                          | `spec.agent.mongod.auditLogRotate.*`                          | **Must match** | Same fields as `logRotate` |
-| `args2_6.systemLog.destination`                         | `spec.agent.mongod.systemLog.destination`                     | **Must match** | Sets on all processes    |
-| `args2_6.systemLog.path`                                | `spec.agent.mongod.systemLog.path`                            | **Must match** | —                        |
-| `args2_6.systemLog.logAppend`                           | `spec.agent.mongod.systemLog.logAppend`                       | **Must match** | —                        |
+| AC Field (endpoint)                                     | CR Field                                                      | Impact         | Notes                                         |
+| ------------------------------------------------------- | ------------------------------------------------------------- | -------------- | --------------------------------------------- |
+| `systemLogRotateConfig.sizeThresholdMB`                 | `spec.agent.mongod.logRotate.sizeThresholdMB`                 | **Must match** | Read from `GET .../systemLogRotateConfig`      |
+| `systemLogRotateConfig.timeThresholdHrs`                | `spec.agent.mongod.logRotate.timeThresholdHrs`                | **Must match** | —                                             |
+| `systemLogRotateConfig.numUncompressed`                 | `spec.agent.mongod.logRotate.numUncompressed`                 | **Must match** | —                                             |
+| `systemLogRotateConfig.numTotal`                        | `spec.agent.mongod.logRotate.numTotal`                        | **Must match** | —                                             |
+| `systemLogRotateConfig.percentOfDiskspace`              | `spec.agent.mongod.logRotate.percentOfDiskspace`              | **Must match** | —                                             |
+| `systemLogRotateConfig.includeAuditLogsWithMongoDBLogs` | `spec.agent.mongod.logRotate.includeAuditLogsWithMongoDBLogs` | **Must match** | —                                             |
+| `auditLogRotateConfig.*`                                | `spec.agent.mongod.auditLogRotate.*`                          | **Must match** | Read from `GET .../auditLogRotateConfig`       |
+| `args2_6.systemLog.destination`                         | `spec.agent.mongod.systemLog.destination`                     | **Must match** | Per-process; intersected across all members   |
+| `args2_6.systemLog.path`                                | `spec.agent.mongod.systemLog.path`                            | **Must match** | —                                             |
+| `args2_6.systemLog.logAppend`                           | `spec.agent.mongod.systemLog.logAppend`                       | **Must match** | —                                             |
 
 
 ### 11. Replica Set Configuration

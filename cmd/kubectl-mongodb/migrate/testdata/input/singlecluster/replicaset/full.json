@@ -119,15 +119,18 @@
   "monitoringVersions": [
     {
       "hostname": "vm-mongo-0.prod.example.com",
-      "name": "13.48.0.10348-1"
+      "name": "13.48.0.10348-1",
+      "logRotate": {"sizeThresholdMB": 500, "timeThresholdHrs": 12}
     },
     {
       "hostname": "vm-mongo-1.prod.example.com",
-      "name": "13.48.0.10348-1"
+      "name": "13.48.0.10348-1",
+      "logRotate": {"sizeThresholdMB": 500, "timeThresholdHrs": 12}
     },
     {
       "hostname": "vm-mongo-2.prod.example.com",
-      "name": "13.48.0.10348-1"
+      "name": "13.48.0.10348-1",
+      "logRotate": {"sizeThresholdMB": 500, "timeThresholdHrs": 12}
     }
   ],
   "oidcProviderConfigs": [

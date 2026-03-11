@@ -14,9 +14,18 @@ spec:
         path: /var/log/mongodb/mongod.log
   credentials: my-credentials
   externalMembers:
-  - member-rs-0
-  - member-rs-1
-  - member-rs-2
+  - hostname: vm-0.example.com:27017
+    processName: member-rs-0
+    replicaSetName: member-rs
+    type: mongod
+  - hostname: vm-1.example.com:27017
+    processName: member-rs-1
+    replicaSetName: member-rs
+    type: mongod
+  - hostname: vm-2.example.com:27017
+    processName: member-rs-2
+    replicaSetName: member-rs
+    type: mongod
   memberConfig:
   - priority: "0"
     tags:
@@ -38,6 +47,8 @@ spec:
       name: my-om-config
   security:
     authentication:
+      agents:
+        mode: SCRAM-SHA-256
       enabled: true
       ignoreUnknownUsers: true
       modes:

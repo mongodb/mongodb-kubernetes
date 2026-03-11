@@ -858,6 +858,11 @@ func (d Deployment) GetAllProcessNames() (names []string) {
 	return names
 }
 
+// GetProcesses returns the processes in the deployment.
+func (d Deployment) GetProcesses() []Process {
+	return d.getProcesses()
+}
+
 func (d Deployment) getProcesses() []Process {
 	if _, ok := d["processes"]; !ok {
 		return []Process{}
@@ -979,6 +984,11 @@ func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {
 
 func (d Deployment) addReplicaSet(rs ReplicaSet) {
 	d.setReplicaSets(append(d.GetReplicaSets(), rs))
+}
+
+// GetShardedClusters returns the sharded clusters in the deployment.
+func (d Deployment) GetShardedClusters() []ShardedCluster {
+	return d.getShardedClusters()
 }
 
 func (d Deployment) getShardedClusters() []ShardedCluster {

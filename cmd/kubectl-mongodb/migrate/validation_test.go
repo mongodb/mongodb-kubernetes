@@ -46,6 +46,7 @@ func TestValidation_NoReplicaSets(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes":   []interface{}{},
 		"replicaSets": []interface{}{},
+		"sharding":    []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -69,6 +70,7 @@ func TestValidation_MemberReferencesUnknownProcess(t *testing.T) {
 				},
 			},
 		},
+		"sharding": []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -92,6 +94,7 @@ func TestValidation_ReplicaSetWithNoMembers(t *testing.T) {
 				"members": []interface{}{},
 			},
 		},
+		"sharding": []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -117,6 +120,7 @@ func TestValidation_ProcessesHaveNoVersion(t *testing.T) {
 				},
 			},
 		},
+		"sharding": []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -149,14 +153,14 @@ func TestValidation_NonDefaultAutoPEMKeyFilePath(t *testing.T) {
 	ac.AgentSSL.AutoPEMKeyFilePath = "/etc/mongodb-mms/agent.pem"
 
 	results := ValidateMigration(ac, nil, nil)
-	hasError := false
+	hasWarning := false
 	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "autoPEMKeyFilePath") {
-			hasError = true
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "autoPEMKeyFilePath") {
+			hasWarning = true
 			assert.Contains(t, r.Message, "/etc/mongodb-mms/agent.pem")
 		}
 	}
-	assert.True(t, hasError, "expected error when autoPEMKeyFilePath is set")
+	assert.True(t, hasWarning, "expected warning when autoPEMKeyFilePath is set")
 }
 
 func TestValidation_NonDefaultCAFilePath(t *testing.T) {
@@ -164,14 +168,14 @@ func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 	ac.AgentSSL.CAFilePath = "/etc/ssl/ca.pem"
 
 	results := ValidateMigration(ac, nil, nil)
-	hasError := false
+	hasWarning := false
 	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "CAFilePath") {
-			hasError = true
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "CAFilePath") {
+			hasWarning = true
 			assert.Contains(t, r.Message, "/etc/ssl/ca.pem")
 		}
 	}
-	assert.True(t, hasError, "expected error when CAFilePath differs from default")
+	assert.True(t, hasWarning, "expected warning when CAFilePath differs from default")
 }
 
 func TestValidation_NonDefaultDownloadBase(t *testing.T) {
@@ -207,9 +211,8 @@ func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
 
 func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
-	processes := getSlice(ac.Deployment, "processes")
-	proc := processes[0].(map[string]interface{})
-	proc["authSchemaVersion"] = 3
+	processes := ac.Deployment.GetProcesses()
+	processes[0]["authSchemaVersion"] = 3
 
 	results := ValidateMigration(ac, nil, nil)
 	hasError := false
@@ -224,7 +227,7 @@ func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
 
 func TestValidation_NonDefaultProtocolVersion(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
-	replicaSets := getReplicaSets(ac.Deployment)
+	replicaSets := ac.Deployment.GetReplicaSets()
 	replicaSets[0]["protocolVersion"] = "0"
 
 	results := ValidateMigration(ac, nil, nil)
@@ -362,8 +365,7 @@ func TestValidation_NilLdap_NoWarning(t *testing.T) {
 
 func TestValidation_NonDefaultDbPath(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
-	processes := getSlice(ac.Deployment, "processes")
-	proc := processes[0].(map[string]interface{})
+	proc := ac.Deployment.GetProcesses()[0]
 	args := proc["args2_6"].(map[string]interface{})
 	storage := args["storage"].(map[string]interface{})
 	storage["dbPath"] = "/data/custom"
@@ -401,6 +403,7 @@ func TestValidation_DefaultDbPath_NoWarning(t *testing.T) {
 				},
 			},
 		},
+		"sharding": []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -413,8 +416,7 @@ func TestValidation_DefaultDbPath_NoWarning(t *testing.T) {
 
 func TestValidation_AllowTLSMode(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
-	processes := getSlice(ac.Deployment, "processes")
-	proc := processes[0].(map[string]interface{})
+	proc := ac.Deployment.GetProcesses()[0]
 	args := proc["args2_6"].(map[string]interface{})
 	args["net"] = map[string]interface{}{
 		"port": 27017,
@@ -434,8 +436,7 @@ func TestValidation_AllowTLSMode(t *testing.T) {
 
 func TestValidation_AllowSSLMode(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
-	processes := getSlice(ac.Deployment, "processes")
-	proc := processes[0].(map[string]interface{})
+	proc := ac.Deployment.GetProcesses()[0]
 	args := proc["args2_6"].(map[string]interface{})
 	args["net"] = map[string]interface{}{
 		"port": 27017,
@@ -485,6 +486,7 @@ func TestValidation_NoTLS_Warning(t *testing.T) {
 				},
 			},
 		},
+		"sharding": []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -527,6 +529,7 @@ func TestValidation_TLSDisabled_Warning(t *testing.T) {
 				},
 			},
 		},
+		"sharding": []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -571,6 +574,7 @@ func TestValidation_HeterogeneousProcessConfig_Warning(t *testing.T) {
 				},
 			},
 		},
+		"sharding": []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -615,6 +619,7 @@ func TestValidation_HomogeneousProcessConfig_NoWarning(t *testing.T) {
 				},
 			},
 		},
+		"sharding": []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -657,6 +662,7 @@ func TestValidation_HeterogeneousStorageEngine_Warning(t *testing.T) {
 				},
 			},
 		},
+		"sharding": []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -701,6 +707,7 @@ func TestValidation_HeterogeneousConfig_MultipleFields_Warning(t *testing.T) {
 				},
 			},
 		},
+		"sharding": []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -755,6 +762,7 @@ func TestValidation_DifferentOperatorManagedFields_NoWarning(t *testing.T) {
 				},
 			},
 		},
+		"sharding": []interface{}{},
 	})
 
 	results := ValidateMigration(ac, nil, nil)
@@ -763,5 +771,217 @@ func TestValidation_DifferentOperatorManagedFields_NoWarning(t *testing.T) {
 			t.Errorf("processes differ only in operator-managed fields (systemLog, security) but got heterogeneous warning: %s", r.Message)
 		}
 	}
+}
+
+func TestValidation_EmptyAutoUser(t *testing.T) {
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
+	ac.Auth.AutoUser = ""
+
+	results := ValidateMigration(ac, nil, nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "autoUser") && strings.Contains(r.Message, "empty") {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "expected error when autoUser is empty and auth is enabled")
+}
+
+func TestValidation_AutoUserNotInUsersWanted(t *testing.T) {
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
+	ac.Auth.AutoUser = "nonexistent-agent"
+
+	results := ValidateMigration(ac, nil, nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "nonexistent-agent") && strings.Contains(r.Message, "usersWanted") {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "expected error when autoUser has no matching entry in usersWanted")
+}
+
+func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
+
+	results := ValidateMigration(ac, nil, nil)
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "autoUser") {
+			t.Errorf("valid autoUser should not produce errors: %s", r.Message)
+		}
+	}
+}
+
+func TestValidation_X509AutoUser_NotInUsersWanted_NoError(t *testing.T) {
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
+	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
+	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
+	ac.Auth.Users = nil
+
+	results := ValidateMigration(ac, nil, nil)
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "autoUser") && strings.Contains(r.Message, "usersWanted") {
+			t.Errorf("X509 autoUser should not require a matching usersWanted entry: %s", r.Message)
+		}
+	}
+}
+
+func TestValidation_VersionConsistency_Warning(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "rs-0", "version": "7.0.0",
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				},
+			},
+			map[string]interface{}{
+				"name": "rs-1", "version": "8.0.0",
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id": "my-rs", "protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "rs-0"},
+					map[string]interface{}{"host": "rs-1"},
+				},
+			},
+		},
+		"sharding": []interface{}{},
+	})
+
+	results := ValidateMigration(ac, nil, nil)
+	hasWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "different MongoDB versions") {
+			hasWarning = true
+		}
+	}
+	assert.True(t, hasWarning, "expected warning when members have different versions")
+}
+
+func TestValidation_VersionConsistency_NoWarning(t *testing.T) {
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
+
+	results := ValidateMigration(ac, nil, nil)
+	for _, r := range results {
+		if strings.Contains(r.Message, "different MongoDB versions") {
+			t.Errorf("unexpected version consistency warning: %s", r.Message)
+		}
+	}
+}
+
+func TestValidation_HeterogeneousAgentConfig_Warning(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "rs-0", "version": "7.0.0",
+				"logRotate": map[string]interface{}{"sizeThresholdMB": 1000, "timeThresholdHrs": 24},
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				},
+			},
+			map[string]interface{}{
+				"name": "rs-1", "version": "7.0.0",
+				"logRotate": map[string]interface{}{"sizeThresholdMB": 2000, "timeThresholdHrs": 24},
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id": "my-rs", "protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "rs-0"},
+					map[string]interface{}{"host": "rs-1"},
+				},
+			},
+		},
+		"sharding": []interface{}{},
+	})
+
+	results := ValidateMigration(ac, nil, nil)
+	hasWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "logRotate") && strings.Contains(r.Message, "sizeThresholdMB") {
+			hasWarning = true
+		}
+	}
+	assert.True(t, hasWarning, "expected warning when logRotate.sizeThresholdMB differs between members")
+}
+
+func TestValidation_AgentConfigPresentOnSomeOnly_Warning(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "rs-0", "version": "7.0.0",
+				"logRotate": map[string]interface{}{"sizeThresholdMB": 1000, "timeThresholdHrs": 24},
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				},
+			},
+			map[string]interface{}{
+				"name": "rs-1", "version": "7.0.0",
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id": "my-rs", "protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "rs-0"},
+					map[string]interface{}{"host": "rs-1"},
+				},
+			},
+		},
+		"sharding": []interface{}{},
+	})
+
+	results := ValidateMigration(ac, nil, nil)
+	hasWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "logRotate") && strings.Contains(r.Message, "not all") {
+			hasWarning = true
+		}
+	}
+	assert.True(t, hasWarning, "expected warning when logRotate is present on some processes but not all")
+}
+
+func TestValidation_DuplicateProcessName(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{"name": "dup-host", "version": "7.0.0"},
+			map[string]interface{}{"name": "dup-host", "version": "7.0.0"},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id": "my-rs", "protocolVersion": "1",
+				"members": []interface{}{map[string]interface{}{"host": "dup-host"}},
+			},
+		},
+		"sharding": []interface{}{},
+	})
+
+	results := ValidateMigration(ac, nil, nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "duplicate process name") {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "expected error when duplicate process names exist")
 }
 

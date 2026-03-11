@@ -308,6 +308,31 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_vm_migration_generate_mongod_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_generate_no_auth
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_generate_heterogeneous
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_generate_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_generate_scram_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   # TODO: not used in any variant
   - name: e2e_replication_state_awareness
     tags: [ "patch-run" ]
@@ -1371,11 +1396,6 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_enterprise_x509_cluster_auth
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_vm_migration
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
