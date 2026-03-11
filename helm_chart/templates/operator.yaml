@@ -259,6 +259,8 @@ spec:
       {{- if .Values.search }}
             - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_{{ .Values.search.version | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.search.repo }}/{{ .Values.search.name }}:{{ $.Values.search.version }}"
+- name: RELATED_IMAGE_MDB_ENVOY_IMAGE
+  value: "{{ .Values.search.envoyImage }}"
       {{- end }}
     {{- end }}
     {{- if .Values.search }}
@@ -268,6 +270,8 @@ spec:
               value: "{{ .Values.search.name }}"
             - name: MDB_SEARCH_VERSION
               value: "{{ .Values.search.version }}"
+- name: MDB_ENVOY_IMAGE
+  value: "{{ .Values.search.envoyImage }}"
     {{- end }}
     {{- if .Values.customEnvVars }}
       {{- range split "&" .Values.customEnvVars }}

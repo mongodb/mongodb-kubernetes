@@ -27,10 +27,10 @@ from tests.conftest import (
     run_multi_cluster_recovery_tool,
 )
 
-from ..constants import MULTI_CLUSTER_OPERATOR_NAME, OPERATOR_NAME
 from . import prepare_multi_cluster_namespaces
 from .conftest import cluster_spec_list, create_service_entries_objects
 from .multi_cluster_clusterwide import create_namespace
+from ..constants import MULTI_CLUSTER_OPERATOR_NAME, OPERATOR_NAME
 
 FAILED_MEMBER_CLUSTER_NAME = "kind-e2e-cluster-3"
 
@@ -107,7 +107,6 @@ def install_operator(
         central_cluster_client,
         member_cluster_clients,
         {
-            "operator.deployment_name": MULTI_CLUSTER_OPERATOR_NAME,
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
             "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": member_cluster_namespaces,

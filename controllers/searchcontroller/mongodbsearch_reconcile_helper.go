@@ -381,6 +381,8 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 // When perPodEmbeddingConfig is true, it generates two config files (leader and follower) with
 // different IsAutoEmbeddingViewWriter values, plus pod-name keys for role lookup.
 // When false, it generates a single config file.
+// stsName is the StatefulSet name, used to generate pod names for role designation.
+// replicas is the number of pods in the StatefulSet.
 func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, cmName types.NamespacedName, stsName string, replicas int, perPodEmbeddingConfig bool, modifications ...mongot.Modification) (string, error) {
 	mongotConfig := mongot.Config{}
 	mongot.Apply(modifications...)(&mongotConfig)
