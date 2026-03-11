@@ -1,10 +1,7 @@
 """
 VM migration E2E tests with X509 and TLS.
-Based on vm_migration.py and e2e_configure_tls_and_x509_simultaneously_rs.py.
 MDB and pseudo-VM AC use TLS and X509 client auth (deploymentAuthMechanisms); internal cluster
 auth between mongod processes continues to use keyFile (SCRAM-SHA-256 for __system@local).
-Setting clusterAuthMode: x509 would trigger a rolling sendKeyFile→sendX509→x509 transition that
-breaks replication because sendKeyFile nodes do not recognise x509 certs as cluster members.
 
 Flow: TLS → X509 client auth (fixtures bring VM agents to goal state), then migrate (MDB resource
 with externalMembers, dry-run, promote and prune).
@@ -21,10 +18,6 @@ from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
-
-# Annotation that triggers migration dry-run (connectivity validation only, no OM/StatefulSet changes).
-MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
-CONDITION_NETWORK_CONNECTIVITY_VERIFIED = "NetworkConnectivityVerification"
 
 VM_STS_NAME = "vm-mongodb"
 VM_RS_NAME = "vm-mongodb-rs"
