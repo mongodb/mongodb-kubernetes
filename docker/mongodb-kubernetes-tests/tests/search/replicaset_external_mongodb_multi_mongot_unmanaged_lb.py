@@ -14,11 +14,7 @@ Key difference from replicaset_external_mongodb_single_mongot.py:
 - The single-mongot test has replicas=1 and no LB
 """
 
-import pymongo
-import pymongo.errors
-import yaml
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
-from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -29,10 +25,14 @@ from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
 from tests.common.search.envoy_helpers import EnvoyProxy
-from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
+from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters, verify_vector_search
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
-from tests.common.search.sharded_search_helper import create_sharded_ca
+from tests.common.search.sharded_search_helper import (
+    create_sharded_ca,
+    verify_search_results_from_all_shards,
+    verify_text_search_query,
+)
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
@@ -222,25 +222,7 @@ def test_wait_for_database_resource_ready(mdb: MongoDB):
 @mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
 def test_wait_for_mongod_parameters(mdb: MongoDB):
     """Verify each mongod has mongotHost and searchIndexManagementHostAndPort set."""
-
-    def check_mongod_parameters():
-        parameters_are_set = True
-        pod_parameters = []
-        for idx in range(mdb.get_members()):
-            mongod_config = yaml.safe_load(
-                KubernetesTester.run_command_in_pod_container(
-                    f"{mdb.name}-{idx}", mdb.namespace, ["cat", "/data/automation-mongod.conf"]
-                )
-            )
-            set_parameter = mongod_config.get("setParameter", {})
-            parameters_are_set = parameters_are_set and (
-                "mongotHost" in set_parameter and "searchIndexManagementHostAndPort" in set_parameter
-            )
-            pod_parameters.append(f"pod {idx} setParameter: {set_parameter}")
-
-        return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
-
-    run_periodically(check_mongod_parameters, timeout=600)
+    verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members())
 
 
 @mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
@@ -263,95 +245,30 @@ def test_search_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_p
 
 @mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
 def test_search_create_search_index(mdb: MongoDB):
-    """Create text search index on movies and vector search index on embedded_movies."""
+    """Create text search index on movies."""
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
     search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
     logger.info("Text search index created")
 
-    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
-    emb_helper.create_vector_search_index()
-    emb_helper.wait_for_vector_search_index()
-    logger.info("Vector search index created on embedded_movies")
-
 
 @mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
 def test_execute_text_search_query(mdb: MongoDB):
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    movies_helper = SampleMoviesSearchHelper(search_tester)
-
-    def execute_search():
-        try:
-            results = movies_helper.text_search_movies("star wars")
-
-            result_count = len(results)
-            logger.info(f"Search returned {result_count} results")
-            for r in results:
-                logger.debug(f"  - {r.get('title')} (score: {r.get('score')})")
-
-            if result_count > 0:
-                return True, f"Search returned {result_count} results"
-            return False, "Search returned no results"
-        except pymongo.errors.PyMongoError as e:
-            return False, f"Error: {e}"
-
-    run_periodically(execute_search, timeout=60, sleep_time=5, msg="search query to succeed")
-    logger.info("Text search query executed successfully")
+    verify_text_search_query(search_tester)
 
 
 @mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
 def test_search_verify_all_results(mdb: MongoDB):
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    movies_helper = SampleMoviesSearchHelper(search_tester)
-    total_docs = search_tester.client["sample_mflix"]["movies"].count_documents({})
-    logger.info(f"Total documents in collection: {total_docs}")
-
-    # We have a document in our movies collection whose title is `$`. Lucene doesn't
-    # tokenize it, so the wildcard query won't find it in the inverted index.
-    expected_docs = total_docs - 1
-
-    def execute_all_docs_search():
-        try:
-            results = movies_helper.wildcard_search_movies()
-        except pymongo.errors.OperationFailure as e:
-            logger.info(f"Search not ready yet: {e}")
-            return False, f"Search failed: {e}"
-        search_count = len(results)
-        logger.info(f"Search returned {search_count} documents")
-
-        if search_count == expected_docs:
-            return True, ""
-        else:
-            return (
-                False,
-                f"Search query for all documents returned {search_count} documents, expected were {expected_docs}",
-            )
-
-    run_periodically(execute_all_docs_search, timeout=120, sleep_time=5, msg="search query for all docs")
-    logger.info("Search results for all documents verified.")
+    verify_search_results_from_all_shards(search_tester)
 
 
 @mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
 def test_vector_search(mdb: MongoDB):
     """Verify vector search works with multi-mongot and Envoy LB."""
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
-
-    query_vector = emb_helper.generate_query_vector("war movies")
-    total_docs = emb_helper.count_documents_with_embeddings()
-
-    def verify_vector_search():
-        try:
-            results = emb_helper.vector_search(query_vector, limit=total_docs)
-            count = len(results)
-            if count > 0:
-                return True, f"Vector search returned {count} results"
-            return False, "Vector search returned no results"
-        except pymongo.errors.OperationFailure as e:
-            return False, f"Vector search failed: {e}"
-
-    run_periodically(verify_vector_search, timeout=120, sleep_time=5, msg="vector search")
-    logger.info("Vector search executed successfully")
+    verify_vector_search(search_tester)
 
 
 @mark.e2e_search_external_rs_multi_mongot_unmanaged_lb

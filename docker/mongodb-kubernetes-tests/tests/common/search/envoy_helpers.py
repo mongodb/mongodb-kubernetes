@@ -77,7 +77,9 @@ class EnvoyProxy:
         )
         logger.info("Envoy client certificate created")
 
-    def _build_filter_chain(self, sni_host: str, stat_prefix: str, route_name: str, backend_name: str, cluster_name: str):
+    def _build_filter_chain(
+        self, sni_host: str, stat_prefix: str, route_name: str, backend_name: str, cluster_name: str
+    ):
         return f"""
         - filter_chain_match:
             server_names:
