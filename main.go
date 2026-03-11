@@ -31,6 +31,7 @@ import (
 	localruntime "runtime"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -168,6 +169,18 @@ func main() {
 		BaseContext: func() context.Context {
 			// Ensures every controller gets the trace and signal-aware context
 			return ctx
+		},
+		// Jobs are not watched by any controller but are accessed via the cached client in the
+		// connectivity dry-run path. The cached client warms up an informer the first time a type
+		// is accessed and blocks on WaitForCacheSync before returning from Get. If the operator
+		// lacks batch/jobs RBAC, that sync never completes and the reconciler hangs silently.
+		// Disabling the cache for Jobs makes the client go directly to the API server, so a
+		// missing RBAC permission surfaces as an immediate 403 and a clear status condition.
+		// We are only using GET for jobs. In later places we might want to move to proper caching, in case we use jobs more than that.
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&batchv1.Job{}},
+			},
 		},
 	}
 

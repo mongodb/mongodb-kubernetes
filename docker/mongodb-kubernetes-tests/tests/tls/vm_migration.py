@@ -8,9 +8,13 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
+# Annotation that triggers migration dry-run (connectivity validation only, no OM/StatefulSet changes).
+MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
+CONDITION_NETWORK_CONNECTIVITY_VERIFIED = "NetworkConnectivityVerification"
+
 
 @fixture(scope="module")
-def om_tester(namespace: str) -> OMTester:
+def om_tester(namespace: str, operator) -> OMTester:
     config_map = KubernetesTester.read_configmap(namespace, "my-project")
     secret = KubernetesTester.read_secret(namespace, "my-credentials")
     tester = OMTester(OMContext.build_from_config_map_and_secret(config_map, secret))
@@ -91,6 +95,15 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
         # If there are already processes, it means the test is retried.
         return
 
+    # Pin the automation agent version to match the image in vm_statefulset.yaml.
+    # Without this, OM offers the latest available agent version; the running agent (older)
+    # downloads it, forks the new binary, then exits (PID 1 exits → container restarts).
+    # This creates an infinite upgrade loop that keeps the vm-mongodb pods in CrashLoopBackOff
+    # and makes the connectivity check fail with DNS/connection errors.
+    agent_image_tag = vm_sts["spec"]["template"]["spec"]["containers"][0]["image"].split(":")[-1]
+    if "agentVersion" in ac:
+        ac["agentVersion"]["name"] = agent_image_tag
+
     ac["processes"] = []
     ac["monitoringVersions"] = []
 
@@ -148,6 +161,42 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
         )
 
     om_tester.api_put_automation_config(ac)
+    om_tester.wait_agents_ready(timeout=600)
+
+
+@mark.e2e_vm_migration
+def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
+    """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
+
+    mdb_migration.load()
+    if "metadata" not in mdb_migration:
+        mdb_migration["metadata"] = {}
+    if "annotations" not in mdb_migration["metadata"]:
+        mdb_migration["metadata"]["annotations"] = {}
+    mdb_migration["metadata"]["annotations"][MIGRATION_DRY_RUN_ANNOTATION] = "true"
+    mdb_migration.update()
+
+    def migration_connectivity_passed(mdb: MongoDB) -> bool:
+        # MongoDB (CustomObject) supports [] but not .get(); status/conditions come from the API.
+        try:
+            status = mdb["status"]
+        except (KeyError, AttributeError, TypeError):
+            status = {}
+        conditions = status.get("conditions", []) if isinstance(status, dict) else []
+        for c in conditions:
+            if c.get("type") == CONDITION_NETWORK_CONNECTIVITY_VERIFIED and c.get("status") == "True":
+                return True
+        return False
+
+    mdb_migration.wait_for(migration_connectivity_passed, timeout=600)
+
+    # Remove dry-run annotation so later tests (test_mdb_reaches_running, test_promote_and_prune) reconcile normally.
+    # Use backing object so we mutate what update() will send. JSON merge patch only removes keys when set to null.
+    mdb_migration.load()
+    ann = mdb_migration.backing_obj.get("metadata").get("annotations")
+    if ann is not None and MIGRATION_DRY_RUN_ANNOTATION in ann:
+        ann[MIGRATION_DRY_RUN_ANNOTATION] = None
+        mdb_migration.update()
 
 
 @mark.e2e_vm_migration
