@@ -43,10 +43,12 @@ func TestFixtureMatch(t *testing.T) {
 			inputJSON:  "singlecluster/replicaset/full.json",
 			goldenYAML: "singlecluster/replicaset/mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				agentCfg, processCfg := fullTestConfigs()
 				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
 					ConfigMapName:         "my-om-config",
-					AgentConfigs:          fullTestAgentConfigs(),
+					AgentConfigs:          agentCfg,
+					ProcessConfigs:        processCfg,
 				})
 				require.NoError(t, err)
 				return out
@@ -57,11 +59,13 @@ func TestFixtureMatch(t *testing.T) {
 			inputJSON:  "multicluster/replicaset/simple.json",
 			goldenYAML: "multicluster/replicaset/2_clusters.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
-				out, _, err := GenerateMultiClusterCR(ac, GenerateOptions{
+				agentCfg, processCfg := multiClusterTestConfigs()
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
 					CredentialsSecretName: "mc-credentials",
 					ConfigMapName:         "mc-om-config",
 					MultiClusterNames:     []string{"east1", "west1"},
-					AgentConfigs:          multiClusterTestAgentConfigs(),
+					AgentConfigs:          agentCfg,
+					ProcessConfigs:        processCfg,
 				})
 				require.NoError(t, err)
 				return out
@@ -72,11 +76,13 @@ func TestFixtureMatch(t *testing.T) {
 			inputJSON:  "multicluster/replicaset/simple.json",
 			goldenYAML: "multicluster/replicaset/3_clusters.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
-				out, _, err := GenerateMultiClusterCR(ac, GenerateOptions{
+				agentCfg, processCfg := multiClusterTestConfigs()
+				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
 					CredentialsSecretName: "mc-credentials",
 					ConfigMapName:         "mc-om-config",
 					MultiClusterNames:     []string{"cluster-a", "cluster-b", "cluster-c"},
-					AgentConfigs:          multiClusterTestAgentConfigs(),
+					AgentConfigs:          agentCfg,
+					ProcessConfigs:        processCfg,
 				})
 				require.NoError(t, err)
 				return out
@@ -303,7 +309,7 @@ func TestFixtureMatch(t *testing.T) {
 			},
 		},
 		{
-			name:       "member options — hidden, slaveDelay, horizons, tags",
+			name:       "member options — hidden, slaveDelay, tags",
 			inputJSON:  "singlecluster/replicaset/member_options.json",
 			goldenYAML: "singlecluster/replicaset/member_options_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
@@ -356,7 +362,7 @@ func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 	assert.Contains(t, yamlOutput, "replicaSetNameOverride: my-rs")
 }
 
-func TestGenerateMultiClusterCR_CustomResourceName(t *testing.T) {
+func TestGenerateMongoDBCR_MultiCluster_CustomResourceName(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "multicluster/replicaset/simple.json")
 
 	opts := GenerateOptions{
@@ -366,7 +372,7 @@ func TestGenerateMultiClusterCR_CustomResourceName(t *testing.T) {
 		MultiClusterNames:     []string{"east1", "west1"},
 	}
 
-	yamlOutput, resourceName, err := GenerateMultiClusterCR(ac, opts)
+	yamlOutput, resourceName, err := GenerateMongoDBCR(ac, opts)
 	require.NoError(t, err)
 	assert.Equal(t, "custom-mc-name", resourceName)
 
@@ -378,6 +384,7 @@ func TestGenerateMongoDBCR_NoReplicaSet(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes":   []interface{}{},
 		"replicaSets": []interface{}{},
+		"sharding":    []interface{}{},
 	})
 
 	opts := GenerateOptions{
@@ -474,17 +481,6 @@ func TestDistributeMembers_EmptyClusterNames(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-func TestGenerateMultiClusterCR_EmptyClusterNames(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "multicluster/replicaset/simple.json")
-	_, _, err := GenerateMultiClusterCR(ac, GenerateOptions{
-		CredentialsSecretName: "creds",
-		ConfigMapName:         "cfg",
-		MultiClusterNames:     []string{},
-	})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one cluster name")
-}
-
 func TestGenerateUserCRs_DuplicateNormalizedNames(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	ac.Auth.Users = append(ac.Auth.Users,
@@ -497,18 +493,8 @@ func TestGenerateUserCRs_DuplicateNormalizedNames(t *testing.T) {
 	assert.Contains(t, err.Error(), "normalize to the same Kubernetes name")
 }
 
-func TestBuildProcessMap_DuplicateNames(t *testing.T) {
-	processes := []om.Process{
-		{"name": "host-0"},
-		{"name": "host-0"},
-	}
-	_, err := buildProcessMap(processes)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "duplicate process name")
-}
-
-func multiClusterTestAgentConfigs() *AgentConfigs {
-	return &AgentConfigs{
+func multiClusterTestConfigs() (*ProjectAgentConfigs, *ProjectProcessConfigs) {
+	return nil, &ProjectProcessConfigs{
 		SystemLogRotate: &automationconfig.AcLogRotate{
 			LogRotate: automationconfig.LogRotate{
 				TimeThresholdHrs: 1,
@@ -530,8 +516,18 @@ func multiClusterTestAgentConfigs() *AgentConfigs {
 	}
 }
 
-func fullTestAgentConfigs() *AgentConfigs {
-	return &AgentConfigs{
+func fullTestConfigs() (*ProjectAgentConfigs, *ProjectProcessConfigs) {
+	return &ProjectAgentConfigs{
+		MonitoringConfig: &om.MonitoringAgentConfig{
+			MonitoringAgentTemplate: &om.MonitoringAgentTemplate{},
+			BackingMap: map[string]interface{}{
+				"logRotate": map[string]interface{}{
+					"sizeThresholdMB":  500.0,
+					"timeThresholdHrs": 12,
+				},
+			},
+		},
+	}, &ProjectProcessConfigs{
 		SystemLogRotate: &automationconfig.AcLogRotate{
 			LogRotate: automationconfig.LogRotate{
 				TimeThresholdHrs:                24,
@@ -551,15 +547,6 @@ func fullTestAgentConfigs() *AgentConfigs {
 			},
 			SizeThresholdMB:    500,
 			PercentOfDiskspace: 0.4,
-		},
-		MonitoringConfig: &om.MonitoringAgentConfig{
-			MonitoringAgentTemplate: &om.MonitoringAgentTemplate{},
-			BackingMap: map[string]interface{}{
-				"logRotate": map[string]interface{}{
-					"sizeThresholdMB":  500.0,
-					"timeThresholdHrs": 12,
-				},
-			},
 		},
 	}
 }

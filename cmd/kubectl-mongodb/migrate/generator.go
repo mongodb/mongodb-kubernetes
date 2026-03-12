@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/spf13/cast"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
@@ -32,7 +31,8 @@ type GenerateOptions struct {
 	CredentialsSecretName string
 	ConfigMapName         string
 	MultiClusterNames     []string
-	AgentConfigs          *AgentConfigs
+	AgentConfigs          *ProjectAgentConfigs
+	ProcessConfigs        *ProjectProcessConfigs
 }
 
 // UserCROutput holds the generated YAML and metadata for a single MongoDBUser CR.
@@ -45,28 +45,44 @@ type UserCROutput struct {
 }
 
 // GenerateMongoDBCR generates a MongoDB CR from the given automation config.
-// It returns the YAML string, the resolved resource name, and any error.
+// It detects the deployment type (replica set vs sharded cluster) and topology
+// (single vs multi-cluster) and dispatches to the appropriate builder.
 func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
-	rs, err := getFirstReplicaSet(ac.Deployment)
-	if err != nil {
-		return "", "", fmt.Errorf("error reading replica set: %w", err)
+	isSharded := len(ac.Deployment.GetShardedClusters()) > 0
+	isMultiCluster := len(opts.MultiClusterNames) > 0
+
+	switch {
+	case isSharded && isMultiCluster:
+		return generateShardedClusterMultiCluster(ac, opts)
+	case isSharded:
+		return generateShardedClusterSingleCluster(ac, opts)
+	case isMultiCluster:
+		return generateReplicaSetMultiCluster(ac, opts)
+	default:
+		return generateReplicaSetSingleCluster(ac, opts)
 	}
+}
+
+func generateShardedClusterSingleCluster(_ *om.AutomationConfig, _ GenerateOptions) (string, string, error) {
+	return "", "", fmt.Errorf("sharded cluster migration is not yet supported")
+}
+
+func generateShardedClusterMultiCluster(_ *om.AutomationConfig, _ GenerateOptions) (string, string, error) {
+	return "", "", fmt.Errorf("sharded cluster multi-cluster migration is not yet supported")
+}
+
+func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
+	replicaSets := ac.Deployment.GetReplicaSets()
+	if len(replicaSets) == 0 {
+		return "", "", fmt.Errorf("no replica sets found in the automation config")
+	}
+	rs := replicaSets[0]
 
 	rsName := rs.Name()
-	if rsName == "" {
-		return "", "", fmt.Errorf("replica set has no _id field")
-	}
-
 	members := rs.Members()
-	processMap, err := buildProcessMap(ac.Deployment.GetProcesses())
-	if err != nil {
-		return "", "", fmt.Errorf("error building process map: %w", err)
-	}
+	processMap := ac.Deployment.ProcessMap()
 
-	externalMembers, version, fcv, err := extractMemberInfo(members, processMap)
-	if err != nil {
-		return "", "", fmt.Errorf("error extracting member info: %w", err)
-	}
+	externalMembers, version, fcv := om.ExtractMemberInfo(members, processMap)
 
 	resourceName := opts.ResourceName
 	if resourceName == "" {
@@ -100,34 +116,22 @@ func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, s
 	return out, resourceName, nil
 }
 
-// GenerateMultiClusterCR generates a MongoDBMultiCluster CR from the given
-// automation config and the list of target cluster names.
-// Members are distributed as evenly as possible across the clusters.
-func GenerateMultiClusterCR(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
+func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
 	if len(opts.MultiClusterNames) == 0 {
 		return "", "", fmt.Errorf("multi-cluster generation requires at least one cluster name")
 	}
 
-	rs, err := getFirstReplicaSet(ac.Deployment)
-	if err != nil {
-		return "", "", fmt.Errorf("error reading replica set: %w", err)
+	replicaSets := ac.Deployment.GetReplicaSets()
+	if len(replicaSets) == 0 {
+		return "", "", fmt.Errorf("no replica sets found in the automation config")
 	}
+	rs := replicaSets[0]
 
 	rsName := rs.Name()
-	if rsName == "" {
-		return "", "", fmt.Errorf("replica set has no _id field")
-	}
-
 	members := rs.Members()
-	processMap, err := buildProcessMap(ac.Deployment.GetProcesses())
-	if err != nil {
-		return "", "", fmt.Errorf("error building process map: %w", err)
-	}
+	processMap := ac.Deployment.ProcessMap()
 
-	externalMembers, version, fcv, err := extractMemberInfo(members, processMap)
-	if err != nil {
-		return "", "", fmt.Errorf("error extracting member info: %w", err)
-	}
+	externalMembers, version, fcv := om.ExtractMemberInfo(members, processMap)
 
 	resourceName := opts.ResourceName
 	if resourceName == "" {
@@ -136,7 +140,7 @@ func GenerateMultiClusterCR(ac *om.AutomationConfig, opts GenerateOptions) (stri
 
 	spec, err := buildMultiClusterSpec(version, fcv, externalMembers, rsName, resourceName, opts, ac, processMap, members)
 	if err != nil {
-		return "", "", fmt.Errorf("error building MongoDBMultiCluster spec: %w", err)
+		return "", "", fmt.Errorf("error building multi-cluster spec: %w", err)
 	}
 
 	cr := mdbmulti.MongoDBMultiCluster{
@@ -161,7 +165,7 @@ func GenerateMultiClusterCR(ac *om.AutomationConfig, opts GenerateOptions) (stri
 	return out, resourceName, nil
 }
 
-// buildMultiClusterSpec assembles the MongoDBMultiSpec, distributing members
+// buildMultiClusterSpec assembles a MongoDBMultiSpec, distributing members
 // across the provided target clusters.
 func buildMultiClusterSpec(
 	version, fcv string,
@@ -203,9 +207,7 @@ func buildMultiClusterSpec(
 		spec.DbCommonSpec.ReplicaSetNameOverride = rsName
 	}
 
-	if fcv != "" {
-		spec.FeatureCompatibilityVersion = &fcv
-	}
+	spec.FeatureCompatibilityVersion = &fcv
 
 	security, err := buildSecurity(ac.Auth, processMap, members, ac.Ldap, ac.OIDCProviderConfigs)
 	if err != nil {
@@ -232,7 +234,7 @@ func buildMultiClusterSpec(
 	}
 	spec.AdditionalMongodConfig = additionalConfig
 
-	agentConfig, err := extractAgentConfig(processMap, members, opts.AgentConfigs)
+	agentConfig, err := extractAgentConfig(processMap, members, opts.AgentConfigs, opts.ProcessConfigs)
 	if err != nil {
 		return mdbmulti.MongoDBMultiSpec{}, fmt.Errorf("error extracting agent config: %w", err)
 	}
@@ -330,9 +332,7 @@ func buildMongoDBSpec(
 		spec.DbCommonSpec.ReplicaSetNameOverride = rsName
 	}
 
-	if fcv != "" {
-		spec.FeatureCompatibilityVersion = &fcv
-	}
+	spec.FeatureCompatibilityVersion = &fcv
 
 	security, err := buildSecurity(ac.Auth, processMap, members, ac.Ldap, ac.OIDCProviderConfigs)
 	if err != nil {
@@ -359,7 +359,7 @@ func buildMongoDBSpec(
 	}
 	spec.AdditionalMongodConfig = additionalConfig
 
-	agentConfig, err := extractAgentConfig(processMap, members, opts.AgentConfigs)
+	agentConfig, err := extractAgentConfig(processMap, members, opts.AgentConfigs, opts.ProcessConfigs)
 	if err != nil {
 		return mdbv1.MongoDbSpec{}, fmt.Errorf("error extracting agent config: %w", err)
 	}
@@ -550,11 +550,7 @@ func buildMemberConfig(members []om.ReplicaSetMember) []automationconfig.MemberO
 			Priority: &p,
 		}
 
-		if tagsRaw, ok := m["tags"].(map[string]interface{}); ok && len(tagsRaw) > 0 {
-			tags := make(map[string]string, len(tagsRaw))
-			for k, val := range tagsRaw {
-				tags[k] = cast.ToString(val)
-			}
+		if tags := m.Tags(); len(tags) > 0 {
 			config[i].Tags = tags
 		}
 	}

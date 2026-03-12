@@ -164,38 +164,43 @@ func resolveProjectInOrg(conn om.Connection, projectName string, organization *o
 	return nil, nil
 }
 
-// AgentConfigs holds the deployment-level agent configuration read from
-// the OM API. These endpoints return uniform settings that the operator
-// writes back, unlike per-process fields which can differ between hosts.
-type AgentConfigs struct {
+// ProjectAgentConfigs holds the project-level agent configuration read from
+// the OM API (monitoring and backup agent settings).
+type ProjectAgentConfigs struct {
 	MonitoringConfig *om.MonitoringAgentConfig
 	BackupConfig     *om.BackupAgentConfig
-	SystemLogRotate  *automationconfig.AcLogRotate
-	AuditLogRotate   *automationconfig.AcLogRotate
 }
 
-func readAgentConfigs(conn om.Connection) (*AgentConfigs, error) {
+// ProjectProcessConfigs holds the project-level process configuration read
+// from the OM API (log rotation settings applied uniformly to all processes).
+type ProjectProcessConfigs struct {
+	SystemLogRotate *automationconfig.AcLogRotate
+	AuditLogRotate  *automationconfig.AcLogRotate
+}
+
+func readProjectConfigs(conn om.Connection) (*ProjectAgentConfigs, *ProjectProcessConfigs, error) {
 	monitoringConfig, err := conn.ReadMonitoringAgentConfig()
 	if err != nil {
-		return nil, xerrors.Errorf("error reading monitoring agent config: %w", err)
+		return nil, nil, xerrors.Errorf("error reading monitoring agent config: %w", err)
 	}
 	backupConfig, err := conn.ReadBackupAgentConfig()
 	if err != nil {
-		return nil, xerrors.Errorf("error reading backup agent config: %w", err)
+		return nil, nil, xerrors.Errorf("error reading backup agent config: %w", err)
 	}
 	systemLogRotate, err := conn.ReadProcessLogRotation()
 	if err != nil {
-		return nil, xerrors.Errorf("error reading system log rotate config: %w", err)
+		return nil, nil, xerrors.Errorf("error reading system log rotate config: %w", err)
 	}
 	auditLogRotate, err := conn.ReadAuditLogRotation()
 	if err != nil {
-		return nil, xerrors.Errorf("error reading audit log rotate config: %w", err)
+		return nil, nil, xerrors.Errorf("error reading audit log rotate config: %w", err)
 	}
-	return &AgentConfigs{
+	return &ProjectAgentConfigs{
 		MonitoringConfig: monitoringConfig,
 		BackupConfig:     backupConfig,
-		SystemLogRotate:  systemLogRotate,
-		AuditLogRotate:   auditLogRotate,
+	}, &ProjectProcessConfigs{
+		SystemLogRotate: systemLogRotate,
+		AuditLogRotate:  auditLogRotate,
 	}, nil
 }
 

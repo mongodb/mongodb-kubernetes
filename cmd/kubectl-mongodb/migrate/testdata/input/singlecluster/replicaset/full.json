@@ -416,11 +416,7 @@
           "priority": 2,
           "secondaryDelaySecs": 0,
           "votes": 1,
-          "tags": {"region": "us-east-1", "use": "analytics"},
-          "horizons": {
-            "external": "rs0.external.example.com:27017",
-            "internal": "rs0.internal.example.com:27017"
-          }
+          "tags": {"region": "us-east-1", "use": "analytics"}
         },
         {
           "_id": 1,
@@ -431,11 +427,7 @@
           "priority": 1,
           "secondaryDelaySecs": 0,
           "votes": 1,
-          "tags": {"region": "us-west-2"},
-          "horizons": {
-            "external": "rs1.external.example.com:27017",
-            "internal": "rs1.internal.example.com:27017"
-          }
+          "tags": {"region": "us-west-2"}
         },
         {
           "_id": 2,
@@ -446,10 +438,7 @@
           "priority": 1,
           "secondaryDelaySecs": 0,
           "votes": 1,
-          "horizons": {
-            "external": "rs2.external.example.com:27017",
-            "internal": "rs2.internal.example.com:27017"
-          }
+          "tags": {}
         }
       ],
       "protocolVersion": "1"

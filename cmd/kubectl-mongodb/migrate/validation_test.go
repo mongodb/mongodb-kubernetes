@@ -8,6 +8,7 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
@@ -27,7 +28,7 @@ func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "deployments") {
 			hasMultipleDeploymentsError = true
-			assert.Contains(t, r.Message, "split the project")
+			assert.Contains(t, r.Message, "split before migrating")
 		}
 	}
 	assert.True(t, hasMultipleDeploymentsError, "expected error when project has multiple replica sets")
@@ -66,7 +67,7 @@ func TestValidation_MemberReferencesUnknownProcess(t *testing.T) {
 			map[string]interface{}{
 				"_id": "my-rs",
 				"members": []interface{}{
-					map[string]interface{}{"host": "unknown-process"},
+					map[string]interface{}{"host": "unknown-process", "tags": map[string]string{}},
 				},
 			},
 		},
@@ -105,32 +106,6 @@ func TestValidation_ReplicaSetWithNoMembers(t *testing.T) {
 		}
 	}
 	assert.True(t, hasError, "expected error when replica set has no members")
-}
-
-func TestValidation_ProcessesHaveNoVersion(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{
-			map[string]interface{}{"name": "host-0", "hostname": "host-0"},
-		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
-				"_id": "my-rs",
-				"members": []interface{}{
-					map[string]interface{}{"host": "host-0"},
-				},
-			},
-		},
-		"sharding": []interface{}{},
-	})
-
-	results := ValidateMigration(ac, nil, nil)
-	hasError := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "version") {
-			hasError = true
-		}
-	}
-	assert.True(t, hasError, "expected error when no process has a version")
 }
 
 func TestValidation_NonDefaultKeyFile(t *testing.T) {
@@ -247,7 +222,7 @@ func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/monitoring.log"},
 	}
 
-	results := ValidateMigration(ac, monitoringConfig, nil)
+	results := ValidateMigration(ac, &ProjectAgentConfigs{MonitoringConfig: monitoringConfig}, nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "monitoringAgentConfig.logPath") {
@@ -264,7 +239,7 @@ func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/backup.log"},
 	}
 
-	results := ValidateMigration(ac, nil, backupConfig)
+	results := ValidateMigration(ac, &ProjectAgentConfigs{BackupConfig: backupConfig}, nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "backupAgentConfig.logPath") {
@@ -366,7 +341,7 @@ func TestValidation_NilLdap_NoWarning(t *testing.T) {
 func TestValidation_NonDefaultDbPath(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	proc := ac.Deployment.GetProcesses()[0]
-	args := proc["args2_6"].(map[string]interface{})
+	args := proc.Args()
 	storage := args["storage"].(map[string]interface{})
 	storage["dbPath"] = "/data/custom"
 
@@ -385,9 +360,10 @@ func TestValidation_DefaultDbPath_NoWarning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name":     "host-0",
-				"hostname": "host-0.example.com",
-				"version":  "7.0.0",
+				"name":        "host-0",
+				"hostname":    "host-0.example.com",
+				"processType": "mongod",
+				"version":     "7.0.0",
 				"args2_6": map[string]interface{}{
 					"net":     map[string]interface{}{"port": 27017},
 					"storage": map[string]interface{}{"dbPath": "/data"},
@@ -399,7 +375,7 @@ func TestValidation_DefaultDbPath_NoWarning(t *testing.T) {
 				"_id":             "my-rs",
 				"protocolVersion": "1",
 				"members": []interface{}{
-					map[string]interface{}{"host": "host-0"},
+					map[string]interface{}{"host": "host-0", "tags": map[string]string{}},
 				},
 			},
 		},
@@ -417,7 +393,7 @@ func TestValidation_DefaultDbPath_NoWarning(t *testing.T) {
 func TestValidation_AllowTLSMode(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	proc := ac.Deployment.GetProcesses()[0]
-	args := proc["args2_6"].(map[string]interface{})
+	args := proc.Args()
 	args["net"] = map[string]interface{}{
 		"port": 27017,
 		"tls":  map[string]interface{}{"mode": "allowTLS"},
@@ -428,7 +404,7 @@ func TestValidation_AllowTLSMode(t *testing.T) {
 	for _, r := range results {
 		if r.Severity == SeverityWarning && strings.Contains(r.Message, "allowTLS") {
 			hasWarning = true
-			assert.Contains(t, r.Message, "additionalMongodConfig")
+			assert.Contains(t, r.Message, "requireTLS")
 		}
 	}
 	assert.True(t, hasWarning, "expected warning when TLS mode is allowTLS")
@@ -437,7 +413,7 @@ func TestValidation_AllowTLSMode(t *testing.T) {
 func TestValidation_AllowSSLMode(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full.json")
 	proc := ac.Deployment.GetProcesses()[0]
-	args := proc["args2_6"].(map[string]interface{})
+	args := proc.Args()
 	args["net"] = map[string]interface{}{
 		"port": 27017,
 		"ssl":  map[string]interface{}{"mode": "allowSSL"},
@@ -468,9 +444,10 @@ func TestValidation_NoTLS_Warning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name":     "host-0",
-				"hostname": "host-0.example.com",
-				"version":  "6.0.5",
+				"name":        "host-0",
+				"hostname":    "host-0.example.com",
+				"processType": "mongod",
+				"version":     "6.0.5",
 				"args2_6": map[string]interface{}{
 					"net":     map[string]interface{}{"port": 27017},
 					"storage": map[string]interface{}{"dbPath": "/data"},
@@ -482,7 +459,7 @@ func TestValidation_NoTLS_Warning(t *testing.T) {
 				"_id":             "my-rs",
 				"protocolVersion": "1",
 				"members": []interface{}{
-					map[string]interface{}{"host": "host-0"},
+					map[string]interface{}{"host": "host-0", "tags": map[string]string{}},
 				},
 			},
 		},
@@ -493,14 +470,14 @@ func TestValidation_NoTLS_Warning(t *testing.T) {
 	hasNoTLSWarning := false
 	hasSecurityTLSWarning := false
 	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "additionalMongodConfig.net.tls.mode") {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "net.tls.mode") {
 			hasNoTLSWarning = true
 		}
 		if r.Severity == SeverityWarning && strings.Contains(r.Message, "spec.security.tls") {
 			hasSecurityTLSWarning = true
 		}
 	}
-	assert.True(t, hasNoTLSWarning, "expected warning about additionalMongodConfig.net.tls.mode for no-TLS deployment")
+	assert.True(t, hasNoTLSWarning, "expected warning about net.tls.mode for no-TLS deployment")
 	assert.True(t, hasSecurityTLSWarning, "expected warning about spec.security.tls for no-TLS deployment")
 }
 
@@ -508,9 +485,10 @@ func TestValidation_TLSDisabled_Warning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name":     "host-0",
-				"hostname": "host-0.example.com",
-				"version":  "6.0.5",
+				"name":        "host-0",
+				"hostname":    "host-0.example.com",
+				"processType": "mongod",
+				"version":     "6.0.5",
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{
 						"port": 27017,
@@ -525,7 +503,7 @@ func TestValidation_TLSDisabled_Warning(t *testing.T) {
 				"_id":             "my-rs",
 				"protocolVersion": "1",
 				"members": []interface{}{
-					map[string]interface{}{"host": "host-0"},
+					map[string]interface{}{"host": "host-0", "tags": map[string]string{}},
 				},
 			},
 		},
@@ -535,7 +513,7 @@ func TestValidation_TLSDisabled_Warning(t *testing.T) {
 	results := ValidateMigration(ac, nil, nil)
 	hasNoTLSWarning := false
 	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "additionalMongodConfig.net.tls.mode") {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "net.tls.mode") {
 			hasNoTLSWarning = true
 		}
 	}
@@ -546,8 +524,7 @@ func TestValidation_HeterogeneousProcessConfig_Warning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name":    "rs-0",
-				"version": "7.0.0",
+				"name": "rs-0", "processType": "mongod", "version": "7.0.0",
 				"args2_6": map[string]interface{}{
 					"net":         map[string]interface{}{"port": 27018},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -555,8 +532,7 @@ func TestValidation_HeterogeneousProcessConfig_Warning(t *testing.T) {
 				},
 			},
 			map[string]interface{}{
-				"name":    "rs-1",
-				"version": "7.0.0",
+				"name": "rs-1", "processType": "mongod", "version": "7.0.0",
 				"args2_6": map[string]interface{}{
 					"net":         map[string]interface{}{"port": 27019},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -569,8 +545,8 @@ func TestValidation_HeterogeneousProcessConfig_Warning(t *testing.T) {
 				"_id":             "my-rs",
 				"protocolVersion": "1",
 				"members": []interface{}{
-					map[string]interface{}{"host": "rs-0"},
-					map[string]interface{}{"host": "rs-1"},
+					map[string]interface{}{"host": "rs-0", "tags": map[string]string{}},
+					map[string]interface{}{"host": "rs-1", "tags": map[string]string{}},
 				},
 			},
 		},
@@ -591,8 +567,7 @@ func TestValidation_HomogeneousProcessConfig_NoWarning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name":    "rs-0",
-				"version": "7.0.0",
+				"name": "rs-0", "processType": "mongod", "version": "7.0.0",
 				"args2_6": map[string]interface{}{
 					"net":         map[string]interface{}{"port": 27018},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -600,8 +575,7 @@ func TestValidation_HomogeneousProcessConfig_NoWarning(t *testing.T) {
 				},
 			},
 			map[string]interface{}{
-				"name":    "rs-1",
-				"version": "7.0.0",
+				"name": "rs-1", "processType": "mongod", "version": "7.0.0",
 				"args2_6": map[string]interface{}{
 					"net":         map[string]interface{}{"port": 27018},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -614,8 +588,8 @@ func TestValidation_HomogeneousProcessConfig_NoWarning(t *testing.T) {
 				"_id":             "my-rs",
 				"protocolVersion": "1",
 				"members": []interface{}{
-					map[string]interface{}{"host": "rs-0"},
-					map[string]interface{}{"host": "rs-1"},
+					map[string]interface{}{"host": "rs-0", "tags": map[string]string{}},
+					map[string]interface{}{"host": "rs-1", "tags": map[string]string{}},
 				},
 			},
 		},
@@ -634,8 +608,7 @@ func TestValidation_HeterogeneousStorageEngine_Warning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name":    "rs-0",
-				"version": "8.0.4-ent",
+				"name": "rs-0", "processType": "mongod", "version": "8.0.4-ent",
 				"args2_6": map[string]interface{}{
 					"net":         map[string]interface{}{"port": 27017},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -643,8 +616,7 @@ func TestValidation_HeterogeneousStorageEngine_Warning(t *testing.T) {
 				},
 			},
 			map[string]interface{}{
-				"name":    "rs-1",
-				"version": "8.0.4-ent",
+				"name": "rs-1", "processType": "mongod", "version": "8.0.4-ent",
 				"args2_6": map[string]interface{}{
 					"net":         map[string]interface{}{"port": 27017},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -657,8 +629,8 @@ func TestValidation_HeterogeneousStorageEngine_Warning(t *testing.T) {
 				"_id":             "my-rs",
 				"protocolVersion": "1",
 				"members": []interface{}{
-					map[string]interface{}{"host": "rs-0"},
-					map[string]interface{}{"host": "rs-1"},
+					map[string]interface{}{"host": "rs-0", "tags": map[string]string{}},
+					map[string]interface{}{"host": "rs-1", "tags": map[string]string{}},
 				},
 			},
 		},
@@ -679,8 +651,7 @@ func TestValidation_HeterogeneousConfig_MultipleFields_Warning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name":    "rs-0",
-				"version": "8.0.4-ent",
+				"name": "rs-0", "processType": "mongod", "version": "8.0.4-ent",
 				"args2_6": map[string]interface{}{
 					"net":         map[string]interface{}{"port": 27018},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -688,8 +659,7 @@ func TestValidation_HeterogeneousConfig_MultipleFields_Warning(t *testing.T) {
 				},
 			},
 			map[string]interface{}{
-				"name":    "rs-1",
-				"version": "8.0.4-ent",
+				"name": "rs-1", "processType": "mongod", "version": "8.0.4-ent",
 				"args2_6": map[string]interface{}{
 					"net":         map[string]interface{}{"port": 27019},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -702,8 +672,8 @@ func TestValidation_HeterogeneousConfig_MultipleFields_Warning(t *testing.T) {
 				"_id":             "my-rs",
 				"protocolVersion": "1",
 				"members": []interface{}{
-					map[string]interface{}{"host": "rs-0"},
-					map[string]interface{}{"host": "rs-1"},
+					map[string]interface{}{"host": "rs-0", "tags": map[string]string{}},
+					map[string]interface{}{"host": "rs-1", "tags": map[string]string{}},
 				},
 			},
 		},
@@ -730,8 +700,7 @@ func TestValidation_DifferentOperatorManagedFields_NoWarning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name":    "rs-0",
-				"version": "7.0.0",
+				"name": "rs-0", "processType": "mongod", "version": "7.0.0",
 				"args2_6": map[string]interface{}{
 					"net":         map[string]interface{}{"port": 27017},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -741,8 +710,7 @@ func TestValidation_DifferentOperatorManagedFields_NoWarning(t *testing.T) {
 				},
 			},
 			map[string]interface{}{
-				"name":    "rs-1",
-				"version": "7.0.0",
+				"name": "rs-1", "processType": "mongod", "version": "7.0.0",
 				"args2_6": map[string]interface{}{
 					"net":         map[string]interface{}{"port": 27017},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -757,8 +725,8 @@ func TestValidation_DifferentOperatorManagedFields_NoWarning(t *testing.T) {
 				"_id":             "my-rs",
 				"protocolVersion": "1",
 				"members": []interface{}{
-					map[string]interface{}{"host": "rs-0"},
-					map[string]interface{}{"host": "rs-1"},
+					map[string]interface{}{"host": "rs-0", "tags": map[string]string{}},
+					map[string]interface{}{"host": "rs-1", "tags": map[string]string{}},
 				},
 			},
 		},
@@ -830,14 +798,14 @@ func TestValidation_VersionConsistency_Warning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name": "rs-0", "version": "7.0.0",
+				"name": "rs-0", "processType": "mongod", "version": "7.0.0",
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
 				},
 			},
 			map[string]interface{}{
-				"name": "rs-1", "version": "8.0.0",
+				"name": "rs-1", "processType": "mongod", "version": "8.0.0",
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -848,8 +816,8 @@ func TestValidation_VersionConsistency_Warning(t *testing.T) {
 			map[string]interface{}{
 				"_id": "my-rs", "protocolVersion": "1",
 				"members": []interface{}{
-					map[string]interface{}{"host": "rs-0"},
-					map[string]interface{}{"host": "rs-1"},
+					map[string]interface{}{"host": "rs-0", "tags": map[string]string{}},
+					map[string]interface{}{"host": "rs-1", "tags": map[string]string{}},
 				},
 			},
 		},
@@ -877,20 +845,12 @@ func TestValidation_VersionConsistency_NoWarning(t *testing.T) {
 	}
 }
 
-func TestValidation_HeterogeneousAgentConfig_Warning(t *testing.T) {
+func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name": "rs-0", "version": "7.0.0",
-				"logRotate": map[string]interface{}{"sizeThresholdMB": 1000, "timeThresholdHrs": 24},
-				"args2_6": map[string]interface{}{
-					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
-					"replication": map[string]interface{}{"replSetName": "my-rs"},
-				},
-			},
-			map[string]interface{}{
-				"name": "rs-1", "version": "7.0.0",
-				"logRotate": map[string]interface{}{"sizeThresholdMB": 2000, "timeThresholdHrs": 24},
+				"name": "rs-0", "processType": "mongod", "version": "7.0.0",
+				"logRotate": map[string]interface{}{"sizeThresholdMB": 500, "timeThresholdHrs": 12},
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
 					"replication": map[string]interface{}{"replSetName": "my-rs"},
@@ -901,87 +861,34 @@ func TestValidation_HeterogeneousAgentConfig_Warning(t *testing.T) {
 			map[string]interface{}{
 				"_id": "my-rs", "protocolVersion": "1",
 				"members": []interface{}{
-					map[string]interface{}{"host": "rs-0"},
-					map[string]interface{}{"host": "rs-1"},
+					map[string]interface{}{"host": "rs-0", "tags": map[string]string{}},
 				},
 			},
 		},
 		"sharding": []interface{}{},
 	})
 
-	results := ValidateMigration(ac, nil, nil)
+	projectProcessConfigs := &ProjectProcessConfigs{
+		SystemLogRotate: &automationconfig.AcLogRotate{
+			LogRotate: automationconfig.LogRotate{
+				TimeThresholdHrs: 24,
+				NumUncompressed:  5,
+				NumTotal:         10,
+			},
+			SizeThresholdMB:    1000,
+			PercentOfDiskspace: 0.02,
+		},
+	}
+
+	results := ValidateMigration(ac, nil, projectProcessConfigs)
 	hasWarning := false
 	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "logRotate") && strings.Contains(r.Message, "sizeThresholdMB") {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "logRotate") && strings.Contains(r.Message, "differs from project-level") {
 			hasWarning = true
 		}
 	}
-	assert.True(t, hasWarning, "expected warning when logRotate.sizeThresholdMB differs between members")
+	assert.True(t, hasWarning, "expected warning when per-process logRotate differs from project-level setting")
 }
 
-func TestValidation_AgentConfigPresentOnSomeOnly_Warning(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{
-			map[string]interface{}{
-				"name": "rs-0", "version": "7.0.0",
-				"logRotate": map[string]interface{}{"sizeThresholdMB": 1000, "timeThresholdHrs": 24},
-				"args2_6": map[string]interface{}{
-					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
-					"replication": map[string]interface{}{"replSetName": "my-rs"},
-				},
-			},
-			map[string]interface{}{
-				"name": "rs-1", "version": "7.0.0",
-				"args2_6": map[string]interface{}{
-					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
-					"replication": map[string]interface{}{"replSetName": "my-rs"},
-				},
-			},
-		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
-				"_id": "my-rs", "protocolVersion": "1",
-				"members": []interface{}{
-					map[string]interface{}{"host": "rs-0"},
-					map[string]interface{}{"host": "rs-1"},
-				},
-			},
-		},
-		"sharding": []interface{}{},
-	})
 
-	results := ValidateMigration(ac, nil, nil)
-	hasWarning := false
-	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "logRotate") && strings.Contains(r.Message, "not all") {
-			hasWarning = true
-		}
-	}
-	assert.True(t, hasWarning, "expected warning when logRotate is present on some processes but not all")
-}
-
-func TestValidation_DuplicateProcessName(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{
-			map[string]interface{}{"name": "dup-host", "version": "7.0.0"},
-			map[string]interface{}{"name": "dup-host", "version": "7.0.0"},
-		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
-				"_id": "my-rs", "protocolVersion": "1",
-				"members": []interface{}{map[string]interface{}{"host": "dup-host"}},
-			},
-		},
-		"sharding": []interface{}{},
-	})
-
-	results := ValidateMigration(ac, nil, nil)
-	hasError := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "duplicate process name") {
-			hasError = true
-		}
-	}
-	assert.True(t, hasError, "expected error when duplicate process names exist")
-}
 

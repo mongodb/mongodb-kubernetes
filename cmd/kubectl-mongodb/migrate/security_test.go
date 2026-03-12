@@ -776,7 +776,7 @@ func TestExtractAgentConfig_LogRotateFromEndpoint(t *testing.T) {
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
-	configs := &AgentConfigs{
+	projectProcessConfigs := &ProjectProcessConfigs{
 		SystemLogRotate: &automationconfig.AcLogRotate{
 			LogRotate: automationconfig.LogRotate{
 				TimeThresholdHrs: 24,
@@ -786,7 +786,7 @@ func TestExtractAgentConfig_LogRotateFromEndpoint(t *testing.T) {
 		},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members, configs)
+	agentConfig, err := extractAgentConfig(processMap, members, nil, projectProcessConfigs)
 	require.NoError(t, err)
 	require.NotNil(t, agentConfig.Mongod.LogRotate)
 	assert.Equal(t, "1000", agentConfig.Mongod.LogRotate.SizeThresholdMB)
@@ -801,7 +801,7 @@ func TestExtractAgentConfig_AuditLogRotateFromEndpoint(t *testing.T) {
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
-	configs := &AgentConfigs{
+	projectProcessConfigs := &ProjectProcessConfigs{
 		AuditLogRotate: &automationconfig.AcLogRotate{
 			LogRotate: automationconfig.LogRotate{
 				TimeThresholdHrs: 48,
@@ -810,7 +810,7 @@ func TestExtractAgentConfig_AuditLogRotateFromEndpoint(t *testing.T) {
 		},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members, configs)
+	agentConfig, err := extractAgentConfig(processMap, members, nil, projectProcessConfigs)
 	require.NoError(t, err)
 	require.NotNil(t, agentConfig.Mongod.AuditLogRotate)
 	assert.Equal(t, "500", agentConfig.Mongod.AuditLogRotate.SizeThresholdMB)
@@ -825,7 +825,7 @@ func TestExtractAgentConfig_NilAgentConfigs(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members, nil)
+	agentConfig, err := extractAgentConfig(processMap, members, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, agentConfig.Mongod.LogRotate)
 	assert.Nil(t, agentConfig.Mongod.AuditLogRotate)
@@ -838,7 +838,7 @@ func TestExtractAgentConfig_MissingProcess(t *testing.T) {
 		{"host": "missing-host"},
 	}
 
-	_, err := extractAgentConfig(processMap, members, nil)
+	_, err := extractAgentConfig(processMap, members, nil, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -850,12 +850,12 @@ func TestExtractAgentConfig_EmptyEndpointData(t *testing.T) {
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
-	configs := &AgentConfigs{
+	projectProcessConfigs := &ProjectProcessConfigs{
 		SystemLogRotate: &automationconfig.AcLogRotate{},
 		AuditLogRotate:  &automationconfig.AcLogRotate{},
 	}
 
-	cfg, err := extractAgentConfig(processMap, members, configs)
+	cfg, err := extractAgentConfig(processMap, members, nil, projectProcessConfigs)
 	assert.NoError(t, err)
 	assert.Nil(t, cfg.Mongod.LogRotate)
 	assert.Nil(t, cfg.Mongod.AuditLogRotate)
@@ -877,7 +877,7 @@ func TestExtractAgentConfig_SystemLog(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members, nil)
+	agentConfig, err := extractAgentConfig(processMap, members, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, agentConfig.Mongod.SystemLog)
 	assert.Equal(t, "file", string(agentConfig.Mongod.SystemLog.Destination))
@@ -893,7 +893,7 @@ func TestExtractAgentConfig_SystemLogNoArgs(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members, nil)
+	agentConfig, err := extractAgentConfig(processMap, members, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, agentConfig.Mongod.SystemLog)
 }
@@ -912,7 +912,7 @@ func TestExtractAgentConfig_SystemLogAndLogRotate(t *testing.T) {
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
-	configs := &AgentConfigs{
+	projectProcessConfigs := &ProjectProcessConfigs{
 		SystemLogRotate: &automationconfig.AcLogRotate{
 			LogRotate: automationconfig.LogRotate{
 				TimeThresholdHrs: 24,
@@ -921,7 +921,7 @@ func TestExtractAgentConfig_SystemLogAndLogRotate(t *testing.T) {
 		},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members, configs)
+	agentConfig, err := extractAgentConfig(processMap, members, nil, projectProcessConfigs)
 	require.NoError(t, err)
 	require.NotNil(t, agentConfig.Mongod.SystemLog)
 	assert.Equal(t, "syslog", string(agentConfig.Mongod.SystemLog.Destination))
@@ -955,7 +955,7 @@ func TestExtractAgentConfig_SystemLogIntersectsAcrossMembers(t *testing.T) {
 		{"host": "host-1"},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members, nil)
+	agentConfig, err := extractAgentConfig(processMap, members, nil, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, agentConfig.Mongod.SystemLog)
@@ -971,7 +971,7 @@ func TestExtractAgentConfig_MonitoringLogRotateFromEndpoint(t *testing.T) {
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
-	configs := &AgentConfigs{
+	projectAgentConfigs := &ProjectAgentConfigs{
 		MonitoringConfig: &om.MonitoringAgentConfig{
 			MonitoringAgentTemplate: &om.MonitoringAgentTemplate{},
 			BackingMap: map[string]interface{}{
@@ -983,7 +983,7 @@ func TestExtractAgentConfig_MonitoringLogRotateFromEndpoint(t *testing.T) {
 		},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members, configs)
+	agentConfig, err := extractAgentConfig(processMap, members, projectAgentConfigs, nil)
 	require.NoError(t, err)
 	require.NotNil(t, agentConfig.MonitoringAgent.LogRotate)
 	assert.Equal(t, 500, agentConfig.MonitoringAgent.LogRotate.SizeThresholdMB)
@@ -998,7 +998,7 @@ func TestExtractAgentConfig_MonitoringLogRotateNil(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members, nil)
+	agentConfig, err := extractAgentConfig(processMap, members, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, agentConfig.MonitoringAgent.LogRotate)
 }
@@ -1010,14 +1010,14 @@ func TestExtractAgentConfig_MonitoringLogRotateEmpty(t *testing.T) {
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
-	configs := &AgentConfigs{
+	projectAgentConfigs := &ProjectAgentConfigs{
 		MonitoringConfig: &om.MonitoringAgentConfig{
 			MonitoringAgentTemplate: &om.MonitoringAgentTemplate{},
 			BackingMap:              map[string]interface{}{},
 		},
 	}
 
-	agentConfig, err := extractAgentConfig(processMap, members, configs)
+	agentConfig, err := extractAgentConfig(processMap, members, projectAgentConfigs, nil)
 	require.NoError(t, err)
 	assert.Nil(t, agentConfig.MonitoringAgent.LogRotate)
 }

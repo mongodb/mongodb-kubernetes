@@ -68,8 +68,8 @@
     {
       "_id": "allow-rs",
       "members": [
-        {"_id": 0, "host": "allow-rs-0", "priority": 1, "votes": 1},
-        {"_id": 1, "host": "allow-rs-1", "priority": 1, "votes": 1}
+        {"_id": 0, "host": "allow-rs-0", "priority": 1, "votes": 1, "tags": {}},
+        {"_id": 1, "host": "allow-rs-1", "priority": 1, "votes": 1, "tags": {}}
       ],
       "protocolVersion": "1"
     }

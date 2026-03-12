@@ -26,6 +26,7 @@ spec:
     processName: member-rs-2
     replicaSetName: member-rs
     type: mongod
+  featureCompatibilityVersion: "8.0"
   memberConfig:
   - priority: "0"
     tags:

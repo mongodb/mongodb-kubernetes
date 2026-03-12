@@ -81,9 +81,9 @@
     {
       "_id": "scram-rs",
       "members": [
-        {"_id": 0, "host": "scram-rs-0", "priority": 2, "votes": 1},
-        {"_id": 1, "host": "scram-rs-1", "priority": 1, "votes": 1},
-        {"_id": 2, "host": "scram-rs-2", "priority": 1, "votes": 1}
+        {"_id": 0, "host": "scram-rs-0", "priority": 2, "votes": 1, "tags": {}},
+        {"_id": 1, "host": "scram-rs-1", "priority": 1, "votes": 1, "tags": {}},
+        {"_id": 2, "host": "scram-rs-2", "priority": 1, "votes": 1, "tags": {}}
       ],
       "protocolVersion": "1"
     }

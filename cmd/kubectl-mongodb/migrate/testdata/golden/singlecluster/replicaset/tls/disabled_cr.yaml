@@ -26,6 +26,7 @@ spec:
     processName: notls-rs-2
     replicaSetName: notls-rs
     type: mongod
+  featureCompatibilityVersion: "8.0"
   memberConfig:
   - priority: "0"
     votes: 0

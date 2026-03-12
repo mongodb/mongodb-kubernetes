@@ -3,9 +3,9 @@ package migrate
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
-	"github.com/spf13/cast"
 	corev1 "k8s.io/api/core/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
@@ -144,7 +144,7 @@ func mapMechanismToAuthMode(mech string) (mdbv1.AuthMode, bool) {
 	switch mech {
 	case util.AutomationConfigScramSha1Option, // "MONGODB-CR"
 		util.AutomationConfigScramSha256Option, // "SCRAM-SHA-256"
-		util.SCRAMSHA1:                          // "SCRAM-SHA-1"
+		util.SCRAMSHA1:                         // "SCRAM-SHA-1"
 		return mdbv1.AuthMode(mech), true
 	case util.AutomationConfigX509Option: // "MONGODB-X509" → CR "X509"
 		return mdbv1.AuthMode(util.X509), true
@@ -234,41 +234,36 @@ func extractCustomRoles(d om.Deployment) []mdbv1.MongoDBRole {
 // extractPrometheusConfig reads the Prometheus section from the deployment
 // and maps it to the CR's spec.prometheus block.
 func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
-	promMap := maputil.ReadMapValueAsMap(d, "prometheus")
-	if promMap == nil {
+	acProm := d.GetPrometheus()
+	if acProm == nil || !acProm.Enabled {
 		return nil, nil
 	}
 
-	if !cast.ToBool(promMap["enabled"]) {
-		return nil, nil
-	}
-
-	username := cast.ToString(promMap["username"])
-	if username == "" {
+	if acProm.Username == "" {
 		return nil, fmt.Errorf("prometheus is enabled but has no username configured")
 	}
 
 	prom := &mdbcv1.Prometheus{
-		Username: username,
+		Username: acProm.Username,
 		PasswordSecretRef: mdbcv1.SecretKeyReference{
 			Name: PrometheusPasswordSecretName,
 			Key:  "password",
 		},
 	}
 
-	if listenAddr := cast.ToString(promMap["listenAddress"]); listenAddr != "" {
-		port := parsePortFromListenAddress(listenAddr)
+	if acProm.ListenAddress != "" {
+		port := parsePortFromListenAddress(acProm.ListenAddress)
 		if port <= 0 {
-			return nil, fmt.Errorf("prometheus listenAddress %q does not contain a valid port", listenAddr)
+			return nil, fmt.Errorf("prometheus listenAddress %q does not contain a valid port", acProm.ListenAddress)
 		}
 		prom.Port = port
 	}
 
-	if metricsPath := cast.ToString(promMap["metricsPath"]); metricsPath != "" && metricsPath != "/metrics" {
-		prom.MetricsPath = metricsPath
+	if acProm.MetricsPath != "" && acProm.MetricsPath != "/metrics" {
+		prom.MetricsPath = acProm.MetricsPath
 	}
 
-	if cast.ToString(promMap["scheme"]) == "https" {
+	if acProm.Scheme == "https" {
 		prom.TLSSecretRef = mdbcv1.SecretKeyReference{Name: PrometheusTLSSecretName}
 	}
 
@@ -279,18 +274,17 @@ func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 // enabled with a username configured (i.e. the generated CR will reference
 // a prometheus-password Secret).
 func IsPrometheusEnabled(d om.Deployment) bool {
-	promMap := maputil.ReadMapValueAsMap(d, "prometheus")
-	if promMap == nil {
-		return false
-	}
-	return cast.ToBool(promMap["enabled"]) && cast.ToString(promMap["username"]) != ""
+	acProm := d.GetPrometheus()
+	return acProm != nil && acProm.Enabled && acProm.Username != ""
 }
 
 func parsePortFromListenAddress(addr string) int {
+	s := addr
 	if i := strings.LastIndex(addr, ":"); i >= 0 {
-		return cast.ToInt(addr[i+1:])
+		s = addr[i+1:]
 	}
-	return cast.ToInt(addr)
+	port, _ := strconv.Atoi(s)
+	return port
 }
 
 func isLdapConfigured(l *ldap.Ldap) bool {
@@ -581,12 +575,11 @@ func extractNonDefaultTLSMode(args map[string]interface{}, config *mdbv1.Additio
 	return true
 }
 
-// extractAgentConfig reads logRotate and auditLogRotate from the deployment-level
-// OM API endpoints (systemLogRotateConfig, auditLogRotateConfig), monitoring agent
-// logRotate from the monitoringAgentConfig endpoint, and systemLog from processes.
-// On VMs these settings can differ per-host, but the OM endpoints return the
-// deployment-level values that the operator writes back uniformly.
-func extractAgentConfig(processMap map[string]om.Process, members []om.ReplicaSetMember, configs *AgentConfigs) (mdbv1.AgentConfig, error) {
+// extractAgentConfig reads logRotate and auditLogRotate from the project-level
+// OM API endpoints, monitoring agent logRotate from the monitoringAgentConfig
+// endpoint, and systemLog from processes. The project-level settings are applied
+// uniformly by the operator.
+func extractAgentConfig(processMap map[string]om.Process, members []om.ReplicaSetMember, projectAgentConfigs *ProjectAgentConfigs, projectProcessConfigs *ProjectProcessConfigs) (mdbv1.AgentConfig, error) {
 	if len(members) == 0 {
 		return mdbv1.AgentConfig{}, nil
 	}
@@ -601,7 +594,7 @@ func extractAgentConfig(processMap map[string]om.Process, members []om.ReplicaSe
 			return mdbv1.AgentConfig{}, fmt.Errorf("process %q referenced by member at index %d not found", host, i)
 		}
 
-		sysLog := maputil.ReadMapValueAsMap(proc.Args(), "systemLog")
+		sysLog := proc.SystemLogMap()
 		if len(sysLog) > 0 {
 			systemLogMaps = append(systemLogMaps, sysLog)
 		} else {
@@ -611,10 +604,12 @@ func extractAgentConfig(processMap map[string]om.Process, members []om.ReplicaSe
 
 	var agentConfig mdbv1.AgentConfig
 
-	if configs != nil {
-		agentConfig.Mongod.LogRotate = crdLogRotateFromAc(configs.SystemLogRotate)
-		agentConfig.Mongod.AuditLogRotate = crdLogRotateFromAc(configs.AuditLogRotate)
-		agentConfig.MonitoringAgent.LogRotate = monitoringLogRotateFromMap(configs.MonitoringConfig)
+	if projectProcessConfigs != nil {
+		agentConfig.Mongod.LogRotate = crdLogRotateFromAc(projectProcessConfigs.SystemLogRotate)
+		agentConfig.Mongod.AuditLogRotate = crdLogRotateFromAc(projectProcessConfigs.AuditLogRotate)
+	}
+	if projectAgentConfigs != nil {
+		agentConfig.MonitoringAgent.LogRotate = monitoringLogRotateFromConfig(projectAgentConfigs.MonitoringConfig)
 	}
 
 	if allHaveSL && len(systemLogMaps) > 0 {
@@ -625,25 +620,11 @@ func extractAgentConfig(processMap map[string]om.Process, members []om.ReplicaSe
 	return agentConfig, nil
 }
 
-// monitoringLogRotateFromMap extracts logRotate from the monitoringAgentConfig
-// endpoint response and returns it as a LogRotateForBackupAndMonitoring.
-func monitoringLogRotateFromMap(config *om.MonitoringAgentConfig) *mdbv1.LogRotateForBackupAndMonitoring {
+func monitoringLogRotateFromConfig(config *om.MonitoringAgentConfig) *mdbv1.LogRotateForBackupAndMonitoring {
 	if config == nil {
 		return nil
 	}
-	lr, ok := config.BackingMap["logRotate"].(map[string]interface{})
-	if !ok || len(lr) == 0 {
-		return nil
-	}
-	size := cast.ToInt(lr["sizeThresholdMB"])
-	timeHrs := cast.ToInt(lr["timeThresholdHrs"])
-	if size == 0 && timeHrs == 0 {
-		return nil
-	}
-	return &mdbv1.LogRotateForBackupAndMonitoring{
-		SizeThresholdMB:  size,
-		TimeThresholdHrs: timeHrs,
-	}
+	return config.ReadLogRotate()
 }
 
 // crdLogRotateFromAc converts an AcLogRotate (agent representation with float64
@@ -652,28 +633,9 @@ func crdLogRotateFromAc(ac *automationconfig.AcLogRotate) *automationconfig.CrdL
 	if ac == nil || (ac.SizeThresholdMB == 0 && ac.TimeThresholdHrs == 0) {
 		return nil
 	}
-	return &automationconfig.CrdLogRotate{
-		LogRotate:          ac.LogRotate,
-		SizeThresholdMB:    cast.ToString(ac.SizeThresholdMB),
-		PercentOfDiskspace: cast.ToString(ac.PercentOfDiskspace),
-	}
+	return automationconfig.ConvertACLogRotateToCrd(ac)
 }
 
-// systemLogFromMap reconstructs a SystemLog from an intersected config map.
 func systemLogFromMap(m map[string]interface{}) *automationconfig.SystemLog {
-	if len(m) == 0 {
-		return nil
-	}
-	dest := cast.ToString(m["destination"])
-	logPath := cast.ToString(m["path"])
-	if dest == "" && logPath == "" {
-		return nil
-	}
-
-	return &automationconfig.SystemLog{
-		Destination: automationconfig.Destination(dest),
-		Path:        logPath,
-		LogAppend:   cast.ToBool(m["logAppend"]),
-	}
+	return automationconfig.SystemLogFromMap(m)
 }
-

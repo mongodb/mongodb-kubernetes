@@ -1,11 +1,9 @@
 package migrate
 
 import (
-	"encoding/json"
 	"fmt"
-	"sort"
-
-	"github.com/spf13/cast"
+	"maps"
+	"slices"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -42,23 +40,17 @@ var (
 // with operator defaults or are unsupported by the migration tool. Each category
 // is validated independently; structural errors in one category do not block
 // validation of others.
-func ValidateMigration(ac *om.AutomationConfig, monitoringConfig *om.MonitoringAgentConfig, backupConfig *om.BackupAgentConfig) []ValidationResult {
+func ValidateMigration(ac *om.AutomationConfig, projectAgentConfigs *ProjectAgentConfigs, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
 	var results []ValidationResult
 
-	processMap, err := buildProcessMap(ac.Deployment.GetProcesses())
-	if err != nil {
-		results = append(results, ValidationResult{
-			Severity: SeverityError,
-			Message:  fmt.Sprintf("cannot build process map: %v", err),
-		})
-	}
+	processMap := ac.Deployment.ProcessMap()
 	results = append(results, validateAuth(ac.Auth)...)
 	results = append(results, validateTLS(ac.AgentSSL)...)
-	results = append(results, validateAgentConfig(monitoringConfig, backupConfig)...)
+	results = append(results, validateAgentConfig(projectAgentConfigs)...)
 	results = append(results, validateLDAP(ac.Ldap)...)
 	results = append(results, validateProjectOptions(ac.Deployment)...)
 	results = append(results, validateProcessConfig(ac.Deployment, processMap)...)
-	results = append(results, validateReplicaSetConfig(ac.Deployment, processMap)...)
+	results = append(results, validateReplicaSetConfig(ac.Deployment, processMap, projectProcessConfigs)...)
 	return results
 }
 
@@ -74,22 +66,18 @@ func validateAuth(auth *om.Auth) []ValidationResult {
 	if auth.AutoUser == "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityError,
-			Message:  "auth.autoUser is empty but auth is enabled; the operator requires an automation agent user",
+			Message:  "auth.autoUser is empty; the operator requires an automation agent user when auth is enabled",
 		})
 	} else if auth.AutoAuthMechanism != "MONGODB-X509" {
 		// X509 agents authenticate with their certificate subject DN,
 		// not a database user in usersWanted.
-		found := false
-		for _, u := range auth.Users {
-			if u != nil && u.Username == auth.AutoUser && u.Database == util.DefaultUserDatabase {
-				found = true
-				break
-			}
-		}
-		if !found {
+		hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
+			return u != nil && u.Username == auth.AutoUser && u.Database == util.DefaultUserDatabase
+		})
+		if !hasMatchingUser {
 			results = append(results, ValidationResult{
 				Severity: SeverityError,
-				Message:  fmt.Sprintf("auth.autoUser is %q but no matching entry exists in auth.usersWanted (db: %q); the automation agent will fail to authenticate after migration", auth.AutoUser, util.DefaultUserDatabase),
+				Message:  fmt.Sprintf("auth.autoUser=%q has no matching entry in auth.usersWanted (db: %q); agent auth will fail after migration", auth.AutoUser, util.DefaultUserDatabase),
 			})
 		}
 	}
@@ -97,13 +85,13 @@ func validateAuth(auth *om.Auth) []ValidationResult {
 	if auth.KeyFile != "" && auth.KeyFile != defaultKeyFile {
 		results = append(results, ValidationResult{
 			Severity: SeverityError,
-			Message:  fmt.Sprintf("auth.keyFile is %q but the operator defaults to %q; this is not yet configurable through the generated CR", auth.KeyFile, defaultKeyFile),
+			Message:  fmt.Sprintf("auth.keyFile=%q differs from operator default %q; not configurable via CR", auth.KeyFile, defaultKeyFile),
 		})
 	}
 	if auth.KeyFileWindows != "" && auth.KeyFileWindows != defaultKeyFileWindows {
 		results = append(results, ValidationResult{
 			Severity: SeverityError,
-			Message:  fmt.Sprintf("auth.keyFileWindows is %q but the operator defaults to %q; this is not yet configurable through the generated CR", auth.KeyFileWindows, defaultKeyFileWindows),
+			Message:  fmt.Sprintf("auth.keyFileWindows=%q differs from operator default %q; not configurable via CR", auth.KeyFileWindows, defaultKeyFileWindows),
 		})
 	}
 
@@ -122,13 +110,13 @@ func validateTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL.AutoPEMKeyFilePath != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("tls.autoPEMKeyFilePath is %q; the operator will overwrite this path automatically during reconciliation", agentSSL.AutoPEMKeyFilePath),
+			Message:  fmt.Sprintf("tls.autoPEMKeyFilePath=%q will be overwritten by the operator during reconciliation", agentSSL.AutoPEMKeyFilePath),
 		})
 	}
 	if agentSSL.CAFilePath != "" && agentSSL.CAFilePath != defaultCAFilePath {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("tls.CAFilePath is %q but the operator defaults to %q; the operator will overwrite this path during reconciliation", agentSSL.CAFilePath, defaultCAFilePath),
+			Message:  fmt.Sprintf("tls.CAFilePath=%q differs from operator default %q and will be overwritten", agentSSL.CAFilePath, defaultCAFilePath),
 		})
 	}
 
@@ -137,25 +125,29 @@ func validateTLS(agentSSL *om.AgentSSL) []ValidationResult {
 
 // validateAgentConfig checks monitoring and backup agent log paths against
 // operator-hardcoded defaults.
-func validateAgentConfig(monitoringConfig *om.MonitoringAgentConfig, backupConfig *om.BackupAgentConfig) []ValidationResult {
+func validateAgentConfig(configs *ProjectAgentConfigs) []ValidationResult {
+	if configs == nil {
+		return nil
+	}
+
 	var results []ValidationResult
 
-	if monitoringConfig != nil {
-		logPath := cast.ToString(monitoringConfig.BackingMap["logPath"])
+	if configs.MonitoringConfig != nil {
+		logPath := configs.MonitoringConfig.LogPath()
 		if logPath != "" && logPath != defaultMonitoringAgentLogPath {
 			results = append(results, ValidationResult{
 				Severity: SeverityError,
-				Message:  fmt.Sprintf("monitoringAgentConfig.logPath is %q but the operator defaults to %q; spec.agent.monitoringAgent.logFilePath is not yet available", logPath, defaultMonitoringAgentLogPath),
+				Message:  fmt.Sprintf("monitoringAgentConfig.logPath=%q differs from operator default %q; not configurable via CR", logPath, defaultMonitoringAgentLogPath),
 			})
 		}
 	}
 
-	if backupConfig != nil {
-		logPath := cast.ToString(backupConfig.BackingMap["logPath"])
+	if configs.BackupConfig != nil {
+		logPath := configs.BackupConfig.LogPath()
 		if logPath != "" && logPath != defaultBackupAgentLogPath {
 			results = append(results, ValidationResult{
 				Severity: SeverityError,
-				Message:  fmt.Sprintf("backupAgentConfig.logPath is %q but the operator defaults to %q; spec.agent.backupAgent.logFilePath is not yet available", logPath, defaultBackupAgentLogPath),
+				Message:  fmt.Sprintf("backupAgentConfig.logPath=%q differs from operator default %q; not configurable via CR", logPath, defaultBackupAgentLogPath),
 			})
 		}
 	}
@@ -176,13 +168,13 @@ func validateLDAP(l *ldap.Ldap) []ValidationResult {
 	if l.BindMethod != "" && l.BindMethod != "simple" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("LDAP bindMethod is %q but the operator hardcodes \"simple\"; the bind method will change after migration", l.BindMethod),
+			Message:  fmt.Sprintf("LDAP bindMethod=%q will change to \"simple\" (operator default) after migration", l.BindMethod),
 		})
 	}
 	if l.CaFileContents != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  "LDAP CA certificate contents found in automation config; you must create a ConfigMap named \"ldap-ca\" with key \"ca.pem\" containing the CA certificate before applying the generated CR",
+			Message:  "LDAP CA certificate found; create ConfigMap \"ldap-ca\" with key \"ca.pem\" before applying the CR",
 		})
 	}
 
@@ -192,11 +184,11 @@ func validateLDAP(l *ldap.Ldap) []ValidationResult {
 // validateProjectOptions checks project-level AC fields (e.g. downloadBase)
 // against operator-hardcoded defaults.
 func validateProjectOptions(d om.Deployment) []ValidationResult {
-	downloadBase := maputil.ReadMapValueAsString(d, "options", "downloadBase")
-	if downloadBase != "" && downloadBase != defaultDownloadBase {
+	downloadBase := d.DownloadBase()
+	if downloadBase != defaultDownloadBase {
 		return []ValidationResult{{
 			Severity: SeverityError,
-			Message:  fmt.Sprintf("options.downloadBase is %q but the operator defaults to %q; spec.downloadBase is not yet available", downloadBase, defaultDownloadBase),
+			Message:  fmt.Sprintf("options.downloadBase=%q differs from operator default %q; not configurable via CR", downloadBase, defaultDownloadBase),
 		}}
 	}
 	return nil
@@ -208,7 +200,6 @@ func validateProcessConfig(d om.Deployment, processMap map[string]om.Process) []
 	var results []ValidationResult
 
 	results = append(results, checkProcessesAreValid(d)...)
-	results = append(results, checkProcessesHaveVersion(d, processMap)...)
 	results = append(results, checkAuthSchemaVersion(d)...)
 	results = append(results, checkNonDefaultDbPath(d, processMap)...)
 	results = append(results, checkTLSAllowMode(d)...)
@@ -220,8 +211,8 @@ func validateProcessConfig(d om.Deployment, processMap map[string]om.Process) []
 
 // validateReplicaSetConfig checks replica set topology: single deployment per
 // project, protocol version, member→process references, and member-level fields
-// that are preserved or lost during migration (slaveDelay, hidden, horizons).
-func validateReplicaSetConfig(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+// that are preserved or lost during migration (slaveDelay, hidden).
+func validateReplicaSetConfig(d om.Deployment, processMap map[string]om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
 	var results []ValidationResult
 
 	results = append(results, checkOneDeploymentPerProject(d)...)
@@ -229,7 +220,7 @@ func validateReplicaSetConfig(d om.Deployment, processMap map[string]om.Process)
 	results = append(results, checkReplicaSetProtocolVersion(d)...)
 	results = append(results, checkMembersReferenceProcesses(d, processMap)...)
 	results = append(results, checkHeterogeneousProcessConfig(d, processMap)...)
-	results = append(results, checkHeterogeneousAgentConfig(d, processMap)...)
+	results = append(results, checkProcessConfigDrift(d, processMap, projectProcessConfigs)...)
 	results = append(results, checkVersionConsistency(d, processMap)...)
 	results = append(results, checkMemberPreservedFields(d)...)
 
@@ -246,69 +237,35 @@ func checkProcessesAreValid(d om.Deployment) []ValidationResult {
 	}
 
 	var results []ValidationResult
-	for i, proc := range processes {
-		name := cast.ToString(proc["name"])
-		if name == "" {
-			results = append(results, ValidationResult{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("process at index %d has no name field", i),
-			})
-			continue
-		}
+	for _, proc := range processes {
+		name := proc.Name()
 
-		pt := cast.ToString(proc["processType"])
-		if pt != "" && pt != "mongod" {
+		if proc.ProcessType() != om.ProcessTypeMongod {
 			results = append(results, ValidationResult{
 				Severity: SeverityError,
-				Message:  fmt.Sprintf("process %q has processType %q but the migration tool only supports mongod replica set processes", name, pt),
+				Message:  fmt.Sprintf("process %q has processType=%q; only mongod replica set processes are supported", name, string(proc.ProcessType())),
 			})
 		}
 
-		if disabled, ok := proc["disabled"]; ok && cast.ToBool(disabled) {
+		if proc.IsDisabled() {
 			results = append(results, ValidationResult{
 				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("process %q is disabled in the automation config; it will be skipped during migration", name),
+				Message:  fmt.Sprintf("process %q is disabled and will be skipped", name),
 			})
 		}
 	}
 	return results
 }
 
-func checkProcessesHaveVersion(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
-	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 || processMap == nil {
-		return nil
-	}
-
-	for _, m := range replicaSets[0].Members() {
-		proc, ok := processMap[m.Name()]
-		if !ok {
-			continue
-		}
-		if cast.ToString(proc["version"]) != "" {
-			return nil
-		}
-	}
-
-	return []ValidationResult{{
-		Severity: SeverityError,
-		Message:  "no process in the first replica set has a version field; cannot determine MongoDB version",
-	}}
-}
-
 func checkAuthSchemaVersion(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, proc := range d.GetProcesses() {
-		name := cast.ToString(proc["name"])
-
-		if v, ok := proc["authSchemaVersion"]; ok {
-			asv := cast.ToInt(v)
-			if asv != 0 && asv != defaultAuthSchemaVersion {
-				results = append(results, ValidationResult{
-					Severity: SeverityError,
-					Message:  fmt.Sprintf("process %q has authSchemaVersion %d but the operator defaults to %d", name, asv, defaultAuthSchemaVersion),
-				})
-			}
+		asv := proc.AuthSchemaVersion()
+		if asv != defaultAuthSchemaVersion {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("process %q has authSchemaVersion=%d; operator default is %d", proc.Name(), asv, defaultAuthSchemaVersion),
+			})
 		}
 	}
 	return results
@@ -316,7 +273,7 @@ func checkAuthSchemaVersion(d om.Deployment) []ValidationResult {
 
 func checkNonDefaultDbPath(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
 	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 || processMap == nil {
+	if len(replicaSets) == 0 {
 		return nil
 	}
 
@@ -330,7 +287,7 @@ func checkNonDefaultDbPath(d om.Deployment, processMap map[string]om.Process) []
 		if dbPath != "" && dbPath != util.PvcMountPathData {
 			return []ValidationResult{{
 				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("process %q has storage.dbPath %q but the operator always uses %q; the dbPath will change when members transition to operator-managed", host, dbPath, util.PvcMountPathData),
+				Message:  fmt.Sprintf("process %q has dbPath=%q; operator uses %q — path changes when member becomes operator-managed", host, dbPath, util.PvcMountPathData),
 			}}
 		}
 	}
@@ -342,20 +299,16 @@ func checkTLSAllowMode(d om.Deployment) []ValidationResult {
 	noTLSReported := false
 
 	for _, proc := range d.GetProcesses() {
-		name := cast.ToString(proc["name"])
 		args := proc.Args()
-		if len(args) == 0 {
-			continue
-		}
 
 		if !hasTLSSection(args) || pkgtls.GetTLSModeFromMongodConfig(args) == pkgtls.Disabled {
 			if !noTLSReported {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("process %q has no TLS configured; add spec.additionalMongodConfig.net.tls.mode: \"disabled\" to the generated CR before applying — the operator sends \"disabled\" to Ops Manager when TLS is not configured, so leaving it unset (null) is inconsistent and will cause a deployment change", name),
+					Message:  fmt.Sprintf("process %q has no TLS; add net.tls.mode: \"disabled\" in spec.additionalMongodConfig to avoid deployment drift", proc.Name()),
 				}, ValidationResult{
 					Severity: SeverityWarning,
-					Message:  "spec.security.tls is not set because the source deployment does not use TLS; do not add spec.security.tls.enabled: true unless you intend to enable TLS on all members",
+					Message:  "spec.security.tls is not set; do not add tls.enabled: true unless you intend to enable TLS on all members",
 				})
 				noTLSReported = true
 			}
@@ -365,7 +318,7 @@ func checkTLSAllowMode(d om.Deployment) []ValidationResult {
 		if mode == pkgtls.Allow || mode == "allowSSL" {
 			results = append(results, ValidationResult{
 				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("process %q has TLS mode %q; the generated CR sets spec.security.tls.enabled with net.tls.mode in additionalMongodConfig to preserve this mode, but consider upgrading to requireTLS before migration", name, string(mode)),
+				Message:  fmt.Sprintf("process %q uses TLS mode %q; consider upgrading to \"requireTLS\" before migration", proc.Name(), string(mode)),
 			})
 		}
 	}
@@ -375,20 +328,12 @@ func checkTLSAllowMode(d om.Deployment) []ValidationResult {
 func checkTLSPaths(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, proc := range d.GetProcesses() {
-		name := cast.ToString(proc["name"])
-		net := maputil.ReadMapValueAsMap(proc.Args(), "net")
-		if net == nil {
-			continue
-		}
+		name := proc.Name()
+		sections := proc.NetTLSSections()
 
-		for _, tlsKey := range []string{"tls", "ssl"} {
-			tlsSection := maputil.ReadMapValueAsMap(net, tlsKey)
-			if tlsSection == nil {
-				continue
-			}
-
-			certKey := cast.ToString(tlsSection["certificateKeyFile"])
-			pemKey := cast.ToString(tlsSection["PEMKeyFile"])
+		for tlsKey, tlsSection := range sections {
+			certKey, _ := tlsSection["certificateKeyFile"].(string)
+			pemKey, _ := tlsSection["PEMKeyFile"].(string)
 
 			if certKey != "" && certKey != util.PEMKeyFilePathInContainer {
 				results = append(results, ValidationResult{
@@ -399,15 +344,15 @@ func checkTLSPaths(d om.Deployment) []ValidationResult {
 			if pemKey != "" && pemKey != util.PEMKeyFilePathInContainer {
 				results = append(results, ValidationResult{
 					Severity: SeverityError,
-					Message:  fmt.Sprintf("process %q has net.%s.PEMKeyFile %q but the operator defaults to %q; the certificate path will change after migration", name, tlsKey, pemKey, util.PEMKeyFilePathInContainer),
+					Message:  fmt.Sprintf("process %q has net.%s.PEMKeyFile=%q; operator default is %q", name, tlsKey, pemKey, util.PEMKeyFilePathInContainer),
 				})
 			}
 
 			expectedClusterFile := fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, name)
-			if clusterFile := cast.ToString(tlsSection["clusterFile"]); clusterFile != "" && clusterFile != expectedClusterFile {
+			if clusterFile, _ := tlsSection["clusterFile"].(string); clusterFile != "" && clusterFile != expectedClusterFile {
 				results = append(results, ValidationResult{
 					Severity: SeverityError,
-					Message:  fmt.Sprintf("process %q has net.%s.clusterFile %q but the operator defaults to %q; the cluster file path will change after migration", name, tlsKey, clusterFile, expectedClusterFile),
+					Message:  fmt.Sprintf("process %q has net.%s.clusterFile=%q; operator default is %q", name, tlsKey, clusterFile, expectedClusterFile),
 				})
 			}
 		}
@@ -418,12 +363,11 @@ func checkTLSPaths(d om.Deployment) []ValidationResult {
 func checkShardingClusterRole(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, proc := range d.GetProcesses() {
-		name := cast.ToString(proc["name"])
-		role := maputil.ReadMapValueAsString(proc.Args(), "sharding", "clusterRole")
+		role := proc.ShardingClusterRole()
 		if role != "" {
 			results = append(results, ValidationResult{
 				Severity: SeverityError,
-				Message:  fmt.Sprintf("process %q has sharding.clusterRole %q; the migration tool only supports standalone replica sets, not config server or shard replica sets", name, role),
+				Message:  fmt.Sprintf("process %q has sharding.clusterRole=%q; only standalone replica sets are supported", proc.Name(), role),
 			})
 		}
 	}
@@ -437,7 +381,7 @@ func checkOneDeploymentPerProject(d om.Deployment) []ValidationResult {
 	}
 	return []ValidationResult{{
 		Severity: SeverityError,
-		Message:  fmt.Sprintf("project contains %d deployments but the operator requires exactly one deployment per Ops Manager project; split the project before migrating", count),
+		Message:  fmt.Sprintf("project contains %d deployments; operator requires exactly one per project — split before migrating", count),
 	}}
 }
 
@@ -465,7 +409,7 @@ func checkReplicaSetsExist(d om.Deployment) []ValidationResult {
 	if len(d.GetReplicaSets()) == 0 {
 		return []ValidationResult{{
 			Severity: SeverityError,
-			Message:  "automation config contains no replicaSets; only replica set deployments can be migrated",
+			Message:  "no replicaSets found; only replica set deployments can be migrated",
 		}}
 	}
 	return nil
@@ -475,11 +419,11 @@ func checkReplicaSetProtocolVersion(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, rs := range d.GetReplicaSets() {
 		rsID := rs.Name()
-		pv := cast.ToString(rs["protocolVersion"])
+		pv := rs.ProtocolVersion()
 		if pv != "" && pv != defaultProtocolVersion {
 			results = append(results, ValidationResult{
 				Severity: SeverityError,
-				Message:  fmt.Sprintf("replica set %q has protocolVersion %q but the operator only supports %q", rsID, pv, defaultProtocolVersion),
+				Message:  fmt.Sprintf("replica set %q has protocolVersion=%q; only %q is supported", rsID, pv, defaultProtocolVersion),
 			})
 		}
 	}
@@ -488,7 +432,7 @@ func checkReplicaSetProtocolVersion(d om.Deployment) []ValidationResult {
 
 func checkMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
 	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 || processMap == nil {
+	if len(replicaSets) == 0 {
 		return nil
 	}
 
@@ -500,7 +444,7 @@ func checkMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Pr
 		if len(members) == 0 {
 			results = append(results, ValidationResult{
 				Severity: SeverityError,
-				Message:  fmt.Sprintf("replica set %q has no members", rsID),
+				Message:  fmt.Sprintf("replica set %q has no members; cannot migrate an empty replica set", rsID),
 			})
 			continue
 		}
@@ -510,7 +454,7 @@ func checkMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Pr
 			if _, ok := processMap[host]; !ok {
 				results = append(results, ValidationResult{
 					Severity: SeverityError,
-					Message:  fmt.Sprintf("member %q in replica set %q references a process not found in the automation config", host, rsID),
+					Message:  fmt.Sprintf("member %q (rs %q) references a process not found in automation config", host, rsID),
 				})
 			}
 		}
@@ -530,7 +474,7 @@ func checkMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Pr
 // reconcile the processes before migration.
 func checkHeterogeneousProcessConfig(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
 	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 || processMap == nil {
+	if len(replicaSets) == 0 {
 		return nil
 	}
 
@@ -546,92 +490,63 @@ func checkHeterogeneousProcessConfig(d om.Deployment, processMap map[string]om.P
 		if !ok {
 			continue
 		}
-		args := proc.Args()
-		if len(args) == 0 {
-			continue
-		}
 		cfg := mdbv1.NewEmptyAdditionalMongodConfig()
+		args := proc.Args()
 		extractNetConfig(args, cfg)
 		extractStorageConfig(args, cfg)
 		extractReplicationConfig(args, cfg)
 		extractGenericSections(args, cfg)
 		extractNonDefaultTLSMode(args, cfg)
-		allFlat = append(allFlat, flattenConfigToKeyValues(cfg.ToMap(), ""))
+		allFlat = append(allFlat, maputil.ToFlatMap(cfg.ToMap()))
 	}
 
 	if len(allFlat) < 2 {
 		return nil
 	}
 
-	allKeys := collectAllKeys(allFlat)
-
 	var results []ValidationResult
-	for _, key := range allKeys {
-		if !isConsistentAcrossMembers(allFlat, key) {
-			results = append(results, ValidationResult{
-				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("additionalMongodConfig field %q differs between processes in the replica set; this field will be excluded from the generated CR because Kubernetes applies it uniformly to all members — reconcile the processes before migration or set it manually after", key),
-			})
-		}
+	for _, key := range findInconsistentKeys(allFlat) {
+		results = append(results, ValidationResult{
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("field %q differs across replica set members and will be excluded from the CR; reconcile before migration", key),
+		})
 	}
 	return results
 }
 
-// flattenConfigToKeyValues recursively walks a nested map and produces a flat
-// map of dotted keys to JSON-serialized leaf values (e.g. "storage.engine" → "\"inMemory\"").
-func flattenConfigToKeyValues(m map[string]interface{}, prefix string) map[string]string {
-	result := make(map[string]string)
-	for k, v := range m {
-		key := k
-		if prefix != "" {
-			key = prefix + "." + k
-		}
-		if sub, ok := v.(map[string]interface{}); ok {
-			for sk, sv := range flattenConfigToKeyValues(sub, key) {
-				result[sk] = sv
-			}
-		} else {
-			b, _ := json.Marshal(v)
-			result[key] = string(b)
-		}
-	}
-	return result
-}
-
-// collectAllKeys returns a sorted deduplicated list of all keys across all
-// flat config maps.
-func collectAllKeys(allFlat []map[string]string) []string {
+// findInconsistentKeys returns a sorted list of dotted keys whose serialized
+// values differ across the flat config maps. Keys that are absent in all maps
+// or identical everywhere are excluded.
+func findInconsistentKeys(allFlat []map[string]string) []string {
 	seen := map[string]bool{}
 	for _, flat := range allFlat {
 		for k := range flat {
 			seen[k] = true
 		}
 	}
-	keys := make([]string, 0, len(seen))
-	for k := range seen {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
 
-// isConsistentAcrossMembers returns true if every member has the same
-// serialized value for the given key (or the key is absent in all).
-func isConsistentAcrossMembers(allFlat []map[string]string, key string) bool {
-	var refVal string
-	refSet := false
-	for _, flat := range allFlat {
-		val, exists := flat[key]
-		if !refSet {
-			refVal = val
-			refSet = exists
-			continue
+	var inconsistent []string
+	for _, key := range slices.Sorted(maps.Keys(seen)) {
+		var refVal string
+		refSet := false
+		consistent := true
+		for _, flat := range allFlat {
+			val, exists := flat[key]
+			if !refSet {
+				refVal = val
+				refSet = exists
+				continue
+			}
+			if exists != refSet || val != refVal {
+				consistent = false
+				break
+			}
 		}
-		if exists != refSet || val != refVal {
-			return false
+		if !consistent {
+			inconsistent = append(inconsistent, key)
 		}
 	}
-	return true
+	return inconsistent
 }
 
 // checkVersionConsistency warns when members in the first replica set have
@@ -639,7 +554,7 @@ func isConsistentAcrossMembers(allFlat []map[string]string, key string) bool {
 // CR uses the version from the first member, so mismatches should be reconciled.
 func checkVersionConsistency(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
 	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 || processMap == nil {
+	if len(replicaSets) == 0 {
 		return nil
 	}
 
@@ -652,131 +567,72 @@ func checkVersionConsistency(d om.Deployment, processMap map[string]om.Process) 
 		if !ok {
 			continue
 		}
-		if v := cast.ToString(proc["version"]); v != "" {
-			versions[v] = true
-		}
-		if f := proc.FeatureCompatibilityVersion(); f != "" {
-			fcvs[f] = true
-		}
+		versions[proc.Version()] = true
+		fcvs[proc.FeatureCompatibilityVersion()] = true
 	}
 
 	var results []ValidationResult
 	if len(versions) > 1 {
-		keys := sortedMapKeys(versions)
+		keys := slices.Sorted(maps.Keys(versions))
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("members in the replica set have different MongoDB versions %v; the generated CR will use the version from the first member — reconcile versions before migration", keys),
+			Message:  fmt.Sprintf("members have different MongoDB versions %v; CR will use the first member's version — reconcile before migration", keys),
 		})
 	}
 	if len(fcvs) > 1 {
-		keys := sortedMapKeys(fcvs)
+		keys := slices.Sorted(maps.Keys(fcvs))
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("members in the replica set have different featureCompatibilityVersions %v; the generated CR will use the FCV from the first member", keys),
+			Message:  fmt.Sprintf("members have different FCVs %v; CR will use the first member's FCV", keys),
 		})
 	}
 	return results
 }
 
-func sortedMapKeys(m map[string]bool) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+// checkProcessConfigDrift warns when per-process logRotate or auditLogRotate
+// in the AC differs from the project-level values returned by the OM API. The
+// generated CR uses the project-level values, so any drift means the AC
+// processes have stale or manually edited settings.
+func checkProcessConfigDrift(d om.Deployment, processMap map[string]om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
+	if projectProcessConfigs == nil {
+		return nil
 	}
-	sort.Strings(keys)
-	return keys
-}
 
-// checkHeterogeneousAgentConfig warns when replica set members have different
-// agent-level config (logRotate, auditLogRotate, systemLog). These fields are
-// applied uniformly by the operator, so only identical values across all
-// members are included in the generated CR.
-func checkHeterogeneousAgentConfig(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
 	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 || processMap == nil {
+	if len(replicaSets) == 0 {
 		return nil
 	}
 
-	members := replicaSets[0].Members()
-	if len(members) < 2 {
-		return nil
-	}
+	projectLogRotate, _ := maputil.StructToMap(projectProcessConfigs.SystemLogRotate)
+	projectAuditLogRotate, _ := maputil.StructToMap(projectProcessConfigs.AuditLogRotate)
 
-	type agentCfg struct {
-		logRotate      map[string]interface{}
-		auditLogRotate map[string]interface{}
-		systemLog      map[string]interface{}
-	}
-
-	var configs []agentCfg
-	for _, m := range members {
+	var results []ValidationResult
+	for _, m := range replicaSets[0].Members() {
 		proc, ok := processMap[m.Name()]
 		if !ok {
 			continue
 		}
 
-		var cfg agentCfg
-		if lr := proc.GetLogRotate(); len(lr) > 0 {
-			cfg.logRotate = lr
-		}
-		if alr := proc.GetAuditLogRotate(); len(alr) > 0 {
-			cfg.auditLogRotate = alr
-		}
-		cfg.systemLog = maputil.ReadMapValueAsMap(proc.Args(), "systemLog")
-		configs = append(configs, cfg)
-	}
-
-	if len(configs) < 2 {
-		return nil
-	}
-
-	var results []ValidationResult
-
-	checkSection := func(sectionName string, extract func(agentCfg) map[string]interface{}) {
-		var maps []map[string]interface{}
-		allHave := true
-		noneHave := true
-		for _, c := range configs {
-			m := extract(c)
-			if len(m) > 0 {
-				maps = append(maps, m)
-				noneHave = false
-			} else {
-				allHave = false
+		if len(projectLogRotate) > 0 {
+			processLR := proc.GetLogRotate()
+			if len(processLR) > 0 && !maputil.FlatMapsEqual(processLR, projectLogRotate) {
+				results = append(results, ValidationResult{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("process %q logRotate differs from project-level config; CR will use the project-level value", proc.Name()),
+				})
 			}
 		}
 
-		if noneHave {
-			return
-		}
-
-		if !allHave {
-			results = append(results, ValidationResult{
-				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("%s is present on some processes but not all; it will be excluded from the generated CR because Kubernetes applies agent config uniformly to all members", sectionName),
-			})
-			return
-		}
-
-		allFlat := make([]map[string]string, len(maps))
-		for i, m := range maps {
-			allFlat[i] = flattenConfigToKeyValues(m, "")
-		}
-		allKeys := collectAllKeys(allFlat)
-		for _, key := range allKeys {
-			if !isConsistentAcrossMembers(allFlat, key) {
+		if len(projectAuditLogRotate) > 0 {
+			processALR := proc.GetAuditLogRotate()
+			if len(processALR) > 0 && !maputil.FlatMapsEqual(processALR, projectAuditLogRotate) {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("%s field %q differs between processes in the replica set; this field will be excluded from the generated CR", sectionName, key),
+					Message:  fmt.Sprintf("process %q auditLogRotate differs from project-level config; CR will use the project-level value", proc.Name()),
 				})
 			}
 		}
 	}
-
-	checkSection("logRotate", func(c agentCfg) map[string]interface{} { return c.logRotate })
-	checkSection("auditLogRotate", func(c agentCfg) map[string]interface{} { return c.auditLogRotate })
-	checkSection("systemLog", func(c agentCfg) map[string]interface{} { return c.systemLog })
-
 	return results
 }
 
@@ -788,26 +644,20 @@ func checkMemberPreservedFields(d om.Deployment) []ValidationResult {
 		for _, m := range rs.Members() {
 			host := m.Name()
 
-			if delay := cast.ToInt(m["slaveDelay"]); delay > 0 {
+			if delay := m.SlaveDelay(); delay > 0 {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("member %q in replica set %q has slaveDelay=%d; this value is preserved while the member remains external but will be lost when the member transitions to operator-managed", host, rsID, delay),
+					Message:  fmt.Sprintf("member %q (rs %q) has slaveDelay=%d; preserved while external, lost when operator-managed", host, rsID, delay),
 				})
 			}
 
-			if hidden, ok := m["hidden"]; ok && cast.ToBool(hidden) {
+			if m.IsHidden() {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("member %q in replica set %q is hidden; this value is preserved while the member remains external but will be lost when the member transitions to operator-managed", host, rsID),
+					Message:  fmt.Sprintf("member %q (rs %q) is hidden; preserved while external, lost when operator-managed", host, rsID),
 				})
 			}
 
-			if _, ok := m["horizons"]; ok {
-				results = append(results, ValidationResult{
-					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("member %q in replica set %q has horizons configured; horizons are VM-specific and will be overwritten by the operator for Kubernetes-managed members", host, rsID),
-				})
-			}
 		}
 	}
 	return results

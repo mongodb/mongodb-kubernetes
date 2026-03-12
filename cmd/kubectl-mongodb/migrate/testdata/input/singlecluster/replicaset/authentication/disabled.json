@@ -22,6 +22,7 @@
         "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
       },
       "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
       "hostname": "vm-0.example.com",
       "name": "minimal-rs-0",
       "processType": "mongod",
@@ -35,6 +36,7 @@
         "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
       },
       "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
       "hostname": "vm-1.example.com",
       "name": "minimal-rs-1",
       "processType": "mongod",
@@ -48,6 +50,7 @@
         "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
       },
       "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
       "hostname": "vm-2.example.com",
       "name": "minimal-rs-2",
       "processType": "mongod",
@@ -58,9 +61,9 @@
     {
       "_id": "minimal-rs",
       "members": [
-        {"_id": 0, "host": "minimal-rs-0", "priority": 1, "votes": 1},
-        {"_id": 1, "host": "minimal-rs-1", "priority": 1, "votes": 1},
-        {"_id": 2, "host": "minimal-rs-2", "priority": 1, "votes": 1}
+        {"_id": 0, "host": "minimal-rs-0", "priority": 1, "votes": 1, "tags": {}},
+        {"_id": 1, "host": "minimal-rs-1", "priority": 1, "votes": 1, "tags": {}},
+        {"_id": 2, "host": "minimal-rs-2", "priority": 1, "votes": 1, "tags": {}}
       ],
       "protocolVersion": "1"
     }
