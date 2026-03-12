@@ -59,7 +59,6 @@ func newSearchReconcilerWithOperatorConfig(
 	searches ...*searchv1.MongoDBSearch,
 ) (*MongoDBSearchReconciler, client.Client) {
 	builder := mock.NewEmptyFakeClientBuilder()
-	builder.WithIndex(&searchv1.MongoDBSearch{}, searchcontroller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder)
 
 	if mdbc != nil {
 		keyfileSecret := &corev1.Secret{
