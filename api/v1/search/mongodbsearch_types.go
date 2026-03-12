@@ -24,6 +24,8 @@ const (
 	MongotDefaultSyncSourceUsername       = "search-sync-source"
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
+
+	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
 )
 
 func init() {

@@ -113,7 +113,7 @@ func NewEmptyFakeClientBuilder() *fake.ClientBuilder {
 	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{}, &searchv1.MongoDBSearch{}, &mdbcv1.MongoDBCommunity{}, &rolev1.ClusterMongoDBRole{})
 
 	ot := testing.NewObjectTracker(s, scheme.Codecs.UniversalDecoder())
-	return builder.WithScheme(s).WithObjectTracker(ot).WithIndex(&searchv1.MongoDBSearch{}, "mdbsearch-for-mongodbresourceref-index", func(obj client.Object) []string {
+	return builder.WithScheme(s).WithObjectTracker(ot).WithIndex(&searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, func(obj client.Object) []string {
 		mdbSearch := obj.(*searchv1.MongoDBSearch)
 		resourceRef := mdbSearch.GetMongoDBResourceRef()
 		if resourceRef == nil {

@@ -40,7 +40,6 @@ import (
 )
 
 const (
-	MongoDBSearchIndexFieldName      = "mdbsearch-for-mongodbresourceref-index"
 	unsupportedSearchVersion         = "1.47.0"
 	unsupportedSearchVersionErrorFmt = "MongoDBSearch version %s is not supported because of breaking changes. " +
 		"The operator will ignore this resource: it will not reconcile or reconfigure the workload. " +
@@ -818,7 +817,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 	ref := r.mdbSearch.GetMongoDBResourceRef()
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.client.List(ctx, searchList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(MongoDBSearchIndexFieldName, ref.Namespace+"/"+ref.Name),
+		FieldSelector: fields.OneTermEqualSelector(searchv1.MongoDBSearchIndexFieldName, ref.Namespace+"/"+ref.Name),
 	}); err != nil {
 		return xerrors.Errorf("Error listing MongoDBSearch resources for search source '%s': %w", ref.Name, err)
 	}
