@@ -956,6 +956,14 @@ func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx conte
 		return nil, xerrors.Errorf("Failed to list MongoDBSearch resources referred in the MongoDB resource %s/%s. err : %v", rs.Namespace, rs.Name, err)
 	}
 
+	if len(searchList.Items) == 0 {
+		return nil, nil
+	}
+
+	if len(searchList.Items) > 1 {
+		return nil, xerrors.Errorf("Found multiple MongoDBSearch resources referred in sharded cluster %s/%s", rs.Namespace, rs.Name)
+	}
+
 	// this validates that there is exactly one MongoDBSearch pointing to this resource,
 	// and that this resource passes search validations. If either fails, proceed without a search target
 	// for the mongod automation config.
