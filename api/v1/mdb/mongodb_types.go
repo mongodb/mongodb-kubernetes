@@ -1250,6 +1250,14 @@ func (m *MongoDB) ShardRsName(i int) string {
 	return fmt.Sprintf("%s-%d", m.Name, i)
 }
 
+func (m *MongoDB) ShardRsNames() []string {
+	names := make([]string, m.Spec.ShardCount)
+	for i := range m.Spec.ShardCount {
+		names[i] = m.ShardRsName(i)
+	}
+	return names
+}
+
 func (m *MongoDB) MultiShardRsName(clusterIdx int, shardIdx int) string {
 	return fmt.Sprintf("%s-%d-%d", m.Name, shardIdx, clusterIdx)
 }
