@@ -161,12 +161,11 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 		return workflow.Failed(err)
 	}
 
-	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 	stsNsName := r.mdbSearch.StatefulSetNamespacedName()
-	replicas := r.mdbSearch.GetReplicas()
+	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 
 	// the egress TLS modification needs to always be applied after the ingress one, because it toggles mTLS based on the mode set by the ingress modification
-	configHash, err := r.ensureMongotConfig(ctx, log, r.mdbSearch.MongotConfigConfigMapNamespacedName(), stsNsName.Name, replicas, usePerPodConfig, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+	configHash, err := r.ensureMongotConfig(ctx, log, r.mdbSearch.MongotConfigConfigMapNamespacedName(), stsNsName.Name, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -231,8 +230,6 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 	}
 
 	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
-	replicas := r.mdbSearch.GetReplicas()
-
 	image, imageVersion := r.searchImageAndVersion()
 	searchImage := fmt.Sprintf("%s:%s", image, imageVersion)
 
@@ -253,7 +250,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 
 		shardStsNsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
 		shardMongotConfig := createMongotConfigForShard(r.mdbSearch, shardedSource, shardName)
-		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), shardStsNsName.Name, replicas, usePerPodConfig, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), shardStsNsName.Name, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -376,8 +373,11 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 }
 
 // ensureMongotConfig creates or updates the mongot ConfigMap.
-// When usePerPodConfig is true, generates leader/follower config files plus pod-name role keys.
-func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, cmName types.NamespacedName, stsName string, replicas int, usePerPodConfig bool, modifications ...mongot.Modification) (string, error) {
+// When auto-embedding is configured, generates leader/follower config files plus pod-name role keys.
+func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, cmName types.NamespacedName, stsName string, modifications ...mongot.Modification) (string, error) {
+	replicas := r.mdbSearch.GetReplicas()
+	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
+
 	mongotConfig := mongot.Config{}
 	mongot.Apply(modifications...)(&mongotConfig)
 

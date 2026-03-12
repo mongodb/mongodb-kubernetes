@@ -644,96 +644,44 @@ func TestValidateSearchResource(t *testing.T) {
 	}
 }
 
-func TestMongoDBSearch_HasAutoEmbedding(t *testing.T) {
-	tests := []struct {
-		name     string
-		spec     searchv1.MongoDBSearchSpec
-		expected bool
-	}{
-		{
-			name:     "nil AutoEmbedding returns false",
-			spec:     searchv1.MongoDBSearchSpec{},
-			expected: false,
-		},
-		{
-			name: "empty AutoEmbedding returns true",
-			spec: searchv1.MongoDBSearchSpec{
-				AutoEmbedding: &searchv1.EmbeddingConfig{},
-			},
-			expected: true,
-		},
-		{
-			name: "configured AutoEmbedding returns true",
-			spec: searchv1.MongoDBSearchSpec{
-				AutoEmbedding: &searchv1.EmbeddingConfig{
-					ProviderEndpoint: "http://embedding-service:8080",
-				},
-			},
-			expected: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			search := &searchv1.MongoDBSearch{
-				Spec: tc.spec,
-			}
-			assert.Equal(t, tc.expected, search.HasAutoEmbedding())
-		})
-	}
-}
-
 func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 	cases := []struct {
-		name            string
-		replicas        int
-		usePerPodConfig bool
-		expectedKeys    []string
-		notExpectedKeys []string
+		name             string
+		replicas         int
+		hasAutoEmbedding bool
+		expectedKeys     []string
+		notExpectedKeys  []string
 	}{
 		{
-			name:            "single config mode - no embedding",
-			replicas:        1,
-			usePerPodConfig: false,
-			expectedKeys:    []string{MongotConfigFilename},
-			notExpectedKeys: []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename},
+			name:             "single config mode - no embedding",
+			replicas:         1,
+			hasAutoEmbedding: false,
+			expectedKeys:     []string{MongotConfigFilename},
+			notExpectedKeys:  []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename},
 		},
 		{
-			name:            "single config mode - multiple replicas no embedding",
-			replicas:        3,
-			usePerPodConfig: false,
-			expectedKeys:    []string{MongotConfigFilename},
-			notExpectedKeys: []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename},
+			name:             "per-pod config mode - single replica with embedding",
+			replicas:         1,
+			hasAutoEmbedding: true,
+			expectedKeys:     []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename, "test-search-search-0"},
+			notExpectedKeys:  []string{MongotConfigFilename},
 		},
 		{
-			name:            "per-pod config mode - single replica with embedding",
-			replicas:        1,
-			usePerPodConfig: true,
-			// Single replica still gets per-pod config with leader role
-			expectedKeys:    []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename, "test-search-search-0"},
-			notExpectedKeys: []string{MongotConfigFilename},
-		},
-		{
-			name:            "per-pod config mode - 3 replicas with embedding",
-			replicas:        3,
-			usePerPodConfig: true,
-			// All pod-name keys should be present
-			expectedKeys:    []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename, "test-search-search-0", "test-search-search-1", "test-search-search-2"},
-			notExpectedKeys: []string{MongotConfigFilename},
-		},
-		{
-			name:            "per-pod config mode - zero replicas edge case",
-			replicas:        0,
-			usePerPodConfig: true,
-			// Config files are created but no pod-name keys (loop doesn't run)
-			expectedKeys:    []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename},
-			notExpectedKeys: []string{MongotConfigFilename, "test-search-search-0"},
+			name:             "per-pod config mode - 3 replicas with embedding",
+			replicas:         3,
+			hasAutoEmbedding: true,
+			expectedKeys:     []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename, "test-search-search-0", "test-search-search-1", "test-search-search-2"},
+			notExpectedKeys:  []string{MongotConfigFilename},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "test-ns")
+			search.Spec.Replicas = tc.replicas
+			if tc.hasAutoEmbedding {
+				search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
+			}
 			fakeClient := newTestFakeClient(search)
 			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
 			cmName := search.MongotConfigConfigMapNamespacedName()
@@ -742,7 +690,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 			embeddingMod := func(c *mongot.Config) {
 				c.Embedding = &mongot.EmbeddingConfig{IsAutoEmbeddingViewWriter: ptr.To(true)}
 			}
-			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, tc.replicas, tc.usePerPodConfig, embeddingMod)
+			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
 			require.NoError(t, err)
 
 			cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -755,15 +703,13 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 				assert.NotContains(t, cm.Data, key)
 			}
 
-			// Verify leader/follower IsAutoEmbeddingViewWriter values and pod-name roles for per-pod mode
-			if tc.usePerPodConfig {
+			if tc.hasAutoEmbedding {
 				var leaderConfig, followerConfig mongot.Config
 				require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigLeaderFilename]), &leaderConfig))
 				require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigFollowerFilename]), &followerConfig))
 				assert.True(t, *leaderConfig.Embedding.IsAutoEmbeddingViewWriter)
 				assert.False(t, *followerConfig.Embedding.IsAutoEmbeddingViewWriter)
 
-				// Verify pod-name keys: pod-0 is leader, all others are followers (skip for replicas=0)
 				if tc.replicas > 0 {
 					assert.Equal(t, "leader", cm.Data["test-search-search-0"])
 					for i := 1; i < tc.replicas; i++ {
@@ -778,6 +724,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 
 func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
+	search.Spec.Replicas = 1
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
 	cmName := search.MongotConfigConfigMapNamespacedName()
@@ -788,7 +735,7 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	}
 
 	// Step 1: Create ConfigMap with single config mode (no embedding)
-	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, 1, false, embeddingMod)
+	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
 	require.NoError(t, err)
 
 	cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -797,31 +744,29 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	assert.NotContains(t, cm.Data, MongotConfigLeaderFilename)
 	assert.NotContains(t, cm.Data, MongotConfigFollowerFilename)
 
-	// Step 2: Transition to per-pod config mode (with embedding)
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, 1, true, embeddingMod)
+	// Step 2: Transition to per-pod config mode (enable embedding)
+	search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
 	require.NoError(t, err)
 
 	cm, err = fakeClient.GetConfigMap(t.Context(), cmName)
 	require.NoError(t, err)
 
-	// Old single config key should be removed
 	assert.NotContains(t, cm.Data, MongotConfigFilename, "config.yml should be removed after transition to per-pod mode")
-	// New per-pod config keys should be present
 	assert.Contains(t, cm.Data, MongotConfigLeaderFilename)
 	assert.Contains(t, cm.Data, MongotConfigFollowerFilename)
 	assert.Contains(t, cm.Data, "test-search-search-0")
 
-	// Step 3: Transition back to single config mode
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, 1, false, embeddingMod)
+	// Step 3: Transition back to single config mode (disable embedding)
+	search.Spec.AutoEmbedding = nil
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
 	require.NoError(t, err)
 
 	cm, err = fakeClient.GetConfigMap(t.Context(), cmName)
 	require.NoError(t, err)
 
-	// Per-pod config keys should be removed
 	assert.NotContains(t, cm.Data, MongotConfigLeaderFilename, "config-leader.yml should be removed after transition to single mode")
 	assert.NotContains(t, cm.Data, MongotConfigFollowerFilename, "config-follower.yml should be removed after transition to single mode")
-	// Single config key should be present
 	assert.Contains(t, cm.Data, MongotConfigFilename)
 }
 
