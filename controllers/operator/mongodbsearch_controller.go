@@ -165,7 +165,7 @@ func mdbcSearchIndexBuilder(rawObj client.Object) []string {
 }
 
 func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operatorSearchConfig searchcontroller.OperatorSearchConfig) error {
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchcontroller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
 	}
 

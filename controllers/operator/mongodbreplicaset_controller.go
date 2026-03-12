@@ -951,7 +951,7 @@ func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx conte
 	var search *searchv1.MongoDBSearch
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := reconciler.client.List(ctx, searchList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, rs.GetNamespace()+"/"+rs.GetName()),
+		FieldSelector: fields.OneTermEqualSelector(searchv1.MongoDBSearchIndexFieldName, rs.GetNamespace()+"/"+rs.GetName()),
 	}); err != nil {
 		return nil, xerrors.Errorf("Failed to list MongoDBSearch resources referred in the MongoDB resource %s/%s. err : %v", rs.Namespace, rs.Name, err)
 	}

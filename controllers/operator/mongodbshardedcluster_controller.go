@@ -1054,7 +1054,7 @@ func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx co
 
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.commonController.client.List(ctx, searchList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, sc.GetNamespace()+"/"+sc.GetName()),
+		FieldSelector: fields.OneTermEqualSelector(searchv1.MongoDBSearchIndexFieldName, sc.GetNamespace()+"/"+sc.GetName()),
 	}); err != nil {
 		return nil, xerrors.Errorf("Failed to list MongoDBSearch resources: %v", err)
 	}
