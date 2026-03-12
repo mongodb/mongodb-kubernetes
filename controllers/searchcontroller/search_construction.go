@@ -68,9 +68,7 @@ type TLSSourceConfig struct {
 }
 
 // CreateSearchStatefulSetFunc returns a statefulset.Modification that configures a mongot StatefulSet.
-// It works for both non-sharded and per-shard deployments, the caller is responsible for providing the appropriate names.
-// When usePerPodConfig is true, the ConfigMap is mounted as a directory and an entrypoint script
-// selects the appropriate config file (leader vs follower) based on the pod's ordinal.
+// It works for both non-sharded and per-shard deployments.
 func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
@@ -87,9 +85,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 
 	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap(mongotConfigVolumeName, configMapName)
 
-	// When usePerPodConfig is true, mount the ConfigMap as a directory so the entrypoint script
-	// can select the appropriate config file based on pod ordinal.
-	// When false, use SubPath to mount only the single config file.
 	var mongotConfigVolumeMount corev1.VolumeMount
 	if usePerPodConfig {
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigDirPath, statefulset.WithReadOnly(true))
@@ -175,8 +170,6 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
-	// When usePerPodConfig is true, use an entrypoint script that selects the config file
-	// based on the pod's ordinal (pod-0 is leader, others are followers).
 	var mongotStartCommand string
 	if usePerPodConfig {
 		mongotStartCommand = mongotPerPodConfigStartCommand()
@@ -202,9 +195,7 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 	)
 }
 
-// mongotPerPodConfigStartCommand returns the shell script that selects the appropriate
-// config file based on pod name lookup. The ConfigMap contains an entry for each pod
-// with its role (leader/follower), so the script simply reads the role from the file.
+// mongotPerPodConfigStartCommand returns the shell script that reads the pod's role from ConfigMap.
 func mongotPerPodConfigStartCommand() string {
 	return fmt.Sprintf(`ROLE=$(cat "%s/$(hostname)")
 /mongot-community/mongot --config %s/config-${ROLE}.yml`,

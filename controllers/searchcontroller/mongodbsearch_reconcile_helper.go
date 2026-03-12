@@ -161,7 +161,6 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 		return workflow.Failed(err)
 	}
 
-	// Determine if per-pod config is needed (when auto-embedding is configured)
 	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 	stsNsName := r.mdbSearch.StatefulSetNamespacedName()
 	replicas := r.mdbSearch.GetReplicas()
@@ -231,7 +230,6 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		return workflow.Failed(err)
 	}
 
-	// Determine if per-pod config is needed (when auto-embedding is configured)
 	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 	replicas := r.mdbSearch.GetReplicas()
 
@@ -377,23 +375,17 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 	return nil
 }
 
-// ensureMongotConfig creates or updates the mongot ConfigMap with the appropriate configuration.
-// When usePerPodConfig is true, it generates two config files (leader and follower) with
-// different IsAutoEmbeddingViewWriter values, plus pod-name keys for role lookup.
-// When false, it generates a single config file.
-// stsName is the StatefulSet name, used to generate pod names for role designation.
-// replicas is the number of pods in the StatefulSet.
+// ensureMongotConfig creates or updates the mongot ConfigMap.
+// When usePerPodConfig is true, generates leader/follower config files plus pod-name role keys.
 func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, cmName types.NamespacedName, stsName string, replicas int, usePerPodConfig bool, modifications ...mongot.Modification) (string, error) {
 	mongotConfig := mongot.Config{}
 	mongot.Apply(modifications...)(&mongotConfig)
 
-	// Build config entries based on mode
 	configEntries, keysToRemove, err := buildMongotConfigEntries(mongotConfig, usePerPodConfig, stsName, replicas)
 	if err != nil {
 		return "", err
 	}
 
-	// Create or update the ConfigMap
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName.Name, Namespace: cmName.Namespace}, Data: map[string]string{}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, cm, func() error {
 		resourceVersion := cm.ResourceVersion
@@ -410,16 +402,12 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 		return "", err
 	}
 
-	// Log and compute hash
 	configHash := computeConfigHash(configEntries)
 	log.Debugf("Updated mongot config ConfigMap %v (%s) with keys: %v", cmName, op, configEntryKeys(configEntries))
 
 	return configHash, nil
 }
 
-// buildMongotConfigEntries generates the ConfigMap entries based on the configuration mode.
-// Returns a map of filename->yaml data, keys to remove, and any error.
-// When usePerPodConfig is true, stsName and replicas are used to generate pod-name keys for role designation.
 func buildMongotConfigEntries(config mongot.Config, usePerPodConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
 	if usePerPodConfig {
 		return buildPerPodConfigEntries(config, stsName, replicas)
@@ -427,17 +415,13 @@ func buildMongotConfigEntries(config mongot.Config, usePerPodConfig bool, stsNam
 	return buildSingleConfigEntry(config)
 }
 
-// buildPerPodConfigEntries creates leader and follower config entries when auto-embedding is enabled.
-// Pod-0 is designated as leader (IsAutoEmbeddingViewWriter=true), all others are followers.
-// It adds a pod-name key for each pod (e.g., "test-search-search-0": "leader", "test-search-search-1": "follower").
+// buildPerPodConfigEntries creates leader (pod-0) and follower configs with pod-name role keys.
 func buildPerPodConfigEntries(config mongot.Config, stsName string, replicas int) (map[string][]byte, []string, error) {
-	// Leader config (IsAutoEmbeddingViewWriter=true) - already set by ensureEmbeddingConfig
 	leaderData, err := yaml.Marshal(config)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Follower config (IsAutoEmbeddingViewWriter=false)
 	followerConfig := config
 	if config.Embedding != nil {
 		embeddingCopy := *config.Embedding
@@ -454,7 +438,6 @@ func buildPerPodConfigEntries(config mongot.Config, stsName string, replicas int
 		MongotConfigFollowerFilename: followerData,
 	}
 
-	// Add pod-name keys for each replica: pod-0 is leader, all others are followers
 	for i := 0; i < replicas; i++ {
 		podName := fmt.Sprintf("%s-%d", stsName, i)
 		if i == 0 {
@@ -468,7 +451,6 @@ func buildPerPodConfigEntries(config mongot.Config, stsName string, replicas int
 	return entries, keysToRemove, nil
 }
 
-// buildSingleConfigEntry creates a single config entry for standard mode.
 func buildSingleConfigEntry(config mongot.Config) (map[string][]byte, []string, error) {
 	data, err := yaml.Marshal(config)
 	if err != nil {
@@ -480,13 +462,10 @@ func buildSingleConfigEntry(config mongot.Config) (map[string][]byte, []string, 
 	return entries, keysToRemove, nil
 }
 
-// computeConfigHash computes a combined hash of config file contents only.
-// Pod-name keys (e.g., "my-search-0": "leader") are intentionally excluded because
-// changes to them (e.g., scaling up/down) don't require existing pods to restart.
-// New pods will read their role from the ConfigMap on startup.
+// computeConfigHash hashes config file contents only; pod-name keys are excluded
+// since scaling changes don't require existing pods to restart.
 func computeConfigHash(entries map[string][]byte) string {
 	var allData []byte
-	// Process config files only, in deterministic order for consistent hashing
 	for _, key := range []string{MongotConfigFilename, MongotConfigLeaderFilename, MongotConfigFollowerFilename} {
 		if data, ok := entries[key]; ok {
 			allData = append(allData, data...)
@@ -495,7 +474,6 @@ func computeConfigHash(entries map[string][]byte) string {
 	return hashBytes(allData)
 }
 
-// configEntryKeys returns the keys from config entries for logging.
 func configEntryKeys(entries map[string][]byte) []string {
 	keys := make([]string, 0, len(entries))
 	for k := range entries {

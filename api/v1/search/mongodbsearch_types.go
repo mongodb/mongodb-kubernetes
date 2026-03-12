@@ -511,8 +511,6 @@ func (s *MongoDBSearch) HasMultipleReplicas() bool {
 }
 
 // HasAutoEmbedding returns true when auto-embedding is configured.
-// This indicates that per-pod mongot configuration is needed with leader/follower designation,
-// where pod-0 is the leader (IsAutoEmbeddingViewWriter=true) and all others are followers.
 func (s *MongoDBSearch) HasAutoEmbedding() bool {
 	return s.Spec.AutoEmbedding != nil
 }
