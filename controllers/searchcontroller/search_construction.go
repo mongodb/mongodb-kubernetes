@@ -33,6 +33,7 @@ const (
 	TempSourceUserPasswordPath   = tempVolumePath + "/" + "sourceUserPassword"
 	SearchLivenessProbePath      = "/health"
 	SearchReadinessProbePath     = "/health" // Todo: Update this when search GA is available
+	tlsCACertName                = "ca.crt"
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
@@ -46,18 +47,24 @@ type SearchSourceDBResource interface {
 	Validate() error
 }
 
+// SearchSourceShardedDeployment extends SearchSourceDBResource for sharded MongoDB clusters.
+type SearchSourceShardedDeployment interface {
+	SearchSourceDBResource
+	GetShardCount() int
+	GetShardNames() []string
+	HostSeedsForShard(shardIdx int) []string
+	MongosHostAndPort() string
+}
+
 type TLSSourceConfig struct {
 	CAFileName       string
 	CAVolume         corev1.Volume
 	ResourcesToWatch map[watch.Type][]types.NamespacedName
 }
 
-// ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, searchImage string) statefulset.Modification {
-	labels := map[string]string{
-		"app": mdbSearch.SearchServiceNamespacedName().Name,
-	}
-
+// CreateSearchStatefulSetFunc returns a statefulset.Modification that configures a mongot StatefulSet.
+// It works for both non-sharded and per-shard deployments, the caller is responsible for providing the appropriate names.
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -71,7 +78,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
 	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
 
-	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap(mongotConfigVolumeName, mdbSearch.MongotConfigConfigMapNamespacedName().Name)
+	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap(mongotConfigVolumeName, configMapName)
 	mongotConfigVolumeMount := statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 
 	var persistenceConfig *common.PersistenceConfig
@@ -98,9 +105,9 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 	}
 
 	stsModifications := []statefulset.Modification{
-		statefulset.WithName(mdbSearch.StatefulSetNamespacedName().Name),
-		statefulset.WithNamespace(mdbSearch.StatefulSetNamespacedName().Namespace),
-		statefulset.WithServiceName(mdbSearch.SearchServiceNamespacedName().Name),
+		statefulset.WithName(stsName),
+		statefulset.WithNamespace(namespace),
+		statefulset.WithServiceName(svcName),
 		statefulset.WithLabels(labels),
 		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
