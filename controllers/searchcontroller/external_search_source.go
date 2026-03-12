@@ -31,7 +31,7 @@ func (r *externalSearchResource) TLSConfig() *TLSSourceConfig {
 	}
 
 	return &TLSSourceConfig{
-		CAFileName: "ca.crt",
+		CAFileName: tlsCACertName,
 		CAVolume:   statefulset.CreateVolumeFromSecret("ca", r.spec.TLS.CA.Name),
 		ResourcesToWatch: map[watch.Type][]types.NamespacedName{
 			watch.Secret: {
