@@ -106,9 +106,7 @@ _MEMBER_OVERRIDES = [
 ]
 
 
-def _configure_ac_heterogeneous(
-    namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mdb_version: str
-):
+def _configure_ac_heterogeneous(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mdb_version: str):
     mdb_version = ensure_ent_version(mdb_version)
     ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
@@ -163,9 +161,7 @@ def _configure_ac_heterogeneous(
 
     ac["processes"] = []
     ac["monitoringVersions"] = []
-    ac["replicaSets"] = [
-        {"_id": rs_name, "members": [], "protocolVersion": "1"}
-    ]
+    ac["replicaSets"] = [{"_id": rs_name, "members": [], "protocolVersion": "1"}]
 
     for i in range(vm_sts["spec"]["replicas"]):
         hostname = f"{sts_name}-{i}.{svc_name}.{namespace}.svc.cluster.local"
@@ -241,9 +237,9 @@ def mdb_migration(namespace: str, generated_cr: dict) -> MongoDB:
         return resource
 
     resource.backing_obj = generated_cr
-    resource.backing_obj.setdefault("spec", {}).setdefault(
-        "additionalMongodConfig", {}
-    ).setdefault("net", {}).setdefault("tls", {})["mode"] = "disabled"
+    resource.backing_obj.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault(
+        "net", {}
+    ).setdefault("tls", {})["mode"] = "disabled"
     resource.update()
     return resource
 
@@ -262,6 +258,7 @@ def ac_before_promote(om_tester: OMTester) -> dict:
 # Tests — CR structure assertions (run before apply)
 # ---------------------------------------------------------------------------
 
+
 @mark.e2e_vm_migration_generate_heterogeneous
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
@@ -272,9 +269,7 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
 
 
 @mark.e2e_vm_migration_generate_heterogeneous
-def test_configure_ac(
-    namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version
-):
+def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
     _configure_ac_heterogeneous(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
 
 
@@ -330,9 +325,7 @@ def test_additional_config_excludes_differing(generated_cr: dict):
     """oplogSizeMB is only on 2 of 3 members — must NOT be in the CR."""
     amc = generated_cr["spec"].get("additionalMongodConfig", {})
     repl = amc.get("replication", {})
-    assert "oplogSizeMB" not in repl, (
-        f"oplogSizeMB is not present on all members and should be excluded, got: {repl}"
-    )
+    assert "oplogSizeMB" not in repl, f"oplogSizeMB is not present on all members and should be excluded, got: {repl}"
 
 
 @mark.e2e_vm_migration_generate_heterogeneous
@@ -366,6 +359,7 @@ def test_external_members_structure(generated_cr: dict):
 # ---------------------------------------------------------------------------
 # Lifecycle tests
 # ---------------------------------------------------------------------------
+
 
 @mark.e2e_vm_migration_generate_heterogeneous
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB, ac_before_migration: dict):

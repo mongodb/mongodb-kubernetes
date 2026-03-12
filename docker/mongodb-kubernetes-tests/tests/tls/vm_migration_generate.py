@@ -146,9 +146,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
 
     ac["processes"] = []
     ac["monitoringVersions"] = []
-    ac["replicaSets"] = [
-        {"_id": rs_name, "members": [], "protocolVersion": "1"}
-    ]
+    ac["replicaSets"] = [{"_id": rs_name, "members": [], "protocolVersion": "1"}]
 
     for i in range(vm_sts["spec"]["replicas"]):
         hostname = f"{sts_name}-{i}.{svc_name}.{namespace}.svc.cluster.local"
@@ -244,9 +242,9 @@ def mdb_migration(namespace: str, om_tester: OMTester) -> MongoDB:
     )
 
     resource.backing_obj = next(yaml.safe_load_all(output))
-    resource.backing_obj.setdefault("spec", {}).setdefault(
-        "additionalMongodConfig", {}
-    ).setdefault("net", {}).setdefault("tls", {})["mode"] = "disabled"
+    resource.backing_obj.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault(
+        "net", {}
+    ).setdefault("tls", {})["mode"] = "disabled"
     resource.update()
     return resource
 

@@ -46,6 +46,7 @@ def _get_ca_bundle_content() -> str:
     path = None
     try:
         import certifi
+
         path = certifi.where()
     except ImportError:
         pass
@@ -55,9 +56,7 @@ def _get_ca_bundle_content() -> str:
     if not path:
         path = "/etc/ssl/certs/ca-certificates.crt"
     if not os.path.exists(path):
-        raise FileNotFoundError(
-            f"No CA bundle found; tried certifi, ssl.get_default_verify_paths(), and {path}"
-        )
+        raise FileNotFoundError(f"No CA bundle found; tried certifi, ssl.get_default_verify_paths(), and {path}")
     with open(path, "r") as f:
         return f.read()
 
@@ -158,9 +157,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
 
     ac["processes"] = []
     ac["monitoringVersions"] = []
-    ac["replicaSets"] = [
-        {"_id": rs_name, "members": [], "protocolVersion": "1"}
-    ]
+    ac["replicaSets"] = [{"_id": rs_name, "members": [], "protocolVersion": "1"}]
 
     for i in range(vm_sts["spec"]["replicas"]):
         hostname = f"{sts_name}-{i}.{svc_name}.{namespace}.svc.cluster.local"
@@ -246,9 +243,9 @@ def mdb_migration(namespace: str, om_tester: OMTester) -> MongoDB:
     output = run_migrate_generate(namespace, passwords=[ADMIN_USER_PASSWORD])
 
     resource.backing_obj = next(yaml.safe_load_all(output))
-    resource.backing_obj.setdefault("spec", {}).setdefault(
-        "additionalMongodConfig", {}
-    ).setdefault("net", {}).setdefault("tls", {})["mode"] = "disabled"
+    resource.backing_obj.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault(
+        "net", {}
+    ).setdefault("tls", {})["mode"] = "disabled"
     resource.update()
     return resource
 

@@ -98,8 +98,18 @@ def vm_sts(namespace: str, om_tester: OMTester, vm_tls_pem_secret: str):
             {"name": "mongodb-certs", "secret": {"secretName": vm_tls_pem_secret}},
         ],
         extra_volume_mounts=[
-            {"name": "mongodb-certs", "mountPath": "/mongodb-automation/server.pem", "subPath": "server.pem", "readOnly": True},
-            {"name": "mongodb-certs", "mountPath": "/mongodb-automation/tls/ca/ca-pem", "subPath": "ca.pem", "readOnly": True},
+            {
+                "name": "mongodb-certs",
+                "mountPath": "/mongodb-automation/server.pem",
+                "subPath": "server.pem",
+                "readOnly": True,
+            },
+            {
+                "name": "mongodb-certs",
+                "mountPath": "/mongodb-automation/tls/ca/ca-pem",
+                "subPath": "ca.pem",
+                "readOnly": True,
+            },
         ],
     )
 
@@ -109,9 +119,7 @@ def vm_service(namespace: str):
     return deploy_vm_service(namespace)
 
 
-def _configure_ac_with_tls(
-    namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mdb_version: str
-):
+def _configure_ac_with_tls(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mdb_version: str):
     """Set up a TLS-enabled replica set (requireSSL) with SCRAM auth."""
     mdb_version = ensure_ent_version(mdb_version)
     ac = om_tester.api_get_automation_config()
@@ -172,9 +180,7 @@ def _configure_ac_with_tls(
 
     ac["processes"] = []
     ac["monitoringVersions"] = []
-    ac["replicaSets"] = [
-        {"_id": rs_name, "members": [], "protocolVersion": "1"}
-    ]
+    ac["replicaSets"] = [{"_id": rs_name, "members": [], "protocolVersion": "1"}]
 
     for i in range(vm_sts["spec"]["replicas"]):
         hostname = f"{sts_name}-{i}.{svc_name}.{namespace}.svc.cluster.local"
@@ -277,6 +283,7 @@ def ac_before_promote(om_tester: OMTester) -> dict:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 @mark.e2e_vm_migration_generate_mongod_tls
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
@@ -287,9 +294,7 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
 
 
 @mark.e2e_vm_migration_generate_mongod_tls
-def test_configure_ac(
-    namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version
-):
+def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
     _configure_ac_with_tls(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
 
 
@@ -315,9 +320,9 @@ def test_no_disabled_tls_mode_in_additional_config(generated_cr: dict):
     """additionalMongodConfig must NOT contain net.tls.mode: disabled."""
     amc = generated_cr["spec"].get("additionalMongodConfig", {})
     tls_mode = amc.get("net", {}).get("tls", {}).get("mode")
-    assert tls_mode != "disabled", (
-        f"TLS is requireSSL — additionalMongodConfig should not have mode=disabled, got: {amc}"
-    )
+    assert (
+        tls_mode != "disabled"
+    ), f"TLS is requireSSL — additionalMongodConfig should not have mode=disabled, got: {amc}"
 
 
 @mark.e2e_vm_migration_generate_mongod_tls

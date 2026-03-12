@@ -49,9 +49,7 @@ def vm_service(namespace: str):
     return deploy_vm_service(namespace)
 
 
-def _configure_ac_no_auth(
-    namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mdb_version: str
-):
+def _configure_ac_no_auth(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mdb_version: str):
     """Set up a replica set with auth DISABLED, custom port 27018, and compression."""
     mdb_version = ensure_ent_version(mdb_version)
     ac = om_tester.api_get_automation_config()
@@ -66,9 +64,7 @@ def _configure_ac_no_auth(
 
     ac["processes"] = []
     ac["monitoringVersions"] = []
-    ac["replicaSets"] = [
-        {"_id": rs_name, "members": [], "protocolVersion": "1"}
-    ]
+    ac["replicaSets"] = [{"_id": rs_name, "members": [], "protocolVersion": "1"}]
 
     for i in range(vm_sts["spec"]["replicas"]):
         hostname = f"{sts_name}-{i}.{svc_name}.{namespace}.svc.cluster.local"
@@ -143,9 +139,9 @@ def mdb_migration(namespace: str, generated_cr: dict) -> MongoDB:
         return resource
 
     resource.backing_obj = generated_cr
-    resource.backing_obj.setdefault("spec", {}).setdefault(
-        "additionalMongodConfig", {}
-    ).setdefault("net", {}).setdefault("tls", {})["mode"] = "disabled"
+    resource.backing_obj.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault(
+        "net", {}
+    ).setdefault("tls", {})["mode"] = "disabled"
     resource.update()
     return resource
 
@@ -164,6 +160,7 @@ def ac_before_promote(om_tester: OMTester) -> dict:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 @mark.e2e_vm_migration_generate_no_auth
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
@@ -174,9 +171,7 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
 
 
 @mark.e2e_vm_migration_generate_no_auth
-def test_configure_ac(
-    namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version
-):
+def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
     _configure_ac_no_auth(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
 
 
@@ -194,9 +189,9 @@ def test_install_operator(operator: Operator):
 def test_no_security_in_cr(generated_cr: dict):
     """Auth is disabled -- the generated CR must not contain a security section."""
     spec = generated_cr.get("spec", {})
-    assert "security" not in spec, (
-        f"Expected no security section for auth-disabled deployment, got: {spec.get('security')}"
-    )
+    assert (
+        "security" not in spec
+    ), f"Expected no security section for auth-disabled deployment, got: {spec.get('security')}"
 
 
 @mark.e2e_vm_migration_generate_no_auth
@@ -226,21 +221,17 @@ def test_member_config_draining(generated_cr: dict):
     assert len(mc) == 3, f"Expected 3 memberConfig entries, got {len(mc)}"
     for i, entry in enumerate(mc):
         assert entry["votes"] == 0, f"memberConfig[{i}].votes should be 0, got {entry['votes']}"
-        assert str(entry["priority"]) == "0", (
-            f"memberConfig[{i}].priority should be '0', got {entry['priority']}"
-        )
+        assert str(entry["priority"]) == "0", f"memberConfig[{i}].priority should be '0', got {entry['priority']}"
 
 
 @mark.e2e_vm_migration_generate_no_auth
 def test_additional_mongod_config(generated_cr: dict):
     """additionalMongodConfig must reflect the net.compression.compressors and storage settings."""
     amc = generated_cr["spec"].get("additionalMongodConfig", {})
-    assert amc.get("net", {}).get("compression", {}).get("compressors") == "snappy,zstd", (
-        f"Expected compressors 'snappy,zstd', got: {amc}"
-    )
-    assert amc.get("storage", {}).get("directoryPerDB") is True, (
-        f"Expected directoryPerDB=true, got: {amc}"
-    )
+    assert (
+        amc.get("net", {}).get("compression", {}).get("compressors") == "snappy,zstd"
+    ), f"Expected compressors 'snappy,zstd', got: {amc}"
+    assert amc.get("storage", {}).get("directoryPerDB") is True, f"Expected directoryPerDB=true, got: {amc}"
 
 
 @mark.e2e_vm_migration_generate_no_auth
@@ -254,13 +245,12 @@ def test_agent_config(generated_cr: dict):
     """Agent config must include logRotate and systemLog from the (uniform) process config."""
     agent = generated_cr["spec"].get("agent", {}).get("mongod", {})
     lr = agent.get("logRotate", {})
-    assert lr.get("sizeThresholdMB") == "1000" or lr.get("sizeThresholdMB") == 1000, (
-        f"Expected logRotate.sizeThresholdMB=1000, got: {lr}"
-    )
+    assert (
+        lr.get("sizeThresholdMB") == "1000" or lr.get("sizeThresholdMB") == 1000
+    ), f"Expected logRotate.sizeThresholdMB=1000, got: {lr}"
     sl = agent.get("systemLog", {})
     assert sl.get("destination") == "file", f"Expected systemLog.destination=file, got: {sl}"
     assert sl.get("path") == "/data/mongodb.log", f"Expected systemLog.path, got: {sl}"
-
 
 
 @mark.e2e_vm_migration_generate_no_auth

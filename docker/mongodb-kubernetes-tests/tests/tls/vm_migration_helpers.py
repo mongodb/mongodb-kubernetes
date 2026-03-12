@@ -17,7 +17,9 @@ MIGRATE_TOOL = os.getenv("KUBECTL_MONGODB_PATH", "kubectl-mongodb")
 MIGRATE_FLAGS = ["--config-map-name", "my-project", "--secret-name", "my-credentials"]
 
 
-def deploy_vm_statefulset(namespace: str, om_tester: OMTester, extra_volumes=None, extra_volume_mounts=None, extra_command_args=""):
+def deploy_vm_statefulset(
+    namespace: str, om_tester: OMTester, extra_volumes=None, extra_volume_mounts=None, extra_command_args=""
+):
     """Create or update the VM agent StatefulSet with OM credentials.
 
     Returns the StatefulSet body dict.
