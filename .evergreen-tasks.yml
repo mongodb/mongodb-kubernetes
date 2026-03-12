@@ -323,11 +323,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_generate_x509
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_vm_migration_generate_scram_x509
     tags: [ "patch-run" ]
     commands:

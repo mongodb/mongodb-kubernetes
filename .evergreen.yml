@@ -818,7 +818,7 @@ task_groups:
       - e2e_vm_migration_generate_mongod_tls
       - e2e_vm_migration_generate_no_auth
       - e2e_vm_migration_generate_heterogeneous
-      - e2e_vm_migration_generate_x509
+      - e2e_vm_migration_generate_scram_x509
     <<: *teardown_group
 
   # this task group contains just a one task, which is smoke testing whether the operator
