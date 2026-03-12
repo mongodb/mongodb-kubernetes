@@ -1,0 +1,10 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-sh-search
+spec:
+  logLevel: DEBUG
+  source: {}
+  security:
+    tls:
+      certsSecretPrefix: certs
