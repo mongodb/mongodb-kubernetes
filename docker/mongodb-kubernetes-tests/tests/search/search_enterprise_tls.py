@@ -1,7 +1,5 @@
-import yaml
-from kubetester import get_service, run_periodically, try_load
+from kubetester import get_service, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
-from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -12,6 +10,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
+from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
@@ -151,26 +150,7 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 
 @mark.e2e_search_enterprise_tls
 def test_wait_for_mongod_parameters(mdb: MongoDB):
-    # After search CR is deployed, MongoDB controller will pick it up
-    # and start adding search-related parameters to the automation config.
-    def check_mongod_parameters():
-        parameters_are_set = True
-        pod_parameters = []
-        for idx in range(mdb.get_members()):
-            mongod_config = yaml.safe_load(
-                KubernetesTester.run_command_in_pod_container(
-                    f"{mdb.name}-{idx}", mdb.namespace, ["cat", "/data/automation-mongod.conf"]
-                )
-            )
-            set_parameter = mongod_config.get("setParameter", {})
-            parameters_are_set = parameters_are_set and (
-                "mongotHost" in set_parameter and "searchIndexManagementHostAndPort" in set_parameter
-            )
-            pod_parameters.append(f"pod {idx} setParameter: {set_parameter}")
-
-        return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
-
-    run_periodically(check_mongod_parameters, timeout=600)
+    verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members())
 
 
 @mark.e2e_search_enterprise_tls
