@@ -85,10 +85,7 @@ func newTestOperatorSearchConfig() OperatorSearchConfig {
 
 func newTestFakeClient(objects ...client.Object) kubernetesClient.Client {
 	clientBuilder := mock.NewEmptyFakeClientBuilder()
-	clientBuilder.WithIndex(&searchv1.MongoDBSearch{}, MongoDBSearchIndexFieldName, func(obj client.Object) []string {
-		mdbResource := obj.(*searchv1.MongoDBSearch).GetMongoDBResourceRef()
-		return []string{mdbResource.Namespace + "/" + mdbResource.Name}
-	})
+
 	clientBuilder.WithObjects(objects...)
 	return kubernetesClient.NewClient(clientBuilder.Build())
 }
@@ -165,10 +162,7 @@ func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			clientBuilder := mock.NewEmptyFakeClientBuilder()
-			clientBuilder.WithIndex(&searchv1.MongoDBSearch{}, MongoDBSearchIndexFieldName, func(obj client.Object) []string {
-				mdbResource := obj.(*searchv1.MongoDBSearch).GetMongoDBResourceRef()
-				return []string{mdbResource.Namespace + "/" + mdbResource.Name}
-			})
+
 			for _, v := range c.objects {
 				// TODO: why doesn't clientBuilder.WithObjects(c.objects...) work?
 				clientBuilder.WithObjects(v)
