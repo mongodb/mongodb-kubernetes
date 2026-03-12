@@ -87,9 +87,6 @@ export RUNNING_IN_EVG="true"
 
 export DELETE_KIND_NETWORK="true"
 
-# shellcheck disable=SC2154
-export PRERELEASE_PULLSECRET_DOCKERCONFIGJSON="${community_private_preview_pullsecret_dockerconfigjson}"
-
 export cognito_user_pool_id="${cognito_user_pool_id}"
 export cognito_workload_federation_client_id="${cognito_workload_federation_client_id}"
 export cognito_user_name="${cognito_user_name}"
