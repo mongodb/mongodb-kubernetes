@@ -1564,9 +1564,255 @@ func TestPublishAutomationConfigFirstRS(t *testing.T) {
 				Build()
 			kubeClient := kubernetesClient.NewClient(fakeClient)
 
-			result := publishAutomationConfigFirstRS(ctx, kubeClient, tc.mdb, tc.lastSpec, tc.currentAgentAuthMode, tc.sslMMSCAConfigMap, zap.S())
+			result := publishAutomationConfigFirstRS(ctx, kubeClient, tc.existingSts, tc.mdb, tc.lastSpec, tc.currentAgentAuthMode, tc.sslMMSCAConfigMap, zap.S())
 
 			assert.Equal(t, tc.expectedPublishACFirst, result)
+		})
+	}
+}
+
+// TestBackupHostnameOverride_EnabledWhenExternalDomainAndNoAgents tests that
+// the backup hostname override is enabled when external domain is configured
+// and no backup agents are registered.
+func TestBackupHostnameOverride_EnabledWhenExternalDomainAndNoAgents(t *testing.T) {
+	ctx := context.Background()
+	externalDomain := "mongodb.example.com"
+
+	rs := DefaultReplicaSetBuilder().SetName("test-rs").SetMembers(3).ExposedExternally(nil, nil, &externalDomain).Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	// Configure mock to return no backup agents
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		mockedConn := connection.(*om.MockedOmConnection)
+		mockedConn.SetOMVersion("7.0.13")
+		mockedConn.ReadBackupAgentsFunc = func(_ int) (om.Paginated, error) {
+			return om.AutomationAgentStatusResponse{
+				OMPaginated: om.OMPaginated{TotalCount: 0},
+			}, nil
+		}
+		// Set expected hostnames for agents registration
+		mockedConn.Hostnames = []string{
+			"test-rs-0." + externalDomain,
+			"test-rs-1." + externalDomain,
+			"test-rs-2." + externalDomain,
+		}
+	})
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	// Verify the StatefulSet has the backup hostname override env var
+	sts := &appsv1.StatefulSet{}
+	err := kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), sts)
+	assert.NoError(t, err)
+
+	// Find the database container
+	var databaseContainer *corev1.Container
+	for i := range sts.Spec.Template.Spec.Containers {
+		if sts.Spec.Template.Spec.Containers[i].Name == util.DatabaseContainerName {
+			databaseContainer = &sts.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	require.NotNil(t, databaseContainer, "database container should exist")
+
+	// Check for BackupHostnameOverrideEnv env var
+	var foundEnvVar bool
+	for _, envVar := range databaseContainer.Env {
+		if envVar.Name == construct.BackupHostnameOverrideEnv {
+			foundEnvVar = true
+			assert.Equal(t, "true", envVar.Value)
+			break
+		}
+	}
+	assert.True(t, foundEnvVar, construct.BackupHostnameOverrideEnv+" env var should be present")
+}
+
+// TestBackupHostnameOverride_DisabledWhenBackupAgentsExist tests that
+// the backup hostname override is NOT enabled when backup agents already exist.
+func TestBackupHostnameOverride_DisabledWhenBackupAgentsExist(t *testing.T) {
+	ctx := context.Background()
+	externalDomain := "mongodb.example.com"
+
+	rs := DefaultReplicaSetBuilder().SetName("test-rs").SetMembers(3).ExposedExternally(nil, nil, &externalDomain).Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	// Configure mock to return existing backup agents
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		mockedConn := connection.(*om.MockedOmConnection)
+		mockedConn.SetOMVersion("7.0.13")
+		mockedConn.ReadBackupAgentsFunc = func(_ int) (om.Paginated, error) {
+			return om.AutomationAgentStatusResponse{
+				OMPaginated: om.OMPaginated{TotalCount: 3},
+			}, nil
+		}
+		// Set expected hostnames for agents registration
+		mockedConn.Hostnames = []string{
+			"test-rs-0." + externalDomain,
+			"test-rs-1." + externalDomain,
+			"test-rs-2." + externalDomain,
+		}
+	})
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	// Verify the StatefulSet does NOT have the backup hostname override env var
+	sts := &appsv1.StatefulSet{}
+	err := kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), sts)
+	assert.NoError(t, err)
+
+	// Find the database container
+	var databaseContainer *corev1.Container
+	for i := range sts.Spec.Template.Spec.Containers {
+		if sts.Spec.Template.Spec.Containers[i].Name == util.DatabaseContainerName {
+			databaseContainer = &sts.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	require.NotNil(t, databaseContainer, "database container should exist")
+
+	// Check that BackupHostnameOverrideEnv env var is NOT present
+	for _, envVar := range databaseContainer.Env {
+		assert.NotEqual(t, construct.BackupHostnameOverrideEnv, envVar.Name,
+			construct.BackupHostnameOverrideEnv+" env var should NOT be present when backup agents exist")
+	}
+}
+
+// TestBackupHostnameOverride_DisabledWithoutExternalDomain tests that
+// the backup hostname override is NOT enabled when external domain is not configured.
+func TestBackupHostnameOverride_DisabledWithoutExternalDomain(t *testing.T) {
+	ctx := context.Background()
+
+	// ReplicaSet without external domain
+	rs := DefaultReplicaSetBuilder().SetName("test-rs").SetMembers(3).Build()
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	// Verify the StatefulSet does NOT have the backup hostname override env var
+	sts := &appsv1.StatefulSet{}
+	err := kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), sts)
+	assert.NoError(t, err)
+
+	// Find the database container
+	var databaseContainer *corev1.Container
+	for i := range sts.Spec.Template.Spec.Containers {
+		if sts.Spec.Template.Spec.Containers[i].Name == util.DatabaseContainerName {
+			databaseContainer = &sts.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	require.NotNil(t, databaseContainer, "database container should exist")
+
+	// Check that BackupHostnameOverrideEnv env var is NOT present
+	for _, envVar := range databaseContainer.Env {
+		assert.NotEqual(t, construct.BackupHostnameOverrideEnv, envVar.Name,
+			construct.BackupHostnameOverrideEnv+" env var should NOT be present without external domain")
+	}
+}
+
+// TestBackupHostnameOverride_PersistsAcrossReconciliations tests that the backup hostname
+// override env var persists across multiple reconciliations, even when backup agents
+// register after the initial deployment. This prevents the bug where the env var would
+// be removed on the second reconcile when backup agents appear.
+func TestBackupHostnameOverride_PersistsAcrossReconciliations(t *testing.T) {
+	ctx := context.Background()
+	externalDomain := "mongodb.example.com"
+
+	rs := DefaultReplicaSetBuilder().SetName("test-rs").SetMembers(3).ExposedExternally(nil, nil, &externalDomain).Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+
+	// Mutable counter - starts with no backup agents
+	backupAgentCount := 0
+
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		mockedConn := connection.(*om.MockedOmConnection)
+		mockedConn.SetOMVersion("7.0.13")
+		mockedConn.ReadBackupAgentsFunc = func(_ int) (om.Paginated, error) {
+			return om.AutomationAgentStatusResponse{
+				OMPaginated: om.OMPaginated{TotalCount: backupAgentCount},
+			}, nil
+		}
+		mockedConn.Hostnames = []string{
+			"test-rs-0." + externalDomain,
+			"test-rs-1." + externalDomain,
+			"test-rs-2." + externalDomain,
+		}
+	})
+
+	// Helper to verify env var presence
+	verifyEnvVarPresent := func() {
+		sts := &appsv1.StatefulSet{}
+		err := kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), sts)
+		require.NoError(t, err)
+
+		var databaseContainer *corev1.Container
+		for i := range sts.Spec.Template.Spec.Containers {
+			if sts.Spec.Template.Spec.Containers[i].Name == util.DatabaseContainerName {
+				databaseContainer = &sts.Spec.Template.Spec.Containers[i]
+				break
+			}
+		}
+		require.NotNil(t, databaseContainer, "database container should exist")
+
+		var foundEnvVar bool
+		for _, envVar := range databaseContainer.Env {
+			if envVar.Name == construct.BackupHostnameOverrideEnv {
+				foundEnvVar = true
+				assert.Equal(t, "true", envVar.Value, "env var value should be 'true'")
+				break
+			}
+		}
+		assert.True(t, foundEnvVar, "%s env var should be present", construct.BackupHostnameOverrideEnv)
+	}
+
+	// First reconciliation: no backup agents, env var should be added
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+	verifyEnvVarPresent()
+
+	// Simulate backup agents registering after first reconcile
+	backupAgentCount = 3
+
+	// Second reconciliation: backup agents now exist, but env var should persist
+	// (because it's already in the StatefulSet)
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	assert.NoError(t, err)
+	verifyEnvVarPresent()
+
+	// Third reconciliation: env var should still persist
+	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	assert.NoError(t, err)
+	verifyEnvVarPresent()
+}
+
+// TestBackupHostnameOverride_DisabledWhenOMVersionTooOld verifies the per-major-version
+// gating for the -backupOverrideLocalHost agent flag (CLOUDP-260397).
+func TestBackupHostnameOverride_DisabledWhenOMVersionTooOld(t *testing.T) {
+	tests := []struct {
+		version  string
+		expected bool
+	}{
+		// OM 6.x: not supported
+		{"6.0.27", false},
+		// OM 7.x: requires 7.0.13+
+		{"7.0.0", false},
+		{"7.0.12", false},
+		{"7.0.13", true},
+		{"7.0.22", true},
+		// OM 8.x: requires 8.0.4+
+		{"8.0.0", false},
+		{"8.0.3", false},
+		{"8.0.4", true},
+		{"8.0.19", true},
+		// OM 9.x+: assumed supported
+		{"9.0.0", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.version, func(t *testing.T) {
+			conn := om.NewMockedOmConnection(nil)
+			conn.SetOMVersion(tc.version)
+			assert.Equal(t, tc.expected, isBackupHostnameOverrideSupported(conn),
+				"isBackupHostnameOverrideSupported for OM %s", tc.version)
 		})
 	}
 }
