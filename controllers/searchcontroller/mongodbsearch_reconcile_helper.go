@@ -409,7 +409,7 @@ func mongotServicePorts(search *searchv1.MongoDBSearch) []corev1.ServicePort {
 
 	if prometheus := search.GetPrometheus(); prometheus != nil {
 		ports = append(ports, corev1.ServicePort{
-			Name:       "prometheus",
+			Name:       "metrics",
 			Protocol:   corev1.ProtocolTCP,
 			Port:       prometheus.GetPort(),
 			TargetPort: intstr.FromInt32(prometheus.GetPort()),

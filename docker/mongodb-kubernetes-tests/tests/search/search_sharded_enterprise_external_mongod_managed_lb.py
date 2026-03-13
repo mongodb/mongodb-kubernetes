@@ -25,22 +25,25 @@ Key difference from managed LB internal test:
 """
 
 from kubernetes import client
-from kubetester.kubetester import run_periodically
-from kubetester.mongodb import MongoDB
+from pytest import fixture, mark
+
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
-from pytest import fixture, mark
-from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.search import search_resource_names
+from tests.common.prometheus import PrometheusStack
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
+from tests.common.search.search_paging_helper import SearchPagingQueryHelper, run_concurrent_paging_queries
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
+
+# Prometheus
+PROMETHEUS_PASSWORD = "prom-password"
+PROMETHEUS_SECRET_NAME = "prometheus-password"
 
 # User credentials
 ADMIN_USER_NAME = "mdb-admin-user"
@@ -73,6 +76,13 @@ CA_CONFIGMAP_NAME = "mdb-sh-ca"
 @fixture(scope="module")
 def sharded_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
     return create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
+
+
+@fixture(scope="module")
+def prometheus_secret(namespace: str) -> str:
+    """Create the secret containing the Prometheus HTTP Basic Auth password."""
+    create_or_update_secret(namespace, PROMETHEUS_SECRET_NAME, {"password": PROMETHEUS_PASSWORD})
+    return PROMETHEUS_SECRET_NAME
 
 
 @fixture(scope="function")
@@ -281,3 +291,112 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
     assert phase == Phase.Running, f"MongoDBSearch phase is {phase}, expected Running"
 
     logger.info(f"MongoDBSearch {mdbs.name} is in Running phase")
+
+
+def test_paging_query(mdb: MongoDB):
+    """Verify that cursor paging (getMore) works by iterating through search results page by page."""
+    st = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    helper = SearchPagingQueryHelper(st, "sample_mflix", "movies")
+    total = helper.execute_paging_query()
+    assert total >= 100, f"Expected at least 100 documents, got {total}"
+    logger.info(f"✓ Paging query fetched {total} documents across pages")
+
+
+def test_concurrent_paging_queries(mdb: MongoDB):
+    """Verify cursor paging works under concurrent load from multiple simulated users.
+
+    Each user gets its own SearchTester (and therefore its own connection pool) to avoid
+    contention on a shared client. Runs 3 users × 3 iterations in silent mode.
+    """
+    st = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    num_users = 3
+    iterations = 100
+    helpers = [
+        SearchPagingQueryHelper(st, "sample_mflix", "movies")
+        for _ in range(num_users)
+    ]
+    stats = run_concurrent_paging_queries(helpers, iterations=iterations, silent=True, ignore_errors=False)
+    assert stats.total_queries == num_users * iterations, (
+        f"Expected {num_users * iterations} queries, got {stats.total_queries}"
+    )
+    assert stats.total_docs >= num_users * iterations * 100, (
+        f"Expected at least {num_users * iterations * 100} total docs, got {stats.total_docs}"
+    )
+    logger.info(
+        f"✓ Concurrent paging: {stats.total_queries} queries, "
+        f"{stats.total_pages} pages, {stats.total_docs} docs in {stats.duration_s:.2f}s"
+    )
+
+
+PROMETHEUS_NAMESPACE = "monitoring"
+
+
+def test_deploy_prometheus_stack(namespace: str):
+    """Deploy kube-prometheus-stack with ServiceMonitors for mongod, mongot, and Envoy."""
+    stack = PrometheusStack(namespace=PROMETHEUS_NAMESPACE)
+    stack.deploy_all(
+        target_namespace=namespace,
+        mdb_resource_name=MDB_RESOURCE_NAME,
+        provision_dashboards=True,
+    )
+    logger.info(f"✓ Prometheus stack deployed — Grafana: {stack.grafana_url()}")
+
+
+def test_verify_prometheus_scraping(namespace: str):
+    """Verify that Prometheus is actively scraping Envoy targets.
+
+    The Prometheus operator prefixes job labels with the ServiceMonitor/PodMonitor
+    namespace: {monitoring_namespace}/{monitor_name}. So the job label for the Envoy
+    PodMonitor is "monitoring/mdb-sh-managed-lb-envoy".
+
+    mongod (port 9216) and mongot (port 9946) require spec.prometheus to be enabled
+    on the MongoDB and MongoDBSearch CRs respectively — not asserted here until enabled.
+    """
+    import urllib.request
+    import json
+
+    stack = PrometheusStack(namespace=PROMETHEUS_NAMESPACE)
+
+    def _get_targets() -> dict:
+        url = f"{stack.prometheus_url()}/api/v1/targets?state=active"
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    # Job labels are prefixed with the monitor namespace by the Prometheus operator
+    expected_jobs = [
+        f"{PROMETHEUS_NAMESPACE}/{MDB_RESOURCE_NAME}-envoy",
+    ]
+
+    def _all_jobs_have_targets() -> bool:
+        try:
+            data = _get_targets()
+            active = data.get("data", {}).get("activeTargets", [])
+            found_jobs = {t["labels"].get("job") for t in active}
+            missing = [j for j in expected_jobs if j not in found_jobs]
+            if missing:
+                logger.debug(f"Waiting for scrape targets: {missing} (found: {found_jobs})")
+                return False
+            return True
+        except Exception as e:
+            logger.debug(f"Prometheus not reachable yet: {e}")
+            return False
+
+    run_periodically(
+        fn=_all_jobs_have_targets,
+        timeout=120,
+        sleep_time=10,
+        msg="all scrape targets to appear in Prometheus",
+    )
+
+    # Assert no targets are permanently down
+    data = _get_targets()
+    active = data.get("data", {}).get("activeTargets", [])
+    for job in expected_jobs:
+        job_targets = [t for t in active if t["labels"].get("job") == job]
+        assert job_targets, f"No active targets found for job '{job}'"
+        down = [t for t in job_targets if t["health"] == "down"]
+        assert not down, (
+            f"Job '{job}' has {len(down)} down target(s): "
+            + "; ".join(t.get("lastError", "unknown") for t in down)
+        )
+        logger.info(f"✓ Job '{job}': {len(job_targets)} target(s) up")
