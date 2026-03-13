@@ -51,14 +51,6 @@ func (r *ShardedInternalSearchSource) HostSeeds(shardName string) []string {
 	return seeds
 }
 
-// HostSeeds returns the host seeds for the first shard for backward compatibility.
-func (r *ShardedInternalSearchSource) HostSeeds() []string {
-	if r.Spec.ShardCount > 0 {
-		return r.HostSeedsForShard(0)
-	}
-	return nil
-}
-
 func (r *ShardedInternalSearchSource) MongosHostAndPort() string {
 	clusterDomain := r.Spec.GetClusterDomain()
 	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
@@ -85,7 +77,7 @@ func (r *ShardedInternalSearchSource) KeyfileSecretName() string {
 	return fmt.Sprintf("%s-%s", r.Name, MongotKeyfileFilename)
 }
 
-func (r *ShardedEnterpriseSearchSource) ResourceType() mdbv1.ResourceType {
+func (r *ShardedInternalSearchSource) ResourceType() mdbv1.ResourceType {
 	return r.GetResourceType()
 }
 
@@ -125,7 +117,7 @@ func (r *ShardedInternalSearchSource) Validate() error {
 	return nil
 }
 
-func (r *ShardedEnterpriseSearchSource) GetUnmanagedLBEndpointForShard(shardName string) string {
+func (r *ShardedInternalSearchSource) GetUnmanagedLBEndpointForShard(shardName string) string {
 	if r.search == nil || !r.search.IsShardedUnmanagedLB() {
 		return ""
 	}

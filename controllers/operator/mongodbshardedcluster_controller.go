@@ -1037,10 +1037,10 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 	if search.IsShardedUnmanagedLB() || search.IsLBModeManaged() {
 		// Validate unmanaged LB endpoint configuration
 		if search.IsShardedUnmanagedLB() {
-			shardedSource := searchcontroller.NewShardedEnterpriseSearchSource(sc, search)
+			shardedSource := searchcontroller.NewShardedInternalSearchSource(sc, search)
 			if err := shardedSource.Validate(); err != nil {
 				log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
-				return
+				return nil
 			}
 		}
 
@@ -1105,8 +1105,8 @@ func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx co
 
 	// Validate the search spec
 	if err := search.ValidateSpec(); err != nil {
-		log.Warnf("MongoDBSearch %s validation failed: %v", search.NamespacedName(), err)
-		return nil
+		zap.S().Warnf("MongoDBSearch %s validation failed: %v", search.NamespacedName(), err)
+		return nil, nil
 	}
 
 	return search, nil
