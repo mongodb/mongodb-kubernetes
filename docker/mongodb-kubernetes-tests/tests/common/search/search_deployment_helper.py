@@ -266,39 +266,6 @@ class SearchDeploymentHelper:
 
         return resource
 
-    def mdbs_for_ext_rs_source(
-        self,
-        mongot_user_name: str,
-        rs_members: int = 3,
-    ) -> MongoDBSearch:
-        resource = MongoDBSearch.from_yaml(
-            yaml_fixture("search-minimal.yaml"),
-            namespace=self.namespace,
-            name=self.mdbs_resource_name,
-        )
-
-        if try_load(resource):
-            return resource
-
-        seeds = [
-            f"{self.mdb_resource_name}-{i}.{self.mdb_resource_name}-svc.{self.namespace}.svc.cluster.local:27017"
-            for i in range(rs_members)
-        ]
-
-        resource["spec"]["source"] = {
-            "username": mongot_user_name,
-            "passwordSecretRef": {
-                "name": f"{self.mdbs_resource_name}-{mongot_user_name}-password",
-                "key": "password",
-            },
-            "external": {
-                "hostAndPorts": seeds,
-                "tls": {"ca": {"name": self.ca_configmap_name}},
-            },
-        }
-
-        return resource
-
     def install_sharded_tls_certificates(self, secret_prefix: str = "mdb-sh-"):
         mongos_service_dns = f"{self.mdb_resource_name}-svc.{self.namespace}.svc.cluster.local"
         create_sharded_cluster_certs(

@@ -24,7 +24,7 @@ class SampleMoviesSearchHelper:
     archive_url: str
     tools_pod: Optional[ToolsPod]
 
-    def __init__(self, search_tester: SearchTester, tools_pod: ToolsPod = None):
+    def __init__(self, search_tester: SearchTester, tools_pod: Optional[ToolsPod] = None):
         self.search_tester = search_tester
         self.tools_pod = tools_pod
         self.db_name = "sample_mflix"
