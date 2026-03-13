@@ -1,7 +1,7 @@
 from typing import Callable, Optional
 
 from kubetester import create_or_update_secret, try_load
-from kubetester.certs import create_sharded_cluster_certs
+from kubetester.certs import create_mongodb_tls_certs, create_sharded_cluster_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -312,3 +312,94 @@ class SearchDeploymentHelper:
             mongos_service_dns_names=[mongos_service_dns],
         )
         logger.info("Sharded cluster TLS certificates created")
+
+    def create_rs_mdb(
+        self,
+        set_tls: bool = False,
+        mongot_host: Optional[str] = None,
+    ) -> MongoDB:
+        """Create an Enterprise ReplicaSet MongoDB resource."""
+        resource = MongoDB.from_yaml(
+            yaml_fixture("enterprise-replicaset-sample-mflix.yaml"),
+            name=self.mdb_resource_name,
+            namespace=self.namespace,
+        )
+
+        if try_load(resource):
+            return resource
+
+        resource.configure(om=get_ops_manager(self.namespace), project_name=self.mdb_resource_name)
+
+        if set_tls:
+            resource.configure_custom_tls(self.ca_configmap_name, "certs")
+
+        if mongot_host is not None:
+            resource["spec"]["additionalMongodConfig"] = {
+                "setParameter": {
+                    "mongotHost": mongot_host,
+                    "searchIndexManagementHostAndPort": mongot_host,
+                    "skipAuthenticationToSearchIndexManagementServer": False,
+                    "skipAuthenticationToMongot": False,
+                    "searchTLSMode": "requireTLS",
+                    "useGrpcForSearch": True,
+                }
+            }
+
+        return resource
+
+    def install_rs_tls_certificates(self, issuer: str, members: int = 3):
+        """Create MongoDB RS TLS certificates."""
+        create_mongodb_tls_certs(
+            issuer,
+            self.namespace,
+            self.mdb_resource_name,
+            f"certs-{self.mdb_resource_name}-cert",
+            members,
+        )
+        logger.info("RS TLS certificates created")
+
+    def mdbs_for_ext_rs_source(
+        self,
+        mongot_user_name: str,
+        members: int = 3,
+        lb_mode: Optional[str] = None,
+        replicas: Optional[int] = None,
+    ) -> MongoDBSearch:
+        """Create MongoDBSearch with an external RS source."""
+        resource = MongoDBSearch.from_yaml(
+            yaml_fixture("search-minimal.yaml"),
+            namespace=self.namespace,
+            name=self.mdbs_resource_name,
+        )
+
+        if try_load(resource):
+            return resource
+
+        seeds = [
+            f"{self.mdb_resource_name}-{i}.{self.mdb_resource_name}-svc.{self.namespace}.svc.cluster.local:27017"
+            for i in range(members)
+        ]
+
+        resource["spec"]["source"] = {
+            "username": mongot_user_name,
+            "passwordSecretRef": {
+                "name": f"{self.mdbs_resource_name}-{mongot_user_name}-password",
+                "key": "password",
+            },
+            "external": {
+                "hostAndPorts": seeds,
+                "tls": {"ca": {"name": self.ca_configmap_name}},
+            },
+        }
+
+        resource["spec"]["security"] = {
+            "tls": {"certsSecretPrefix": self.tls_cert_prefix},
+        }
+
+        if lb_mode:
+            resource["spec"]["lb"] = {"mode": lb_mode}
+
+        if replicas is not None:
+            resource["spec"]["replicas"] = replicas
+
+        return resource

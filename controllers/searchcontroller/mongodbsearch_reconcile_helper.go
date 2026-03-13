@@ -823,7 +823,14 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 		return search.GetReplicaSetUnmanagedLBEndpoint()
 	}
 
-	// Otherwise, use the internal service endpoint
+	// Managed LB: point mongod at the Envoy proxy service
+	if search.IsLBModeManaged() {
+		proxySvcName := search.LoadBalancerServiceName()
+		const envoyProxyPort = 27029
+		return fmt.Sprintf("%s.%s.svc.%s:%d", proxySvcName, search.Namespace, clusterDomain, envoyProxyPort)
+	}
+
+	// Default: direct to mongot headless service
 	svcName := search.SearchServiceNamespacedName()
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
