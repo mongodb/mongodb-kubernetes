@@ -762,8 +762,9 @@ func TestCreateSearchStatefulSetFunc_ConfigMounting(t *testing.T) {
 	// Per-pod config mode
 	sts = &appsv1.StatefulSet{}
 	CreateSearchStatefulSetFunc(search, "sts", "ns", "svc", "cm", labels, "img:v1", true)(sts)
-	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[1], "ROLE=$(cat")
-	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[1], "config-${ROLE}.yml")
+	startupCmd := sts.Spec.Template.Spec.Containers[0].Args[1]
+	assert.Contains(t, startupCmd, MongotPerPodConfigDirPath)
+	assert.Contains(t, startupCmd, "ROLE=$(cat")
 }
 
 func TestGetMongodConfigParametersForShard(t *testing.T) {

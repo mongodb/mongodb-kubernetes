@@ -27,6 +27,7 @@ const (
 	MongotConfigLeaderFilename   = "config-leader.yml"
 	MongotConfigFollowerFilename = "config-follower.yml"
 	MongotConfigDirPath          = "/mongot"
+	MongotPerPodConfigDirPath    = "/mongot/startup-config"
 	MongotConfigPath             = MongotConfigDirPath + "/" + MongotConfigFilename
 	MongotDataPath               = "/mongot/data"
 	MongotKeyfileFilename        = "keyfile"
@@ -87,7 +88,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 
 	var mongotConfigVolumeMount corev1.VolumeMount
 	if usePerPodConfig {
-		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigDirPath, statefulset.WithReadOnly(true))
+		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotPerPodConfigDirPath, statefulset.WithReadOnly(true))
 	} else {
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 	}
@@ -199,7 +200,7 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 func mongotPerPodConfigStartCommand() string {
 	return fmt.Sprintf(`ROLE=$(cat "%s/$(hostname)")
 /mongot-community/mongot --config %s/config-${ROLE}.yml`,
-		MongotConfigDirPath, MongotConfigDirPath)
+		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath)
 }
 
 func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
