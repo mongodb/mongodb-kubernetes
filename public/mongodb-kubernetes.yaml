@@ -429,7 +429,7 @@ spec:
             - name: MDB_SEARCH_NAME
               value: "mongodb-search"
             - name: MDB_SEARCH_VERSION
-              value: "0.60.1"
+              value: "f85ffd3e5a"
             - name: MDB_ENVOY_IMAGE
               value: "envoyproxy/envoy:v1.31-latest"
       volumes:
