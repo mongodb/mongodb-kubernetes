@@ -10,9 +10,6 @@ spec:
   mongosCount: 1
   configServerCount: 1
   version: 8.2.0-ent
-  opsManager:
-    configMapRef:
-      name: my-project
   credentials: my-credentials
   security:
     certsSecretPrefix: mdb-sh

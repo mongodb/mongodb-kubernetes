@@ -3,6 +3,7 @@ package searchcontroller
 import (
 	"fmt"
 
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -32,7 +33,7 @@ const (
 	MongotSourceUserPasswordPath = "/mongot/sourceUserPassword" // #nosec G101 -- This is not a hardcoded password, just a path to a file containing the password
 	TempSourceUserPasswordPath   = tempVolumePath + "/" + "sourceUserPassword"
 	SearchLivenessProbePath      = "/health"
-	SearchReadinessProbePath     = "/health" // Todo: Update this when search GA is available
+	SearchReadinessProbePath     = "/ready"
 	tlsCACertName                = "ca.crt"
 )
 
@@ -43,8 +44,9 @@ const (
 type SearchSourceDBResource interface {
 	KeyfileSecretName() string
 	TLSConfig() *TLSSourceConfig
-	HostSeeds() []string
+	HostSeeds(shardName string) []string
 	Validate() error
+	ResourceType() mdb.ResourceType
 }
 
 // SearchSourceShardedDeployment extends SearchSourceDBResource for sharded MongoDB clusters.
@@ -52,7 +54,7 @@ type SearchSourceShardedDeployment interface {
 	SearchSourceDBResource
 	GetShardCount() int
 	GetShardNames() []string
-	HostSeedsForShard(shardIdx int) []string
+	GetUnmanagedLBEndpointForShard(shardName string) string
 	MongosHostAndPort() string
 }
 
@@ -111,7 +113,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		statefulset.WithLabels(labels),
 		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
-		statefulset.WithReplicas(1),
+		statefulset.WithReplicas(mdbSearch.GetReplicas()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
 		dataVolumeClaim,
 		statefulset.WithPodSpecTemplate(

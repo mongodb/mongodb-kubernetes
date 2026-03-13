@@ -1,0 +1,15 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-rs
+spec:
+  replicas: 2
+  logLevel: DEBUG
+  source:
+    mongodbResourceRef:
+      name: mdb-rs
+  security:
+    tls:
+      certsSecretPrefix: certs
+  lb:
+    mode: Managed
