@@ -67,7 +67,7 @@ CA_CONFIGMAP_NAME = "mdb-sh-ca"
 
 @fixture(scope="module")
 def sharded_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
-    return create_sharded_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
+    return create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
 
 
 @fixture(scope="function")
