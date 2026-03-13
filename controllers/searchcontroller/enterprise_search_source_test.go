@@ -365,7 +365,7 @@ func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mdb := newShardedClusterMongoDB(tc.mdbName, "test-ns", tc.shardCount, "8.2.0")
 			search := newShardedUnmanagedLBSearch("test-search", "test-ns", tc.mdbName, "")
-			src := NewShardedEnterpriseSearchSource(mdb, search)
+			src := NewShardedInternalSearchSource(mdb, search)
 
 			shardNames := src.GetShardNames()
 			assert.Equal(t, tc.expectedShards, shardNames)
