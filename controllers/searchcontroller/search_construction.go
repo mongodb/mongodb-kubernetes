@@ -33,7 +33,7 @@ const (
 	MongotSourceUserPasswordPath = "/mongot/sourceUserPassword" // #nosec G101 -- This is not a hardcoded password, just a path to a file containing the password
 	TempSourceUserPasswordPath   = tempVolumePath + "/" + "sourceUserPassword"
 	SearchLivenessProbePath      = "/health"
-	SearchReadinessProbePath     = "/health" // Todo: Update this when search GA is available
+	SearchReadinessProbePath     = "/ready"
 	tlsCACertName                = "ca.crt"
 )
 
