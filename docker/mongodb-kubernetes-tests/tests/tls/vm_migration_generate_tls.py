@@ -9,7 +9,7 @@ Configures a different AC profile from vm_migration_generate.py:
   - SCRAM-SHA-256 auth with one app user (admin-user)
   - operationProfiling (slowOpThresholdMs)
   - wiredTiger engine config (cacheSizeGB, journalCompressor)
-  - storage.directoryPerDB + journal.enabled
+  - storage.directoryPerDB
   - No auditLog, no custom roles
   - FCV
 
@@ -190,7 +190,6 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                     "storage": {
                         "dbPath": "/data/",
                         "directoryPerDB": True,
-                        "journal": {"enabled": True},
                         "wiredTiger": {
                             "engineConfig": {
                                 "cacheSizeGB": 1,

@@ -5,7 +5,7 @@ Configures a realistic automation config with:
   - SCRAM-SHA-256 auth with automation agent user + two app users
   - Custom role (appReadOnly)
   - logRotate + auditLogRotate per process
-  - args2_6: compression, oplogSizeMB, directoryPerDB, journal, setParameter,
+  - args2_6: compression, oplogSizeMB, directoryPerDB, setParameter,
     auditLog, systemLog.logAppend
   - Member tags (region / role)
   - FCV
@@ -190,7 +190,6 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                     "storage": {
                         "dbPath": "/data/",
                         "directoryPerDB": True,
-                        "journal": {"enabled": True},
                     },
                     "systemLog": {
                         "path": "/data/mongodb.log",

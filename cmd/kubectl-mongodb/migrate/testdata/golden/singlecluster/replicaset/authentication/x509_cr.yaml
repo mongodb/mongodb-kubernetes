@@ -41,14 +41,13 @@ spec:
   security:
     authentication:
       agents:
-        mode: SCRAM-SHA-256
+        mode: SCRAM
       enabled: true
       ignoreUnknownUsers: true
       internalCluster: X509
       modes:
-      - SCRAM-SHA-256
+      - SCRAM
       - X509
-    tls:
-      enabled: true
+    certsSecretPrefix: mdb
   type: ReplicaSet
   version: 8.0.4-ent

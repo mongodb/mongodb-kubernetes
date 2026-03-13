@@ -14,6 +14,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
 const (
@@ -33,6 +34,9 @@ type GenerateOptions struct {
 	MultiClusterNames     []string
 	AgentConfigs          *ProjectAgentConfigs
 	ProcessConfigs        *ProjectProcessConfigs
+	// CertsSecretPrefix is the value for spec.security.certsSecretPrefix when TLS is enabled (e.g. "mdb").
+	// Required when TLS is enabled; no default — caller must set it (CLI prompts the user).
+	CertsSecretPrefix string
 }
 
 // UserCROutput holds the generated YAML and metadata for a single MongoDBUser CR.
@@ -64,17 +68,17 @@ func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, s
 }
 
 func generateShardedClusterSingleCluster(_ *om.AutomationConfig, _ GenerateOptions) (string, string, error) {
-	return "", "", fmt.Errorf("sharded cluster migration is not yet supported")
+	return "", "", fmt.Errorf("sharded cluster migration is not yet supported.")
 }
 
 func generateShardedClusterMultiCluster(_ *om.AutomationConfig, _ GenerateOptions) (string, string, error) {
-	return "", "", fmt.Errorf("sharded cluster multi-cluster migration is not yet supported")
+	return "", "", fmt.Errorf("sharded cluster multi-cluster migration is not yet supported.")
 }
 
 func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
 	replicaSets := ac.Deployment.GetReplicaSets()
 	if len(replicaSets) == 0 {
-		return "", "", fmt.Errorf("no replica sets found in the automation config")
+		return "", "", fmt.Errorf("no replica sets found in the automation config.")
 	}
 	rs := replicaSets[0]
 
@@ -91,7 +95,7 @@ func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptio
 
 	spec, err := buildMongoDBSpec(version, fcv, externalMembers, rsName, resourceName, opts, ac, processMap, members)
 	if err != nil {
-		return "", "", fmt.Errorf("error building MongoDB spec: %w", err)
+		return "", "", fmt.Errorf("failed to build MongoDB spec: %w", err)
 	}
 
 	cr := mdbv1.MongoDB{
@@ -102,7 +106,7 @@ func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptio
 		ObjectMeta: metav1.ObjectMeta{
 			Name: resourceName,
 			Annotations: map[string]string{
-				"mongodb.com/migrate-tool-version": pluginVersion(),
+				"mongodb.com/migrate-tool-version": versionutil.StaticContainersOperatorVersion(),
 			},
 		},
 		Spec: spec,
@@ -110,7 +114,7 @@ func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptio
 
 	out, err := marshalCRToYAML(cr)
 	if err != nil {
-		return "", "", fmt.Errorf("error marshalling CR to YAML: %w", err)
+		return "", "", fmt.Errorf("failed to marshal Custom Resource to YAML: %w", err)
 	}
 
 	return out, resourceName, nil
@@ -118,12 +122,12 @@ func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptio
 
 func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
 	if len(opts.MultiClusterNames) == 0 {
-		return "", "", fmt.Errorf("multi-cluster generation requires at least one cluster name")
+		return "", "", fmt.Errorf("multi-cluster generation requires at least one cluster name.")
 	}
 
 	replicaSets := ac.Deployment.GetReplicaSets()
 	if len(replicaSets) == 0 {
-		return "", "", fmt.Errorf("no replica sets found in the automation config")
+		return "", "", fmt.Errorf("no replica sets found in the automation config.")
 	}
 	rs := replicaSets[0]
 
@@ -140,7 +144,7 @@ func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOption
 
 	spec, err := buildMultiClusterSpec(version, fcv, externalMembers, rsName, resourceName, opts, ac, processMap, members)
 	if err != nil {
-		return "", "", fmt.Errorf("error building multi-cluster spec: %w", err)
+		return "", "", fmt.Errorf("failed to build multi-cluster spec: %w", err)
 	}
 
 	cr := mdbmulti.MongoDBMultiCluster{
@@ -151,7 +155,7 @@ func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOption
 		ObjectMeta: metav1.ObjectMeta{
 			Name: resourceName,
 			Annotations: map[string]string{
-				"mongodb.com/migrate-tool-version": pluginVersion(),
+				"mongodb.com/migrate-tool-version": versionutil.StaticContainersOperatorVersion(),
 			},
 		},
 		Spec: spec,
@@ -159,7 +163,7 @@ func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOption
 
 	out, err := marshalCRToYAML(cr)
 	if err != nil {
-		return "", "", fmt.Errorf("error marshalling CR to YAML: %w", err)
+		return "", "", fmt.Errorf("failed to marshal Custom Resource to YAML: %w", err)
 	}
 
 	return out, resourceName, nil
@@ -209,9 +213,9 @@ func buildMultiClusterSpec(
 
 	spec.FeatureCompatibilityVersion = &fcv
 
-	security, err := buildSecurity(ac.Auth, processMap, members, ac.Ldap, ac.OIDCProviderConfigs)
+	security, err := buildSecurity(ac.Auth, processMap, members, ac.Ldap, ac.OIDCProviderConfigs, opts.CertsSecretPrefix)
 	if err != nil {
-		return mdbmulti.MongoDBMultiSpec{}, fmt.Errorf("error building security config: %w", err)
+		return mdbmulti.MongoDBMultiSpec{}, fmt.Errorf("failed to build security config: %w", err)
 	}
 	spec.Security = security
 
@@ -224,19 +228,19 @@ func buildMultiClusterSpec(
 
 	prom, err := extractPrometheusConfig(ac.Deployment)
 	if err != nil {
-		return mdbmulti.MongoDBMultiSpec{}, fmt.Errorf("error extracting prometheus config: %w", err)
+		return mdbmulti.MongoDBMultiSpec{}, fmt.Errorf("failed to extract Prometheus config: %w", err)
 	}
 	spec.Prometheus = prom
 
 	additionalConfig, err := extractAdditionalMongodConfig(processMap, members)
 	if err != nil {
-		return mdbmulti.MongoDBMultiSpec{}, fmt.Errorf("error extracting additional mongod config: %w", err)
+		return mdbmulti.MongoDBMultiSpec{}, fmt.Errorf("failed to extract additional mongod config: %w", err)
 	}
 	spec.AdditionalMongodConfig = additionalConfig
 
 	agentConfig, err := extractAgentConfig(processMap, members, opts.AgentConfigs, opts.ProcessConfigs)
 	if err != nil {
-		return mdbmulti.MongoDBMultiSpec{}, fmt.Errorf("error extracting agent config: %w", err)
+		return mdbmulti.MongoDBMultiSpec{}, fmt.Errorf("failed to extract agent config: %w", err)
 	}
 	if agentConfig.Mongod.HasLoggingConfigured() || agentConfig.MonitoringAgent.LogRotate != nil {
 		spec.Agent = agentConfig
@@ -334,9 +338,9 @@ func buildMongoDBSpec(
 
 	spec.FeatureCompatibilityVersion = &fcv
 
-	security, err := buildSecurity(ac.Auth, processMap, members, ac.Ldap, ac.OIDCProviderConfigs)
+	security, err := buildSecurity(ac.Auth, processMap, members, ac.Ldap, ac.OIDCProviderConfigs, opts.CertsSecretPrefix)
 	if err != nil {
-		return mdbv1.MongoDbSpec{}, fmt.Errorf("error building security config: %w", err)
+		return mdbv1.MongoDbSpec{}, fmt.Errorf("failed to build security config: %w", err)
 	}
 	spec.Security = security
 
@@ -349,19 +353,19 @@ func buildMongoDBSpec(
 
 	prom, err := extractPrometheusConfig(ac.Deployment)
 	if err != nil {
-		return mdbv1.MongoDbSpec{}, fmt.Errorf("error extracting prometheus config: %w", err)
+		return mdbv1.MongoDbSpec{}, fmt.Errorf("failed to extract Prometheus config: %w", err)
 	}
 	spec.Prometheus = prom
 
 	additionalConfig, err := extractAdditionalMongodConfig(processMap, members)
 	if err != nil {
-		return mdbv1.MongoDbSpec{}, fmt.Errorf("error extracting additional mongod config: %w", err)
+		return mdbv1.MongoDbSpec{}, fmt.Errorf("failed to extract additional mongod config: %w", err)
 	}
 	spec.AdditionalMongodConfig = additionalConfig
 
 	agentConfig, err := extractAgentConfig(processMap, members, opts.AgentConfigs, opts.ProcessConfigs)
 	if err != nil {
-		return mdbv1.MongoDbSpec{}, fmt.Errorf("error extracting agent config: %w", err)
+		return mdbv1.MongoDbSpec{}, fmt.Errorf("failed to extract agent config: %w", err)
 	}
 	if agentConfig.Mongod.HasLoggingConfigured() || agentConfig.MonitoringAgent.LogRotate != nil {
 		spec.Agent = agentConfig
@@ -383,10 +387,10 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 	var results []UserCROutput
 	for i, user := range ac.Auth.Users {
 		if user == nil {
-			return nil, fmt.Errorf("user at index %d is nil", i)
+			return nil, fmt.Errorf("user at index %d is nil.", i)
 		}
 		if user.Username == "" {
-			return nil, fmt.Errorf("user at index %d has an empty username", i)
+			return nil, fmt.Errorf("user at index %d has an empty username.", i)
 		}
 
 		if user.Username == ac.Auth.AutoUser && user.Database == util.DefaultUserDatabase {
@@ -394,19 +398,19 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 		}
 
 		needsPassword := user.Database != "$external"
-		crName, err := normalizeK8sName(user.Username)
-		if err != nil {
-			return nil, fmt.Errorf("error normalizing username %q: %w", user.Username, err)
+		crName := userv1.NormalizeName(user.Username)
+		if crName == "" {
+			return nil, fmt.Errorf("username %q cannot be normalized to a valid Kubernetes name: no alphanumeric characters.", user.Username)
 		}
 		if prev, exists := seenCRNames[crName]; exists {
-			return nil, fmt.Errorf("users %q and %q normalize to the same Kubernetes name %q; rename one before migration", prev, user.Username, crName)
+			return nil, fmt.Errorf("users %q and %q normalize to the same Kubernetes name %q. Rename one before migration.", prev, user.Username, crName)
 		}
 		seenCRNames[crName] = user.Username
 		passwordSecretName := crName + "-password"
 
 		roles, err := convertRoles(user.Roles)
 		if err != nil {
-			return nil, fmt.Errorf("error converting roles for user %q: %w", user.Username, err)
+			return nil, fmt.Errorf("failed to convert roles for user %q: %w", user.Username, err)
 		}
 
 		spec := userv1.MongoDBUserSpec{
@@ -433,7 +437,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 			Spec:       spec,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("error marshalling MongoDBUser CR for %q: %w", user.Username, err)
+			return nil, fmt.Errorf("failed to marshal MongoDBUser Custom Resource for %q: %w", user.Username, err)
 		}
 
 		results = append(results, UserCROutput{
@@ -503,7 +507,7 @@ func GenerateLdapResources(ac *om.AutomationConfig, namespace string) (*LdapReso
 		}
 		out, err := marshalCRToYAML(sec)
 		if err != nil {
-			return nil, fmt.Errorf("error marshalling LDAP bind query secret: %w", err)
+			return nil, fmt.Errorf("failed to marshal LDAP bind query secret: %w", err)
 		}
 		res.BindQueryPasswordSecret = out
 		hasResources = true
@@ -525,7 +529,7 @@ func GenerateLdapResources(ac *om.AutomationConfig, namespace string) (*LdapReso
 		}
 		out, err := marshalCRToYAML(cm)
 		if err != nil {
-			return nil, fmt.Errorf("error marshalling LDAP CA configmap: %w", err)
+			return nil, fmt.Errorf("failed to marshal LDAP CA ConfigMap: %w", err)
 		}
 		res.CAConfigMap = out
 		hasResources = true
@@ -630,7 +634,7 @@ func convertRoles(roles []*om.Role) ([]userv1.Role, error) {
 	var out []userv1.Role
 	for i, r := range roles {
 		if r == nil {
-			return nil, fmt.Errorf("role at index %d is nil", i)
+			return nil, fmt.Errorf("role at index %d is nil.", i)
 		}
 		out = append(out, userv1.Role{
 			RoleName: r.Role,

@@ -46,7 +46,6 @@ spec:
       enabled: true
       modes:
       - X509
-    tls:
-      enabled: true
+    certsSecretPrefix: mdb
   type: ReplicaSet
   version: 7.0.12

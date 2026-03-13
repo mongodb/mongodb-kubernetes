@@ -94,7 +94,7 @@ spec:
     authentication:
       agents:
         automationUserName: custom-automation-agent
-        mode: SCRAM-SHA-256
+        mode: SCRAM
       enabled: true
       ldap:
         authzQueryTemplate: '{USER}?memberOf?base'
@@ -108,7 +108,7 @@ spec:
         userCacheInvalidationInterval: 0
         validateLDAPServerConfig: false
       modes:
-      - SCRAM-SHA-256
+      - SCRAM
       - SCRAM-SHA-1
       - LDAP
   type: ReplicaSet

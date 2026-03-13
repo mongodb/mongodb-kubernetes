@@ -72,7 +72,7 @@ sections to CR fields. Each category appears as a section header comment
 
 | AC Field                             | CR Field                                   | Impact         | Notes                                                             |
 | ------------------------------------ | ------------------------------------------ | -------------- | ----------------------------------------------------------------- |
-| `args2_6.net.tls.mode`               | `spec.security.tls.enabled`                | **Must match** | Mismatch toggles TLS on/off                                       |
+| `args2_6.net.tls.mode`               | `spec.security.certsSecretPrefix`          | **Must match** | TLS enabled via certsSecretPrefix (e.g. `mdb`); `tls.enabled` is deprecated. When the deployment has TLS, the migrate tool prompts for this value; no default — user must provide it. |
 | `args2_6.net.tls.mode`               | `spec.additionalMongodConfig.net.tls.mode` | **Must match** | Only if non-default; preserves `allowTLS`/`preferTLS`             |
 | `args2_6.net.tls.certificateKeyFile` | —                                          | **Blocker**    | Operator hardcodes container path; error if AC path differs       |
 | `args2_6.net.tls.PEMKeyFile`         | —                                          | **Blocker**    | Legacy equivalent of `certificateKeyFile`                         |

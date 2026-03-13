@@ -330,12 +330,12 @@ def test_additional_config_excludes_differing(generated_cr: dict):
 
 @mark.e2e_vm_migration_generate_heterogeneous
 def test_security_present(generated_cr: dict):
-    """Auth is enabled — security section must be present with SCRAM-SHA-256."""
+    """Auth is enabled — security section must be present with SCRAM."""
     sec = generated_cr["spec"].get("security", {})
     auth = sec.get("authentication", {})
     assert auth.get("enabled") is True
     modes = auth.get("modes", [])
-    assert "SCRAM-SHA-256" in modes, f"Expected SCRAM-SHA-256 in modes, got: {modes}"
+    assert "SCRAM" in modes, f"Expected SCRAM in modes, got: {modes}"
 
 
 @mark.e2e_vm_migration_generate_heterogeneous

@@ -9,9 +9,9 @@ Configures mongod processes with:
   - Agent authenticates via SCRAM-SHA-256
 
 Verifies:
-  - The generated CR has spec.security.tls.enabled: true
+  - The generated CR has spec.security.certsSecretPrefix set (TLS enabled; tls.enabled is deprecated)
   - spec.security.authentication.internalCluster: X509
-  - spec.security.authentication.modes includes both SCRAM-SHA-256 and X509
+  - spec.security.authentication.modes includes both SCRAM and X509
   - X.509 user is emitted as a MongoDBUser CR
   - Full promote-and-prune lifecycle
 """
@@ -38,8 +38,10 @@ VM_STS_NAME = "vm-mongodb"
 VM_SVC_NAME = "vm-mongodb"
 VM_CERT_SECRET = "vm-mongodb-cert"
 VM_TLS_PEM_SECRET = "vm-mongodb-tls-pem"
-OPERATOR_CERT_SECRET = f"{RS_NAME}-cert"
-OPERATOR_CLUSTERFILE_SECRET = f"{RS_NAME}-clusterfile"
+# Match migration tool output: certsSecretPrefix: mdb → mdb-<resource-name>-cert / mdb-<resource-name>-clusterfile
+CERT_SECRET_PREFIX = "mdb"
+OPERATOR_CERT_SECRET = f"{CERT_SECRET_PREFIX}-{RS_NAME}-cert"
+OPERATOR_CLUSTERFILE_SECRET = f"{CERT_SECRET_PREFIX}-{RS_NAME}-clusterfile"
 TLS_CERT_MOUNT = "/etc/mongodb/certs"
 SCRAM_USER_PASSWORD = "x509ScramPwd456!"
 X509_CLIENT_SUBJECT = "CN=x509-client,O=MongoDB"
@@ -56,8 +58,13 @@ def om_tester(namespace: str) -> OMTester:
 
 @fixture(scope="module")
 def vm_server_certs(issuer: str, namespace: str):
-    """Create TLS certs for the VM mongod pods via cert-manager."""
-    return create_mongodb_tls_certs(
+    """Create X.509 TLS certs for the VM mongod pods via cert-manager.
+
+    Uses create_x509_mongodb_tls_certs so the certs have a subject with
+    O=cluster.local-server, matching the operator clusterfile certs —
+    required for x509 clusterAuthMode.
+    """
+    return create_x509_mongodb_tls_certs(
         ISSUER_CA_NAME,
         namespace,
         VM_STS_NAME,
@@ -273,7 +280,11 @@ def _configure_ac_with_x509(namespace: str, om_tester: OMTester, vm_sts: dict, v
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
-    return run_migrate_generate(namespace, passwords=[SCRAM_USER_PASSWORD])
+    return run_migrate_generate(
+        namespace,
+        passwords=[SCRAM_USER_PASSWORD],
+        certs_secret_prefix=CERT_SECRET_PREFIX,
+    )
 
 
 @fixture(scope="module")
@@ -340,9 +351,10 @@ def test_install_operator(operator: Operator):
 
 @mark.e2e_vm_migration_generate_scram_x509
 def test_tls_enabled_in_cr(generated_cr: dict):
-    """The generated CR must have spec.security.tls.enabled: true."""
-    tls = generated_cr.get("spec", {}).get("security", {}).get("tls", {})
-    assert tls.get("enabled") is True, f"Expected tls.enabled=true, got: {tls}"
+    """The generated CR must have TLS enabled via spec.security.certsSecretPrefix (tls.enabled is deprecated)."""
+    security = generated_cr.get("spec", {}).get("security", {})
+    prefix = security.get("certsSecretPrefix")
+    assert prefix, f"Expected certsSecretPrefix to be set for TLS, got security: {security}"
 
 
 @mark.e2e_vm_migration_generate_scram_x509
@@ -354,9 +366,9 @@ def test_internal_cluster_x509(generated_cr: dict):
 
 @mark.e2e_vm_migration_generate_scram_x509
 def test_auth_modes_include_x509(generated_cr: dict):
-    """Authentication modes must include both SCRAM-SHA-256 and X509."""
+    """Authentication modes must include both SCRAM and X509."""
     modes = generated_cr["spec"]["security"]["authentication"].get("modes", [])
-    assert "SCRAM-SHA-256" in modes, f"Expected SCRAM-SHA-256 in modes, got: {modes}"
+    assert "SCRAM" in modes, f"Expected SCRAM in modes, got: {modes}"
     assert "X509" in modes, f"Expected X509 in modes, got: {modes}"
 
 

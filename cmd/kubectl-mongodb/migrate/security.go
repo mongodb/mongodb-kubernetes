@@ -6,10 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
-
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
@@ -19,14 +18,30 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
+// IsAutomationConfigTLSEnabled returns true if the deployment's first replica set
+// has TLS enabled (any member with a non-disabled net.tls/net.ssl mode).
+// Used by the CLI to decide whether to prompt for CertsSecretPrefix.
+func IsAutomationConfigTLSEnabled(ac *om.AutomationConfig) (bool, error) {
+	replicaSets := ac.Deployment.GetReplicaSets()
+	if len(replicaSets) == 0 {
+		return false, nil
+	}
+	processMap := ac.Deployment.ProcessMap()
+	members := replicaSets[0].Members()
+	return isTLSEnabledForAnyMember(processMap, members)
+}
+
 // buildSecurity assembles the top-level spec.security block by inspecting
 // TLS state, authentication mechanisms, LDAP, and OIDC from the automation config.
+// certsSecretPrefix is the value for spec.security.certsSecretPrefix when TLS is enabled;
+// must be non-empty when TLS is enabled (no default).
 func buildSecurity(
 	auth *om.Auth,
 	processMap map[string]om.Process,
 	members []om.ReplicaSetMember,
 	acLdap *ldap.Ldap,
 	oidcConfigs []oidc.ProviderConfig,
+	certsSecretPrefix string,
 ) (*mdbv1.Security, error) {
 	security := &mdbv1.Security{}
 	hasSettings := false
@@ -36,7 +51,12 @@ func buildSecurity(
 		return nil, err
 	}
 	if tlsEnabled {
-		security.TLSConfig = &mdbv1.TLSConfig{Enabled: true}
+		// Use certsSecretPrefix to enable TLS; tls.enabled is deprecated (see RELEASE_NOTES_MEKO.md 1.15).
+		// Caller must provide a non-empty prefix (no default).
+		if certsSecretPrefix == "" {
+			return nil, fmt.Errorf("certsSecretPrefix is required when TLS is enabled; provide a value when prompted")
+		}
+		security.CertificatesSecretsPrefix = certsSecretPrefix
 		hasSettings = true
 	}
 
@@ -87,17 +107,17 @@ func buildAuthenticationConfig(
 	}
 
 	if acLdap != nil && isLdapConfigured(acLdap) {
-		authConfig.Ldap = convertLdapConfig(acLdap)
+		authConfig.Ldap = mdbv1.ConvertACLdapToCR(acLdap, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
 	}
 
 	if len(oidcConfigs) > 0 {
-		if crOIDC := convertOIDCConfigs(oidcConfigs); len(crOIDC) > 0 {
+		if crOIDC := authn.MapACOIDCToProviderConfigs(oidcConfigs); len(crOIDC) > 0 {
 			authConfig.OIDCProviderConfigs = crOIDC
 		}
 	}
 
-	if agentMode, ok := mapMechanismToAuthMode(auth.AutoAuthMechanism); ok {
-		authConfig.Agents.Mode = string(agentMode)
+	if agentMode, ok := authn.MapMechanismToAuthMode(auth.AutoAuthMechanism); ok {
+		authConfig.Agents.Mode = agentMode
 	}
 
 	if auth.AutoUser != "" && auth.AutoUser != util.AutomationAgentUserName {
@@ -115,13 +135,14 @@ func buildAuthModes(auth *om.Auth) ([]mdbv1.AuthMode, error) {
 
 	collect := func(mechs []string, source string) error {
 		for _, mech := range mechs {
-			mode, ok := mapMechanismToAuthMode(mech)
+			mode, ok := authn.MapMechanismToAuthMode(mech)
 			if !ok {
-				return fmt.Errorf("unsupported auth mechanism %q in automation config (%s)", mech, source)
+				return fmt.Errorf("unsupported authentication mechanism %q in automation config (%s)", mech, source)
 			}
-			if !seen[mode] {
-				modes = append(modes, mode)
-				seen[mode] = true
+			authMode := mdbv1.AuthMode(mode)
+			if !seen[authMode] {
+				modes = append(modes, authMode)
+				seen[authMode] = true
 			}
 		}
 		return nil
@@ -137,26 +158,6 @@ func buildAuthModes(auth *om.Auth) ([]mdbv1.AuthMode, error) {
 	return modes, nil
 }
 
-// mapMechanismToAuthMode converts an automation config mechanism string to
-// the corresponding CR AuthMode. The mapping mirrors the operator's
-// convertToMechanismOrPanic in reverse.
-func mapMechanismToAuthMode(mech string) (mdbv1.AuthMode, bool) {
-	switch mech {
-	case util.AutomationConfigScramSha1Option, // "MONGODB-CR"
-		util.AutomationConfigScramSha256Option, // "SCRAM-SHA-256"
-		util.SCRAMSHA1:                         // "SCRAM-SHA-1"
-		return mdbv1.AuthMode(mech), true
-	case util.AutomationConfigX509Option: // "MONGODB-X509" → CR "X509"
-		return mdbv1.AuthMode(util.X509), true
-	case util.AutomationConfigLDAPOption: // "PLAIN" → CR "LDAP"
-		return mdbv1.AuthMode(util.LDAP), true
-	case util.AutomationConfigOIDCOption: // "MONGODB-OIDC" → CR "OIDC"
-		return mdbv1.AuthMode(util.OIDC), true
-	default:
-		return "", false
-	}
-}
-
 // extractInternalClusterAuthMode reads security.clusterAuthMode from the
 // first member's process args2_6 and maps it to
 // spec.security.authentication.internalCluster.
@@ -165,7 +166,7 @@ func extractInternalClusterAuthMode(processMap map[string]om.Process, members []
 		host := m.Name()
 		proc, ok := processMap[host]
 		if !ok {
-			return "", fmt.Errorf("process %q referenced by member at index %d not found", host, i)
+			return "", fmt.Errorf("process %q referenced by member at index %d was not found", host, i)
 		}
 		if mode := proc.ClusterAuthMode(); mode != "" {
 			return mapClusterAuthMode(mode)
@@ -179,9 +180,9 @@ func mapClusterAuthMode(mode string) (string, error) {
 	case "x509":
 		return util.X509, nil
 	case "keyFile":
-		return "", fmt.Errorf("clusterAuthMode %q is not supported by the operator (only x509 is supported); migrate your deployment to x509 internal cluster authentication before using the operator", mode)
+		return "", fmt.Errorf("clusterAuthMode %q is not supported by the operator (only x509 is supported). Migrate the deployment to x509 internal cluster authentication before using the operator.", mode)
 	default:
-		return "", fmt.Errorf("unsupported clusterAuthMode %q in automation config; only x509 is supported by the operator", mode)
+		return "", fmt.Errorf("unsupported clusterAuthMode %q in automation config. Only x509 is supported by the operator.", mode)
 	}
 }
 
@@ -192,7 +193,7 @@ func isTLSEnabledForAnyMember(processMap map[string]om.Process, members []om.Rep
 		host := m.Name()
 		proc, ok := processMap[host]
 		if !ok {
-			return false, fmt.Errorf("process %q referenced by member at index %d not found", host, i)
+			return false, fmt.Errorf("process %q referenced by member at index %d was not found", host, i)
 		}
 		if isTLSEnabled(proc) {
 			return true, nil
@@ -240,7 +241,7 @@ func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 	}
 
 	if acProm.Username == "" {
-		return nil, fmt.Errorf("prometheus is enabled but has no username configured")
+		return nil, fmt.Errorf("Prometheus is enabled but has no username configured.")
 	}
 
 	prom := &mdbcv1.Prometheus{
@@ -254,7 +255,7 @@ func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 	if acProm.ListenAddress != "" {
 		port := parsePortFromListenAddress(acProm.ListenAddress)
 		if port <= 0 {
-			return nil, fmt.Errorf("prometheus listenAddress %q does not contain a valid port", acProm.ListenAddress)
+			return nil, fmt.Errorf("Prometheus listenAddress %q does not contain a valid port.", acProm.ListenAddress)
 		}
 		prom.Port = port
 	}
@@ -291,74 +292,6 @@ func isLdapConfigured(l *ldap.Ldap) bool {
 	return l.Servers != "" || l.BindQueryUser != ""
 }
 
-// convertLdapConfig maps AC LDAP fields to the CR's spec.security.authentication.ldap.
-// Secrets and ConfigMaps referenced here must be created by the user before applying the CR.
-func convertLdapConfig(l *ldap.Ldap) *mdbv1.Ldap {
-	cr := &mdbv1.Ldap{
-		BindQueryUser:                 l.BindQueryUser,
-		AuthzQueryTemplate:            l.AuthzQueryTemplate,
-		UserToDNMapping:               l.UserToDnMapping,
-		TimeoutMS:                     l.TimeoutMS,
-		UserCacheInvalidationInterval: l.UserCacheInvalidationInterval,
-		ValidateLDAPServerConfig:      &l.ValidateLDAPServerConfig,
-	}
-
-	if l.Servers != "" {
-		servers := strings.Split(l.Servers, ",")
-		for i := range servers {
-			servers[i] = strings.TrimSpace(servers[i])
-		}
-		cr.Servers = servers
-	}
-
-	if l.TransportSecurity != "" {
-		ts := mdbv1.TransportSecurity(l.TransportSecurity)
-		cr.TransportSecurity = &ts
-	}
-
-	if l.BindQueryUser != "" {
-		cr.BindQuerySecretRef = mdbv1.SecretRef{Name: LdapBindQuerySecretName}
-	}
-
-	if l.CaFileContents != "" {
-		cr.CAConfigMapRef = &corev1.ConfigMapKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: LdapCAConfigMapName},
-			Key:                  LdapCAKey,
-		}
-	}
-
-	return cr
-}
-
-// convertOIDCConfigs maps AC OIDC provider configs to the CR's
-// spec.security.authentication.oidcProviderConfigs.
-func convertOIDCConfigs(configs []oidc.ProviderConfig) []mdbv1.OIDCProviderConfig {
-	var out []mdbv1.OIDCProviderConfig
-	for _, c := range configs {
-		authzType := mdbv1.OIDCAuthorizationType("UserID")
-		authzMethod := mdbv1.OIDCAuthorizationMethod("WorkloadIdentityFederation")
-		if c.SupportsHumanFlows {
-			authzMethod = "WorkforceIdentityFederation"
-		}
-		if c.UseAuthorizationClaim {
-			authzType = "GroupMembership"
-		}
-
-		out = append(out, mdbv1.OIDCProviderConfig{
-			ConfigurationName:   c.AuthNamePrefix,
-			IssuerURI:           c.IssuerUri,
-			Audience:            c.Audience,
-			AuthorizationType:   authzType,
-			UserClaim:           c.UserClaim,
-			GroupsClaim:         c.GroupsClaim,
-			AuthorizationMethod: authzMethod,
-			ClientId:            c.ClientId,
-			RequestedScopes:     c.RequestedScopes,
-		})
-	}
-	return out
-}
-
 // extractAdditionalMongodConfig reads user-facing mongod options from every
 // member's args2_6 and maps them to spec.additionalMongodConfig. Only fields
 // that have identical values across all members are included, since
@@ -375,11 +308,11 @@ func extractAdditionalMongodConfig(processMap map[string]om.Process, members []o
 		host := m.Name()
 		proc, ok := processMap[host]
 		if !ok {
-			return nil, fmt.Errorf("process %q referenced by member at index %d not found", host, i)
+			return nil, fmt.Errorf("process %q referenced by member at index %d was not found", host, i)
 		}
 		args := proc.Args()
 		if len(args) == 0 {
-			return nil, fmt.Errorf("process %q has no args2_6 configuration", host)
+			return nil, fmt.Errorf("process %q has no args2_6 configuration.", host)
 		}
 
 		cfg := mdbv1.NewEmptyAdditionalMongodConfig()
@@ -482,25 +415,23 @@ func intersectConfigMaps(maps []map[string]interface{}) map[string]interface{} {
 }
 
 func extractNetConfig(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {
-	if maputil.ReadMapValueAsMap(args, "net") == nil {
+	netMap := maputil.ReadMapValueAsMap(args, "net")
+	if netMap == nil {
 		return false
 	}
-
 	hasConfig := false
-
-	if port := maputil.ReadMapValueAsInt(args, "net", "port"); port != 0 && port != util.MongoDbDefaultPort {
+	if port := maputil.ReadMapValueAsInt(netMap, "port"); port != 0 && port != util.MongoDbDefaultPort {
 		config.AddOption("net.port", port)
 		hasConfig = true
 	}
-	if compressors := maputil.ReadMapValueAsInterface(args, "net", "compression", "compressors"); compressors != nil {
+	if compressors := maputil.ReadMapValueAsInterface(netMap, "compression", "compressors"); compressors != nil {
 		config.AddOption("net.compression.compressors", compressors)
 		hasConfig = true
 	}
-	if maxConns := maputil.ReadMapValueAsInt(args, "net", "maxIncomingConnections"); maxConns != 0 {
+	if maxConns := maputil.ReadMapValueAsInt(netMap, "maxIncomingConnections"); maxConns != 0 {
 		config.AddOption("net.maxIncomingConnections", maxConns)
 		hasConfig = true
 	}
-
 	return hasConfig
 }
 
@@ -508,9 +439,7 @@ func extractStorageConfig(args map[string]interface{}, config *mdbv1.AdditionalM
 	if maputil.ReadMapValueAsMap(args, "storage") == nil {
 		return false
 	}
-
 	hasConfig := false
-
 	if engine := maputil.ReadMapValueAsString(args, "storage", "engine"); engine != "" && engine != "wiredTiger" {
 		config.AddOption("storage.engine", engine)
 		hasConfig = true
@@ -535,12 +464,15 @@ func extractStorageConfig(args map[string]interface{}, config *mdbv1.AdditionalM
 		config.AddOption("storage.wiredTiger.collectionConfig.blockCompressor", v)
 		hasConfig = true
 	}
-
 	return hasConfig
 }
 
 func extractReplicationConfig(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {
-	if v := maputil.ReadMapValueAsInterface(args, "replication", "oplogSizeMB"); v != nil {
+	replMap := maputil.ReadMapValueAsMap(args, "replication")
+	if replMap == nil {
+		return false
+	}
+	if v := replMap["oplogSizeMB"]; v != nil {
 		config.AddOption("replication.oplogSizeMB", v)
 		return true
 	}
@@ -591,7 +523,7 @@ func extractAgentConfig(processMap map[string]om.Process, members []om.ReplicaSe
 		host := m.Name()
 		proc, ok := processMap[host]
 		if !ok {
-			return mdbv1.AgentConfig{}, fmt.Errorf("process %q referenced by member at index %d not found", host, i)
+			return mdbv1.AgentConfig{}, fmt.Errorf("process %q referenced by member at index %d was not found", host, i)
 		}
 
 		sysLog := proc.SystemLogMap()

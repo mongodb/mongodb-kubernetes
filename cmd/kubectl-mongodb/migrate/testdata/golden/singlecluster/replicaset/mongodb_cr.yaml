@@ -102,7 +102,7 @@ spec:
   security:
     authentication:
       agents:
-        mode: SCRAM-SHA-256
+        mode: SCRAM
       enabled: true
       ignoreUnknownUsers: true
       internalCluster: X509
@@ -123,7 +123,7 @@ spec:
         userToDNMapping: '[{"match":"(.+)","substitution":"uid={0},ou=users,dc=example,dc=com"}]'
         validateLDAPServerConfig: true
       modes:
-      - SCRAM-SHA-256
+      - SCRAM
       - X509
       - LDAP
       - OIDC
@@ -146,6 +146,7 @@ spec:
         configurationName: azure-svc
         issuerURI: https://login.microsoftonline.com/tenant-id/v2.0
         userClaim: sub
+    certsSecretPrefix: mdb
     roles:
     - db: myapp
       privileges:
@@ -158,7 +159,5 @@ spec:
       roles:
       - db: myapp
         role: read
-    tls:
-      enabled: true
   type: ReplicaSet
   version: 7.0.12-ent

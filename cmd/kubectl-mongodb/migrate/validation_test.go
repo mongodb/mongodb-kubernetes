@@ -28,7 +28,7 @@ func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "deployments") {
 			hasMultipleDeploymentsError = true
-			assert.Contains(t, r.Message, "split before migrating")
+			assert.Contains(t, r.Message, "before migrating")
 		}
 	}
 	assert.True(t, hasMultipleDeploymentsError, "expected error when project has multiple replica sets")
@@ -53,7 +53,7 @@ func TestValidation_NoReplicaSets(t *testing.T) {
 	results := ValidateMigration(ac, nil, nil)
 	hasError := false
 	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "no replicaSets") {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "No replica sets found") {
 			hasError = true
 		}
 	}
@@ -130,12 +130,12 @@ func TestValidation_NonDefaultAutoPEMKeyFilePath(t *testing.T) {
 	results := ValidateMigration(ac, nil, nil)
 	hasWarning := false
 	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "autoPEMKeyFilePath") {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "autoPEMKeyFilePath") {
 			hasWarning = true
 			assert.Contains(t, r.Message, "/etc/mongodb-mms/agent.pem")
 		}
 	}
-	assert.True(t, hasWarning, "expected warning when autoPEMKeyFilePath is set")
+	assert.True(t, hasWarning, "expected error when autoPEMKeyFilePath is set")
 }
 
 func TestValidation_NonDefaultCAFilePath(t *testing.T) {
@@ -145,12 +145,12 @@ func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 	results := ValidateMigration(ac, nil, nil)
 	hasWarning := false
 	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "CAFilePath") {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "CAFilePath") {
 			hasWarning = true
 			assert.Contains(t, r.Message, "/etc/ssl/ca.pem")
 		}
 	}
-	assert.True(t, hasWarning, "expected warning when CAFilePath differs from default")
+	assert.True(t, hasWarning, "expected error when CAFilePath differs from default")
 }
 
 func TestValidation_NonDefaultDownloadBase(t *testing.T) {
@@ -269,13 +269,13 @@ func TestValidation_LdapBindMethodSASL(t *testing.T) {
 	results := ValidateMigration(ac, nil, nil)
 	hasWarning := false
 	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "bindMethod") {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "bindMethod") {
 			hasWarning = true
 			assert.Contains(t, r.Message, "sasl")
 			assert.Contains(t, r.Message, "simple")
 		}
 	}
-	assert.True(t, hasWarning, "expected warning when LDAP bindMethod is not simple")
+	assert.True(t, hasWarning, "expected error when LDAP bindMethod is not simple")
 }
 
 func TestValidation_LdapBindMethodSimple_NoWarning(t *testing.T) {
@@ -468,17 +468,12 @@ func TestValidation_NoTLS_Warning(t *testing.T) {
 
 	results := ValidateMigration(ac, nil, nil)
 	hasNoTLSWarning := false
-	hasSecurityTLSWarning := false
 	for _, r := range results {
 		if r.Severity == SeverityWarning && strings.Contains(r.Message, "net.tls.mode") {
 			hasNoTLSWarning = true
 		}
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "spec.security.tls") {
-			hasSecurityTLSWarning = true
-		}
 	}
 	assert.True(t, hasNoTLSWarning, "expected warning about net.tls.mode for no-TLS deployment")
-	assert.True(t, hasSecurityTLSWarning, "expected warning about spec.security.tls for no-TLS deployment")
 }
 
 func TestValidation_TLSDisabled_Warning(t *testing.T) {
@@ -518,6 +513,43 @@ func TestValidation_TLSDisabled_Warning(t *testing.T) {
 		}
 	}
 	assert.True(t, hasNoTLSWarning, "expected warning about TLS mode for disabled TLS")
+}
+
+func TestValidation_TLSModeNull_Error(t *testing.T) {
+	// Process has net.tls section but mode is null/missing — not allowed in AC.
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "host-0", "processType": "mongod", "version": "7.0.0",
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{
+						"port": 27017,
+						"tls":  map[string]interface{}{}, // mode missing
+					},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+					"storage":     map[string]interface{}{"dbPath": "/data"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id": "my-rs", "protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "host-0", "tags": map[string]string{}},
+				},
+			},
+		},
+		"sharding": []interface{}{},
+	})
+	results := ValidateMigration(ac, nil, nil)
+	var hasError bool
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "mode is null or missing") {
+			hasError = true
+			break
+		}
+	}
+	assert.True(t, hasError, "expected error when net.tls exists but mode is null or missing")
 }
 
 func TestValidation_HeterogeneousProcessConfig_Warning(t *testing.T) {

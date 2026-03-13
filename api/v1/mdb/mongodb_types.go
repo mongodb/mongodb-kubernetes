@@ -1522,6 +1522,46 @@ func GetTransportSecurity(mdbLdap *Ldap) TransportSecurity {
 	return transportSecurity
 }
 
+// ConvertACLdapToCR converts an AC LDAP config to the CR representation.
+// This is the reverse of MongoDB.GetLDAP. Callers must create the
+// BindQuerySecretRef and CAConfigMapRef resources separately.
+func ConvertACLdapToCR(l *ldap.Ldap, bindQuerySecretName, caConfigMapName, caKey string) *Ldap {
+	cr := &Ldap{
+		BindQueryUser:                 l.BindQueryUser,
+		AuthzQueryTemplate:            l.AuthzQueryTemplate,
+		UserToDNMapping:               l.UserToDnMapping,
+		TimeoutMS:                     l.TimeoutMS,
+		UserCacheInvalidationInterval: l.UserCacheInvalidationInterval,
+		ValidateLDAPServerConfig:      &l.ValidateLDAPServerConfig,
+	}
+
+	if l.Servers != "" {
+		servers := strings.Split(l.Servers, ",")
+		for i := range servers {
+			servers[i] = strings.TrimSpace(servers[i])
+		}
+		cr.Servers = servers
+	}
+
+	if l.TransportSecurity != "" {
+		ts := TransportSecurity(l.TransportSecurity)
+		cr.TransportSecurity = &ts
+	}
+
+	if l.BindQueryUser != "" {
+		cr.BindQuerySecretRef = SecretRef{Name: bindQuerySecretName}
+	}
+
+	if l.CaFileContents != "" {
+		cr.CAConfigMapRef = &corev1.ConfigMapKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: caConfigMapName},
+			Key:                  caKey,
+		}
+	}
+
+	return cr
+}
+
 type MongoDbPodSpec struct {
 	ContainerResourceRequirements `json:"-"`
 

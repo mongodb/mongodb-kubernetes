@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
@@ -49,6 +50,7 @@ func TestFixtureMatch(t *testing.T) {
 					ConfigMapName:         "my-om-config",
 					AgentConfigs:          agentCfg,
 					ProcessConfigs:        processCfg,
+					CertsSecretPrefix:     "mdb",
 				})
 				require.NoError(t, err)
 				return out
@@ -190,6 +192,7 @@ func TestFixtureMatch(t *testing.T) {
 				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
 					ConfigMapName:         "my-om-config",
+					CertsSecretPrefix:     "mdb",
 				})
 				require.NoError(t, err)
 				return out
@@ -203,6 +206,7 @@ func TestFixtureMatch(t *testing.T) {
 				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
 					ConfigMapName:         "my-om-config",
+					CertsSecretPrefix:     "mdb",
 				})
 				require.NoError(t, err)
 				return out
@@ -273,6 +277,7 @@ func TestFixtureMatch(t *testing.T) {
 				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
 					ConfigMapName:         "my-om-config",
+					CertsSecretPrefix:     "mdb",
 				})
 				require.NoError(t, err)
 				return out
@@ -303,6 +308,7 @@ func TestFixtureMatch(t *testing.T) {
 				out, _, err := GenerateMongoDBCR(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
 					ConfigMapName:         "my-om-config",
+					CertsSecretPrefix:     "mdb",
 				})
 				require.NoError(t, err)
 				return out
@@ -353,6 +359,7 @@ func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 		ResourceName:          "custom-name",
 		CredentialsSecretName: "my-credentials",
 		ConfigMapName:         "my-om-config",
+		CertsSecretPrefix:     "mdb",
 	}
 
 	yamlOutput, _, err := GenerateMongoDBCR(ac, opts)
@@ -448,7 +455,7 @@ func TestDistributeMembers(t *testing.T) {
 	}
 }
 
-func TestNormalizeK8sName(t *testing.T) {
+func TestNormalizeName(t *testing.T) {
 	tests := []struct {
 		input    string
 		expected string
@@ -460,17 +467,15 @@ func TestNormalizeK8sName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result, err := normalizeK8sName(tt.input)
-			require.NoError(t, err)
+			result := userv1.NormalizeName(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestNormalizeK8sName_InvalidInput(t *testing.T) {
-	_, err := normalizeK8sName("---")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "---", "error should contain original input")
+func TestNormalizeName_InvalidInput(t *testing.T) {
+	result := userv1.NormalizeName("---")
+	assert.Empty(t, result)
 }
 
 func TestDistributeMembers_EmptyClusterNames(t *testing.T) {

@@ -59,13 +59,24 @@ def deploy_vm_service(namespace: str):
     return service_body
 
 
-def run_migrate_generate(namespace: str, passwords: list[str] | None = None) -> str:
+def run_migrate_generate(
+    namespace: str,
+    passwords: list[str] | None = None,
+    certs_secret_prefix: str | None = None,
+) -> str:
     """Run kubectl-mongodb migrate generate and return stdout (the CR YAML).
 
-    If passwords is provided, they are fed to stdin one per line (for SCRAM
-    user prompts).
+    If certs_secret_prefix is provided (e.g. "mdb"), it is sent first to stdin
+    for the TLS certsSecretPrefix prompt when the deployment has TLS enabled.
+    If passwords is provided, they are fed to stdin (after the cert prefix when
+    present) one per line for SCRAM user prompts.
     """
-    stdin_text = "\n".join(passwords) + "\n" if passwords else None
+    stdin_lines = []
+    if certs_secret_prefix is not None:
+        stdin_lines.append(certs_secret_prefix)
+    if passwords:
+        stdin_lines.extend(passwords)
+    stdin_text = "\n".join(stdin_lines) + "\n" if stdin_lines else None
 
     proc = subprocess.run(
         [MIGRATE_TOOL, "migrate", "generate", *MIGRATE_FLAGS, "--namespace", namespace],

@@ -6,7 +6,7 @@ bundle), this test configures the actual mongod processes with
 net.tls.mode: requireSSL and real certificates.
 
 Verifies:
-  - The generated CR has spec.security.tls.enabled: true
+  - The generated CR has spec.security.certsSecretPrefix set (TLS enabled; tls.enabled is deprecated)
   - No manual net.tls.mode override is needed (the tool handles it)
   - SCRAM auth and users are generated alongside TLS
   - Full promote-and-prune lifecycle with TLS-enabled deployment
@@ -34,7 +34,9 @@ VM_STS_NAME = "vm-mongodb"
 VM_SVC_NAME = "vm-mongodb"
 VM_CERT_SECRET = "vm-mongodb-cert"
 VM_TLS_PEM_SECRET = "vm-mongodb-tls-pem"
-OPERATOR_CERT_SECRET = f"{RS_NAME}-cert"
+# Match migration tool output: certsSecretPrefix: mdb → secret name mdb-<resource-name>-cert
+CERT_SECRET_PREFIX = "mdb"
+OPERATOR_CERT_SECRET = f"{CERT_SECRET_PREFIX}-{RS_NAME}-cert"
 TLS_CERT_MOUNT = "/etc/mongodb/certs"
 APP_USER_PASSWORD = "tlsAppUser123!"
 
@@ -244,7 +246,11 @@ def _configure_ac_with_tls(namespace: str, om_tester: OMTester, vm_sts: dict, vm
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
-    return run_migrate_generate(namespace, passwords=[APP_USER_PASSWORD])
+    return run_migrate_generate(
+        namespace,
+        passwords=[APP_USER_PASSWORD],
+        certs_secret_prefix=CERT_SECRET_PREFIX,
+    )
 
 
 @fixture(scope="module")
@@ -310,9 +316,10 @@ def test_install_operator(operator: Operator):
 
 @mark.e2e_vm_migration_generate_mongod_tls
 def test_tls_enabled_in_cr(generated_cr: dict):
-    """The generated CR must have spec.security.tls.enabled: true."""
-    tls = generated_cr.get("spec", {}).get("security", {}).get("tls", {})
-    assert tls.get("enabled") is True, f"Expected tls.enabled=true, got: {tls}"
+    """The generated CR must have TLS enabled via spec.security.certsSecretPrefix (tls.enabled is deprecated)."""
+    security = generated_cr.get("spec", {}).get("security", {})
+    prefix = security.get("certsSecretPrefix")
+    assert prefix, f"Expected certsSecretPrefix to be set for TLS, got security: {security}"
 
 
 @mark.e2e_vm_migration_generate_mongod_tls
@@ -330,7 +337,7 @@ def test_security_auth_present(generated_cr: dict):
     """SCRAM auth must be present alongside TLS."""
     auth = generated_cr["spec"]["security"].get("authentication", {})
     assert auth.get("enabled") is True
-    assert "SCRAM-SHA-256" in auth.get("modes", [])
+    assert "SCRAM" in auth.get("modes", [])
 
 
 @mark.e2e_vm_migration_generate_mongod_tls

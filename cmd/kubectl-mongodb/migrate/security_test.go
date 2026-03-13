@@ -8,9 +8,10 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
@@ -24,7 +25,7 @@ func TestBuildAuthModes_FromDeploymentAuthMechanisms(t *testing.T) {
 		{
 			name:     "SCRAM-SHA-256",
 			mechs:    []string{"SCRAM-SHA-256"},
-			expected: []mdbv1.AuthMode{"SCRAM-SHA-256"},
+			expected: []mdbv1.AuthMode{"SCRAM"},
 		},
 		{
 			name:     "SCRAM-SHA-1",
@@ -54,7 +55,7 @@ func TestBuildAuthModes_FromDeploymentAuthMechanisms(t *testing.T) {
 		{
 			name:     "multiple mechanisms",
 			mechs:    []string{"SCRAM-SHA-256", "MONGODB-X509"},
-			expected: []mdbv1.AuthMode{"SCRAM-SHA-256", "X509"},
+			expected: []mdbv1.AuthMode{"SCRAM", "X509"},
 		},
 	}
 	for _, tt := range tests {
@@ -71,7 +72,7 @@ func TestBuildAuthModes_UnknownMechanism(t *testing.T) {
 	auth := &om.Auth{DeploymentAuthMechanisms: []string{"UNKNOWN-MECH"}}
 	_, err := buildAuthModes(auth)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported auth mechanism")
+	assert.Contains(t, err.Error(), "unsupported authentication mechanism")
 	assert.Contains(t, err.Error(), "UNKNOWN-MECH")
 }
 
@@ -82,7 +83,7 @@ func TestBuildAuthModes_MergesAutoAndDeploymentMechanisms(t *testing.T) {
 	}
 	modes, err := buildAuthModes(auth)
 	require.NoError(t, err)
-	assert.Equal(t, []mdbv1.AuthMode{"SCRAM-SHA-256", "X509"}, modes)
+	assert.Equal(t, []mdbv1.AuthMode{"SCRAM", "X509"}, modes)
 }
 
 func TestBuildAuthModes_DeduplicatesMechanisms(t *testing.T) {
@@ -92,7 +93,7 @@ func TestBuildAuthModes_DeduplicatesMechanisms(t *testing.T) {
 	}
 	modes, err := buildAuthModes(auth)
 	require.NoError(t, err)
-	assert.Equal(t, []mdbv1.AuthMode{"SCRAM-SHA-256", "X509"}, modes)
+	assert.Equal(t, []mdbv1.AuthMode{"SCRAM", "X509"}, modes)
 }
 
 func TestBuildAuthModes_AutoOnlyMechanisms(t *testing.T) {
@@ -101,7 +102,7 @@ func TestBuildAuthModes_AutoOnlyMechanisms(t *testing.T) {
 	}
 	modes, err := buildAuthModes(auth)
 	require.NoError(t, err)
-	assert.Equal(t, []mdbv1.AuthMode{"SCRAM-SHA-256"}, modes)
+	assert.Equal(t, []mdbv1.AuthMode{"SCRAM"}, modes)
 }
 
 func TestBuildAuthModes_UnknownAutoMechanism(t *testing.T) {
@@ -118,11 +119,11 @@ func TestBuildAuthModes_UnknownAutoMechanism(t *testing.T) {
 func TestMapMechanismToAuthMode(t *testing.T) {
 	tests := []struct {
 		mech     string
-		expected mdbv1.AuthMode
+		expected string
 		ok       bool
 	}{
 		{"MONGODB-CR", "MONGODB-CR", true},
-		{"SCRAM-SHA-256", "SCRAM-SHA-256", true},
+		{"SCRAM-SHA-256", "SCRAM", true},
 		{"SCRAM-SHA-1", "SCRAM-SHA-1", true},
 		{"MONGODB-X509", "X509", true},
 		{"PLAIN", "LDAP", true},
@@ -132,7 +133,7 @@ func TestMapMechanismToAuthMode(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.mech, func(t *testing.T) {
-			mode, ok := mapMechanismToAuthMode(tt.mech)
+			mode, ok := authn.MapMechanismToAuthMode(tt.mech)
 			assert.Equal(t, tt.ok, ok)
 			if ok {
 				assert.Equal(t, tt.expected, mode)
@@ -200,7 +201,7 @@ func TestBuildSecurity_NilAuth(t *testing.T) {
 	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{}
 
-	result, err := buildSecurity(nil, processMap, members, nil, nil)
+	result, err := buildSecurity(nil, processMap, members, nil, nil, "")
 	require.NoError(t, err)
 	assert.Nil(t, result)
 }
@@ -210,7 +211,7 @@ func TestBuildSecurity_AuthDisabled(t *testing.T) {
 	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{}
 
-	result, err := buildSecurity(auth, processMap, members, nil, nil)
+	result, err := buildSecurity(auth, processMap, members, nil, nil, "")
 	require.NoError(t, err)
 	assert.Nil(t, result)
 }
@@ -223,12 +224,12 @@ func TestBuildSecurity_AuthEnabled(t *testing.T) {
 	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{}
 
-	result, err := buildSecurity(auth, processMap, members, nil, nil)
+	result, err := buildSecurity(auth, processMap, members, nil, nil, "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Authentication)
 	assert.True(t, result.Authentication.Enabled)
-	assert.Equal(t, []mdbv1.AuthMode{"SCRAM-SHA-256"}, result.Authentication.Modes)
+	assert.Equal(t, []mdbv1.AuthMode{"SCRAM"}, result.Authentication.Modes)
 }
 
 func TestBuildSecurity_TLSAndAuth(t *testing.T) {
@@ -249,13 +250,30 @@ func TestBuildSecurity_TLSAndAuth(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	result, err := buildSecurity(auth, processMap, members, nil, nil)
+	result, err := buildSecurity(auth, processMap, members, nil, nil, "mdb")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.NotNil(t, result.TLSConfig)
-	assert.True(t, result.TLSConfig.Enabled)
+	assert.Equal(t, "mdb", result.CertificatesSecretsPrefix, "TLS should be enabled via certsSecretPrefix (deprecated tls.enabled)")
+	assert.True(t, result.IsTLSEnabled())
 	require.NotNil(t, result.Authentication)
 	assert.Equal(t, []mdbv1.AuthMode{"X509"}, result.Authentication.Modes)
+}
+
+func TestBuildSecurity_TLS_RequiresNonEmptyPrefix(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {
+			"args2_6": map[string]interface{}{
+				"net": map[string]interface{}{
+					"tls": map[string]interface{}{"mode": "requireTLS"},
+				},
+			},
+		},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}}
+
+	_, err := buildSecurity(nil, processMap, members, nil, nil, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "certsSecretPrefix is required when TLS is enabled")
 }
 
 func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
@@ -276,7 +294,7 @@ func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	result, err := buildSecurity(auth, processMap, members, nil, nil)
+	result, err := buildSecurity(auth, processMap, members, nil, nil, "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Authentication)
@@ -290,7 +308,7 @@ func TestBuildSecurity_MissingProcess(t *testing.T) {
 		{"host": "missing-host"},
 	}
 
-	_, err := buildSecurity(nil, processMap, members, nil, nil)
+	_, err := buildSecurity(nil, processMap, members, nil, nil, "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -565,7 +583,7 @@ func TestExtractInternalClusterAuthMode_MissingProcess(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestConvertLdapConfig(t *testing.T) {
+func TestConvertACLdapToCR(t *testing.T) {
 	l := &ldap.Ldap{
 		Servers:              "ldap.example.com:636",
 		TransportSecurity:    "tls",
@@ -575,7 +593,7 @@ func TestConvertLdapConfig(t *testing.T) {
 		TimeoutMS:            10000,
 	}
 
-	cr := convertLdapConfig(l)
+	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
 	require.NotNil(t, cr)
 	assert.Equal(t, []string{"ldap.example.com:636"}, cr.Servers)
 	assert.Equal(t, mdbv1.TransportSecurity("tls"), *cr.TransportSecurity)
@@ -585,50 +603,50 @@ func TestConvertLdapConfig(t *testing.T) {
 	assert.Equal(t, 10000, cr.TimeoutMS)
 }
 
-func TestConvertLdapConfig_MultipleServers(t *testing.T) {
+func TestConvertACLdapToCR_MultipleServers(t *testing.T) {
 	l := &ldap.Ldap{
 		Servers: "ldap1.example.com:636, ldap2.example.com:636,ldap3.example.com:636",
 	}
 
-	cr := convertLdapConfig(l)
+	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
 	require.NotNil(t, cr)
 	assert.Equal(t, []string{"ldap1.example.com:636", "ldap2.example.com:636", "ldap3.example.com:636"}, cr.Servers)
 }
 
-func TestConvertLdapConfig_NoBindUser(t *testing.T) {
+func TestConvertACLdapToCR_NoBindUser(t *testing.T) {
 	l := &ldap.Ldap{
 		Servers: "ldap.example.com:636",
 	}
 
-	cr := convertLdapConfig(l)
+	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
 	require.NotNil(t, cr)
 	assert.Empty(t, cr.BindQuerySecretRef.Name)
 }
 
-func TestConvertLdapConfig_CaFileContents(t *testing.T) {
+func TestConvertACLdapToCR_CaFileContents(t *testing.T) {
 	l := &ldap.Ldap{
 		Servers:        "ldap.example.com:636",
 		CaFileContents: "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
 	}
 
-	cr := convertLdapConfig(l)
+	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
 	require.NotNil(t, cr)
 	require.NotNil(t, cr.CAConfigMapRef)
 	assert.Equal(t, "ldap-ca", cr.CAConfigMapRef.Name)
 	assert.Equal(t, "ca.pem", cr.CAConfigMapRef.Key)
 }
 
-func TestConvertLdapConfig_NoCaFileContents(t *testing.T) {
+func TestConvertACLdapToCR_NoCaFileContents(t *testing.T) {
 	l := &ldap.Ldap{
 		Servers: "ldap.example.com:636",
 	}
 
-	cr := convertLdapConfig(l)
+	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
 	require.NotNil(t, cr)
 	assert.Nil(t, cr.CAConfigMapRef)
 }
 
-func TestConvertOIDCConfigs(t *testing.T) {
+func TestMapACOIDCToProviderConfigs(t *testing.T) {
 	configs := []oidc.ProviderConfig{
 		{
 			AuthNamePrefix:     "WORKFORCE",
@@ -651,7 +669,7 @@ func TestConvertOIDCConfigs(t *testing.T) {
 		},
 	}
 
-	result := convertOIDCConfigs(configs)
+	result := authn.MapACOIDCToProviderConfigs(configs)
 	require.Len(t, result, 2)
 
 	assert.Equal(t, "WORKFORCE", result[0].ConfigurationName)

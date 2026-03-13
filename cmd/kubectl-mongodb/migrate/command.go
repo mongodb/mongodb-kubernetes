@@ -60,7 +60,7 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	}
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
-		return fmt.Errorf("error reading automation config: %w", err)
+		return fmt.Errorf("failed to read automation config: %w", err)
 	}
 
 	projectAgentConfigs, projectProcessConfigs, err := readProjectConfigs(conn)
@@ -70,7 +70,7 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 
 	results := ValidateMigration(ac, projectAgentConfigs, projectProcessConfigs)
 	if errorCount := printValidationResults(results); errorCount > 0 {
-		return fmt.Errorf("validation failed: %d error(s) found; fix the issues above before generating CRs", errorCount)
+		return fmt.Errorf("validation failed: %d error(s) found. Resolve the issues above before generating Custom Resources.", errorCount)
 	}
 
 	opts := GenerateOptions{
@@ -83,38 +83,70 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	if multiClusterNames != "" {
 		opts.MultiClusterNames = parseMultiClusterNames(multiClusterNames)
 		if len(opts.MultiClusterNames) == 0 {
-			return fmt.Errorf("--multi-cluster-names was provided but contains no valid cluster names after trimming")
+			return fmt.Errorf("--multi-cluster-names was provided but contains no valid cluster names after trimming.")
 		}
+	}
+
+	stdinScanner := bufio.NewScanner(os.Stdin)
+	if err := ensureTLS(ac, &opts, stdinScanner); err != nil {
+		return err
 	}
 
 	yamlOut, resourceName, err := GenerateMongoDBCR(ac, opts)
 	if err != nil {
-		return fmt.Errorf("error generating CR: %w", err)
+		return fmt.Errorf("failed to generate Custom Resource: %w", err)
 	}
 	fmt.Print(yamlOut)
 
-	if err := ensurePrometheus(ctx, ac, kubeClient); err != nil {
+	if err := ensurePrometheus(ctx, ac, kubeClient, stdinScanner); err != nil {
 		return err
 	}
 
-	if err := ensureUsers(ctx, ac, resourceName, kubeClient); err != nil {
+	if err := ensureUsers(ctx, ac, resourceName, kubeClient, stdinScanner); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func ensurePrometheus(ctx context.Context, ac *om.AutomationConfig, kubeClient kubernetesClient.Client) error {
+func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner) error {
+	tlsEnabled, err := IsAutomationConfigTLSEnabled(ac)
+	if err != nil {
+		return fmt.Errorf("failed to detect TLS in automation config: %w", err)
+	}
+	if !tlsEnabled {
+		return nil
+	}
+	prefix, err := promptCertsSecretPrefix(scanner)
+	if err != nil {
+		return err
+	}
+	opts.CertsSecretPrefix = prefix
+	return nil
+}
+
+func promptCertsSecretPrefix(scanner *bufio.Scanner) (string, error) {
+	fmt.Fprintf(os.Stderr, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
+	if !scanner.Scan() {
+		return "", fmt.Errorf("failed to read certsSecretPrefix")
+	}
+	s := strings.TrimSpace(scanner.Text())
+	if s == "" {
+		return "", fmt.Errorf("security.certsSecretPrefix is required when TLS is enabled")
+	}
+	return s, nil
+}
+
+func ensurePrometheus(ctx context.Context, ac *om.AutomationConfig, kubeClient kubernetesClient.Client, scanner *bufio.Scanner) error {
 	if !IsPrometheusEnabled(ac.Deployment) {
 		return nil
 	}
 	if kubeClient == nil {
-		return fmt.Errorf("prometheus is enabled and requires a password secret but no Kubernetes client is available; check your kubeconfig")
+		return fmt.Errorf("Prometheus is enabled and requires a password secret, but no Kubernetes client is available. Ensure kubeconfig is configured.")
 	}
-	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Fprintf(os.Stderr, "Enter password for Prometheus user: ")
 	if !scanner.Scan() {
-		return fmt.Errorf("error reading Prometheus password")
+		return fmt.Errorf("failed to read Prometheus password")
 	}
 	promPassword := strings.TrimSpace(scanner.Text())
 	if promPassword == "" {
@@ -122,16 +154,16 @@ func ensurePrometheus(ctx context.Context, ac *om.AutomationConfig, kubeClient k
 	}
 	sec := GeneratePasswordSecret(PrometheusPasswordSecretName, namespace, promPassword)
 	if err := kubeClient.CreateSecret(ctx, sec); err != nil {
-		return fmt.Errorf("error creating Prometheus password secret: %w", err)
+		return fmt.Errorf("failed to create Prometheus password secret: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", PrometheusPasswordSecretName, namespace)
 	return nil
 }
 
-func ensureUsers(ctx context.Context, ac *om.AutomationConfig, resourceName string, kubeClient kubernetesClient.Client) error {
+func ensureUsers(ctx context.Context, ac *om.AutomationConfig, resourceName string, kubeClient kubernetesClient.Client, scanner *bufio.Scanner) error {
 	userCRs, err := GenerateUserCRs(ac, resourceName)
 	if err != nil {
-		return fmt.Errorf("error generating user CRs: %w", err)
+		return fmt.Errorf("failed to generate user Custom Resources: %w", err)
 	}
 	if len(userCRs) == 0 {
 		return nil
@@ -145,29 +177,28 @@ func ensureUsers(ctx context.Context, ac *om.AutomationConfig, resourceName stri
 		}
 	}
 	if needsSecrets && kubeClient == nil {
-		return fmt.Errorf("user CRs require password secrets but no Kubernetes client is available; check your kubeconfig")
+		return fmt.Errorf("User Custom Resources require password secrets, but no Kubernetes client is available. Ensure kubeconfig is configured.")
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
 	for _, u := range userCRs {
 		if u.NeedsPassword && kubeClient != nil {
 			fmt.Fprintf(os.Stderr, "Enter password for SCRAM user %q (db: %s): ", u.Username, u.Database)
 			if !scanner.Scan() {
-				return fmt.Errorf("error reading password for user %q", u.Username)
+				return fmt.Errorf("failed to read password for user %q", u.Username)
 			}
 			password := strings.TrimSpace(scanner.Text())
 			if password == "" {
-				return fmt.Errorf("password for user %q cannot be empty", u.Username)
+				return fmt.Errorf("Password for user %q cannot be empty.", u.Username)
 			}
 
 			user := &om.MongoDBUser{Username: u.Username, Database: u.Database}
 			if err := authentication.ConfigureScramCredentials(user, password, ac); err != nil {
-				return fmt.Errorf("error validating password for user %q: %w", u.Username, err)
+				return fmt.Errorf("failed to validate password for user %q: %w", u.Username, err)
 			}
 
 			sec := GeneratePasswordSecret(u.PasswordSecret, namespace, password)
 			if err := kubeClient.CreateSecret(ctx, sec); err != nil {
-				return fmt.Errorf("error creating password secret %q for user %q: %w", u.PasswordSecret, u.Username, err)
+				return fmt.Errorf("failed to create password secret %q for user %q: %w", u.PasswordSecret, u.Username, err)
 			}
 			fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", u.PasswordSecret, namespace)
 		}
