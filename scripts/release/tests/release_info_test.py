@@ -1,5 +1,6 @@
 import json
 import os
+from unittest.mock import MagicMock, patch
 
 from scripts.release.build.build_info import load_build_info
 from scripts.release.build.build_scenario import BuildScenario
@@ -7,8 +8,26 @@ from scripts.release.release_info import convert_to_release_info_json
 
 OPERATOR_VERSION = "1.6.0"
 
+DIGEST_MAP = {
+    "quay.io/mongodb/mongodb-kubernetes:1.6.0": "sha256:317a7f2d40807629b1df78e7ef81790bcaeb09993d88b476ec3a33ee44cbb78d",
+    "quay.io/mongodb/mongodb-kubernetes-init-database:1.6.0": "sha256:ce10a711a6e6a31d20deecbe0ef15b5f82c2ca24d495fb832f5199ac327ee8ec",
+    "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:1.6.0": "sha256:62825c8edcd45e26586cce5b4062d6930847db0c58a76c168312be8cdc934707",
+    "quay.io/mongodb/mongodb-kubernetes-database:1.6.0": "sha256:382248da5bdd90c8dbb0a1571b5f9ec90c10931c7e0974f4563a522963304b58",
+    "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.16": "sha256:ca4aad523f14d68fccb60256f9ce8909c66ebb5b321ee15e5abf9ac5738947f9",
+    "quay.io/mongodb/mongodb-agent:108.0.16.8895-1": "sha256:793ae31c0d328fb3df1d3aa526f94e466cc2ed3410dd865548ce38fa3859cbaa",
+    "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.10": "sha256:f321ec1d25d6e98805b8be9321f2a926d702835136dde88d5fffe917c2df1d0a",
+    "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.23": "sha256:436fc328f3887f022a4760afd03da1a7091d285baf3d627a17d80bbdaab0ee47",
+    "quay.io/mongodb/mongodb-search:0.55.0": "sha256:c1e636119aa206ff98cefed37ee4b488d75c6a5e6025dcb71f44275a8f3f546a",
+    "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi9": "sha256:7a93a0276531ff9be4c90bb8fe8d104e0a9e930c29792aafe03cc6a76a9fa89c",
+}
 
-def test_create_release_info_json():
+
+@patch("scripts.release.release_info.DockerImageBuilder")
+def test_create_release_info_json(mock_builder_class):
+    mock_builder = MagicMock()
+    mock_builder.get_manfiest_list_digest.side_effect = lambda image: DIGEST_MAP[image]
+    mock_builder_class.return_value = mock_builder
+
     expected_json = {
         "images": {
             "operator": {
