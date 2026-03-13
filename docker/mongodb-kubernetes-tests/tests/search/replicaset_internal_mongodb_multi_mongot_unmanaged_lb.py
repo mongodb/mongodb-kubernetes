@@ -33,7 +33,7 @@ from tests.common.search.replicaset_search_helper import verify_rs_mongod_parame
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import (
-    create_sharded_ca,
+    create_issuer_ca,
     verify_search_results_from_all_shards,
     verify_text_search_query,
 )
@@ -76,7 +76,7 @@ def get_rs_search_tester(mdb: MongoDB, username: str, password: str, use_ssl: bo
 
 @fixture(scope="module")
 def ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
-    return create_sharded_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
+    return create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
 
 
 @fixture(scope="function")
