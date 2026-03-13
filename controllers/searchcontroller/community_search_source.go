@@ -54,7 +54,7 @@ func (r *CommunitySearchSource) TLSConfig() *TLSSourceConfig {
 	}
 
 	return &TLSSourceConfig{
-		CAFileName:       "ca.crt",
+		CAFileName:       tlsCACertName,
 		CAVolume:         volume,
 		ResourcesToWatch: watchedResources,
 	}
