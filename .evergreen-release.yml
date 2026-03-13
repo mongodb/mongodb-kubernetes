@@ -123,7 +123,7 @@ tasks:
       - func: python_venv
       - func: setup_kubectl
       - func: setup_aws
-      - func: helm_registry_login
+      - func: helm_registry_login_prod
       - func: publish_helm_chart
 
 ### Release build variants

@@ -388,6 +388,7 @@ tasks:
       - func: download_multi_cluster_binary
         vars:
           platform: linux/amd64
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: meko-tests
@@ -399,6 +400,7 @@ tasks:
       - func: download_multi_cluster_binary
         vars:
           platform: linux/arm64
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: meko-tests-arm64
@@ -412,6 +414,7 @@ tasks:
       - func: download_multi_cluster_binary
         vars:
           platform: linux/s390x
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: meko-tests-ibm-z
@@ -425,6 +428,7 @@ tasks:
       - func: download_multi_cluster_binary
         vars:
           platform: linux/ppc64le
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: meko-tests-ibm-power
@@ -433,6 +437,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: mco-tests
@@ -441,6 +446,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: operator
@@ -449,6 +455,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: operator-race
@@ -457,6 +464,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: init-ops-manager
@@ -465,7 +473,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: quay_login
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: agent
@@ -476,6 +484,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: init-database
@@ -484,6 +493,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: database
@@ -492,6 +502,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: readiness-probe
@@ -500,6 +511,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: upgrade-hook
@@ -511,7 +523,7 @@ tasks:
       - func: setup_kubectl
       - func: setup_aws
       - func: prepare_aws
-      - func: helm_registry_login
+      - func: helm_registry_login_staging
       - func: publish_helm_chart
 
   - name: prepare_aws
@@ -554,6 +566,7 @@ tasks:
       - func: clone
       - func: switch_context
       - func: setup_building_host
+      - func: quay_staging_login
       - func: pipeline
         vars:
           image_name: ops-manager

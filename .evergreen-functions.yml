@@ -225,18 +225,32 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/setup_docker_sbom.sh
 
-  helm_registry_login:
+  helm_registry_login_prod: &helm_registry_login_prod
     command: subprocess.exec
     type: setup
     retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
-      include_expansions_in_env:
-        - quay_prod_username
-        - quay_prod_robot_token
       add_to_path:
         - ${workdir}/bin
         - ${PROJECT_DIR}/bin
+      env:
+        QUAY_USERNAME: ${quay_prod_username}
+        QUAY_PASSWORD: ${quay_prod_robot_token}
+      binary: scripts/release/helm_registry_login.sh
+
+  helm_registry_login_staging: &helm_registry_login_staging
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+        - ${PROJECT_DIR}/bin
+      env:
+        QUAY_USERNAME: ${quay_staging_username}
+        QUAY_PASSWORD: ${quay_staging_robot_token}
       binary: scripts/release/helm_registry_login.sh
 
   # Logs into all used registries
@@ -373,6 +387,13 @@ functions:
       retry_on_failure: true
       params:
         command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
+
+  quay_staging_login:
+    - command: subprocess.exec
+      type: setup
+      retry_on_failure: true
+      params:
+        command: "docker login quay.io -u ${quay_staging_username} -p ${quay_staging_robot_token}"
 
   setup_cloud_qa:
     - command: shell.exec

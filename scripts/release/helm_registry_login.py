@@ -7,8 +7,8 @@ from shlex import quote
 from lib.base_logger import logger
 from scripts.release.build.build_info import load_build_info
 
-QUAY_USERNAME_ENV_VAR = "quay_prod_username"
-QUAY_PASSWORD_ENV_VAR = "quay_prod_robot_token"
+QUAY_USERNAME_ENV_VAR = "QUAY_USERNAME"
+QUAY_PASSWORD_ENV_VAR = "QUAY_PASSWORD"
 QUAY_REGISTRY = "quay.io"
 
 
