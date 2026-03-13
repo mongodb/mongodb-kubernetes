@@ -133,7 +133,7 @@ if [[ -f "${CONFIG_PATH}" ]]; then
 
       if [[ "${http_status}" != "401" && "${http_status}" != "403" && "${http_status}" != "error/timeout" ]]; then
         echo "Container registry credentials are up to date - not performing the new login!"
-        exit
+#        exit
       fi
       echo "Container login required (HTTP status: ${http_status})"
     else

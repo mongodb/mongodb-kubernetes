@@ -397,7 +397,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, tlsCfg *searchcontroller.
 				Args:    []string{"-c", "/etc/envoy/envoy.json", "--log-level", "info"},
 				Ports: []corev1.ContainerPort{
 					{Name: "grpc", ContainerPort: searchv1.EnvoyDefaultProxyPort},
-					{Name: "admin", ContainerPort: envoyAdminPort},
+					{Name: "metrics", ContainerPort: envoyAdminPort},
 				},
 				Resources:       resources,
 				SecurityContext: containerSecurityContext,
@@ -473,6 +473,11 @@ func (r *MongoDBSearchEnvoyReconciler) ensureProxyService(ctx context.Context, s
 					Name:       "grpc",
 					Port:       searchv1.EnvoyDefaultProxyPort,
 					TargetPort: intstr.FromInt32(searchv1.EnvoyDefaultProxyPort),
+				},
+				{
+					Name:       "metrics",
+					Port:       envoyAdminPort,
+					TargetPort: intstr.FromInt32(envoyAdminPort),
 				},
 			},
 		}
