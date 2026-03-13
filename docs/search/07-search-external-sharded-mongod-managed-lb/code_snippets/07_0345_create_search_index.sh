@@ -9,16 +9,17 @@
 echo "Creating search index on sample_mflix.movies..."
 
 # Connection string for user operations
-user_conn="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin"
+# authMechanism=SCRAM-SHA-256 is required for MongoDB 8.2+ which only enables SCRAM-SHA-256
+user_conn="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin&authMechanism=SCRAM-SHA-256"
 
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${user_conn}" --quiet --eval '
   use sample_mflix;
-  
+
   // Check if index already exists
   const existing = db.movies.aggregate([
     { $listSearchIndexes: {} }
   ]).toArray();
-  
+
   if (existing.some(idx => idx.name === "default")) {
     print("Search index 'default' already exists");
   } else {
@@ -33,9 +34,8 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${u
     });
     print("Search index 'default' created");
   }
-  
+
   print("\nNote: Search index may take a few minutes to build and sync.");
 '
 
 echo "✓ Search index creation initiated"
-

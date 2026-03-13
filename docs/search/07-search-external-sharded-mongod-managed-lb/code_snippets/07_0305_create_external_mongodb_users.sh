@@ -1,40 +1,124 @@
 #!/usr/bin/env bash
-# Create user credential secrets for the simulated external MongoDB cluster
+# Create users for the simulated external MongoDB sharded cluster
 #
-# These secrets store passwords for MongoDB users. In a real external cluster
-# scenario, you would create these users directly on your external MongoDB.
+# These users will be created in the MongoDB cluster:
+# - mdb-admin: Admin user with root role
+# - mdb-user: Regular user for queries
+# - search-sync-source: User for MongoDB Search to sync data
 #
-# Users created:
-# - mdb-admin-user: Cluster administrator
-# - mdb-user: Application user for running search queries
-# - search-sync-source: User for mongot to sync data from MongoDB
+# NOTE: This script must run AFTER the MongoDB cluster is ready because
+# MongoDBUser CRDs reference the cluster via mongodbResourceRef.
 
-echo "Creating MongoDB user credential secrets..."
+echo "Creating password secrets for MongoDB users..."
 
-# Admin user password secret
-kubectl create secret generic "${MDB_EXTERNAL_CLUSTER_NAME}-mdb-admin-user" \
-  --from-literal=password="${MDB_ADMIN_USER_PASSWORD}" \
-  -n "${MDB_NS}" \
-  --context "${K8S_CTX}" \
-  --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" -f -
-echo "  ✓ Admin user secret created"
+# Create password secrets for users
+kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mdb-admin-user-password
+type: Opaque
+stringData:
+  password: ${MDB_ADMIN_USER_PASSWORD}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mdb-user-password
+type: Opaque
+stringData:
+  password: ${MDB_USER_PASSWORD}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${MDB_SEARCH_RESOURCE_NAME}-search-sync-source-password
+type: Opaque
+stringData:
+  password: ${MDB_SEARCH_SYNC_USER_PASSWORD}
+EOF
 
-# Application user password secret
-kubectl create secret generic "${MDB_EXTERNAL_CLUSTER_NAME}-mdb-user" \
-  --from-literal=password="${MDB_USER_PASSWORD}" \
-  -n "${MDB_NS}" \
-  --context "${K8S_CTX}" \
-  --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" -f -
-echo "  ✓ Application user secret created"
+echo "  ✓ Password secrets created"
 
-# Search sync source user password secret
-# This user is used by mongot to sync data from MongoDB
-kubectl create secret generic "${MDB_SEARCH_RESOURCE_NAME}-search-sync-source-password" \
-  --from-literal=password="${MDB_SEARCH_SYNC_USER_PASSWORD}" \
-  -n "${MDB_NS}" \
-  --context "${K8S_CTX}" \
-  --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" -f -
-echo "  ✓ Search sync source user secret created"
+# Create admin user
+echo "Creating MongoDBUser CRDs..."
 
-echo "✓ All MongoDB user secrets created"
+kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: mdb-admin-user
+spec:
+  username: mdb-admin
+  db: admin
+  mongodbResourceRef:
+    name: ${MDB_EXTERNAL_CLUSTER_NAME}
+  passwordSecretKeyRef:
+    name: mdb-admin-user-password
+    key: password
+  roles:
+  - name: root
+    db: admin
+EOF
+echo "  ✓ Admin user CRD created"
 
+# Create regular user for queries
+kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: mdb-user
+spec:
+  username: mdb-user
+  db: admin
+  mongodbResourceRef:
+    name: ${MDB_EXTERNAL_CLUSTER_NAME}
+  passwordSecretKeyRef:
+    name: mdb-user-password
+    key: password
+  roles:
+  - name: readWrite
+    db: sample_mflix
+EOF
+echo "  ✓ Application user CRD created"
+
+# Create search sync user with searchCoordinator role
+kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: ${MDB_EXTERNAL_CLUSTER_NAME}-search-sync-source
+spec:
+  username: search-sync-source
+  db: admin
+  mongodbResourceRef:
+    name: ${MDB_EXTERNAL_CLUSTER_NAME}
+  passwordSecretKeyRef:
+    name: ${MDB_SEARCH_RESOURCE_NAME}-search-sync-source-password
+    key: password
+  roles:
+  - name: searchCoordinator
+    db: admin
+EOF
+echo "  ✓ Search sync source user CRD created"
+
+# Wait for users to be ready
+echo "Waiting for admin user to be ready..."
+kubectl wait --context "${K8S_CTX}" -n "${MDB_NS}" \
+  --for=jsonpath='{.status.phase}'=Updated \
+  mongodbuser/mdb-admin-user \
+  --timeout=300s
+
+echo "Waiting for regular user to be ready..."
+kubectl wait --context "${K8S_CTX}" -n "${MDB_NS}" \
+  --for=jsonpath='{.status.phase}'=Updated \
+  mongodbuser/mdb-user \
+  --timeout=300s
+
+echo "Waiting for search sync user to be ready..."
+kubectl wait --context "${K8S_CTX}" -n "${MDB_NS}" \
+  --for=jsonpath='{.status.phase}'=Updated \
+  "mongodbuser/${MDB_EXTERNAL_CLUSTER_NAME}-search-sync-source" \
+  --timeout=300s
+
+echo "✓ All MongoDB users created successfully"

@@ -7,11 +7,13 @@
 echo "Executing vector search query..."
 echo ""
 
-user_conn="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin"
+# Connection string for user operations
+# authMechanism=SCRAM-SHA-256 is required for MongoDB 8.2+ which only enables SCRAM-SHA-256
+user_conn="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin&authMechanism=SCRAM-SHA-256"
 
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${user_conn}" --quiet --eval '
   use sample_mflix;
-  
+
   // Check if embedded_movies collection exists
   const collections = db.getCollectionNames();
   if (!collections.includes("embedded_movies")) {
@@ -19,22 +21,22 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${u
     print("Skipping vector search demo.");
     quit(0);
   }
-  
+
   // Get a sample embedding from the first document
   const sample = db.embedded_movies.findOne(
     { plot_embedding: { $exists: true } },
     { plot_embedding: 1, title: 1 }
   );
-  
+
   if (!sample || !sample.plot_embedding) {
     print("Warning: No documents with plot_embedding found.");
     print("Skipping vector search demo.");
     quit(0);
   }
-  
+
   print(`Using embedding from: "${sample.title}"\n`);
   print("Finding similar movies...\n");
-  
+
   const results = db.embedded_movies.aggregate([
     {
       $vectorSearch: {
@@ -54,9 +56,9 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${u
       }
     }
   ]).toArray();
-  
+
   print("Top 5 similar movies:\n");
-  
+
   results.forEach((doc, i) => {
     print(`${i + 1}. "${doc.title}" (${doc.year || "N/A"})`);
     print(`   Similarity: ${(doc.score * 100).toFixed(2)}%`);
@@ -69,4 +71,3 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${u
 
 echo ""
 echo "✓ Vector search query executed successfully"
-

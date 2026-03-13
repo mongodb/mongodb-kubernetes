@@ -10,8 +10,11 @@ echo "Deploying mongodb-tools pod..."
 kubectl get configmap "${MDB_TLS_CA_CONFIGMAP}" -n "${MDB_NS}" --context "${K8S_CTX}" \
   -o jsonpath='{.data.ca-pem}' > /tmp/ca.crt
 
+# Use the same MongoDB version as the cluster (strip -ent suffix for community image)
+TOOLS_IMAGE="mongodb/mongodb-community-server:${MDB_VERSION%-ent}-ubi8"
+
 kubectl run mongodb-tools \
-  --image=mongodb/mongodb-community-server:8.0-ubi9 \
+  --image="${TOOLS_IMAGE}" \
   --restart=Never \
   --namespace="${MDB_NS}" \
   --context "${K8S_CTX}" \
@@ -19,7 +22,7 @@ kubectl run mongodb-tools \
     "spec": {
       "containers": [{
         "name": "mongodb-tools",
-        "image": "mongodb/mongodb-community-server:8.0-ubi9",
+        "image": "'"${TOOLS_IMAGE}"'",
         "command": ["sleep", "infinity"],
         "volumeMounts": [{
           "name": "tls",
@@ -50,4 +53,3 @@ echo "✓ mongodb-tools pod is ready"
 echo ""
 echo "You can now run MongoDB commands using:"
 echo "  kubectl exec -it mongodb-tools -n ${MDB_NS} -- mongosh \"${MDB_CONNECTION_STRING}\""
-

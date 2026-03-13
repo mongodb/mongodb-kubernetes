@@ -9,13 +9,15 @@
 echo "Executing text search query for 'drama adventure'..."
 echo ""
 
-user_conn="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin"
+# Connection string for user operations
+# authMechanism=SCRAM-SHA-256 is required for MongoDB 8.2+ which only enables SCRAM-SHA-256
+user_conn="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin&authMechanism=SCRAM-SHA-256"
 
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${user_conn}" --quiet --eval '
   use sample_mflix;
-  
+
   print("Running $search aggregation pipeline...\n");
-  
+
   const results = db.movies.aggregate([
     {
       $search: {
@@ -36,9 +38,9 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${u
     },
     { $limit: 5 }
   ]).toArray();
-  
+
   print("Top 5 search results:\n");
-  
+
   results.forEach((doc, i) => {
     print(`${i + 1}. "${doc.title}" (${doc.year || "N/A"})`);
     print(`   Score: ${doc.score.toFixed(4)}`);
@@ -47,7 +49,7 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${u
     }
     print("");
   });
-  
+
   print(`Total results shown: ${results.length}`);
 '
 
@@ -59,4 +61,3 @@ echo "  1. mongos received the \$search query"
 echo "  2. mongos routed to each shard via Envoy proxy (port 27029)"
 echo "  3. Each mongot processed the search for its shard's data"
 echo "  4. Results were aggregated and returned"
-

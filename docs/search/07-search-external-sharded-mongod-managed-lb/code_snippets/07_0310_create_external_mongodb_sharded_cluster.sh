@@ -24,7 +24,7 @@ for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
   shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
   # This is the endpoint format the operator will create for managed LB
   proxy_host="${MDB_SEARCH_RESOURCE_NAME}-search-0-${shard_name}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT:-27029}"
-  
+
   shard_overrides="${shard_overrides}
     - shardNames:
         - ${shard_name}
@@ -66,6 +66,8 @@ spec:
     authentication:
       enabled: true
       ignoreUnknownUsers: true
+      # SCRAM enables both SCRAM-SHA-256 (default for MongoDB 8.0+) and SCRAM-SHA-1
+      # This matches the working Python E2E test configuration
       modes:
         - SCRAM
   agent:
@@ -104,4 +106,3 @@ for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
   shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
   echo "  - Shard ${shard_name}: ${MDB_SEARCH_RESOURCE_NAME}-search-0-${shard_name}-proxy-svc:${ENVOY_PROXY_PORT:-27029}"
 done
-
