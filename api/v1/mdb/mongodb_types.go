@@ -374,6 +374,28 @@ type BackupStatus struct {
 	StatusName string `json:"statusName"`
 }
 
+type ExternalMember struct {
+	// ProcessName contains the name of the external process as it appears in the `processes` field in the AC.
+	// +kubebuilder:validation:Required
+	ProcessName string `json:"processName"`
+
+	// Hostname contains the hostname and port of the external process, as it appears in the `processes` field in the AC.
+	// +kubebuilder:validation:Required
+	Hostname string `json:"hostname"`
+
+	// Type specifies the type of the external member, whether it's a mongod or mongos process.
+	// This field is not required when the deployment we migrate is a Replica Set since it only contains mongods.
+	// However, for a Sharded Cluster deployment, this field is required to distinguish between mongod and mongos processes in the cluster.
+	// +kubebuilder:validation:Enum=mongod;mongos
+	Type string `json:"type"`
+
+	// ReplicaSetName is required only for mongod processes in a Sharded Cluster deployment
+	// It specifies the name of the Replica Set that the mongod process belongs to.
+	// This field will help to determine whether the mongod process belongs to the config server or a shard (and in which shard).
+	// +optional
+	ReplicaSetName string `json:"replicaSetName"`
+}
+
 type DbCommonSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
 	// +kubebuilder:validation:Required
@@ -431,6 +453,11 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	// +optional
+	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
+
+	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -809,6 +836,18 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
+}
+
+func (d *DbCommonSpec) GetExternalMembers() []ExternalMember {
+	return d.ExternalMembers
+}
+
+func (d *DbCommonSpec) GetExternalMemberProcessNames() []string {
+	var processNames []string
+	for _, m := range d.ExternalMembers {
+		processNames = append(processNames, m.ProcessName)
+	}
+	return processNames
 }
 
 func (s *Security) IsTLSEnabled() bool {

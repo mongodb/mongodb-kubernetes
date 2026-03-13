@@ -11,7 +11,7 @@ import (
 )
 
 func makeMinimalRsWithProcesses() ReplicaSetWithProcesses {
-	replicaSetWithProcesses := NewReplicaSet("my-test-repl", "4.2.1")
+	replicaSetWithProcesses := NewReplicaSet("my-test-repl", "", "4.2.1")
 	mdb := mdbv1.MongoDB{Spec: mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "4.2.1"}}}
 	mdb.InitDefaults()
 	processes := make([]Process, 3)
@@ -36,7 +36,7 @@ func TestMergeHorizonsAdd(t *testing.T) {
 	}
 	operatorRsWithProcesses.SetHorizons(horizons)
 
-	opsManagerRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs)
+	opsManagerRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs, nil)
 	for i, member := range opsManagerRsWithProcesses.Rs.Members() {
 		assert.Equal(t, horizons[i], member.getHorizonConfig())
 	}
@@ -54,7 +54,7 @@ func TestMergeHorizonsRemove(t *testing.T) {
 	opsManagerRsWithProcesses.SetHorizons(horizons)
 	operatorRsWithProcesses := makeMinimalRsWithProcesses()
 
-	opsManagerRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs)
+	opsManagerRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs, nil)
 	for _, member := range opsManagerRsWithProcesses.Rs.Members() {
 		assert.Equal(t, mdbv1.MongoDBHorizonConfig{}, member.getHorizonConfig())
 	}
@@ -78,7 +78,7 @@ func TestMergeHorizonsOverride(t *testing.T) {
 	operatorRsWithProcesses := makeMinimalRsWithProcesses()
 	operatorRsWithProcesses.SetHorizons(horizonsNew)
 
-	opsManagerRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs)
+	opsManagerRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs, nil)
 	for i, member := range opsManagerRsWithProcesses.Rs.Members() {
 		assert.Equal(t, horizonsNew[i], member.getHorizonConfig())
 	}
