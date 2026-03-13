@@ -2,14 +2,16 @@ package operator
 
 import (
 	"encoding/json"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
+
 	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/encoding/protojson"
-	"testing"
 )
 
 func testRoute(shardName string) envoyRoute {
@@ -306,8 +308,8 @@ func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify deprecated fields are NOT set
-	assert.Nil(t, cluster.Http2ProtocolOptions, "deprecated Http2ProtocolOptions should not be set on Cluster")
-	assert.Nil(t, cluster.CommonHttpProtocolOptions, "deprecated CommonHttpProtocolOptions should not be set on Cluster")
+	assert.Nil(t, cluster.Http2ProtocolOptions, "deprecated Http2ProtocolOptions should not be set on Cluster")         //nolint:staticcheck
+	assert.Nil(t, cluster.CommonHttpProtocolOptions, "deprecated CommonHttpProtocolOptions should not be set on Cluster") //nolint:staticcheck
 
 	// Verify TypedExtensionProtocolOptions is set
 	require.Contains(t, cluster.TypedExtensionProtocolOptions, "envoy.extensions.upstreams.http.v3.HttpProtocolOptions")
