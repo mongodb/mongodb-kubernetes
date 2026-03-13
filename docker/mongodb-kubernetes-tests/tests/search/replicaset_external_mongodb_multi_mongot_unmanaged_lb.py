@@ -110,7 +110,7 @@ def mdb(namespace: str, ca_configmap: str, issuer_ca_configmap: str, helper: Sea
 
 @fixture(scope="function")
 def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoDBSearch:
-    resource = helper.mdbs_for_ext_rs_source(mongot_user_name=MONGOT_USER_NAME, rs_members=RS_MEMBERS)
+    resource = helper.mdbs_for_ext_rs_source(mongot_user_name=MONGOT_USER_NAME, members=RS_MEMBERS)
     resource["spec"]["replicas"] = 2
     resource["spec"]["lb"] = {
         "mode": "Unmanaged",
@@ -147,6 +147,7 @@ def test_install_operator(namespace: str, operator_installation_config: dict[str
 def test_create_ops_manager(namespace: str):
     """Test OpsManager deployment (skipped for Cloud Manager)."""
     ops_manager = get_ops_manager(namespace)
+    assert ops_manager is not None
     ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
