@@ -219,9 +219,15 @@ community:
 
 # MongoDBSearch settings
 search:
+  envoyImage: envoyproxy/envoy:v1.31-latest
   # Full Search container image url used for the MongoDB Search container will be constructed as {search.repo}/{search.name}:{search.version}
-  repo: quay.io/mongodb
+#  repo: quay.io/mongodb
+#  name: mongodb-search
+#  # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
+#  version: 0.60.1
+
+  # temporary mongot built from master
+  repo: 268558157000.dkr.ecr.us-east-1.amazonaws.com/staging
   name: mongodb-search
-  # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
   version: f85ffd3e5a
   envoyImage: envoyproxy/envoy:v1.37-latest

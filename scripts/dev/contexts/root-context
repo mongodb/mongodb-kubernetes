@@ -125,14 +125,8 @@ export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
 export MDB_COMMUNITY_IMAGE_TYPE=ubi8
 
 # Community Search
-MDB_SEARCH_VERSION="$(jq -r '.search.version' "${PROJECT_DIR}/release.json")"
-export MDB_SEARCH_VERSION
 #MDB_SEARCH_VERSION="$(jq -r '.search.version' "${PROJECT_DIR}/release.json")"
 #export MDB_SEARCH_VERSION
-#export MDB_SEARCH_NAME="mongodb-search"
-#export MDB_SEARCH_REPO_URL="quay.io/mongodb"
-
-# Temporary image to point to master-built mongot
 export MDB_SEARCH_NAME="staging/mongodb-search"
 export MDB_SEARCH_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com"
 export MDB_SEARCH_VERSION="f85ffd3e5a"
