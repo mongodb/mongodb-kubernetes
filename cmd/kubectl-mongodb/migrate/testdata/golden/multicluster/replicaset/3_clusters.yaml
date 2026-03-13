@@ -1,0 +1,115 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBMultiCluster
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+  name: geo-rs
+spec:
+  additionalMongodConfig:
+    storage:
+      engine: inMemory
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      auditlogRotate:
+        numTotal: 10
+        numUncompressed: 2
+        percentOfDiskspace: "0.4"
+        sizeThresholdMB: "100"
+        timeThresholdHrs: 1
+      logRotate:
+        numTotal: 10
+        numUncompressed: 2
+        percentOfDiskspace: "0.4"
+        sizeThresholdMB: "100"
+        timeThresholdHrs: 1
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb-mms-automation/mongodb.log
+  clusterSpecList:
+  - clusterName: cluster-a
+    memberConfig:
+    - priority: "0"
+      tags:
+        dc: dc1
+      votes: 0
+    - priority: "0"
+      tags:
+        dc: dc1
+      votes: 0
+    members: 2
+  - clusterName: cluster-b
+    memberConfig:
+    - priority: "0"
+      tags:
+        dc: dc2
+      votes: 0
+    - priority: "0"
+      tags:
+        dc: dc2
+      votes: 0
+    members: 2
+  - clusterName: cluster-c
+    memberConfig:
+    - priority: "0"
+      tags:
+        dc: dc3
+        role: analytics
+      votes: 0
+    members: 1
+  credentials: mc-credentials
+  externalMembers:
+  - hostname: mongo-0.dc1.example.com:27017
+    processName: geo-rs-0
+    replicaSetName: geo-rs
+    type: mongod
+  - hostname: mongo-1.dc1.example.com:27017
+    processName: geo-rs-1
+    replicaSetName: geo-rs
+    type: mongod
+  - hostname: mongo-2.dc2.example.com:27017
+    processName: geo-rs-2
+    replicaSetName: geo-rs
+    type: mongod
+  - hostname: mongo-3.dc2.example.com:27017
+    processName: geo-rs-3
+    replicaSetName: geo-rs
+    type: mongod
+  - hostname: mongo-4.dc3.example.com:27017
+    processName: geo-rs-4
+    replicaSetName: geo-rs
+    type: mongod
+  featureCompatibilityVersion: "8.0"
+  opsManager:
+    configMapRef:
+      name: mc-om-config
+  prometheus:
+    passwordSecretRef:
+      key: password
+      name: prometheus-password
+    port: 9216
+    username: monitor
+  security:
+    authentication:
+      agents:
+        automationUserName: custom-automation-agent
+        mode: SCRAM
+      enabled: true
+      ldap:
+        authzQueryTemplate: '{USER}?memberOf?base'
+        bindQueryPasswordSecretRef:
+          name: ldap-bind-query-password
+        bindQueryUser: cn=reader,dc=example,dc=com
+        servers:
+        - ldap.example.com:389
+        timeoutMS: 5000
+        transportSecurity: none
+        userCacheInvalidationInterval: 0
+        validateLDAPServerConfig: false
+      modes:
+      - SCRAM
+      - SCRAM-SHA-1
+      - LDAP
+  type: ReplicaSet
+  version: 8.0.4-ent

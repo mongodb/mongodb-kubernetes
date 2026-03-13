@@ -299,9 +299,44 @@ func (p Process) ProcessType() MongoType {
 	}
 }
 
-// IsDisabled returns the "disabled" attribute.
+// IsDisabled returns the "disabled" attribute, defaulting to false if absent.
 func (p Process) IsDisabled() bool {
-	return p["disabled"].(bool)
+	disabled, _ := p["disabled"].(bool)
+	return disabled
+}
+
+// AuthSchemaVersion returns the authSchemaVersion for this process.
+func (p Process) AuthSchemaVersion() int {
+	return cast.ToInt(p["authSchemaVersion"])
+}
+
+// SystemLogMap returns the systemLog sub-map from args2_6, or nil if absent.
+func (p Process) SystemLogMap() map[string]interface{} {
+	return maputil.ReadMapValueAsMap(p.Args(), "systemLog")
+}
+
+// ShardingClusterRole returns the sharding.clusterRole from args2_6, or empty if absent.
+func (p Process) ShardingClusterRole() string {
+	return maputil.ReadMapValueAsString(p.Args(), "sharding", "clusterRole")
+}
+
+// NetTLSSections returns the TLS/SSL config maps from args2_6.net, keyed by
+// section name ("tls" or "ssl"). Only sections that are present are returned.
+func (p Process) NetTLSSections() map[string]map[string]interface{} {
+	net := maputil.ReadMapValueAsMap(p.Args(), "net")
+	if net == nil {
+		return nil
+	}
+	sections := make(map[string]map[string]interface{})
+	for _, key := range []string{"tls", "ssl"} {
+		if sec := maputil.ReadMapValueAsMap(net, key); sec != nil {
+			sections[key] = sec
+		}
+	}
+	if len(sections) == 0 {
+		return nil
+	}
+	return sections
 }
 
 // SetDisabled sets the "disabled" attribute to `disabled`.
@@ -523,7 +558,7 @@ func (p Process) setClusterAuthMode(authMode string) Process {
 }
 
 func (p Process) authSchemaVersion() int {
-	return p["authSchemaVersion"].(int)
+	return p.AuthSchemaVersion()
 }
 
 // These methods are ONLY FOR REPLICA SET members!

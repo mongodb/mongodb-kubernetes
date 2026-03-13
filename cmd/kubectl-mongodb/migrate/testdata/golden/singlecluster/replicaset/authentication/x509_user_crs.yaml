@@ -1,0 +1,25 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: cn-x509-client-o-mongodb
+spec:
+  db: $external
+  mongodbResourceRef:
+    name: x509-rs
+  roles:
+  - db: secure-db
+    name: readWrite
+  username: CN=x509-client,O=MongoDB
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: cn-x509-admin-ou-devops-o-mongodb
+spec:
+  db: $external
+  mongodbResourceRef:
+    name: x509-rs
+  roles:
+  - db: admin
+    name: root
+  username: CN=x509-admin,OU=DevOps,O=MongoDB

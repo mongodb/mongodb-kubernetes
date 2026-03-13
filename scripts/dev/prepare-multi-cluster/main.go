@@ -231,7 +231,7 @@ func loadConfig() config {
 		omOrgID:               os.Getenv("OM_ORGID"),                        // nolint:forbidigo
 		multiClusterNoMesh:    noMesh,
 		multiClusterConfigDir: os.Getenv("MULTI_CLUSTER_CONFIG_DIR"),               // nolint:forbidigo
-		kubeconfigCreatorPath: os.Getenv("MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH"), // nolint:forbidigo
+		kubeconfigCreatorPath: os.Getenv("KUBECTL_MONGODB_PATH"), // nolint:forbidigo
 		projectDir:            os.Getenv("PROJECT_DIR"),                            // nolint:forbidigo
 		testPodCluster:        os.Getenv("test_pod_cluster"),                       // nolint:forbidigo
 		localOperator:         os.Getenv("LOCAL_OPERATOR"),                         // nolint:forbidigo

@@ -1,0 +1,52 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+  name: tls-rs
+spec:
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  credentials: my-credentials
+  externalMembers:
+  - hostname: vm-0.example.com:27017
+    processName: tls-rs-0
+    replicaSetName: tls-rs
+    type: mongod
+  - hostname: vm-1.example.com:27017
+    processName: tls-rs-1
+    replicaSetName: tls-rs
+    type: mongod
+  - hostname: vm-2.example.com:27017
+    processName: tls-rs-2
+    replicaSetName: tls-rs
+    type: mongod
+  featureCompatibilityVersion: "7.0"
+  memberConfig:
+  - priority: "0"
+    votes: 0
+  - priority: "0"
+    votes: 0
+  - priority: "0"
+    votes: 0
+  members: 3
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      ignoreUnknownUsers: true
+      internalCluster: X509
+      modes:
+      - SCRAM
+    certsSecretPrefix: mdb
+  type: ReplicaSet
+  version: 7.0.12-ent

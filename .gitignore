@@ -68,6 +68,8 @@ _.yaml
 
 # Things we built or download for the e2e tests & local dev
 /mongodb-kubernetes
+/kubectl-mongodb
+/kubectl-mongodb_*
 multi-cluster-kube-config-creator*
 istio-*
 .multi_cluster_local_test_files

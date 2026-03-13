@@ -139,7 +139,48 @@ func RemoveFieldsBasedOnDesiredAndPrevious(currentMap, desiredMap, previousMap m
 	return currentMap
 }
 
-// StructToMap is a function to convert struct to map using JSON tags
+// ToFlatMap recursively walks a nested map and produces a flat map of dotted
+// keys to JSON-serialized leaf values (e.g. "storage.engine" → "\"inMemory\"").
+func ToFlatMap(m map[string]interface{}) map[string]string {
+	return flattenToMap(m, "")
+}
+
+func flattenToMap(m map[string]interface{}, prefix string) map[string]string {
+	result := make(map[string]string)
+	for k, v := range m {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		if sub, ok := v.(map[string]interface{}); ok {
+			for sk, sv := range flattenToMap(sub, key) {
+				result[sk] = sv
+			}
+		} else {
+			b, _ := json.Marshal(v)
+			result[key] = string(b)
+		}
+	}
+	return result
+}
+
+// FlatMapsEqual compares two nested maps by flattening them to dotted-key
+// string maps and checking equality.
+func FlatMapsEqual(a, b map[string]interface{}) bool {
+	flatA := ToFlatMap(a)
+	flatB := ToFlatMap(b)
+	if len(flatA) != len(flatB) {
+		return false
+	}
+	for k, v := range flatA {
+		if flatB[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// StructToMap converts a struct to map[string]interface{} using JSON tags.
 func StructToMap(v interface{}) (map[string]interface{}, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -154,3 +195,5 @@ func StructToMap(v interface{}) (map[string]interface{}, error) {
 
 	return result, nil
 }
+
+

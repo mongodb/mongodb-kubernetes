@@ -211,7 +211,7 @@ prepare_multi_cluster_e2e_run() {
 
     (
       cd cmd/kubectl-mongodb
-      GOOS=darwin GOARCH="${goarch}" go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go
+      GOOS=darwin GOARCH="${goarch}" go build -o "${KUBECTL_MONGODB_PATH}" main.go
     )
     PATH=${PATH}:docker/mongodb-kubernetes-tests
   else
@@ -219,7 +219,7 @@ prepare_multi_cluster_e2e_run() {
       cd cmd/kubectl-mongodb
       # shellcheck disable=SC2030
       export PATH=${GOROOT}:${PATH}
-      GOOS=linux GOARCH=amd64 go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go
+      GOOS=linux GOARCH=amd64 go build -o "${KUBECTL_MONGODB_PATH}" main.go
     )
     # shellcheck disable=SC2031
     PATH=${PATH}:docker/mongodb-kubernetes-tests
@@ -285,8 +285,8 @@ run_multi_cluster_kube_config_creator() {
   fi
 
   echo "Executing multi cluster cli setup:"
-  echo "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH} multicluster setup ${params[*]}"
-  ${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH} multicluster setup "${params[@]}"
+  echo "${KUBECTL_MONGODB_PATH} multicluster setup ${params[*]}"
+  ${KUBECTL_MONGODB_PATH} multicluster setup "${params[@]}"
 
   kubectl get secret --context "${CENTRAL_CLUSTER}" -n "${NAMESPACE}" mongodb-enterprise-operator-multi-cluster-kubeconfig -o json | jq -rc '.data.kubeconfig' | base64 -d >"${KUBE_CONFIG_PATH}"
 }
