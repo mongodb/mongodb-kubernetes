@@ -12,7 +12,7 @@ from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters, verify_vector_search
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
-from tests.common.search.sharded_search_helper import create_sharded_ca
+from tests.common.search.sharded_search_helper import create_issuer_ca, create_sharded_ca
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
 from tests.search.om_deployment import get_ops_manager
 
@@ -36,7 +36,7 @@ MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDB_RESOURCE_N
 
 @fixture(scope="module")
 def ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
-    return create_sharded_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
+    return create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
 
 
 @fixture(scope="function")
