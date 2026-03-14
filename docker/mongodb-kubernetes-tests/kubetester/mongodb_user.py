@@ -12,6 +12,8 @@ from kubetester.phase import Phase
 
 
 class MongoDBUser(CustomObject, MongoDBCommon):
+    _password: Optional[str] = None
+
     def __init__(self, *args, **kwargs):
         with_defaults = {
             "plural": "mongodbusers",
@@ -68,6 +70,7 @@ class MongoDBUser(CustomObject, MongoDBCommon):
     def add_role(self, role: Role) -> MongoDBUser:
         self["spec"]["roles"] = self["spec"].get("roles", [])
         self["spec"]["roles"].append({"db": role.db, "name": role.role})
+        return self
 
     def add_roles(self, roles: List[Role]):
         for role in roles:

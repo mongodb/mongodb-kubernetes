@@ -67,7 +67,7 @@ def mino_operator_install(
     operator_name: str = MINIO_OPERATOR,
     cluster_client: Optional[client.ApiClient] = None,
     cluster_name: Optional[str] = None,
-    helm_args: Dict[str, str] = None,
+    helm_args: Optional[Dict[str, str]] = None,
     version="5.0.6",
 ):
     if cluster_name is not None:
@@ -167,7 +167,7 @@ def mino_tenant_install(
     tenant_name: str = MINIO_TENANT,
     cluster_client: Optional[client.ApiClient] = None,
     cluster_name: Optional[str] = None,
-    helm_args: Dict[str, str] = None,
+    helm_args: Optional[Dict[str, str]] = None,
     version="5.0.6",
     issuer_ca_filepath: Optional[str] = os.getenv("MINIO_ISSUER_CA_FILEPATH", None),
 ):

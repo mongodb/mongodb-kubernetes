@@ -160,12 +160,12 @@ class TestBackupForMongodb:
     @fixture(scope="module")
     def mongodb_multi_one_collection(self, mongodb_multi_one: MongoDBMulti):
         # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
-        collection = pymongo.MongoClient(
+        db: pymongo.database.Database = pymongo.MongoClient(
             mongodb_multi_one.tester(port=MONGODB_PORT).cnx_string,
-            **mongodb_multi_one.tester(port=MONGODB_PORT).default_opts,
+            **mongodb_multi_one.tester(port=MONGODB_PORT).default_opts,  # type: ignore[arg-type]
         )["testdb"]
 
-        return collection["testcollection"]
+        return db["testcollection"]
 
     @fixture(scope="module")
     def mongodb_multi_one(

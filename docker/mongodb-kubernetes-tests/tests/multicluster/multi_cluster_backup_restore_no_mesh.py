@@ -459,9 +459,9 @@ class TestBackupForMongodb:
             external=True,
         )
 
-        collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
+        db: pymongo.database.Database = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]  # type: ignore[arg-type]
 
-        return collection["testcollection"]
+        return db["testcollection"]
 
     @fixture(scope="module")
     def mongodb_multi_one(

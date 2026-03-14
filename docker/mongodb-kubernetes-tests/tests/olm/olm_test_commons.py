@@ -2,10 +2,10 @@ import json
 import os
 import re
 import tempfile
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import kubetester
-import requests
+import requests  # type: ignore[import-untyped]
 from kubeobject import CustomObject
 from kubernetes import client
 from kubetester import run_periodically
@@ -59,7 +59,7 @@ def get_catalog_source_resource(namespace: str, image: str) -> CustomObject:
     return resource
 
 
-def get_subscription_custom_object(name: str, namespace: str, spec: dict[str, str]) -> CustomObject:
+def get_subscription_custom_object(name: str, namespace: str, spec: dict[str, Any]) -> CustomObject:
     resource = CustomObject(
         name,
         namespace,
@@ -129,7 +129,7 @@ def get_release_json_path() -> str:
             )
 
 
-def get_release_json() -> dict[str, any]:
+def get_release_json() -> dict[str, Any]:
     with open(get_release_json_path()) as f:
         return json.load(f)
 
