@@ -148,6 +148,11 @@ def create_or_update_service(
     service: Optional[client.V1Service] = None,
 ) -> str:
     print("Logging inside create_or_update_service")
+    if service_name is None and service is not None:
+        if isinstance(service, dict):
+            service_name = service.get("metadata", {}).get("name")
+        elif hasattr(service, "metadata") and service.metadata is not None:
+            service_name = service.metadata.name
     if service_name is None:
         raise ValueError("service_name must not be None")
     try:
