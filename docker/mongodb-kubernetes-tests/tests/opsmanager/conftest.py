@@ -154,13 +154,14 @@ def _create_minio_buckets(
                 # MinIO/S3 use HTTP 409 for bucket-already-exists.
                 status_code = ce.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
                 message_code = ce.response.get("Error", {}).get("Code", "")
+                logger.debug(
+                    "MinIO bucket %s create: HTTP %s, Code=%s, %s",
+                    bucket,
+                    status_code,
+                    message_code,
+                    ce,
+                )
                 if status_code == 409:
-                    logger.debug(
-                        "MinIO bucket %s already exists (HTTP %s, Code=%s), treating as success",
-                        bucket,
-                        status_code,
-                        message_code,
-                    )
                     ready.add(bucket)
             except Exception as e:
                 logger.debug("MinIO bucket create failed for %s (will retry): %s", bucket, e)
