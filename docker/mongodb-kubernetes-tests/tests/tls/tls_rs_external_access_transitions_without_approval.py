@@ -12,7 +12,7 @@ def test_install_operator(operator: Operator):
 
 @pytest.mark.e2e_tls_rs_external_access_tls_transition_without_approval
 class TestReplicaSetWithExternalAccess(KubernetesTester):
-    init = {
+    init = {  # type: ignore[assignment]
         "create": {
             "file": "test-tls-base-rs-external-access.yaml",
             "wait_for_message": "Not all certificates have been approved by Kubernetes CA",
@@ -27,7 +27,7 @@ class TestReplicaSetWithExternalAccess(KubernetesTester):
 
 @pytest.mark.e2e_tls_rs_external_access_tls_transition_without_approval
 class TestReplicaSetExternalAccessAddHorizons(KubernetesTester):
-    init = {
+    init = {  # type: ignore[assignment]
         "update": {
             "file": "test-tls-base-rs-external-access.yaml",
             "wait_for_message": "Please manually remove the CSR in order to proceed.",

@@ -83,7 +83,7 @@ class TestReplicaSetInvalidWithOpsAndCloudManager(KubernetesTester):
     """Creates a Replica Set with both a cloud manager and an ops manager
     configuration specified."""
 
-    init = {
+    init = {  # type: ignore[assignment]
         "create": {
             "file": "replica-set.yaml",
             "patch": [
@@ -111,7 +111,7 @@ class TestReplicaSetInvalidWithProjectAndCloudManager(KubernetesTester):
     """Creates a Replica Set with both a cloud manager and an ops manager
     configuration specified."""
 
-    init = {
+    init = {  # type: ignore[assignment]
         "create": {
             "file": "replica-set.yaml",
             "patch": [
@@ -131,7 +131,7 @@ class TestReplicaSetInvalidWithProjectAndCloudManager(KubernetesTester):
 
 @pytest.mark.e2e_replica_set_schema_validation
 class TestReplicaSetInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
-    init = {
+    init = {  # type: ignore[assignment]
         "create": {
             "file": "replica-set.yaml",
             "patch": [

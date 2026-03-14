@@ -6,3 +6,9 @@ include = '\.pyi?$'
 [tool.isort]
 profile = "black"
 line_length = 120
+
+[tool.mypy]
+
+[[tool.mypy.overrides]]
+module = ["kubernetes", "kubernetes.*", "ldap", "ldap.*", "boto3", "boto3.*", "botocore", "botocore.*", "jsonpatch", "pycognito"]
+ignore_missing_imports = true

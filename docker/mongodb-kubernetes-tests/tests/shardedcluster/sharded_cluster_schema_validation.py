@@ -112,7 +112,7 @@ class TestShardedClusterSchemaAdditionalMongodConfigNotAllowed(KubernetesTester)
 
 @mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterInvalidWithProjectAndOpsManager(KubernetesTester):
-    init = {
+    init = {  # type: ignore[assignment]
         "create": {
             "file": "sharded-cluster.yaml",
             "patch": [
@@ -132,7 +132,7 @@ class TestShardedClusterInvalidWithProjectAndOpsManager(KubernetesTester):
 
 @mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
-    init = {
+    init = {  # type: ignore[assignment]
         "create": {
             "file": "sharded-cluster.yaml",
             "patch": [

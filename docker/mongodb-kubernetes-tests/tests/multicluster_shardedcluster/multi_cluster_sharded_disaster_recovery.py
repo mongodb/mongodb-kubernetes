@@ -132,11 +132,6 @@ def config_version_store():
 
 
 @mark.e2e_multi_cluster_sharded_disaster_recovery
-def test_install_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
-
-
-@mark.e2e_multi_cluster_sharded_disaster_recovery
 class TestDeployShardedClusterWithFailedCluster:
     def test_create_sharded_cluster(self, sc: MongoDB, config_version_store):
         sc.update()

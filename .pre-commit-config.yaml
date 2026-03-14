@@ -129,6 +129,16 @@ repos:
             ^scripts/funcs/[^/]+$
           )
 
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: bash -c 'cd docker/mongodb-kubernetes-tests && python -m mypy --config-file ../../pyproject.toml --follow-imports=silent --disable-error-code=import-untyped tests/'
+        language: system
+        pass_filenames: false
+        files: docker/mongodb-kubernetes-tests/tests/.*\.py$
+        stages: [pre-commit]
+
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.0.2
     hooks:

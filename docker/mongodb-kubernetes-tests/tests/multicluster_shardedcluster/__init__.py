@@ -221,7 +221,7 @@ def build_expected_statefulsets_multi(sc: MongoDB, cluster_mapping: Dict[str, in
     shard_override_map = expand_shard_overrides(sc_spec)
 
     # Dict holding expected sts per cluster: {cluster_name: {sts_name: replica_count}}
-    expected_clusters_sts = {}
+    expected_clusters_sts: Dict[str, Dict[str, int]] = {}
 
     # Process each shard
     for i in range(shard_count):
@@ -311,21 +311,27 @@ def assert_correct_automation_config_after_scaling(sc: MongoDB):
 
 def assert_shard_sts_members_count(sc: MongoDB, shard_in_cluster_distribution: List[List[int]]):
     for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+        cluster_index = cluster_member_client.cluster_index
+        assert cluster_index is not None
         for shard_idx, shard_distribution in enumerate(shard_in_cluster_distribution):
-            sts_name = sc.shard_statefulset_name(shard_idx, cluster_member_client.cluster_index)
-            expected_shard_members_in_cluster = shard_distribution[cluster_member_client.cluster_index]
+            sts_name = sc.shard_statefulset_name(shard_idx, cluster_index)
+            expected_shard_members_in_cluster = shard_distribution[cluster_index]
             cluster_member_client.assert_sts_members_count(sts_name, sc.namespace, expected_shard_members_in_cluster)
 
 
 def assert_config_srv_sts_members_count(sc: MongoDB, config_srv_distribution: List[int]):
     for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
-        sts_name = sc.config_srv_statefulset_name(cluster_member_client.cluster_index)
-        expected_config_srv_members_in_cluster = config_srv_distribution[cluster_member_client.cluster_index]
+        cluster_index = cluster_member_client.cluster_index
+        assert cluster_index is not None
+        sts_name = sc.config_srv_statefulset_name(cluster_index)
+        expected_config_srv_members_in_cluster = config_srv_distribution[cluster_index]
         cluster_member_client.assert_sts_members_count(sts_name, sc.namespace, expected_config_srv_members_in_cluster)
 
 
 def assert_mongos_sts_members_count(sc: MongoDB, mongos_distribution: List[int]):
     for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
-        sts_name = sc.mongos_statefulset_name(cluster_member_client.cluster_index)
-        expected_mongos_members_in_cluster = mongos_distribution[cluster_member_client.cluster_index]
+        cluster_index = cluster_member_client.cluster_index
+        assert cluster_index is not None
+        sts_name = sc.mongos_statefulset_name(cluster_index)
+        expected_mongos_members_in_cluster = mongos_distribution[cluster_index]
         cluster_member_client.assert_sts_members_count(sts_name, sc.namespace, expected_mongos_members_in_cluster)

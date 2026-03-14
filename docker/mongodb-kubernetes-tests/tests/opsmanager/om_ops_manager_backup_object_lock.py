@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Iterator, Optional
 
 from kubetester import run_periodically, try_load
 from kubetester.awss3client import AwsS3Client, s3_endpoint
@@ -67,7 +67,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version) -> MongoDB:
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 

@@ -243,6 +243,7 @@ class OMTester(object):
         for cluster in clusters:
             if cluster["typeName"] == "SHARDED_REPLICA_SET":
                 return cluster["id"]
+        raise AssertionError("No SHARDED_REPLICA_SET cluster found")
 
     def assert_healthiness(self):
         self.do_assert_healthiness(self.context.base_url)
@@ -360,11 +361,11 @@ class OMTester(object):
     def assert_om_version(self, expected_version: str):
         assert self.api_get_om_version() == expected_version
 
-    def check_healthiness(self) -> tuple[str, str]:
+    def check_healthiness(self) -> tuple[int, str]:
         return OMTester.request_health(self.context.base_url)
 
     @staticmethod
-    def request_health(base_url: str) -> tuple[str, str]:
+    def request_health(base_url: str) -> tuple[int, str]:
         endpoint = base_url + "/monitor/health"
         response = requests.request("get", endpoint, verify=False)
         return response.status_code, response.text
@@ -592,7 +593,7 @@ class OMTester(object):
             "results"
         ]
 
-    def api_get_clusters(self) -> List:
+    def api_get_clusters(self) -> Dict:
         return self.om_request("get", f"/groups/{self.context.project_id}/clusters/").json()
 
     def api_create_restore_job_pit(self, cluster_id: str, pit_milliseconds: int):
@@ -678,7 +679,7 @@ class OMTester(object):
         clientPem.write(connParams.client_pem)
         clientPem.flush()
 
-        dbClient = pymongo.MongoClient(
+        dbClient: pymongo.database.Database = pymongo.MongoClient(
             host=connParams.host,
             tls=True,
             tlsCAFile=caPem.name,

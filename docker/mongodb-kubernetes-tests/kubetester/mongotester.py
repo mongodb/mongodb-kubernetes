@@ -6,7 +6,7 @@ import random
 import string
 import threading
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import pymongo
 from kubetester import kubetester
@@ -22,10 +22,10 @@ TEST_DB = "test-db"
 TEST_COLLECTION = "test-collection"
 
 
-def with_tls(use_tls: bool = False, ca_path: Optional[str] = None) -> Dict[str, str]:
+def with_tls(use_tls: bool = False, ca_path: Optional[str] = None) -> Dict[str, Any]:
     # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
     # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
-    options = {"tls": use_tls}
+    options: Dict[str, Any] = {"tls": use_tls}
 
     if use_tls:
         options["tlsCAFile"] = kubetester.SSL_CA_CERT if ca_path is None else ca_path
@@ -44,7 +44,7 @@ def with_scram(username: str, password: str, auth_mechanism: str = "SCRAM-SHA-25
     }
 
 
-def with_x509(cert_file_name: str, ca_path: Optional[str] = None) -> Dict[str, str]:
+def with_x509(cert_file_name: str, ca_path: Optional[str] = None) -> Dict[str, Any]:
     options = with_tls(True, ca_path=ca_path)
     options.update(
         {
@@ -56,7 +56,7 @@ def with_x509(cert_file_name: str, ca_path: Optional[str] = None) -> Dict[str, s
     return options
 
 
-def with_ldap(ssl_certfile: Optional[str] = None, tls_ca_file: Optional[str] = None) -> Dict[str, str]:
+def with_ldap(ssl_certfile: Optional[str] = None, tls_ca_file: Optional[str] = None) -> Dict[str, Any]:
     options = {}
     if tls_ca_file is not None:
         options.update(with_tls(True, tls_ca_file))
@@ -162,7 +162,7 @@ class MongoTester:
     def client(self, value):
         self._client = value
 
-    def _merge_options(self, opts: List[Dict[str, str]]) -> Dict[str, str]:
+    def _merge_options(self, opts: List[Dict[str, Any]]) -> Dict[str, Any]:
         options = copy.deepcopy(self.default_opts)
         for opt in opts:
             options.update(opt)
@@ -176,8 +176,8 @@ class MongoTester:
         attempts: int = 50,
         db: str = "admin",
         col: str = "myCol",
-        opts: Optional[List[Dict[str, any]]] = None,
-        write_concern: pymongo.WriteConcern = None,
+        opts: Optional[List[Dict[str, Any]]] = None,
+        write_concern: Optional[pymongo.WriteConcern] = None,
     ):
         if opts is None:
             opts = []
@@ -336,7 +336,7 @@ class MongoTester:
         db: str = "admin",
         collection: str = "myCol",
         tls_ca_file: Optional[str] = None,
-        ssl_certfile: str = None,
+        ssl_certfile: Optional[str] = None,
         attempts: int = 50,
     ):
         _wait_for_mongodbuser_reconciliation()
@@ -498,7 +498,7 @@ class MultiReplicaSetTester(MongoTester):
         self,
         service_names: List[str],
         port: str,
-        ssl: Optional[bool] = False,
+        ssl: bool = False,
         ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
         external: bool = False,
@@ -523,7 +523,7 @@ class ShardedClusterTester(MongoTester):
         cluster_domain: str = "cluster.local",
         multi_cluster: Optional[bool] = False,
         service_names: Optional[list[str]] = None,
-        external_domain: str = None,
+        external_domain: Optional[str] = None,
     ):
         mdb_name = mdb_resource_name + "-mongos"
         servicename = mdb_resource_name + "-svc"
@@ -650,7 +650,7 @@ class BackgroundHealthChecker(threading.Thread):
 
         allowed_failures = self.allowed_sequential_failures
         if allowed_rate_of_failure is not None:
-            allowed_failures = self.number_of_runs * allowed_rate_of_failure
+            allowed_failures = int(self.number_of_runs * allowed_rate_of_failure)
 
         # Automatically get the caller file information
         caller_info = inspect.stack()[1]  # Stack frame of the caller
@@ -698,9 +698,9 @@ def build_mongodb_connection_uri(
     namespace: str,
     members: int,
     port: str,
-    servicename: str = None,
+    servicename: Optional[str] = None,
     srv: bool = False,
-    external_domain: str = None,
+    external_domain: Optional[str] = None,
     cluster_domain: str = "cluster.local",
 ) -> str:
     if servicename is None:
@@ -717,8 +717,8 @@ def build_mongodb_connection_uri(
 
 
 def build_mongodb_multi_connection_uri(
-    namespace: str,
-    service_names: List[str],
+    namespace: Optional[str],
+    service_names: Optional[List[str]],
     port: str,
     external: bool = False,
     cluster_domain: str = "cluster.local",
@@ -744,10 +744,17 @@ def build_list_of_hosts_with_external_domain(
 
 
 def build_list_of_multi_hosts(
-    namespace: str, service_names: List[str], port, external: bool = False, cluster_domain: str = "cluster.local"
+    namespace: Optional[str],
+    service_names: Optional[List[str]],
+    port,
+    external: bool = False,
+    cluster_domain: str = "cluster.local",
 ) -> List[str]:
+    if not service_names:
+        return []
     if external:
         return [f"{service_name}:{port}" for service_name in service_names]
+    assert namespace is not None
     return [
         build_host_service_fqdn(service_name, namespace, port, cluster_domain=cluster_domain)
         for service_name in service_names

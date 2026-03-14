@@ -105,7 +105,7 @@ def cluster_reaches_not_ready(sc: MongoDB, sts_name: str):
         if s.get_status_resources_not_ready() is None:
             return False
 
-        for idx, resource in enumerate(s.get_status_resources_not_ready()):
+        for idx, resource in enumerate(s.get_status_resources_not_ready() or []):
             if resource["name"] == sts_name:
                 assert resource["kind"] == "StatefulSet"
                 assert re.search("Not all the Pods are ready \(wanted: 1.*\)", resource["message"]) is not None
