@@ -32,6 +32,7 @@ def helm_template(
         command_args.append("--show-only")
         command_args.append(templates)
 
+    helm_chart_path = helm_chart_path or "helm_chart"
     args = ("helm", "template", *command_args, helm_chart_path)
     logger.info(" ".join(args))
 
@@ -51,6 +52,7 @@ def helm_install(
     custom_operator_version: Optional[str] = None,
 ):
     command_args = _create_helm_args(helm_args, helm_options)
+    helm_chart_path = helm_chart_path or "helm_chart"
     args = [
         "helm",
         "upgrade",
@@ -174,7 +176,8 @@ def helm_registry_login_to_ecr(helm_registry: str, region: str):
 
         # Close the stdout stream of aws_proc in the parent process
         # to prevent resource leakage (only needed if you plan to do more processing)
-        aws_proc.stdout.close()
+        if aws_proc.stdout:
+            aws_proc.stdout.close()
 
         # Wait for the Helm command (helm_proc) to finish and capture its output
         helm_stdout, helm_stderr = helm_proc.communicate()
@@ -295,14 +298,14 @@ def _create_helm_args(helm_args: Dict[str, str], helm_options: Optional[List[str
 def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> tuple[str, str]:
     # if helm_chart_path is not passed, use the default value from DEFAULT_HELM_CHART_PATH
     if not helm_chart_path:
-        helm_chart_path = os.getenv(DEFAULT_HELM_CHART_PATH_ENV_VAR_NAME)
+        helm_chart_path = os.getenv(DEFAULT_HELM_CHART_PATH_ENV_VAR_NAME, "")
 
     if helm_chart_path.startswith("oci://"):
         # If operator_version is not passed, we want to install the current version.
         if not operator_version:
-            operator_version = os.environ.get(OCI_HELM_VERSION_ENV_VAR_NAME)
+            operator_version = os.environ.get(OCI_HELM_VERSION_ENV_VAR_NAME, "")
 
-        registry = os.environ.get(OCI_HELM_REGISTRY_ENV_VAR_NAME)
+        registry = os.environ.get(OCI_HELM_REGISTRY_ENV_VAR_NAME, "")
         # If ECR we need to login first to the OCI container registry
         if registry and ".ecr." in registry and registry.endswith(".amazonaws.com"):
             region = registry.split(".")[3]

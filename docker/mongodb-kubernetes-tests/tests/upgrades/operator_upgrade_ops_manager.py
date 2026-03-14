@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Iterator, Optional
 
 from kubetester import try_load
 from kubetester.awss3client import AwsS3Client
@@ -15,7 +15,7 @@ from tests.conftest import get_default_operator, operator_installation_config
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     """creates a s3 bucket and a s3 config"""
 
     bucket_name = KubernetesTester.random_k8s_name("test-bucket-")

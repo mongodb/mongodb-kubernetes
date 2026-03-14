@@ -267,8 +267,9 @@ class TestOpsManagerCreation:
                 continue
             assert om_container[k] == expected_spec[k]
 
+        volume_mounts = list(expected_spec["volume_mounts"])
         if not is_default_architecture_static():
-            expected_spec["volume_mounts"].append(
+            volume_mounts.append(
                 {
                     "name": "ops-manager-scripts",
                     "mount_path": "/opt/scripts",
@@ -280,7 +281,7 @@ class TestOpsManagerCreation:
                 },
             )
 
-        assert_volume_mounts_are_equal(om_container["volume_mounts"], expected_spec["volume_mounts"])
+        assert_volume_mounts_are_equal(om_container["volume_mounts"], volume_mounts)
 
         # new volume was added and the old ones ('gen-key' and 'ops-manager-scripts') stayed there
         if is_default_architecture_static():
