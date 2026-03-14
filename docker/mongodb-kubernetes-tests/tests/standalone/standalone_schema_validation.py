@@ -74,7 +74,7 @@ class TestStandaloneSchemaShardedClusterMongodConfig(KubernetesTester):
 
 @pytest.mark.e2e_standalone_schema_validation
 class TestStandaloneInvalidWithProjectAndCloudManager(KubernetesTester):
-    init = {
+    init = {  # type: ignore[assignment]
         "create": {
             "file": "standalone.yaml",
             "patch": [
@@ -94,7 +94,7 @@ class TestStandaloneInvalidWithProjectAndCloudManager(KubernetesTester):
 
 @pytest.mark.e2e_standalone_schema_validation
 class TestStandaloneInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
-    init = {
+    init = {  # type: ignore[assignment]
         "create": {
             "file": "standalone.yaml",
             "patch": [

@@ -1,5 +1,5 @@
 from ipaddress import IPv4Address
-from typing import List
+from typing import List, Optional
 
 import kubernetes
 import pytest
@@ -39,9 +39,9 @@ def operator(namespace: str) -> Operator:
 
 def enable_multi_cluster_deployment(
     resource: MongoDB,
-    shard_members_array: list[int] = None,
-    mongos_members_array: list[int] = None,
-    configsrv_members_array: list[int] = None,
+    shard_members_array: Optional[list[int | None]] = None,
+    mongos_members_array: Optional[list[int | None]] = None,
+    configsrv_members_array: Optional[list[int | None]] = None,
 ):
     resource["spec"]["topology"] = "MultiCluster"
     resource["spec"]["mongodsPerShardCount"] = None
@@ -209,7 +209,7 @@ def get_dns_hosts_for_external_access(resource: MongoDB, cluster_member_list: Li
     return hosts
 
 
-def setup_cluster_spec_list(resource: MongoDB, cluster_spec_type: str, members_array: list[int]):
+def setup_cluster_spec_list(resource: MongoDB, cluster_spec_type: str, members_array: list[int | None]):
     if cluster_spec_type not in resource["spec"]:
         resource["spec"][cluster_spec_type] = {}
 

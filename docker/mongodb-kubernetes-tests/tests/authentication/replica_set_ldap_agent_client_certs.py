@@ -1,3 +1,4 @@
+from typing import Iterator
 import tempfile
 
 from kubetester import create_secret, delete_secret, find_fixture, read_secret, try_load
@@ -49,7 +50,7 @@ def client_cert_path(issuer: str, namespace: str):
 
 
 @fixture(scope="module")
-def agent_client_cert(issuer: str, namespace: str) -> str:
+def agent_client_cert(issuer: str, namespace: str) -> Iterator[str]:
     spec = {
         "commonName": "mms-automation-client-cert",
         "subject": {"organizationalUnits": ["mongodb.com"]},
@@ -133,7 +134,8 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: L
         ]
     )
 
-    return user.update()
+    user.update()
+    return user
 
 
 @mark.e2e_replica_set_ldap_agent_client_certs

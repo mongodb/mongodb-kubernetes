@@ -4,9 +4,12 @@ import json
 import re
 import time
 from base64 import b64decode
-from typing import Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import kubernetes.client
+
+if TYPE_CHECKING:
+    from kubetester.mongodb import MongoDB
 import requests
 from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
@@ -213,7 +216,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             timeout=timeout,
         )
 
-    def get_appdb_resource(self) -> CustomObject:
+    def get_appdb_resource(self) -> "MongoDB":
         from kubetester.mongodb import MongoDB
 
         mdb = MongoDB(name=self.app_db_name(), namespace=self.namespace)
@@ -247,7 +250,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return [services[0], services[1]]
 
-    def read_statefulset(self, member_cluster_name: str = None) -> kubernetes.client.V1StatefulSet:
+    def read_statefulset(self, member_cluster_name: Optional[str] = None) -> kubernetes.client.V1StatefulSet:
         if member_cluster_name is None:
             member_cluster_name = self.pick_one_om_member_cluster_name()
 
@@ -327,7 +330,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return pod_names_per_cluster
 
-    def get_om_cluster_spec_item(self, member_cluster_name: str) -> dict[str, any]:
+    def get_om_cluster_spec_item(self, member_cluster_name: str) -> dict[str, Any]:
         cluster_spec_items = [
             cluster_spec_item
             for idx, cluster_spec_item in self.get_om_indexed_cluster_spec_items()
@@ -397,7 +400,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             cluster_name = cluster_spec_item["clusterName"]
             if member_cluster_name is not None and cluster_name != member_cluster_name:
                 continue
-            members_in_cluster = cluster_spec_item.get("backup", {}).get(
+            _backup = cluster_spec_item.get("backup")
+            backup_spec: dict = _backup if isinstance(_backup, dict) else {}
+            members_in_cluster = backup_spec.get(
                 "members", self.get_backup_members_count(member_cluster_name=cluster_name)
             )
             pod_names = [
@@ -480,7 +485,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return hostnames
 
-    def get_appdb_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, any]]]:
+    def get_appdb_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, Any]]]:
         """Returns ordered list (by cluster index) of tuples (cluster index, clusterSpecItem) from spec.applicationDatabase.clusterSpecList.
         Cluster indexes are read from -cluster-mapping config map.
         """
@@ -634,7 +639,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         )
         return KubernetesTester.decode_secret(secret.data)["connectionString"]
 
-    def read_appdb_members_from_connection_url_secret(self) -> str:
+    def read_appdb_members_from_connection_url_secret(self) -> list[str]:
         return re.findall(r"[@,]([^@,\/]+)", self.read_appdb_connection_url())
 
     def create_admin_secret(
@@ -657,6 +662,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         api_client = None
         if self.is_appdb_multi_cluster():
             cluster_name = self.pick_one_appdb_member_cluster_name()
+            assert cluster_name is not None
             api_client = get_member_cluster_client_map()[cluster_name].api_client
 
         secret = (
@@ -676,8 +682,10 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     ) -> str:
         """Creates the configmap containing the information needed to connect to OM"""
         config_map_name = f"{mongodb_name}-config"
+        base_url = self.om_status().get_url()
+        assert base_url is not None, "OpsManager URL must not be None"
         data = {
-            "baseUrl": self.om_status().get_url(),
+            "baseUrl": base_url,
             "projectName": project_name,
             "orgId": "",
         }
@@ -735,6 +743,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         cluster_indexes_with_members = self.get_appdb_member_cluster_indexes_with_member_count()
         for _, cluster_spec_item in self.get_appdb_indexed_cluster_spec_items():
             return multi_cluster_service_names(self.app_db_name(), cluster_indexes_with_members)
+        return []
 
     def get_appdb_member_cluster_indexes_with_member_count(self) -> list[tuple[int, int]]:
         return [
@@ -751,9 +760,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 **kwargs,
             )
         else:
+            members = self.appdb_status().get_members()
+            assert members is not None, "appdb members count must not be None"
             return ReplicaSetTester(
                 self.app_db_name(),
-                replicas_count=self.appdb_status().get_members(),
+                replicas_count=members,
                 **kwargs,
             )
 
@@ -831,7 +842,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def __repr__(self):
         # FIX: this should be __unicode__
-        return "MongoDBOpsManager| status:".format(self.get_status())
+        return "MongoDBOpsManager| status: {}".format(self.get_status())
 
     def get_appdb_members_count(self) -> int:
         if self.is_appdb_multi_cluster():
@@ -845,10 +856,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if not self.is_om_multi_cluster():
             return self["spec"]["replicas"]
 
-        return sum([item["members"] for _, item in self.get_om_indexed_cluster_spec_items()])
+        return sum(int(item["members"]) for _, item in self.get_om_indexed_cluster_spec_items())
 
     def get_om_replicas_in_member_cluster(self, member_cluster_name: Optional[str] = None) -> int:
         if is_member_cluster(member_cluster_name):
+            assert member_cluster_name is not None
             return self.get_om_cluster_spec_item(member_cluster_name)["members"]
 
         return self["spec"]["replicas"]
@@ -858,6 +870,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             return 0
 
         if is_member_cluster(member_cluster_name):
+            assert member_cluster_name is not None
             cluster_spec_item = self.get_om_cluster_spec_item(member_cluster_name)
             members = cluster_spec_item.get("backup", {}).get("members", None)
             if members is not None:
@@ -871,7 +884,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def get_version(self) -> str:
         return self["spec"]["version"]
 
-    def get_status(self) -> Optional[str]:
+    def get_status(self) -> Optional[dict]:
         if "status" not in self:
             return None
         return self["status"]
@@ -888,7 +901,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return old_secret_name
 
-    def agent_api_key(self, api_client: Optional[kubernetes.client.ApiClient] = None) -> str:
+    def agent_api_key(self, api_client: Optional[kubernetes.client.ApiClient] = None) -> Optional[str]:
         secret_name = None
         member_cluster = self.pick_one_appdb_member_cluster_name()
         appdb_sts = self.read_appdb_statefulset(member_cluster_name=member_cluster)
@@ -905,6 +918,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def om_sts_name(self, member_cluster_name: Optional[str] = None) -> str:
         if is_member_cluster(member_cluster_name):
+            assert member_cluster_name is not None
             cluster_idx = self.get_om_member_cluster_index(member_cluster_name)
             return f"{self.name}-{cluster_idx}"
         else:
@@ -922,6 +936,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def app_db_sts_name(self, member_cluster_name: Optional[str] = None) -> str:
         if is_member_cluster(member_cluster_name):
+            assert member_cluster_name is not None
             cluster_idx = self.get_appdb_member_cluster_index(member_cluster_name)
             return f"{self.name}-db-{cluster_idx}"
         else:
@@ -1005,6 +1020,24 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return self["spec"].get("topology", "") == "MultiCluster"
 
     class StatusCommon:
+        ops_manager: "MongoDBOpsManager"
+
+        def _status(self) -> dict:
+            """Returns the status dict, or empty dict if not available."""
+            return self.ops_manager.get_status() or {}
+
+        def get_phase(self) -> Optional[Phase]:
+            raise NotImplementedError
+
+        def get_message(self) -> Optional[str]:
+            raise NotImplementedError
+
+        def get_observed_generation(self) -> Optional[int]:
+            raise NotImplementedError
+
+        def get_resources_not_ready(self) -> Optional[List[Dict]]:
+            raise NotImplementedError
+
         def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
             intermediate_events = (
                 # This can be an intermediate error, right before we check for this secret we create it.
@@ -1079,9 +1112,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         def assert_status_resource_not_ready(self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0):
             """Checks the element in 'resources_not_ready' field by index 'idx'"""
-            assert self.get_resources_not_ready()[idx]["kind"] == kind
-            assert self.get_resources_not_ready()[idx]["name"] == name
-            assert re.search(msg_regexp, self.get_resources_not_ready()[idx]["message"]) is not None
+            resources = self.get_resources_not_ready()
+            assert resources is not None, "resources_not_ready is None"
+            assert resources[idx]["kind"] == kind
+            assert resources[idx]["name"] == name
+            assert re.search(msg_regexp, resources[idx]["message"]) is not None
 
         def assert_empty_status_resources_not_ready(self):
             assert self.get_resources_not_ready() is None
@@ -1098,25 +1133,25 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         def get_phase(self) -> Optional[Phase]:
             try:
-                return Phase[self.ops_manager.get_status()["backup"]["phase"]]
+                return Phase[self._status()["backup"]["phase"]]
             except (KeyError, TypeError):
                 return None
 
         def get_message(self) -> Optional[str]:
             try:
-                return self.ops_manager.get_status()["backup"]["message"]
+                return self._status()["backup"]["message"]
             except (KeyError, TypeError):
                 return None
 
         def get_observed_generation(self) -> Optional[int]:
             try:
-                return self.ops_manager.get_status()["backup"]["observedGeneration"]
+                return self._status()["backup"]["observedGeneration"]
             except (KeyError, TypeError):
                 return None
 
         def get_resources_not_ready(self) -> Optional[List[Dict]]:
             try:
-                return self.ops_manager.get_status()["backup"]["resourcesNotReady"]
+                return self._status()["backup"]["resourcesNotReady"]
             except (KeyError, TypeError):
                 return None
 
@@ -1135,37 +1170,37 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         def get_phase(self) -> Optional[Phase]:
             try:
-                return Phase[self.ops_manager.get_status()["applicationDatabase"]["phase"]]
+                return Phase[self._status()["applicationDatabase"]["phase"]]
             except (KeyError, TypeError):
                 return None
 
         def get_message(self) -> Optional[str]:
             try:
-                return self.ops_manager.get_status()["applicationDatabase"]["message"]
+                return self._status()["applicationDatabase"]["message"]
             except (KeyError, TypeError):
                 return None
 
         def get_observed_generation(self) -> Optional[int]:
             try:
-                return self.ops_manager.get_status()["applicationDatabase"]["observedGeneration"]
+                return self._status()["applicationDatabase"]["observedGeneration"]
             except (KeyError, TypeError):
                 return None
 
         def get_version(self) -> Optional[str]:
             try:
-                return self.ops_manager.get_status()["applicationDatabase"]["version"]
+                return self._status()["applicationDatabase"]["version"]
             except (KeyError, TypeError):
                 return None
 
         def get_members(self) -> Optional[int]:
             try:
-                return self.ops_manager.get_status()["applicationDatabase"]["members"]
+                return self._status()["applicationDatabase"]["members"]
             except (KeyError, TypeError):
                 return None
 
         def get_resources_not_ready(self) -> Optional[List[Dict]]:
             try:
-                return self.ops_manager.get_status()["applicationDatabase"]["resourcesNotReady"]
+                return self._status()["applicationDatabase"]["resourcesNotReady"]
             except (KeyError, TypeError):
                 return None
 
@@ -1184,42 +1219,42 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         def get_phase(self) -> Optional[Phase]:
             try:
-                return Phase[self.ops_manager.get_status()["opsManager"]["phase"]]
+                return Phase[self._status()["opsManager"]["phase"]]
             except (KeyError, TypeError):
                 return None
 
         def get_message(self) -> Optional[str]:
             try:
-                return self.ops_manager.get_status()["opsManager"]["message"]
+                return self._status()["opsManager"]["message"]
             except (KeyError, TypeError):
                 return None
 
         def get_observed_generation(self) -> Optional[int]:
             try:
-                return self.ops_manager.get_status()["opsManager"]["observedGeneration"]
+                return self._status()["opsManager"]["observedGeneration"]
             except (KeyError, TypeError):
                 return None
 
         def get_last_transition(self) -> Optional[int]:
             try:
-                return self.ops_manager.get_status()["opsManager"]["lastTransition"]
+                return self._status()["opsManager"]["lastTransition"]
             except (KeyError, TypeError):
                 return None
 
         def get_url(self) -> Optional[str]:
             try:
-                return self.ops_manager.get_status()["opsManager"]["url"]
+                return self._status()["opsManager"]["url"]
             except (KeyError, TypeError):
                 return None
 
         def get_replicas(self) -> Optional[int]:
             try:
-                return self.ops_manager.get_status()["opsManager"]["replicas"]
+                return self._status()["opsManager"]["replicas"]
             except (KeyError, TypeError):
                 return None
 
         def get_resources_not_ready(self) -> Optional[List[Dict]]:
             try:
-                return self.ops_manager.get_status()["opsManager"]["resourcesNotReady"]
+                return self._status()["opsManager"]["resourcesNotReady"]
             except (KeyError, TypeError):
                 return None

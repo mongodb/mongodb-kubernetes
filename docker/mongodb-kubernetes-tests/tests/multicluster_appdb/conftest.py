@@ -1,3 +1,4 @@
+from typing import Iterator
 import kubernetes
 from kubetester.awss3client import AwsS3Client
 from pytest import fixture
@@ -10,7 +11,7 @@ def s3_bucket_oplog(
     aws_s3_client: AwsS3Client,
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
-) -> str:
+) -> Iterator[str]:
     yield from create_s3_bucket_oplog(namespace, aws_s3_client, central_cluster_client)
 
 
@@ -24,7 +25,7 @@ def s3_bucket_blockstore(
     aws_s3_client: AwsS3Client,
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
-) -> str:
+) -> Iterator[str]:
     yield from create_s3_bucket_blockstore(namespace, aws_s3_client, api_client=central_cluster_client)
 
 

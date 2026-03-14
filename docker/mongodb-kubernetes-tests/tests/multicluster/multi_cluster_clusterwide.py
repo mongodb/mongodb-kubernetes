@@ -182,7 +182,7 @@ def test_deploy_operator(multi_cluster_operator_clustermode: Operator):
 
 
 @mark.e2e_multi_cluster_specific_namespaces
-def test_deploy_operator(install_operator: Operator):
+def test_deploy_operator_specific_namespaces(install_operator: Operator):
     install_operator.assert_is_running()
 
 

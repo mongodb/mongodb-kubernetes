@@ -267,8 +267,9 @@ class TestOpsManagerCreation:
                 continue
             assert om_container[k] == expected_spec[k]
 
+        volume_mounts = list(expected_spec["volume_mounts"])
         if not is_default_architecture_static():
-            expected_spec["volume_mounts"].append(
+            volume_mounts.append(
                 {
                     "name": "ops-manager-scripts",
                     "mount_path": "/opt/scripts",

@@ -1,3 +1,4 @@
+from typing import Iterator
 import pytest
 from kubernetes import client
 from kubernetes.client import V1ConfigMap
@@ -17,7 +18,7 @@ def standalone(namespace: str) -> MongoDB:
 
 
 @fixture(scope="module")
-def new_project_name(standalone: MongoDB) -> str:
+def new_project_name(standalone: MongoDB) -> Iterator[str]:
     yield KubernetesTester.random_om_project_name()
     # Cleaning the new group in any case - the updated config map will be used to get the new name
     print("\nRemoving the generated group from Ops Manager/Cloud Manager")

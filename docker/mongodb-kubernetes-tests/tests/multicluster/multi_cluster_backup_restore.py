@@ -374,7 +374,7 @@ class TestBackupForMongodb:
     def mdb_client(self, mongodb_multi_one: MongoDBMulti):
         return pymongo.MongoClient(
             mongodb_multi_one.tester(port=MONGODB_PORT).cnx_string,
-            **mongodb_multi_one.tester(port=MONGODB_PORT).default_opts,
+            **mongodb_multi_one.tester(port=MONGODB_PORT).default_opts,  # type: ignore[arg-type]
             readPreference="primary",  # let's read from the primary and not stale data from the secondary
         )
 

@@ -10,7 +10,7 @@ import logging
 import random
 import string
 import time
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 import pymongo
 import yaml
@@ -40,7 +40,7 @@ def large_json_generator() -> Callable[[], Dict]:
     return inner
 
 
-async def upload_random_data_async(client: pymongo.MongoClient, task_name: str = None, count: int = 50_000):
+async def upload_random_data_async(client: pymongo.MongoClient, task_name: Optional[str] = None, count: int = 50_000):
     fn = functools.partial(
         upload_random_data,
         client=client,
@@ -59,11 +59,11 @@ def create_writing_task(client: pymongo.MongoClient, name: str, count: int) -> a
     return asyncio.create_task(upload_random_data_async(client, name, count))
 
 
-def create_writing_tasks(client: pymongo.MongoClient, prefix: str, task_sizes: List[int] = None) -> asyncio:
+def create_writing_tasks(client: pymongo.MongoClient, prefix: str, task_sizes: Optional[List[int]] = None) -> list[asyncio.Task]:
     """
     Creates many async tasks to upload documents to a MongoDB database.
     """
-    return [create_writing_task(client, prefix + str(task), task) for task in task_sizes]
+    return [create_writing_task(client, prefix + str(task), task) for task in (task_sizes or [])]
 
 
 @fixture(scope="module")
