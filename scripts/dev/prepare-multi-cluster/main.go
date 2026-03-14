@@ -11,27 +11,28 @@ import (
 	"sync"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
-	serviceAccountName       = "operator-tests-multi-cluster-service-account"
-	tokenSecretSuffix        = "-token-secret"
-	projectConfigMapName     = "my-project"
-	credentialsSecretName    = "my-credentials"
-	kubeconfigSecretName     = "test-pod-kubeconfig"
-	multiClusterSecretName   = "test-pod-multi-cluster-config"
-	imageRegistriesSecret    = "image-registries-secret"
-	kubernetesServiceName    = "kubernetes"
+	serviceAccountName     = "operator-tests-multi-cluster-service-account"
+	tokenSecretSuffix      = "-token-secret"
+	projectConfigMapName   = "my-project"
+	credentialsSecretName  = "my-credentials"
+	kubeconfigSecretName   = "test-pod-kubeconfig"
+	multiClusterSecretName = "test-pod-multi-cluster-config"
+	imageRegistriesSecret  = "image-registries-secret"
+	kubernetesServiceName  = "kubernetes"
 )
 
 func main() {
@@ -766,7 +767,7 @@ func extractConfigFiles(ctx context.Context, client *kubernetes.Clientset, cfg c
 		return
 	}
 
-	if err := os.MkdirAll(cfg.multiClusterConfigDir, 0755); err != nil {
+	if err := os.MkdirAll(cfg.multiClusterConfigDir, 0o755); err != nil {
 		collectError(err, "failed to create config dir")
 		return
 	}
@@ -799,7 +800,7 @@ func writeConfigFile(dir, name string, data []byte, collectError func(error, str
 
 	// The typed API returns already-decoded data, no base64 step needed.
 	filePath := filepath.Join(dir, name)
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0o644); err != nil {
 		collectError(err, fmt.Sprintf("failed to write config file %s", filePath))
 	}
 }
@@ -818,7 +819,7 @@ func setupKubectlMongodb(cfg config) error {
 		if err != nil {
 			return fmt.Errorf("failed to read pre-compiled binary: %v", err)
 		}
-		return os.WriteFile(cfg.kubeconfigCreatorPath, data, 0755)
+		return os.WriteFile(cfg.kubeconfigCreatorPath, data, 0o755)
 	}
 
 	// Build from source

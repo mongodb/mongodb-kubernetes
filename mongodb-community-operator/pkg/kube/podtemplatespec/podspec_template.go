@@ -197,7 +197,13 @@ func DefaultPodSecurityContext() corev1.PodSecurityContext {
 	runAsNonRoot := true
 	runAsUser := int64(2000)
 	fsGroup := int64(2000)
-	return corev1.PodSecurityContext{RunAsUser: &runAsUser, RunAsNonRoot: &runAsNonRoot, FSGroup: &fsGroup}
+
+	return corev1.PodSecurityContext{
+		RunAsUser:      &runAsUser,
+		RunAsNonRoot:   &runAsNonRoot,
+		FSGroup:        &fsGroup,
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
 }
 
 // WithImagePullSecrets adds an ImagePullSecrets local reference with the given name
