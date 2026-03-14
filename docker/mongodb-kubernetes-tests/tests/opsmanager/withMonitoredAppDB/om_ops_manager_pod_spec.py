@@ -281,7 +281,7 @@ class TestOpsManagerCreation:
                 },
             )
 
-        assert_volume_mounts_are_equal(om_container["volume_mounts"], expected_spec["volume_mounts"])
+        assert_volume_mounts_are_equal(om_container["volume_mounts"], volume_mounts)
 
         # new volume was added and the old ones ('gen-key' and 'ops-manager-scripts') stayed there
         if is_default_architecture_static():

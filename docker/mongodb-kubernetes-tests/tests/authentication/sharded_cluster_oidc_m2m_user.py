@@ -20,7 +20,7 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("oidc/sharded-cluster-m2m-user.yaml"), namespace=namespace)
 
     oidc_provider_configs = resource.get_oidc_provider_configs()
-    assert oidc_provider_configs is not None
+    assert oidc_provider_configs
     oidc_provider_configs[0]["issuerURI"] = oidc.get_cognito_workload_url()
     oidc_provider_configs[0]["clientId"] = oidc.get_cognito_workload_client_id()
     oidc_provider_configs[0]["audience"] = oidc.get_cognito_workload_client_id()

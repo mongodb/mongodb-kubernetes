@@ -2,7 +2,7 @@ import os
 from typing import Optional
 
 import pymongo.errors
-import requests  # type: ignore[import-untyped]
+import requests
 from kubetester import kubetester
 from pymongo.operations import SearchIndexModel
 from tests import test_logger

@@ -1,5 +1,5 @@
-from typing import Iterator
 import tempfile
+from typing import Iterator
 
 from kubetester import create_secret, delete_secret, find_fixture, read_secret, try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, generate_cert

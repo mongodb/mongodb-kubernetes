@@ -93,21 +93,27 @@ def test_statefulsets_have_been_created_correctly(
         cluster_one_statefulsets = mongodb_multi.read_statefulsets([cluster_one_client])
         return cluster_one_statefulsets[cluster_one_client.cluster_name].status.ready_replicas == 1
 
-    kubetester.wait_until(fn_cluster_one, timeout=60, message="Verifying sts has correct number of replicas in cluster one")
+    kubetester.wait_until(
+        fn_cluster_one, timeout=60, message="Verifying sts has correct number of replicas in cluster one"
+    )
 
     def fn_cluster_two():
         cluster_two_client = member_cluster_clients[1]
         cluster_two_statefulsets = mongodb_multi.read_statefulsets([cluster_two_client])
         return cluster_two_statefulsets[cluster_two_client.cluster_name].status.ready_replicas == 1
 
-    kubetester.wait_until(fn_cluster_two, timeout=60, message="Verifying sts has correct number of replicas in cluster two")
+    kubetester.wait_until(
+        fn_cluster_two, timeout=60, message="Verifying sts has correct number of replicas in cluster two"
+    )
 
     def fn_cluster_three():
         cluster_three_client = member_cluster_clients[2]
         cluster_three_statefulsets = mongodb_multi.read_statefulsets([cluster_three_client])
         return cluster_three_statefulsets[cluster_three_client.cluster_name].status.ready_replicas == 1
 
-    kubetester.wait_until(fn_cluster_three, timeout=60, message="Verifying sts has correct number of replicas in cluster three")
+    kubetester.wait_until(
+        fn_cluster_three, timeout=60, message="Verifying sts has correct number of replicas in cluster three"
+    )
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_up
@@ -160,7 +166,9 @@ def test_statefulsets_have_been_scaled_up_correctly(
         return cluster_three_statefulsets[cluster_three_client.cluster_name].status.ready_replicas == 2
 
     kubetester.wait_until(
-        fn_cluster_three, timeout=60, message="Verifying sts has correct number of replicas after scale up in cluster three"
+        fn_cluster_three,
+        timeout=60,
+        message="Verifying sts has correct number of replicas after scale up in cluster three",
     )
 
 

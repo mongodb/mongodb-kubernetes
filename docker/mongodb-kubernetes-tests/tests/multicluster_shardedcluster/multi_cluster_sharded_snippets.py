@@ -27,7 +27,7 @@ def load_resource(namespace: str, file_path: str, resource_name: str | None = No
 
 
 def get_project_directory() -> str:
-    project_dir = os.environ.get("PROJECT_DIR", "")
+    project_dir = os.environ["PROJECT_DIR"]
     logger.debug(f"PROJECT_DIR: {project_dir}")
     return project_dir
 

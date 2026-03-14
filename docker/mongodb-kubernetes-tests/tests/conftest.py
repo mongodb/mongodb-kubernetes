@@ -841,7 +841,9 @@ def _install_multi_cluster_operator(
     # The Operator will be installed from the following repo, so adding it first
     helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
-    helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path or "", custom_operator_version or "")
+    helm_chart_path, operator_version = helm_chart_path_and_version(
+        helm_chart_path or "", custom_operator_version or ""
+    )
 
     prepare_multi_cluster_namespaces(
         namespace,

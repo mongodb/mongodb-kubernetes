@@ -148,7 +148,8 @@ def create_or_update_service(
     service: Optional[client.V1Service] = None,
 ) -> str:
     print("Logging inside create_or_update_service")
-    assert service_name is not None, "service_name must not be None"
+    if service_name is None:
+        raise ValueError("service_name must not be None")
     try:
         create_service(namespace, service_name, cluster_ip=cluster_ip, ports=ports, selector=selector, service=service)
     except kubernetes.client.ApiException as e:

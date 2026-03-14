@@ -133,7 +133,7 @@ repos:
     hooks:
       - id: mypy-search
         name: mypy (search tests)
-        entry: bash -c 'cd docker/mongodb-kubernetes-tests && python -m mypy --follow-imports=silent --disable-error-code=import-untyped tests/search/ tests/common/search/'
+        entry: bash -c 'cd docker/mongodb-kubernetes-tests && python -m mypy --config-file ../../pyproject.toml --follow-imports=silent --disable-error-code=import-untyped tests/search/ tests/common/search/'
         language: system
         pass_filenames: false
         files: docker/mongodb-kubernetes-tests/tests/(common/)?search/.*\.py$

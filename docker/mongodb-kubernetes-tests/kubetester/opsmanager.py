@@ -506,7 +506,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return sorted(result, key=lambda x: x[0])
 
-    def get_om_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, str]]]:
+    def get_om_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, Any]]]:
         """Returns an ordered list (by cluster index) of tuples (cluster index, clusterSpecItem) from spec.clusterSpecList.
         Cluster indexes are read from -cluster-mapping config map.
         """
@@ -526,7 +526,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return sorted(result, key=lambda x: x[0])
 
     @staticmethod
-    def get_legacy_central_cluster(replicas: int) -> list[tuple[int, dict[str, str]]]:
+    def get_legacy_central_cluster(replicas: int) -> list[tuple[int, dict[str, Any]]]:
         return [(0, {"clusterName": LEGACY_CENTRAL_CLUSTER_NAME, "members": str(replicas)})]
 
     def read_appdb_pods(self) -> list[tuple[kubernetes.client.ApiClient, kubernetes.client.V1Pod]]:
@@ -683,7 +683,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         """Creates the configmap containing the information needed to connect to OM"""
         config_map_name = f"{mongodb_name}-config"
         base_url = self.om_status().get_url()
-        assert base_url is not None, "OpsManager URL must not be None"
+        if base_url is None:
+            raise RuntimeError("OpsManager URL must not be None; is OM in Running phase?")
         data = {
             "baseUrl": base_url,
             "projectName": project_name,

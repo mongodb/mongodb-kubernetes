@@ -400,6 +400,8 @@ def create_x509_mongodb_tls_certs(
         additional_domains=additional_domains,
         secret_backend=secret_backend,
         vault_subpath=vault_subpath,
+        process_hostnames=process_hostnames,
+        clusterwide=clusterwide,
     )
 
 

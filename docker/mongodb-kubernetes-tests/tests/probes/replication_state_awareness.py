@@ -59,7 +59,9 @@ def create_writing_task(client: pymongo.MongoClient, name: str, count: int) -> a
     return asyncio.create_task(upload_random_data_async(client, name, count))
 
 
-def create_writing_tasks(client: pymongo.MongoClient, prefix: str, task_sizes: Optional[List[int]] = None) -> list[asyncio.Task]:
+def create_writing_tasks(
+    client: pymongo.MongoClient, prefix: str, task_sizes: Optional[List[int]] = None
+) -> list[asyncio.Task]:
     """
     Creates many async tasks to upload documents to a MongoDB database.
     """

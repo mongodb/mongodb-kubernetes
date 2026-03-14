@@ -310,7 +310,9 @@ def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> 
         registry = os.environ.get(OCI_HELM_REGISTRY_ENV_VAR_NAME, "")
         # If ECR we need to login first to the OCI container registry
         if registry == OCI_HELM_REGISTRY_ECR:
-            region = os.environ.get(OCI_HELM_REGION_ENV_VAR_NAME, "")
+            region = os.environ.get(OCI_HELM_REGION_ENV_VAR_NAME)
+            if not region:
+                raise ValueError(f"{OCI_HELM_REGION_ENV_VAR_NAME} must be set when using ECR registry")
             try:
                 helm_registry_login_to_ecr(registry, region)
             except Exception as e:

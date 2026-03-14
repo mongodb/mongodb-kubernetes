@@ -744,7 +744,11 @@ def build_list_of_hosts_with_external_domain(
 
 
 def build_list_of_multi_hosts(
-    namespace: Optional[str], service_names: Optional[List[str]], port, external: bool = False, cluster_domain: str = "cluster.local"
+    namespace: Optional[str],
+    service_names: Optional[List[str]],
+    port,
+    external: bool = False,
+    cluster_domain: str = "cluster.local",
 ) -> List[str]:
     if not service_names:
         return []

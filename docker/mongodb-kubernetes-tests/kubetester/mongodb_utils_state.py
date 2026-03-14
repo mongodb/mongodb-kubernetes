@@ -47,6 +47,8 @@ def in_desired_state(
     if msg_regexp is not None:
         print("msg_regexp: " + str(msg_regexp))
         regexp = re.compile(msg_regexp)
-        is_in_desired_state = bool(is_in_desired_state and current_message is not None and regexp.match(current_message))
+        is_in_desired_state = bool(
+            is_in_desired_state and current_message is not None and regexp.match(current_message)
+        )
 
     return is_in_desired_state
