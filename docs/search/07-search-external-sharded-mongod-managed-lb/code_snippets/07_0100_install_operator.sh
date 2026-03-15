@@ -33,4 +33,3 @@ kubectl rollout status deployment/mongodb-kubernetes-operator \
   --timeout=120s
 
 echo "✓ MongoDB Kubernetes Operator installed and ready"
-

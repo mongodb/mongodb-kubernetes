@@ -3,9 +3,24 @@
 #
 # Search indexes need time to build and sync data from MongoDB to mongot.
 # This script polls the index status until all indexes are READY.
+#
+# ============================================================================
+# INDEX STATUS PROGRESSION
+# ============================================================================
+# Typical status flow: PENDING → BUILDING → READY
+# Time depends on:
+# - Data size (sample_mflix.movies is ~23k documents, takes 1-3 minutes)
+# - mongot resources (CPU/memory)
+# - Number of shards (data is distributed across shards)
+# ============================================================================
+# DEPENDS ON:
+#   - 07_0345_create_search_index.sh (text index must be created)
+#   - 07_0346_create_vector_search_index.sh (vector index, optional)
+# ============================================================================
 
 echo "Waiting for search indexes to be ready..."
 echo "This may take several minutes depending on data size..."
+echo ""
 
 # Connection string for user operations
 # authMechanism=SCRAM-SHA-256 is required for MongoDB 8.2+ which only enables SCRAM-SHA-256
@@ -16,7 +31,6 @@ interval=10
 elapsed=0
 
 while [[ $elapsed -lt $timeout ]]; do
-  # Check text search index status
   text_status=$(kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
     mongosh "${user_conn}" --quiet --eval '
       const indexes = db.getSiblingDB("sample_mflix").movies.aggregate([
@@ -29,7 +43,6 @@ while [[ $elapsed -lt $timeout ]]; do
       }
     ' 2>/dev/null || echo "ERROR")
 
-  # Check vector search index status
   vector_status=$(kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
     mongosh "${user_conn}" --quiet --eval '
       const indexes = db.getSiblingDB("sample_mflix").embedded_movies.aggregate([

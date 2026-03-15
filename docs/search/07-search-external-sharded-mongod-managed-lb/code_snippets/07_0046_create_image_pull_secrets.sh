@@ -24,4 +24,3 @@ kubectl create secret docker-registry "${IMAGE_PULL_SECRET_NAME}" \
   --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" -f -
 
 echo "✓ Image pull secret '${IMAGE_PULL_SECRET_NAME}' created"
-

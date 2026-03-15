@@ -8,6 +8,14 @@
 # Each shard's mongod is configured to point to the operator-managed Envoy proxy
 # endpoints that will be created when MongoDBSearch is deployed.
 #
+# ============================================================================
+# CONFIGURATION ORDER
+# ============================================================================
+# The mongod search parameters reference Envoy proxy Services that don't exist yet.
+# The operator creates these Services when MongoDBSearch is applied (step 07_0320).
+# Mongod only attempts to connect to mongot when a search query is executed.
+# ============================================================================
+#
 # Proxy endpoint format:
 #   {search-name}-search-0-{shard-name}-proxy-svc.{namespace}.svc.cluster.local:27029
 
@@ -17,12 +25,11 @@ echo "  Members per shard: ${MDB_MONGODS_PER_SHARD}"
 echo "  mongos count: ${MDB_MONGOS_COUNT}"
 echo "  Config servers: ${MDB_CONFIG_SERVER_COUNT}"
 
-# Build shardOverrides section for search parameters
-# Each shard points to its corresponding operator-managed Envoy proxy Service
+# Build shardOverrides for each shard
+# For a 2-shard cluster, this creates entries for ext-mdb-sh-0 and ext-mdb-sh-1
 shard_overrides=""
 for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
   shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
-  # This is the endpoint format the operator will create for managed LB
   proxy_host="${MDB_SEARCH_RESOURCE_NAME}-search-0-${shard_name}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT:-27029}"
 
   shard_overrides="${shard_overrides}
@@ -41,6 +48,20 @@ done
 # Build mongos search parameters (uses first shard's proxy as entry point)
 first_shard="${MDB_EXTERNAL_CLUSTER_NAME}-0"
 mongos_proxy_host="${MDB_SEARCH_RESOURCE_NAME}-search-0-${first_shard}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT:-27029}"
+
+# ============================================================================
+# GENERATED YAML PREVIEW
+# ============================================================================
+# This shows what the shardOverrides section will look like before applying.
+# Useful for debugging and understanding what will be created.
+# ============================================================================
+echo ""
+echo "=== Generated shardOverrides Preview ==="
+echo "shardOverrides:${shard_overrides}"
+echo ""
+echo "=== End Preview ==="
+echo ""
+echo "Applying MongoDB resource..."
 
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1

@@ -8,7 +8,6 @@ set -eou pipefail
 
 echo "Validating environment variables..."
 
-# Required variables for basic deployment
 required_vars=(
   "K8S_CTX"
   "MDB_NS"
@@ -24,6 +23,7 @@ required_vars=(
 missing_vars=()
 
 for var in "${required_vars[@]}"; do
+  # ${!var} = indirect expansion: get value of variable named by $var
   if [[ -z "${!var:-}" ]] || [[ "${!var}" == "<"* ]]; then
     missing_vars+=("$var")
   fi
@@ -39,7 +39,6 @@ if [[ ${#missing_vars[@]} -gt 0 ]]; then
   exit 1
 fi
 
-# Validate Kubernetes context exists
 if ! kubectl config get-contexts "${K8S_CTX}" &>/dev/null; then
   echo "ERROR: Kubernetes context '${K8S_CTX}' does not exist."
   echo "Available contexts:"
@@ -54,4 +53,3 @@ echo "  External cluster name: ${MDB_EXTERNAL_CLUSTER_NAME}"
 echo "  Search resource name: ${MDB_SEARCH_RESOURCE_NAME}"
 echo "  Shard count: ${MDB_SHARD_COUNT}"
 echo "  mongot replicas per shard: ${MDB_MONGOT_REPLICAS:-1}"
-

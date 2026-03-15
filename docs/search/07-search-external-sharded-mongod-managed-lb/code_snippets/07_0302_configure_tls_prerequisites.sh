@@ -1,16 +1,40 @@
 #!/usr/bin/env bash
 # Configure TLS prerequisites: CA issuer and certificate
 #
-# This creates:
-# 1. A self-signed ClusterIssuer (for bootstrapping)
-# 2. A CA Certificate signed by the self-signed issuer
-# 3. A CA Issuer that uses the CA certificate to sign other certificates
+# ============================================================================
+# WHAT THIS SCRIPT CREATES
+# ============================================================================
+# 1. Self-signed ClusterIssuer - A bootstrap issuer that can sign itself
+# 2. CA Certificate           - A certificate authority signed by the bootstrap issuer
+# 3. CA ClusterIssuer         - An issuer that uses our CA to sign all other certs
+# 4. CA ConfigMap             - CA cert for MongoDB Enterprise (uses key "ca-pem")
+# 5. CA Secret                - CA cert for MongoDBSearch external (uses key "ca.crt")
 #
-# In production, you would use your own CA or a public CA like Let's Encrypt.
+# ============================================================================
+# WHY TWO CA DISTRIBUTIONS (ConfigMap AND Secret)?
+# ============================================================================
+# MongoDB Enterprise operator expects CA in a ConfigMap with key "ca-pem"
+# MongoDBSearch external source expects CA in a Secret with key "ca.crt"
+# We create both to satisfy both requirements.
+#
+# ============================================================================
+# IN PRODUCTION
+# ============================================================================
+# You would replace the self-signed CA with:
+# - Your organization's internal CA
+# - A public CA like Let's Encrypt
+# - A cloud provider's certificate service (AWS ACM, GCP CAS, etc.)
+# ============================================================================
+# DEPENDS ON: 07_0301_install_cert_manager.sh (cert-manager must be running)
+# ============================================================================
 
 echo "Configuring TLS prerequisites..."
 
-# Create self-signed ClusterIssuer for bootstrapping
+# ============================================================================
+# STEP 1: Create self-signed ClusterIssuer for bootstrapping
+# ============================================================================
+echo ""
+echo "Step 1: Creating self-signed ClusterIssuer..."
 kubectl apply --context "${K8S_CTX}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -22,7 +46,11 @@ EOF
 
 echo "  ✓ Self-signed ClusterIssuer created"
 
-# Create CA Certificate (will be used to sign all other certificates)
+# ============================================================================
+# STEP 2: Create CA Certificate (isCA: true, 10 year validity)
+# ============================================================================
+echo ""
+echo "Step 2: Creating CA Certificate..."
 kubectl apply --context "${K8S_CTX}" -n "${CERT_MANAGER_NAMESPACE}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -51,7 +79,14 @@ kubectl wait --for=condition=Ready certificate/${MDB_TLS_CA_CERT_NAME} \
   --context "${K8S_CTX}" \
   --timeout=60s
 
-# Create CA Issuer that uses the CA certificate
+# ============================================================================
+# STEP 3: Create CA ClusterIssuer
+# ============================================================================
+# This issuer uses our CA certificate to sign all other certificates.
+# All subsequent certificates (shards, mongot, envoy) will reference this issuer.
+# ============================================================================
+echo ""
+echo "Step 3: Creating CA ClusterIssuer..."
 kubectl apply --context "${K8S_CTX}" -n "${CERT_MANAGER_NAMESPACE}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -64,14 +99,25 @@ EOF
 
 echo "  ✓ CA Issuer created"
 
-# Extract the CA certificate from the secret
+# ============================================================================
+# STEP 4: Distribute CA certificate to target namespace
+# ============================================================================
+# cert-manager stores the CA in the cert-manager namespace, but MongoDB and
+# MongoDBSearch need it in their namespace. We extract and copy it.
+#
+# jsonpath='{.data.tls\.crt}' - Get the base64-encoded certificate
+# base64 -d                   - Decode it to PEM format
+# ============================================================================
+echo ""
+echo "Step 4: Distributing CA certificate to namespace '${MDB_NS}'..."
+
+# Extract the CA certificate from cert-manager's secret
 kubectl get secret "${MDB_TLS_CA_SECRET_NAME}" \
   -n "${CERT_MANAGER_NAMESPACE}" \
   --context "${K8S_CTX}" \
   -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/ca.crt
 
-# Create CA ConfigMap in the target namespace (needed by MongoDB Enterprise)
-# The Enterprise operator reads CA from ConfigMap with key "ca-pem"
+# Create CA ConfigMap for MongoDB Enterprise operator (expects key "ca-pem")
 kubectl create configmap "${MDB_TLS_CA_CONFIGMAP}" \
   --from-file=ca-pem=/tmp/ca.crt \
   -n "${MDB_NS}" \
@@ -80,8 +126,7 @@ kubectl create configmap "${MDB_TLS_CA_CONFIGMAP}" \
 
 echo "  ✓ CA ConfigMap created for MongoDB Enterprise"
 
-# Create CA Secret in the target namespace (needed by MongoDBSearch external source)
-# External source expects CA in a Secret with key "ca.crt"
+# Create CA Secret for MongoDBSearch external source (expects key "ca.crt")
 kubectl create secret generic "${MDB_TLS_CA_SECRET_NAME}" \
   --from-file=ca.crt=/tmp/ca.crt \
   -n "${MDB_NS}" \
@@ -90,6 +135,7 @@ kubectl create secret generic "${MDB_TLS_CA_SECRET_NAME}" \
 
 echo "  ✓ CA Secret created for MongoDBSearch external source"
 
+# Clean up temporary file
 rm -f /tmp/ca.crt
 
 echo "✓ TLS prerequisites configured"

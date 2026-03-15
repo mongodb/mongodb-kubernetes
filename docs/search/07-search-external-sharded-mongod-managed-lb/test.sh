@@ -61,8 +61,11 @@ run 07_0305_create_external_mongodb_users.sh
 # MONGODB SEARCH WITH MANAGED ENVOY LB
 # ============================================================================
 
-# Create TLS certificates for mongot
-run 07_0316_create_search_tls_certificates.sh
+# Create TLS certificates for mongot pods
+run 07_0316a_create_mongot_tls_certificates.sh
+
+# Create TLS certificates for managed load balancer (Envoy)
+run 07_0316b_create_lb_tls_certificates.sh
 
 # Create MongoDBSearch with lb.mode: Managed
 # NOTE: No Envoy deployment script - the operator handles this automatically!
