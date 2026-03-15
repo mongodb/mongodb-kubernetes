@@ -512,6 +512,11 @@ func (s *MongoDBSearch) HasMultipleReplicas() bool {
 	return s.GetReplicas() > 1
 }
 
+// HasAutoEmbedding returns true when auto-embedding is configured.
+func (s *MongoDBSearch) HasAutoEmbedding() bool {
+	return s.Spec.AutoEmbedding != nil
+}
+
 func (s *MongoDBSearch) MongotStatefulSetForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{Name: fmt.Sprintf("%s-search-0-%s", s.Name, shardName), Namespace: s.Namespace}
 }
