@@ -15,29 +15,29 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-// ShardedEnterpriseSearchSource implements SearchSourceDBResource for sharded MongoDB clusters.
+// ShardedInternalSearchSource implements SearchSourceDBResource for sharded MongoDB clusters.
 // It provides per-shard host seeds and unmanaged LB endpoint mapping.
-type ShardedEnterpriseSearchSource struct {
+type ShardedInternalSearchSource struct {
 	*mdbv1.MongoDB
 	search *searchv1.MongoDBSearch
 }
 
-func NewShardedEnterpriseSearchSource(mdb *mdbv1.MongoDB, search *searchv1.MongoDBSearch) *ShardedEnterpriseSearchSource {
-	return &ShardedEnterpriseSearchSource{
+func NewShardedInternalSearchSource(mdb *mdbv1.MongoDB, search *searchv1.MongoDBSearch) *ShardedInternalSearchSource {
+	return &ShardedInternalSearchSource{
 		MongoDB: mdb,
 		search:  search,
 	}
 }
 
-func (r *ShardedEnterpriseSearchSource) GetShardNames() []string {
+func (r *ShardedInternalSearchSource) GetShardNames() []string {
 	return r.ShardRsNames()
 }
 
-func (r *ShardedEnterpriseSearchSource) GetShardCount() int {
+func (r *ShardedInternalSearchSource) GetShardCount() int {
 	return r.Spec.ShardCount
 }
 
-func (r *ShardedEnterpriseSearchSource) HostSeeds(shardName string) []string {
+func (r *ShardedInternalSearchSource) HostSeeds(shardName string) []string {
 	members := r.Spec.MongodsPerShardCount
 	clusterDomain := r.Spec.GetClusterDomain()
 	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
@@ -51,13 +51,13 @@ func (r *ShardedEnterpriseSearchSource) HostSeeds(shardName string) []string {
 	return seeds
 }
 
-func (r *ShardedEnterpriseSearchSource) MongosHostAndPort() string {
+func (r *ShardedInternalSearchSource) MongosHostAndPort() string {
 	clusterDomain := r.Spec.GetClusterDomain()
 	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", r.ServiceName(), r.Namespace, clusterDomain, port)
 }
 
-func (r *ShardedEnterpriseSearchSource) TLSConfig() *TLSSourceConfig {
+func (r *ShardedInternalSearchSource) TLSConfig() *TLSSourceConfig {
 	if !r.Spec.Security.IsTLSEnabled() {
 		return nil
 	}
@@ -73,15 +73,15 @@ func (r *ShardedEnterpriseSearchSource) TLSConfig() *TLSSourceConfig {
 	}
 }
 
-func (r *ShardedEnterpriseSearchSource) KeyfileSecretName() string {
+func (r *ShardedInternalSearchSource) KeyfileSecretName() string {
 	return fmt.Sprintf("%s-%s", r.Name, MongotKeyfileFilename)
 }
 
-func (r *ShardedEnterpriseSearchSource) ResourceType() mdbv1.ResourceType {
+func (r *ShardedInternalSearchSource) ResourceType() mdbv1.ResourceType {
 	return r.GetResourceType()
 }
 
-func (r *ShardedEnterpriseSearchSource) Validate() error {
+func (r *ShardedInternalSearchSource) Validate() error {
 	version, err := semver.ParseTolerant(util.StripEnt(r.Spec.GetMongoDBVersion()))
 	if err != nil {
 		return xerrors.Errorf("error parsing MongoDB version '%s': %w", r.Spec.GetMongoDBVersion(), err)
@@ -94,7 +94,7 @@ func (r *ShardedEnterpriseSearchSource) Validate() error {
 	}
 
 	if r.GetResourceType() != mdbv1.ShardedCluster {
-		return xerrors.Errorf("ShardedEnterpriseSearchSource requires a %s resource, got %s", mdbv1.ShardedCluster, r.GetResourceType())
+		return xerrors.Errorf("ShardedInternalSearchSource requires a %s resource, got %s", mdbv1.ShardedCluster, r.GetResourceType())
 	}
 
 	if r.Spec.ShardCount == 0 {
@@ -117,7 +117,7 @@ func (r *ShardedEnterpriseSearchSource) Validate() error {
 	return nil
 }
 
-func (r *ShardedEnterpriseSearchSource) GetUnmanagedLBEndpointForShard(shardName string) string {
+func (r *ShardedInternalSearchSource) GetUnmanagedLBEndpointForShard(shardName string) string {
 	if r.search == nil || !r.search.IsShardedUnmanagedLB() {
 		return ""
 	}

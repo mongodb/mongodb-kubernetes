@@ -128,7 +128,7 @@ func getSearchSource(ctx context.Context, kubeClient client.Client, watcher *wat
 	} else {
 		watcher.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
 		if mdb.GetResourceType() == mdbv1.ShardedCluster {
-			return searchcontroller.NewShardedEnterpriseSearchSource(mdb, search), nil
+			return searchcontroller.NewShardedInternalSearchSource(mdb, search), nil
 		}
 		return searchcontroller.NewEnterpriseResourceSearchSource(mdb), nil
 	}
@@ -157,7 +157,7 @@ func mdbcSearchIndexBuilder(rawObj client.Object) []string {
 }
 
 func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operatorSearchConfig searchcontroller.OperatorSearchConfig) error {
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchcontroller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
 	}
 

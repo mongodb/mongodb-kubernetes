@@ -40,7 +40,6 @@ import (
 )
 
 const (
-	MongoDBSearchIndexFieldName      = "mdbsearch-for-mongodbresourceref-index"
 	unsupportedSearchVersion         = "1.47.0"
 	unsupportedSearchVersionErrorFmt = "MongoDBSearch version %s is not supported because of breaking changes. " +
 		"The operator will ignore this resource: it will not reconcile or reconfigure the workload. " +
@@ -909,7 +908,14 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 		return search.GetReplicaSetUnmanagedLBEndpoint()
 	}
 
-	// Otherwise, use the internal service endpoint
+	// Managed LB: point mongod at the Envoy proxy service
+	if search.IsLBModeManaged() {
+		proxySvcName := search.LoadBalancerServiceName()
+		const envoyProxyPort = 27029
+		return fmt.Sprintf("%s.%s.svc.%s:%d", proxySvcName, search.Namespace, clusterDomain, envoyProxyPort)
+	}
+
+	// Default: direct to mongot headless service
 	svcName := search.SearchServiceNamespacedName()
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
@@ -938,7 +944,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 	ref := r.mdbSearch.GetMongoDBResourceRef()
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.client.List(ctx, searchList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(MongoDBSearchIndexFieldName, ref.Namespace+"/"+ref.Name),
+		FieldSelector: fields.OneTermEqualSelector(searchv1.MongoDBSearchIndexFieldName, ref.Namespace+"/"+ref.Name),
 	}); err != nil {
 		return xerrors.Errorf("Error listing MongoDBSearch resources for search source '%s': %w", ref.Name, err)
 	}

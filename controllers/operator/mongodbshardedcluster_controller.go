@@ -852,7 +852,9 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	// Apply search parameters for shards if a MongoDBSearch resource is configured
 	// This implements the sharded internal + unmanaged L7 LB (BYO per-shard LB)
-	r.applySearchParametersForShards(ctx, log)
+	if err := r.applySearchParametersForShards(ctx, log); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
 
 	// After processing normal validations, we check for conflicting scale-up and scale-down operations within the same
 	// reconciliation cycle. If both scaling directions are detected, we block the reconciliation.
@@ -1014,13 +1016,17 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 // - searchIndexManagementHostAndPort: same as mongotHost
 // - useGrpcForSearch: true (required for mongot)
 // - searchTLSMode: TLS mode for mongot connections
-func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx context.Context, log *zap.SugaredLogger) {
+func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx context.Context, log *zap.SugaredLogger) error {
 	sc := r.sc
 
-	search := r.lookupCorrespondingSearchResource(ctx, log)
+	search, err := r.lookupCorrespondingSearchResource(ctx)
+	if err != nil {
+		return err
+	}
+
 	if search == nil {
 		log.Debugf("No MongoDBSearch resource found for sharded cluster, skipping search overrides")
-		return
+		return nil
 	}
 
 	log.Infof("Applying search parameters from MongoDBSearch %s", search.NamespacedName())
@@ -1031,10 +1037,10 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 	if search.IsShardedUnmanagedLB() || search.IsLBModeManaged() {
 		// Validate unmanaged LB endpoint configuration
 		if search.IsShardedUnmanagedLB() {
-			shardedSource := searchcontroller.NewShardedEnterpriseSearchSource(sc, search)
+			shardedSource := searchcontroller.NewShardedInternalSearchSource(sc, search)
 			if err := shardedSource.Validate(); err != nil {
 				log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
-				return
+				return nil
 			}
 		}
 
@@ -1071,38 +1077,39 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 	r.desiredMongosConfiguration.AdditionalMongodConfig.AddOption("setParameter", searchMongosConfig["setParameter"])
 
 	log.Infof("Applied search config for mongos: mongotHost=%v", searchMongosConfig["setParameter"])
+	return nil
 }
 
 // lookupCorrespondingSearchResource finds the MongoDBSearch resource that references this sharded cluster.
-func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx context.Context, log *zap.SugaredLogger) *searchv1.MongoDBSearch {
+func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx context.Context) (*searchv1.MongoDBSearch, error) {
 	sc := r.sc
 
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.commonController.client.List(ctx, searchList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, sc.GetNamespace()+"/"+sc.GetName()),
+		FieldSelector: fields.OneTermEqualSelector(searchv1.MongoDBSearchIndexFieldName, sc.GetNamespace()+"/"+sc.GetName()),
 	}); err != nil {
-		log.Debugf("Failed to list MongoDBSearch resources: %v", err)
-		return nil
+		return nil, xerrors.Errorf("Failed to list MongoDBSearch resources: %v", err)
+	}
+
+	// this MDB resource is not referred in any of the search resoruces
+	if len(searchList.Items) == 0 {
+		return nil, nil
 	}
 
 	// Validate that there is exactly one MongoDBSearch pointing to this resource
-	if len(searchList.Items) == 0 {
-		return nil
-	}
-
 	if len(searchList.Items) > 1 {
-		log.Warnf("Found multiple MongoDBSearch resources for sharded cluster %s, using the first one", sc.Name)
+		return nil, xerrors.Errorf("Found multiple MongoDBSearch resources referred in sharded cluster %s/%s", sc.Namespace, sc.Name)
 	}
 
 	search := &searchList.Items[0]
 
 	// Validate the search spec
 	if err := search.ValidateSpec(); err != nil {
-		log.Warnf("MongoDBSearch %s validation failed: %v", search.NamespacedName(), err)
-		return nil
+		zap.S().Warnf("MongoDBSearch %s validation failed: %v", search.NamespacedName(), err)
+		return nil, nil
 	}
 
-	return search
+	return search, nil
 }
 
 func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) workflow.Status {
