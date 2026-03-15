@@ -198,7 +198,7 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 
 // mongotPerPodConfigStartCommand returns the shell script that reads the pod's role from ConfigMap.
 func mongotPerPodConfigStartCommand() string {
-	return fmt.Sprintf(`ROLE=$(cat "%s/$(hostname)")
+	return fmt.Sprintf(`ROLE=$(cat "%s/$HOSTNAME")
 /mongot-community/mongot --config %s/config-${ROLE}.yml`,
 		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath)
 }
