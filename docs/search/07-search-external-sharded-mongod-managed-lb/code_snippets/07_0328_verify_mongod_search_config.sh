@@ -22,12 +22,10 @@ for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
   
   echo "Checking shard: ${shard_name}"
   
-  # Get mongotHost from mongod
   mongot_host=$(kubectl exec "${pod_name}" -n "${MDB_NS}" --context "${K8S_CTX}" \
     -c mongodb-enterprise-database -- \
     mongosh --quiet --eval "db.adminCommand({getParameter: 1, mongotHost: 1}).mongotHost" 2>/dev/null || echo "")
   
-  # Check if configured correctly
   if [[ "${mongot_host}" == *"${expected_proxy}"* ]] && [[ "${mongot_host}" == *"${expected_port}"* ]]; then
     echo "  ✓ mongotHost: ${mongot_host}"
   else
@@ -36,7 +34,6 @@ for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
     all_correct=false
   fi
   
-  # Get searchTLSMode
   tls_mode=$(kubectl exec "${pod_name}" -n "${MDB_NS}" --context "${K8S_CTX}" \
     -c mongodb-enterprise-database -- \
     mongosh --quiet --eval "db.adminCommand({getParameter: 1, searchTLSMode: 1}).searchTLSMode" 2>/dev/null || echo "")
@@ -47,7 +44,6 @@ for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
     echo "  ⚠ searchTLSMode: ${tls_mode:-NOT SET} (expected: requireTLS)"
   fi
   
-  # Get useGrpcForSearch
   use_grpc=$(kubectl exec "${pod_name}" -n "${MDB_NS}" --context "${K8S_CTX}" \
     -c mongodb-enterprise-database -- \
     mongosh --quiet --eval "db.adminCommand({getParameter: 1, useGrpcForSearch: 1}).useGrpcForSearch" 2>/dev/null || echo "")

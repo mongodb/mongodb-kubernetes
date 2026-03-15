@@ -1,26 +1,11 @@
 #!/usr/bin/env bash
 # Verify that the operator-managed Envoy proxy is deployed and running
-#
-# When lb.mode: Managed is set, the operator creates:
-# 1. ConfigMap: {search-name}-search-lb-config - Envoy bootstrap configuration
-# 2. Deployment: {search-name}-search-lb - Envoy proxy pods
-# 3. Services: {search-name}-search-0-{shard-name}-proxy-svc - Per-shard routing
-#
-# This script verifies all these resources exist and are healthy.
-#
-# ============================================================================
-# DEPENDS ON: 07_0320_create_mongodb_search_resource.sh (MongoDBSearch must exist)
-# ============================================================================
 
 echo "Verifying operator-managed Envoy deployment..."
 
-# Build resource names from the search resource name
 envoy_deployment="${MDB_SEARCH_RESOURCE_NAME}-search-lb"
 envoy_configmap="${MDB_SEARCH_RESOURCE_NAME}-search-lb-config"
 
-# ============================================================================
-# CHECK 1: ConfigMap
-# ============================================================================
 echo "Checking Envoy ConfigMap..."
 if kubectl get configmap "${envoy_configmap}" -n "${MDB_NS}" --context "${K8S_CTX}" &>/dev/null; then
   echo "  ✓ ConfigMap '${envoy_configmap}' exists"
@@ -29,12 +14,8 @@ else
   exit 1
 fi
 
-# ============================================================================
-# CHECK 2: Deployment
-# ============================================================================
 echo "Checking Envoy Deployment..."
 if kubectl get deployment "${envoy_deployment}" -n "${MDB_NS}" --context "${K8S_CTX}" &>/dev/null; then
-  # Get ready and desired replica counts
   ready=$(kubectl get deployment "${envoy_deployment}" -n "${MDB_NS}" --context "${K8S_CTX}" \
     -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
   desired=$(kubectl get deployment "${envoy_deployment}" -n "${MDB_NS}" --context "${K8S_CTX}" \
@@ -52,14 +33,6 @@ else
   exit 1
 fi
 
-# ============================================================================
-# CHECK 3: Per-shard proxy Services
-# ============================================================================
-# Each shard has its own proxy service that routes traffic to the correct mongot.
-# For a 2-shard cluster, we expect:
-#   - ext-search-search-0-ext-mdb-sh-0-proxy-svc
-#   - ext-search-search-0-ext-mdb-sh-1-proxy-svc
-# ============================================================================
 echo "Checking per-shard proxy Services..."
 for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
   shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
@@ -73,13 +46,9 @@ for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
   fi
 done
 
-# Show Envoy pod logs (last few lines for health check)
 echo ""
 echo "Envoy pod status:"
 kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" -l "app=${envoy_deployment}"
 
 echo ""
 echo "✓ Operator-managed Envoy proxy is deployed and healthy"
-echo ""
-echo "Envoy is listening on port ${ENVOY_PROXY_PORT:-27029} for incoming mongod connections"
-echo "and routing to mongot Services on port 27028 based on SNI hostname."

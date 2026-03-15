@@ -8,15 +8,9 @@
 
 echo "Deploying mongodb-tools pod..."
 
-# Use the same MongoDB version as the cluster (strip -ent suffix for community image)
-# ${MDB_VERSION%-ent} removes the "-ent" suffix: "8.2.0-ent" becomes "8.2.0"
 TOOLS_IMAGE="mongodb/mongodb-community-server:${MDB_VERSION%-ent}-ubi8"
 
 echo "  Image: ${TOOLS_IMAGE}"
-echo "  TLS CA ConfigMap: ${MDB_TLS_CA_CONFIGMAP}"
-
-# Create the pod using a heredoc YAML manifest
-# This is clearer than using --overrides with embedded JSON
 kubectl apply --context "${K8S_CTX}" -f - <<EOF
 apiVersion: v1
 kind: Pod

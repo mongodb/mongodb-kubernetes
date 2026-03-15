@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
 # Create users for the simulated external MongoDB sharded cluster
-#
-# These users will be created in the MongoDB cluster:
-# - mdb-admin: Admin user with root role
-# - mdb-user: Regular user for queries
-# - search-sync-source: User for MongoDB Search to sync data
-#
-# NOTE: This script must run AFTER the MongoDB cluster is ready because
-# MongoDBUser CRDs reference the cluster via mongodbResourceRef.
 
 echo "Creating password secrets for MongoDB users..."
 

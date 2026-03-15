@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
 # Execute a text search query through mongos
-#
-# This demonstrates that:
-# 1. mongos successfully routes search queries through the managed Envoy proxy
-# 2. Search results are aggregated from all shards
-# 3. The full traffic path works: mongos → Envoy → mongot (per shard)
 
 echo "Executing text search query for 'drama adventure'..."
 echo ""
 
-# Connection string for user operations
-# authMechanism=SCRAM-SHA-256 is required for MongoDB 8.2+ which only enables SCRAM-SHA-256
 user_conn="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin&authMechanism=SCRAM-SHA-256"
 
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${user_conn}" --quiet --eval '
@@ -55,9 +48,3 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${u
 
 echo ""
 echo "✓ Search query executed successfully"
-echo ""
-echo "The query was processed through:"
-echo "  1. mongos received the \$search query"
-echo "  2. mongos routed to each shard via Envoy proxy (port 27029)"
-echo "  3. Each mongot processed the search for its shard's data"
-echo "  4. Results were aggregated and returned"

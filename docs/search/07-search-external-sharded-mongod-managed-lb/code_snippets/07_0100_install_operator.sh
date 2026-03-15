@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
 # Install the MongoDB Kubernetes Operator
-#
-# The operator manages MongoDB Search resources and will automatically
-# deploy the Envoy proxy when lb.mode: Managed is configured.
 
-# Build helm values array
 helm_values=""
 if [[ -n "${OPERATOR_ADDITIONAL_HELM_VALUES:-}" ]]; then
-  # Split comma-separated values into --set arguments
   IFS=',' read -ra VALUES <<< "${OPERATOR_ADDITIONAL_HELM_VALUES}"
   for val in "${VALUES[@]}"; do
     helm_values="${helm_values} --set ${val}"
@@ -15,8 +10,6 @@ if [[ -n "${OPERATOR_ADDITIONAL_HELM_VALUES:-}" ]]; then
 fi
 
 echo "Installing MongoDB Kubernetes Operator..."
-echo "  Helm chart: ${OPERATOR_HELM_CHART}"
-echo "  Namespace: ${MDB_NS}"
 
 # shellcheck disable=SC2086
 helm upgrade --install mongodb-kubernetes-operator "${OPERATOR_HELM_CHART}" \
@@ -26,7 +19,6 @@ helm upgrade --install mongodb-kubernetes-operator "${OPERATOR_HELM_CHART}" \
   --timeout 5m \
   ${helm_values}
 
-# Wait for operator deployment to be ready
 kubectl rollout status deployment/mongodb-kubernetes-operator \
   --namespace "${MDB_NS}" \
   --context "${K8S_CTX}" \

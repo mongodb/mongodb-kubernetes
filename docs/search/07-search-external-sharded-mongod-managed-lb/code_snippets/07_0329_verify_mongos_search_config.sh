@@ -8,28 +8,24 @@ echo "Verifying mongos search configuration..."
 
 mongos_pod="${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0"
 
-# Get mongotHost
 mongot_host=$(kubectl exec "${mongos_pod}" -n "${MDB_NS}" --context "${K8S_CTX}" \
   -c mongodb-enterprise-database -- \
   mongosh --quiet --eval "db.adminCommand({getParameter: 1, mongotHost: 1}).mongotHost" 2>/dev/null || echo "")
 
 echo "  mongotHost: ${mongot_host:-NOT SET}"
 
-# Get searchIndexManagementHostAndPort
 search_mgmt=$(kubectl exec "${mongos_pod}" -n "${MDB_NS}" --context "${K8S_CTX}" \
   -c mongodb-enterprise-database -- \
   mongosh --quiet --eval "db.adminCommand({getParameter: 1, searchIndexManagementHostAndPort: 1}).searchIndexManagementHostAndPort" 2>/dev/null || echo "")
 
 echo "  searchIndexManagementHostAndPort: ${search_mgmt:-NOT SET}"
 
-# Get searchTLSMode
 tls_mode=$(kubectl exec "${mongos_pod}" -n "${MDB_NS}" --context "${K8S_CTX}" \
   -c mongodb-enterprise-database -- \
   mongosh --quiet --eval "db.adminCommand({getParameter: 1, searchTLSMode: 1}).searchTLSMode" 2>/dev/null || echo "")
 
 echo "  searchTLSMode: ${tls_mode:-NOT SET}"
 
-# Get useGrpcForSearch
 use_grpc=$(kubectl exec "${mongos_pod}" -n "${MDB_NS}" --context "${K8S_CTX}" \
   -c mongodb-enterprise-database -- \
   mongosh --quiet --eval "db.adminCommand({getParameter: 1, useGrpcForSearch: 1}).useGrpcForSearch" 2>/dev/null || echo "")

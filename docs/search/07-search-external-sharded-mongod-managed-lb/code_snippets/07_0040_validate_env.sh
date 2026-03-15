@@ -23,7 +23,6 @@ required_vars=(
 missing_vars=()
 
 for var in "${required_vars[@]}"; do
-  # ${!var} = indirect expansion: get value of variable named by $var
   if [[ -z "${!var:-}" ]] || [[ "${!var}" == "<"* ]]; then
     missing_vars+=("$var")
   fi

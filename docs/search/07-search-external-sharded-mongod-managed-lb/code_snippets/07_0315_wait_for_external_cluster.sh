@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
 # Wait for the simulated external MongoDB sharded cluster to be ready
-#
-# This waits for all components of the sharded cluster to be running:
-# - All shard replica sets
-# - Config server replica set
-# - mongos routers
-#
-# In a real external cluster scenario, your cluster would already be running.
 
 echo "Waiting for MongoDB sharded cluster to be ready..."
 echo "This may take several minutes..."

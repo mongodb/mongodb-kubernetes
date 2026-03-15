@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
 # Create Ops Manager / Cloud Manager connection resources
-#
-# For the simulated external MongoDB cluster, we use the Enterprise operator
-# which requires Ops Manager or Cloud Manager credentials.
-#
-# In a real external cluster scenario, you would already have your MongoDB
-# running outside of Kubernetes - skip this step and proceed to Search setup.
 
 echo "Creating Ops Manager connection resources..."
 

@@ -1,23 +1,7 @@
 #!/usr/bin/env bash
 # Create the simulated external MongoDB sharded cluster
-#
-# This deploys a MongoDB Enterprise sharded cluster to simulate an external MongoDB.
-# In a real scenario, your external cluster would already be running somewhere else.
-#
-# IMPORTANT: The cluster is created WITH search parameters already configured!
-# Each shard's mongod is configured to point to the operator-managed Envoy proxy
-# endpoints that will be created when MongoDBSearch is deployed.
-#
-# ============================================================================
-# CONFIGURATION ORDER
-# ============================================================================
-# The mongod search parameters reference Envoy proxy Services that don't exist yet.
-# The operator creates these Services when MongoDBSearch is applied (step 07_0320).
-# Mongod only attempts to connect to mongot when a search query is executed.
-# ============================================================================
-#
-# Proxy endpoint format:
-#   {search-name}-search-0-{shard-name}-proxy-svc.{namespace}.svc.cluster.local:27029
+# The cluster is created WITH search parameters pre-configured to point to the
+# operator-managed Envoy proxy endpoints created when MongoDBSearch is deployed.
 
 echo "Creating simulated external MongoDB sharded cluster..."
 echo "  Shards: ${MDB_SHARD_COUNT}"
@@ -25,8 +9,7 @@ echo "  Members per shard: ${MDB_MONGODS_PER_SHARD}"
 echo "  mongos count: ${MDB_MONGOS_COUNT}"
 echo "  Config servers: ${MDB_CONFIG_SERVER_COUNT}"
 
-# Build shardOverrides for each shard
-# For a 2-shard cluster, this creates entries for ext-mdb-sh-0 and ext-mdb-sh-1
+# Build shardOverrides with search parameters for each shard
 shard_overrides=""
 for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
   shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
@@ -45,23 +28,9 @@ for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
           useGrpcForSearch: true"
 done
 
-# Build mongos search parameters (uses first shard's proxy as entry point)
+# mongos search parameters (uses first shard's proxy as entry point)
 first_shard="${MDB_EXTERNAL_CLUSTER_NAME}-0"
 mongos_proxy_host="${MDB_SEARCH_RESOURCE_NAME}-search-0-${first_shard}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT:-27029}"
-
-# ============================================================================
-# GENERATED YAML PREVIEW
-# ============================================================================
-# This shows what the shardOverrides section will look like before applying.
-# Useful for debugging and understanding what will be created.
-# ============================================================================
-echo ""
-echo "=== Generated shardOverrides Preview ==="
-echo "shardOverrides:${shard_overrides}"
-echo ""
-echo "=== End Preview ==="
-echo ""
-echo "Applying MongoDB resource..."
 
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1
@@ -87,16 +56,12 @@ spec:
     authentication:
       enabled: true
       ignoreUnknownUsers: true
-      # SCRAM enables both SCRAM-SHA-256 (default for MongoDB 8.0+) and SCRAM-SHA-1
-      # This matches the working Python E2E test configuration
       modes:
         - SCRAM
   agent:
     logLevel: DEBUG
   persistent: true
-  # Per-shard search parameters (pointing to operator-managed Envoy proxy)
   shardOverrides:${shard_overrides}
-  # mongos search parameters
   mongos:
     additionalMongodConfig:
       setParameter:
@@ -121,9 +86,3 @@ spec:
 EOF
 
 echo "✓ MongoDB sharded cluster resource created"
-echo ""
-echo "Note: mongod search parameters are pre-configured to point to:"
-for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
-  shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
-  echo "  - Shard ${shard_name}: ${MDB_SEARCH_RESOURCE_NAME}-search-0-${shard_name}-proxy-svc:${ENVOY_PROXY_PORT:-27029}"
-done
