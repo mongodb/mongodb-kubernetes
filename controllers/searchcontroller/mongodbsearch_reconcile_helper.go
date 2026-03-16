@@ -129,10 +129,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	}
 
 	// Non-sharded (ReplicaSet) reconciliation
-	return r.reconcileNonSharded(ctx, log, version)
+	return r.reconcileNonSharded(ctx, log)
 }
 
-func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, log *zap.SugaredLogger, version string) workflow.Status {
+func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 	keyfileStsModification := statefulset.NOOP()
 	if r.mdbSearch.IsWireprotoEnabled() {
 		var err error

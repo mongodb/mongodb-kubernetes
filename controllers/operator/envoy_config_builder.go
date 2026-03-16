@@ -2,6 +2,15 @@ package operator
 
 import (
 	"fmt"
+	"time"
+
+	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
+
 	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -13,13 +22,6 @@ import (
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	upstreamhttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
-	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
-	"time"
 )
 
 // ============================================================================
@@ -247,7 +249,7 @@ func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*cluster
 						{
 							HostIdentifier: &endpointv3.LbEndpoint_Endpoint{
 								Endpoint: &endpointv3.Endpoint{
-									Address: socketAddress(route.UpstreamHost, uint32(route.UpstreamPort)),
+									Address: socketAddress(route.UpstreamHost, uint32(route.UpstreamPort)), //nolint:gosec
 								},
 							},
 						},
