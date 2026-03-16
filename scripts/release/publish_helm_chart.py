@@ -58,6 +58,13 @@ def publish_helm_chart(chart_name: str, chart_info: HelmChartInfo, operator_vers
         push_command = ["helm", "push", tgz_filename, oci_registry]
         run_command(push_command)
 
+        if chart_info.secondary_repositories:
+            for secondary_repo in chart_info.secondary_repositories:
+                secondary_oci = f"oci://{secondary_repo}"
+                logger.info(f"Pushing chart to secondary registry: {secondary_oci}")
+                push_command = ["helm", "push", tgz_filename, secondary_oci]
+                run_command(push_command)
+
         logger.info(f"Helm Chart {chart_name}:{chart_version} was published successfully!")
     except Exception as e:
         raise Exception(f"Failed publishing the helm chart {e}")

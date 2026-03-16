@@ -7,8 +7,8 @@ from shlex import quote
 from lib.base_logger import logger
 from scripts.release.build.build_info import load_build_info
 
-QUAY_USERNAME_ENV_VAR = "quay_prod_username"
-QUAY_PASSWORD_ENV_VAR = "quay_prod_robot_token"
+QUAY_USERNAME_ENV_VAR = "QUAY_USERNAME"
+QUAY_PASSWORD_ENV_VAR = "QUAY_PASSWORD"
 QUAY_REGISTRY = "quay.io"
 
 
@@ -61,6 +61,11 @@ def helm_registry_login_to_ecr(helm_registry: str, region: str):
         raise Exception(f"An unexpected error occurred: {e}.")
 
 
+def get_registry_host(repository: str) -> str:
+    """Extract the registry host from a full repository string (e.g. 'quay.io/mongodb/helm-charts' -> 'quay.io')."""
+    return repository.split("/")[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description="Script to login to the dev/staging helm registries.")
     parser.add_argument("--build_scenario", type=str, help="Build scenario (e.g., patch, staging etc).")
@@ -70,13 +75,26 @@ def main():
 
     build_info = load_build_info(build_scenario)
 
-    registry = build_info.helm_charts["mongodb-kubernetes"].registry
-    region = build_info.helm_charts["mongodb-kubernetes"].region
+    chart_info = build_info.helm_charts["mongodb-kubernetes"]
+    registry = chart_info.registry
+    region = chart_info.region
 
     if registry == QUAY_REGISTRY:
-        return helm_registry_login_to_quay(registry)
+        helm_registry_login_to_quay(registry)
+    else:
+        helm_registry_login_to_ecr(registry, region)
 
-    return helm_registry_login_to_ecr(registry, region)
+    # Log into secondary registries
+    if chart_info.secondary_repositories:
+        for secondary_repo in chart_info.secondary_repositories:
+            secondary_registry = get_registry_host(secondary_repo)
+            if secondary_registry == registry:
+                logger.info(f"Skipping secondary registry {secondary_registry}, already logged in.")
+                continue
+            if secondary_registry == QUAY_REGISTRY:
+                helm_registry_login_to_quay(secondary_registry)
+            else:
+                helm_registry_login_to_ecr(secondary_registry, region)
 
 
 def helm_registry_login_to_quay(registry):

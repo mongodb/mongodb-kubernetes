@@ -53,6 +53,7 @@ class HelmChartInfo:
     region: str = None
     version_prefix: str = None
     sign: bool = False
+    secondary_repositories: list[str] = None
 
 
 @dataclass
@@ -124,6 +125,7 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
             version_prefix=scenario_data.get("version-prefix"),
             registry=scenario_data.get("registry"),
             region=scenario_data.get("region"),
+            secondary_repositories=scenario_data.get("secondary-repositories"),
         )
 
     return BuildInfo(images=images, binaries=binaries, helm_charts=helm_charts)

@@ -12,6 +12,7 @@
         "sign": true,
         "latest-tag": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes"],
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -43,6 +44,7 @@
       "staging": {
         "sign": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes"],
         "platforms": [
           "linux/amd64"
         ]
@@ -60,6 +62,7 @@
         "sign": true,
         "latest-tag": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-database",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes-init-database"],
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -92,6 +95,7 @@
         "sign": true,
         "latest-tag": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes-init-ops-manager"],
         "platforms": [
           "linux/amd64"
         ]
@@ -118,6 +122,7 @@
         "sign": true,
         "latest-tag": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-database",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes-database"],
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -148,6 +153,7 @@
       },
       "staging": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes-tests"],
         "platforms": [
           "linux/amd64"
         ]
@@ -170,6 +176,7 @@
       },
       "staging": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes-tests"],
         "platforms": [
           "linux/arm64"
         ],
@@ -195,6 +202,7 @@
       },
       "staging": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes-tests"],
         "platforms": [
           "linux/s390x"
         ],
@@ -220,6 +228,7 @@
       },
       "staging": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes-tests"],
         "platforms": [
           "linux/ppc64le"
         ],
@@ -243,6 +252,7 @@
       },
       "staging": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-community-tests",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-community-tests"],
         "platforms": [
           "linux/amd64"
         ]
@@ -260,6 +270,7 @@
         "sign": true,
         "latest-tag": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-readinessprobe",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes-readinessprobe"],
         "platforms": [
           "linux/arm64",
           "linux/amd64"
@@ -288,6 +299,7 @@
         "sign": true,
         "latest-tag": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
         "platforms": [
           "linux/arm64",
           "linux/amd64"
@@ -317,6 +329,7 @@
         "sign": true,
         "skip-if-exists": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-agent"],
         "platforms": [
           "linux/arm64",
           "linux/amd64",
@@ -351,6 +364,7 @@
         "sign": true,
         "skip-if-exists": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
         ]
@@ -411,6 +425,7 @@
         "sign": true,
         "version-prefix": "0.0.0+",
         "registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com",
+        "secondary-repositories": ["quay.io/mongodb/staging/helm-charts"],
         "region": "us-east-1",
         "repository": "staging/mongodb/helm-charts"
       },

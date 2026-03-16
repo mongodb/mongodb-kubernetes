@@ -219,6 +219,7 @@ def test_load_build_info_staging():
         images={
             "operator": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-kubernetes"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
                 latest_tag=True,
@@ -226,12 +227,14 @@ def test_load_build_info_staging():
             ),
             "operator-race": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-kubernetes"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
                 sign=True,
             ),
             "init-database": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-database",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-kubernetes-init-database"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-init-database/Dockerfile",
                 latest_tag=True,
@@ -239,6 +242,7 @@ def test_load_build_info_staging():
             ),
             "init-ops-manager": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-kubernetes-init-ops-manager"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
                 latest_tag=True,
@@ -246,6 +250,7 @@ def test_load_build_info_staging():
             ),
             "database": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-database",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-kubernetes-database"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
                 latest_tag=True,
@@ -253,22 +258,26 @@ def test_load_build_info_staging():
             ),
             "mco-tests": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-community-tests",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-community-tests"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-community-tests/Dockerfile",
             ),
             "meko-tests": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-kubernetes-tests"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
             ),
             "meko-tests-arm64": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-kubernetes-tests"],
                 platforms=["linux/arm64"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
                 architecture_suffix=True,
             ),
             "meko-tests-ibm-power": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-kubernetes-tests"],
                 platforms=["linux/ppc64le"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
                 builder=BUILDER_PODMAN,
@@ -276,6 +285,7 @@ def test_load_build_info_staging():
             ),
             "meko-tests-ibm-z": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-kubernetes-tests"],
                 platforms=["linux/s390x"],
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
                 builder=BUILDER_PODMAN,
@@ -283,6 +293,7 @@ def test_load_build_info_staging():
             ),
             "readiness-probe": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-readinessprobe",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-kubernetes-readinessprobe"],
                 platforms=["linux/arm64", "linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile",
                 latest_tag=True,
@@ -290,6 +301,9 @@ def test_load_build_info_staging():
             ),
             "upgrade-hook": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+                secondary_repositories=[
+                    "quay.io/mongodb/staging/mongodb-kubernetes-operator-version-upgrade-post-start-hook"
+                ],
                 platforms=["linux/arm64", "linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
                 latest_tag=True,
@@ -297,6 +311,7 @@ def test_load_build_info_staging():
             ),
             "agent": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-agent"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-agent/Dockerfile",
                 sign=True,
@@ -304,6 +319,7 @@ def test_load_build_info_staging():
             ),
             "ops-manager": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi",
+                secondary_repositories=["quay.io/mongodb/staging/mongodb-enterprise-ops-manager-ubi"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
                 sign=True,
@@ -331,6 +347,7 @@ def test_load_build_info_staging():
                 registry="268558157000.dkr.ecr.us-east-1.amazonaws.com",
                 repository="staging/mongodb/helm-charts",
                 region="us-east-1",
+                secondary_repositories=["quay.io/mongodb/staging/helm-charts"],
             )
         },
     )
