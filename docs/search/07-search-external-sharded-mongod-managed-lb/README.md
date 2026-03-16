@@ -243,6 +243,69 @@ kubectl get events -n mongodb --field-selector involvedObject.name=ext-search
 | File | Description |
 |------|-------------|
 | `env_variables.sh` | Main configuration - edit this first |
-| `env_variables_e2e_private.sh` | Automated test overrides (ignore for manual use) |
+| `env_variables_e2e_private.sh` | E2E test overrides for private/enterprise testing |
+| `env_variables_e2e_private_dev.sh` | E2E test overrides for dev environment |
+| `env_variables_e2e_prerelease.sh` | E2E test overrides for prerelease builds |
+| `env_variables_e2e_public.sh` | E2E test overrides for public/community testing |
 | `test.sh` | Runner script that executes all snippets in order |
-| `code_snippets/` | Individual shell scripts for each step |
+| `code_snippets/` | Individual shell scripts for each step (see below) |
+
+### Code Snippets (Execution Order)
+
+**Prerequisites:**
+| Script | Description |
+|--------|-------------|
+| `07_0040_validate_env.sh` | Validate required environment variables |
+| `07_0045_create_namespaces.sh` | Create Kubernetes namespace |
+| `07_0046_create_image_pull_secrets.sh` | Create image pull secrets (if needed) |
+| `07_0090_helm_add_mongodb_repo.sh` | Add MongoDB Helm repository |
+| `07_0100_install_operator.sh` | Install MongoDB Kubernetes Operator |
+| `07_0300_create_ops_manager_resources.sh` | Create Ops Manager / Cloud Manager resources |
+
+**TLS Configuration:**
+| Script | Description |
+|--------|-------------|
+| `07_0301_install_cert_manager.sh` | Install cert-manager |
+| `07_0302_configure_tls_prerequisites.sh` | Create self-signed CA, ClusterIssuer, distribute CA |
+| `07_0304_generate_tls_certificates.sh` | Generate certs for shards, config servers, mongos |
+
+**Simulated External Cluster:**
+| Script | Description |
+|--------|-------------|
+| `07_0310_create_external_mongodb_sharded_cluster.sh` | Create simulated external sharded cluster |
+| `07_0315_wait_for_external_cluster.sh` | Wait for cluster to reach Running phase |
+| `07_0316_create_external_mongodb_users.sh` | Create MongoDB users |
+
+**MongoDB Search with Managed Envoy LB:**
+| Script | Description |
+|--------|-------------|
+| `07_0316a_create_mongot_tls_certificates.sh` | Create TLS certs for mongot pods |
+| `07_0316b_create_lb_tls_certificates.sh` | Create TLS certs for Envoy proxy |
+| `07_0320_create_mongodb_search_resource.sh` | Create MongoDBSearch CR with `lb.mode: Managed` |
+| `07_0325_wait_for_search_resource.sh` | Wait for MongoDBSearch to reach Running phase |
+
+**Verification:**
+| Script | Description |
+|--------|-------------|
+| `07_0326_verify_envoy_deployment.sh` | Verify Envoy proxy is deployed and running |
+| `07_0330_show_running_pods.sh` | Show all running pods |
+| `07_0335_run_mongodb_tools_pod.sh` | Deploy mongodb-tools pod for DB commands |
+| `07_0336_verify_mongod_search_config.sh` | Verify mongod search parameters *(disabled in test.sh)* |
+| `07_0337_verify_mongos_search_config.sh` | Verify mongos search parameters *(disabled in test.sh)* |
+
+**Data & Search Testing:**
+| Script | Description |
+|--------|-------------|
+| `07_0340_import_sample_data.sh` | Import sample_mflix dataset and shard collections |
+| `07_0345_create_search_index.sh` | Create text search index on movies |
+| `07_0346_create_vector_search_index.sh` | Create vector search index on embedded_movies |
+| `07_0350_wait_for_search_indexes.sh` | Wait for search indexes to be ready |
+| `07_0355_execute_search_query.sh` | Execute text search query |
+| `07_0356_execute_vector_search_query.sh` | Execute vector search query |
+
+**Cleanup:**
+| Script | Description |
+|--------|-------------|
+| `07_9010_delete_namespace.sh` | Delete namespace and all resources (manual only) |
+
+> **Note:** Scripts `07_0336`/`07_0337` are currently disabled in `test.sh` pending a fix to read from config files instead of `getParameter`.

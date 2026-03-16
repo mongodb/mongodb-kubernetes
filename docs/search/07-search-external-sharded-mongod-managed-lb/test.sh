@@ -55,7 +55,7 @@ run 07_0310_create_external_mongodb_sharded_cluster.sh
 run_for_output 07_0315_wait_for_external_cluster.sh
 
 # Create users AFTER cluster is ready (MongoDBUser CRDs reference the cluster)
-run 07_0305_create_external_mongodb_users.sh
+run 07_0316_create_external_mongodb_users.sh
 
 # ============================================================================
 # MONGODB SEARCH WITH MANAGED ENVOY LB
@@ -93,8 +93,8 @@ sleep 60
 # TODO: Re-enable verification once scripts are updated to read from config files
 # The current scripts use getParameter which doesn't work for startup params
 # Python E2E tests read from /data/automation-mongod.conf instead
-# run_for_output 07_0328_verify_mongod_search_config.sh
-# run_for_output 07_0329_verify_mongos_search_config.sh
+# run_for_output 07_0336_verify_mongod_search_config.sh
+# run_for_output 07_0337_verify_mongos_search_config.sh
 
 # ============================================================================
 # DATA IMPORT AND SEARCH TESTING
