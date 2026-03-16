@@ -131,9 +131,9 @@ repos:
 
   - repo: local
     hooks:
-      - id: mypy-search
-        name: mypy (search tests)
-        entry: bash -c 'cd docker/mongodb-kubernetes-tests && python -m mypy --follow-imports=silent --disable-error-code=import-untyped tests/search/ tests/common/search/'
+      - id: ty-search
+        name: ty (search tests)
+        entry: bash -c 'cd docker/mongodb-kubernetes-tests && uvx ty check tests/search/ tests/common/search/'
         language: system
         pass_filenames: false
         files: docker/mongodb-kubernetes-tests/tests/(common/)?search/.*\.py$
