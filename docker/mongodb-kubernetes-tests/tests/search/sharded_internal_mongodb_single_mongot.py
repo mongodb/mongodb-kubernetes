@@ -1,10 +1,5 @@
-import pymongo
-import pymongo.errors
-import yaml
 from kubetester import try_load
-from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -13,7 +8,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
+from tests.common.search import search_resource_names
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator
@@ -43,7 +38,7 @@ CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 
 @fixture(scope="module")
 def sharded_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
-    return create_sharded_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
+    return create_issuer_ca(issuer_ca_filepath, namespace, CA_CONFIGMAP_NAME)
 
 
 @fixture(scope="function")
@@ -150,35 +145,24 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 
 
 @mark.e2e_search_sharded_internal_single_mongot
-def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB):
+def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     """Verify each shard's mongod has search parameters (mongotHost, searchIndexManagementHostAndPort).
 
     NOTE: This test will not pass until the controller bug is fixed. The guard at
     mongodbshardedcluster_controller.go:1031 skips per-shard config when no LB is
     configured. See docs/search-lb-replicaset-findings.md for details.
     """
-    def check_mongod_parameters():
-        all_set = True
-        msgs = []
-        for shard_idx in range(SHARD_COUNT):
-            shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-            pod_name = f"{shard_name}-0"
-            try:
-                mongod_config = yaml.safe_load(
-                    KubernetesTester.run_command_in_pod_container(
-                        pod_name, namespace, ["cat", "/data/automation-mongod.conf"]
-                    )
-                )
-                sp = mongod_config.get("setParameter", {})
-                has_params = "mongotHost" in sp and "searchIndexManagementHostAndPort" in sp
-                all_set = all_set and has_params
-                msgs.append(f"Shard {shard_name}: setParameter={sp}")
-            except Exception as e:
-                all_set = False
-                msgs.append(f"Shard {shard_name}: Error - {e}")
-        return all_set, "\n".join(msgs)
-
-    run_periodically(check_mongod_parameters, timeout=600, sleep_time=10)
+    # For internal + no LB, mongotHost should point to the direct mongot service (gRPC port 27028)
+    MONGOT_GRPC_PORT = 27028
+    verify_sharded_mongod_parameters(
+        namespace,
+        MDB_RESOURCE_NAME,
+        mdbs.name,
+        SHARD_COUNT,
+        expected_host_fn=lambda shard: search_resource_names.shard_service_host(
+            mdbs.name, shard, namespace, MONGOT_GRPC_PORT
+        ),
+    )
 
 
 @mark.e2e_search_sharded_internal_single_mongot
@@ -212,51 +196,11 @@ def test_search_create_search_index(mdb: MongoDB):
 @mark.e2e_search_sharded_internal_single_mongot
 def test_execute_text_search_query(mdb: MongoDB):
     search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    movies_helper = SampleMoviesSearchHelper(search_tester)
-
-    def execute_search():
-        try:
-            results = movies_helper.text_search_movies("star wars")
-            if len(results) > 0:
-                return True, f"Search returned {len(results)} results"
-            return False, "Search returned no results"
-        except pymongo.errors.PyMongoError as e:
-            return False, f"Error: {e}"
-
-    run_periodically(execute_search, timeout=60, sleep_time=5, msg="text search query")
+    verify_text_search_query(search_tester)
 
 
 @mark.e2e_search_sharded_internal_single_mongot
 def test_vector_search_before_and_after_sharding(mdb: MongoDB):
     search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     admin_search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
-    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
-
-    emb_helper.create_vector_search_index()
-    emb_helper.wait_for_vector_search_index()
-
-    query_vector = emb_helper.generate_query_vector("war movies")
-    total_docs = emb_helper.count_documents_with_embeddings()
-
-    results_before = emb_helper.vector_search(query_vector, limit=total_docs)
-    count_before = len(results_before)
-    assert count_before > 0, "Vector search returned no results before sharding"
-
-    admin_search_tester.shard_and_distribute_collection("sample_mflix", "embedded_movies")
-
-    # Resharding drops search indexes — recreate
-    emb_helper.create_vector_search_index()
-    emb_helper.wait_for_vector_search_index(timeout=300)
-
-    # Retry because mongot shards may be in INITIAL_SYNC after resharding
-    def verify_vector_search_after_sharding():
-        try:
-            results_after = emb_helper.vector_search(query_vector, limit=total_docs)
-            count_after = len(results_after)
-            if count_after == count_before:
-                return True, f"Vector search returned {count_after} results (matches pre-sharding)"
-            return False, f"Vector search returned {count_after} results, expected {count_before}"
-        except pymongo.errors.OperationFailure as e:
-            return False, f"Vector search failed: {e}"
-
-    run_periodically(verify_vector_search_after_sharding, timeout=300, sleep_time=10, msg="vector search after sharding")
+    verify_vector_search_before_and_after_sharding(search_tester, admin_search_tester)
