@@ -3,9 +3,11 @@ package operator
 import (
 	"testing"
 
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/stretchr/testify/assert"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 )
 
 func TestBuildReplicaSetRoute(t *testing.T) {

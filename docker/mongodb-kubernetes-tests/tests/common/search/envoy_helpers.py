@@ -1,3 +1,5 @@
+from typing import Optional
+
 from kubernetes import client
 from kubetester import create_or_update_configmap
 from kubetester.certs import create_tls_certs
@@ -325,7 +327,7 @@ layered_runtime:
         except Exception as e:
             logger.info(f"Envoy Deployment may already exist: {e}")
 
-    def _create_service(self, svc_name: str, extra_labels: dict = None):
+    def _create_service(self, svc_name: str, extra_labels: Optional[dict] = None):
         svc_labels = {"app": self.name}
         if extra_labels:
             svc_labels.update(extra_labels)
