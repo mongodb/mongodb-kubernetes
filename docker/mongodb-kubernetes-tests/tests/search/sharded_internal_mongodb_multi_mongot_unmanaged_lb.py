@@ -143,6 +143,7 @@ def test_install_operator(namespace: str, operator_installation_config: dict[str
 def test_create_ops_manager(namespace: str):
     """Test OpsManager deployment (skipped for Cloud Manager)."""
     ops_manager = get_ops_manager(namespace)
+    assert ops_manager is not None
     ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
