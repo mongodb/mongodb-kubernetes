@@ -40,9 +40,7 @@ def squid_proxy(namespace: str) -> str:
 def operator_with_proxy(namespace: str, operator_installation_config: dict[str, str], squid_proxy: str) -> Operator:
     helm_args = operator_installation_config.copy()
     helm_args["customEnvVars"] += (
-        "\\&MDB_PROPAGATE_PROXY_ENV=true"
-        + f"\\&HTTP_PROXY={squid_proxy}"
-        + f"\\&HTTPS_PROXY={squid_proxy}"
+        "\\&MDB_PROPAGATE_PROXY_ENV=true" + f"\\&HTTP_PROXY={squid_proxy}" + f"\\&HTTPS_PROXY={squid_proxy}"
     )
     return Operator(namespace=namespace, helm_args=helm_args).install()
 
@@ -92,9 +90,7 @@ def test_deploy_network_policy(namespace: str):
             egress=[
                 # Allow traffic to the squid proxy
                 client.V1NetworkPolicyEgressRule(
-                    to=[
-                        client.V1NetworkPolicyPeer(pod_selector=client.V1LabelSelector(match_labels={"app": "squid"}))
-                    ]
+                    to=[client.V1NetworkPolicyPeer(pod_selector=client.V1LabelSelector(match_labels={"app": "squid"}))]
                 ),
                 # Allow intra-replica-set MongoDB traffic on port 27017
                 client.V1NetworkPolicyEgressRule(
@@ -102,7 +98,9 @@ def test_deploy_network_policy(namespace: str):
                         client.V1NetworkPolicyPort(port=27017),
                     ],
                     to=[
-                        client.V1NetworkPolicyPeer(pod_selector=client.V1LabelSelector(match_labels={"app": "replica-set-svc"}))
+                        client.V1NetworkPolicyPeer(
+                            pod_selector=client.V1LabelSelector(match_labels={"app": "replica-set-svc"})
+                        )
                     ],
                 ),
                 # Allow DNS traffic to resolve hostnames
