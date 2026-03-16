@@ -7,19 +7,17 @@ echo "Creating MongoDBSearch resource with managed Envoy LB..."
 # Build router hosts dynamically
 router_hosts=""
 for ((i = 0; i < MDB_MONGOS_COUNT; i++)); do
-  host="${MDB_EXTERNAL_CLUSTER_NAME}-mongos-${i}.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017"
+  host="${MDB_EXTERNAL_MONGOS_NAME}-${i}.${MDB_EXTERNAL_MONGOS_SVC}.${MDB_NS}.svc.cluster.local:27017"
   router_hosts="${router_hosts}
             - ${host}"
 done
 
 # Build shards configuration (outer loop: shards, inner loop: members)
 shards_config=""
-for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
-  shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
-
+for shard_name in ${MDB_EXTERNAL_SHARD_NAMES}; do
   hosts=""
   for ((member = 0; member < MDB_MONGODS_PER_SHARD; member++)); do
-    host="${shard_name}-${member}.${MDB_EXTERNAL_CLUSTER_NAME}-sh.${MDB_NS}.svc.cluster.local:27017"
+    host="${shard_name}-${member}.${MDB_EXTERNAL_SHARD_SVC}.${MDB_NS}.svc.cluster.local:27017"
     hosts="${hosts}
               - ${host}"
   done

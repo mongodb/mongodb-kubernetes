@@ -11,8 +11,7 @@ echo "  Config servers: ${MDB_CONFIG_SERVER_COUNT}"
 
 # Build shardOverrides with search parameters for each shard
 shard_overrides=""
-for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
-  shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
+for shard_name in ${MDB_EXTERNAL_SHARD_NAMES}; do
   proxy_host="${MDB_SEARCH_RESOURCE_NAME}-search-0-${shard_name}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT:-27029}"
 
   shard_overrides="${shard_overrides}
@@ -29,7 +28,7 @@ for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
 done
 
 # mongos search parameters (uses first shard's proxy as entry point)
-first_shard="${MDB_EXTERNAL_CLUSTER_NAME}-0"
+read -r first_shard _ <<< "${MDB_EXTERNAL_SHARD_NAMES}"
 mongos_proxy_host="${MDB_SEARCH_RESOURCE_NAME}-search-0-${first_shard}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT:-27029}"
 
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF

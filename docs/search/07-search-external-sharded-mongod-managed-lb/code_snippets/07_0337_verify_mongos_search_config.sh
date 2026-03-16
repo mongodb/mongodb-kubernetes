@@ -6,7 +6,7 @@
 
 echo "Verifying mongos search configuration..."
 
-mongos_pod="${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0"
+mongos_pod="${MDB_EXTERNAL_MONGOS_NAME}-0"
 
 mongot_host=$(kubectl exec "${mongos_pod}" -n "${MDB_NS}" --context "${K8S_CTX}" \
   -c mongodb-enterprise-database -- \
@@ -39,4 +39,3 @@ else
   echo "⚠ mongos search configuration may need review"
   echo "  Verify the MongoDB sharded cluster was created with mongos search parameters."
 fi
-

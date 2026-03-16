@@ -14,12 +14,12 @@ while [[ ${elapsed} -lt ${timeout} ]]; do
     -n "${MDB_NS}" \
     --context "${K8S_CTX}" \
     -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
-  
+
   if [[ "${phase}" == "Running" ]]; then
     echo "✓ MongoDB sharded cluster is Running"
     break
   fi
-  
+
   echo "  Current phase: ${phase} (${elapsed}s/${timeout}s)"
   sleep ${interval}
   elapsed=$((elapsed + interval))
@@ -35,9 +35,8 @@ fi
 echo ""
 echo "Cluster pods:"
 kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" -l "app=${MDB_EXTERNAL_CLUSTER_NAME}-shard" --no-headers
-kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" -l "app=${MDB_EXTERNAL_CLUSTER_NAME}-config" --no-headers
-kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" -l "app=${MDB_EXTERNAL_CLUSTER_NAME}-mongos" --no-headers
+kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" -l "app=${MDB_EXTERNAL_CONFIG_RS_NAME}" --no-headers
+kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" -l "app=${MDB_EXTERNAL_MONGOS_NAME}" --no-headers
 
 echo ""
 echo "✓ Simulated external MongoDB cluster is ready"
-

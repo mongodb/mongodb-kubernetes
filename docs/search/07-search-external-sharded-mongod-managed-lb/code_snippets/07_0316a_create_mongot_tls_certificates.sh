@@ -4,25 +4,47 @@
 # "search-0" = first (and only) search deployment; the operator names
 # StatefulSets as {resource}-search-{index}-{shard}
 
-source "code_snippets/_tls_helpers.sh"
-
 echo "Creating TLS certificates for MongoDB Search (mongot) pods..."
 echo "Creating certificates for ${MDB_SHARD_COUNT} shards with ${MDB_MONGOT_REPLICAS} replicas each..."
 
-for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
-  shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
+for shard_name in ${MDB_EXTERNAL_SHARD_NAMES}; do
   sts_name="${MDB_SEARCH_RESOURCE_NAME}-search-0-${shard_name}"
   cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${sts_name}-cert"
 
-  dns_names=$(build_dns_names "${MDB_MONGOT_REPLICAS}" "${sts_name}" "${sts_name}-svc")
+  dns_names=""
+  for ((i = 0; i < MDB_MONGOT_REPLICAS; i++)); do
+    dns_names="${dns_names}    - ${sts_name}-${i}.${sts_name}-svc.${MDB_NS}.svc.cluster.local
+"
+  done
+  dns_names="${dns_names}    - \"*.${sts_name}-svc.${MDB_NS}.svc.cluster.local\""
+
   echo "  Creating certificate: ${cert_name}"
-  create_cert "${cert_name}" "${dns_names}"
+  kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ${cert_name}
+spec:
+  secretName: ${cert_name}
+  duration: 8760h    # 1 year
+  renewBefore: 720h  # 30 days
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+${dns_names}
+  issuerRef:
+    name: ${MDB_TLS_CA_ISSUER}
+    kind: ClusterIssuer
+EOF
   echo "  ✓ Certificate requested: ${cert_name}"
 done
 
 echo "Waiting for mongot certificates to be ready..."
-for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
-  shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
+for shard_name in ${MDB_EXTERNAL_SHARD_NAMES}; do
   cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-0-${shard_name}-cert"
   kubectl wait --for=condition=Ready certificate/"${cert_name}" \
     -n "${MDB_NS}" \

@@ -14,18 +14,17 @@ echo ""
 
 all_correct=true
 
-for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
-  shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
+for shard_name in ${MDB_EXTERNAL_SHARD_NAMES}; do
   pod_name="${shard_name}-0"
   expected_proxy="${MDB_SEARCH_RESOURCE_NAME}-search-0-${shard_name}-proxy-svc"
   expected_port="${ENVOY_PROXY_PORT:-27029}"
-  
+
   echo "Checking shard: ${shard_name}"
-  
+
   mongot_host=$(kubectl exec "${pod_name}" -n "${MDB_NS}" --context "${K8S_CTX}" \
     -c mongodb-enterprise-database -- \
     mongosh --quiet --eval "db.adminCommand({getParameter: 1, mongotHost: 1}).mongotHost" 2>/dev/null || echo "")
-  
+
   if [[ "${mongot_host}" == *"${expected_proxy}"* ]] && [[ "${mongot_host}" == *"${expected_port}"* ]]; then
     echo "  ✓ mongotHost: ${mongot_host}"
   else
@@ -33,27 +32,27 @@ for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
     echo "    Expected: ${expected_proxy}.${MDB_NS}.svc.cluster.local:${expected_port}"
     all_correct=false
   fi
-  
+
   tls_mode=$(kubectl exec "${pod_name}" -n "${MDB_NS}" --context "${K8S_CTX}" \
     -c mongodb-enterprise-database -- \
     mongosh --quiet --eval "db.adminCommand({getParameter: 1, searchTLSMode: 1}).searchTLSMode" 2>/dev/null || echo "")
-  
+
   if [[ "${tls_mode}" == "requireTLS" ]]; then
     echo "  ✓ searchTLSMode: ${tls_mode}"
   else
     echo "  ⚠ searchTLSMode: ${tls_mode:-NOT SET} (expected: requireTLS)"
   fi
-  
+
   use_grpc=$(kubectl exec "${pod_name}" -n "${MDB_NS}" --context "${K8S_CTX}" \
     -c mongodb-enterprise-database -- \
     mongosh --quiet --eval "db.adminCommand({getParameter: 1, useGrpcForSearch: 1}).useGrpcForSearch" 2>/dev/null || echo "")
-  
+
   if [[ "${use_grpc}" == "true" ]]; then
     echo "  ✓ useGrpcForSearch: ${use_grpc}"
   else
     echo "  ⚠ useGrpcForSearch: ${use_grpc:-NOT SET} (expected: true)"
   fi
-  
+
   echo ""
 done
 
@@ -65,4 +64,3 @@ else
   echo "  pointing to the operator-managed Envoy proxy Services."
   exit 1
 fi
-

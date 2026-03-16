@@ -102,6 +102,27 @@ export MDB_TLS_CA_SECRET_NAME="root-secret"
 export MDB_TLS_CA_ISSUER="my-ca-issuer"
 
 # ============================================================================
+# EXTERNAL CLUSTER RESOURCE NAMES
+# ============================================================================
+# These names identify the components of the external MongoDB cluster.
+# Default values match the Kubernetes operator naming convention for the
+# simulated cluster. Override them when pointing at a real external cluster.
+
+# Shard names (space-separated, must match MDB_SHARD_COUNT)
+export MDB_EXTERNAL_SHARD_NAMES="ext-mdb-sh-0 ext-mdb-sh-1"
+
+# Headless service (or hostname suffix) for shard members
+export MDB_EXTERNAL_SHARD_SVC="ext-mdb-sh-sh"
+
+# Config server resource name and headless service
+export MDB_EXTERNAL_CONFIG_RS_NAME="ext-mdb-sh-config"
+export MDB_EXTERNAL_CONFIG_SVC="ext-mdb-sh-cs"
+
+# Mongos resource name and service
+export MDB_EXTERNAL_MONGOS_NAME="ext-mdb-sh-mongos"
+export MDB_EXTERNAL_MONGOS_SVC="ext-mdb-sh-svc"
+
+# ============================================================================
 # ENVOY PROXY CONFIGURATION (Managed by Operator)
 # ============================================================================
 
@@ -119,4 +140,4 @@ export ENVOY_PROXY_PORT="27029"
 # ============================================================================
 
 # Connection string for mongos (sharded cluster entry point) with TLS
-export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca.crt"
+export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_MONGOS_NAME}-0.${MDB_EXTERNAL_MONGOS_SVC}.${MDB_NS}.svc.cluster.local:27017/?tls=true&tlsCAFile=/tls/ca.crt"

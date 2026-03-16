@@ -34,8 +34,7 @@ else
 fi
 
 echo "Checking per-shard proxy Services..."
-for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
-  shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
+for shard_name in ${MDB_EXTERNAL_SHARD_NAMES}; do
   proxy_svc="${MDB_SEARCH_RESOURCE_NAME}-search-0-${shard_name}-proxy-svc"
 
   if kubectl get service "${proxy_svc}" -n "${MDB_NS}" --context "${K8S_CTX}" &>/dev/null; then
