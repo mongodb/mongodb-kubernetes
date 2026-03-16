@@ -79,9 +79,9 @@ echo "Waiting for all certificates to be ready..."
 for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
   shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
   cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${shard_name}-cert"
-  kubectl wait --for=condition=Ready certificate/${cert_name} -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
+  kubectl wait --for=condition=Ready certificate/"${cert_name}" -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
 done
-kubectl wait --for=condition=Ready certificate/${config_cert_name} -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
-kubectl wait --for=condition=Ready certificate/${mongos_cert_name} -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
+kubectl wait --for=condition=Ready certificate/"${config_cert_name}" -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
+kubectl wait --for=condition=Ready certificate/"${mongos_cert_name}" -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
 
 echo "✓ All MongoDB TLS certificates created"

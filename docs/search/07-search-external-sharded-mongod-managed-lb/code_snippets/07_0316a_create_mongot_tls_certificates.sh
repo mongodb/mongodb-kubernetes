@@ -53,7 +53,7 @@ echo "Waiting for mongot certificates to be ready..."
 for ((shard = 0; shard < MDB_SHARD_COUNT; shard++)); do
   shard_name="${MDB_EXTERNAL_CLUSTER_NAME}-${shard}"
   cert_name="${MDB_SEARCH_TLS_CERT_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-0-${shard_name}-cert"
-  kubectl wait --for=condition=Ready certificate/${cert_name} \
+  kubectl wait --for=condition=Ready certificate/"${cert_name}" \
     -n "${MDB_NS}" \
     --context "${K8S_CTX}" \
     --timeout=60s

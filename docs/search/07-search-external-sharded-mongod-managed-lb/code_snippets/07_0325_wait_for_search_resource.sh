@@ -8,13 +8,13 @@ timeout=600  # 10 minutes
 interval=10
 elapsed=0
 
-while [[ $elapsed -lt $timeout ]]; do
+while [[ ${elapsed} -lt ${timeout} ]]; do
   phase=$(kubectl get mongodbsearch "${MDB_SEARCH_RESOURCE_NAME}" \
     -n "${MDB_NS}" \
     --context "${K8S_CTX}" \
     -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
 
-  if [[ "$phase" == "Running" ]]; then
+  if [[ "${phase}" == "Running" ]]; then
     echo "✓ MongoDBSearch is Running"
     break
   fi
@@ -24,11 +24,11 @@ while [[ $elapsed -lt $timeout ]]; do
     -o jsonpath='{range .items[*]}{.status.containerStatuses[0].ready}{"\n"}{end}' 2>/dev/null | grep -c "true" || echo "0")
 
   echo "  Phase: ${phase} | Ready mongot pods: ${ready_mongots} (${elapsed}s/${timeout}s)"
-  sleep $interval
+  sleep ${interval}
   elapsed=$((elapsed + interval))
 done
 
-if [[ $elapsed -ge $timeout ]]; then
+if [[ ${elapsed} -ge ${timeout} ]]; then
   echo "ERROR: Timeout waiting for MongoDBSearch to be ready"
   echo ""
   echo "MongoDBSearch status:"

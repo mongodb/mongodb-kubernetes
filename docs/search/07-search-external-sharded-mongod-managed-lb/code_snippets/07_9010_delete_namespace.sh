@@ -12,9 +12,9 @@
 echo "WARNING: This will delete namespace '${MDB_NS}' and all its resources."
 echo ""
 
-read -p "Are you sure you want to continue? (yes/no): " confirm
+read -rp "Are you sure you want to continue? (yes/no): " confirm
 
-if [[ "$confirm" != "yes" ]]; then
+if [[ "${confirm}" != "yes" ]]; then
   echo "Cleanup cancelled."
   exit 0
 fi

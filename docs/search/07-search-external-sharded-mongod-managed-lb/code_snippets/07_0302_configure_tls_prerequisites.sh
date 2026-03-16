@@ -38,7 +38,7 @@ EOF
 echo "  ✓ CA Certificate requested"
 
 echo "  Waiting for CA certificate..."
-kubectl wait --for=condition=Ready certificate/${MDB_TLS_CA_CERT_NAME} \
+kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CA_CERT_NAME}" \
   -n "${CERT_MANAGER_NAMESPACE}" \
   --context "${K8S_CTX}" \
   --timeout=60s

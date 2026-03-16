@@ -24,14 +24,14 @@ missing_vars=()
 
 for var in "${required_vars[@]}"; do
   if [[ -z "${!var:-}" ]] || [[ "${!var}" == "<"* ]]; then
-    missing_vars+=("$var")
+    missing_vars+=("${var}")
   fi
 done
 
 if [[ ${#missing_vars[@]} -gt 0 ]]; then
   echo "ERROR: The following required variables are not set or have placeholder values:"
   for var in "${missing_vars[@]}"; do
-    echo "  - $var"
+    echo "  - ${var}"
   done
   echo ""
   echo "Please edit env_variables.sh and set these values before proceeding."

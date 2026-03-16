@@ -65,11 +65,11 @@ EOF
 echo "  ✓ LB client certificate requested: ${lb_client_cert}"
 
 echo "Waiting for LB certificates to be ready..."
-kubectl wait --for=condition=Ready certificate/${lb_server_cert} \
+kubectl wait --for=condition=Ready certificate/"${lb_server_cert}" \
   -n "${MDB_NS}" \
   --context "${K8S_CTX}" \
   --timeout=60s
-kubectl wait --for=condition=Ready certificate/${lb_client_cert} \
+kubectl wait --for=condition=Ready certificate/"${lb_client_cert}" \
   -n "${MDB_NS}" \
   --context "${K8S_CTX}" \
   --timeout=60s

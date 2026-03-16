@@ -11,7 +11,8 @@ timeout=300  # 5 minutes
 interval=10
 elapsed=0
 
-while [[ $elapsed -lt $timeout ]]; do
+while [[ ${elapsed} -lt ${timeout} ]]; do
+  # shellcheck disable=SC2016
   text_status=$(kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
     mongosh "${user_conn}" --quiet --eval '
       const indexes = db.getSiblingDB("sample_mflix").movies.aggregate([
@@ -24,6 +25,7 @@ while [[ $elapsed -lt $timeout ]]; do
       }
     ' 2>/dev/null || echo "ERROR")
 
+  # shellcheck disable=SC2016
   vector_status=$(kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
     mongosh "${user_conn}" --quiet --eval '
       const indexes = db.getSiblingDB("sample_mflix").embedded_movies.aggregate([
@@ -38,18 +40,18 @@ while [[ $elapsed -lt $timeout ]]; do
 
   echo "  Text index: ${text_status} | Vector index: ${vector_status} (${elapsed}s/${timeout}s)"
 
-  if [[ "$text_status" == "READY" ]]; then
+  if [[ "${text_status}" == "READY" ]]; then
     echo ""
     echo "✓ Text search index is READY"
-    if [[ "$vector_status" == "READY" ]]; then
+    if [[ "${vector_status}" == "READY" ]]; then
       echo "✓ Vector search index is READY"
-    elif [[ "$vector_status" != "NOT_FOUND" ]] && [[ "$vector_status" != "SKIPPED" ]]; then
+    elif [[ "${vector_status}" != "NOT_FOUND" ]] && [[ "${vector_status}" != "SKIPPED" ]]; then
       echo "⚠ Vector search index still building: ${vector_status}"
     fi
     exit 0
   fi
 
-  sleep $interval
+  sleep ${interval}
   elapsed=$((elapsed + interval))
 done
 
