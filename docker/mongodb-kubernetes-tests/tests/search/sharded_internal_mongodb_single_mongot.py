@@ -166,6 +166,11 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
 
 
 @mark.e2e_search_sharded_internal_single_mongot
+def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
+    verify_mongos_search_config(namespace, MDB_RESOURCE_NAME)
+
+
+@mark.e2e_search_sharded_internal_single_mongot
 def test_search_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
     logger.info(f"Tools pod {tools_pod.pod_name} is ready")
 
