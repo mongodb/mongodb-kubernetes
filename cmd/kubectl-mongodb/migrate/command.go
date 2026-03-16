@@ -88,22 +88,32 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	}
 
 	stdinScanner := bufio.NewScanner(os.Stdin)
+
 	if err := ensureTLS(ac, &opts, stdinScanner); err != nil {
 		return err
 	}
 
-	yamlOut, resourceName, err := GenerateMongoDBCR(ac, opts)
+	mongodbYAML, resourceName, err := GenerateMongoDBCR(ac, opts)
 	if err != nil {
 		return fmt.Errorf("failed to generate Custom Resource: %w", err)
 	}
-	fmt.Print(yamlOut)
+
+	userCRs, err := GenerateUserCRs(ac, resourceName)
+	if err != nil {
+		return fmt.Errorf("failed to generate user Custom Resources: %w", err)
+	}
 
 	if err := ensurePrometheus(ctx, ac, kubeClient, stdinScanner); err != nil {
 		return err
 	}
 
-	if err := ensureUsers(ctx, ac, resourceName, kubeClient, stdinScanner); err != nil {
+	if err := ensureUserSecrets(ctx, ac, userCRs, kubeClient, stdinScanner); err != nil {
 		return err
+	}
+
+	fmt.Print(mongodbYAML)
+	for _, u := range userCRs {
+		fmt.Printf("---\n%s", u.YAML)
 	}
 
 	return nil
@@ -160,50 +170,40 @@ func ensurePrometheus(ctx context.Context, ac *om.AutomationConfig, kubeClient k
 	return nil
 }
 
-func ensureUsers(ctx context.Context, ac *om.AutomationConfig, resourceName string, kubeClient kubernetesClient.Client, scanner *bufio.Scanner) error {
-	userCRs, err := GenerateUserCRs(ac, resourceName)
-	if err != nil {
-		return fmt.Errorf("failed to generate user Custom Resources: %w", err)
-	}
+// ensureUserSecrets prompts for a password and creates the corresponding
+// Kubernetes Secret for every SCRAM user. Callers print the CRs after this returns nil.
+func ensureUserSecrets(ctx context.Context, ac *om.AutomationConfig, userCRs []UserCROutput, kubeClient kubernetesClient.Client, scanner *bufio.Scanner) error {
 	if len(userCRs) == 0 {
 		return nil
 	}
 
-	needsSecrets := false
 	for _, u := range userCRs {
-		if u.NeedsPassword {
-			needsSecrets = true
-			break
+		if !u.NeedsPassword {
+			continue
 		}
-	}
-	if needsSecrets && kubeClient == nil {
-		return fmt.Errorf("User Custom Resources require password secrets, but no Kubernetes client is available. Ensure kubeconfig is configured.")
-	}
-
-	for _, u := range userCRs {
-		if u.NeedsPassword && kubeClient != nil {
-			fmt.Fprintf(os.Stderr, "Enter password for SCRAM user %q (db: %s): ", u.Username, u.Database)
-			if !scanner.Scan() {
-				return fmt.Errorf("failed to read password for user %q", u.Username)
-			}
-			password := strings.TrimSpace(scanner.Text())
-			if password == "" {
-				return fmt.Errorf("Password for user %q cannot be empty.", u.Username)
-			}
-
-			user := &om.MongoDBUser{Username: u.Username, Database: u.Database}
-			if err := authentication.ConfigureScramCredentials(user, password, ac); err != nil {
-				return fmt.Errorf("failed to validate password for user %q: %w", u.Username, err)
-			}
-
-			sec := GeneratePasswordSecret(u.PasswordSecret, namespace, password)
-			if err := kubeClient.CreateSecret(ctx, sec); err != nil {
-				return fmt.Errorf("failed to create password secret %q for user %q: %w", u.PasswordSecret, u.Username, err)
-			}
-			fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", u.PasswordSecret, namespace)
+		if kubeClient == nil {
+			return fmt.Errorf("User Custom Resources require password secrets, but no Kubernetes client is available. Ensure kubeconfig is configured.")
 		}
 
-		fmt.Printf("---\n%s", u.YAML)
+		fmt.Fprintf(os.Stderr, "Enter password for SCRAM user %q (db: %s): ", u.Username, u.Database)
+		if !scanner.Scan() {
+			return fmt.Errorf("failed to read password for user %q", u.Username)
+		}
+		password := strings.TrimSpace(scanner.Text())
+		if password == "" {
+			return fmt.Errorf("Password for user %q cannot be empty.", u.Username)
+		}
+
+		user := &om.MongoDBUser{Username: u.Username, Database: u.Database}
+		if err := authentication.ConfigureScramCredentials(user, password, ac); err != nil {
+			return fmt.Errorf("failed to validate password for user %q: %w", u.Username, err)
+		}
+
+		sec := GeneratePasswordSecret(u.PasswordSecret, namespace, password)
+		if err := kubeClient.CreateSecret(ctx, sec); err != nil {
+			return fmt.Errorf("failed to create password secret %q for user %q: %w", u.PasswordSecret, u.Username, err)
+		}
+		fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", u.PasswordSecret, namespace)
 	}
 	return nil
 }

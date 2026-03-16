@@ -562,9 +562,10 @@ func buildMemberConfig(members []om.ReplicaSetMember) []automationconfig.MemberO
 }
 
 // marshalCRToYAML marshals a Kubernetes resource to YAML, stripping the
-// "status" block, "creationTimestamp: null", and all zero-value fields that
-// are artifacts of Go struct serialization (empty strings, 0, false, nil,
-// empty maps/slices). This produces clean YAML matching hand-written CRs.
+// "status" block, "creationTimestamp: null", and structurally-empty fields
+// (empty strings, nil, empty maps/slices). Numbers and booleans are always
+// preserved — 0 and false can be semantically meaningful (e.g. votes: 0,
+// logAppend: false).
 func marshalCRToYAML(obj interface{}) (string, error) {
 	jsonBytes, err := json.Marshal(obj)
 	if err != nil {
@@ -586,8 +587,9 @@ func marshalCRToYAML(obj interface{}) (string, error) {
 	return string(out), nil
 }
 
-// stripZeroValues recursively removes zero-value entries from a map:
-// empty strings, 0, false, nil, empty maps, and empty slices.
+// stripZeroValues recursively removes structurally-empty entries from a map:
+// empty strings, nil, empty maps, and empty slices. Numbers and booleans are
+// never removed.
 func stripZeroValues(m map[string]interface{}) {
 	for k, v := range m {
 		if isZeroValue(v) {
