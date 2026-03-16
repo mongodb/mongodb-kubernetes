@@ -101,11 +101,6 @@ export MDB_TLS_CA_CERT_NAME="my-selfsigned-ca"
 export MDB_TLS_CA_SECRET_NAME="root-secret"
 export MDB_TLS_CA_ISSUER="my-ca-issuer"
 
-# Per-shard TLS configuration for MongoDBSearch
-# Each shard gets its own certificate: {prefix}-{searchName}-search-0-{shardName}-cert
-# e.g., certs-ext-search-search-0-ext-mdb-sh-0-cert
-export MDB_SEARCH_TLS_CERT_PREFIX="${MDB_TLS_CERT_SECRET_PREFIX}"
-
 # ============================================================================
 # ENVOY PROXY CONFIGURATION (Managed by Operator)
 # ============================================================================

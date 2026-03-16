@@ -262,6 +262,11 @@ kubectl get events -n mongodb --field-selector involvedObject.name=ext-search
 | `07_0100_install_operator.sh` | Install MongoDB Kubernetes Operator |
 | `07_0300_create_ops_manager_resources.sh` | Create Ops Manager / Cloud Manager resources |
 
+**Shared Helpers:**
+| Script | Description |
+|--------|-------------|
+| `_tls_helpers.sh` | `build_dns_names()` and `create_cert()` — sourced by TLS scripts |
+
 **TLS Configuration:**
 | Script | Description |
 |--------|-------------|

@@ -59,7 +59,7 @@ spec:
           name: ${MDB_TLS_CA_SECRET_NAME}
   security:
     tls:
-      certsSecretPrefix: ${MDB_SEARCH_TLS_CERT_PREFIX}
+      certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
   # lb.mode: Managed — operator automatically deploys and configures Envoy proxy
   lb:
     mode: Managed
