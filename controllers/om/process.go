@@ -174,6 +174,13 @@ func (p Process) HostName() string {
 	return p["hostname"].(string)
 }
 
+func (p Process) Port() string {
+	if port, ok := p.Args()["net"].(map[string]interface{})["port"]; ok {
+		return cast.ToString(port)
+	}
+	return ""
+}
+
 // GetVotes returns the number of votes requested for the member using this process.
 func (p Process) GetVotes() int {
 	if votes, ok := p["votes"]; ok {

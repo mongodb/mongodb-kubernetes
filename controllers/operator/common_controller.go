@@ -41,6 +41,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
@@ -405,6 +406,61 @@ func checkIfHasExcessProcesses(conn om.Connection, resourceName string, external
 	}
 
 	return workflow.Pending("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
+}
+
+// checkExternalMembersDrift checks if the external members specified in the CR are present in Ops Manager and if their fields match the ones specified in the CR.
+// If there is a drift, it returns an error with the details of the drift.
+func checkExternalMembersDrift(conn om.Connection, externalMembers []mdbv1.ExternalMember) workflow.Status {
+	if len(externalMembers) == 0 {
+		return workflow.OK()
+	}
+
+	deployment, err := conn.ReadDeployment()
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	processNames := deployment.GetAllProcessNames()
+	processNamesSet := merge.StringsToSet(processNames)
+
+	for _, member := range externalMembers {
+		// Check missing external members in AC
+		if _, ok := processNamesSet[member.ProcessName]; !ok {
+			return workflow.Failed(xerrors.Errorf("External member with process name %s is not present in Ops Manager", member.ProcessName))
+		}
+		// Check the other fields from the external member match the AC process
+		if deployment.CheckProcessFields(member.ProcessName, member.Hostname, member.Type, member.ReplicaSetName) {
+			return workflow.Failed(xerrors.Errorf("External member with process name %s has different AC fields than the ones specified in the CR", member.ProcessName))
+		}
+	}
+	return workflow.OK()
+}
+
+// validateACForMigration checks if the AC is in a valid state for migration.
+// It checks if net.tls.mode is set for all processes, as this is required for migration.
+// TODO: potentially other validations
+// If there are any issues, it returns an error with the details of the issue.
+func validateACForMigration(conn om.Connection, externalMembers []mdbv1.ExternalMember) workflow.Status {
+	if len(externalMembers) == 0 {
+		return workflow.OK()
+	}
+	deployment, err := conn.ReadDeployment()
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	processes := deployment.GetProcesses()
+
+	// Check net.tls.mode is not null
+	if len(processes) > 0 {
+		// Checking first process is enough since OM does not accept different values for net.tls.mode between processes
+		tls := processes[0].TLSConfig()
+		if _, ok := tls["mode"]; !ok {
+			return workflow.Failed(xerrors.Errorf("The deployment has processes with net.tls.mode unset. Please ensure all processes have TLS mode configured before migration. If TLS is not enabled, set net.tls.mode to disabled. If TLS is enabled, set net.tls.mode to one of the supported TLS modes."))
+		}
+	}
+
+	return workflow.OK()
 }
 
 // validateInternalClusterCertsAndCheckTLSType verifies that all the x509 internal cluster certs exist and return whether they are built following the kubernetes.io/tls secret type (tls.crt/tls.key entries).
@@ -1092,6 +1148,7 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 
 	externalMembersProcesses := spec.GetExternalMemberProcessNames()
 
+	// TODO: we're already checking this in the main reconcile loop. Should it be removed?
 	excessProcesses := d.GetNumberOfExcessProcesses(resourceName, externalMembersProcesses)
 	if excessProcesses > 0 {
 		return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes/current/tutorial/migrate-to-single-resource )")

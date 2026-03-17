@@ -225,6 +225,16 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, status)
 	}
 
+	// Checking for drift in external members
+	if status := checkExternalMembersDrift(conn, rs.Spec.GetExternalMembers()); !status.IsOK() {
+		return r.updateStatus(ctx, status)
+	}
+
+	// Validations for the pre-existing AC in case of migration
+	if status := validateACForMigration(conn, rs.Spec.GetExternalMembers()); !status.IsOK() {
+		return r.updateStatus(ctx, status)
+	}
+
 	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}

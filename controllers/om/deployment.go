@@ -610,6 +610,31 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string, externalMemb
 	return excessProcesses
 }
 
+func (d Deployment) CheckProcessFields(processName, expectedHostName, expectedType, replicaSetName string) bool {
+	process := d.getProcessByName(processName)
+	if process == nil {
+		return false
+	}
+
+	if fmt.Sprintf("%s:%s", process.HostName(), process.Port()) != expectedHostName ||
+		process.ProcessType() != MongoType(expectedType) {
+		return false
+	}
+
+	if MongoType(expectedType) == ProcessTypeMongos {
+		return true
+	}
+
+	processNames := d.getReplicaSetProcessNames(replicaSetName)
+	for _, p := range processNames {
+		if p == processName {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (d Deployment) SetRoles(roles []mdbv1.MongoDBRole) {
 	d["roles"] = roles
 }

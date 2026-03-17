@@ -158,6 +158,16 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("error establishing connection to Ops Manager: %w", err)), log)
 	}
 
+	// Checking for drift in external members
+	if status := checkExternalMembersDrift(conn, mrs.Spec.GetExternalMembers()); !status.IsOK() {
+		return r.updateStatus(ctx, &mrs, status, log)
+	}
+
+	// Validations for the pre-existing AC in case of migration
+	if status := validateACForMigration(conn, mrs.Spec.GetExternalMembers()); !status.IsOK() {
+		return r.updateStatus(ctx, &mrs, status, log)
+	}
+
 	log = log.With("MemberCluster Namespace", mrs.Namespace)
 
 	// check if resource has failedCluster annotation and mark it as failed if automated failover is not enabled
