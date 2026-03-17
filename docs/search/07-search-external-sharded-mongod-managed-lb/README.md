@@ -201,18 +201,23 @@ kubectl logs -l app=${MDB_SEARCH_RESOURCE_NAME}-search-lb -n ${MDB_NS}
 
 **Check:**
 ```bash
-# Verify proxy Services exist
+# Verify proxy Services exist in K8s
 kubectl get svc -n ${MDB_NS} | grep proxy-svc
 
-# Test connectivity from mongod pod
-kubectl exec -it ${MDB_EXTERNAL_SHARD_0_POD} -n ${MDB_NS} -- \
-  curl -v ${MDB_PROXY_HOST_SHARD_0}
+# From your mongod host, test connectivity to the Envoy proxy endpoint
+curl -v ${MDB_PROXY_HOST_SHARD_0}
+# or
+openssl s_client -connect <envoy-endpoint>:27029 -servername <sni-hostname>
 ```
+
+> **Note:** The external mongod host must have network connectivity to the K8s cluster's Envoy Service
+> (e.g., via LoadBalancer, NodePort, or VPN).
 
 **Common causes:**
 - Proxy Services not created - MongoDBSearch may not be in Running phase
 - Network policies blocking traffic
 - DNS resolution issues
+- External mongod host cannot reach K8s cluster network — ensure firewall/VPN allows traffic to Envoy Service
 
 ### Search Index Creation Fails
 
@@ -285,7 +290,9 @@ kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_SEARC
 | Script | Description |
 |--------|-------------|
 | `07_0301_install_cert_manager.sh` | Install cert-manager |
-| `07_0302_configure_tls_prerequisites.sh` | Create self-signed CA, ClusterIssuer, distribute CA |
+| `07_0302_configure_tls_prerequisites.sh` | Create self-signed CA and ClusterIssuer |
+| `07_0302a_configure_tls_prerequisites_mongod.sh` | Distribute CA ConfigMap for mongod (internal) |
+| `07_0302b_configure_tls_prerequisites_mongot.sh` | Distribute CA Secret for mongot |
 | `07_0304_generate_tls_certificates.sh` | Generate certs for shards, config servers, mongos |
 
 **Simulated External Cluster:**
@@ -308,19 +315,12 @@ kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_SEARC
 |--------|-------------|
 | `07_0326_verify_envoy_deployment.sh` | Verify Envoy proxy is deployed and running |
 | `07_0330_show_running_pods.sh` | Show all running pods |
-| `07_0335_run_mongodb_tools_pod.sh` | Deploy mongodb-tools pod for DB commands |
 | `07_0336_verify_mongod_search_config.sh` | Verify mongod search parameters *(disabled in test.sh)* |
 | `07_0337_verify_mongos_search_config.sh` | Verify mongos search parameters *(disabled in test.sh)* |
 
-**Data & Search Testing:**
-| Script | Description |
-|--------|-------------|
-| `07_0340_import_sample_data.sh` | Import sample_mflix dataset and shard collections |
-| `07_0345_create_search_index.sh` | Create text search index on movies |
-| `07_0346_create_vector_search_index.sh` | Create vector search index on embedded_movies |
-| `07_0350_wait_for_search_indexes.sh` | Wait for search indexes to be ready |
-| `07_0355_execute_search_query.sh` | Execute text search query |
-| `07_0356_execute_vector_search_query.sh` | Execute vector search query |
+> **Note:** Data import, search index creation, and search query testing are in the shared
+> [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/) module, which is reusable
+> across all sharded search scenarios.
 
 **Cleanup:**
 | Script | Description |

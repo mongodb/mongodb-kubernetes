@@ -43,6 +43,8 @@ run 07_0300_create_ops_manager_resources.sh
 
 run_for_output 07_0301_install_cert_manager.sh
 run 07_0302_configure_tls_prerequisites.sh
+run 07_0302a_configure_tls_prerequisites_mongod.sh
+run 07_0302b_configure_tls_prerequisites_mongot.sh
 run 07_0304_generate_tls_certificates.sh
 
 # ============================================================================
@@ -81,51 +83,5 @@ run_for_output 07_0326_verify_envoy_deployment.sh
 
 # Show all running pods
 run_for_output 07_0330_show_running_pods.sh
-
-# Deploy tools pod for MongoDB commands
-run 07_0335_run_mongodb_tools_pod.sh
-
-# Wait for search configuration to propagate to mongod/mongos
-# The automation agent needs time to apply the config changes
-echo "Waiting 60s for search configuration to propagate to mongod/mongos..."
-sleep 60
-
-# TODO: Re-enable verification once scripts are updated to read from config files
-# The current scripts use getParameter which doesn't work for startup params
-# Python E2E tests read from /data/automation-mongod.conf instead
-# run_for_output 07_0336_verify_mongod_search_config.sh
-# run_for_output 07_0337_verify_mongos_search_config.sh
-
-# ============================================================================
-# DATA IMPORT AND SEARCH TESTING
-# ============================================================================
-
-# Import sample data and shard collections
-run_for_output 07_0340_import_sample_data.sh
-
-# Create search indexes
-run 07_0345_create_search_index.sh
-run 07_0346_create_vector_search_index.sh
-run_for_output 07_0350_wait_for_search_indexes.sh
-
-# Execute search queries
-run_for_output 07_0355_execute_search_query.sh
-run_for_output 07_0356_execute_vector_search_query.sh
-
-# ============================================================================
-# DONE
-# ============================================================================
-
-echo ""
-echo "============================================"
-echo "✓ All snippets executed successfully!"
-echo "============================================"
-echo ""
-echo "MongoDB Search is now running with:"
-echo "  - External sharded MongoDB source (simulated)"
-echo "  - Managed Envoy L7 load balancer (operator-deployed)"
-echo "  - 2 shards with ${MDB_MONGOT_REPLICAS:-1} mongot replicas each"
-echo ""
-echo "To clean up, run: ./code_snippets/07_9010_delete_namespace.sh"
 
 cd -

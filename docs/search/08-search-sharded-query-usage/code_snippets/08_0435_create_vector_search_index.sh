@@ -6,7 +6,7 @@
 
 echo "Creating vector search index on sample_mflix.embedded_movies..."
 
-user_conn="${MDB_USER_CONNECTION_STRING}"
+user_conn="${MDB_USER_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"
 
 # shellcheck disable=SC2016,SC1078,SC1079
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${user_conn}" --quiet --eval '
@@ -46,4 +46,4 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${u
   print("\nNote: Vector index may take a few minutes to build and sync.");
 '
 
-echo "✓ Vector search index creation initiated"
+echo "Vector search index creation initiated"

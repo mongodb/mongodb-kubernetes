@@ -41,7 +41,8 @@ kubectl wait --for=condition=Ready pod/mongodb-tools \
   --context "${K8S_CTX}" \
   --timeout=120s
 
-echo "✓ mongodb-tools pod is ready"
+conn_str="${MDB_USER_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"
+echo "mongodb-tools pod is ready"
 echo ""
 echo "You can now run MongoDB commands using:"
-echo "  kubectl exec -it mongodb-tools -n ${MDB_NS} -- mongosh \"${MDB_CONNECTION_STRING}\""
+echo "  kubectl exec -it mongodb-tools -n ${MDB_NS} -- mongosh \"${conn_str}\""

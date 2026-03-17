@@ -3,13 +3,13 @@
 
 echo "Importing sample_mflix dataset..."
 
-admin_conn="${MDB_ADMIN_CONNECTION_STRING}"
+admin_conn="${MDB_ADMIN_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"
 
 echo "Downloading sample_mflix archive (~50MB)..."
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
   curl -sL 'https://atlas-education.s3.amazonaws.com/sample_mflix.archive' \
     -o /tmp/sample_mflix.archive
-echo "  ✓ Download complete"
+echo "  Download complete"
 
 echo "Restoring database..."
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
@@ -19,7 +19,7 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
     --drop \
     --numParallelCollections=1 \
     --numInsertionWorkersPerCollection=1
-echo "  ✓ Database restored"
+echo "  Database restored"
 
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
   rm -f /tmp/sample_mflix.archive
@@ -28,17 +28,17 @@ echo "Configuring sharding..."
 
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
   mongosh "${admin_conn}" --quiet --eval 'sh.enableSharding("sample_mflix")'
-echo "  ✓ Enabled sharding on sample_mflix database"
+echo "  Enabled sharding on sample_mflix database"
 
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
   mongosh "${admin_conn}" --quiet --eval \
     'db.getSiblingDB("sample_mflix").movies.createIndex({ _id: "hashed" })'
-echo "  ✓ Created hashed index on movies._id"
+echo "  Created hashed index on movies._id"
 
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
   mongosh "${admin_conn}" --quiet --eval \
     'sh.shardCollection("sample_mflix.movies", { _id: "hashed" })'
-echo "  ✓ Sharded sample_mflix.movies collection"
+echo "  Sharded sample_mflix.movies collection"
 
 echo "Verifying shard distribution..."
 sleep 5
@@ -48,4 +48,4 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
     'db.getSiblingDB("sample_mflix").movies.getShardDistribution()'
 
 echo ""
-echo "✓ Sample data imported and sharded"
+echo "Sample data imported and sharded"
