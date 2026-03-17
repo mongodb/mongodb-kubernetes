@@ -20,7 +20,9 @@ func NewReplicaSetWithProcesses(
 	rs ReplicaSet,
 	processes []Process,
 	memberOptions []automationconfig.MemberOptions,
+	existingProcessIds map[string]int,
 ) ReplicaSetWithProcesses {
+	newId := determineNextProcessIdStartingPoint(processes, existingProcessIds)
 	rs.clearMembers()
 
 	for idx, p := range processes {
@@ -29,8 +31,17 @@ func NewReplicaSetWithProcesses(
 		if len(memberOptions) > idx {
 			options = memberOptions[idx]
 		}
-		rs.addMember(p, "", options)
+
+		// ensure the process id is not changed if it already exists
+		if existingId, ok := existingProcessIds[p.Name()]; ok {
+			rs.addMember(p, strconv.Itoa(existingId), options)
+		} else {
+			// otherwise add a new id which is always incrementing
+			rs.addMember(p, strconv.Itoa(newId), options)
+			newId++
+		}
 	}
+
 	return ReplicaSetWithProcesses{rs, processes}
 }
 

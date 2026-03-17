@@ -51,6 +51,7 @@ func TestBuildFromMongoDBWithReplicas(t *testing.T) {
 		replicas,
 		"7.0",
 		"",
+		nil,
 	)
 
 	// Assert: ReplicaSet structure

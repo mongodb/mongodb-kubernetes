@@ -26,6 +26,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			3,
 			defaultFCV,
 			"",
+			false,
 		)
 
 		assert.Len(t, processes, 3, "Should create 3 processes")
@@ -50,6 +51,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			3, // limit
 			defaultFCV,
 			"",
+			false,
 		)
 		assert.Len(t, processesScaleUp, 3, "Limit should control process count during scale up")
 
@@ -61,6 +63,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			7, // limit
 			defaultFCV,
 			"",
+			false,
 		)
 		assert.Len(t, processesScaleDown, 7, "Limit should control process count during scale down")
 
@@ -72,6 +75,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			0, // limit
 			defaultFCV,
 			"",
+			false,
 		)
 		assert.Empty(t, processesZero, "Zero limit should create empty process slice")
 	})
@@ -90,6 +94,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			2,
 			defaultFCV,
 			tlsCertPath,
+			false,
 		)
 
 		assert.Len(t, processes, 2)
@@ -123,6 +128,7 @@ func TestCreateMongodProcessesFromMongoDB_AdditionalConfig(t *testing.T) {
 		2,
 		defaultFCV,
 		"",
+		false,
 	)
 
 	assert.Len(t, processes, 2)

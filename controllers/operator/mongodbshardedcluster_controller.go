@@ -2281,7 +2281,7 @@ func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.
 		// horizons are not needed
 		rsWithProcesses = om.NewMultiClusterReplicaSetWithProcesses(replicaSet, members, memberOptions, existingProcessIds, nil)
 	} else {
-		rsWithProcesses = om.NewReplicaSetWithProcesses(replicaSet, members, memberOptions)
+		rsWithProcesses = om.NewReplicaSetWithProcesses(replicaSet, members, memberOptions, nil)
 		rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
 	}
 	return rsWithProcesses, nil

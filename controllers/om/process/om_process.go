@@ -23,19 +23,23 @@ func CreateMongodProcessesWithLimit(mongoDBImage string, forceEnterprise bool, s
 }
 
 // CreateMongodProcessesFromMongoDB creates mongod processes directly from MongoDB resource without StatefulSet
-func CreateMongodProcessesFromMongoDB(mongoDBImage string, forceEnterprise bool, mdb *mdbv1.MongoDB, limit int, fcv string, tlsCertPath string) []om.Process {
+func CreateMongodProcessesFromMongoDB(mongoDBImage string, forceEnterprise bool, mdb *mdbv1.MongoDB, limit int, fcv string, tlsCertPath string, useLegacyNames bool) []om.Process {
 	hostnames, names := dns.GetDNSNames(mdb.Name, mdb.ServiceName(), mdb.Namespace, mdb.Spec.GetClusterDomain(), limit, mdb.Spec.DbCommonSpec.GetExternalDomain())
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, mdb.Spec.GetAdditionalMongodConfig(), &mdb.Spec, tlsCertPath, mdb.Annotations, fcv)
+		name := names[idx]
+		if !useLegacyNames {
+			name = fmt.Sprintf("k8s/%s/%s", mdb.Namespace, name)
+		}
+		processes[idx] = om.NewMongodProcess(name, hostname, mongoDBImage, forceEnterprise, mdb.Spec.GetAdditionalMongodConfig(), &mdb.Spec, tlsCertPath, mdb.Annotations, fcv)
 	}
 
 	return processes
 }
 
 // CreateMongodProcessesWithLimitMulti creates the process array for automationConfig based on MultiCluster CR spec
-func CreateMongodProcessesWithLimitMulti(mongoDBImage string, forceEnterprise bool, mrs mdbmultiv1.MongoDBMultiCluster, certFileName string) ([]om.Process, error) {
+func CreateMongodProcessesWithLimitMulti(mongoDBImage string, forceEnterprise bool, mrs mdbmultiv1.MongoDBMultiCluster, certFileName string, useLegacyNames bool) ([]om.Process, error) {
 	hostnames := make([]string, 0)
 	clusterNums := make([]int, 0)
 	podNum := make([]int, 0)
@@ -55,7 +59,11 @@ func CreateMongodProcessesWithLimitMulti(mongoDBImage string, forceEnterprise bo
 
 	processes := make([]om.Process, len(hostnames))
 	for idx := range hostnames {
-		processes[idx] = om.NewMongodProcess(fmt.Sprintf("%s-%d-%d", mrs.Name, clusterNums[idx], podNum[idx]), hostnames[idx], mongoDBImage, forceEnterprise, mrs.Spec.GetAdditionalMongodConfig(), &mrs.Spec, certFileName, mrs.Annotations, mrs.CalculateFeatureCompatibilityVersion())
+		name := fmt.Sprintf("%s-%d-%d", mrs.Name, clusterNums[idx], podNum[idx])
+		if !useLegacyNames {
+			name = fmt.Sprintf("k8s/%s/%s", mrs.Namespace, name)
+		}
+		processes[idx] = om.NewMongodProcess(name, hostnames[idx], mongoDBImage, forceEnterprise, mrs.Spec.GetAdditionalMongodConfig(), &mrs.Spec, certFileName, mrs.Annotations, mrs.CalculateFeatureCompatibilityVersion())
 	}
 
 	return processes, nil

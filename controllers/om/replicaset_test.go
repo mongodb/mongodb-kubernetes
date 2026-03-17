@@ -21,7 +21,7 @@ func makeMinimalRsWithProcesses() ReplicaSetWithProcesses {
 		processes[i] = proc
 		replicaSetWithProcesses.addMember(proc, "", memberOptions[i])
 	}
-	return NewReplicaSetWithProcesses(replicaSetWithProcesses, processes, memberOptions)
+	return NewReplicaSetWithProcesses(replicaSetWithProcesses, processes, memberOptions, nil)
 }
 
 // TestMergeHorizonsAdd checks that horizon configuration is appropriately

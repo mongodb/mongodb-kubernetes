@@ -754,7 +754,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	}
 	log.Debugf("Existing process Ids: %+v", processIds)
 
-	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, mrs, tlsCertPath)
+	// Determine whether the deployment was created before adopting the new process naming scheme.
+	legacy := replicaset.IsLegacyDeployment(processIds, mrs.Spec.GetExternalMemberProcessNames())
+	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, mrs, tlsCertPath, legacy)
 	if err != nil && !isRecovering {
 		return err
 	}
