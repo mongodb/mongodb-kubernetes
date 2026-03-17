@@ -98,11 +98,6 @@ export MDB_EXTERNAL_SHARD_1_HOST="ext-mdb-sh-1-0.ext-mdb-sh-sh.${MDB_NS}.svc.clu
 # -- Mongos router --
 export MDB_EXTERNAL_MONGOS_HOST="ext-mdb-sh-mongos-0.ext-mdb-sh-svc.${MDB_NS}.svc.cluster.local:27017"
 
-# -- Pod/container names (for verification scripts only) --
-export MDB_EXTERNAL_SHARD_0_POD="ext-mdb-sh-0-0"
-export MDB_EXTERNAL_SHARD_1_POD="ext-mdb-sh-1-0"
-export MDB_EXTERNAL_MONGOS_POD="ext-mdb-sh-mongos-0"
-
 # ============================================================================
 # SEARCH CONFIGURATION
 # ============================================================================
@@ -111,8 +106,11 @@ export MDB_MONGOT_REPLICAS=2
 # ============================================================================
 # DERIVED VALUES (computed from topology + search config above)
 # ============================================================================
-# Proxy service names — the operator creates these as:
+# DO NOT CHANGE these proxy service names.
+# The operator derives them via LoadBalancerProxyServiceNameForShard
+# (api/v1/search/mongodbsearch_types.go) using the hardcoded pattern:
 #   {search-resource}-search-0-{shard-name}-proxy-svc
+# Changing these vars won't change the real Services — it will just break the scripts.
 export MDB_PROXY_SVC_SHARD_0="${MDB_SEARCH_RESOURCE_NAME}-search-0-${MDB_EXTERNAL_SHARD_0_NAME}-proxy-svc"
 export MDB_PROXY_SVC_SHARD_1="${MDB_SEARCH_RESOURCE_NAME}-search-0-${MDB_EXTERNAL_SHARD_1_NAME}-proxy-svc"
 export MDB_PROXY_HOST_SHARD_0="${MDB_PROXY_SVC_SHARD_0}.${MDB_NS}.svc.cluster.local:27029"
@@ -121,6 +119,3 @@ export MDB_PROXY_HOST_SHARD_1="${MDB_PROXY_SVC_SHARD_1}.${MDB_NS}.svc.cluster.lo
 # Connection strings (built from mongos host)
 export MDB_ADMIN_CONNECTION_STRING="mongodb://mdb-admin:${MDB_ADMIN_USER_PASSWORD}@${MDB_EXTERNAL_MONGOS_HOST}/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin&authMechanism=SCRAM-SHA-256"
 export MDB_USER_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_MONGOS_HOST}/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin&authMechanism=SCRAM-SHA-256"
-
-# Legacy connection string (TLS with ca.crt path)
-export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_MONGOS_HOST}/?tls=true&tlsCAFile=/tls/ca.crt"

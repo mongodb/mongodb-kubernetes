@@ -315,9 +315,6 @@ kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_SEARC
 |--------|-------------|
 | `07_0326_verify_envoy_deployment.sh` | Verify Envoy proxy is deployed and running |
 | `07_0330_show_running_pods.sh` | Show all running pods |
-| `07_0336_verify_mongod_search_config.sh` | Verify mongod search parameters *(disabled in test.sh)* |
-| `07_0337_verify_mongos_search_config.sh` | Verify mongos search parameters *(disabled in test.sh)* |
-
 > **Note:** Data import, search index creation, and search query testing are in the shared
 > [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/) module, which is reusable
 > across all sharded search scenarios.
@@ -326,5 +323,3 @@ kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_SEARC
 | Script | Description |
 |--------|-------------|
 | `07_9010_delete_namespace.sh` | Delete namespace and all resources (manual only) |
-
-> **Note:** Scripts `07_0336`/`07_0337` are currently disabled in `test.sh` pending a fix to read from config files instead of `getParameter`.
