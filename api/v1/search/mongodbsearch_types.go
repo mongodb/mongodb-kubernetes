@@ -94,6 +94,7 @@ type MongoDBSearchSpec struct {
 	// +optional
 	LoadBalancer *LoadBalancerConfig `json:"lb,omitempty"`
 	// JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
+	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
 }

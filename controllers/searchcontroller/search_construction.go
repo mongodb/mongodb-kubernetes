@@ -271,7 +271,7 @@ func newSearchDefaultRequirements() corev1.ResourceRequirements {
 	return corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    construct.ParseQuantityOrZero("2"),
-			corev1.ResourceMemory: construct.ParseQuantityOrZero("4G"),
+			corev1.ResourceMemory: construct.ParseQuantityOrZero("4Gi"),
 		},
 	}
 }

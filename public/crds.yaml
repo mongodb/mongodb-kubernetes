@@ -4101,8 +4101,9 @@ spec:
                 - embeddingModelAPIKeySecret
                 type: object
               jvmFlags:
-                description: JVMFlags can be used to set the `--jvm-flags` option
-                  for the search (mongot) processes.
+                description: |-
+                  JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
+                  https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
                 items:
                   type: string
                 type: array
