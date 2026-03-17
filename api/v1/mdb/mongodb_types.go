@@ -113,6 +113,12 @@ func isAgentImageOverriden(containers []corev1.Container) bool {
 }
 
 func (m *MongoDB) ForcedIndividualScaling() bool {
+	// This is so that we don't deploy all kube members at once if there are external members
+	// This allows the migration to begin with voting members from the get-go
+	// Without this, the deployment will fail if kube members are not set to 0 votes 0 priority
+	if len(m.Spec.GetExternalMembers()) > 0 {
+		return true
+	}
 	return false
 }
 
