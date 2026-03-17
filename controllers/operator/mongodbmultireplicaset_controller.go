@@ -732,7 +732,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return err
 	}
 
-	processIds := getReplicaSetProcessIdsFromReplicaSets(mrs.Name, existingDeployment)
+	processIds := getReplicaSetProcessIdsFromReplicaSets(mrs.GetReplicaSetName(), existingDeployment)
 
 	// If there is no replicaset configuration saved in OM, it might be a new project, so we check the ids saved in annotation
 	// A project migration can happen if .spec.opsManager.configMapRef is changed, or the original configMap has been modified.
@@ -752,7 +752,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	if len(processes) != len(mrs.Spec.GetMemberOptions()) {
 		log.Warnf("the number of member options is different than the number of mongod processes to be created: %d processes - %d replica set member options", len(processes), len(mrs.Spec.GetMemberOptions()))
 	}
-	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, "", mrs.Spec.Version), processes, mrs.Spec.GetMemberOptions(), processIds, mrs.Spec.Connectivity)
+	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.GetReplicaSetName(), mrs.Spec.Version), processes, mrs.Spec.GetMemberOptions(), processIds, mrs.Spec.Connectivity)
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
@@ -765,7 +765,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.Name, rs, caFilePath, internalClusterCertPath, nil, log)
+			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.GetReplicaSetName(), rs, caFilePath, internalClusterCertPath, nil, log)
 		},
 		log,
 	)
@@ -797,21 +797,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return err
 	}
 	return nil
-}
-
-func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om.Deployment) map[string]int {
-	processIds := map[string]int{}
-
-	replicaSet := deployment.GetReplicaSetByName(replicaSetName)
-	if replicaSet == nil {
-		return map[string]int{}
-	}
-
-	for _, m := range replicaSet.Members() {
-		processIds[m.Name()] = m.Id()
-	}
-
-	return processIds
 }
 
 func getReplicaSetProcessIdsFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) (map[string]int, error) {

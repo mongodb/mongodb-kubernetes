@@ -11,7 +11,7 @@ import (
 )
 
 func makeMinimalRsWithProcesses() ReplicaSetWithProcesses {
-	replicaSetWithProcesses := NewReplicaSet("my-test-repl", "", "4.2.1")
+	replicaSetWithProcesses := NewReplicaSet("my-test-repl", "4.2.1")
 	mdb := mdbv1.MongoDB{Spec: mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "4.2.1"}}}
 	mdb.InitDefaults()
 	processes := make([]Process, 3)

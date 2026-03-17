@@ -321,7 +321,7 @@ func (p Process) EnsureTLSConfig() map[string]interface{} {
 	return util.ReadOrCreateMap(netConfig, "tls")
 }
 
-// SSLConfig returns the TLS configuration map ("net.tls") or an empty map if it doesn't exist.
+// TLSConfig returns the TLS configuration map ("net.tls") or an empty map if it doesn't exist.
 // Use this method only to read values, not update
 func (p Process) TLSConfig() map[string]interface{} {
 	netConfig := p.EnsureNetConfig()

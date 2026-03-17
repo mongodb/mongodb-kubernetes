@@ -216,7 +216,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, rs.Name, rs.Spec.ReplicaSetNameOverride, rs.Spec.GetExternalMemberProcessNames(), log)
+	reconcileResult := checkIfHasExcessProcesses(conn, rs.GetReplicaSetName(), rs.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(ctx, reconcileResult)
 	}
@@ -749,7 +749,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
 		},
 		log,
 	)

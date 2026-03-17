@@ -180,6 +180,13 @@ func (m *MongoDBMultiCluster) GetOwnerLabels() map[string]string {
 	}
 }
 
+func (m *MongoDBMultiCluster) GetReplicaSetName() string {
+	if m.Spec.ReplicaSetNameOverride != "" {
+		return m.Spec.ReplicaSetNameOverride
+	}
+	return m.GetName()
+}
+
 // GetKind returns the Kind of the MongoDBMultiCluster resource. This is needed because
 // when objects are retrieved from the Kubernetes API, the TypeMeta
 // (which contains Kind and APIVersion) is not populated.

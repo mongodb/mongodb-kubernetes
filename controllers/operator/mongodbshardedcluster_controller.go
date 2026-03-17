@@ -1004,7 +1004,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, sc.Name, "", sc.Spec.GetExternalMemberProcessNames(), log)
+	reconcileResult := checkIfHasExcessProcesses(conn, sc.Name, sc.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
 	}
@@ -1995,7 +1995,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			if sc.Spec.Security.GetInternalClusterAuthenticationMode() == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 			}
-			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name, "", sc.Spec.GetExternalMemberProcessNames())
+			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name, sc.Spec.GetExternalMemberProcessNames())
 			if numberOfOtherMembers > 0 {
 				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
@@ -2270,7 +2270,7 @@ func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise b
 // buildReplicaSetFromProcesses creates the 'ReplicaSetWithProcesses' with specified processes. This is of use only
 // for sharded cluster (config server, shards)
 func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB, memberOptions []automationconfig.MemberOptions, deployment om.Deployment) (om.ReplicaSetWithProcesses, error) {
-	replicaSet := om.NewReplicaSet(name, "", mdb.Spec.GetMongoDBVersion())
+	replicaSet := om.NewReplicaSet(name, mdb.Spec.GetMongoDBVersion())
 
 	existingProcessIds := getReplicaSetProcessIdsFromReplicaSets(replicaSet.Name(), deployment)
 	var rsWithProcesses om.ReplicaSetWithProcesses

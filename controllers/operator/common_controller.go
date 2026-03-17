@@ -382,12 +382,12 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 // the user may need to clean the resources from OM UI if they move the
 // resource to another project (as recommended by the migration instructions).
 // If there are any externalMembers set, we will ignore the excess processes which appear in this list, as those are expected to be there and should not block the reconciliation.
-func checkIfHasExcessProcesses(conn om.Connection, resourceName, replicaSetNameOverride string, externalMembers []string, log *zap.SugaredLogger) workflow.Status {
+func checkIfHasExcessProcesses(conn om.Connection, resourceName string, externalMembers []string, log *zap.SugaredLogger) workflow.Status {
 	deployment, err := conn.ReadDeployment()
 	if err != nil {
 		return workflow.Failed(err)
 	}
-	excessProcesses := deployment.GetNumberOfExcessProcesses(resourceName, replicaSetNameOverride, externalMembers)
+	excessProcesses := deployment.GetNumberOfExcessProcesses(resourceName, externalMembers)
 	if excessProcesses == 0 {
 		// cluster is empty or this resource is the only one living on it
 		return workflow.OK()
@@ -1069,18 +1069,35 @@ type PrometheusConfiguration struct {
 	prometheusCertHash string
 }
 
+func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om.Deployment) map[string]int {
+	processIds := map[string]int{}
+
+	replicaSet := deployment.GetReplicaSetByName(replicaSetName)
+	if replicaSet == nil {
+		return map[string]int{}
+	}
+
+	for _, m := range replicaSet.Members() {
+		processIds[m.Name()] = m.Id()
+	}
+
+	return processIds
+}
+
 func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
 	// it is not possible to disable internal cluster authentication once enabled
 	if d.ExistingProcessesHaveInternalClusterAuthentication(rs.Processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 	}
 
-	//excessProcesses := d.GetNumberOfExcessProcesses(resourceName)
-	//if excessProcesses > 0 {
-	//	return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes/current/tutorial/migrate-to-single-resource )")
-	//}
+	externalMembersProcesses := spec.GetExternalMemberProcessNames()
 
-	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, spec.GetExternalMemberProcessNames(), log)
+	excessProcesses := d.GetNumberOfExcessProcesses(resourceName, externalMembersProcesses)
+	if excessProcesses > 0 {
+		return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes/current/tutorial/migrate-to-single-resource )")
+	}
+
+	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, externalMembersProcesses, log)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)

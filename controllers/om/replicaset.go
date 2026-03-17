@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -54,7 +54,7 @@ func NewReplicaSetMemberFromInterface(i interface{}) ReplicaSetMember {
 	return i.(map[string]interface{})
 }
 
-func NewReplicaSet(name, overrideName, version string) ReplicaSet {
+func NewReplicaSet(name, version string) ReplicaSet {
 	ans := ReplicaSet{}
 	ans["members"] = make([]ReplicaSetMember, 0)
 
@@ -67,12 +67,7 @@ func NewReplicaSet(name, overrideName, version string) ReplicaSet {
 		protocolVersion = "1"
 	}
 
-	if overrideName == "" {
-		initDefaultRs(ans, name, protocolVersion)
-	} else {
-		initDefaultRs(ans, overrideName, protocolVersion)
-	}
-
+	initDefaultRs(ans, name, protocolVersion)
 	return ans
 }
 

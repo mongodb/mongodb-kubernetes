@@ -220,6 +220,16 @@ func (m *MongoDB) GetHostNameOverrideConfigmapName() string {
 	return fmt.Sprintf("%s-hostname-override", m.Name)
 }
 
+func (m *MongoDB) GetReplicaSetName() string {
+	if m.Spec.GetResourceType() != ReplicaSet {
+		panic(errors.Errorf("ReplicaSetName is only applicable for ReplicaSet topology, but got %s", m.Spec.Topology))
+	}
+	if m.Spec.ReplicaSetNameOverride != "" {
+		return m.Spec.ReplicaSetNameOverride
+	}
+	return m.GetName()
+}
+
 type AdditionalMongodConfigType int
 
 const (
@@ -826,7 +836,7 @@ func (d *DbCommonSpec) GetExternalDomain() *string {
 	return nil
 }
 
-func (d DbCommonSpec) GetAgentConfig() AgentConfig {
+func (d *DbCommonSpec) GetAgentConfig() AgentConfig {
 	return d.Agent
 }
 
