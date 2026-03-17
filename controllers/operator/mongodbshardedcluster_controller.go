@@ -1033,38 +1033,28 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 
 	shardNames := sc.ShardNames()
 
-	// Apply per-shard search configuration when LB is configured (unmanaged or managed)
-	if search.IsShardedUnmanagedLB() || search.IsLBModeManaged() {
-		// Validate unmanaged LB endpoint configuration
-		if search.IsShardedUnmanagedLB() {
-			shardedSource := searchcontroller.NewShardedInternalSearchSource(sc, search)
-			if err := shardedSource.Validate(); err != nil {
-				log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
-				return nil
-			}
+	// Validate unmanaged LB endpoint configuration (only when unmanaged LB)
+	if search.IsShardedUnmanagedLB() {
+		shardedSource := searchcontroller.NewShardedInternalSearchSource(sc, search)
+		if err := shardedSource.Validate(); err != nil {
+			log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
+			return nil
+		}
+	}
+
+	// Apply search configuration to each shard (all modes: no-LB, unmanaged LB, managed LB)
+	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+		shardName := shardNames[shardIdx]
+		shardConfig := r.desiredShardsConfiguration[shardIdx]
+
+		if shardConfig.AdditionalMongodConfig == nil {
+			shardConfig.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 		}
 
-		lbMode := "managed"
-		if search.IsShardedUnmanagedLB() {
-			lbMode = "unmanaged"
-		}
-		log.Infof("Applying per-shard search overrides (%s LB mode)", lbMode)
+		searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain())
+		shardConfig.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
 
-		// Apply search configuration to each shard
-		for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
-			shardName := shardNames[shardIdx]
-			shardConfig := r.desiredShardsConfiguration[shardIdx]
-
-			if shardConfig.AdditionalMongodConfig == nil {
-				shardConfig.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
-			}
-
-			// Get the per-shard search mongod config parameters
-			searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain())
-			shardConfig.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
-
-			log.Debugf("Applied search config for shard %s: mongotHost=%v", shardName, searchMongodConfig["setParameter"])
-		}
+		log.Debugf("Applied search config for shard %s: mongotHost=%v", shardName, searchMongodConfig["setParameter"])
 	}
 
 	// Always apply search configuration to mongos when a MongoDBSearch resource exists
