@@ -56,6 +56,7 @@ MONGOT_USER_PASSWORD_SECRET_NAME = f"mdbc-rs-{MONGOT_USER_NAME}-password"
 
 # TLS configuration
 CA_CONFIGMAP_NAME = f"{MDBC_RESOURCE_NAME}-ca"
+MDBC_TLS_SECRET_NAME = "mdbc-tls-secret"
 MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDBC_RESOURCE_NAME)
 
 # Envoy proxy
@@ -92,6 +93,11 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         name=MDBC_RESOURCE_NAME,
         namespace=namespace,
     )
+    resource["spec"]["security"]["tls"] = {
+        "enabled": True,
+        "certificateKeySecretRef": {"name": MDBC_TLS_SECRET_NAME},
+        "caCertificateSecretRef": {"name": MDBC_TLS_SECRET_NAME},
+    }
     try_load(resource)
     return resource
 
@@ -122,9 +128,11 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
 
 
 @fixture(scope="function")
-def sample_movies_helper(mdbc: MongoDBCommunity, namespace: str) -> SampleMoviesSearchHelper:
+def sample_movies_helper(
+    mdbc: MongoDBCommunity, issuer_ca_filepath: str, namespace: str
+) -> SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester.for_replicaset(mdbc, USER_NAME, USER_PASSWORD),
+        SearchTester.for_replicaset(mdbc, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=issuer_ca_filepath),
         tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
     )
 
@@ -161,8 +169,12 @@ def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_community_auto_embedding_multi_mongot
-def test_install_tls_certificates(namespace: str, mdbs: MongoDBSearch, issuer: str, ca_configmap: str):
-    """Create TLS certificates for mongot (replicas=2)."""
+def test_install_tls_certificates(
+    namespace: str, mdbc: MongoDBCommunity, mdbs: MongoDBSearch, issuer: str, ca_configmap: str
+):
+    """Create TLS certificates for the Community RS (3 members) and mongot (replicas=2)."""
+    create_tls_certs(issuer, namespace, mdbc.name, mdbc["spec"]["members"], secret_name=MDBC_TLS_SECRET_NAME)
+
     search_service_name = search_resource_names.mongot_service_name(mdbs.name)
     create_tls_certs(
         issuer,
