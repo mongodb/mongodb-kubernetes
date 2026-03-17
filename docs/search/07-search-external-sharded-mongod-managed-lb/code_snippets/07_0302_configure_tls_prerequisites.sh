@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AUDIENCE: internal
 # Configure TLS prerequisites: self-signed CA, ClusterIssuer, and CA distribution
 #
 # cert-manager needs 3 objects to issue certificates:

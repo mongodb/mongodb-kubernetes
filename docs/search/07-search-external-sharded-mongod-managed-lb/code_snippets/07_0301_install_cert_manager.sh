@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AUDIENCE: internal
 # Install cert-manager for TLS certificate management
 
 echo "Installing cert-manager..."

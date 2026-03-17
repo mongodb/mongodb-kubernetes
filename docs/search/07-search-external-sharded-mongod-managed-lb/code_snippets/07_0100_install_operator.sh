@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AUDIENCE: internal
 # Install the MongoDB Kubernetes Operator
 
 helm_values=""

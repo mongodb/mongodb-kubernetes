@@ -6,28 +6,20 @@ For testing purposes, we include scripts that simulate an external cluster insid
 
 ## For Documentation Team
 
-The following scripts are **user-facing** and should be included in published docs (cherry-pick manifest):
+The following scripts are marked `# AUDIENCE: internal` and should be **excluded** from published docs (test scaffolding only):
 
 | Script | Description |
 |--------|-------------|
-| `07_0040_validate_env.sh` | Validate required environment variables |
-| `07_0316a_create_mongot_tls_certificates.sh` | Create TLS certs for mongot pods |
-| `07_0316b_create_lb_tls_certificates.sh` | Create TLS certs for Envoy proxy |
-| `07_0320_create_mongodb_search_resource.sh` | Create MongoDBSearch CR with `lb.mode: Managed` |
-| `07_0325_wait_for_search_resource.sh` | Wait for MongoDBSearch to reach Running phase |
-| `07_0326_verify_envoy_deployment.sh` | Verify Envoy proxy is deployed and running |
-| `07_0330_show_running_pods.sh` | Show all running pods |
-| `07_0335_run_mongodb_tools_pod.sh` | Deploy mongodb-tools pod for DB commands |
-| `07_0336_verify_mongod_search_config.sh` | Verify mongod search parameters |
-| `07_0337_verify_mongos_search_config.sh` | Verify mongos search parameters |
-| `07_0340_import_sample_data.sh` | Import sample_mflix dataset and shard collections |
-| `07_0345_create_search_index.sh` | Create text search index on movies |
-| `07_0346_create_vector_search_index.sh` | Create vector search index on embedded_movies |
-| `07_0350_wait_for_search_indexes.sh` | Wait for search indexes to be ready |
-| `07_0355_execute_search_query.sh` | Execute text search query |
-| `07_0356_execute_vector_search_query.sh` | Execute vector search query |
+| `07_0046_create_image_pull_secrets.sh` | Create image pull secrets (private registry, CI only) |
+| `07_0101_helm_install_staging_operator.sh` | Install staging/dev operator |
+| `07_0300_create_ops_manager_resources.sh` | Create Ops Manager resources (simulated cluster) |
+| `07_0304_generate_tls_certificates.sh` | Generate certs for simulated cluster |
+| `07_0310_create_external_mongodb_sharded_cluster.sh` | Create simulated external sharded cluster |
+| `07_0315_wait_for_external_cluster.sh` | Wait for simulated cluster to reach Running phase |
+| `07_0316_create_external_mongodb_users.sh` | Create MongoDB users on simulated cluster |
+| `07_9010_delete_namespace.sh` | Delete namespace and all resources (cleanup/teardown) |
 
-All remaining scripts are user-facing. Only the scripts above marked `# AUDIENCE: internal` are test scaffolding (simulated cluster, namespace setup, operator install, cleanup).
+All remaining scripts are **user-facing** and should be included in published docs.
 
 ## Overview
 
