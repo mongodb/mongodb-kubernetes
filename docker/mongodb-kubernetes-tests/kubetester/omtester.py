@@ -6,7 +6,7 @@ import re
 import tempfile
 import time
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 
@@ -191,7 +191,7 @@ class OMTester(object):
                 snapshot_timestamp = latest_snapshot["created"]["date"]
                 print(f"Current Backup Snapshots: {snapshots}")
                 self.set_latest_backup_completion_time(
-                    time_to_millis(datetime.fromisoformat(snapshot_timestamp.replace("Z", "")))
+                    time_to_millis(datetime.fromisoformat(snapshot_timestamp.replace("Z", "+00:00")))
                 )
                 return
             time.sleep(3)
@@ -873,6 +873,6 @@ def should_include_tag(version: Optional[Dict[str, str]]) -> bool:
 
 def time_to_millis(date_time) -> int:
     """https://stackoverflow.com/a/11111177/614239"""
-    epoch = datetime.utcfromtimestamp(0)
+    epoch = datetime.fromtimestamp(0, tz=timezone.utc)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis
