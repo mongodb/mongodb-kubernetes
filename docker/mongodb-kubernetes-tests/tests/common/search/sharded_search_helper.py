@@ -5,7 +5,7 @@ from typing import Callable
 import pymongo.errors
 import yaml
 from kubernetes import client
-from kubetester import create_or_update_configmap, create_or_update_secret, list_matching_pods
+from kubetester import create_or_update_configmap, list_matching_pods
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongodb import MongoDB
@@ -221,10 +221,8 @@ def create_lb_certificates(
 
 def create_issuer_ca(issuer_ca_filepath: str, namespace: str, ca_configmap_name: str, api_client=None) -> str:
     ca = open(issuer_ca_filepath).read()
-    configmap_data = {"ca-pem": ca, "mms-ca.crt": ca}
+    configmap_data = {"ca-pem": ca, "mms-ca.crt": ca, "ca.crt": ca}
     create_or_update_configmap(namespace, ca_configmap_name, configmap_data, api_client)
-    secret_data = {"ca.crt": ca}
-    create_or_update_secret(namespace, ca_configmap_name, secret_data, api_client=api_client)
     return ca_configmap_name
 
 
