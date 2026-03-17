@@ -240,6 +240,17 @@ class OMTester(object):
             if cluster["typeName"] == "SHARDED_REPLICA_SET":
                 return cluster["id"]
 
+    def get_cluster_availability(self, name: str) -> Optional[str]:
+        clusters = self.api_read_clusters()
+        for cluster in clusters:
+            if cluster["name"] == name:
+                return cluster["availability"]
+        return None
+
+    def assert_cluster_available(self, name: str):
+        availability = self.get_cluster_availability(name)
+        assert availability == "available", f"Cluster {name} is not available, current availability: {availability}"
+
     def assert_healthiness(self):
         self.do_assert_healthiness(self.context.base_url)
         # TODO we need to check the login page as well (/user) - does it render properly?
@@ -512,6 +523,13 @@ class OMTester(object):
 
     def api_read_backup_configs(self) -> List:
         return self.om_request("get", f"/groups/{self.context.project_id}/backupConfigs").json()["results"]
+
+    def api_read_clusters(self) -> List:
+        results = self.om_request("get", "/clusters").json()["results"]
+        for result in results:
+            if result["groupId"] == self.context.project_id:
+                return result["clusters"]
+        return []
 
     # Backup states are from here:
     # https://github.com/10gen/mms/blob/bcec76f60fc10fd6b7de40ee0f57951b54a4b4a0/server/src/main/com/xgen/cloud/common/brs/_public/model/BackupConfigState.java#L8
