@@ -231,7 +231,9 @@ def test_verify_per_pod_config(namespace: str):
 
 @mark.e2e_search_community_auto_embedding_multi_mongot
 def test_wait_for_database_resource_ready(mdbc: MongoDBCommunity):
-    mdbc.assert_reaches_phase(Phase.Running, timeout=300)
+    # Longer timeout: deploying the search resource triggers a rolling mongod restart
+    # (to apply search setParameters), which takes >300s for a 3-member RS.
+    mdbc.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_community_auto_embedding_multi_mongot
