@@ -93,6 +93,10 @@ type MongoDBSearchSpec struct {
 	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
 	// +optional
 	LoadBalancer *LoadBalancerConfig `json:"lb,omitempty"`
+	// JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
+	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
+	// +optional
+	JVMFlags []string `json:"jvmFlags,omitempty"`
 }
 
 // LBMode defines the load balancer mode for Search
