@@ -58,3 +58,4 @@ echo ""
 echo "Timeout waiting for search indexes"
 echo "The indexes may still be building. You can check status manually:"
 echo "  kubectl exec mongodb-tools -n ${MDB_NS} -- mongosh '${user_conn}' --eval 'db.getSiblingDB(\"sample_mflix\").movies.aggregate([{\$listSearchIndexes: {}}])'"
+exit 1
