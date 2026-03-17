@@ -129,10 +129,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	}
 
 	// Non-sharded (ReplicaSet) reconciliation
-	return r.reconcileNonSharded(ctx, log)
+	return r.reconcileNonSharded(ctx, log, version)
 }
 
-func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
+func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, log *zap.SugaredLogger, version string) workflow.Status {
 	keyfileStsModification := statefulset.NOOP()
 	if r.mdbSearch.IsWireprotoEnabled() {
 		var err error
@@ -160,8 +160,11 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 		return workflow.Failed(err)
 	}
 
+	stsNsName := r.mdbSearch.StatefulSetNamespacedName()
+	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
+
 	// the egress TLS modification needs to always be applied after the ingress one, because it toggles mTLS based on the mode set by the ingress modification
-	configHash, err := r.ensureMongotConfig(ctx, log, r.mdbSearch.MongotConfigConfigMapNamespacedName(), createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+	configHash, err := r.ensureMongotConfig(ctx, log, r.mdbSearch.MongotConfigConfigMapNamespacedName(), stsNsName.Name, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -173,13 +176,12 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 	))
 
 	image, version := r.searchImageAndVersion()
-	stsNsName := r.mdbSearch.StatefulSetNamespacedName()
 	svcName := r.mdbSearch.SearchServiceNamespacedName().Name
 	labels := map[string]string{"app": svcName}
 	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,
 		stsNsName,
-		CreateSearchStatefulSetFunc(r.mdbSearch, stsNsName.Name, stsNsName.Namespace, svcName, r.mdbSearch.MongotConfigConfigMapNamespacedName().Name, labels, fmt.Sprintf("%s:%s", image, version)),
+		CreateSearchStatefulSetFunc(r.mdbSearch, stsNsName.Name, stsNsName.Namespace, svcName, r.mdbSearch.MongotConfigConfigMapNamespacedName().Name, labels, fmt.Sprintf("%s:%s", image, version), usePerPodConfig),
 		configHashModification,
 		keyfileStsModification,
 		ingressTlsStsModification,
@@ -226,6 +228,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		return workflow.Failed(err)
 	}
 
+	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 	image, imageVersion := r.searchImageAndVersion()
 	searchImage := fmt.Sprintf("%s:%s", image, imageVersion)
 
@@ -244,8 +247,9 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			return workflow.Failed(err)
 		}
 
+		shardStsNsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
 		shardMongotConfig := createMongotConfigForShard(r.mdbSearch, shardedSource, shardName)
-		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), shardStsNsName.Name, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -255,13 +259,11 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 				"mongotConfigHash": configHash,
 			},
 		))
-
-		shardStsNsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
 		shardLabels := map[string]string{"app": shardStsNsName.Name, "shard": shardName}
 		mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 			shardLog,
 			shardStsNsName,
-			CreateSearchStatefulSetFunc(r.mdbSearch, shardStsNsName.Name, r.mdbSearch.Namespace, shardSvcName.Name, r.mdbSearch.MongotConfigMapForShard(shardName).Name, shardLabels, searchImage),
+			CreateSearchStatefulSetFunc(r.mdbSearch, shardStsNsName.Name, r.mdbSearch.Namespace, shardSvcName.Name, r.mdbSearch.MongotConfigMapForShard(shardName).Name, shardLabels, searchImage, usePerPodConfig),
 			configHashModification,
 			keyfileStsModification,
 			ingressTlsStsModification,
@@ -369,10 +371,16 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, cmName types.NamespacedName, modifications ...mongot.Modification) (string, error) {
+// ensureMongotConfig creates or updates the mongot ConfigMap.
+// When auto-embedding is configured, generates leader/follower config files plus pod-name role keys.
+func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, cmName types.NamespacedName, stsName string, modifications ...mongot.Modification) (string, error) {
+	replicas := r.mdbSearch.GetReplicas()
+	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
+
 	mongotConfig := mongot.Config{}
 	mongot.Apply(modifications...)(&mongotConfig)
-	configData, err := yaml.Marshal(mongotConfig)
+
+	configEntries, keysToRemove, err := buildMongotConfigEntries(mongotConfig, usePerPodConfig, stsName, replicas)
 	if err != nil {
 		return "", err
 	}
@@ -380,20 +388,97 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName.Name, Namespace: cmName.Namespace}, Data: map[string]string{}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, cm, func() error {
 		resourceVersion := cm.ResourceVersion
-
-		cm.Data[MongotConfigFilename] = string(configData)
-
+		for key, data := range configEntries {
+			cm.Data[key] = string(data)
+		}
+		for _, key := range keysToRemove {
+			delete(cm.Data, key)
+		}
 		cm.ResourceVersion = resourceVersion
-
 		return controllerutil.SetOwnerReference(r.mdbSearch, cm, r.client.Scheme())
 	})
 	if err != nil {
 		return "", err
 	}
 
-	log.Debugf("Updated mongot config yaml config map: %v (%s) with the following configuration: %s", cmName, op, string(configData))
+	configHash := computeConfigHash(configEntries)
+	log.Debugf("Updated mongot config ConfigMap %v (%s) with keys: %v", cmName, op, configEntryKeys(configEntries))
 
-	return hashBytes(configData), nil
+	return configHash, nil
+}
+
+func buildMongotConfigEntries(config mongot.Config, usePerPodConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
+	if usePerPodConfig {
+		return buildPerPodConfigEntries(config, stsName, replicas)
+	}
+	return buildSingleConfigEntry(config)
+}
+
+// buildPerPodConfigEntries creates leader (pod-0) and follower configs with pod-name role keys.
+func buildPerPodConfigEntries(config mongot.Config, stsName string, replicas int) (map[string][]byte, []string, error) {
+	leaderData, err := yaml.Marshal(config)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	followerConfig := config
+	if config.Embedding != nil {
+		embeddingCopy := *config.Embedding
+		embeddingCopy.IsAutoEmbeddingViewWriter = ptr.To(false)
+		followerConfig.Embedding = &embeddingCopy
+	}
+	followerData, err := yaml.Marshal(followerConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	entries := map[string][]byte{
+		MongotConfigLeaderFilename:   leaderData,
+		MongotConfigFollowerFilename: followerData,
+	}
+
+	for i := 0; i < replicas; i++ {
+		podName := fmt.Sprintf("%s-%d", stsName, i)
+		if i == 0 {
+			entries[podName] = []byte("leader")
+		} else {
+			entries[podName] = []byte("follower")
+		}
+	}
+
+	keysToRemove := []string{MongotConfigFilename}
+	return entries, keysToRemove, nil
+}
+
+func buildSingleConfigEntry(config mongot.Config) (map[string][]byte, []string, error) {
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	entries := map[string][]byte{MongotConfigFilename: data}
+	keysToRemove := []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename}
+	return entries, keysToRemove, nil
+}
+
+// computeConfigHash hashes config file contents only; pod-name keys are excluded
+// since scaling changes don't require existing pods to restart.
+func computeConfigHash(entries map[string][]byte) string {
+	var allData []byte
+	for _, key := range []string{MongotConfigFilename, MongotConfigLeaderFilename, MongotConfigFollowerFilename} {
+		if data, ok := entries[key]; ok {
+			allData = append(allData, data...)
+		}
+	}
+	return hashBytes(allData)
+}
+
+func configEntryKeys(entries map[string][]byte) []string {
+	keys := make([]string, 0, len(entries))
+	for k := range entries {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // mongotServicePorts returns the common service ports (grpc, prometheus, healthcheck) for any mongot deployment.

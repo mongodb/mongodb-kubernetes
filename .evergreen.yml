@@ -812,6 +812,7 @@ task_groups:
     tasks:
       - e2e_search_community_basic
       - e2e_search_community_auto_embedding
+      - e2e_search_community_auto_embedding_multi_mongot
       - e2e_search_community_tls
       - e2e_search_external_basic
       - e2e_search_external_tls
@@ -848,6 +849,7 @@ task_groups:
     tasks:
       - e2e_search_community_basic
       - e2e_search_community_auto_embedding
+      - e2e_search_community_auto_embedding_multi_mongot
       - e2e_search_community_tls
       - e2e_search_external_basic
       - e2e_search_external_tls
