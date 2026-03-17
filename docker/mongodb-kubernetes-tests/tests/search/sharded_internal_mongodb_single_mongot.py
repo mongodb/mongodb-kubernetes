@@ -114,9 +114,12 @@ def test_create_users(
     helper: SearchDeploymentHelper, admin_user: MongoDBUser, user: MongoDBUser, mongot_user: MongoDBUser, mdb: MongoDB
 ):
     helper.deploy_users(
-        admin_user, ADMIN_USER_PASSWORD,
-        user, USER_PASSWORD,
-        mongot_user, MONGOT_USER_PASSWORD,
+        admin_user,
+        ADMIN_USER_PASSWORD,
+        user,
+        USER_PASSWORD,
+        mongot_user,
+        MONGOT_USER_PASSWORD,
     )
 
 
@@ -196,6 +199,11 @@ def test_search_create_search_index(mdb: MongoDB):
     search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
     search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
+
+    emb_helper = EmbeddedMoviesSearchHelper(search_tester)
+    emb_helper.create_vector_search_index()
+    emb_helper.wait_for_vector_search_index()
+    logger.info("✓ Vector search index created on embedded_movies")
 
 
 @mark.e2e_search_sharded_internal_single_mongot
