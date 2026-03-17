@@ -247,9 +247,9 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			return workflow.Failed(err)
 		}
 
-		shardStsNsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
+		mongotGroupStsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
 		shardMongotConfig := createMongotConfigForShard(r.mdbSearch, shardedSource, shardName)
-		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), shardStsNsName.Name, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), mongotGroupStsName.Name, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -259,11 +259,11 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 				"mongotConfigHash": configHash,
 			},
 		))
-		shardLabels := map[string]string{"app": shardStsNsName.Name, "shard": shardName}
+		shardLabels := map[string]string{"app": mongotGroupStsName.Name, "shard": shardName}
 		mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 			shardLog,
-			shardStsNsName,
-			CreateSearchStatefulSetFunc(r.mdbSearch, shardStsNsName.Name, r.mdbSearch.Namespace, shardSvcName.Name, r.mdbSearch.MongotConfigMapForShard(shardName).Name, shardLabels, searchImage, usePerPodConfig),
+			mongotGroupStsName,
+			CreateSearchStatefulSetFunc(r.mdbSearch, mongotGroupStsName.Name, r.mdbSearch.Namespace, shardSvcName.Name, r.mdbSearch.MongotConfigMapForShard(shardName).Name, shardLabels, searchImage, usePerPodConfig),
 			configHashModification,
 			keyfileStsModification,
 			ingressTlsStsModification,
