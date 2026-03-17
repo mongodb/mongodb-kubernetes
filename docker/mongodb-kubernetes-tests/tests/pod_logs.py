@@ -25,7 +25,7 @@ def get_structured_json_pod_logs(
     namespace: str,
     pod_name: str,
     container_name: str,
-    api_client: kubernetes.client.ApiClient,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
 ) -> dict[str, list[str]]:
     """Read logs from pod_name and groups the lines by logType."""
     pod_logs_str = KubernetesTester.read_pod_logs(namespace, pod_name, container_name, api_client=api_client)
@@ -80,7 +80,6 @@ def assert_log_types_in_structured_json_pod_log(
     if not is_default_architecture_static():
         container_name = "mongodb-enterprise-database"
 
-    assert api_client is not None, "api_client must not be None"
     pod_logs = get_structured_json_pod_logs(namespace, pod_name, container_name, api_client=api_client)
 
     unwanted_log_types = set(pod_logs.keys()) - (expected_log_types or set())

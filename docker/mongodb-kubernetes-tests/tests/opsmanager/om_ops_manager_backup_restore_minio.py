@@ -365,7 +365,7 @@ class TestBackupRestorePIT:
         """Changes the MDB documents to check that restore rollbacks this change later.
         Note, that we need to wait for some time to ensure the PIT timestamp gets to the range
         [snapshot_created <= PIT <= changes_applied]"""
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
         time.sleep(30)
 
@@ -373,10 +373,10 @@ class TestBackupRestorePIT:
         mdb_latest_test_collection.insert_one({"foo": "bar"})
 
     def test_mdbs_pit_restore(self, mdb_prev_project: OMTester, mdb_latest_project: OMTester):
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
 
-        pit_datetme = datetime.datetime.now() - datetime.timedelta(seconds=15)
+        pit_datetme = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=15)
         pit_millis = time_to_millis(pit_datetme)
         print("Restoring back to the moment 15 seconds ago (millis): {}".format(pit_millis))
 

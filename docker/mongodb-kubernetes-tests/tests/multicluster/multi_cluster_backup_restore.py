@@ -492,14 +492,14 @@ class TestBackupForMongodb:
 
     @mark.e2e_multi_cluster_backup_restore
     def test_change_mdb_data(self, mongodb_multi_one_collection):
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
         time.sleep(30)
         mongodb_multi_one_collection.insert_one({"foo": "bar"})
 
     @mark.e2e_multi_cluster_backup_restore
     def test_pit_restore(self, project_one: OMTester):
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
 
         backup_completion_time = project_one.get_latest_backup_completion_time()

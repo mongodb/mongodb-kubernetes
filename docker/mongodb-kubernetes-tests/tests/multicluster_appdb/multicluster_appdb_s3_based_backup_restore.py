@@ -210,16 +210,16 @@ class TestBackupForMongodb:
         project_one.wait_until_backup_snapshots_are_ready(expected_count=1)
 
     def test_change_mdb_data(self, mongodb_multi_one_collection):
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
         time.sleep(30)
         mongodb_multi_one_collection.insert_one({"foo": "bar"})
 
     def test_pit_restore(self, project_one: OMTester):
-        now_millis = time_to_millis(datetime.datetime.now())
+        now_millis = time_to_millis(datetime.datetime.now(tz=datetime.timezone.utc))
         print("\nCurrent time (millis): {}".format(now_millis))
 
-        pit_datetme = datetime.datetime.now() - datetime.timedelta(seconds=15)
+        pit_datetme = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=15)
         pit_millis = time_to_millis(pit_datetme)
         print("Restoring back to the moment 15 seconds ago (millis): {}".format(pit_millis))
 
