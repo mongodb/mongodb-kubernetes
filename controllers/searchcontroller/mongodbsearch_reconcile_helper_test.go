@@ -785,6 +785,8 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, cm.Data, MongotConfigLeaderFilename, "config-leader.yml should be removed after transition")
 	assert.NotContains(t, cm.Data, MongotConfigFollowerFilename, "config-follower.yml should be removed after transition")
+	assert.NotContains(t, cm.Data, stsName+"-0", "pod role key should be removed after transition")
+	assert.NotContains(t, cm.Data, stsName+"-1", "pod role key should be removed after transition")
 }
 
 func TestCreateSearchStatefulSetFunc_ConfigMounting(t *testing.T) {

@@ -2,7 +2,7 @@
 E2E test for Community ReplicaSet MongoDB Search with auto-embedding and multiple mongot instances.
 
 This test verifies the per-pod mongot config feature end-to-end:
-- When autoEmbedding is set and replicas > 1, the operator generates per-pod leader/follower
+- When autoEmbedding is set, the operator generates per-pod leader/follower
   configs in the mongot ConfigMap instead of a single config.yml.
 - Pod {stsName}-0 gets role 'leader' (with IsAutoEmbeddingViewWriter: true), all others get 'follower'.
 - The startup script uses $HOSTNAME to pick the correct config file per pod.
@@ -15,7 +15,7 @@ Test combines:
 import os
 
 from kubetester import create_or_update_secret, read_configmap, try_load
-from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
+from kubetester.certs import create_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_community import MongoDBCommunity
 from kubetester.mongodb_search import MongoDBSearch
@@ -28,7 +28,7 @@ from tests.common.search.envoy_helpers import EnvoyProxy
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_issuer_ca
-from tests.conftest import get_default_operator, get_issuer_ca_filepath
+from tests.conftest import get_default_operator
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -50,6 +50,9 @@ ENVOY_ADMIN_PORT = 9901
 # Resource names
 MDBC_RESOURCE_NAME = "mdbc-rs-auto-embed-multi"
 MDBS_RESOURCE_NAME = MDBC_RESOURCE_NAME
+
+# Must match passwordSecretRef.name in community-replicaset-sample-mflix.yaml (fixture base name is "mdbc-rs")
+MONGOT_USER_PASSWORD_SECRET_NAME = f"mdbc-rs-{MONGOT_USER_NAME}-password"
 
 # TLS configuration
 CA_CONFIGMAP_NAME = f"{MDBC_RESOURCE_NAME}-ca"
@@ -104,7 +107,7 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
     if try_load(resource):
         return resource
 
-    resource["spec"]["source"] = {"passwordSecretRef": {"name": f"{resource.name}-{MONGOT_USER_NAME}-password"}}
+    resource["spec"]["source"] = {"passwordSecretRef": {"name": MONGOT_USER_PASSWORD_SECRET_NAME}}
     resource["spec"]["replicas"] = 2
     resource["spec"]["lb"] = {
         "mode": "Unmanaged",
@@ -140,7 +143,7 @@ def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
     )
     create_or_update_secret(
         namespace=namespace,
-        name=f"{mdbs.name}-{MONGOT_USER_NAME}-password",
+        name=MONGOT_USER_PASSWORD_SECRET_NAME,
         data={"password": MONGOT_USER_PASSWORD},
     )
 
@@ -206,19 +209,19 @@ def test_verify_per_pod_config(namespace: str):
 
     assert "config-leader.yml" in data, f"Expected 'config-leader.yml' key in ConfigMap {configmap_name}"
     assert "config-follower.yml" in data, f"Expected 'config-follower.yml' key in ConfigMap {configmap_name}"
-    assert "config.yml" not in data, (
-        f"Expected 'config.yml' to be absent in ConfigMap {configmap_name} (per-pod path replaces it)"
-    )
+    assert (
+        "config.yml" not in data
+    ), f"Expected 'config.yml' to be absent in ConfigMap {configmap_name} (per-pod path replaces it)"
 
     # Verify pod-name-to-role mappings
     leader_pod = f"{sts_name}-0"
     follower_pod = f"{sts_name}-1"
-    assert data.get(leader_pod) == "leader", (
-        f"Expected pod {leader_pod} to have role 'leader', got: {data.get(leader_pod)}"
-    )
-    assert data.get(follower_pod) == "follower", (
-        f"Expected pod {follower_pod} to have role 'follower', got: {data.get(follower_pod)}"
-    )
+    assert (
+        data.get(leader_pod) == "leader"
+    ), f"Expected pod {leader_pod} to have role 'leader', got: {data.get(leader_pod)}"
+    assert (
+        data.get(follower_pod) == "follower"
+    ), f"Expected pod {follower_pod} to have role 'follower', got: {data.get(follower_pod)}"
 
     logger.info(
         f"Per-pod config verified: {leader_pod}=leader, {follower_pod}=follower, "

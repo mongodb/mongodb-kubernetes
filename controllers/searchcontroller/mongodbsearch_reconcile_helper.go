@@ -411,7 +411,7 @@ func buildMongotConfigEntries(config mongot.Config, usePerPodConfig bool, stsNam
 	if usePerPodConfig {
 		return buildPerPodConfigEntries(config, stsName, replicas)
 	}
-	return buildSingleConfigEntry(config)
+	return buildSingleConfigEntry(config, stsName, replicas)
 }
 
 // buildPerPodConfigEntries creates leader (pod-0) and follower configs with pod-name role keys.
@@ -450,7 +450,7 @@ func buildPerPodConfigEntries(config mongot.Config, stsName string, replicas int
 	return entries, keysToRemove, nil
 }
 
-func buildSingleConfigEntry(config mongot.Config) (map[string][]byte, []string, error) {
+func buildSingleConfigEntry(config mongot.Config, stsName string, replicas int) (map[string][]byte, []string, error) {
 	data, err := yaml.Marshal(config)
 	if err != nil {
 		return nil, nil, err
@@ -458,6 +458,9 @@ func buildSingleConfigEntry(config mongot.Config) (map[string][]byte, []string, 
 
 	entries := map[string][]byte{MongotConfigFilename: data}
 	keysToRemove := []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename}
+	for i := 0; i < replicas; i++ {
+		keysToRemove = append(keysToRemove, fmt.Sprintf("%s-%d", stsName, i))
+	}
 	return entries, keysToRemove, nil
 }
 
