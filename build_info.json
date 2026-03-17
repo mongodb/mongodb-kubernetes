@@ -417,22 +417,17 @@
     "mongodb-kubernetes": {
       "patch": {
         "version-prefix": "0.0.0+",
-        "registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com",
-        "region": "us-east-1",
-        "repository": "dev/mongodb/helm-charts"
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb/helm-charts"
       },
       "staging": {
         "sign": true,
         "version-prefix": "0.0.0+",
-        "registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com",
-        "secondary-repositories": ["quay.io/mongodb/staging/helm-charts"],
-        "region": "us-east-1",
-        "repository": "staging/mongodb/helm-charts"
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb/helm-charts",
+        "secondary-repositories": ["quay.io/mongodb/staging/helm-charts"]
       },
       "release": {
         "sign": true,
-        "registry": "quay.io",
-        "repository": "mongodb/helm-charts"
+        "repository": "quay.io/mongodb/helm-charts"
       }
     }
   }

@@ -100,9 +100,7 @@ def test_load_build_info_development():
         helm_charts={
             "mongodb-kubernetes": HelmChartInfo(
                 version_prefix="0.0.0+",
-                registry="268558157000.dkr.ecr.us-east-1.amazonaws.com",
-                repository="dev/mongodb/helm-charts",
-                region="us-east-1",
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb/helm-charts",
             )
         },
     )
@@ -202,9 +200,7 @@ def test_load_build_info_patch():
         helm_charts={
             "mongodb-kubernetes": HelmChartInfo(
                 version_prefix="0.0.0+",
-                region="us-east-1",
-                repository="dev/mongodb/helm-charts",
-                registry="268558157000.dkr.ecr.us-east-1.amazonaws.com",
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb/helm-charts",
             )
         },
     )
@@ -344,9 +340,7 @@ def test_load_build_info_staging():
             "mongodb-kubernetes": HelmChartInfo(
                 sign=True,
                 version_prefix="0.0.0+",
-                registry="268558157000.dkr.ecr.us-east-1.amazonaws.com",
-                repository="staging/mongodb/helm-charts",
-                region="us-east-1",
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb/helm-charts",
                 secondary_repositories=["quay.io/mongodb/staging/helm-charts"],
             )
         },
@@ -468,8 +462,7 @@ def test_load_build_info_release():
         helm_charts={
             "mongodb-kubernetes": HelmChartInfo(
                 sign=True,
-                registry="quay.io",
-                repository="mongodb/helm-charts",
+                repository="quay.io/mongodb/helm-charts",
             )
         },
     )
