@@ -25,6 +25,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -45,7 +46,6 @@ import (
 const (
 	envoyReplicas = int32(1)
 
-	envoyProxyPort = 27029
 	envoyAdminPort = 9901
 
 	envoyServerCertPath = "/etc/envoy/tls/server"
@@ -99,13 +99,23 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 
 	// Only act when lb.mode == Managed
 	if !mdbSearch.IsLBModeManaged() {
+		if mdbSearch.Status.LoadBalancer != nil {
+			r.clearLBStatus(ctx, mdbSearch, log)
+		}
 		return reconcile.Result{}, nil
+	}
+
+	// Fail fast if the envoy image is not configured
+	if _, err := r.envoyContainerImage(); err != nil {
+		r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
+		return reconcile.Result{}, err
 	}
 
 	// Resolve the source database (shared with the main search controller).
 	searchSource, err := getSearchSource(ctx, r.kubeClient, r.watch, mdbSearch, log)
 	if err != nil {
-		return reconcile.Result{RequeueAfter: 10 * time.Second}, err
+		r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
+		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	tlsCfg := searchSource.TLSConfig()
@@ -114,6 +124,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	routes := buildRoutes(mdbSearch, searchSource)
 	if len(routes) == 0 {
 		log.Warn("No routes to configure, nothing to deploy")
+		r.updateLBStatus(ctx, mdbSearch, workflow.Pending("No routes to configure for load balancer"), log)
 		return reconcile.Result{}, nil
 	}
 
@@ -122,16 +133,19 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	envoyJSON, err := buildEnvoyConfigJSON(routes, tlsEnabled, caKeyName)
 	if err != nil {
 		log.Errorf("Failed to build Envoy config JSON: %s", err)
+		r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 		return reconcile.Result{}, err
 	}
 
 	// Ensure ConfigMap
 	if err := r.ensureConfigMap(ctx, mdbSearch, envoyJSON, log); err != nil {
+		r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 		return reconcile.Result{}, err
 	}
 
 	// Ensure Deployment
 	if err := r.ensureDeployment(ctx, mdbSearch, envoyJSON, tlsCfg, log); err != nil {
+		r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 		return reconcile.Result{}, err
 	}
 
@@ -140,6 +154,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	for _, route := range routes {
 		currentServiceNames[route.ProxyServiceName] = true
 		if err := r.ensureProxyService(ctx, mdbSearch, route, log); err != nil {
+			r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 			return reconcile.Result{}, err
 		}
 	}
@@ -149,8 +164,29 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		log.Warnf("Failed to cleanup stale proxy services: %s", err)
 	}
 
+	r.updateLBStatus(ctx, mdbSearch, workflow.OK(), log)
 	log.Info("MongoDBSearchEnvoy reconciliation complete")
 	return reconcile.Result{}, nil
+}
+
+// updateLBStatus patches the loadBalancer sub-status on the MongoDBSearch CR.
+func (r *MongoDBSearchEnvoyReconciler) updateLBStatus(ctx context.Context, search *searchv1.MongoDBSearch, st workflow.Status, log *zap.SugaredLogger) {
+	partOption := searchv1.NewSearchPartOption(searchv1.SearchPartLoadBalancer)
+	if _, err := commoncontroller.UpdateStatus(ctx, r.kubeClient, search, st, log, partOption); err != nil {
+		log.Warnf("Failed to update loadBalancer status: %s", err)
+	}
+}
+
+// clearLBStatus removes the loadBalancer substatus when LB is no longer configured.
+// This works because UpdateStatus uses a JSON Patch targeting only /status/loadBalancer,
+// so it won't conflict with the main controller patching /status.
+func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
+	search.Status.LoadBalancer = nil
+	partOption := searchv1.NewSearchPartOption(searchv1.SearchPartLoadBalancer)
+	// GetStatus with LB part will return nil, which patches null into /status/loadBalancer
+	if _, err := commoncontroller.UpdateStatus(ctx, r.kubeClient, search, workflow.OK(), log, partOption); err != nil {
+		log.Warnf("Failed to clear loadBalancer status: %s", err)
+	}
 }
 
 // caKeyNameFromTLSConfig returns the CA key filename for Envoy config file paths.
@@ -371,7 +407,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, tlsCfg *searchcontroller.
 				Command: []string{"/usr/local/bin/envoy"},
 				Args:    []string{"-c", "/etc/envoy/envoy.json", "--log-level", "info"},
 				Ports: []corev1.ContainerPort{
-					{Name: "grpc", ContainerPort: envoyProxyPort},
+					{Name: "grpc", ContainerPort: searchv1.EnvoyDefaultProxyPort},
 					{Name: "admin", ContainerPort: envoyAdminPort},
 				},
 				Resources:       resources,
@@ -397,7 +433,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, tlsCfg *searchcontroller.
 // Returns an error if the env var is not set.
 func (r *MongoDBSearchEnvoyReconciler) envoyContainerImage() (string, error) {
 	if r.defaultEnvoyImage == "" {
-		return "", fmt.Errorf("MDB_ENVOY_IMAGE environment variable must be set to use managed load balancer")
+		return "", fmt.Errorf("%s environment variable must be set on the operator to use managed load balancer", util.EnvoyImageEnv)
 	}
 	return r.defaultEnvoyImage, nil
 }
@@ -446,8 +482,8 @@ func (r *MongoDBSearchEnvoyReconciler) ensureProxyService(ctx context.Context, s
 			Ports: []corev1.ServicePort{
 				{
 					Name:       "grpc",
-					Port:       envoyProxyPort,
-					TargetPort: intstr.FromInt32(envoyProxyPort),
+					Port:       searchv1.EnvoyDefaultProxyPort,
+					TargetPort: intstr.FromInt32(searchv1.EnvoyDefaultProxyPort),
 				},
 			},
 		}

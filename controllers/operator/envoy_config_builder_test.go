@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+
 	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -60,7 +62,7 @@ func TestBuildEnvoyConfigJSON_SingleShard_NoTLS(t *testing.T) {
 	require.Len(t, bootstrap.StaticResources.Listeners, 1)
 	listener := bootstrap.StaticResources.Listeners[0]
 	assert.Equal(t, "mongod_listener", listener.Name)
-	assert.Equal(t, uint32(envoyProxyPort), listener.Address.GetSocketAddress().GetPortValue())
+	assert.Equal(t, uint32(searchv1.EnvoyDefaultProxyPort), listener.Address.GetSocketAddress().GetPortValue())
 
 	// No TLS Inspector when TLS is disabled
 	assert.Empty(t, listener.ListenerFilters, "no TLS Inspector when TLS disabled")
