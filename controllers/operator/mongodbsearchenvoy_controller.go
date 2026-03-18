@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
-	"time"
 
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -105,17 +104,15 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return reconcile.Result{}, nil
 	}
 
-	// Fail fast if the envoy image is not configured
+	// Fail fast if the envoy image is not configured, this is a terminal config error and should not be re-enqueued
 	if _, err := r.envoyContainerImage(); err != nil {
-		r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
-		return reconcile.Result{}, err
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Invalid("%s", err), log)
 	}
 
 	// Resolve the source database (shared with the main search controller).
 	searchSource, err := getSearchSource(ctx, r.kubeClient, r.watch, mdbSearch, log)
 	if err != nil {
-		r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
-		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
 
 	tlsCfg := searchSource.TLSConfig()
@@ -124,29 +121,24 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	routes := buildRoutes(mdbSearch, searchSource)
 	if len(routes) == 0 {
 		log.Warn("No routes to configure, nothing to deploy")
-		r.updateLBStatus(ctx, mdbSearch, workflow.Pending("No routes to configure for load balancer"), log)
-		return reconcile.Result{}, nil
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("No routes to configure for load balancer"), log)
 	}
 
 	// Generate Envoy config JSON
 	caKeyName := caKeyNameFromTLSConfig(tlsCfg)
 	envoyJSON, err := buildEnvoyConfigJSON(routes, tlsEnabled, caKeyName)
 	if err != nil {
-		log.Errorf("Failed to build Envoy config JSON: %s", err)
-		r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
-		return reconcile.Result{}, err
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
 
 	// Ensure ConfigMap
 	if err := r.ensureConfigMap(ctx, mdbSearch, envoyJSON, log); err != nil {
-		r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
-		return reconcile.Result{}, err
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
 
 	// Ensure Deployment
 	if err := r.ensureDeployment(ctx, mdbSearch, envoyJSON, tlsCfg, log); err != nil {
-		r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
-		return reconcile.Result{}, err
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
 
 	// Ensure proxy Services (one per route)
@@ -154,8 +146,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	for _, route := range routes {
 		currentServiceNames[route.ProxyServiceName] = true
 		if err := r.ensureProxyService(ctx, mdbSearch, route, log); err != nil {
-			r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
-			return reconcile.Result{}, err
+			return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 		}
 	}
 
@@ -164,17 +155,15 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		log.Warnf("Failed to cleanup stale proxy services: %s", err)
 	}
 
-	r.updateLBStatus(ctx, mdbSearch, workflow.OK(), log)
 	log.Info("MongoDBSearchEnvoy reconciliation complete")
-	return reconcile.Result{}, nil
+	return r.updateLBStatus(ctx, mdbSearch, workflow.OK(), log)
 }
 
-// updateLBStatus patches the loadBalancer sub-status on the MongoDBSearch CR.
-func (r *MongoDBSearchEnvoyReconciler) updateLBStatus(ctx context.Context, search *searchv1.MongoDBSearch, st workflow.Status, log *zap.SugaredLogger) {
+// updateLBStatus patches the loadBalancer sub-status on the MongoDBSearch CR
+// and returns the reconcile result derived from the workflow status.
+func (r *MongoDBSearchEnvoyReconciler) updateLBStatus(ctx context.Context, search *searchv1.MongoDBSearch, st workflow.Status, log *zap.SugaredLogger) (reconcile.Result, error) {
 	partOption := searchv1.NewSearchPartOption(searchv1.SearchPartLoadBalancer)
-	if _, err := commoncontroller.UpdateStatus(ctx, r.kubeClient, search, st, log, partOption); err != nil {
-		log.Warnf("Failed to update loadBalancer status: %s", err)
-	}
+	return commoncontroller.UpdateStatus(ctx, r.kubeClient, search, st, log, partOption)
 }
 
 // clearLBStatus removes the loadBalancer substatus when LB is no longer configured.
