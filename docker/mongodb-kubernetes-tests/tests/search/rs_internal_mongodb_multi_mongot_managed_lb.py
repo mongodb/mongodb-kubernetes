@@ -232,3 +232,50 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
     phase = mdbs.get_status_phase()
     assert phase == Phase.Running, f"MongoDBSearch phase is {phase}, expected Running"
     logger.info(f"MongoDBSearch {mdbs.name} is in Running phase")
+
+
+@mark.e2e_search_rs_enterprise_managed_lb
+def test_patch_envoy_deployment_override(mdbs: MongoDBSearch):
+    """Patch MongoDBSearch CR to add a sidecar via deploymentConfiguration."""
+    mdbs.load()
+    mdbs["spec"]["lb"]["envoy"] = {
+        "deploymentConfiguration": {
+            "metadata": {
+                "labels": {"test-override": "deployment-config"},
+            },
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "envoy-sidecar",
+                                "image": "busybox",
+                                "command": ["sleep"],
+                                "args": ["7200"],
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+    }
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@mark.e2e_search_rs_enterprise_managed_lb
+def test_verify_envoy_deployment_override(namespace: str):
+    """Verify deploymentConfiguration overrides are applied to the Envoy Deployment."""
+    envoy_deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
+    apps_v1 = client.AppsV1Api()
+    deployment = apps_v1.read_namespaced_deployment(envoy_deployment_name, namespace)
+
+    # Sidecar container is present
+    containers = deployment.spec.template.spec.containers
+    container_names = [c.name for c in containers]
+    assert "envoy" in container_names, f"envoy container missing, found: {container_names}"
+    assert "envoy-sidecar" in container_names, f"sidecar missing, found: {container_names}"
+    assert len(containers) == 2, f"Expected 2 containers, got {len(containers)}: {container_names}"
+
+    # Custom label is present
+    assert deployment.metadata.labels.get("test-override") == "deployment-config"
