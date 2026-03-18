@@ -106,6 +106,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	log = log.With("MongoDBSearch", r.mdbSearch.NamespacedName())
 	log.Infof("Reconciling MongoDBSearch")
 
+	if err := r.mdbSearch.ValidateSpec(); err != nil {
+		return workflow.Invalid("%s", err.Error())
+	}
+
 	if err := r.db.Validate(); err != nil {
 		return workflow.Failed(err)
 	}
@@ -391,6 +395,9 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 		for key, data := range configEntries {
 			cm.Data[key] = string(data)
 		}
+		// Remove stale keys left over from config mode transitions (single↔per-pod).
+		// When switching from per-pod to single config, the leader/follower files and
+		// pod-name role keys are no longer needed (and vice versa for config.yml).
 		for _, key := range keysToRemove {
 			delete(cm.Data, key)
 		}

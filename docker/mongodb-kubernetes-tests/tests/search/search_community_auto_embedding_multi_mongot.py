@@ -1,9 +1,9 @@
 """
-E2E test for Community ReplicaSet MongoDB Search with auto-embedding and multiple mongot instances.
+E2E test for Community ReplicaSet MongoDB Search with auto-embedding and multiple mongot instances (replicas=2).
 
 This test verifies the per-pod mongot config feature end-to-end:
-- When autoEmbedding is set, the operator generates per-pod leader/follower
-  configs in the mongot ConfigMap instead of a single config.yml.
+- When autoEmbedding is configured with replicas=2, the operator generates per-pod
+  leader/follower configs in the mongot ConfigMap instead of a single config.yml.
 - Pod {stsName}-0 gets role 'leader' (with IsAutoEmbeddingViewWriter: true), all others get 'follower'.
 - The startup script uses $HOSTNAME to pick the correct config file per pod.
 

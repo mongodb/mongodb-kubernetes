@@ -2,10 +2,31 @@ package search
 
 import (
 	"errors"
+	"fmt"
+	"regexp"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 )
+
+type namingStandard int
+
+const (
+	// dnsLabel: RFC 1123 DNS Label (max 63 chars, no dots) - StatefulSet, Service, Pod
+	dnsLabel namingStandard = iota
+	// dnsSubdomain: RFC 1123 DNS Subdomain (max 253 chars, dots allowed) - ConfigMap, Secret
+	dnsSubdomain
+)
+
+type shardResourceName struct {
+	ResourceType string
+	Name         string
+	Standard     namingStandard
+}
+
+var validJVMFlagChars = regexp.MustCompile(`^[a-zA-Z0-9._+:=-]+$`)
 
 func (s *MongoDBSearch) ValidateSpec() error {
 	for _, res := range s.RunValidations() {
@@ -21,6 +42,8 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateLBConfig,
 		validateUnmanagedLBConfig,
 		validateEndpointTemplate,
+		validateShardNames,
+		validateJVMFlags,
 	}
 
 	var results []v1.ValidationResult
@@ -85,4 +108,158 @@ func validateEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 	}
 
 	return v1.ValidationSuccess()
+}
+
+// generateShardResourceNames returns all resource names that will be created for a shard.
+// Uses existing naming methods from MongoDBSearch to ensure consistency with actual resource creation.
+func generateShardResourceNames(s *MongoDBSearch, shardName string) []shardResourceName {
+	stsName := s.MongotStatefulSetForShard(shardName).Name
+	resources := []shardResourceName{
+		{ResourceType: "StatefulSet", Name: stsName, Standard: dnsLabel},
+		{ResourceType: "Pod (max ordinal)", Name: stsName + "-999", Standard: dnsLabel},
+		{ResourceType: "Service", Name: s.MongotServiceForShard(shardName).Name, Standard: dnsLabel},
+		{ResourceType: "ConfigMap", Name: s.MongotConfigMapForShard(shardName).Name, Standard: dnsSubdomain},
+	}
+
+	if s.IsTLSConfigured() {
+		resources = append(resources, shardResourceName{
+			ResourceType: "TLS Certificate Secret",
+			Name:         s.TLSSecretForShard(shardName).Name,
+			Standard:     dnsSubdomain,
+		})
+	}
+
+	if s.IsLBModeManaged() {
+		resources = append(resources, shardResourceName{
+			ResourceType: "Proxy Service",
+			Name:         s.LoadBalancerProxyServiceNameForShard(shardName),
+			Standard:     dnsLabel,
+		})
+
+		if s.IsTLSConfigured() {
+			resources = append(resources, shardResourceName{
+				ResourceType: "LB Server Certificate Secret",
+				Name:         s.LoadBalancerServerCertForShard(shardName).Name,
+				Standard:     dnsSubdomain,
+			})
+		}
+	}
+
+	return resources
+}
+
+func validateShardNames(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsExternalSourceSharded() {
+		return v1.ValidationSuccess()
+	}
+
+	shards := s.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards
+	seenShardNames := make(map[string]struct{}, len(shards))
+
+	for i, shard := range shards {
+		shardName := shard.ShardName
+
+		if shardName == "" {
+			return v1.ValidationError("spec.source.external.shardedCluster.shards[%d].shardName is required", i)
+		}
+
+		if err := ValidateShardNameRFC1123(shardName); err != nil {
+			return v1.ValidationError("%s", err.Error())
+		}
+
+		if _, exists := seenShardNames[shardName]; exists {
+			return v1.ValidationError(
+				"duplicate shardName '%s' in spec.source.external.shardedCluster.shards",
+				shardName,
+			)
+		}
+		seenShardNames[shardName] = struct{}{}
+
+		resourceNames := generateShardResourceNames(s, shardName)
+		for _, resource := range resourceNames {
+			if err := validateResourceName(resource, s.Name, shardName); err != nil {
+				return v1.ValidationError("%s", err.Error())
+			}
+		}
+	}
+
+	return v1.ValidationSuccess()
+}
+
+// validateJVMFlags validates the JVM flags passed provided by the users using MongoDBSearch's
+// spec.JVMFlags field.
+// These jvm flags are directly passed to the mongot process that we run.
+func validateJVMFlags(s *MongoDBSearch) v1.ValidationResult {
+	for i, flag := range s.Spec.JVMFlags {
+		if flag == "" {
+			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] must not be empty", i)
+		}
+
+		if strings.Contains(flag, " ") {
+			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] must not contain spaces, got '%s'", i, flag)
+		}
+
+		if !strings.HasPrefix(flag, "-X") && !strings.HasPrefix(flag, "-XX:") && !strings.HasPrefix(flag, "-D") {
+			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] must start with -X, -XX:, or -D, got '%s'", i, flag)
+		}
+
+		if !validJVMFlagChars.MatchString(flag) {
+			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] contains invalid characters, only [a-zA-Z0-9._+:-=] are allowed, got '%s'", i, flag)
+		}
+	}
+
+	return v1.ValidationSuccess()
+}
+
+func validateResourceName(resource shardResourceName, searchName, shardName string) error {
+	var maxLen int
+	var standardName string
+
+	switch resource.Standard {
+	case dnsLabel:
+		maxLen = validation.DNS1123LabelMaxLength
+		standardName = "DNS label"
+	case dnsSubdomain:
+		maxLen = validation.DNS1123SubdomainMaxLength
+		standardName = "DNS subdomain"
+	}
+
+	if len(resource.Name) > maxLen {
+		excess := len(resource.Name) - maxLen
+		return fmt.Errorf(
+			"%s name '%s' (%d chars) exceeds the %d-character Kubernetes limit by %d characters. "+
+				"Reduce MongoDBSearch name '%s' (%d chars) or shardName '%s' (%d chars)",
+			resource.ResourceType, resource.Name, len(resource.Name), maxLen, excess,
+			searchName, len(searchName), shardName, len(shardName),
+		)
+	}
+
+	var validationErrs []string
+	switch resource.Standard {
+	case dnsLabel:
+		validationErrs = validation.IsDNS1123Label(resource.Name)
+	case dnsSubdomain:
+		validationErrs = validation.IsDNS1123Subdomain(resource.Name)
+	}
+
+	if len(validationErrs) > 0 {
+		return fmt.Errorf(
+			"%s name '%s' is not a valid %s: %s",
+			resource.ResourceType, resource.Name, standardName, strings.Join(validationErrs, ", "),
+		)
+	}
+
+	return nil
+}
+
+func ValidateShardNameRFC1123(shardName string) error {
+	if shardName == "" {
+		return fmt.Errorf("shardName is required")
+	}
+
+	if errs := validation.IsDNS1123Label(shardName); len(errs) > 0 {
+		return fmt.Errorf("shardName '%s' is invalid: %s", shardName, strings.Join(errs, ", "))
+	}
+
+	return nil
 }

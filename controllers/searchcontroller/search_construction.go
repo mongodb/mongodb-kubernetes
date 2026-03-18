@@ -2,6 +2,7 @@ package searchcontroller
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"k8s.io/apimachinery/pkg/types"
@@ -168,14 +169,43 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 	)
 }
 
+func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.ResourceRequirements) string {
+	flags := []string{}
+
+	var heapConfigured bool
+	for _, jvmFlag := range mdbSearch.Spec.JVMFlags {
+		if strings.HasPrefix(jvmFlag, "-Xms") || strings.HasPrefix(jvmFlag, "-Xmx") {
+			heapConfigured = true
+			break
+		}
+	}
+	// it's recommended to set the minimum heap size (-Xms) and maximum heap size (-Xmx) to the same value
+	// but if any of them are provided by the users we are not setting defaults. Only set defaults if
+	// none of them are provided.
+	if !heapConfigured {
+		// in this document we are recommended to set the half of memory to the JVM heap https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
+		// so we should do that even if the jvm flags are not configured by users.
+		memRequest := resourceRequirements.Requests.Memory()
+		halfBytes := memRequest.Value() / 2
+		halfMB := halfBytes / (1024 * 1024)
+		flags = append(flags, fmt.Sprintf("-Xmx%dm", halfMB))
+		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
+	}
+
+	flagsValue := strings.Join(append(flags, mdbSearch.Spec.JVMFlags...), " ")
+	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
+}
+
 func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+	resourceRequirements := createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)
+	jvmFlags := jvmFlags(mdbSearch, resourceRequirements)
 
 	var mongotStartCommand string
 	if usePerPodConfig {
-		mongotStartCommand = mongotPerPodConfigStartCommand()
+		mongotStartCommand = mongotPerPodConfigStartCommand(jvmFlags)
 	} else {
-		mongotStartCommand = fmt.Sprintf("/mongot-community/mongot --config %s", MongotConfigPath)
+		mongotStartCommand = fmt.Sprintf("/mongot-community/mongot --config %s %s", MongotConfigPath, jvmFlags)
 	}
 
 	return container.Apply(
@@ -184,7 +214,7 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 		container.WithImagePullPolicy(corev1.PullAlways),
 		container.WithLivenessProbe(mongotLivenessProbe(mdbSearch)),
 		container.WithReadinessProbe(mongotReadinessProbe(mdbSearch)),
-		container.WithResourceRequirements(createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)),
+		container.WithResourceRequirements(resourceRequirements),
 		container.WithVolumeMounts(volumeMounts),
 		container.WithCommand([]string{"sh"}),
 		container.WithArgs([]string{
@@ -197,10 +227,10 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 }
 
 // mongotPerPodConfigStartCommand returns the shell script that reads the pod's role from ConfigMap.
-func mongotPerPodConfigStartCommand() string {
+func mongotPerPodConfigStartCommand(jvmFlags string) string {
 	return fmt.Sprintf(`ROLE=$(cat "%s/$HOSTNAME")
-/mongot-community/mongot --config %s/config-${ROLE}.yml`,
-		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath)
+/mongot-community/mongot --config %s/config-${ROLE}.yml %s`,
+		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath, jvmFlags)
 }
 
 func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
@@ -239,20 +269,34 @@ func mongotReadinessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
 	)
 }
 
-func createSearchResourceRequirements(requirements *corev1.ResourceRequirements) corev1.ResourceRequirements {
-	if requirements != nil {
-		return *requirements
-	} else {
-		return newSearchDefaultRequirements()
+func createSearchResourceRequirements(userRequirements *corev1.ResourceRequirements) corev1.ResourceRequirements {
+	defaults := newSearchDefaultRequirements()
+	if userRequirements == nil {
+		return defaults
 	}
+
+	if userRequirements.Requests == nil {
+		userRequirements.Requests = defaults.Requests
+		return *userRequirements
+	}
+
+	if userRequirements.Requests.Memory().IsZero() {
+		userRequirements.Requests[corev1.ResourceMemory] = defaults.Requests[corev1.ResourceMemory]
+	}
+	if userRequirements.Requests.Cpu().IsZero() {
+		userRequirements.Requests[corev1.ResourceCPU] = defaults.Requests[corev1.ResourceCPU]
+	}
+
+	return *userRequirements
 }
 
 func newSearchDefaultRequirements() corev1.ResourceRequirements {
-	// TODO: add default limits once there is an official mongot sizing guide
+	// according to the document https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/quick-start/, we should use
+	// a small or medium High-CPU node for general use cases. That's what we return from here.
 	return corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    construct.ParseQuantityOrZero("2"),
-			corev1.ResourceMemory: construct.ParseQuantityOrZero("2G"),
+			corev1.ResourceMemory: construct.ParseQuantityOrZero("4Gi"),
 		},
 	}
 }

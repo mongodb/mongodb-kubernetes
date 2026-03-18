@@ -45,8 +45,8 @@ func (r *ShardedExternalSearchSource) Validate() error {
 
 	seenShards := make(map[string]struct{}, len(r.spec.ShardedCluster.Shards))
 	for i, shard := range r.spec.ShardedCluster.Shards {
-		if shard.ShardName == "" {
-			return xerrors.Errorf("shard[%d].shardName is required", i)
+		if err := searchv1.ValidateShardNameRFC1123(shard.ShardName); err != nil {
+			return xerrors.Errorf("shard[%d]: %w", i, err)
 		}
 
 		if _, ok := seenShards[shard.ShardName]; ok {
