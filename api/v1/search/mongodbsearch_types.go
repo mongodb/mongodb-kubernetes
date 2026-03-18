@@ -138,6 +138,12 @@ type EnvoyConfig struct {
 	// When set, replaces the defaults entirely.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// DeploymentConfiguration holds the optional custom Deployment configuration
+	// that will be merged into the operator-created Envoy Deployment.
+	// Use to provide customizations (tolerations, affinity, nodeSelector, annotations, etc.)
+	// which aren't exposed as fields in spec.lb.envoy.
+	// +optional
+	DeploymentConfiguration *common.DeploymentConfiguration `json:"deploymentConfiguration,omitempty"`
 }
 
 type EmbeddingConfig struct {
