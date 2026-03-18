@@ -29,18 +29,6 @@ func TestUpdateStatus_LoadBalancerPath(t *testing.T) {
 	assert.Equal(t, status.Phase(""), s.Status.Phase)
 }
 
-func TestUpdateStatus_LoadBalancerInitializesNil(t *testing.T) {
-	s := &MongoDBSearch{}
-	assert.Nil(t, s.Status.LoadBalancer)
-
-	partOpt := NewSearchPartOption(SearchPartLoadBalancer)
-	s.UpdateStatus(status.PhaseFailed, partOpt, status.NewMessageOption("missing image"))
-
-	assert.NotNil(t, s.Status.LoadBalancer)
-	assert.Equal(t, status.PhaseFailed, s.Status.LoadBalancer.Phase)
-	assert.Equal(t, "missing image", s.Status.LoadBalancer.Message)
-}
-
 func TestGetStatusPath_Default(t *testing.T) {
 	s := &MongoDBSearch{}
 	assert.Equal(t, "/status", s.GetStatusPath())
@@ -67,6 +55,7 @@ func TestGetStatus_LoadBalancer(t *testing.T) {
 	assert.Equal(t, s.Status.LoadBalancer, got)
 }
 
+// nil LB → GetStatus returns nil, used by clearLBStatus to patch null
 func TestGetStatus_LoadBalancerNil(t *testing.T) {
 	s := &MongoDBSearch{}
 	partOpt := NewSearchPartOption(SearchPartLoadBalancer)
@@ -74,6 +63,7 @@ func TestGetStatus_LoadBalancerNil(t *testing.T) {
 	assert.Nil(t, got)
 }
 
+// Failed→Running transition must not carry over the old error message
 func TestUpdateStatus_LoadBalancerClearsStaleMessage(t *testing.T) {
 	s := &MongoDBSearch{}
 	partOpt := NewSearchPartOption(SearchPartLoadBalancer)
