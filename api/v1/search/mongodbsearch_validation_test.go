@@ -60,6 +60,11 @@ func TestValidateShardNames(t *testing.T) {
 			errorContains: "must not contain dots",
 		},
 		{
+			name:          "invalid shard name with underscore",
+			search:        newSearch("my-search", []ExternalShardConfig{shard("shard_zero")}, "", false, false),
+			errorContains: "invalid",
+		},
+		{
 			name:          "invalid duplicate shard names",
 			search:        newSearch("my-search", []ExternalShardConfig{shard("shard0"), shard("shard0")}, "", false, false),
 			errorContains: "duplicate",
