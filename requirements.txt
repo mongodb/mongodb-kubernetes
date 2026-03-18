@@ -24,7 +24,7 @@ setuptools>=71.0.3 # not directly required, pinned by Snyk to avoid a vulnerabil
 opentelemetry-api==1.39.1
 opentelemetry-sdk==1.39.1
 pytest-opentelemetry==1.1.0
-black==26.1.0
+black==26.3.1
 flake8==7.3.0
 isort==7.0.0
 shrub.py==3.10.0
