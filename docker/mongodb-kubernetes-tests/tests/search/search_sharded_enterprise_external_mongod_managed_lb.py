@@ -280,5 +280,6 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
 
     phase = mdbs.get_status_phase()
     assert phase == Phase.Running, f"MongoDBSearch phase is {phase}, expected Running"
+    mdbs.assert_lb_status()
 
     logger.info(f"MongoDBSearch {mdbs.name} is in Running phase")
