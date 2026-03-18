@@ -92,12 +92,8 @@ class MongoDBSearch(MongoDB, CustomObject):
         if self.is_lb_mode_managed():
             assert lb is not None, "status.loadBalancer is missing for managed LB"
             lb_phase = self.get_lb_status_phase()
-            assert lb_phase == Phase.Running, (
-                f"status.loadBalancer.phase is {lb_phase}, expected Running"
-            )
+            assert lb_phase == Phase.Running, f"status.loadBalancer.phase is {lb_phase}, expected Running"
             logger.info(f"MongoDBSearch {self.name}: loadBalancer status is Running")
         else:
-            assert lb is None, (
-                f"status.loadBalancer should be absent for non-managed LB, got: {lb}"
-            )
+            assert lb is None, f"status.loadBalancer should be absent for non-managed LB, got: {lb}"
             logger.info(f"MongoDBSearch {self.name}: loadBalancer status correctly absent")
