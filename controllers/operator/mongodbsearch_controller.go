@@ -54,7 +54,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 
 	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
 	if err != nil {
-		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Pending("Waiting for MongoDB source: %s", err), log)
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("Waiting for MongoDB source: %s", err)), log)
 	}
 
 	if mdbSearch.IsWireprotoEnabled() {
