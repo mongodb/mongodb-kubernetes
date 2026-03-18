@@ -37,10 +37,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
-// TODO: in this controller, when writing code, keep in mind that we will want to re-use the "config generation" logic
-//  later in a kubectl plugin, so that users can generate the appropriate config themselves with the CLI tool, when
-//  they are deploying their own LB
-
 // Some of these variables can be exposed as configuration to the user
 const (
 	envoyReplicas = int32(1)
@@ -203,7 +199,8 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string) []env
 	mongotPort := search.GetMongotGrpcPort()
 
 	for _, shardName := range shardNames {
-		proxyServiceName := search.LoadBalancerProxyServiceNameForShard(shardName)
+		lbServiceName := search.LoadBalancerProxyServiceNameForShard(shardName)
+		sniServiceName := search.ProxyServiceNameForShard(shardName).Name
 		mongotServiceName := search.MongotServiceForShard(shardName).Name
 
 		sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", proxyServiceName, namespace)
@@ -217,7 +214,7 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string) []env
 			SNIHostname:      sniHostname,
 			UpstreamHost:     fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
 			UpstreamPort:     mongotPort,
-			ProxyServiceName: proxyServiceName,
+			ProxyServiceName: lbServiceName,
 		})
 	}
 
@@ -226,7 +223,8 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string) []env
 
 // buildReplicaSetRoute returns the single route for a ReplicaSet.
 func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
-	proxyServiceName := search.LoadBalancerServiceName()
+	lbServiceName := search.LoadBalancerServiceName()
+	sniServiceName := search.ProxyServiceNamespacedName().Name
 	mongotServiceName := search.SearchServiceNamespacedName().Name
 	namespace := search.Namespace
 
@@ -241,7 +239,7 @@ func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
 		SNIHostname:      sniHostname,
 		UpstreamHost:     fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
 		UpstreamPort:     search.GetMongotGrpcPort(),
-		ProxyServiceName: proxyServiceName,
+		ProxyServiceName: lbServiceName,
 	}
 }
 

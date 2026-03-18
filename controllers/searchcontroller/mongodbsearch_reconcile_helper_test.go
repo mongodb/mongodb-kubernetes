@@ -222,7 +222,7 @@ func TestGetMongodConfigParameters_TransportAndPorts(t *testing.T) {
 			if tc.withWireproto {
 				expectedPort = search.GetMongotWireprotoPort()
 			}
-			expectedPrefix := fmt.Sprintf("%s.%s.svc.%s", search.Name+"-search-svc", search.Namespace, clusterDomain)
+			expectedPrefix := fmt.Sprintf("%s.%s.svc.%s", search.Name+"-search-proxy-svc", search.Namespace, clusterDomain)
 			expectedSuffix := fmt.Sprintf(":%d", expectedPort)
 
 			for _, key := range []string{"mongotHost", "searchIndexManagementHostAndPort"} {
@@ -253,7 +253,7 @@ func TestGetMongodConfigParameters_ManagedLB(t *testing.T) {
 
 	setParams := params["setParameter"].(map[string]any)
 
-	expectedEndpoint := "test-mongodb-search-search-lb-svc.test.svc.cluster.local:27028"
+	expectedEndpoint := "test-mongodb-search-search-proxy-svc.test.svc.cluster.local:27028"
 	assert.Equal(t, expectedEndpoint, setParams["mongotHost"])
 	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
 	assert.Equal(t, true, setParams["useGrpcForSearch"])
@@ -272,8 +272,8 @@ func TestGetMongodConfigParameters_NoLB(t *testing.T) {
 
 	setParams := params["setParameter"].(map[string]any)
 
-	// Without LB, should point directly to mongot headless service
-	expectedEndpoint := "test-mongodb-search-search-svc.test.svc.cluster.local:27028"
+	// Without LB, should point to the stable proxy service
+	expectedEndpoint := "test-mongodb-search-search-proxy-svc.test.svc.cluster.local:27028"
 	assert.Equal(t, expectedEndpoint, setParams["mongotHost"])
 	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
 }
@@ -814,7 +814,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 		useUnmanagedLB bool
 	}{
 		{
-			name: "Internal service endpoint (no unmanaged LB)",
+			name: "Proxy service endpoint (no unmanaged LB)",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -830,7 +830,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 			},
 			shardName:      "test-mdb-0",
 			clusterDomain:  "cluster.local",
-			expectedHost:   "test-search-search-0-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
+			expectedHost:   "test-search-search-0-test-mdb-0-proxy-svc.test-ns.svc.cluster.local:27028",
 			useUnmanagedLB: false,
 		},
 		{
@@ -1203,8 +1203,8 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			},
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// Uses first shard's internal service endpoint
-			expectedHost: "test-search-search-0-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
+			// Uses first shard's proxy service endpoint
+			expectedHost: "test-search-search-0-test-mdb-0-proxy-svc.test-ns.svc.cluster.local:27028",
 		},
 		{
 			name: "Unmanaged LB endpoint - uses first shard's endpoint via template",
