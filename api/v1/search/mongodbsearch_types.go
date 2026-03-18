@@ -32,6 +32,11 @@ const (
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
+
+	// ProxyServiceSuffix is the suffix used for the stable proxy Service that mongod connects to.
+	// This Service always exists (except for unmanaged LB) and its selector flips between
+	// mongot pods (no LB) and Envoy pods (managed LB), keeping mongotHost stable.
+	ProxyServiceSuffix = "proxy-svc"
 )
 
 func init() {
@@ -353,6 +358,19 @@ func (s *MongoDBSearch) NamespacedName() types.NamespacedName {
 
 func (s *MongoDBSearch) SearchServiceNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-svc", Namespace: s.Namespace}
+}
+
+// ProxyServiceNamespacedName returns the stable proxy Service name for ReplicaSet topologies.
+func (s *MongoDBSearch) ProxyServiceNamespacedName() types.NamespacedName {
+	return types.NamespacedName{Name: s.Name + "-search-" + ProxyServiceSuffix, Namespace: s.Namespace}
+}
+
+// ProxyServiceNameForShard returns the stable proxy Service name for a specific shard.
+func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-0-%s-%s", s.Name, shardName, ProxyServiceSuffix),
+		Namespace: s.Namespace,
+	}
 }
 
 func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedName {
@@ -708,7 +726,7 @@ func (s *MongoDBSearch) LoadBalancerClientCert() types.NamespacedName {
 	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-client-cert", s.Name), Namespace: s.Namespace}
 }
 
-// LoadBalancerProxyServiceNameForShard returns the per-shard proxy Service name used for SNI routing.
+// LoadBalancerProxyServiceNameForShard returns the per-shard Envoy LB Service name used for L7 routing.
 func (s *MongoDBSearch) LoadBalancerProxyServiceNameForShard(shardName string) string {
-	return fmt.Sprintf("%s-search-0-%s-proxy-svc", s.Name, shardName)
+	return fmt.Sprintf("%s-search-0-%s-lb-svc", s.Name, shardName)
 }
