@@ -248,7 +248,10 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 	replicas := envoyReplicas
 	labels := envoyLabels(search)
 	tlsEnabled := search.IsTLSConfigured()
-	image := r.envoyContainerImage(search)
+	image, err := r.envoyContainerImage()
+	if err != nil {
+		return err
+	}
 	resources := envoyResourceRequirements(search)
 	managedSecurityContext := envvar.ReadBool(podtemplatespec.ManagedSecurityContextEnv) // nolint:forbidigo
 
@@ -259,7 +262,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 		},
 	}
 
-	_, err := controllerutil.CreateOrUpdate(ctx, r.kubeClient, dep, func() error {
+	_, err = controllerutil.CreateOrUpdate(ctx, r.kubeClient, dep, func() error {
 		dep.Labels = labels
 
 		dep.Spec = appsv1.DeploymentSpec{
@@ -390,15 +393,13 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, tlsCfg *searchcontroller.
 	}
 }
 
-// envoyContainerImage returns the envoy image using the priority:
-// CRD field > operator env var default > hardcoded constant.
-func (r *MongoDBSearchEnvoyReconciler) envoyContainerImage(search *searchv1.MongoDBSearch) string {
-	if search.Spec.LoadBalancer != nil &&
-		search.Spec.LoadBalancer.Envoy != nil &&
-		search.Spec.LoadBalancer.Envoy.Image != "" {
-		return search.Spec.LoadBalancer.Envoy.Image
+// envoyContainerImage returns the envoy image from the MDB_ENVOY_IMAGE env var.
+// Returns an error if the env var is not set.
+func (r *MongoDBSearchEnvoyReconciler) envoyContainerImage() (string, error) {
+	if r.defaultEnvoyImage == "" {
+		return "", fmt.Errorf("MDB_ENVOY_IMAGE environment variable must be set to use managed load balancer")
 	}
-	return r.defaultEnvoyImage
+	return r.defaultEnvoyImage, nil
 }
 
 // envoyResourceRequirements returns user-specified resource requirements

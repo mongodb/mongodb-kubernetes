@@ -647,7 +647,7 @@ spec:
             - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_f85ffd3e5a
               value: "quay.io/mongodb/mongodb-search:f85ffd3e5a"
             - name: RELATED_IMAGE_MDB_ENVOY_IMAGE
-              value: "envoyproxy/envoy:v1.31-latest"
+              value: "envoyproxy/envoy:v1.37-latest"
             - name: MDB_SEARCH_REPO_URL
               value: "quay.io/mongodb"
             - name: MDB_SEARCH_NAME
@@ -655,7 +655,7 @@ spec:
             - name: MDB_SEARCH_VERSION
               value: "f85ffd3e5a"
             - name: MDB_ENVOY_IMAGE
-              value: "envoyproxy/envoy:v1.31-latest"
+              value: "envoyproxy/envoy:v1.37-latest"
       volumes:
         - name: webhook-server-dir
           emptyDir: {}
