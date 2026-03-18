@@ -15,9 +15,8 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${u
   use sample_mflix;
 
   // Check if index already exists
-  const existing = db.movies.aggregate([
-    { $listSearchIndexes: {} }
-  ]).toArray();
+  const result = db.runCommand({ listSearchIndexes: "movies" });
+  const existing = (result.ok && result.cursor && result.cursor.firstBatch) ? result.cursor.firstBatch : [];
 
   if (existing.some(idx => idx.name === "default")) {
     print("Search index '\''default'\'' already exists");

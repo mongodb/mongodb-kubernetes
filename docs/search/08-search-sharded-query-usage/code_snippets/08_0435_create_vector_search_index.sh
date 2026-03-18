@@ -19,9 +19,8 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${u
     print("Vector search index creation skipped.");
   } else {
     // Check if index already exists
-    const existing = db.embedded_movies.aggregate([
-      { $listSearchIndexes: {} }
-    ]).toArray();
+    const result = db.runCommand({ listSearchIndexes: "embedded_movies" });
+    const existing = (result.ok && result.cursor && result.cursor.firstBatch) ? result.cursor.firstBatch : [];
 
     if (existing.some(idx => idx.name === "vector_index")) {
       print("Vector search index '\''vector_index'\'' already exists");
