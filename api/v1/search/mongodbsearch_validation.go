@@ -3,6 +3,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -25,6 +26,7 @@ type shardResourceName struct {
 	Standard     namingStandard
 }
 
+var validJVMFlagChars = regexp.MustCompile(`^[a-zA-Z0-9._+:=-]+$`)
 
 func (s *MongoDBSearch) ValidateSpec() error {
 	for _, res := range s.RunValidations() {
@@ -41,6 +43,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateUnmanagedLBConfig,
 		validateEndpointTemplate,
 		validateShardNames,
+		validateJVMFlags,
 	}
 
 	var results []v1.ValidationResult
@@ -177,6 +180,31 @@ func validateShardNames(s *MongoDBSearch) v1.ValidationResult {
 			if err := validateResourceName(resource, s.Name, shardName); err != nil {
 				return v1.ValidationError("%s", err.Error())
 			}
+		}
+	}
+
+	return v1.ValidationSuccess()
+}
+
+// validateJVMFlags validates the JVM flags passed provided by the users using MongoDBSearch's
+// spec.JVMFlags field.
+// These jvm flags are directly passed to the mongot process that we run.
+func validateJVMFlags(s *MongoDBSearch) v1.ValidationResult {
+	for i, flag := range s.Spec.JVMFlags {
+		if flag == "" {
+			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] must not be empty", i)
+		}
+
+		if strings.Contains(flag, " ") {
+			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] must not contain spaces, got '%s'", i, flag)
+		}
+
+		if !strings.HasPrefix(flag, "-X") && !strings.HasPrefix(flag, "-XX:") && !strings.HasPrefix(flag, "-D") {
+			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] must start with -X, -XX:, or -D, got '%s'", i, flag)
+		}
+
+		if !validJVMFlagChars.MatchString(flag) {
+			return v1.ValidationError("MongoDBSearch resource is invalid, spec.jvmFlags[%d] contains invalid characters, only [a-zA-Z0-9._+:-=] are allowed, got '%s'", i, flag)
 		}
 	}
 
