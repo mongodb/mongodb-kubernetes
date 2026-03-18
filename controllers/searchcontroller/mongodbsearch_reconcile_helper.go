@@ -152,6 +152,12 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 		return workflow.Failed(err)
 	}
 
+	if !r.mdbSearch.IsReplicaSetUnmanagedLB() {
+		if err := r.ensureSearchService(ctx, log, r.mdbSearch.ProxyServiceNamespacedName(), buildProxyService(r.mdbSearch)); err != nil {
+			return workflow.Failed(err)
+		}
+	}
+
 	// Password auth volume is only needed when not using x509 auth
 	passwordAuthStsModification := statefulset.NOOP()
 	if !r.mdbSearch.IsX509Auth() {
@@ -283,6 +289,12 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			return workflow.Failed(err)
 		}
 
+		if !r.mdbSearch.IsShardedUnmanagedLB() {
+			if err := r.ensureSearchService(ctx, shardLog, r.mdbSearch.ProxyServiceNameForShard(shardName), buildProxyServiceForShard(r.mdbSearch, shardName)); err != nil {
+				return workflow.Failed(err)
+			}
+		}
+
 		perShardTLS := &perShardTLSResource{MongoDBSearch: r.mdbSearch, shardName: shardName}
 		ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx, perShardTLS)
 		if err != nil {
@@ -324,11 +336,50 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		}
 	}
 
+	if !r.mdbSearch.IsShardedUnmanagedLB() {
+		if err := r.cleanupStaleProxyServices(ctx, log, shardNames); err != nil {
+			log.Warnf("Failed to cleanup stale proxy services: %s", err)
+		}
+	}
+
 	if !r.mdbSearch.IsLoadBalancerReady() {
 		return workflow.Pending("Waiting for managed load balancer to be ready").
 			WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
 	}
+
 	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
+}
+
+// cleanupStaleProxyServices removes proxy Services for shards that no longer exist.
+func (r *MongoDBSearchReconcileHelper) cleanupStaleProxyServices(ctx context.Context, log *zap.SugaredLogger, currentShardNames []string) error {
+	serviceList := &corev1.ServiceList{}
+	err := r.client.List(ctx, serviceList,
+		client.InNamespace(r.mdbSearch.Namespace),
+		client.MatchingLabels{"component": proxyServiceComponent},
+	)
+	if err != nil {
+		return xerrors.Errorf("failed to list proxy services: %w", err)
+	}
+
+	expectedNames := make(map[string]bool, len(currentShardNames)+1)
+	for _, shardName := range currentShardNames {
+		expectedNames[r.mdbSearch.ProxyServiceNameForShard(shardName).Name] = true
+	}
+
+	for i := range serviceList.Items {
+		svc := &serviceList.Items[i]
+		if expectedNames[svc.Name] {
+			continue
+		}
+		if !metav1.IsControlledBy(svc, r.mdbSearch) {
+			continue
+		}
+		log.Infof("Deleting stale proxy Service %s", svc.Name)
+		if err := r.client.Delete(ctx, svc); err != nil && !apierrors.IsNotFound(err) {
+			return xerrors.Errorf("failed to delete stale proxy Service %s: %w", svc.Name, err)
+		}
+	}
+	return nil
 }
 
 // This is called only if the wireproto server is enabled, to set up they keyfile necessary for authentication.
@@ -406,8 +457,15 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName.Name, Namespace: svcName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, svc, func() error {
 		resourceVersion := svc.ResourceVersion
+		existingClusterIP := svc.Spec.ClusterIP
 		*svc = desired
 		svc.ResourceVersion = resourceVersion
+		// Preserve the assigned ClusterIP for non-headless Services.
+		// Kubernetes assigns a ClusterIP on creation and it is immutable.
+		// For headless Services (desired.Spec.ClusterIP == "None"), this is a no-op.
+		if desired.Spec.ClusterIP == "" && existingClusterIP != "" {
+			svc.Spec.ClusterIP = existingClusterIP
+		}
 		return controllerutil.SetOwnerReference(r.mdbSearch, svc, r.client.Scheme())
 	})
 	if err != nil {
@@ -601,6 +659,95 @@ func buildSearchHeadlessServiceForShard(search *searchv1.MongoDBSearch, shardNam
 	for _, port := range mongotServicePorts(search) {
 		serviceBuilder.AddPort(&port)
 	}
+
+	return serviceBuilder.Build()
+}
+
+const (
+	// envoyProxyPort is the port Envoy listens on for proxied gRPC traffic.
+	envoyProxyPort = int32(27029)
+
+	// proxyServiceComponent is the label value for the proxy service component.
+	proxyServiceComponent = "search-proxy"
+)
+
+// buildProxyService builds the stable proxy Service for a ReplicaSet topology.
+// The service port is always GetEffectiveMongotPort() (stable for mongotHost).
+// The selector and targetPort flip based on whether managed LB is active.
+func buildProxyService(search *searchv1.MongoDBSearch) corev1.Service {
+	proxyNsName := search.ProxyServiceNamespacedName()
+
+	var selector map[string]string
+	var targetPort int32
+
+	if search.IsLBModeManaged() {
+		selector = map[string]string{"app": search.LoadBalancerDeploymentName()}
+		targetPort = envoyProxyPort
+	} else {
+		svcName := search.SearchServiceNamespacedName().Name
+		selector = map[string]string{"app": svcName}
+		targetPort = search.GetEffectiveMongotPort()
+	}
+
+	labels := map[string]string{
+		"app":       proxyNsName.Name,
+		"component": proxyServiceComponent,
+	}
+
+	serviceBuilder := service.Builder().
+		SetName(proxyNsName.Name).
+		SetNamespace(proxyNsName.Namespace).
+		SetLabels(labels).
+		SetSelector(selector).
+		SetServiceType(corev1.ServiceTypeClusterIP).
+		SetOwnerReferences(search.GetOwnerReferences())
+
+	serviceBuilder.AddPort(&corev1.ServicePort{
+		Name:       "grpc",
+		Protocol:   corev1.ProtocolTCP,
+		Port:       search.GetEffectiveMongotPort(),
+		TargetPort: intstr.FromInt32(targetPort),
+	})
+
+	return serviceBuilder.Build()
+}
+
+// buildProxyServiceForShard builds the stable proxy Service for a specific shard.
+func buildProxyServiceForShard(search *searchv1.MongoDBSearch, shardName string) corev1.Service {
+	proxyNsName := search.ProxyServiceNameForShard(shardName)
+	stsName := search.MongotStatefulSetForShard(shardName).Name
+
+	var selector map[string]string
+	var targetPort int32
+
+	if search.IsLBModeManaged() {
+		selector = map[string]string{"app": search.LoadBalancerDeploymentName()}
+		targetPort = envoyProxyPort
+	} else {
+		selector = map[string]string{"app": stsName}
+		targetPort = search.GetEffectiveMongotPort()
+	}
+
+	labels := map[string]string{
+		"app":       proxyNsName.Name,
+		"component": proxyServiceComponent,
+		"shard":     shardName,
+	}
+
+	serviceBuilder := service.Builder().
+		SetName(proxyNsName.Name).
+		SetNamespace(proxyNsName.Namespace).
+		SetLabels(labels).
+		SetSelector(selector).
+		SetServiceType(corev1.ServiceTypeClusterIP).
+		SetOwnerReferences(search.GetOwnerReferences())
+
+	serviceBuilder.AddPort(&corev1.ServicePort{
+		Name:       "grpc",
+		Protocol:   corev1.ProtocolTCP,
+		Port:       search.GetEffectiveMongotPort(),
+		TargetPort: intstr.FromInt32(targetPort),
+	})
 
 	return serviceBuilder.Build()
 }
@@ -1021,36 +1168,28 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 }
 
 // GetMongodConfigParametersForShard returns the mongod configuration parameters for a specific shard
-// in a sharded cluster. When unmanaged LB mode is enabled (spec.lb.mode == Unmanaged with an endpoint
-// template), each shard uses the resolved endpoint from the template. Otherwise, the operator-internal
-// mongot host is used.
+// in a sharded cluster. For unmanaged LB, each shard uses the resolved endpoint from the user-provided
+// template. Otherwise, the stable per-shard proxy service is used.
 func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) map[string]any {
 	var mongotEndpoint string
 	if search.IsShardedUnmanagedLB() {
 		mongotEndpoint = search.GetEndpointForShard(shardName)
-	} else if search.IsLBModeManaged() {
-		// Use the operator-managed envoy proxy service for this shard
-		mongotEndpoint = shardEnvoyProxyHostAndPort(search, shardName, clusterDomain)
 	} else {
-		mongotEndpoint = shardMongotHostAndPort(search, shardName, clusterDomain)
+		mongotEndpoint = proxyServiceHostAndPortForShard(search, shardName, clusterDomain)
 	}
 	return buildSearchSetParameters(mongotEndpoint, searchTLSMode(search), !search.IsWireprotoEnabled())
 }
 
 // GetMongosConfigParametersForSharded returns the mongos configuration parameters for a sharded cluster.
 // For sharded clusters, mongos needs search parameters to route search queries to mongot.
-//
-// For sharded clusters with unmanaged LB, we use the first shard's endpoint as the mongos endpoint.
-// This is because mongos needs a single endpoint to route search queries.
+// Uses the first shard's proxy service endpoint (or unmanaged LB endpoint).
 func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, shardNames []string, clusterDomain string) map[string]any {
 	var mongotEndpoint string
 	if len(shardNames) > 0 {
 		if search.IsShardedUnmanagedLB() {
 			mongotEndpoint = search.GetEndpointForShard(shardNames[0])
-		} else if search.IsLBModeManaged() {
-			mongotEndpoint = shardEnvoyProxyHostAndPort(search, shardNames[0], clusterDomain)
 		} else {
-			mongotEndpoint = shardMongotHostAndPort(search, shardNames[0], clusterDomain)
+			mongotEndpoint = proxyServiceHostAndPortForShard(search, shardNames[0], clusterDomain)
 		}
 	}
 	return buildSearchSetParameters(mongotEndpoint, searchTLSMode(search), true) // useGrpc must be true for mongos-to-mongot communication
@@ -1076,36 +1215,23 @@ func buildSearchSetParameters(mongotEndpoint string, tlsMode automationconfig.TL
 	}
 }
 
+// mongotHostAndPort returns the mongotHost endpoint for ReplicaSet topologies.
+// For unmanaged LB, the user-provided endpoint is returned.
+// Otherwise, the stable proxy service FQDN is returned (works for both no-LB and managed-LB).
 func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
-	// If unmanaged LB is configured for replica set, use the unmanaged LB endpoint
 	if search.IsReplicaSetUnmanagedLB() {
 		return search.GetReplicaSetUnmanagedLBEndpoint()
 	}
-
-	// Managed LB: point mongod at the Envoy proxy service
-	if search.IsLBModeManaged() {
-		proxySvcName := search.LoadBalancerServiceName()
-		return fmt.Sprintf("%s.%s.svc.%s:%d", proxySvcName, search.Namespace, clusterDomain, searchv1.EnvoyDefaultProxyPort)
-	}
-
-	// Default: direct to mongot headless service
-	svcName := search.SearchServiceNamespacedName()
+	proxyName := search.ProxyServiceNamespacedName()
 	port := search.GetEffectiveMongotPort()
-	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
+	return fmt.Sprintf("%s.%s.svc.%s:%d", proxyName.Name, proxyName.Namespace, clusterDomain, port)
 }
 
-// shardEnvoyProxyHostAndPort returns the operator-managed envoy proxy service endpoint for a shard.
-// Used when spec.lb.mode is Managed; the envoy controller creates per-shard proxy Services.
-func shardEnvoyProxyHostAndPort(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
-	proxySvcName := search.LoadBalancerProxyServiceNameForShard(shardName)
-	return fmt.Sprintf("%s.%s.svc.%s:%d", proxySvcName, search.Namespace, clusterDomain, searchv1.EnvoyDefaultProxyPort)
-}
-
-// shardMongotHostAndPort returns the internal service endpoint for a shard's mongot deployment
-func shardMongotHostAndPort(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
-	svcName := search.MongotServiceForShard(shardName)
+// proxyServiceHostAndPortForShard returns the stable proxy service endpoint for a shard.
+func proxyServiceHostAndPortForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
+	proxyName := search.ProxyServiceNameForShard(shardName)
 	port := search.GetEffectiveMongotPort()
-	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, port)
+	return fmt.Sprintf("%s.%s.svc.%s:%d", proxyName.Name, proxyName.Namespace, clusterDomain, port)
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
