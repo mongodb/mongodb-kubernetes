@@ -12,17 +12,17 @@ user_conn="${MDB_USER_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"
 
 # shellcheck disable=SC2016,SC1078,SC1079,SC2026
 kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${user_conn}" --quiet --eval '
-  use sample_mflix;
+  const db_mflix = db.getSiblingDB("sample_mflix");
 
   // Check if index already exists
-  const result = db.runCommand({ listSearchIndexes: "movies" });
+  const result = db_mflix.runCommand({ listSearchIndexes: "movies" });
   const existing = (result.ok && result.cursor && result.cursor.firstBatch) ? result.cursor.firstBatch : [];
 
   if (existing.some(idx => idx.name === "default")) {
     print("Search index '\''default'\'' already exists");
   } else {
     // Create default text search index
-    db.movies.createSearchIndex({
+    db_mflix.movies.createSearchIndex({
       name: "default",
       definition: {
         mappings: {

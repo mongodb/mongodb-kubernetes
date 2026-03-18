@@ -14,8 +14,7 @@ for attempt in $(seq 1 ${max_attempts}); do
   # Check text search index on movies
   # shellcheck disable=SC2016
   movies_status=$(kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${user_conn}" --quiet --eval '
-    use sample_mflix;
-    const result = db.runCommand({ listSearchIndexes: "movies" });
+    const result = db.getSiblingDB("sample_mflix").runCommand({ listSearchIndexes: "movies" });
     if (result.ok && result.cursor && result.cursor.firstBatch && result.cursor.firstBatch.length > 0) {
       const idx = result.cursor.firstBatch.find(i => i.name === "default");
       print(idx ? (idx.status || "UNKNOWN") : "NOT_FOUND");
@@ -27,8 +26,7 @@ for attempt in $(seq 1 ${max_attempts}); do
   # Check vector search index on embedded_movies
   # shellcheck disable=SC2016
   vector_status=$(kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${user_conn}" --quiet --eval '
-    use sample_mflix;
-    const result = db.runCommand({ listSearchIndexes: "embedded_movies" });
+    const result = db.getSiblingDB("sample_mflix").runCommand({ listSearchIndexes: "embedded_movies" });
     if (result.ok && result.cursor && result.cursor.firstBatch && result.cursor.firstBatch.length > 0) {
       const idx = result.cursor.firstBatch.find(i => i.name === "vector_index");
       print(idx ? (idx.status || "UNKNOWN") : "NOT_FOUND");
