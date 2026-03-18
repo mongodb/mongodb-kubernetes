@@ -106,6 +106,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	log = log.With("MongoDBSearch", r.mdbSearch.NamespacedName())
 	log.Infof("Reconciling MongoDBSearch")
 
+	if err := r.mdbSearch.ValidateSpec(); err != nil {
+		return workflow.Invalid("%s", err.Error())
+	}
+
 	if err := r.db.Validate(); err != nil {
 		return workflow.Failed(err)
 	}

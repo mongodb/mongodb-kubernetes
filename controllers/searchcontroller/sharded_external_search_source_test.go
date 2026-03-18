@@ -72,7 +72,7 @@ func TestShardedExternalSearchSource_Validate(t *testing.T) {
 				}),
 			},
 			expectError:    true,
-			expectedErrMsg: "shard[0].shardName is required",
+			expectedErrMsg: "shard[0]: shardName is required",
 		},
 		{
 			name: "Shard with empty hosts list",
@@ -93,7 +93,7 @@ func TestShardedExternalSearchSource_Validate(t *testing.T) {
 				}),
 			},
 			expectError:    true,
-			expectedErrMsg: "shard[1].shardName is required",
+			expectedErrMsg: "shard[1]: shardName is required",
 		},
 		{
 			name: "Valid single shard config",
