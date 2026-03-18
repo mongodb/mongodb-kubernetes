@@ -25,6 +25,10 @@ spec:
       jsonPath: .status.version
       name: Version
       type: string
+    - description: Current state of the managed load balancer.
+      jsonPath: .status.loadBalancer.phase
+      name: LoadBalancer
+      type: string
     - description: The time since the MongoDB resource was created.
       jsonPath: .metadata.creationTimestamp
       name: Age
@@ -574,6 +578,18 @@ spec:
             properties:
               lastTransition:
                 type: string
+              loadBalancer:
+                description: |-
+                  LoadBalancer reports the state of the operator-managed load balancer.
+                  Only populated when spec.lb.mode == Managed.
+                properties:
+                  message:
+                    type: string
+                  phase:
+                    type: string
+                required:
+                - phase
+                type: object
               message:
                 type: string
               observedGeneration:
