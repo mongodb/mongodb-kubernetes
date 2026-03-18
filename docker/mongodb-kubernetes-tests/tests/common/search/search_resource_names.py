@@ -31,14 +31,14 @@ def mongot_service_host(search_name: str, namespace: str, port: int) -> str:
     return f"{mongot_service_name(search_name)}.{namespace}.svc.cluster.local:{port}"
 
 
-def entrypoint_service_name(search_name: str) -> str:
-    """Entrypoint Service name. Mirrors EntrypointServiceNamespacedName()."""
-    return f"{search_name}-search-ep-svc"
+def proxy_service_name(search_name: str) -> str:
+    """Stable proxy Service name for RS. Mirrors ProxyServiceNamespacedName()."""
+    return f"{search_name}-search-proxy-svc"
 
 
-def entrypoint_service_host(search_name: str, namespace: str, port: int) -> str:
-    """Full hostname:port for the RS entrypoint Service."""
-    return f"{entrypoint_service_name(search_name)}.{namespace}.svc.cluster.local:{port}"
+def proxy_service_host(search_name: str, namespace: str, port: int) -> str:
+    """Full hostname:port for the RS proxy Service."""
+    return f"{proxy_service_name(search_name)}.{namespace}.svc.cluster.local:{port}"
 
 
 def mongot_tls_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
@@ -86,7 +86,7 @@ def shard_tls_cert_name(search_name: str, shard_name: str, certs_secret_prefix: 
 
 
 def shard_proxy_service_name(search_name: str, shard_name: str) -> str:
-    """Per-shard SNI proxy Service name. Mirrors LoadBalancerProxyServiceNameForShard()."""
+    """Per-shard stable proxy Service name. Mirrors ProxyServiceNameForShard()."""
     return f"{search_name}-search-0-{shard_name}-proxy-svc"
 
 
