@@ -1967,7 +1967,7 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 		Data: map[string][]byte{
 			"tls.crt":                 []byte("cert-data"),
 			"tls.key":                 []byte("key-data"),
-			"tls.keyFilePasswordFile": []byte("my-key-password"),
+			"tls.keyFilePassword": []byte("my-key-password"),
 		},
 	}
 

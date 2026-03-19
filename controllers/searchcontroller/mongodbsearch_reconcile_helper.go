@@ -831,7 +831,7 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	var prependCommands []string
 
 	// If the key password is present, reads the key password directly from the user-provided secret (not the operator-managed one). And mount that user secret as a separate volume
-	// (x509-key-password) with subPath: tls.keyFilePasswordFile, so only that one key is exposed at /mongot/x509-key-password. After file permissions workaround we copy it to
+	// (x509-key-password) with subPath: tls.keyFilePassword, so only that one key is exposed at /mongot/x509-key-password. After file permissions workaround we copy it to
 	// /tmp/x509-key-password.
 	if hasKeyPassword {
 		keyPasswordVolume := statefulset.CreateVolumeFromSecret("x509-key-password", userProvidedClientSecret.Name)

@@ -168,7 +168,7 @@ type MongoDBSource struct {
 type X509Auth struct {
 	// ClientCertificateSecret is a reference to a Secret containing the x509 client
 	// certificate and key for authenticating to the MongoDB sync source.
-	// Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePasswordFile" (optional).
+	// Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePassword" (optional).
 	// +kubebuilder:validation:Required
 	ClientCertificateSecret corev1.LocalObjectReference `json:"clientCertificateSecretRef"`
 }

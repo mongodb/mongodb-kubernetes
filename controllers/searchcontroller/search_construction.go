@@ -43,7 +43,7 @@ const (
 
 	X509KeyPasswordMountPath        = "/mongot/x509-key-password"           // #nosec G101 -- path, not a password
 	TempX509KeyPasswordPath         = tempVolumePath + "/x509-key-password" // #nosec G101 -- path, not a password
-	X509KeyPasswordSecretKey        = "tls.keyFilePasswordFile"             // #nosec G101 -- secret key name, not a password
+	X509KeyPasswordSecretKey        = "tls.keyFilePassword"                 // #nosec G101 -- secret key name, not a password
 	X509ClientCertOperatorMountPath = "/var/lib/tls/x509-client/"
 )
 
