@@ -335,9 +335,9 @@ def verify_envoy_deployment_override(
     actual_names = [c.name for c in containers]
     for name in expected_container_names:
         assert name in actual_names, f"container {name!r} missing, found: {actual_names}"
-    assert len(containers) == len(expected_container_names), (
-        f"Expected {len(expected_container_names)} containers, got {len(containers)}: {actual_names}"
-    )
+    assert len(containers) == len(
+        expected_container_names
+    ), f"Expected {len(expected_container_names)} containers, got {len(containers)}: {actual_names}"
 
     if expected_labels:
         for k, v in expected_labels.items():

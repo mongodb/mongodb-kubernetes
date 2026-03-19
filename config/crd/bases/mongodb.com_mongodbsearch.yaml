@@ -101,6 +101,32 @@ spec:
                     description: Envoy contains configuration for operator-managed
                       Envoy load balancer
                     properties:
+                      deploymentConfiguration:
+                        description: |-
+                          DeploymentConfiguration holds the optional custom Deployment configuration
+                          that will be merged into the operator-created Envoy Deployment.
+                          Use to provide customizations (tolerations, affinity, nodeSelector, annotations, etc.)
+                          which aren't exposed as fields in spec.lb.envoy.
+                        properties:
+                          metadata:
+                            description: DeploymentMetadataWrapper is a wrapper around
+                              Labels and Annotations
+                            properties:
+                              annotations:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                              labels:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                            type: object
+                          spec:
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                        required:
+                        - spec
+                        type: object
                       image:
                         description: |-
                           Image is the container image for the Envoy proxy.
