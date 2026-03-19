@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AUDIENCE: internal
 # Distribute CA certificate for mongod: create ConfigMap with CA in target namespace
 #
 # MongoDB Enterprise expects the CA in a ConfigMap (key "ca-pem").

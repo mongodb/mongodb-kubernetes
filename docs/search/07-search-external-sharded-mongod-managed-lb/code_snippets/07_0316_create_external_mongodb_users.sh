@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AUDIENCE: internal
 # Create users for the simulated external MongoDB sharded cluster
 
 echo "Creating password secrets for MongoDB users..."

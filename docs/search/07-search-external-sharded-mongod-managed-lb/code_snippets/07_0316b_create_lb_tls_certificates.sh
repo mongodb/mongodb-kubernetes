@@ -24,8 +24,6 @@ spec:
     - server auth
     - client auth
   dnsNames:
-    - ${MDB_PROXY_SVC_SHARD_0}.${MDB_NS}.svc.cluster.local
-    - ${MDB_PROXY_SVC_SHARD_1}.${MDB_NS}.svc.cluster.local
     - "*.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}

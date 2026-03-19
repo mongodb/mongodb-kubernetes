@@ -3,6 +3,4 @@
 
 helm repo add mongodb https://mongodb.github.io/helm-charts 2>/dev/null || true
 helm repo update mongodb
-
-echo "✓ MongoDB Helm repository added and updated"
-
+helm search repo mongodb/mongodb-kubernetes

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AUDIENCE: internal
 # Create the simulated external MongoDB sharded cluster
 # The cluster is created WITH search parameters pre-configured to point to the
 # operator-managed Envoy proxy endpoints created when MongoDBSearch is deployed.
@@ -31,6 +30,8 @@ spec:
     configMapRef:
       name: om-project
   credentials: om-credentials
+  externalAccess:
+    externalDomain: ${MDB_EXTERNAL_DOMAIN}
   security:
     certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
     tls:

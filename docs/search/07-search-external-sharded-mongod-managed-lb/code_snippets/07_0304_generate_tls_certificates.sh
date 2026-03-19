@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AUDIENCE: internal
 # Generate TLS certificates for MongoDB shards, config servers, and mongos
 #
 # Cluster layout (hardcoded):
@@ -27,7 +26,6 @@ spec:
     - server auth
     - client auth
   dnsNames:
-    - ${MDB_EXTERNAL_CLUSTER_NAME}-0-0.${MDB_EXTERNAL_CLUSTER_NAME}-sh.${MDB_NS}.svc.cluster.local
     - "*.${MDB_EXTERNAL_CLUSTER_NAME}-sh.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
@@ -53,7 +51,6 @@ spec:
     - server auth
     - client auth
   dnsNames:
-    - ${MDB_EXTERNAL_CLUSTER_NAME}-1-0.${MDB_EXTERNAL_CLUSTER_NAME}-sh.${MDB_NS}.svc.cluster.local
     - "*.${MDB_EXTERNAL_CLUSTER_NAME}-sh.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
@@ -79,8 +76,6 @@ spec:
     - server auth
     - client auth
   dnsNames:
-    - ${MDB_EXTERNAL_CLUSTER_NAME}-config-0.${MDB_EXTERNAL_CLUSTER_NAME}-cs.${MDB_NS}.svc.cluster.local
-    - ${MDB_EXTERNAL_CLUSTER_NAME}-config-1.${MDB_EXTERNAL_CLUSTER_NAME}-cs.${MDB_NS}.svc.cluster.local
     - "*.${MDB_EXTERNAL_CLUSTER_NAME}-cs.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
@@ -106,7 +101,7 @@ spec:
     - server auth
     - client auth
   dnsNames:
-    - ${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local
+    - ${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_DOMAIN}
     - "*.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}

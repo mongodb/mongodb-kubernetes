@@ -6,19 +6,7 @@ For testing purposes, we include scripts that simulate an external cluster insid
 
 ## For Documentation Team
 
-The following scripts are marked `# AUDIENCE: internal` and should be **excluded** from published docs (test scaffolding only):
-
-| Script | Description |
-|--------|-------------|
-| `07_0046_create_image_pull_secrets.sh` | Create image pull secrets (private registry, CI only) |
-| `07_0101_helm_install_staging_operator.sh` | Install staging/dev operator |
-| `07_0300_create_ops_manager_resources.sh` | Create Ops Manager resources (simulated cluster) |
-| `07_0304_generate_tls_certificates.sh` | Generate certs for simulated cluster |
-| `07_0310_create_external_mongodb_sharded_cluster.sh` | Create simulated external sharded cluster |
-| `07_0315_wait_for_external_cluster.sh` | Wait for simulated cluster to reach Running phase |
-| `07_0316_create_external_mongodb_users.sh` | Create MongoDB users on simulated cluster |
-| `07_9010_delete_namespace.sh` | Delete namespace and all resources (cleanup/teardown) |
-
+Scripts with an `internal_` prefix in their filename should be **excluded** from published docs (test scaffolding only).
 All remaining scripts are **user-facing** and should be included in published docs.
 
 ## Overview
@@ -139,9 +127,43 @@ spec:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
   lb:
     mode: Managed  # <-- This is the key setting!
+  resourceRequirements:        # optional — defaults apply if omitted
+    limits:
+      cpu: "2"
+      memory: 3Gi
+    requests:
+      cpu: "1"
+      memory: 2Gi
 ```
 
 **Note:** There is NO `spec.lb.endpoint` - the operator creates and exposes the endpoints automatically.
+
+### TLS Certificate Hierarchy
+
+cert-manager needs a 3-step bootstrap chain before it can issue certificates for mongot and Envoy:
+
+```
+Self-Signed ClusterIssuer ──signs──▶ CA Certificate ──stored-in──▶ CA ClusterIssuer ──signs──▶ all other certs
+```
+
+| cert-manager Object | Env Var | Purpose |
+|---------------------|---------|---------|
+| Self-Signed ClusterIssuer | `MDB_TLS_SELF_SIGNED_ISSUER` | Bootstrap-only issuer; can only sign the CA's own certificate |
+| CA Certificate (`isCA: true`) | `MDB_TLS_CA_CERT_NAME` / `MDB_TLS_CA_SECRET_NAME` | The root CA; stored as a Secret in the cert-manager namespace |
+| CA ClusterIssuer | `MDB_TLS_CA_ISSUER` | References the CA Secret; all mongot, LB, and mongod certs are signed by this issuer |
+
+The `certsSecretPrefix` field in the CR (`MDB_TLS_CERT_SECRET_PREFIX`) determines how the operator locates TLS secrets. It expects secrets named `{prefix}-{resource}-search-0-{shard}-cert` for each shard's mongot pods.
+
+### Load Balancer Certificates
+
+The Envoy proxy terminates one mTLS session (from mongod) and initiates another (to mongot), so it needs **two** certificates:
+
+| Certificate | Secret Name Pattern | Usages | dnsNames | Purpose |
+|-------------|---------------------|--------|----------|---------|
+| Server cert | `{prefix}-{name}-search-lb-cert` | `server auth`, `client auth` | Per-shard proxy Service FQDNs + wildcard | Presented to mongod during TLS handshake |
+| Client cert | `{prefix}-{name}-search-lb-client-cert` | `client auth` only | Wildcard (`*.{namespace}.svc.cluster.local`) | Used by Envoy when connecting to mongot |
+
+Both certificates must be signed by the same CA that mongod and mongot trust (i.e., the CA ClusterIssuer created above).
 
 ### Operator-Created Resources
 
@@ -152,10 +174,26 @@ When you apply the MongoDBSearch CR with `lb.mode: Managed`, the operator create
 | ConfigMap | `{name}-search-lb-config` | Envoy bootstrap configuration |
 | Deployment | `{name}-search-lb` | Envoy proxy pods |
 | Service (per shard) | `{name}-search-0-{shardName}-proxy-svc` | SNI routing endpoints |
+| StatefulSet (per shard) | `{name}-search-0-{shardName}` | mongot pods for one shard |
+| Service (per shard, headless) | `{name}-search-0-{shardName}-svc` | Stable DNS for mongot pods |
+
+> **Note on `search-0`:** The `0` in `search-0` is the search deployment index (currently always `0`).
+> It appears in StatefulSet names, Service names, proxy Service names, and TLS secret names.
+> For example, shard `shard-0` produces: StatefulSet `mySearch-search-0-shard-0`, headless Service
+> `mySearch-search-0-shard-0-svc`, proxy Service `mySearch-search-0-shard-0-proxy-svc`, and TLS secret
+> `{prefix}-mySearch-search-0-shard-0-cert`.
 
 ### Configuring External mongod
 
-Your external mongod instances must be configured to connect to the operator-created proxy Services. The endpoint format is:
+Your external mongod instances must be configured to connect to the operator-created proxy Services.
+
+> **Production ordering:** Deploy the MongoDBSearch CR first and wait for it to reach Running phase.
+> The operator creates proxy Services during reconciliation. Then configure your external mongod
+> instances with `setParameter` pointing at those proxy endpoints. The simulated-cluster scripts in
+> this guide set endpoints at creation time because Service names are deterministic, but real clusters
+> should confirm that Services exist before configuring mongod.
+
+The endpoint format is:
 
 ```
 {search-name}-search-0-{shard-name}-proxy-svc.{namespace}.svc.cluster.local:27029

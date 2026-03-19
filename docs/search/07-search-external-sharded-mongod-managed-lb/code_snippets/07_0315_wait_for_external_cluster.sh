@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AUDIENCE: internal
 # Wait for the simulated external MongoDB sharded cluster to be ready
 
 echo "Waiting for MongoDB sharded cluster to be ready..."

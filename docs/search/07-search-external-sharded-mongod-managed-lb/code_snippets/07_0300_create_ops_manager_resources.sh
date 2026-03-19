@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AUDIENCE: internal
 # Create Ops Manager / Cloud Manager connection resources
 
 echo "Creating Ops Manager connection resources..."

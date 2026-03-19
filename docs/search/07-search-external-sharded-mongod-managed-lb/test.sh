@@ -29,7 +29,7 @@ prepare_snippets
 
 run 07_0040_validate_env.sh
 run 07_0045_create_namespaces.sh
-run 07_0046_create_image_pull_secrets.sh
+run 07_0046_internal_create_image_pull_secrets.sh
 
 run_for_output 07_0090_helm_add_mongodb_repo.sh
 run_for_output 07_0100_install_operator.sh
@@ -55,6 +55,9 @@ run 07_0304_generate_tls_certificates.sh
 # Note: MongoDB is created WITH search config from the start (pointing to Envoy proxy endpoints)
 run 07_0310_create_external_mongodb_sharded_cluster.sh
 run_for_output 07_0315_wait_for_external_cluster.sh
+
+# Update CoreDNS to resolve external domain to mongos ClusterIP
+run 07_0311_internal_update_coredns_configmap.sh
 
 # Create users AFTER cluster is ready (MongoDBUser CRDs reference the cluster)
 run 07_0316_create_external_mongodb_users.sh

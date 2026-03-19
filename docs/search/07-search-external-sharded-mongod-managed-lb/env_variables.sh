@@ -87,6 +87,12 @@ export MDB_TLS_CA_ISSUER="my-ca-issuer"
 # If running on VMs or bare metal, replace with your actual hostnames.
 # The defaults below match the simulated K8s cluster for testing.
 
+# External domain used with spec.externalAccess.externalDomain on the MongoDB CR.
+# When set, mongos pods are reachable at {podName}.{externalDomain} instead of
+# the internal K8s FQDN. CoreDNS is configured to resolve this domain to the
+# mongos ClusterIP (see 07_0311_internal_update_coredns_configmap.sh).
+export MDB_EXTERNAL_DOMAIN="ext-mdb.example.com"
+
 # -- Shard 0 --
 export MDB_EXTERNAL_SHARD_0_NAME="ext-mdb-sh-0"
 export MDB_EXTERNAL_SHARD_0_HOST="ext-mdb-sh-0-0.ext-mdb-sh-sh.${MDB_NS}.svc.cluster.local:27017"
@@ -95,8 +101,8 @@ export MDB_EXTERNAL_SHARD_0_HOST="ext-mdb-sh-0-0.ext-mdb-sh-sh.${MDB_NS}.svc.clu
 export MDB_EXTERNAL_SHARD_1_NAME="ext-mdb-sh-1"
 export MDB_EXTERNAL_SHARD_1_HOST="ext-mdb-sh-1-0.ext-mdb-sh-sh.${MDB_NS}.svc.cluster.local:27017"
 
-# -- Mongos router --
-export MDB_EXTERNAL_MONGOS_HOST="ext-mdb-sh-mongos-0.ext-mdb-sh-svc.${MDB_NS}.svc.cluster.local:27017"
+# -- Mongos router (uses external domain) --
+export MDB_EXTERNAL_MONGOS_HOST="${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_DOMAIN}:27017"
 
 # ============================================================================
 # SEARCH CONFIGURATION
