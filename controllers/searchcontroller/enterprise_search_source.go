@@ -23,10 +23,13 @@ func NewEnterpriseResourceSearchSource(mdb *mdbv1.MongoDB) SearchSourceDBResourc
 }
 
 func (r EnterpriseResourceSearchSource) HostSeeds() []string {
-	seeds := make([]string, r.Spec.Members)
 	clusterDomain := r.Spec.GetClusterDomain()
-	for i := range seeds {
+	seeds := make([]string, r.Spec.Members+len(r.Spec.ExternalMembers))
+	for i := range r.Spec.Members {
 		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.Spec.GetAdditionalMongodConfig().GetPortOrDefault())
+	}
+	for i, m := range r.Spec.ExternalMembers {
+		seeds[r.Spec.Members+i] = m.Hostname
 	}
 	return seeds
 }
