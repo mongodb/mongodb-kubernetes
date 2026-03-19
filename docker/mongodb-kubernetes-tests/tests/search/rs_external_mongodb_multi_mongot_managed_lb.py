@@ -28,7 +28,12 @@ from tests.common.search.rs_search_helper import (
     verify_rs_mongod_parameters,
 )
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
-from tests.common.search.sharded_search_helper import create_issuer_ca, verify_text_search_query
+from tests.common.search.sharded_search_helper import (
+    create_issuer_ca,
+    patch_envoy_deployment_configuration,
+    verify_envoy_deployment_override,
+    verify_text_search_query,
+)
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
 
@@ -231,9 +236,9 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
 @mark.e2e_search_rs_external_managed_lb
 def test_patch_envoy_deployment_override(mdbs: MongoDBSearch):
     """Patch MongoDBSearch CR to add a sidecar via deploymentConfiguration."""
-    mdbs.load()
-    mdbs["spec"]["lb"]["envoy"] = {
-        "deploymentConfiguration": {
+    patch_envoy_deployment_configuration(
+        mdbs,
+        {
             "metadata": {
                 "labels": {"test-override": "deployment-config"},
             },
@@ -251,25 +256,16 @@ def test_patch_envoy_deployment_override(mdbs: MongoDBSearch):
                     }
                 }
             },
-        }
-    }
-    mdbs.update()
-    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+        },
+    )
 
 
 @mark.e2e_search_rs_external_managed_lb
 def test_verify_envoy_deployment_override(namespace: str):
     """Verify deploymentConfiguration overrides are applied to the Envoy Deployment."""
-    envoy_deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
-    apps_v1 = client.AppsV1Api()
-    deployment = apps_v1.read_namespaced_deployment(envoy_deployment_name, namespace)
-
-    # Sidecar container is present
-    containers = deployment.spec.template.spec.containers
-    container_names = [c.name for c in containers]
-    assert "envoy" in container_names, f"envoy container missing, found: {container_names}"
-    assert "envoy-sidecar" in container_names, f"sidecar missing, found: {container_names}"
-    assert len(containers) == 2, f"Expected 2 containers, got {len(containers)}: {container_names}"
-
-    # Custom label is present
-    assert deployment.metadata.labels.get("test-override") == "deployment-config"
+    verify_envoy_deployment_override(
+        namespace,
+        MDBS_RESOURCE_NAME,
+        expected_container_names=["envoy", "envoy-sidecar"],
+        expected_labels={"test-override": "deployment-config"},
+    )

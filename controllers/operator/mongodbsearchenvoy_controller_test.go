@@ -96,9 +96,9 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 	}
 
 	depCfg := search.Spec.LoadBalancer.Envoy.DeploymentConfiguration
-	dep.Spec = mergeDeploymentSpecsForTest(dep.Spec, depCfg.SpecWrapper.Spec)
-	dep.Labels = mergeLabelsForTest(dep.Labels, depCfg.MetadataWrapper.Labels)
-	dep.Annotations = mergeLabelsForTest(dep.Annotations, depCfg.MetadataWrapper.Annotations)
+	dep.Spec = merge.DeploymentSpecs(dep.Spec, depCfg.SpecWrapper.Spec)
+	dep.Labels = merge.StringToStringMap(dep.Labels, depCfg.MetadataWrapper.Labels)
+	dep.Annotations = merge.StringToStringMap(dep.Annotations, depCfg.MetadataWrapper.Annotations)
 
 	// Tolerations and node selector applied
 	assert.Len(t, dep.Spec.Template.Spec.Tolerations, 1)
@@ -167,17 +167,8 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 
 	// Apply deployment override
 	depCfg := search.Spec.LoadBalancer.Envoy.DeploymentConfiguration
-	dep.Spec = mergeDeploymentSpecsForTest(dep.Spec, depCfg.SpecWrapper.Spec)
+	dep.Spec = merge.DeploymentSpecs(dep.Spec, depCfg.SpecWrapper.Spec)
 
 	// deploymentConfiguration override wins (500m)
 	assert.Equal(t, resource.MustParse("500m"), dep.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
-}
-
-// Test helpers that call through to the merge package
-func mergeDeploymentSpecsForTest(defaultSpec, overrideSpec appsv1.DeploymentSpec) appsv1.DeploymentSpec {
-	return merge.DeploymentSpecs(defaultSpec, overrideSpec)
-}
-
-func mergeLabelsForTest(defaultLabels, overrideLabels map[string]string) map[string]string {
-	return merge.StringToStringMap(defaultLabels, overrideLabels)
 }
