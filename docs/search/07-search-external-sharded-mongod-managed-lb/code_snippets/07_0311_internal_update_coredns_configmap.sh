@@ -6,7 +6,7 @@
 # CR is applied, so we poll until it exists and has a ClusterIP assigned.
 
 MONGOS_SVC="${MDB_EXTERNAL_CLUSTER_NAME}-svc"
-TIMEOUT=120
+TIMEOUT=600
 INTERVAL=5
 ELAPSED=0
 MONGOS_CLUSTER_IP=""
@@ -70,4 +70,5 @@ data:
 YAML
 
 kubectl --context "${K8S_CTX}" -n kube-system rollout restart deployment coredns
+kubectl --context "${K8S_CTX}" -n kube-system rollout status deployment coredns --timeout=60s
 echo "✓ CoreDNS updated: ${MONGOS_EXTERNAL_HOSTNAME} → ${MONGOS_CLUSTER_IP}"
