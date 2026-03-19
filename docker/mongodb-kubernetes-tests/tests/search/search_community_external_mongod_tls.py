@@ -115,7 +115,7 @@ def test_install_tls_secrets_and_configmaps(
     ca = open(issuer_ca_filepath).read()
 
     ca_configmap_name = f"{mdbc.name}-ca"
-    create_or_update_configmap(namespace=namespace, name=ca_configmap_name, data={"ca.crt": ca})
+    create_or_update_configmap(namespace=namespace, name=ca_configmap_name, data={"ca-pem": ca, "ca.crt": ca})
 
 
 @mark.e2e_search_community_external_mongod_tls
