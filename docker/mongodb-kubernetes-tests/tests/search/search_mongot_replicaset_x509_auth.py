@@ -1,4 +1,10 @@
-from kubetester import create_or_update_secret, try_load
+from cryptography.hazmat.primitives.serialization import (
+    BestAvailableEncryption,
+    Encoding,
+    PrivateFormat,
+    load_pem_private_key,
+)
+from kubetester import create_or_update_secret, read_secret, try_load, update_secret
 from kubetester.certs import create_agent_tls_certs, create_tls_certs, create_x509_mongodb_tls_certs, generate_cert
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -33,6 +39,35 @@ X509_CLIENT_CERT_SECRET_NAME = f"{MDB_RESOURCE_NAME}-x509-sync-client-cert"
 
 # The CN used in the x509 client cert — must match the MongoDB $external user
 X509_CLIENT_CERT_CN = "mongot-sync-source"
+
+# Password used to encrypt the x509 client cert private key
+X509_AUTH_KEY_PASSWORD = "test-x509-key-password"
+
+
+def encrypt_x509_key_with_password(namespace: str, secret_name: str, password: str):
+    """Encrypts the private key in a TLS secret with a password.
+
+    Reads the cert-manager-generated secret, encrypts tls.key with the given
+    password, and updates the secret with the encrypted key and a
+    tls.keyFilePassword entry containing the password."""
+    secret_data = read_secret(namespace, secret_name)
+
+    private_key = load_pem_private_key(secret_data["tls.key"].encode(), password=None)
+    encrypted_key_pem = private_key.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=BestAvailableEncryption(password.encode()),
+    )
+
+    update_secret(
+        namespace,
+        secret_name,
+        data={
+            "tls.key": encrypted_key_pem.decode(),
+            "tls.keyFilePassword": password,
+        },
+    )
+    logger.info(f"Encrypted private key in secret {secret_name} with password")
 
 
 def get_x509_subject_dn(namespace: str) -> str:
@@ -181,6 +216,10 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
         spec=x509_spec,
         secret_name=X509_CLIENT_CERT_SECRET_NAME,
     )
+
+    # Encrypt the x509 client cert private key with a password to test
+    # that mongot can handle password-protected keys via tls.keyFilePassword
+    encrypt_x509_key_with_password(namespace, X509_CLIENT_CERT_SECRET_NAME, X509_AUTH_KEY_PASSWORD)
 
 
 @mark.e2e_mongot_rs_x509_auth
