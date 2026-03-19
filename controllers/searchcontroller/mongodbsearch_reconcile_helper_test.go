@@ -1811,6 +1811,238 @@ func TestValidatePerShardTLSSecretsAllExist(t *testing.T) {
 	assert.True(t, status.IsOK(), "Expected status to be OK when all secrets exist")
 }
 
+func TestEnsureX509ClientCertConfig_NoopWhenNotConfigured(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns")
+
+	fakeClient := newTestFakeClient(search)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
+
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
+	require.NoError(t, err)
+
+	// Apply modifications and verify no changes
+	config := &mongot.Config{
+		SyncSource: mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				Username:     "original-user",
+				PasswordFile: "/original/path",
+				AuthSource:   ptr.To("admin"),
+			},
+		},
+	}
+	mongotMod(config)
+
+	assert.Equal(t, "original-user", config.SyncSource.ReplicaSet.Username)
+	assert.Equal(t, "/original/path", config.SyncSource.ReplicaSet.PasswordFile)
+	assert.Equal(t, "admin", *config.SyncSource.ReplicaSet.AuthSource)
+	assert.Nil(t, config.SyncSource.ReplicaSet.X509)
+
+	sts := newBaseMongotStatefulSet()
+	stsMod(sts)
+	assert.Empty(t, sts.Spec.Template.Spec.Volumes)
+}
+
+func TestEnsureX509ClientCertConfig_ErrorWhenTLSNotConfigured(t *testing.T) {
+	// should error out if the x509 auth is configured between mongot -> mongod but tls is not enabled
+	// for search source
+	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Source.X509 = &searchv1.X509Auth{
+			ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+		}
+	})
+
+	dbSource := &mockShardedSource{tlsConfig: nil} // No TLS on source
+
+	fakeClient := newTestFakeClient(search)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig())
+
+	_, _, err := helper.ensureX509ClientCertConfig(t.Context())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tls must be enabled")
+}
+
+func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Source.X509 = &searchv1.X509Auth{
+			ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+		}
+	})
+
+	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+
+	x509Secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: "test-ns"},
+		Data: map[string][]byte{
+			"tls.crt": []byte("cert-data"),
+			"tls.key": []byte("key-data"),
+		},
+	}
+
+	fakeClient := newTestFakeClient(search, x509Secret)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig())
+
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
+	require.NoError(t, err)
+
+	// Apply mongot modification to a config with both ReplicaSet and Router (sharded scenario)
+	config := &mongot.Config{
+		SyncSource: mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				Username:     "search-sync-source",
+				PasswordFile: TempSourceUserPasswordPath,
+				AuthSource:   ptr.To("admin"),
+			},
+			Router: &mongot.ConfigRouter{
+				HostAndPort:  "mongos-svc:27017",
+				Username:     "search-sync-source",
+				PasswordFile: TempSourceUserPasswordPath,
+			},
+		},
+	}
+	mongotMod(config)
+
+	// ReplicaSet: username/password cleared, authSource=$external, x509 cert path set
+	assert.Empty(t, config.SyncSource.ReplicaSet.Username)
+	assert.Empty(t, config.SyncSource.ReplicaSet.PasswordFile)
+	assert.Equal(t, "$external", *config.SyncSource.ReplicaSet.AuthSource)
+	require.NotNil(t, config.SyncSource.ReplicaSet.X509)
+	require.NotNil(t, config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFile)
+	assert.True(t, strings.HasPrefix(*config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFile, X509ClientCertOperatorMountPath))
+	assert.True(t, strings.HasSuffix(*config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFile, ".pem"))
+	assert.Nil(t, config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile)
+
+	// Router: same x509 modifications, cert path matches ReplicaSet
+	assert.Empty(t, config.SyncSource.Router.Username)
+	assert.Empty(t, config.SyncSource.Router.PasswordFile)
+	assert.Equal(t, "$external", *config.SyncSource.Router.AuthSource)
+	require.NotNil(t, config.SyncSource.Router.X509)
+	require.NotNil(t, config.SyncSource.Router.X509.TLSCertificateKeyFile)
+	assert.Equal(t, *config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFile, *config.SyncSource.Router.X509.TLSCertificateKeyFile)
+	assert.Nil(t, config.SyncSource.Router.X509.TLSCertificateKeyFilePasswordFile)
+
+	// Apply STS modification and verify volumes
+	sts := newBaseMongotStatefulSet()
+	stsMod(sts)
+
+	// Verify x509 volume exists and points to operator-managed secret
+	var x509Volume *corev1.Volume
+	for i := range sts.Spec.Template.Spec.Volumes {
+		if sts.Spec.Template.Spec.Volumes[i].Name == "x509-client-cert" {
+			x509Volume = &sts.Spec.Template.Spec.Volumes[i]
+		}
+	}
+	require.NotNil(t, x509Volume, "x509-client-cert volume should exist")
+	assert.Equal(t, "test-search-x509-client-cert", x509Volume.VolumeSource.Secret.SecretName)
+
+	// Verify x509 volume mount on mongot container
+	mongotContainer := sts.Spec.Template.Spec.Containers[0]
+	var x509Mount *corev1.VolumeMount
+	for i := range mongotContainer.VolumeMounts {
+		if mongotContainer.VolumeMounts[i].Name == "x509-client-cert" {
+			x509Mount = &mongotContainer.VolumeMounts[i]
+		}
+	}
+	require.NotNil(t, x509Mount, "x509-client-cert volume mount should exist")
+	assert.Equal(t, X509ClientCertOperatorMountPath, x509Mount.MountPath)
+	assert.True(t, x509Mount.ReadOnly)
+
+	// No key password volume should exist
+	for _, v := range sts.Spec.Template.Spec.Volumes {
+		assert.NotEqual(t, "x509-key-password", v.Name, "x509-key-password volume should not exist")
+	}
+}
+
+func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Source.X509 = &searchv1.X509Auth{
+			ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+		}
+	})
+
+	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+
+	// Secret includes the optional key password
+	x509Secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: "test-ns"},
+		Data: map[string][]byte{
+			"tls.crt":                 []byte("cert-data"),
+			"tls.key":                 []byte("key-data"),
+			"tls.keyFilePasswordFile": []byte("my-key-password"),
+		},
+	}
+
+	fakeClient := newTestFakeClient(search, x509Secret)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig())
+
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context())
+	require.NoError(t, err)
+
+	// Verify mongot config has key password path
+	config := &mongot.Config{
+		SyncSource: mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				Username:     "search-sync-source",
+				PasswordFile: TempSourceUserPasswordPath,
+			},
+		},
+	}
+	mongotMod(config)
+
+	require.NotNil(t, config.SyncSource.ReplicaSet.X509)
+	require.NotNil(t, config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile)
+	assert.Equal(t, TempX509KeyPasswordPath, *config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile)
+
+	// Verify STS has key password volume and mount
+	sts := newBaseMongotStatefulSet()
+	stsMod(sts)
+
+	var keyPasswordVolume *corev1.Volume
+	for i := range sts.Spec.Template.Spec.Volumes {
+		if sts.Spec.Template.Spec.Volumes[i].Name == "x509-key-password" {
+			keyPasswordVolume = &sts.Spec.Template.Spec.Volumes[i]
+		}
+	}
+	require.NotNil(t, keyPasswordVolume, "x509-key-password volume should exist")
+	assert.Equal(t, "x509-cert", keyPasswordVolume.VolumeSource.Secret.SecretName)
+
+	mongotContainer := sts.Spec.Template.Spec.Containers[0]
+	var keyPasswordMount *corev1.VolumeMount
+	for i := range mongotContainer.VolumeMounts {
+		if mongotContainer.VolumeMounts[i].Name == "x509-key-password" {
+			keyPasswordMount = &mongotContainer.VolumeMounts[i]
+		}
+	}
+	require.NotNil(t, keyPasswordMount, "x509-key-password volume mount should exist")
+	assert.Equal(t, X509KeyPasswordMountPath, keyPasswordMount.MountPath)
+	assert.Equal(t, X509KeyPasswordSecretKey, keyPasswordMount.SubPath)
+
+	// Verify prepend command for file permissions
+	assert.True(t, len(mongotContainer.Args) > 0)
+	argsJoined := strings.Join(mongotContainer.Args, " ")
+	assert.Contains(t, argsJoined, "x509-key-password")
+}
+
+// newBaseMongotStatefulSet creates a minimal StatefulSet with a mongot container for testing modifications.
+func newBaseMongotStatefulSet() *appsv1.StatefulSet {
+	return &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:         MongotContainerName,
+							Image:        "searchimage:tag",
+							Args:         []string{"echo", "test"},
+							VolumeMounts: []corev1.VolumeMount{},
+						},
+					},
+					Volumes: []corev1.Volume{},
+				},
+			},
+		},
+	}
+}
+
 func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 
