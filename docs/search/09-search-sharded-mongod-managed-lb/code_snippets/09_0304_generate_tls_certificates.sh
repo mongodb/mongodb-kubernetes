@@ -26,7 +26,6 @@ spec:
     - server auth
     - client auth
   dnsNames:
-    - ${MDB_RESOURCE_NAME}-0-0.${MDB_RESOURCE_NAME}-sh.${MDB_NS}.svc.cluster.local
     - "*.${MDB_RESOURCE_NAME}-sh.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
@@ -52,7 +51,6 @@ spec:
     - server auth
     - client auth
   dnsNames:
-    - ${MDB_RESOURCE_NAME}-1-0.${MDB_RESOURCE_NAME}-sh.${MDB_NS}.svc.cluster.local
     - "*.${MDB_RESOURCE_NAME}-sh.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
@@ -78,8 +76,6 @@ spec:
     - server auth
     - client auth
   dnsNames:
-    - ${MDB_RESOURCE_NAME}-config-0.${MDB_RESOURCE_NAME}-cs.${MDB_NS}.svc.cluster.local
-    - ${MDB_RESOURCE_NAME}-config-1.${MDB_RESOURCE_NAME}-cs.${MDB_NS}.svc.cluster.local
     - "*.${MDB_RESOURCE_NAME}-cs.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
@@ -105,7 +101,6 @@ spec:
     - server auth
     - client auth
   dnsNames:
-    - ${MDB_RESOURCE_NAME}-mongos-0.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local
     - "*.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}

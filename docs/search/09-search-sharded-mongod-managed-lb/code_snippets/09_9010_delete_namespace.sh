@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AUDIENCE: internal
 # Clean up: Delete the namespace and all resources
 #
 # WARNING: This will delete ALL resources in the namespace including:

@@ -6,15 +6,7 @@ Unlike [scenario 07](../07-search-external-sharded-mongod-managed-lb/) (external
 
 ## For Documentation Team
 
-The following scripts are marked `# AUDIENCE: internal` and should be **excluded** from published docs (test scaffolding only):
-
-| Script | Description |
-|--------|-------------|
-| `09_0046_create_image_pull_secrets.sh` | Create image pull secrets (private registry, CI only) |
-| `09_0101_helm_install_staging_operator.sh` | Install staging/dev operator |
-| `09_9010_delete_namespace.sh` | Delete namespace and all resources (cleanup/teardown) |
-
-All remaining scripts are **user-facing** and should be included in published docs.
+All scripts in this scenario are **user-facing** and should be included in published docs.
 
 ## Overview
 
@@ -169,7 +161,7 @@ The Envoy proxy terminates one mTLS session (from mongod) and initiates another 
 
 | Certificate | Secret Name Pattern | Usages | dnsNames | Purpose |
 |-------------|---------------------|--------|----------|---------|
-| Server cert | `{prefix}-{name}-search-lb-cert` | `server auth`, `client auth` | Per-shard proxy Service FQDNs + wildcard | Presented to mongod during TLS handshake |
+| Server cert | `{prefix}-{name}-search-lb-cert` | `server auth`, `client auth` | Wildcard (`*.{namespace}.svc.cluster.local`) | Presented to mongod during TLS handshake |
 | Client cert | `{prefix}-{name}-search-lb-client-cert` | `client auth` only | Wildcard (`*.{namespace}.svc.cluster.local`) | Used by Envoy when connecting to mongot |
 
 Both certificates must be signed by the same CA that mongod and mongot trust (i.e., the CA ClusterIssuer created above).

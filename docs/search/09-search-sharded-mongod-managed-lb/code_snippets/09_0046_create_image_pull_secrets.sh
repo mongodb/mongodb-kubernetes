@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# AUDIENCE: internal
 # Create image pull secrets if needed
 #
 # This is only required if you're using private container registries.

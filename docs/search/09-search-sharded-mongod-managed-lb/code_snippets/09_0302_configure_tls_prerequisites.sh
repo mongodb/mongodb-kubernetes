@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 # Configure TLS prerequisites: self-signed CA, ClusterIssuer, and CA distribution
-#
-# cert-manager needs 3 objects to issue certificates:
-#   1. Self-signed ClusterIssuer  — bootstraps the CA (can only sign its own cert)
-#   2. CA Certificate             — the actual root CA, signed by step 1
-#   3. CA ClusterIssuer           — uses the CA from step 2 to sign all other certs
 
 echo "Configuring TLS prerequisites..."
 
