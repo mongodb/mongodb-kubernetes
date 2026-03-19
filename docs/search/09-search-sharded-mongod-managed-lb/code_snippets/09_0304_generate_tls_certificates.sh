@@ -102,6 +102,7 @@ spec:
     - client auth
   dnsNames:
     - "*.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local"
+    - "${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
