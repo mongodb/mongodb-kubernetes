@@ -27,6 +27,7 @@ spec:
     - client auth
   dnsNames:
     - "*.${MDB_EXTERNAL_CLUSTER_NAME}-sh.${MDB_NS}.svc.cluster.local"
+    - "*.${MDB_EXTERNAL_DOMAIN}"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
@@ -52,6 +53,7 @@ spec:
     - client auth
   dnsNames:
     - "*.${MDB_EXTERNAL_CLUSTER_NAME}-sh.${MDB_NS}.svc.cluster.local"
+    - "*.${MDB_EXTERNAL_DOMAIN}"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
@@ -77,6 +79,7 @@ spec:
     - client auth
   dnsNames:
     - "*.${MDB_EXTERNAL_CLUSTER_NAME}-cs.${MDB_NS}.svc.cluster.local"
+    - "*.${MDB_EXTERNAL_DOMAIN}"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer

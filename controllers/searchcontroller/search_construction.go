@@ -25,7 +25,11 @@ import (
 const (
 	MongotContainerName          = "mongot"
 	MongotConfigFilename         = "config.yml"
-	MongotConfigPath             = "/mongot/" + MongotConfigFilename
+	MongotConfigLeaderFilename   = "config-leader.yml"
+	MongotConfigFollowerFilename = "config-follower.yml"
+	MongotConfigDirPath          = "/mongot"
+	MongotPerPodConfigDirPath    = "/mongot/startup-config"
+	MongotConfigPath             = MongotConfigDirPath + "/" + MongotConfigFilename
 	MongotDataPath               = "/mongot/data"
 	MongotKeyfileFilename        = "keyfile"
 	MongotKeyfilePath            = "/mongot/" + MongotKeyfileFilename
@@ -66,8 +70,8 @@ type TLSSourceConfig struct {
 }
 
 // CreateSearchStatefulSetFunc returns a statefulset.Modification that configures a mongot StatefulSet.
-// It works for both non-sharded and per-shard deployments, the caller is responsible for providing the appropriate names.
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string) statefulset.Modification {
+// It works for both non-sharded and per-shard deployments.
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -82,7 +86,13 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
 
 	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap(mongotConfigVolumeName, configMapName)
-	mongotConfigVolumeMount := statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
+
+	var mongotConfigVolumeMount corev1.VolumeMount
+	if usePerPodConfig {
+		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotPerPodConfigDirPath, statefulset.WithReadOnly(true))
+	} else {
+		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
+	}
 
 	var persistenceConfig *common.PersistenceConfig
 	if mdbSearch.Spec.Persistence != nil && mdbSearch.Spec.Persistence.SingleConfig != nil {
@@ -123,7 +133,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
-				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
+				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage, usePerPodConfig)),
 			),
 		),
 	}
@@ -186,10 +196,18 @@ func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.Res
 	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
 }
 
-func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string) container.Modification {
+func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	resourceRequirements := createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)
 	jvmFlags := jvmFlags(mdbSearch, resourceRequirements)
+
+	var mongotStartCommand string
+	if usePerPodConfig {
+		mongotStartCommand = mongotPerPodConfigStartCommand(jvmFlags)
+	} else {
+		mongotStartCommand = fmt.Sprintf("/mongot-community/mongot --config %s %s", MongotConfigPath, jvmFlags)
+	}
+
 	return container.Apply(
 		container.WithName(MongotContainerName),
 		container.WithImage(searchImage),
@@ -201,11 +219,18 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 		container.WithCommand([]string{"sh"}),
 		container.WithArgs([]string{
 			"-c",
-			fmt.Sprintf("/mongot-community/mongot --config /mongot/config.yml %s", jvmFlags),
+			mongotStartCommand,
 		}),
 		prependCommand(sensitiveFilePermissionsWorkaround(MongotSourceUserPasswordPath, TempSourceUserPasswordPath, "0600")),
 		containerSecurityContext,
 	)
+}
+
+// mongotPerPodConfigStartCommand returns the shell script that reads the pod's role from ConfigMap.
+func mongotPerPodConfigStartCommand(jvmFlags string) string {
+	return fmt.Sprintf(`ROLE=$(cat "%s/$HOSTNAME")
+/mongot-community/mongot --config %s/config-${ROLE}.yml %s`,
+		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath, jvmFlags)
 }
 
 func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
