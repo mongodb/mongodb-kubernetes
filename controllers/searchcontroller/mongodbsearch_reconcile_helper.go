@@ -384,7 +384,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	mongotConfig := mongot.Config{}
 	mongot.Apply(modifications...)(&mongotConfig)
 
-	configEntries, keysToRemove, err := buildMongotConfigEntries(mongotConfig, usePerPodConfig, stsName, replicas)
+	configEntries, keysToRemove, err := buildMongotConfigMapEntries(mongotConfig, usePerPodConfig, stsName, replicas)
 	if err != nil {
 		return "", err
 	}
@@ -414,7 +414,20 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	return configHash, nil
 }
 
-func buildMongotConfigEntries(config mongot.Config, usePerPodConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
+// buildMongotConfigMapEntries builds the ConfigMap data entries for mongot.
+//
+// Single-config mode (no auto-embedding):
+//
+//	config.yml: <mongot config>
+//
+// Per-pod config mode (auto-embedding enabled):
+//
+//	config-leader.yml:   <mongot config with IsAutoEmbeddingViewWriter: true>
+//	config-follower.yml: <mongot config with IsAutoEmbeddingViewWriter: false>
+//	{stsName}-0:         "leader"
+//	{stsName}-1:         "follower"
+//	{stsName}-N:         "follower"
+func buildMongotConfigMapEntries(config mongot.Config, usePerPodConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
 	if usePerPodConfig {
 		return buildPerPodConfigEntries(config, stsName, replicas)
 	}
