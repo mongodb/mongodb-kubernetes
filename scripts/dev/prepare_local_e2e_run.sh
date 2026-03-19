@@ -78,6 +78,20 @@ wait "${pid_install}" || exit $?
 wait "${pid_om}" || exit $?
 test -f "docker/mongodb-kubernetes-tests/.test_identifiers" && rm "docker/mongodb-kubernetes-tests/.test_identifiers"
 
+# Ensure database pod service accounts exist in each watched namespace
+# regardless of DEPLOY_OPERATOR setting (the Helm chart only creates them
+# when DEPLOY_OPERATOR=true, but they're required even for local operator runs).
+# Add Helm ownership metadata so that when Helm runs (in this script or in pytest)
+# it can adopt these resources instead of failing with "invalid ownership metadata".
+for sa in mongodb-kubernetes-database-pods mongodb-kubernetes-appdb; do
+  kubectl create serviceaccount "${sa}" -n "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+  kubectl label serviceaccount "${sa}" -n "${NAMESPACE}" "app.kubernetes.io/managed-by=Helm" --overwrite
+  kubectl annotate serviceaccount "${sa}" -n "${NAMESPACE}" \
+    "meta.helm.sh/release-name=mongodb-kubernetes-operator" \
+    "meta.helm.sh/release-namespace=${NAMESPACE}" \
+    --overwrite
+done
+
 (
   if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
     echo "installing operator helm chart to create the necessary sa and roles"
