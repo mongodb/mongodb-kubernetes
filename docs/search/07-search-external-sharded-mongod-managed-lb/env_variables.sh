@@ -90,7 +90,7 @@ export MDB_TLS_CA_ISSUER="my-ca-issuer"
 # External domain used with spec.externalAccess.externalDomain on the MongoDB CR.
 # When set, mongos pods are reachable at {podName}.{externalDomain} instead of
 # the internal K8s FQDN. CoreDNS is configured to resolve this domain to the
-# mongos ClusterIP (see 07_0311_internal_update_coredns_configmap.sh).
+# mongos pod IP (see 07_0311_internal_update_coredns_configmap.sh).
 export MDB_EXTERNAL_DOMAIN="ext-mdb.example.com"
 
 # -- Shard 0 --
