@@ -270,6 +270,25 @@ func TestFixtureMatch(t *testing.T) {
 			},
 		},
 		{
+			// Empty mechanisms means the operator created the user — no migration flag.
+			name:       "SCRAM auth — empty mechanisms (operator-created) — user CRs",
+			inputJSON:  "singlecluster/replicaset/authentication/scram_empty_mechanisms.json",
+			goldenYAML: "singlecluster/replicaset/authentication/scram_empty_mechanisms_user_crs.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				users, err := GenerateUserCRs(ac, "scram-rs")
+				require.NoError(t, err)
+				var sb strings.Builder
+				for i, u := range users {
+					if i > 0 {
+						sb.WriteString("---\n")
+					}
+					sb.WriteString(u.YAML)
+					require.False(t, u.MigratedFromVM, "user with empty mechanisms must not be flagged as VM-migrated")
+				}
+				return sb.String()
+			},
+		},
+		{
 			name:       "SCRAM+X509 auth — dual modes, X509 cluster auth",
 			inputJSON:  "singlecluster/replicaset/authentication/x509.json",
 			goldenYAML: "singlecluster/replicaset/authentication/x509_cr.yaml",

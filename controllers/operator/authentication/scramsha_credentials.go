@@ -28,7 +28,7 @@ const (
 	rfc5802MandatedSaltSize = 4
 )
 
-func isPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDBUser) (bool, error) {
+func IsPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDBUser) (bool, error) {
 	if acUser == nil {
 		return true, nil
 	}
@@ -71,45 +71,91 @@ func isPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDB
 	return false, nil
 }
 
-// ConfigureScramCredentials ensures both SCRAM-SHA-1 and SCRAM-SHA-256
-// credentials are set on the user. If the password has not changed, existing
-// credentials are preserved and only the missing type is generated.
-func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.AutomationConfig) error {
+// ConfigureScramCredentials sets SCRAM credentials on the user. Migrated users
+// retain only their original mechanism(s); operator-created users get both.
+func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.AutomationConfig, migratedFromVM bool) error {
 	_, acUser := ac.Auth.GetUser(user.Username, user.Database)
-	changed, err := isPasswordChanged(user, password, acUser)
+	changed, err := IsPasswordChanged(user, password, acUser)
 	if err != nil {
 		return err
 	}
+
 	if !changed {
-		user.ScramSha256Creds = acUser.ScramSha256Creds
-		user.ScramSha1Creds = acUser.ScramSha1Creds
+		if acUser.ScramSha256Creds != nil {
+			user.ScramSha256Creds = acUser.ScramSha256Creds
+		}
+		if acUser.ScramSha1Creds != nil {
+			user.ScramSha1Creds = acUser.ScramSha1Creds
+		}
+		if migratedFromVM || (user.ScramSha256Creds != nil && user.ScramSha1Creds != nil) {
+			if migratedFromVM {
+				populateMechanisms(user)
+			}
+			return nil
+		}
+	}
+
+	if migratedFromVM {
+		if acUser == nil {
+			return xerrors.Errorf("migratedFromVM is set but user %q (db %q) not found in automation config", user.Username, user.Database)
+		}
+		if acUser.ScramSha256Creds != nil {
+			user.ScramSha256Creds, err = newScramSha256Creds(user.Username, password)
+			if err != nil {
+				return err
+			}
+		}
+		if acUser.ScramSha1Creds != nil {
+			user.ScramSha1Creds, err = newScramSha1Creds(user.Username, password)
+			if err != nil {
+				return err
+			}
+		}
+		populateMechanisms(user)
+		return nil
 	}
 
 	if user.ScramSha256Creds == nil {
-		salt, err := generateSalt(sha256.New)
+		user.ScramSha256Creds, err = newScramSha256Creds(user.Username, password)
 		if err != nil {
-			return xerrors.Errorf("error generating scramSha256 salt: %w", err)
+			return err
 		}
-		creds, err := computeScramShaCreds(user.Username, password, salt, ScramSha256)
-		if err != nil {
-			return xerrors.Errorf("error generating scramSha256 creds: %w", err)
-		}
-		user.ScramSha256Creds = creds
 	}
 
 	if user.ScramSha1Creds == nil {
-		salt, err := generateSalt(sha1.New)
+		user.ScramSha1Creds, err = newScramSha1Creds(user.Username, password)
 		if err != nil {
-			return xerrors.Errorf("error generating scramSha1 salt: %w", err)
+			return err
 		}
-		creds, err := computeScramShaCreds(user.Username, password, salt, MongoDBCR)
-		if err != nil {
-			return xerrors.Errorf("error generating scramSha1 creds: %w", err)
-		}
-		user.ScramSha1Creds = creds
 	}
 
 	return nil
+}
+
+func newScramSha256Creds(username, password string) (*om.ScramShaCreds, error) {
+	salt, err := generateSalt(sha256.New)
+	if err != nil {
+		return nil, xerrors.Errorf("error generating scramSha256 salt: %w", err)
+	}
+	return computeScramShaCreds(username, password, salt, ScramSha256)
+}
+
+func newScramSha1Creds(username, password string) (*om.ScramShaCreds, error) {
+	salt, err := generateSalt(sha1.New)
+	if err != nil {
+		return nil, xerrors.Errorf("error generating scramSha1 salt: %w", err)
+	}
+	return computeScramShaCreds(username, password, salt, MongoDBCR)
+}
+
+func populateMechanisms(user *om.MongoDBUser) {
+	user.Mechanisms = nil
+	if user.ScramSha256Creds != nil {
+		user.Mechanisms = append(user.Mechanisms, util.AutomationConfigScramSha256Option)
+	}
+	if user.ScramSha1Creds != nil {
+		user.Mechanisms = append(user.Mechanisms, util.SCRAMSHA1)
+	}
 }
 
 // The code in this file is largely adapted from the Automation Agent codebase.

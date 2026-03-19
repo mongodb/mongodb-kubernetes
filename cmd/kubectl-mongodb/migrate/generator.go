@@ -17,6 +17,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
+// shouldFlagAsVMMigrated returns true when OM recorded a non-empty mechanisms
+// list for the user, indicating the user was managed outside the operator.
+func shouldFlagAsVMMigrated(mechanisms []string) bool {
+	return len(mechanisms) > 0
+}
+
 const (
 	PrometheusPasswordSecretName = "prometheus-password"
 	PrometheusTLSSecretName      = "prometheus-tls"
@@ -34,8 +40,7 @@ type GenerateOptions struct {
 	MultiClusterNames     []string
 	AgentConfigs          *ProjectAgentConfigs
 	ProcessConfigs        *ProjectProcessConfigs
-	// CertsSecretPrefix is the value for spec.security.certsSecretPrefix when TLS is enabled (e.g. "mdb").
-	// Required when TLS is enabled; no default — caller must set it (CLI prompts the user).
+	// CertsSecretPrefix is spec.security.certsSecretPrefix; required when TLS is enabled.
 	CertsSecretPrefix string
 }
 
@@ -46,6 +51,9 @@ type UserCROutput struct {
 	Database       string
 	NeedsPassword  bool
 	PasswordSecret string
+	// MigratedFromVM mirrors spec.migratedFromVm: true when OM had an
+	// explicit mechanisms list, so the operator preserves only those mechanisms.
+	MigratedFromVM bool
 }
 
 // GenerateMongoDBCR generates a MongoDB CR from the given automation config.
@@ -413,6 +421,8 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 			return nil, fmt.Errorf("failed to convert roles for user %q: %w", user.Username, err)
 		}
 
+		migratedFromVM := shouldFlagAsVMMigrated(user.Mechanisms)
+
 		spec := userv1.MongoDBUserSpec{
 			Username: user.Username,
 			Database: user.Database,
@@ -426,6 +436,9 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 				Name: passwordSecretName,
 				Key:  "password",
 			}
+		}
+		if migratedFromVM {
+			spec.MigratedFromVM = &migratedFromVM
 		}
 
 		userYAML, err := marshalCRToYAML(userv1.MongoDBUser{
@@ -446,6 +459,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 			Database:       user.Database,
 			NeedsPassword:  needsPassword,
 			PasswordSecret: passwordSecretName,
+			MigratedFromVM: migratedFromVM,
 		})
 	}
 

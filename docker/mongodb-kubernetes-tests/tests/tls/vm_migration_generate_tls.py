@@ -28,10 +28,12 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.tls.vm_migration_helpers import (
+    apply_user_crs_and_verify_ac,
     deploy_vm_service,
     deploy_vm_statefulset,
     log_automation_config,
     log_automation_config_diff,
+    rotate_password_and_verify,
     run_migrate_generate,
 )
 
@@ -234,14 +236,17 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
 
 
 @fixture(scope="module")
-def mdb_migration(namespace: str, om_tester: OMTester) -> MongoDB:
+def generated_cr_yaml(namespace: str) -> str:
+    return run_migrate_generate(namespace, passwords=[ADMIN_USER_PASSWORD])
+
+
+@fixture(scope="module")
+def mdb_migration(namespace: str, generated_cr_yaml: str) -> MongoDB:
     resource = MongoDB(RS_NAME, namespace)
     if try_load(resource):
         return resource
 
-    output = run_migrate_generate(namespace, passwords=[ADMIN_USER_PASSWORD])
-
-    resource.backing_obj = next(yaml.safe_load_all(output))
+    resource.backing_obj = next(yaml.safe_load_all(generated_cr_yaml))
     resource.backing_obj.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault(
         "net", {}
     ).setdefault("tls", {})["mode"] = "disabled"
@@ -284,8 +289,20 @@ def test_install_operator(operator: Operator):
 
 
 @mark.e2e_vm_migration_generate_tls
+def test_user_cr_emitted(generated_cr_yaml: str):
+    docs = list(yaml.safe_load_all(generated_cr_yaml))
+    user_docs = [d for d in docs if d and d.get("kind") == "MongoDBUser"]
+    assert len(user_docs) == 1, f"Expected 1 user CR, got {len(user_docs)}"
+
+
+@mark.e2e_vm_migration_generate_tls
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB, ac_before_migration: dict):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+
+
+@mark.e2e_vm_migration_generate_tls
+def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migration: MongoDB, om_tester: OMTester):
+    apply_user_crs_and_verify_ac(generated_cr_yaml, namespace, om_tester)
 
 
 @mark.e2e_vm_migration_generate_tls
@@ -315,6 +332,11 @@ def test_log_ac_after_promote(om_tester: OMTester, ac_before_promote: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="after-promote")
     log_automation_config_diff(ac_before_promote, ac_after)
+
+
+@mark.e2e_vm_migration_generate_tls
+def test_password_rotation_keeps_migrated_flag(generated_cr_yaml: str, namespace: str, om_tester: OMTester):
+    rotate_password_and_verify(generated_cr_yaml, namespace, om_tester)
 
 
 @mark.e2e_vm_migration_generate_tls

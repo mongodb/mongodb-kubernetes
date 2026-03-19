@@ -4,11 +4,16 @@ import difflib
 import json
 import os
 import subprocess
+import time
+from typing import List, Optional
 
 import yaml
+from kubetester import create_or_update_secret, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import OMTester
+from kubetester.phase import Phase
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
@@ -115,3 +120,95 @@ def log_automation_config_diff(ac_before: dict, ac_after: dict):
         logger.info("Automation config diff:\n%s", "".join(diff))
     else:
         logger.info("No changes in automation config.")
+
+
+def get_user_docs(generated_cr_yaml: str) -> List[dict]:
+    docs = list(yaml.safe_load_all(generated_cr_yaml))
+    return [d for d in docs if d and d.get("kind") == "MongoDBUser"]
+
+
+def apply_user_crs_and_verify_ac(generated_cr_yaml: str, namespace: str, om_tester: OMTester):
+    """Apply every MongoDBUser CR and assert it reaches Updated with correct AC state."""
+    user_docs = get_user_docs(generated_cr_yaml)
+    for doc in user_docs:
+        user = MongoDBUser(name=doc["metadata"]["name"], namespace=namespace)
+        if not try_load(user):
+            user.backing_obj = doc
+            user.update()
+
+        try_load(user)
+        assert user["spec"].get("migratedFromVm") is True, (
+            f"User {doc['metadata']['name']} should have migratedFromVm=true"
+        )
+        user.assert_reaches_phase(Phase.Updated, timeout=120)
+
+    ac = om_tester.api_get_automation_config()
+    ac_users = {u["user"]: u for u in ac.get("auth", {}).get("usersWanted", []) if u is not None}
+    for doc in user_docs:
+        username = doc["spec"]["username"]
+        ac_user = ac_users.get(username)
+        assert ac_user is not None, f"{username} not found in automation config"
+        assert ac_user.get("mechanisms") == ["SCRAM-SHA-256"], (
+            f"{username}: expected mechanisms ['SCRAM-SHA-256'], got {ac_user.get('mechanisms')}"
+        )
+        assert ac_user.get("scramSha256Creds") is not None, f"{username}: missing scramSha256Creds"
+        assert ac_user.get("scramSha1Creds") is None, (
+            f"{username}: scramSha1Creds should not be present for migrated user with only SHA-256"
+        )
+
+
+def _wait_for_salt_change(om_tester: OMTester, username: str, old_salt: str, timeout: int = 180):
+    """Poll the automation config until the user's scramSha256 salt differs from old_salt."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        ac = om_tester.api_get_automation_config()
+        ac_user = next((u for u in ac["auth"]["usersWanted"] if u["user"] == username), None)
+        if ac_user and ac_user.get("scramSha256Creds", {}).get("salt") != old_salt:
+            return ac_user
+        time.sleep(10)
+    raise AssertionError(
+        f"Timed out ({timeout}s) waiting for scramSha256 salt to change for user {username!r}"
+    )
+
+
+def rotate_password_and_verify(
+    generated_cr_yaml: str,
+    namespace: str,
+    om_tester: OMTester,
+    target_username: Optional[str] = None,
+):
+    """Rotate the password of a migrated user and verify flag + mechanisms are preserved."""
+    user_docs = get_user_docs(generated_cr_yaml)
+    assert user_docs, "No user CRs found in generated yaml"
+
+    if target_username:
+        user_doc = next(d for d in user_docs if d["spec"]["username"] == target_username)
+    else:
+        user_doc = user_docs[0]
+
+    username = user_doc["spec"]["username"]
+    user = MongoDBUser(name=user_doc["metadata"]["name"], namespace=namespace)
+    user.reload()
+
+    assert user["spec"].get("migratedFromVm") is True
+
+    ac_before = om_tester.api_get_automation_config()
+    ac_user_before = next(u for u in ac_before["auth"]["usersWanted"] if u["user"] == username)
+    old_sha256_salt = ac_user_before["scramSha256Creds"]["salt"]
+
+    secret_name = user["spec"]["passwordSecretKeyRef"]["name"]
+    secret_key = user["spec"]["passwordSecretKeyRef"].get("key", "password")
+    create_or_update_secret(namespace, secret_name, {secret_key: "newRotatedPassword1!"})
+
+    # Secret change doesn't bump the MongoDBUser generation, so
+    # assert_reaches_phase would return immediately. Poll the AC instead.
+    ac_user = _wait_for_salt_change(om_tester, username, old_sha256_salt, timeout=180)
+
+    user.reload()
+    assert user["spec"].get("migratedFromVm") is True, "migratedFromVm must remain true"
+
+    assert ac_user["mechanisms"] == ["SCRAM-SHA-256"], (
+        f"Expected original mechanisms, got: {ac_user['mechanisms']}"
+    )
+    assert ac_user.get("scramSha256Creds") is not None, "scramSha256Creds missing"
+    assert ac_user.get("scramSha1Creds") is None, "scramSha1Creds should not be added"

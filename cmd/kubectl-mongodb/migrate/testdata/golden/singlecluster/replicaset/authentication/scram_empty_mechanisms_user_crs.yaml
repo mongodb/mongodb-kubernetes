@@ -4,7 +4,6 @@ metadata:
   name: app-user
 spec:
   db: admin
-  migratedFromVm: true
   mongodbResourceRef:
     name: scram-rs
   passwordSecretKeyRef:

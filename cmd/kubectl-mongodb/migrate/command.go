@@ -12,6 +12,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 )
 
 const defaultNamespace = "default"
@@ -163,15 +164,15 @@ func ensurePrometheus(ctx context.Context, ac *om.AutomationConfig, kubeClient k
 		return fmt.Errorf("Prometheus password cannot be empty")
 	}
 	sec := GeneratePasswordSecret(PrometheusPasswordSecretName, namespace, promPassword)
-	if err := kubeClient.CreateSecret(ctx, sec); err != nil {
+	if err := secret.CreateOrUpdate(ctx, kubeClient, sec); err != nil {
 		return fmt.Errorf("failed to create Prometheus password secret: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", PrometheusPasswordSecretName, namespace)
 	return nil
 }
 
-// ensureUserSecrets prompts for a password and creates the corresponding
-// Kubernetes Secret for every SCRAM user. Callers print the CRs after this returns nil.
+// ensureUserSecrets prompts for each SCRAM user's password, validates it
+// against the OM credential hashes, and creates the corresponding Secret.
 func ensureUserSecrets(ctx context.Context, ac *om.AutomationConfig, userCRs []UserCROutput, kubeClient kubernetesClient.Client, scanner *bufio.Scanner) error {
 	if len(userCRs) == 0 {
 		return nil
@@ -194,16 +195,31 @@ func ensureUserSecrets(ctx context.Context, ac *om.AutomationConfig, userCRs []U
 			return fmt.Errorf("Password for user %q cannot be empty.", u.Username)
 		}
 
-		user := &om.MongoDBUser{Username: u.Username, Database: u.Database}
-		if err := authentication.ConfigureScramCredentials(user, password, ac); err != nil {
-			return fmt.Errorf("failed to validate password for user %q: %w", u.Username, err)
+		if err := validatePasswordAgainstOM(u.Username, u.Database, password, ac); err != nil {
+			return err
 		}
 
 		sec := GeneratePasswordSecret(u.PasswordSecret, namespace, password)
-		if err := kubeClient.CreateSecret(ctx, sec); err != nil {
+		if err := secret.CreateOrUpdate(ctx, kubeClient, sec); err != nil {
 			return fmt.Errorf("failed to create password secret %q for user %q: %w", u.PasswordSecret, u.Username, err)
 		}
 		fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", u.PasswordSecret, namespace)
+	}
+	return nil
+}
+
+// validatePasswordAgainstOM rejects passwords that don't match the existing
+// SCRAM credential hashes in the automation config.
+func validatePasswordAgainstOM(username, database, password string, ac *om.AutomationConfig) error {
+	_, acUser := ac.Auth.GetUser(username, database)
+	user := &om.MongoDBUser{Username: username, Database: database}
+	changed, err := authentication.IsPasswordChanged(user, password, acUser)
+	if err != nil {
+		return fmt.Errorf("failed to validate password for user %q: %w", username, err)
+	}
+	if changed {
+		return fmt.Errorf("password for user %q does not match the existing credentials in Ops Manager. "+
+			"Please enter the correct password that the user currently has in OM.", username)
 	}
 	return nil
 }

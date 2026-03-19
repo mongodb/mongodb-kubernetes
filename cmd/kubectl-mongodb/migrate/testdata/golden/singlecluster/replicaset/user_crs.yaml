@@ -4,6 +4,7 @@ metadata:
   name: app-user
 spec:
   db: admin
+  migratedFromVm: true
   mongodbResourceRef:
     name: my-rs
   passwordSecretKeyRef:

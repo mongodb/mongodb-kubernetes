@@ -85,6 +85,7 @@ type MongoDBResourceRef struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!(has(self.migratedFromVm) && self.migratedFromVm && (!has(oldSelf.migratedFromVm) || !oldSelf.migratedFromVm))",message="migratedFromVm cannot be set to true after initial creation"
 type MongoDBUserSpec struct {
 	Roles    []Role `json:"roles,omitempty"`
 	Username string `json:"username"`
@@ -95,6 +96,11 @@ type MongoDBUserSpec struct {
 	PasswordSecretKeyRef SecretKeyRef `json:"passwordSecretKeyRef"`
 	// +optional
 	ConnectionStringSecretName string `json:"connectionStringSecretName"`
+	// MigratedFromVM preserves only the original SCRAM mechanisms from the OM
+	// automation config across password rotations. Cannot be set to true after
+	// initial creation.
+	// +optional
+	MigratedFromVM *bool `json:"migratedFromVm,omitempty"`
 }
 
 type MongoDBUserStatus struct {
