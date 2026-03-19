@@ -54,10 +54,13 @@ run 07_0304_internal_generate_tls_certificates.sh
 # Create simulated external MongoDB sharded cluster (using Enterprise operator)
 # Note: MongoDB is created WITH search config from the start (pointing to Envoy proxy endpoints)
 run 07_0310_internal_create_external_mongodb_sharded_cluster.sh
-run_for_output 07_0315_internal_wait_for_external_cluster.sh
 
 # Update CoreDNS to resolve external domain to mongos ClusterIP
+# Must happen BEFORE waiting for the cluster — the mongos agent needs DNS resolution
+# for the external hostname to report the process as up.
 run 07_0311_internal_update_coredns_configmap.sh
+
+run_for_output 07_0315_internal_wait_for_external_cluster.sh
 
 # Create users AFTER cluster is ready (MongoDBUser CRDs reference the cluster)
 run 07_0316_internal_create_external_mongodb_users.sh
