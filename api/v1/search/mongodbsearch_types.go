@@ -157,6 +157,20 @@ type MongoDBSource struct {
 	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
 	// +optional
 	Username *string `json:"username,omitempty"`
+	// X509 configures x509 client certificate authentication for the sync source connection.
+	// When set, mongot authenticates to MongoDB using x509 instead of username/password.
+	// Mutually exclusive with PasswordSecretRef and Username.
+	// +optional
+	X509 *X509Auth `json:"x509,omitempty"`
+}
+
+// X509Auth configures x509 client certificate authentication for mongot's sync source connection.
+type X509Auth struct {
+	// ClientCertificateSecret is a reference to a Secret containing the x509 client
+	// certificate and key for authenticating to the MongoDB sync source.
+	// Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePasswordFile" (optional).
+	// +kubebuilder:validation:Required
+	ClientCertificateSecret corev1.LocalObjectReference `json:"clientCertificateSecretRef"`
 }
 
 type ExternalMongoDBSource struct {
@@ -420,6 +434,25 @@ func (s *MongoDBSearch) TLSOperatorSecretForShard(shardName string) types.Namesp
 // IsTLSConfigured returns true if TLS is enabled (TLS struct is present)
 func (s *MongoDBSearch) IsTLSConfigured() bool {
 	return s.Spec.Security.TLS != nil
+}
+
+// IsX509Auth returns true if x509 client certificate authentication is configured for the sync source.
+func (s *MongoDBSearch) IsX509Auth() bool {
+	return s.Spec.Source != nil && s.Spec.Source.X509 != nil
+}
+
+// X509ClientCertSecret returns the namespaced name of the user-provided x509 client certificate secret.
+func (s *MongoDBSearch) X509ClientCertSecret() types.NamespacedName {
+	if !s.IsX509Auth() {
+		return types.NamespacedName{}
+	}
+	return types.NamespacedName{Name: s.Spec.Source.X509.ClientCertificateSecret.Name, Namespace: s.Namespace}
+}
+
+// X509OperatorManagedSecret returns the namespaced name of the operator-managed secret
+// containing the combined x509 client certificate and key.
+func (s *MongoDBSearch) X509OperatorManagedSecret() types.NamespacedName {
+	return types.NamespacedName{Name: s.Name + "-x509-client-cert", Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {

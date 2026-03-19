@@ -474,9 +474,7 @@ storage:
   dataPath: ""
 syncSource:
   replicaSet:
-    hostAndPort: null
-    passwordFile: ""
-    username: ""`
+    hostAndPort: null`
 
 	search := newTestMongoDBSearch("mdb-searh", "mongodb")
 	fakeClient := newTestFakeClient(search)

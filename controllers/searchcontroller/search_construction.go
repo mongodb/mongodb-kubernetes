@@ -40,6 +40,11 @@ const (
 	SearchLivenessProbePath      = "/health"
 	SearchReadinessProbePath     = "/ready"
 	tlsCACertName                = "ca.crt"
+
+	X509KeyPasswordMountPath        = "/mongot/x509-key-password"           // #nosec G101 -- path, not a password
+	TempX509KeyPasswordPath         = tempVolumePath + "/x509-key-password" // #nosec G101 -- path, not a password
+	X509KeyPasswordSecretKey        = "tls.keyFilePasswordFile"             // #nosec G101 -- secret key name, not a password
+	X509ClientCertOperatorMountPath = "/var/lib/tls/x509-client/"
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
@@ -76,14 +81,9 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
 	dataVolumeName := "data"
-	sourceUserPasswordVolumeName := "password"
 	mongotConfigVolumeName := "config"
 
 	pvcVolumeMount := statefulset.CreateVolumeMount(dataVolumeName, MongotDataPath, statefulset.WithSubPath("data"))
-
-	sourceUserPasswordSecretKey := mdbSearch.SourceUserPasswordSecretRef()
-	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
-	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
 
 	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap(mongotConfigVolumeName, configMapName)
 
@@ -108,13 +108,11 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		pvcVolumeMount,
 		tmpVolumeMount,
 		mongotConfigVolumeMount,
-		sourceUserPasswordVolumeMount,
 	}
 
 	volumes := []corev1.Volume{
 		tmpVolume,
 		mongotConfigVolume,
-		sourceUserPasswordVolume,
 	}
 
 	stsModifications := []statefulset.Modification{
@@ -147,6 +145,23 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 	}
 
 	return statefulset.Apply(stsModifications...)
+}
+
+// PasswordAuthModification returns a statefulset.Modification that mounts the password secret
+// and sets up the file permissions workaround for password-based sync source authentication.
+func PasswordAuthModification(mdbSearch *searchv1.MongoDBSearch) statefulset.Modification {
+	sourceUserPasswordVolumeName := "password"
+	sourceUserPasswordSecretKey := mdbSearch.SourceUserPasswordSecretRef()
+	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
+	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
+
+	return statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+		podtemplatespec.WithVolume(sourceUserPasswordVolume),
+		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
+			container.WithVolumeMounts([]corev1.VolumeMount{sourceUserPasswordVolumeMount}),
+			prependCommand(sensitiveFilePermissionsWorkaround(MongotSourceUserPasswordPath, TempSourceUserPasswordPath, "0600")),
+		)),
+	))
 }
 
 func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modification {
@@ -221,7 +236,6 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 			"-c",
 			mongotStartCommand,
 		}),
-		prependCommand(sensitiveFilePermissionsWorkaround(MongotSourceUserPasswordPath, TempSourceUserPasswordPath, "0600")),
 		containerSecurityContext,
 	)
 }
