@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Add the MongoDB Helm repository
+# Verify the MongoDB Helm chart is accessible via OCI registry
+# No 'helm repo add' needed — OCI charts are pulled directly.
 
-helm repo add mongodb https://mongodb.github.io/helm-charts 2>/dev/null || true
-helm repo update mongodb
-helm search repo mongodb/mongodb-kubernetes
+helm show chart "${OPERATOR_HELM_CHART}"

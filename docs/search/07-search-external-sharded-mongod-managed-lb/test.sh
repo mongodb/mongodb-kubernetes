@@ -35,7 +35,7 @@ run_for_output 07_0090_helm_add_mongodb_repo.sh
 run_for_output 07_0100_install_operator.sh
 
 # Ops Manager resources (for simulated external cluster)
-run 07_0300_create_ops_manager_resources.sh
+run 07_0300_internal_create_ops_manager_resources.sh
 
 # ============================================================================
 # TLS CONFIGURATION
@@ -43,9 +43,9 @@ run 07_0300_create_ops_manager_resources.sh
 
 run_for_output 07_0301_install_cert_manager.sh
 run 07_0302_configure_tls_prerequisites.sh
-run 07_0302a_configure_tls_prerequisites_mongod.sh
+run 07_0302a_internal_configure_tls_prerequisites_mongod.sh
 run 07_0302b_configure_tls_prerequisites_mongot.sh
-run 07_0304_generate_tls_certificates.sh
+run 07_0304_internal_generate_tls_certificates.sh
 
 # ============================================================================
 # SIMULATED EXTERNAL MONGODB SHARDED CLUSTER
@@ -53,14 +53,14 @@ run 07_0304_generate_tls_certificates.sh
 
 # Create simulated external MongoDB sharded cluster (using Enterprise operator)
 # Note: MongoDB is created WITH search config from the start (pointing to Envoy proxy endpoints)
-run 07_0310_create_external_mongodb_sharded_cluster.sh
-run_for_output 07_0315_wait_for_external_cluster.sh
+run 07_0310_internal_create_external_mongodb_sharded_cluster.sh
+run_for_output 07_0315_internal_wait_for_external_cluster.sh
 
 # Update CoreDNS to resolve external domain to mongos ClusterIP
 run 07_0311_internal_update_coredns_configmap.sh
 
 # Create users AFTER cluster is ready (MongoDBUser CRDs reference the cluster)
-run 07_0316_create_external_mongodb_users.sh
+run 07_0316_internal_create_external_mongodb_users.sh
 
 # ============================================================================
 # MONGODB SEARCH WITH MANAGED ENVOY LB
