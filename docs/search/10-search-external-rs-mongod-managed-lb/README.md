@@ -85,10 +85,9 @@ source code_snippets/10_0045_create_namespaces.sh
 
 ### Step 3: Install the MongoDB Kubernetes Operator
 
-Add the MongoDB Helm repository and install the operator:
+Install the operator via OCI Helm chart:
 
 ```bash
-source code_snippets/10_0090_helm_add_mongodb_repo.sh
 source code_snippets/10_0100_install_operator.sh
 ```
 
@@ -245,22 +244,21 @@ Self-Signed ClusterIssuer
 | 1 | `10_0040_validate_env.sh` | No | Validate all required environment variables |
 | 2 | `10_0045_create_namespaces.sh` | No | Create Kubernetes namespace |
 | 3 | `10_0046_internal_create_image_pull_secrets.sh` | Yes | Create image pull secrets (private registries) |
-| 4 | `10_0090_helm_add_mongodb_repo.sh` | No | Add MongoDB Helm repository |
-| 5 | `10_0100_install_operator.sh` | No | Install MongoDB Kubernetes Operator |
-| 6 | `10_0300_internal_create_ops_manager_resources.sh` | Yes | Create Ops Manager connection resources |
-| 7 | `10_0301_install_cert_manager.sh` | No | Install cert-manager |
-| 8 | `10_0302_configure_tls_prerequisites.sh` | No | Configure self-signed CA and distribute certs |
-| 9 | `10_0304_internal_generate_tls_certificates.sh` | Yes | Generate TLS cert for simulated external RS |
-| 10 | `10_0310_internal_create_external_mongodb_rs.sh` | Yes | Create simulated external MongoDB RS |
-| 11 | `10_0315_internal_wait_for_external_cluster.sh` | Yes | Wait for simulated RS to be ready |
-| 12 | `10_0316_internal_create_external_mongodb_users.sh` | Yes | Create users on simulated RS |
-| 13 | `10_0316a_create_mongot_tls_certificates.sh` | No | Create TLS certificate for mongot pods |
-| 14 | `10_0316b_create_lb_tls_certificates.sh` | No | Create TLS certificates for Envoy LB |
-| 15 | `10_0320_create_mongodb_search_resource.sh` | No | Create MongoDBSearch custom resource |
-| 16 | `10_0325_wait_for_search_resource.sh` | No | Wait for MongoDBSearch to reach Running |
-| 17 | `10_0326_verify_envoy_deployment.sh` | No | Verify Envoy proxy deployment |
-| 18 | `10_0330_show_running_pods.sh` | No | Show all running pods and services |
-| 19 | `10_9010_internal_delete_namespace.sh` | Yes | Delete namespace (cleanup) |
+| 4 | `10_0100_install_operator.sh` | No | Install MongoDB Kubernetes Operator via OCI |
+| 5 | `10_0300_internal_create_ops_manager_resources.sh` | Yes | Create Ops Manager connection resources |
+| 6 | `10_0301_install_cert_manager.sh` | No | Install cert-manager |
+| 7 | `10_0302_configure_tls_prerequisites.sh` | No | Configure self-signed CA and distribute certs |
+| 8 | `10_0304_internal_generate_tls_certificates.sh` | Yes | Generate TLS cert for simulated external RS |
+| 9 | `10_0310_internal_create_external_mongodb_rs.sh` | Yes | Create simulated external MongoDB RS |
+| 10 | `10_0315_internal_wait_for_external_cluster.sh` | Yes | Wait for simulated RS to be ready |
+| 11 | `10_0316_internal_create_external_mongodb_users.sh` | Yes | Create users on simulated RS |
+| 12 | `10_0316a_create_mongot_tls_certificates.sh` | No | Create TLS certificate for mongot pods |
+| 13 | `10_0316b_create_lb_tls_certificates.sh` | No | Create TLS certificates for Envoy LB |
+| 14 | `10_0320_create_mongodb_search_resource.sh` | No | Create MongoDBSearch custom resource |
+| 15 | `10_0325_wait_for_search_resource.sh` | No | Wait for MongoDBSearch to reach Running |
+| 16 | `10_0326_verify_envoy_deployment.sh` | No | Verify Envoy proxy deployment |
+| 17 | `10_0330_show_running_pods.sh` | No | Show all running pods and services |
+| 18 | `10_9010_internal_delete_namespace.sh` | Yes | Delete namespace (cleanup) |
 
 Scripts marked **Internal** are used for E2E testing to simulate an external MongoDB cluster. They are not needed when you already have a running external replica set.
 
