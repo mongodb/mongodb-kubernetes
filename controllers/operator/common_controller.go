@@ -429,7 +429,7 @@ func checkExternalMembersDrift(conn om.Connection, externalMembers []mdbv1.Exter
 			return workflow.Failed(xerrors.Errorf("External member with process name %s is not present in Ops Manager", member.ProcessName))
 		}
 		// Check the other fields from the external member match the AC process
-		if deployment.CheckProcessFields(member.ProcessName, member.Hostname, member.Type, member.ReplicaSetName) {
+		if !deployment.CheckProcessFields(member.ProcessName, member.Hostname, member.Type, member.ReplicaSetName) {
 			return workflow.Failed(xerrors.Errorf("External member with process name %s has different AC fields than the ones specified in the CR", member.ProcessName))
 		}
 	}
