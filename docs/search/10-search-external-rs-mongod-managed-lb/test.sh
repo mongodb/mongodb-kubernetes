@@ -29,13 +29,13 @@ prepare_snippets
 
 run 10_0040_validate_env.sh
 run 10_0045_create_namespaces.sh
-run 10_0046_create_image_pull_secrets.sh
+run 10_0046_internal_create_image_pull_secrets.sh
 
 run_for_output 10_0090_helm_add_mongodb_repo.sh
 run_for_output 10_0100_install_operator.sh
 
 # Ops Manager resources (for simulated external cluster)
-run 10_0300_create_ops_manager_resources.sh
+run 10_0300_internal_create_ops_manager_resources.sh
 
 # ============================================================================
 # TLS CONFIGURATION
@@ -43,7 +43,7 @@ run 10_0300_create_ops_manager_resources.sh
 
 run_for_output 10_0301_install_cert_manager.sh
 run 10_0302_configure_tls_prerequisites.sh
-run 10_0304_generate_tls_certificates.sh
+run 10_0304_internal_generate_tls_certificates.sh
 
 # ============================================================================
 # SIMULATED EXTERNAL MONGODB REPLICA SET
@@ -51,11 +51,11 @@ run 10_0304_generate_tls_certificates.sh
 
 # Create simulated external MongoDB replica set (using Enterprise operator)
 # Note: MongoDB is created WITH search config from the start (pointing to Envoy proxy endpoint)
-run 10_0310_create_external_mongodb_rs.sh
-run_for_output 10_0315_wait_for_external_cluster.sh
+run 10_0310_internal_create_external_mongodb_rs.sh
+run_for_output 10_0315_internal_wait_for_external_cluster.sh
 
 # Create users AFTER cluster is ready (MongoDBUser CRDs reference the cluster)
-run 10_0316_create_external_mongodb_users.sh
+run 10_0316_internal_create_external_mongodb_users.sh
 
 # ============================================================================
 # MONGODB SEARCH WITH MANAGED ENVOY LB
@@ -96,6 +96,6 @@ echo "  - External RS MongoDB source (simulated)"
 echo "  - Managed Envoy L7 load balancer (operator-deployed)"
 echo "  - ${MDB_MONGOT_REPLICAS:-1} mongot replicas"
 echo ""
-echo "To clean up, run: ./code_snippets/10_9010_delete_namespace.sh"
+echo "To clean up, run: ./code_snippets/10_9010_internal_delete_namespace.sh"
 
 cd -

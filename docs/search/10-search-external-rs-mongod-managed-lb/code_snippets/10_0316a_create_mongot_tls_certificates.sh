@@ -11,13 +11,7 @@ cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${sts_name}-cert"
 mongot_svc="${sts_name}-svc"
 lb_svc="${MDB_SEARCH_RESOURCE_NAME}-search-lb-svc"
 
-dns_names=""
-for ((i = 0; i < MDB_MONGOT_REPLICAS; i++)); do
-  dns_names="${dns_names}    - ${sts_name}-${i}.${mongot_svc}.${MDB_NS}.svc.cluster.local
-"
-done
-dns_names="${dns_names}    - \"*.${mongot_svc}.${MDB_NS}.svc.cluster.local\"
-    - ${mongot_svc}.${MDB_NS}.svc.cluster.local
+dns_names="    - \"*.${mongot_svc}.${MDB_NS}.svc.cluster.local\"
     - ${lb_svc}.${MDB_NS}.svc.cluster.local"
 
 echo "  Creating certificate: ${cert_name}"
