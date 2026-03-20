@@ -8,12 +8,7 @@ echo "Generating TLS certificate for MongoDB replica set..."
 
 cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_EXTERNAL_CLUSTER_NAME}-cert"
 
-dns_names=""
-for ((i = 0; i < MDB_RS_MEMBERS; i++)); do
-  dns_names="${dns_names}    - ${MDB_EXTERNAL_CLUSTER_NAME}-${i}.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local
-"
-done
-dns_names="${dns_names}    - \"*.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local\""
+dns_names="    - \"*.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local\""
 
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: cert-manager.io/v1
