@@ -304,7 +304,7 @@ kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_SEARC
 
 | File | Description |
 |------|-------------|
-| `env_variables.sh` | Main configuration - edit this first |
+| `env_variables.sh` | Main configuration file. Defines Kubernetes context, namespace, cluster topology, TLS settings, user credentials, and derived proxy Service endpoints. Edit this first. This file deploys MongoDB Search against an external sharded MongoDB cluster with managed Envoy load balancing. Traffic flow: External mongod to Envoy (operator-managed) to mongot. |
 | `env_variables_e2e_private.sh` | E2E test overrides for private/enterprise testing |
 | `env_variables_e2e_private_dev.sh` | E2E test overrides for dev environment |
 | `env_variables_e2e_prerelease.sh` | E2E test overrides for prerelease builds |
