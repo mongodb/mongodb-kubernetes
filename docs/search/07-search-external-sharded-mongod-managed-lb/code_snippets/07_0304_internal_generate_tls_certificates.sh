@@ -104,7 +104,7 @@ spec:
     - server auth
     - client auth
   dnsNames:
-    - ${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_DOMAIN}
+    - "*.${MDB_EXTERNAL_DOMAIN}"
     - "*.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
