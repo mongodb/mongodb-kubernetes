@@ -19,7 +19,7 @@ func makeMinimalRsWithProcesses() ReplicaSetWithProcesses {
 	for i := range processes {
 		proc := NewMongodProcess("my-test-repl-"+strconv.Itoa(i), "my-test-repl-"+strconv.Itoa(i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, &mdb.Spec, "", nil, "")
 		processes[i] = proc
-		replicaSetWithProcesses.addMember(proc, "", memberOptions[i])
+		replicaSetWithProcesses.addMember(proc, nil, memberOptions[i])
 	}
 	return NewReplicaSetWithProcesses(replicaSetWithProcesses, processes, memberOptions, nil)
 }

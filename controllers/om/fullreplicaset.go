@@ -1,7 +1,7 @@
 package om
 
 import (
-	"strconv"
+	"k8s.io/utils/ptr"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
@@ -34,10 +34,10 @@ func NewReplicaSetWithProcesses(
 
 		// ensure the process id is not changed if it already exists
 		if existingId, ok := existingProcessIds[p.Name()]; ok {
-			rs.addMember(p, strconv.Itoa(existingId), options)
+			rs.addMember(p, ptr.To(existingId), options)
 		} else {
 			// otherwise add a new id which is always incrementing
-			rs.addMember(p, strconv.Itoa(newId), options)
+			rs.addMember(p, ptr.To(newId), options)
 			newId++
 		}
 	}
@@ -72,10 +72,10 @@ func NewMultiClusterReplicaSetWithProcesses(rs ReplicaSet, processes []Process, 
 		}
 		// ensure the process id is not changed if it already exists
 		if existingId, ok := existingProcessIds[p.Name()]; ok {
-			rs.addMember(p, strconv.Itoa(existingId), options)
+			rs.addMember(p, ptr.To(existingId), options)
 		} else {
 			// otherwise add a new id which is always incrementing
-			rs.addMember(p, strconv.Itoa(newId), options)
+			rs.addMember(p, ptr.To(newId), options)
 			newId++
 		}
 	}

@@ -166,7 +166,7 @@ func initDefaultRs(set ReplicaSet, name string, protocolVersion string) {
 
 // Adding a member to the replicaset. The _id for the new member is calculated
 // based on last existing member in the RS.
-func (r ReplicaSet) addMember(process Process, id string, options automationconfig.MemberOptions) {
+func (r ReplicaSet) addMember(process Process, id *int, options automationconfig.MemberOptions) {
 	members := r.Members()
 	lastIndex := -1
 	if len(members) > 0 {
@@ -174,9 +174,11 @@ func (r ReplicaSet) addMember(process Process, id string, options automationconf
 	}
 
 	rsMember := ReplicaSetMember{}
-	rsMember["_id"] = id
-	if id == "" {
+
+	if id == nil {
 		rsMember["_id"] = lastIndex + 1
+	} else {
+		rsMember["_id"] = *id
 	}
 	rsMember["host"] = process.Name()
 
