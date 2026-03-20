@@ -259,50 +259,32 @@ kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_RESOU
 
 ### Code Snippets (Execution Order)
 
-**Prerequisites:**
-| Script | Description |
-|--------|-------------|
-| `09_0040_validate_env.sh` | Validate required environment variables |
-| `09_0045_create_namespaces.sh` | Create Kubernetes namespace |
-| `09_0046_create_image_pull_secrets.sh` | Create image pull secrets (if needed) |
-| `09_0090_helm_add_mongodb_repo.sh` | Add MongoDB Helm repository |
-| `09_0100_install_operator.sh` | Install MongoDB Kubernetes Operator |
-| `09_0300_create_ops_manager_resources.sh` | Create Ops Manager / Cloud Manager resources |
+All scripts in this scenario are user-facing (no internal/test-only scripts).
 
-**TLS Configuration:**
-| Script | Description |
-|--------|-------------|
-| `09_0301_install_cert_manager.sh` | Install cert-manager |
-| `09_0302_configure_tls_prerequisites.sh` | Create self-signed CA and ClusterIssuer |
-| `09_0302a_configure_tls_prerequisites_mongod.sh` | Distribute CA ConfigMap for mongod |
-| `09_0302b_configure_tls_prerequisites_mongot.sh` | Distribute CA Secret for mongot |
-| `09_0304_generate_tls_certificates.sh` | Generate certs for shards, config servers, mongos |
+| # | Script | Description |
+|---|--------|-------------|
+| 1 | `09_0040_validate_env.sh` | Validate required environment variables |
+| 2 | `09_0045_create_namespaces.sh` | Create Kubernetes namespace |
+| 3 | `09_0046_create_image_pull_secrets.sh` | Create image pull secrets (if needed) |
+| 4 | `09_0090_helm_add_mongodb_repo.sh` | Add MongoDB Helm repository |
+| 5 | `09_0100_install_operator.sh` | Install MongoDB Kubernetes Operator via Helm |
+| 6 | `09_0300_create_ops_manager_resources.sh` | Create Ops Manager project ConfigMap + credentials Secret |
+| 7 | `09_0301_install_cert_manager.sh` | Install cert-manager for TLS certificate management |
+| 8 | `09_0302_configure_tls_prerequisites.sh` | Create self-signed CA and ClusterIssuer bootstrap chain |
+| 9 | `09_0302a_configure_tls_prerequisites_mongod.sh` | Distribute CA ConfigMap for mongod TLS verification |
+| 10 | `09_0302b_configure_tls_prerequisites_mongot.sh` | Distribute CA Secret for mongot TLS verification |
+| 11 | `09_0304_generate_tls_certificates.sh` | Generate TLS certs for shards, config servers, and mongos |
+| 12 | `09_0310_create_mongodb_sharded_cluster.sh` | Create operator-managed MongoDB sharded cluster CR |
+| 13 | `09_0315_wait_for_sharded_cluster.sh` | Wait for cluster to reach Running phase (up to 15 min) |
+| 14 | `09_0316_create_mongodb_users.sh` | Create admin, app, and search-sync MongoDB users |
+| 15 | `09_0316a_create_mongot_tls_certificates.sh` | Create TLS certs for mongot pods (per-shard) |
+| 16 | `09_0316b_create_lb_tls_certificates.sh` | Create server + client TLS certs for Envoy proxy |
+| 17 | `09_0320_create_mongodb_search_resource.sh` | Create MongoDBSearch CR with `lb.mode: Managed` and `mongodbResourceRef` |
+| 18 | `09_0325_wait_for_search_resource.sh` | Wait for MongoDBSearch to reach Running phase (up to 10 min) |
+| 19 | `09_0326_verify_envoy_deployment.sh` | Verify Envoy proxy deployment, per-shard proxy Services, and pods |
+| 20 | `09_0330_show_running_pods.sh` | Show all running pods (mongod, mongot, Envoy) |
+| — | `09_9010_delete_namespace.sh` | Delete namespace and all resources (manual cleanup only) |
 
-**Operator-Managed MongoDB Cluster:**
-| Script | Description |
-|--------|-------------|
-| `09_0310_create_mongodb_sharded_cluster.sh` | Create operator-managed sharded cluster |
-| `09_0315_wait_for_sharded_cluster.sh` | Wait for cluster to reach Running phase |
-| `09_0316_create_mongodb_users.sh` | Create MongoDB users |
-
-**MongoDB Search with Managed Envoy LB:**
-| Script | Description |
-|--------|-------------|
-| `09_0316a_create_mongot_tls_certificates.sh` | Create TLS certs for mongot pods |
-| `09_0316b_create_lb_tls_certificates.sh` | Create TLS certs for Envoy proxy |
-| `09_0320_create_mongodb_search_resource.sh` | Create MongoDBSearch CR with `lb.mode: Managed` |
-| `09_0325_wait_for_search_resource.sh` | Wait for MongoDBSearch to reach Running phase |
-
-**Verification:**
-| Script | Description |
-|--------|-------------|
-| `09_0326_verify_envoy_deployment.sh` | Verify Envoy proxy is deployed and running |
-| `09_0330_show_running_pods.sh` | Show all running pods |
 > **Note:** Data import, search index creation, and search query testing are in the shared
 > [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/) module, which is reusable
 > across all sharded search scenarios.
-
-**Cleanup:**
-| Script | Description |
-|--------|-------------|
-| `09_9010_delete_namespace.sh` | Delete namespace and all resources (manual only) |
