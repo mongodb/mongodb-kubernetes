@@ -30,7 +30,7 @@ func CreateMongodProcessesFromMongoDB(mongoDBImage string, forceEnterprise bool,
 	for idx, hostname := range hostnames {
 		name := names[idx]
 		if !useLegacyNames {
-			name = fmt.Sprintf("k8s/%s/%s", mdb.Namespace, name)
+			name = PodNameToProcessName(name, mdb.Namespace)
 		}
 		processes[idx] = om.NewMongodProcess(name, hostname, mongoDBImage, forceEnterprise, mdb.Spec.GetAdditionalMongodConfig(), &mdb.Spec, tlsCertPath, mdb.Annotations, fcv)
 	}
@@ -67,4 +67,9 @@ func CreateMongodProcessesWithLimitMulti(mongoDBImage string, forceEnterprise bo
 	}
 
 	return processes, nil
+}
+
+// PodNameToProcessName returns the process name with the "k8s/<namespace>/" prefix added to the legacy name
+func PodNameToProcessName(legacyName, namespace string) string {
+	return fmt.Sprintf("k8s/%s/%s", namespace, legacyName)
 }

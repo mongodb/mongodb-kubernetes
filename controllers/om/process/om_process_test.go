@@ -2,11 +2,13 @@ package process
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -33,7 +35,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 
 		// Verify basic integration - processes are created with correct names and FCV
 		for i, process := range processes {
-			expectedName := fmt.Sprintf("test-rs-%d", i)
+			expectedName := fmt.Sprintf("k8s/%s/test-rs-%d", defaultNamespace, i)
 			assert.Equal(t, expectedName, process.Name(), "Process name should be generated correctly")
 			assert.Equal(t, defaultFCV, process.FeatureCompatibilityVersion(), "FCV should be set correctly")
 			assert.NotEmpty(t, process.HostName(), "Hostname should be generated")

@@ -30,6 +30,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
@@ -953,9 +954,9 @@ func TestScaling(t *testing.T) {
 		members := replicaSets[0].Members()
 		assert.Len(t, members, 3)
 
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-0-0", mrs.Name), mrs.Namespace), 0)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-1-0", mrs.Name), mrs.Namespace), 1)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-2-0", mrs.Name), mrs.Namespace), 2)
 
 		assert.Equal(t, members[0].Id(), 0)
 		assert.Equal(t, members[1].Id(), 1)
@@ -974,10 +975,10 @@ func TestScaling(t *testing.T) {
 		members = replicaSets[0].Members()
 		assert.Len(t, members, 4)
 
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-1", mrs.Name), 3)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-0-0", mrs.Name), mrs.Namespace), 0)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-0-1", mrs.Name), mrs.Namespace), 3)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-1-0", mrs.Name), mrs.Namespace), 1)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-2-0", mrs.Name), mrs.Namespace), 2)
 	})
 
 	t.Run("Added members reuse member Ids when annotation is set", func(t *testing.T) {
@@ -1002,9 +1003,9 @@ func TestScaling(t *testing.T) {
 		members := replicaSets[0].Members()
 		assert.Len(t, members, 3)
 
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-0-0", mrs.Name), mrs.Namespace), 0)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-1-0", mrs.Name), mrs.Namespace), 1)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-2-0", mrs.Name), mrs.Namespace), 2)
 
 		assert.Equal(t, members[0].Id(), 0)
 		assert.Equal(t, members[1].Id(), 1)
@@ -1012,9 +1013,9 @@ func TestScaling(t *testing.T) {
 
 		rsMemberIds := map[string]map[string]int{
 			mrs.GetName(): {
-				fmt.Sprintf("%s-0-0", mrs.Name): 0,
-				fmt.Sprintf("%s-1-0", mrs.Name): 1,
-				fmt.Sprintf("%s-2-0", mrs.Name): 2,
+				process.PodNameToProcessName(fmt.Sprintf("%s-0-0", mrs.Name), mrs.Namespace): 0,
+				process.PodNameToProcessName(fmt.Sprintf("%s-1-0", mrs.Name), mrs.Namespace): 1,
+				process.PodNameToProcessName(fmt.Sprintf("%s-2-0", mrs.Name), mrs.Namespace): 2,
 			},
 		}
 
@@ -1037,13 +1038,13 @@ func TestScaling(t *testing.T) {
 		members = replicaSets[0].Members()
 		assert.Len(t, members, 4)
 
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-1", mrs.Name), 3)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-0-0", mrs.Name), mrs.Namespace), 0)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-0-1", mrs.Name), mrs.Namespace), 3)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-1-0", mrs.Name), mrs.Namespace), 1)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-2-0", mrs.Name), mrs.Namespace), 2)
 
 		// Assert that the member ids are updated in the annotation
-		rsMemberIds[mrs.GetName()][fmt.Sprintf("%s-0-1", mrs.Name)] = 3
+		rsMemberIds[mrs.GetName()][process.PodNameToProcessName(fmt.Sprintf("%s-0-1", mrs.Name), mrs.Namespace)] = 3
 		rsMemberIdsBytes, _ = json.Marshal(rsMemberIds)
 		assert.Equal(t, mrs.GetAnnotations()[util.LastAchievedRsMemberIds], string(rsMemberIdsBytes))
 
@@ -1058,10 +1059,10 @@ func TestScaling(t *testing.T) {
 		replicaSets = dep.GetReplicaSets()
 		members = replicaSets[0].Members()
 
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-1", mrs.Name), 3)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
-		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-0-0", mrs.Name), mrs.Namespace), 0)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-0-1", mrs.Name), mrs.Namespace), 3)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-1-0", mrs.Name), mrs.Namespace), 1)
+		assertMemberNameAndId(t, members, process.PodNameToProcessName(fmt.Sprintf("%s-2-0", mrs.Name), mrs.Namespace), 2)
 	})
 
 	t.Run("Cluster can be added", func(t *testing.T) {

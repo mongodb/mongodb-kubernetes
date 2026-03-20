@@ -28,7 +28,8 @@ func TestBuildFromMongoDBWithReplicas(t *testing.T) {
 		},
 		Spec: mdbv1.MongoDbSpec{
 			DbCommonSpec: mdbv1.DbCommonSpec{
-				Version: "7.0.5",
+				ResourceType: mdbv1.ReplicaSet,
+				Version:      "7.0.5",
 				Security: &mdbv1.Security{
 					TLSConfig:      &mdbv1.TLSConfig{},
 					Authentication: &mdbv1.Authentication{},
@@ -65,7 +66,13 @@ func TestBuildFromMongoDBWithReplicas(t *testing.T) {
 
 	// Assert: Processes are created correctly
 	assert.Len(t, rsWithProcesses.Processes, replicas, "Process count should match replicas parameter")
-	expectedProcessNames := []string{"test-rs-0", "test-rs-1", "test-rs-2"}
+	// With existingProcessIds=nil and no external members, IsLegacyDeployment returns false,
+	// so process names get the k8s/<namespace>/<name> prefix (new naming scheme).
+	expectedProcessNames := []string{
+		"k8s/test-namespace/test-rs-0",
+		"k8s/test-namespace/test-rs-1",
+		"k8s/test-namespace/test-rs-2",
+	}
 	expectedHostnames := []string{
 		"test-rs-0.test-rs-svc.test-namespace.svc.cluster.local",
 		"test-rs-1.test-rs-svc.test-namespace.svc.cluster.local",

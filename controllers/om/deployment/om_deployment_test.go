@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +9,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 )
@@ -28,12 +30,12 @@ func TestPrepareScaleDown_OpsManagerRemovedMember(t *testing.T) {
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 
 	// We try to prepare two members for scale down, but one of them will fail (bam-2)
-	rsWithThreeMembers := map[string][]string{"bam": {"bam-1", "bam-2"}}
+	rsWithThreeMembers := map[string][]string{"bam": {process.PodNameToProcessName("bam-1", rs.GetNamespace()), process.PodNameToProcessName("bam-2", rs.GetNamespace())}}
 	assert.NoError(t, replicaset.PrepareScaleDownFromMap(mockedOmConnection, rsWithThreeMembers, rsWithThreeMembers["bam"], zap.S()))
 
 	expectedDeployment := CreateFromReplicaSet("fake-mongoDBImage", false, rs)
 
-	assert.NoError(t, expectedDeployment.MarkRsMembersUnvoted("bam", []string{"bam-1"}))
+	assert.NoError(t, expectedDeployment.MarkRsMembersUnvoted("bam", []string{fmt.Sprintf("k8s/%s/bam-1", rs.GetNamespace())}))
 
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 1)
 	mockedOmConnection.CheckDeployment(t, expectedDeployment)
