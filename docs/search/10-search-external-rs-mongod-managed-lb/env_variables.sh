@@ -75,7 +75,7 @@ export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
 # OPERATOR CONFIGURATION
 # ============================================================================
 
-export OPERATOR_HELM_CHART="mongodb/mongodb-kubernetes"
+export OPERATOR_HELM_CHART="oci://ghcr.io/mongodb/helm-charts/mongodb-kubernetes"
 export OPERATOR_ADDITIONAL_HELM_VALUES=""
 
 # ============================================================================
