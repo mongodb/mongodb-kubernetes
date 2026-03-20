@@ -1,8 +1,3 @@
-#!/usr/bin/env bash
-# Configuring CA certificate for mongot: create Secret with CA in target namespace
-#
-# MongoDBSearch expects the CA in a Secret (key "ca.crt").
-
 echo "Configuring CA certificate (Secret) for mongot..."
 
 mkdir -p certs

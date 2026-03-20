@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Wait for MongoDBSearch resource to reach Running phase
-
 echo "Waiting for MongoDBSearch to be ready..."
 echo "This may take several minutes while mongot syncs data..."
 

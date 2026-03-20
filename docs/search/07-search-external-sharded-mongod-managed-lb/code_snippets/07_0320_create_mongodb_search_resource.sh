@@ -1,9 +1,3 @@
-#!/usr/bin/env bash
-# Create MongoDBSearch resource with External Sharded Source + Managed Envoy LB
-# Traffic flow: External mongod → Envoy (port 27029) → mongot (port 27028)
-#
-# Layout: 1 mongos router, 2 shards (1 mongod each), 2 mongot replicas per shard
-
 echo "Creating MongoDBSearch resource with managed Envoy LB..."
 echo "  Configuring ${MDB_MONGOT_REPLICAS} mongot replicas per shard"
 

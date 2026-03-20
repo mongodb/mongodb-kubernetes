@@ -60,11 +60,15 @@ function prepare_repositories() {
     git stash
   fi
 
-  git checkout "${DOCS_BRANCH}"
-  git reset --hard "origin/${DOCS_BRANCH}"
-
-  git branch "${DOCS_PR_BRANCH}" || true
-  git checkout "${DOCS_PR_BRANCH}"
+  # If the branch already exists locally, reuse it
+  if git show-ref --verify --quiet "refs/heads/${DOCS_PR_BRANCH}"; then
+    echo "Reusing existing branch ${DOCS_PR_BRANCH}"
+    git checkout "${DOCS_PR_BRANCH}"
+  else
+    git checkout "${DOCS_BRANCH}"
+    git reset --hard "origin/${DOCS_BRANCH}"
+    git checkout -b "${DOCS_PR_BRANCH}"
+  fi
 
   popd
 }

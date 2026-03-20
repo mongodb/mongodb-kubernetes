@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Import sample_mflix dataset, shard the movies collection
-
 echo "Importing sample_mflix dataset..."
 
 admin_conn="${MDB_ADMIN_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"

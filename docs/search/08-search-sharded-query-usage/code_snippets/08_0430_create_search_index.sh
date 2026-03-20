@@ -1,11 +1,3 @@
-#!/usr/bin/env bash
-# Create a text search index on the movies collection
-#
-# Search indexes are created through mongos and automatically distributed
-# to each shard's mongot instance via the Envoy proxy.
-#
-# This creates a default text search index that indexes all text fields.
-
 echo "Creating search index on sample_mflix.movies..."
 
 user_conn="${MDB_USER_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"

@@ -1,13 +1,3 @@
-#!/usr/bin/env bash
-# Create the simulated external MongoDB sharded cluster
-# The cluster is created WITH search parameters pre-configured to point to the
-# operator-managed Envoy proxy endpoints created when MongoDBSearch is deployed.
-#
-# Cluster layout (hardcoded):
-#   2 shards — 1 mongod each
-#   1 mongos
-#   2 config servers
-
 echo "Creating simulated external MongoDB sharded cluster..."
 echo "  Shards: 2"
 echo "  Members per shard: 1"

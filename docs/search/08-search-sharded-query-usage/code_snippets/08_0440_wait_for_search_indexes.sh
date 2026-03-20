@@ -1,9 +1,3 @@
-#!/usr/bin/env bash
-# Wait for search indexes to be ready
-#
-# After creating search indexes, mongot needs time to build them.
-# Poll via runCommand({listSearchIndexes: ...}) until status is READY.
-
 user_conn="${MDB_USER_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"
 max_attempts=30
 sleep_time=10

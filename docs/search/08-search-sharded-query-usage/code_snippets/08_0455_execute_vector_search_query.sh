@@ -1,9 +1,3 @@
-#!/usr/bin/env bash
-# Execute a vector search query (if embedded_movies collection exists)
-#
-# Vector search finds documents similar to a given vector embedding.
-# This uses a sample embedding to find similar movies.
-
 echo "Executing vector search query..."
 echo ""
 

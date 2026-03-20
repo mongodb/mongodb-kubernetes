@@ -1,11 +1,3 @@
-#!/usr/bin/env bash
-# Deploy a mongodb-tools pod for running database commands
-#
-# This pod provides mongosh, mongorestore, and other MongoDB tools
-# for importing data and running queries against the cluster.
-#
-# The pod mounts the CA certificate ConfigMap at /tls for TLS connections.
-
 echo "Deploying mongodb-tools pod..."
 
 TOOLS_IMAGE="mongodb/mongodb-community-server:${MDB_VERSION%-ent}-ubi8"

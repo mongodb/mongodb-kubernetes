@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Wait for the simulated external MongoDB sharded cluster to be ready
-
 echo "Waiting for MongoDB sharded cluster to be ready..."
 echo "This may take several minutes..."
 

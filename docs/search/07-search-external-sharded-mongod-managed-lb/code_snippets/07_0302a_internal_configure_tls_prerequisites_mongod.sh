@@ -1,10 +1,3 @@
-#!/usr/bin/env bash
-# Distribute CA certificate for mongod: create ConfigMap with CA in target namespace
-#
-# MongoDB Enterprise expects the CA in a ConfigMap (key "ca-pem").
-# This is only needed for the simulated external mongod cluster running in K8s.
-# In production, the external mongod cluster manages its own CA distribution.
-
 echo "Distributing CA certificate (ConfigMap) for mongod..."
 
 ca_tmp=$(mktemp)

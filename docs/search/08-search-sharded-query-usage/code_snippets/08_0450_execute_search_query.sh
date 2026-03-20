@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Execute a text search query through mongos
-
 echo "Executing text search query for 'drama adventure'..."
 echo ""
 

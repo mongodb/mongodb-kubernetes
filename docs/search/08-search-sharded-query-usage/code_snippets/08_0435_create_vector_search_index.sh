@@ -1,9 +1,3 @@
-#!/usr/bin/env bash
-# Create a vector search index on the embedded_movies collection
-#
-# Vector search indexes enable similarity search on vector embeddings.
-# The sample_mflix dataset includes pre-computed embeddings in embedded_movies.
-
 echo "Creating vector search index on sample_mflix.embedded_movies..."
 
 user_conn="${MDB_USER_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"
