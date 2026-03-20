@@ -1,10 +1,10 @@
 # Scenario 10: MongoDB Search with External Replica Set + Managed Envoy Load Balancer
 
-Deploy [MongoDB Search (mongot)](https://www.mongodb.com/docs/atlas/atlas-search/) on Kubernetes against an **existing external MongoDB replica set** using an **operator-managed Envoy L7 proxy** as the load balancer.
+Deploy on-prem MongoDB Search (mongot) on Kubernetes against an **existing external MongoDB replica set** using an **operator-managed Envoy L7 proxy** as the load balancer.
 
 ## Overview
 
-This scenario is for users who already have a MongoDB replica set running outside the operator's management (e.g. on VMs, another Kubernetes cluster, or a self-hosted deployment) and want to add Atlas Search capabilities via the MongoDB Kubernetes Operator.
+This scenario is for users who already have a MongoDB replica set running outside the operator's management (e.g. on VMs, another Kubernetes cluster, or a self-hosted deployment) and want to add on-prem Search capabilities via the MongoDB Kubernetes Operator.
 
 **Key characteristic — Managed LB mode:** the operator automatically deploys and configures the Envoy proxy. You do **not** need to create Envoy ConfigMaps, Deployments, or Services yourself.
 
