@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
-# Distribute CA certificate for mongod: create ConfigMap with CA in target namespace
+# Configure CA certificate for mongod: create ConfigMap with CA in target namespace
 #
 # MongoDB Enterprise expects the CA in a ConfigMap (key "ca-pem").
 
-echo "Distributing CA certificate (ConfigMap) for mongod..."
+echo "Configuring CA certificate (ConfigMap) for mongod..."
 
-ca_tmp=$(mktemp)
-trap 'rm -f "${ca_tmp}"' EXIT
+mkdir -p certs
 
 kubectl get secret "${MDB_TLS_CA_SECRET_NAME}" \
   -n "${CERT_MANAGER_NAMESPACE}" \
   --context "${K8S_CTX}" \
-  -o jsonpath='{.data.tls\.crt}' | base64 -d > "${ca_tmp}"
+  -o jsonpath='{.data.tls\.crt}' | base64 -d > certs/ca-pem
 
 kubectl create configmap "${MDB_TLS_CA_CONFIGMAP}" \
-  --from-file=ca-pem="${ca_tmp}" \
+  --from-file=ca-pem=certs/ca-pem \
   -n "${MDB_NS}" \
   --context "${K8S_CTX}" \
   --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" -f -
 
-echo "✓ CA ConfigMap distributed for mongod"
+echo "✓ CA ConfigMap configured for mongod"

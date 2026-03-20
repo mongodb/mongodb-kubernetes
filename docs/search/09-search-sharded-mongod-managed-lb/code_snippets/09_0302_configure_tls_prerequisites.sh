@@ -3,7 +3,6 @@
 
 echo "Configuring TLS prerequisites..."
 
-# Step 1: Create self-signed ClusterIssuer for bootstrapping
 kubectl apply --context "${K8S_CTX}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -15,7 +14,6 @@ EOF
 
 echo "  ✓ Self-signed ClusterIssuer created"
 
-# Step 2: Create CA Certificate (isCA: true, 10 year validity)
 kubectl apply --context "${K8S_CTX}" -n "${CERT_MANAGER_NAMESPACE}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -43,7 +41,6 @@ kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CA_CERT_NAME}" \
   --context "${K8S_CTX}" \
   --timeout=60s
 
-# Step 3: Create CA ClusterIssuer — all subsequent certificates reference this issuer
 kubectl apply --context "${K8S_CTX}" -n "${CERT_MANAGER_NAMESPACE}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer

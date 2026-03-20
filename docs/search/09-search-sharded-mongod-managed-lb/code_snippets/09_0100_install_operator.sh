@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Install the MongoDB Kubernetes Operator
-
 # shellcheck disable=SC2086
 helm upgrade --install --debug --kube-context "${K8S_CTX}" \
   --create-namespace --namespace="${MDB_NS}" \
