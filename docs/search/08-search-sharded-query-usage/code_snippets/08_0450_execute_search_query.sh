@@ -1,10 +1,14 @@
-echo "Executing text search query for 'drama adventure'..."
+echo "Executing text search query" \
+  "for 'drama adventure'..."
 echo ""
 
 user_conn="${MDB_USER_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"
 
 # shellcheck disable=SC2016
-kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- mongosh "${user_conn}" --quiet --eval '
+kubectl exec mongodb-tools \
+  -n "${MDB_NS}" \
+  --context "${K8S_CTX}" \
+  -- mongosh "${user_conn}" --quiet --eval '
   use sample_mflix;
 
   print("Running $search aggregation pipeline...\n");

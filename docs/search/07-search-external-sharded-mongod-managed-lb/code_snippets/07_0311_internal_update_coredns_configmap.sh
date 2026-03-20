@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Update CoreDNS to resolve the external domain to the mongos pod IP.
-# This simulates external DNS resolution within the single-cluster test environment.
+# This simulates external DNS resolution within the
+# single-cluster test environment.
 #
 # We use the pod IP instead of the service ClusterIP to avoid a readiness-probe
 # deadlock: the automation agent must connect to the mongos via its external
@@ -35,12 +36,15 @@ while [[ ${ELAPSED} -lt ${TIMEOUT} ]]; do
 done
 
 if [[ -z "${MONGOS_POD_IP}" || "${MONGOS_POD_IP}" == "None" ]]; then
-  echo "ERROR: Timed out waiting for PodIP on pod ${MONGOS_POD} after ${TIMEOUT}s"
+  echo "ERROR: Timed out waiting for PodIP" \
+    "on pod ${MONGOS_POD} after ${TIMEOUT}s"
   exit 1
 fi
 
-MONGOS_EXTERNAL_HOSTNAME="${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_DOMAIN}"
-echo "Mapping ${MONGOS_EXTERNAL_HOSTNAME} → ${MONGOS_POD_IP} in CoreDNS"
+MONGOS_EXTERNAL_HOSTNAME=\
+"${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_DOMAIN}"
+echo "Mapping ${MONGOS_EXTERNAL_HOSTNAME}" \
+  "→ ${MONGOS_POD_IP} in CoreDNS"
 
 kubectl --context "${K8S_CTX}" -n kube-system apply -f - <<YAML
 apiVersion: v1
@@ -76,5 +80,7 @@ data:
 YAML
 
 kubectl --context "${K8S_CTX}" -n kube-system rollout restart deployment coredns
-kubectl --context "${K8S_CTX}" -n kube-system rollout status deployment coredns --timeout=60s
-echo "✓ CoreDNS updated: ${MONGOS_EXTERNAL_HOSTNAME} → ${MONGOS_POD_IP}"
+kubectl --context "${K8S_CTX}" -n kube-system \
+  rollout status deployment coredns --timeout=60s
+echo "✓ CoreDNS updated:" \
+  "${MONGOS_EXTERNAL_HOSTNAME} → ${MONGOS_POD_IP}"

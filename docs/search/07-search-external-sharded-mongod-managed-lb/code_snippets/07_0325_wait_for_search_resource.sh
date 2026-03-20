@@ -16,11 +16,15 @@ while [[ ${elapsed} -lt ${timeout} ]]; do
     break
   fi
 
-  ready_mongots=$(kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" \
+  ready_mongots=$(kubectl get pods \
+    -n "${MDB_NS}" --context "${K8S_CTX}" \
     -l "app.kubernetes.io/component=mongot" \
-    -o jsonpath='{range .items[*]}{.status.containerStatuses[0].ready}{"\n"}{end}' 2>/dev/null | grep -c "true" || echo "0")
+    -o jsonpath='{range .items[*]}{.status.containerStatuses[0].ready}{"\n"}{end}' \
+    2>/dev/null | grep -c "true" || echo "0")
 
-  echo "  Phase: ${phase} | Ready mongot pods: ${ready_mongots} (${elapsed}s/${timeout}s)"
+  echo "  Phase: ${phase}" \
+    "| Ready mongot pods: ${ready_mongots}" \
+    "(${elapsed}s/${timeout}s)"
   sleep ${interval}
   elapsed=$((elapsed + interval))
 done
@@ -29,16 +33,22 @@ if [[ ${elapsed} -ge ${timeout} ]]; then
   echo "ERROR: Timeout waiting for MongoDBSearch to be ready"
   echo ""
   echo "MongoDBSearch status:"
-  kubectl describe mongodbsearch "${MDB_SEARCH_RESOURCE_NAME}" -n "${MDB_NS}" --context "${K8S_CTX}"
+  kubectl describe mongodbsearch \
+    "${MDB_SEARCH_RESOURCE_NAME}" \
+    -n "${MDB_NS}" --context "${K8S_CTX}"
   echo ""
   echo "Search pods:"
-  kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" | grep -E "search|mongot"
+  kubectl get pods -n "${MDB_NS}" \
+    --context "${K8S_CTX}" \
+    | grep -E "search|mongot"
   exit 1
 fi
 
 echo ""
 echo "MongoDBSearch pods:"
-kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" -l "app.kubernetes.io/component=mongot"
+kubectl get pods -n "${MDB_NS}" \
+  --context "${K8S_CTX}" \
+  -l "app.kubernetes.io/component=mongot"
 
 echo ""
 echo "✓ MongoDBSearch '${MDB_SEARCH_RESOURCE_NAME}' is ready"

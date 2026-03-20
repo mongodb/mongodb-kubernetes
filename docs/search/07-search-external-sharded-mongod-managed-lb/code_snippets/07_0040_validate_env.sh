@@ -35,7 +35,8 @@ for var in "${required_vars[@]}"; do
 done
 
 if [[ ${#missing_vars[@]} -gt 0 ]]; then
-  echo "ERROR: The following required variables are not set or have placeholder values:"
+  echo "ERROR: The following required variables" \
+    "are not set or have placeholder values:"
   for var in "${missing_vars[@]}"; do
     echo "  - ${var}"
   done

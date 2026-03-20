@@ -1,11 +1,13 @@
 # Skip if no pull secret is configured
 if [[ -z "${IMAGE_PULL_SECRET_NAME:-}" ]]; then
-  echo "No IMAGE_PULL_SECRET_NAME configured, skipping image pull secret creation"
+  echo "No IMAGE_PULL_SECRET_NAME configured," \
+    "skipping image pull secret creation"
   exit 0
 fi
 
 if [[ -z "${IMAGE_PULL_SECRET_DATA:-}" ]]; then
-  echo "No IMAGE_PULL_SECRET_DATA configured, skipping image pull secret creation"
+  echo "No IMAGE_PULL_SECRET_DATA configured," \
+    "skipping image pull secret creation"
   exit 0
 fi
 

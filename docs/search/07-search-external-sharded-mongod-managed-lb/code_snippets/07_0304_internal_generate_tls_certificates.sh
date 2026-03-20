@@ -107,9 +107,22 @@ echo "  ✓ Certificate requested for mongos"
 # Wait for all certificates
 echo ""
 echo "Waiting for all certificates to be ready..."
-kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_EXTERNAL_CLUSTER_NAME}-0-cert" -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
-kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_EXTERNAL_CLUSTER_NAME}-1-cert" -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
-kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_EXTERNAL_CLUSTER_NAME}-config-cert" -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
-kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_EXTERNAL_CLUSTER_NAME}-mongos-cert" -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
+CERT_PFX="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_EXTERNAL_CLUSTER_NAME}"
+kubectl wait --for=condition=Ready \
+  certificate/"${CERT_PFX}-0-cert" \
+  -n "${MDB_NS}" --context "${K8S_CTX}" \
+  --timeout=60s
+kubectl wait --for=condition=Ready \
+  certificate/"${CERT_PFX}-1-cert" \
+  -n "${MDB_NS}" --context "${K8S_CTX}" \
+  --timeout=60s
+kubectl wait --for=condition=Ready \
+  certificate/"${CERT_PFX}-config-cert" \
+  -n "${MDB_NS}" --context "${K8S_CTX}" \
+  --timeout=60s
+kubectl wait --for=condition=Ready \
+  certificate/"${CERT_PFX}-mongos-cert" \
+  -n "${MDB_NS}" --context "${K8S_CTX}" \
+  --timeout=60s
 
 echo "✓ All MongoDB TLS certificates created"

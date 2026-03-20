@@ -24,16 +24,27 @@ done
 
 if [[ ${elapsed} -ge ${timeout} ]]; then
   echo "ERROR: Timeout waiting for MongoDB cluster to be ready"
-  kubectl describe mongodb "${MDB_EXTERNAL_CLUSTER_NAME}" -n "${MDB_NS}" --context "${K8S_CTX}"
+  kubectl describe mongodb \
+    "${MDB_EXTERNAL_CLUSTER_NAME}" \
+    -n "${MDB_NS}" --context "${K8S_CTX}"
   exit 1
 fi
 
 # Show cluster status
 echo ""
 echo "Cluster pods:"
-kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" -l "app=${MDB_EXTERNAL_CLUSTER_NAME}-shard" --no-headers
-kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" -l "app=${MDB_EXTERNAL_CLUSTER_NAME}-config" --no-headers
-kubectl get pods -n "${MDB_NS}" --context "${K8S_CTX}" -l "app=${MDB_EXTERNAL_CLUSTER_NAME}-mongos" --no-headers
+kubectl get pods -n "${MDB_NS}" \
+  --context "${K8S_CTX}" \
+  -l "app=${MDB_EXTERNAL_CLUSTER_NAME}-shard" \
+  --no-headers
+kubectl get pods -n "${MDB_NS}" \
+  --context "${K8S_CTX}" \
+  -l "app=${MDB_EXTERNAL_CLUSTER_NAME}-config" \
+  --no-headers
+kubectl get pods -n "${MDB_NS}" \
+  --context "${K8S_CTX}" \
+  -l "app=${MDB_EXTERNAL_CLUSTER_NAME}-mongos" \
+  --no-headers
 
 echo ""
 echo "✓ Simulated external MongoDB cluster is ready"
