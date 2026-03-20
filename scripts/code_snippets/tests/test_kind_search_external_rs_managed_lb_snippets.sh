@@ -37,6 +37,6 @@ echo "Sourcing env variables for ${CODE_SNIPPETS_FLAVOR} flavor"
 # shellcheck disable=SC1090
 test -f "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh" && source "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh"
 
-export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_EXTERNAL_CLUSTER_NAME}&tls=true&tlsCAFile=/tls/ca-pem"
+export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_EXTERNAL_CLUSTER_NAME}-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_EXTERNAL_CLUSTER_NAME}&tls=true&tlsCAFile=/tls/ca.crt"
 
 ${test_dir}/test.sh
