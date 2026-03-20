@@ -2,6 +2,7 @@ package search
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -535,6 +536,35 @@ func (s *MongoDBSearch) MongotConfigMapForShard(shardName string) types.Namespac
 
 func (s *MongoDBSearch) IsLBModeManaged() bool {
 	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Mode == LBModeManaged
+}
+
+// GetManagedLBEndpoint returns the hostname (port stripped) from spec.lb.endpoint
+// when mode is Managed and an endpoint is configured. Returns "" otherwise.
+func (s *MongoDBSearch) GetManagedLBEndpoint() string {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Endpoint == "" {
+		return ""
+	}
+	return stripPort(s.Spec.LoadBalancer.Endpoint)
+}
+
+// GetManagedLBEndpointForShard returns the hostname for a specific shard by resolving
+// the {shardName} template in spec.lb.endpoint and stripping the port.
+// Returns "" if mode is not Managed or no endpoint is configured.
+func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Endpoint == "" {
+		return ""
+	}
+	endpoint := strings.ReplaceAll(s.Spec.LoadBalancer.Endpoint, ShardNamePlaceholder, shardName)
+	return stripPort(endpoint)
+}
+
+// stripPort extracts the hostname from a host:port string. If no port is present, returns as-is.
+func stripPort(endpoint string) string {
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return endpoint
+	}
+	return host
 }
 
 // LoadBalancerDeploymentName returns the name of the managed Envoy Deployment for this resource.
