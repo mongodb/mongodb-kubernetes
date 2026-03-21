@@ -1682,8 +1682,12 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 
 	cred, err := project.ReadCredentials(ctx, r.SecretClient, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
 	if err != nil {
-		log.Debugf("Ops Manager has not yet been created, not configuring monitoring: %s", err)
-		return env.PodEnvVars{}, nil
+		if secrets.SecretNotExist(err) {
+			log.Debugf("Ops Manager has not yet been created, not configuring monitoring: %s", err)
+			return env.PodEnvVars{}, nil
+		}
+
+		return env.PodEnvVars{}, xerrors.Errorf("error reading opsManager credentials: %w", err)
 	}
 	log.Debugf("Ensuring monitoring of AppDB is configured in Ops Manager")
 
