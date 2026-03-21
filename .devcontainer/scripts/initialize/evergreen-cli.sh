@@ -13,34 +13,19 @@ if ! command -v evergreen &> /dev/null; then
     exit 0
 fi
 
-EVG_AUTH_HEADERS=()
-API_KEY=$(evergreen client get-api-key)
-if [ -n "${API_KEY}" ]; then
-    # API key authentication
-    EVG_AUTH_HEADERS+=("-H" "Api-Key: ${API_KEY}")
-    EVG_AUTH_HEADERS+=("-H" "Api-User: $(evergreen client get-user)")
-else
-    # OAuth token authentication
-    OAUTH_TOKEN=$(evergreen client get-oauth-token)
-    if [ -n "${OAUTH_TOKEN}" ]; then
-        # select only the last line from the output, because the initial device flow may include other instructions
-        OAUTH_TOKEN=$(echo "${OAUTH_TOKEN}" | tail -n 1)
-        EVG_AUTH_HEADERS+=("-H" "Authorization: Bearer ${OAUTH_TOKEN}")
-    fi
+ARCH=$(uname -m)
+if [ "${ARCH}" = "x86_64" ]; then
+    ARCH="amd64"
+elif [ "${ARCH}" = "aarch64" ]; then
+    ARCH="arm64"
 fi
 
-CLI_VERSION_URL="$(evergreen client get-api-url)/rest/v2/status/cli_version"
-CLI_VERSION_RESPONSE=$(curl -s "${EVG_AUTH_HEADERS[@]}" "${CLI_VERSION_URL}")
-CLI_URL=$(echo "${CLI_VERSION_RESPONSE}" | jq -r --arg ARCH "$(uname -m)" '.client_config.client_binaries[] | select(.os == "linux" and .arch == ($ARCH | if . == "x86_64" then "amd64" elif . == "aarch64" then "arm64" else . end)) | .url')
-if [ -n "${CLI_URL}" ]; then
-    # Check if args is null or doesn't exist, and initialize as empty array
-    ARGS_VALUE=$(yq '.services.devcontainer.build.args' "${COMPOSE_OVERRIDE_FILE}")
-    if [ "${ARGS_VALUE}" = "null" ] || [ -z "${ARGS_VALUE}" ]; then
-        yq -i '.services.devcontainer.build.args = []' "${COMPOSE_OVERRIDE_FILE}"
-    fi
-    # Append the EVERGREEN_CLI_URL
-    yq -i '.services.devcontainer.build.args += ["EVERGREEN_CLI_URL='"${CLI_URL}"'"]' "${COMPOSE_OVERRIDE_FILE}"
-    echo "Added EVERGREEN_CLI_URL=${CLI_URL} to $(basename "${COMPOSE_OVERRIDE_FILE}")"
-else
-    echo "Could not find Evergreen CLI URL for Linux $(uname -m) in API response"
+CLI_URL="https://evg-bucket-evergreen.s3.amazonaws.com/evergreen/clients/evergreen_$(evergreen version --build-revision)/linux_${ARCH}/evergreen"
+# Check if args is null or doesn't exist, and initialize as empty array
+ARGS_VALUE=$(yq '.services.devcontainer.build.args' "${COMPOSE_OVERRIDE_FILE}")
+if [ "${ARGS_VALUE}" = "null" ] || [ -z "${ARGS_VALUE}" ]; then
+    yq -i '.services.devcontainer.build.args = []' "${COMPOSE_OVERRIDE_FILE}"
 fi
+# Append the EVERGREEN_CLI_URL
+yq -i '.services.devcontainer.build.args += ["EVERGREEN_CLI_URL='"${CLI_URL}"'"]' "${COMPOSE_OVERRIDE_FILE}"
+echo "Added EVERGREEN_CLI_URL=${CLI_URL} to $(basename "${COMPOSE_OVERRIDE_FILE}")"

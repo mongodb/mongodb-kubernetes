@@ -13,7 +13,4 @@ if [[ "${git_dir}" == /* ]]; then
         yq eval -i ".services.devcontainer.volumes += [\"${git_dir}:${git_dir}:cached\"]" "${COMPOSE_OVERRIDE_FILE}"
         echo "Added git worktree volume: ${git_dir}"
     fi
-else
-    echo "Not a git worktree, exiting."
-    exit 0
 fi

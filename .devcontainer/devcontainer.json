@@ -3,8 +3,8 @@
     "dockerComposeFile":
     [
         "compose.yml",
-        "compose.user.yml",
-        "compose.generated.yml"
+        "compose.generated.yml",
+        "compose.user.yml"
     ],
 
     "service": "devcontainer",
@@ -14,12 +14,7 @@
         "ghcr.io/devcontainers/features/go:1": {
             "version": "1.25"
         },
-        // Local feature: installs pyenv + build deps into the image layer.
-        // Docker seeds the 'mck-devcontainer-pyenv' named volume from these
-        // image contents on first start; the on-create script then creates the venv.
-        "./features/pyenv": {
-            "pythonVersion": "3.13.7"
-        },
+        "ghcr.io/devcontainers-extra/features/uv:1": {},
         "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
             "version": "latest",
             "helm": "latest",
@@ -27,8 +22,8 @@
         },
         // Installs the helm-unittest plugin; depends on kubectl-helm-minikube for helm.
         "./features/helm-unittest": {},
-        // Reuse host Docker for building images and running kind clusters
-        "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+        // Installs separate docker inside the devcontainer
+        "ghcr.io/devcontainers/features/docker-in-docker:2": {},
         // AWS CLI for logging-in to ECR
         "ghcr.io/devcontainers/features/aws-cli:1": {},
         "ghcr.io/devcontainers-extra/features/jira-cli:1": {},
@@ -48,6 +43,7 @@
     // --- Lifecycle Commands ---
     "initializeCommand": "bash .devcontainer/scripts/initialize.sh",
     "onCreateCommand": "bash .devcontainer/scripts/on-create.sh",
+    "postStartCommand": "bash .devcontainer/scripts/post-start.sh",
 
     // Disable all auto port forwarding by default
     "otherPortsAttributes": {
@@ -75,11 +71,7 @@
                 "timonwong.shellcheck"
             ],
             "settings": {
-                "vs-kubernetes.kubeconfig": "/home/vscode/.operator-dev/evg-host.kubeconfig",
-                "chat.experimental.useSkillAdherencePrompt": true,
-                "chat.tools.terminal.autoApprove": {
-                    "/^python -m dev_tools.evergreen.high_level_api/": true
-                }
+                "vs-kubernetes.kubeconfig": "/home/vscode/.operator-dev/evg-host.kubeconfig"
             }
         }
     },

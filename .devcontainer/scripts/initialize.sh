@@ -8,8 +8,11 @@ mkdir -p "${ENV_DIR}"
 COMPOSE_OVERRIDE_FILE="${SCRIPT_DIR}/../compose.generated.yml"
 export COMPOSE_OVERRIDE_FILE
 
-touch "${COMPOSE_OVERRIDE_FILE}"
-touch "${SCRIPT_DIR}/../compose.user.yml"
+function create_if_not_exists() {
+    [[ ! -f "$1" ]] && touch "$1"
+}
+create_if_not_exists "${COMPOSE_OVERRIDE_FILE}"
+create_if_not_exists "${SCRIPT_DIR}/../compose.user.yml"
 
 for file in .devcontainer/scripts/initialize/*.sh; do
     bash "${file}"

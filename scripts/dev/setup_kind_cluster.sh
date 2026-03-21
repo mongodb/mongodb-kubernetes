@@ -70,6 +70,11 @@ reg_name='kind-registry'
 reg_port='5000'
 kind_image="${registry}/kindest/node:v1.35.0"
 
+api_server_address="127.0.0.1"
+if [[ ${REMOTE_CONTAINERS:-false} == "true" ]]; then
+  api_server_address=$(ip addr show eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
+fi
+
 kind_delete_cluster() {
   kind delete cluster --name "${cluster_name}" || true
 }
@@ -113,12 +118,16 @@ nodes:
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
+  apiServerAddress: "${api_server_address}"
 kubeadmConfigPatches:
 - |
   apiVersion: kubeadm.k8s.io/v1beta3
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
+  apiServer:
+    certSANs:
+      - "${api_server_address}"
 EOF
 }
 
@@ -135,12 +144,16 @@ nodes:
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
+  apiServerAddress: "${api_server_address}"
 kubeadmConfigPatches:
 - |
   apiVersion: kubeadm.k8s.io/v1beta3
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
+  apiServer:
+    certSANs:
+      - "${api_server_address}"
 EOF
   echo "finished installing kind"
 }
@@ -242,6 +255,11 @@ kind_configure_local_registry
 kind_wait_for_nodes_are_ready
 kind_install_metallb
 kind_install_metrics_server
+
+if [[ -n "${K8S_FWD_PROXY}" ]]; then
+  # Feed the kubeconfig to the proxy so it can resolve this new cluster
+  curl -X PATCH --data-binary @"${kubeconfig_path}" "http://${K8S_FWD_PROXY}/kubeconfig"
+fi
 
 if [[ "${export_kubeconfig}" == "1" ]]; then
   export_kubeconfig

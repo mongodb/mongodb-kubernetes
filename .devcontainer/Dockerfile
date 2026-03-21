@@ -1,9 +1,12 @@
 FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
 
-# Install dependencies for python-ldap
 RUN apt-get update && apt-get install -y \
+    # Install dependencies for python-ldap
     libldap2-dev \
-    libsasl2-dev
+    libsasl2-dev \
+    # Socat for ssh-agent socket forwarding
+    screen \
+    socat
 
 RUN bash -c 'mkdir -p /workspace/.generated /home/vscode/.cache/{go-build,pip,helm}' && \
     chown -R vscode:vscode /workspace/.generated /home/vscode/.cache

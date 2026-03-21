@@ -20,11 +20,15 @@ if [[ -z "${EVG_HOST_NAME}" ]]; then
 fi
 
 get_host_url() {
-  host=$(evergreen host list --json | jq -r ".[] | select (.name==\"${EVG_HOST_NAME}\") | .host_name ")
-  if [[ "${host}" == "" ]]; then
-    >&2 echo "Cannot find running EVG host with name ${EVG_HOST_NAME}.
-Run evergreen host list --json or visit https://spruce.mongodb.com/spawn/host."
-    exit 1
+  if [[ -z "${EVG_HOST_ADDRESS}" ]]; then
+    host=$(evergreen host list --json | jq -r ".[] | select (.name==\"${EVG_HOST_NAME}\") | .host_name ")
+    if [[ "${host}" == "" ]]; then
+      >&2 echo "Cannot find running EVG host with name ${EVG_HOST_NAME}.
+  Run evergreen host list --json or visit https://spruce.mongodb.com/spawn/host."
+      exit 1
+    fi
+  else
+    host="${EVG_HOST_ADDRESS}"
   fi
   echo "ubuntu@${host}"
 }
@@ -106,6 +110,16 @@ get-kubeconfig() {
   remote_path="${host_url}:/home/ubuntu/.operator-dev/evg-host.kubeconfig"
   echo "Copying remote kubeconfig from ${remote_path} to ${kubeconfig_path}"
   scp "${remote_path}" "${kubeconfig_path}"
+
+  if [[ -n "${EVG_HOST_PROXY}" ]]; then
+    echo "Patching kubeconfig to use EVG_HOST_PROXY ${EVG_HOST_PROXY}"
+    yq -i ".clusters[].cluster.proxy-url |= \"${EVG_HOST_PROXY}\"" "${kubeconfig_path}"
+  fi
+
+  if [[ -n "${K8S_FWD_PROXY}" ]]; then
+    echo "Loading kubeconfig onto ${K8S_FWD_PROXY}"
+    curl -X PATCH --data-binary @"${kubeconfig_path}" "http://${K8S_FWD_PROXY}/kubeconfig"
+  fi
 }
 
 recreate-kind-clusters() {

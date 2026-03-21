@@ -8,5 +8,3 @@ if [ -f "/workspace/.generated/.current_context" ]; then
     context=$(cat /workspace/.generated/.current_context)
 fi
 make switch context="${context}"
-
-echo "source /workspace/.generated/context.export.env" >> /home/vscode/.bashrc

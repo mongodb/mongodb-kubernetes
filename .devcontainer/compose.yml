@@ -1,41 +1,117 @@
+x-k8s-proxy-config:
+  proxy_address: &proxy_address 172.28.0.10
+
 services:
   devcontainer:
     build: .
+
+    environment:
+      K8S_FWD_PROXY: *proxy_address
+      EVG_HOST_PROXY: "http://gost-proxy:8080"
+
     volumes:
       # Workspace
       - ..:/workspace:cached
 
       # Unique per devcontainer instance to avoid conflicts
       - venv:/workspace/venv
+      # Override the bin directory so Linux-specific kubebuilder tools stay inside the container
+      - bin:/workspace/bin
 
       # Named volumes for persistent caches, shared across all devcontainer instances
       - gomodcache:/go/pkg/mod
       - gocache:/home/vscode/.cache/go-build
-      - pipcache:/home/vscode/.cache/pip
+      - uvcache:/home/vscode/.cache/uv
       - helmcache:/home/vscode/.cache/helm
-      - pyenv:/home/vscode/.pyenv
 
       # Bind mounts for Evergreen auth files
       - ${HOME}/.evergreen.yml:/home/vscode/.evergreen.yml:cached
       - ${HOME}/.kanopy:${HOME}/.kanopy:cached
 
-    # Additional host configuration
+      # Share the SSH agent socket for evg-host-proxy to use
+      - ssh-auth-sock:/ssh-agent
+
     extra_hosts:
       # Ensure host.docker.internal resolves on Linux Docker
       - "host.docker.internal:host-gateway"
 
+    depends_on:
+      - k8s-proxy
+    networks:
+      - devcontainer
+    dns:
+      - *proxy_address
+      - 127.0.0.11
+
     command: sleep infinity
+  k8s-proxy:
+    build: ~/Repos/k8s-proxy
+    cap_add:
+      - NET_ADMIN
+    environment:
+      # Bind DNS to the container's assigned IP on devcontainer.
+      # VIPs (172.28.1.x) are also added to that interface.
+      INTERFACE: *proxy_address
+      VIP_CIDR: 172.28.1.0/24
+      DNS_LISTEN: :53
+      HTTP_LISTEN: :80
+      CLUSTER_DOMAIN: svc.cluster.local
+      LOG_LEVEL: info
+    command: ["--dns"]
+    networks:
+      devcontainer:
+        ipv4_address: *proxy_address
+
+  # Create a SSH port-forwarding SOCKS proxy
+  evg-host-proxy:
+    build:
+      context: .
+      dockerfile: autossh.Dockerfile
+    environment:
+      SSH_AUTH_SOCK: /ssh-agent/socket
+    networks:
+      - devcontainer
+    volumes:
+      - ../scripts/dev/contexts:/contexts:ro
+      - ssh-auth-sock:/ssh-agent
+      - ~/.ssh/known_hosts:/etc/ssh/ssh_known_hosts:ro
+    command: |
+      bash -c '
+        . /contexts/private-context
+        rm -rf $$SSH_AUTH_SOCK
+        until [ -S $$SSH_AUTH_SOCK ]; do sleep 1; done
+        echo "SSH agent socket is available, starting autossh..."
+        autossh -M 0 -N -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" -D 0.0.0.0:1080 ubuntu@$$EVG_HOST_ADDRESS
+      '
+
+  # Translate the SOCKS proxy from evg-host-proxy into an HTTP proxy because go-client doesn't support SPDY over SOCKS.
+  gost-proxy:
+    image: gogost/gost
+    depends_on:
+      - evg-host-proxy
+    networks:
+      - devcontainer
+    command: ["-L", "http://:8080", "-F", "socks5://evg-host-proxy:1080"]
 
 # Volumes with an explicit name are shared globally, otherwise they are prefixed with the project name generated for this compose stack
 volumes:
+  ssh-auth-sock:
   venv:
+  bin:
   gomodcache:
     name: mck-devcontainer-gomodcache
   gocache:
     name: mck-devcontainer-gocache
-  pipcache:
-    name: mck-devcontainer-pipcache
+  uvcache:
+    name: mck-devcontainer-uvcache
   helmcache:
     name: mck-devcontainer-helmcache
-  pyenv:
-    name: mck-devcontainer-pyenv
+
+# Set up a custom network to carve out an address space for k8s-proxy to allocate virtual IPs in
+networks:
+  devcontainer:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+          ip_range: 172.28.0.0/24
