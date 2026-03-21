@@ -21,6 +21,7 @@ from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.mongotester import create_mongo_client
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMTester
 from kubetester.operator import Operator
@@ -372,7 +373,7 @@ class TestBackupForMongodb:
 
     @fixture(scope="function")
     def mdb_client(self, mongodb_multi_one: MongoDBMulti):
-        return pymongo.MongoClient(
+        return create_mongo_client(
             mongodb_multi_one.tester(port=MONGODB_PORT).cnx_string,
             **mongodb_multi_one.tester(port=MONGODB_PORT).default_opts,
             readPreference="primary",  # let's read from the primary and not stale data from the secondary

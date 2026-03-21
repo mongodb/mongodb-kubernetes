@@ -22,6 +22,16 @@ TEST_DB = "test-db"
 TEST_COLLECTION = "test-collection"
 
 
+def create_mongo_client(connection_string: str, **kwargs) -> pymongo.MongoClient:
+    """Central factory for pymongo.MongoClient.
+
+    SOCKS5 proxy routing for pymongo is handled globally via PySocks socket
+    patch in conftest.py when K8S_FWD_PROXY_SOCKS is set. This factory exists
+    so all MongoClient instantiations go through a single call site.
+    """
+    return pymongo.MongoClient(connection_string, **kwargs)
+
+
 def with_tls(use_tls: bool = False, ca_path: Optional[str] = None) -> Dict[str, str]:
     # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
     # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
@@ -169,7 +179,7 @@ class MongoTester:
         return options
 
     def _init_client(self, **kwargs):
-        return pymongo.MongoClient(self.cnx_string, **kwargs)
+        return create_mongo_client(self.cnx_string, **kwargs)
 
     def assert_connectivity(
         self,
