@@ -11,8 +11,6 @@
 # For E2E testing, env_variables_e2e_private.sh is sourced automatically
 # when PROJECT_DIR and CLUSTER_NAME environment variables are set.
 
-set -eou pipefail
-
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 project_dir="${script_dir}/../../.."
