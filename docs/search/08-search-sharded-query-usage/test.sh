@@ -10,8 +10,6 @@
 #   MDB_USER_CONNECTION_STRING or MDB_CONNECTION_STRING
 #   K8S_CTX, MDB_NS, MDB_VERSION, MDB_TLS_CA_CONFIGMAP
 
-set -eou pipefail
-
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 project_dir="${script_dir}/../../.."
