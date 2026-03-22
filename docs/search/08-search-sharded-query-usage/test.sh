@@ -16,7 +16,7 @@ project_dir="${script_dir}/../../.."
 
 source "${project_dir}/scripts/code_snippets/sample_test_runner.sh"
 
-cd "${script_dir}"
+cd "${script_dir}" || exit 1
 
 prepare_snippets
 
@@ -35,4 +35,4 @@ run_for_output 08_0440_wait_for_search_indexes.sh
 run_for_output 08_0450_execute_search_query.sh
 run_for_output 08_0455_execute_vector_search_query.sh
 
-cd -
+cd - || true
