@@ -17,7 +17,7 @@ project_dir="${script_dir}/../../.."
 
 source "${project_dir}/scripts/code_snippets/sample_test_runner.sh"
 
-cd "${script_dir}"
+cd "${script_dir}" || exit 1
 
 prepare_snippets
 
@@ -81,4 +81,4 @@ run_for_output 09_0326_verify_envoy_deployment.sh
 # Show all running pods
 run_for_output 09_0330_show_running_pods.sh
 
-cd -
+cd - || true
