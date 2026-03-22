@@ -139,6 +139,8 @@ Create Ops Manager project ConfigMap and credentials Secret.
 
 #### Step 7: Install cert-manager
 
+Required for automated TLS certificate lifecycle. Skipped if already installed.
+
 ```bash
 ./code_snippets/09_0301_install_cert_manager.sh
 ```
@@ -178,6 +180,8 @@ Create a Secret with the CA in the target namespace for mongot TLS verification.
 ```
 
 #### Step 11: Generate TLS Certificates for MongoDB
+
+Generate TLS certificates for each shard's mongod, config servers, and mongos.
 
 ```bash
 ./code_snippets/09_0304_generate_tls_certificates.sh
