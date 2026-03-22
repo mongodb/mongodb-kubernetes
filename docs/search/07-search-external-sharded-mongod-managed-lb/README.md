@@ -121,6 +121,8 @@ Run these steps in order after sourcing `env_variables.sh`.
 
 #### Step 5: Install cert-manager
 
+Required for automated TLS certificate lifecycle. Skipped if already installed.
+
 ```bash
 ./code_snippets/07_0301_install_cert_manager.sh
 ```
