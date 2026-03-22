@@ -4,11 +4,6 @@ This guide walks you through deploying **MongoDB Search** against your **existin
 
 For testing purposes, we include scripts that simulate an external cluster inside Kubernetes. In production, you would skip the "internal" scripts and point the configuration at your real MongoDB hosts.
 
-## For Documentation Team
-
-Scripts with an `internal_` prefix in their filename should be **excluded** from published docs (test scaffolding only).
-All remaining scripts are **user-facing** and should be included in published docs.
-
 ## Overview
 
 ### What is "Managed Envoy"?
@@ -76,20 +71,25 @@ In a sharded cluster, each shard has its own data. MongoDB Search deploys separa
 - MongoDB Kubernetes Operator installed
 - Access to an external MongoDB 8.2.0+ sharded cluster (or use the simulated cluster in this guide)
 
-## Quick Start
+## Getting Started
 
-1. **Set environment variables:**
-   ```bash
-   source env_variables.sh
-   # Edit the file to set your actual values
-   ```
+```bash
+cd docs/search/07-search-external-sharded-mongod-managed-lb
 
-2. **Run all snippets:**
-   ```bash
-   ./test.sh
-   ```
+# Edit env_variables.sh to set your Kubernetes context, namespace, cluster topology, and TLS settings
+vi env_variables.sh
 
-   Or run snippets individually in order.
+# Source the environment variables
+source env_variables.sh
+```
+
+To run all steps automatically:
+
+```bash
+./test.sh
+```
+
+Or follow the steps below to run each snippet individually.
 
 ## Key Configuration
 
@@ -300,72 +300,198 @@ kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_SEARC
 | **mongot** | MongoDB Search server that indexes and serves search queries |
 | **Envoy** | High-performance L7 proxy used for traffic routing |
 
-## Files in This Directory
+## Step-by-Step Execution
 
-| File | Description |
-|------|-------------|
-| `env_variables.sh` | Main configuration file. Defines Kubernetes context, namespace, cluster topology, TLS settings, user credentials, and derived proxy Service endpoints. Edit this first. This file deploys MongoDB Search against an external sharded MongoDB cluster with managed Envoy load balancing. Traffic flow: External mongod to Envoy (operator-managed) to mongot. |
-| `env_variables_e2e_private.sh` | E2E test overrides for private/enterprise testing |
-| `env_variables_e2e_private_dev.sh` | E2E test overrides for dev environment |
-| `env_variables_e2e_prerelease.sh` | E2E test overrides for prerelease builds |
-| `env_variables_e2e_public.sh` | E2E test overrides for public/community testing |
-| `test.sh` | Runner script that executes all snippets in order |
-| `code_snippets/` | Individual shell scripts for each step (see below) |
+Run these steps in order from the `07-search-external-sharded-mongod-managed-lb` directory after sourcing `env_variables.sh`.
 
-### Code Snippets (Execution Order)
+### Set Up Kubernetes and the Operator
 
-**Prerequisites:**
+#### Step 1: Validate Environment Variables
 
-| Script | Description |
-|--------|-------------|
-| `07_0040_validate_env.sh` | Validate that all required environment variables are set. Checks that you configured the necessary environment variables before running the deployment. Run this first to catch configuration issues early. |
-| `07_0045_create_namespaces.sh` | Create the Kubernetes namespace for MongoDB resources. |
-| `07_0046_internal_create_image_pull_secrets.sh` | **[INTERNAL]** Create image pull secrets. Only required when using private container registries. |
-| `07_0090_helm_add_mongodb_repo.sh` | Add the MongoDB Helm repository. |
-| `07_0100_install_operator.sh` | Install the MongoDB Kubernetes Operator. |
-| `07_0300_create_ops_manager_resources.sh` | Create Ops Manager or Cloud Manager connection resources (credentials Secret and project ConfigMap). |
+Checks that all required environment variables are set before deployment. Run this first to catch configuration issues early.
 
-**TLS Configuration:**
+```bash
+./code_snippets/07_0040_validate_env.sh
+```
 
-| Script | Description |
-|--------|-------------|
-| `07_0301_install_cert_manager.sh` | Install cert-manager for TLS certificate management. |
-| `07_0302_configure_tls_prerequisites.sh` | Configure TLS prerequisites: create a self-signed ClusterIssuer, CA Certificate, and CA ClusterIssuer. |
-| `07_0302a_configure_tls_prerequisites_mongod.sh` | Distribute the CA certificate for mongod by creating a ConfigMap with the CA in the target namespace. MongoDB Enterprise expects the CA in a ConfigMap (key `ca-pem`). In production, the external mongod cluster manages its own CA distribution. |
-| `07_0302b_configure_tls_prerequisites_mongot.sh` | Configure the CA certificate for mongot by creating a Secret with the CA in the target namespace. MongoDBSearch expects the CA in a Secret (key `ca.crt`). |
-| `07_0304_generate_tls_certificates.sh` | Generate TLS certificates for MongoDB shards, config servers, and mongos. Cluster layout: 2 shards (1 mongod each), 2 config servers, 1 mongos. |
+#### Step 2: Create Kubernetes Namespace
 
-**Simulated External Cluster:**
+Create the Kubernetes namespace for MongoDB resources.
 
-| Script | Description |
-|--------|-------------|
-| `07_0310_create_external_mongodb_sharded_cluster.sh` | Create the simulated external MongoDB sharded cluster. The cluster is created with search parameters pre-configured to point to the operator-managed Envoy proxy endpoints. Cluster layout: 2 shards (1 mongod each), 1 mongos, 2 config servers. |
-| `07_0311_internal_update_coredns_configmap.sh` | **[INTERNAL]** Update CoreDNS to resolve the external domain to the mongos ClusterIP. Simulates external DNS resolution within the single-cluster test environment. |
-| `07_0315_wait_for_external_cluster.sh` | Wait for the simulated external MongoDB sharded cluster to reach Running phase (up to 15 min). |
-| `07_0316_create_external_mongodb_users.sh` | Create MongoDB users for the simulated external sharded cluster: admin user, application user, and search-sync-source user with the `searchCoordinator` role. |
+```bash
+./code_snippets/07_0045_create_namespaces.sh
+```
 
-**MongoDB Search with Managed Envoy LB:**
+#### Step 3: Create Image Pull Secrets
 
-| Script | Description |
-|--------|-------------|
-| `07_0316a_create_mongot_tls_certificates.sh` | Create TLS certificates for MongoDB Search (mongot) pods. The `search-0` in names refers to the first search deployment; the operator names StatefulSets as `{resource}-search-{index}-{shard}`. Layout: 2 shards, 2 mongot replicas each. |
-| `07_0316b_create_lb_tls_certificates.sh` | Create TLS certificates for the managed load balancer (Envoy proxy). Server cert handles incoming mongod connections. Client cert handles outgoing mongot connections. |
-| `07_0320_create_mongodb_search_resource.sh` | Create the MongoDBSearch resource with External Sharded Source and Managed Envoy LB. Traffic flow: External mongod to Envoy (port 27029) to mongot (port 27028). Layout: 1 mongos router, 2 shards (1 mongod each), 2 mongot replicas per shard. |
-| `07_0325_wait_for_search_resource.sh` | Wait for the MongoDBSearch resource to reach Running phase (up to 10 min). |
+> **Test-only:** This script creates image pull secrets for private test registries. In production, create pull secrets only if you use a private container registry: `kubectl create secret docker-registry ...`
 
-**Verification:**
+```bash
+./code_snippets/07_0046_internal_create_image_pull_secrets.sh
+```
 
-| Script | Description |
-|--------|-------------|
-| `07_0326_verify_envoy_deployment.sh` | Verify that the operator-managed Envoy proxy is deployed and running. Checks ConfigMap, Deployment, and per-shard proxy Services. |
-| `07_0330_show_running_pods.sh` | Show all running pods in the namespace: MongoDB sharded cluster pods (simulated external), mongot pods (MongoDB Search), Envoy proxy pods (operator-managed), and Operator pods. |
+#### Step 4: Add MongoDB Helm Repository
 
-> **Note:** Data import, search index creation, and search query testing are in the shared
-> [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/) module, which is reusable
-> across all sharded search scenarios.
+```bash
+./code_snippets/07_0090_helm_add_mongodb_repo.sh
+```
 
-**Cleanup:**
+#### Step 5: Install the MongoDB Kubernetes Operator
 
-| Script | Description |
-|--------|-------------|
-| `07_9010_delete_namespace.sh` | Delete the namespace and all resources. **WARNING:** This deletes the MongoDB sharded cluster, MongoDB Search resources, Envoy proxy, and all data. This is a destructive operation. |
+```bash
+./code_snippets/07_0100_install_operator.sh
+```
+
+#### Step 6: Create Ops Manager Resources
+
+> **Test-only:** This script creates Ops Manager project ConfigMap and credentials Secret using test API keys. In production, create these resources manually with your own Ops Manager or Cloud Manager credentials.
+
+```bash
+./code_snippets/07_0300_internal_create_ops_manager_resources.sh
+```
+
+### Configure TLS
+
+#### Step 7: Install cert-manager
+
+Install cert-manager for automated TLS certificate management.
+
+```bash
+./code_snippets/07_0301_install_cert_manager.sh
+```
+
+#### Step 8: Configure TLS Prerequisites
+
+Create the self-signed ClusterIssuer, CA Certificate, and CA ClusterIssuer bootstrap chain.
+
+```bash
+./code_snippets/07_0302_configure_tls_prerequisites.sh
+```
+
+#### Step 9: Distribute CA Certificate for mongod
+
+> **Test-only:** This distributes the CA certificate as a ConfigMap for the simulated in-K8s mongod cluster. In production, your external mongod cluster manages its own CA distribution.
+
+```bash
+./code_snippets/07_0302a_internal_configure_tls_prerequisites_mongod.sh
+```
+
+#### Step 10: Distribute CA Certificate for mongot
+
+Create a Secret with the CA in the target namespace. MongoDBSearch expects the CA in a Secret (key `ca.crt`).
+
+```bash
+./code_snippets/07_0302b_configure_tls_prerequisites_mongot.sh
+```
+
+#### Step 11: Generate TLS Certificates for MongoDB
+
+> **Test-only:** This generates TLS certificates for the simulated mongod shards, config servers, and mongos. In production, your external MongoDB cluster already has its own TLS certificates.
+
+```bash
+./code_snippets/07_0304_internal_generate_tls_certificates.sh
+```
+
+### Deploy the Simulated External Cluster
+
+> **Production users:** Skip steps 12–15. You already have a running external MongoDB sharded cluster. Instead, create the `search-sync-source` user on your external cluster and create the password Secret in Kubernetes:
+> ```bash
+> kubectl create secret generic ${MDB_SEARCH_RESOURCE_NAME}-search-sync-source-password \
+>   --from-literal=password=<your-password> -n ${MDB_NS}
+> ```
+
+#### Step 12: Create External MongoDB Sharded Cluster
+
+> **Test-only:** Deploy a simulated external MongoDB sharded cluster inside Kubernetes for testing. The cluster is created with search parameters pre-configured to point to the operator-managed Envoy proxy endpoints.
+
+```bash
+./code_snippets/07_0310_internal_create_external_mongodb_sharded_cluster.sh
+```
+
+#### Step 13: Update CoreDNS
+
+> **Test-only:** Update CoreDNS to resolve the simulated external domain within the cluster.
+
+```bash
+./code_snippets/07_0311_internal_update_coredns_configmap.sh
+```
+
+#### Step 14: Wait for External Cluster
+
+> **Test-only:** Wait for the simulated cluster to reach Running phase (up to 15 min).
+
+```bash
+./code_snippets/07_0315_internal_wait_for_external_cluster.sh
+```
+
+#### Step 15: Create MongoDB Users
+
+> **Test-only:** Create admin, application, and search-sync-source users on the simulated cluster.
+
+```bash
+./code_snippets/07_0316_internal_create_external_mongodb_users.sh
+```
+
+### Deploy MongoDB Search with Managed Envoy LB
+
+#### Step 16: Create mongot TLS Certificates
+
+Create TLS certificates for mongot pods (one cert-manager Certificate per shard).
+
+```bash
+./code_snippets/07_0316a_create_mongot_tls_certificates.sh
+```
+
+#### Step 17: Create Load Balancer TLS Certificates
+
+Create server and client TLS certificates for the Envoy proxy. The server cert handles incoming mongod connections; the client cert handles outgoing mongot connections.
+
+```bash
+./code_snippets/07_0316b_create_lb_tls_certificates.sh
+```
+
+#### Step 18: Create MongoDBSearch Resource
+
+Apply the MongoDBSearch CR with `lb.mode: Managed` and external cluster source configuration.
+
+```bash
+./code_snippets/07_0320_create_mongodb_search_resource.sh
+```
+
+#### Step 19: Wait for MongoDBSearch
+
+Wait for the MongoDBSearch resource to reach Running phase (up to 10 min).
+
+```bash
+./code_snippets/07_0325_wait_for_search_resource.sh
+```
+
+### Verify the Deployment
+
+#### Step 20: Verify Envoy Deployment
+
+Verify that the operator-managed Envoy proxy is deployed and running. Checks ConfigMap, Deployment, and per-shard proxy Services.
+
+```bash
+./code_snippets/07_0326_verify_envoy_deployment.sh
+```
+
+#### Step 21: Show Running Pods
+
+Show all running pods: MongoDB sharded cluster (simulated external), mongot (MongoDB Search), Envoy proxy, and Operator pods.
+
+```bash
+./code_snippets/07_0330_show_running_pods.sh
+```
+
+### Next: Import Data and Run Search Queries
+
+Proceed to [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/) to import data, create search indexes, and run search queries. That module is shared across all sharded search scenarios.
+
+### Cleanup (Manual Only)
+
+> **WARNING:** This deletes the namespace and all resources including the MongoDB sharded cluster, MongoDB Search resources, Envoy proxy, and all data.
+
+```bash
+./code_snippets/07_9010_internal_delete_namespace.sh
+```

@@ -1,32 +1,104 @@
 # Sharded MongoDB Search — Query Usage
 
-Reusable scripts for importing data, creating search indexes, and running search queries against a **sharded MongoDB cluster with MongoDB Search**.
+Import data, create search indexes, and run search queries against a **sharded MongoDB cluster with MongoDB Search**.
 
-These scripts are designed to run **after** a sharded search infrastructure is deployed (e.g., via [`07-search-external-sharded-mongod-managed-lb`](../07-search-external-sharded-mongod-managed-lb/)).
+Run these scripts **after** deploying sharded search infrastructure (e.g., via [`07-search-external-sharded-mongod-managed-lb`](../07-search-external-sharded-mongod-managed-lb/) or [`09-search-sharded-mongod-managed-lb`](../09-search-sharded-mongod-managed-lb/)).
 
 ## Prerequisites
 
-The following environment variables must be set before running any script:
+Complete one of the sharded search infrastructure guides (07 or 09) before running these scripts. The infrastructure module's `env_variables.sh` exports the required variables:
 
 | Variable | Description |
 |----------|-------------|
 | `K8S_CTX` | Kubernetes context name |
 | `MDB_NS` | Kubernetes namespace |
 | `MDB_VERSION` | MongoDB version (e.g., `8.2.0-ent`) |
-| `MDB_ADMIN_CONNECTION_STRING` | Admin connection string (for import/sharding) |
+| `MDB_ADMIN_CONNECTION_STRING` | Admin connection string (for data import and sharding) |
 | `MDB_USER_CONNECTION_STRING` | User connection string (for search queries) |
-| `MDB_TLS_CA_CONFIGMAP` | CA certificate ConfigMap name (mounted in tools pod) |
+| `MDB_TLS_CA_CONFIGMAP` | CA certificate ConfigMap name (mounted in the tools pod) |
 
-These are typically exported by the infrastructure module's `env_variables.sh`.
+## Getting Started
 
-## Scripts (run in order)
+```bash
+cd docs/search/08-search-sharded-query-usage
 
-| Script | Purpose |
-|--------|---------|
-| `08_0410_run_mongodb_tools_pod.sh` | Deploy a `mongodb-tools` pod for running database commands. This pod provides `mongosh`, `mongorestore`, and other MongoDB tools for importing data and running queries against the cluster. The pod mounts the CA certificate ConfigMap at `/tls` for TLS connections. |
-| `08_0420_import_sample_data.sh` | Import the `sample_mflix` dataset and shard the `movies` collection using a hashed `_id` key. |
-| `08_0430_create_search_index.sh` | Create a default text search index on the `movies` collection. Search indexes are created through `mongos` and automatically distributed to each shard's `mongot` instance through the Envoy proxy. This creates a default text search index that indexes all text fields. |
-| `08_0435_create_vector_search_index.sh` | Create a vector search index on the `embedded_movies` collection. Vector search indexes enable similarity search on vector embeddings. The `sample_mflix` dataset includes pre-computed embeddings in `embedded_movies`. |
-| `08_0440_wait_for_search_indexes.sh` | Wait for search indexes to become READY. After creating search indexes, `mongot` needs time to build them. Polls using `runCommand({listSearchIndexes: ...})` until status is READY. |
-| `08_0450_execute_search_query.sh` | Execute a text search query through `mongos`. |
-| `08_0455_execute_vector_search_query.sh` | Execute a vector search query. Vector search finds documents similar to a given vector embedding. Uses a sample embedding to find similar movies. |
+# Environment variables should already be set from the infrastructure module (07 or 09).
+# If running independently, source the appropriate env file:
+# source ../07-search-external-sharded-mongod-managed-lb/env_variables.sh
+# or
+# source ../09-search-sharded-mongod-managed-lb/env_variables.sh
+```
+
+To run all steps automatically:
+
+```bash
+./test.sh
+```
+
+Or follow the steps below to run each snippet individually.
+
+## Step-by-Step Execution
+
+### Deploy a Tools Pod
+
+#### Step 1: Run MongoDB Tools Pod
+
+Deploy a `mongodb-tools` pod with `mongosh` and `mongorestore`, configured with TLS CA certificates for connecting to the cluster.
+
+```bash
+./code_snippets/08_0410_run_mongodb_tools_pod.sh
+```
+
+### Import Data and Shard the Collection
+
+#### Step 2: Import Sample Data
+
+Import the `sample_mflix` dataset and shard the `movies` collection using a hashed `_id` key.
+
+```bash
+./code_snippets/08_0420_import_sample_data.sh
+```
+
+### Create Search Indexes
+
+#### Step 3: Create Text Search Index
+
+Create a default text search index on the `movies` collection. Search indexes are created through `mongos` and automatically distributed to each shard's `mongot` instance through the Envoy proxy.
+
+```bash
+./code_snippets/08_0430_create_search_index.sh
+```
+
+#### Step 4: Create Vector Search Index
+
+Create a vector search index on the `embedded_movies` collection. The `sample_mflix` dataset includes pre-computed embeddings.
+
+```bash
+./code_snippets/08_0435_create_vector_search_index.sh
+```
+
+#### Step 5: Wait for Search Indexes
+
+Wait for all search indexes to reach READY state (up to 5 min). Polls using `listSearchIndexes` until status is READY.
+
+```bash
+./code_snippets/08_0440_wait_for_search_indexes.sh
+```
+
+### Run Search Queries
+
+#### Step 6: Execute Text Search Query
+
+Run a text search query against the `movies` collection through `mongos` and display results.
+
+```bash
+./code_snippets/08_0450_execute_search_query.sh
+```
+
+#### Step 7: Execute Vector Search Query
+
+Run a vector search query against the `embedded_movies` collection. Uses a sample embedding to find similar movies.
+
+```bash
+./code_snippets/08_0455_execute_vector_search_query.sh
+```
