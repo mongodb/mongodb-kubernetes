@@ -1,6 +1,6 @@
-# Scenario 10: MongoDB Search with External Replica Set + Managed Envoy Load Balancer
+# MongoDB Search with External Replica Set + Managed Envoy LB
 
-Deploy on-prem MongoDB Search (mongot) on Kubernetes against an **existing external MongoDB replica set** using an **operator-managed Envoy L7 proxy** as the load balancer.
+Deploy **MongoDB Search** against your **existing external MongoDB replica set** using the operator's **managed Envoy load balancer**.
 
 ## Overview
 
@@ -20,21 +20,7 @@ External mongod (your cluster)
    mongot pods     ← operator-managed, port 27028
 ```
 
-### What the Operator Creates
-
-When you apply the `MongoDBSearch` resource with `lb.mode: Managed`, the operator automatically provisions:
-
-| Resource | Name Pattern | Purpose |
-|----------|-------------|---------|
-| Deployment | `<name>-search-lb` | Envoy proxy pods |
-| ConfigMap | `<name>-search-lb-config` | Envoy routing configuration |
-| Service | `<name>-search-lb-svc` | Load balancer service (port 27029) |
-| StatefulSet | `<name>-search` | mongot pods |
-| Service | `<name>-search-svc` | Headless service for mongot pods |
-
 ## Prerequisites
-
-Before starting, ensure you have:
 
 - A running **MongoDB replica set** (v8.2.0+ Enterprise) accessible from your Kubernetes cluster
 - A **search-sync-source** user on the external cluster with appropriate permissions for mongot sync
@@ -42,245 +28,176 @@ Before starting, ensure you have:
 - **Helm 3** installed
 - **Network connectivity** from your Kubernetes cluster to the external MongoDB hosts
 
-## Step-by-Step Instructions
-
-### Step 0: Configure Environment Variables
-
-Copy and edit the environment variables file with your deployment settings:
+## Getting Started
 
 ```bash
-cp env_variables.sh my_env.sh
-# Edit my_env.sh with your values
-source my_env.sh
+cd docs/search/10-search-external-rs-mongod-managed-lb
+
+# Edit env_variables.sh to set your Kubernetes context, namespace, external hosts, and TLS settings
+vi env_variables.sh
+
+# Source the environment variables
+source env_variables.sh
 ```
 
-Key variables to set:
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `K8S_CTX` | Your Kubernetes context | `my-k8s-cluster` |
-| `MDB_NS` | Target namespace | `mongodb` |
-| `MDB_EXTERNAL_CLUSTER_NAME` | Identifier for your external RS | `ext-mdb-rs` |
-| `MDB_SEARCH_RESOURCE_NAME` | Name for the MongoDBSearch resource | `ext-rs-search` |
-| `MDB_RS_MEMBERS` | Number of RS members | `3` |
-| `MDB_MONGOT_REPLICAS` | Number of mongot replicas | `2` |
-| `MDB_EXTERNAL_HOST_0..N` | Host:port for each RS member | `mongo-0.example.com:27017` |
-| `MDB_ADMIN_USER_PASSWORD` | Admin user password | *(change default)* |
-| `MDB_USER_PASSWORD` | Application user password | *(change default)* |
-| `MDB_SEARCH_SYNC_USER_PASSWORD` | Search sync user password | *(change default)* |
-
-### Step 1: Validate Environment
-
-Verify all required variables are set and the Kubernetes context exists:
+To run all steps automatically:
 
 ```bash
-source code_snippets/10_0040_validate_env.sh
+./test.sh
 ```
 
-### Step 2: Create Namespace
+## Step-by-Step Execution
+
+Run these steps in order after sourcing `env_variables.sh`.
+
+### Set Up Kubernetes and the Operator
+
+#### Step 1: Validate Environment Variables
 
 ```bash
-source code_snippets/10_0045_create_namespaces.sh
+./code_snippets/10_0040_validate_env.sh
 ```
 
-### Step 3: Install the MongoDB Kubernetes Operator
-
-Install the operator via OCI Helm chart:
+#### Step 2: Create Kubernetes Namespace
 
 ```bash
-source code_snippets/10_0100_install_operator.sh
+./code_snippets/10_0045_create_namespaces.sh
 ```
 
-The operator pod should reach `Running` state in the target namespace.
-
-### Step 4: Install cert-manager
-
-TLS is required for communication between all components. [cert-manager](https://cert-manager.io/) automates certificate lifecycle:
+#### Step 3: Install the MongoDB Kubernetes Operator
 
 ```bash
-source code_snippets/10_0301_install_cert_manager.sh
+./code_snippets/10_0100_install_operator.sh
 ```
 
-If cert-manager is already installed in your cluster, this step is skipped automatically.
+### Configure TLS
 
-### Step 5: Configure TLS Prerequisites
-
-Create a self-signed CA hierarchy and distribute the CA certificate to the target namespace:
+#### Step 4: Install cert-manager
 
 ```bash
-source code_snippets/10_0302_configure_tls_prerequisites.sh
+./code_snippets/10_0301_install_cert_manager.sh
 ```
 
-This creates:
-1. A **self-signed ClusterIssuer** (bootstrap only)
-2. A **CA Certificate** (10-year validity, ECDSA)
-3. A **CA ClusterIssuer** (used to sign all subsequent certificates)
-4. Distributes the CA as both a **ConfigMap** (`ca-pem` key) and a **Secret** (`ca.crt` key) in the target namespace
+#### Step 5: Configure TLS Prerequisites
 
-> **Note:** If you already have a CA and cert-manager issuer, you can skip this step and update the `MDB_TLS_CA_ISSUER`, `MDB_TLS_CA_CONFIGMAP`, and `MDB_TLS_CA_SECRET_NAME` variables to reference your existing resources.
+Creates the cert-manager bootstrap chain and distributes the CA certificate to the target namespace:
 
-### Step 6: Create TLS Certificates for mongot
+```
+Self-Signed ClusterIssuer ──signs──▶ CA Certificate ──stored-in──▶ CA ClusterIssuer ──signs──▶ all other certs
+```
 
-Generate a TLS certificate covering the mongot StatefulSet pods and the LB service:
+The CA is distributed as both a ConfigMap (`ca-pem` key) and a Secret (`ca.crt` key) in the target namespace.
+
+> **Note:** If you already have a CA and cert-manager issuer, skip this step and update `MDB_TLS_CA_ISSUER`, `MDB_TLS_CA_CONFIGMAP`, and `MDB_TLS_CA_SECRET_NAME` to reference your existing resources.
 
 ```bash
-source code_snippets/10_0316a_create_mongot_tls_certificates.sh
+./code_snippets/10_0302_configure_tls_prerequisites.sh
 ```
 
-SANs included:
-- `*.<name>-search-svc.<namespace>.svc.cluster.local` (mongot pods)
-- `<name>-search-lb-svc.<namespace>.svc.cluster.local` (LB service for SNI routing)
+### Deploy MongoDB Search with Managed Envoy LB
 
-### Step 7: Create TLS Certificates for the Load Balancer
+#### Step 6: Create mongot TLS Certificates
 
-The managed Envoy proxy needs a **server certificate** (for incoming mongod connections) and a **client certificate** (for outgoing mongot connections):
+Create a TLS certificate covering the mongot StatefulSet pods and the LB service.
 
 ```bash
-source code_snippets/10_0316b_create_lb_tls_certificates.sh
+./code_snippets/10_0316a_create_mongot_tls_certificates.sh
 ```
 
-### Step 8: Create the MongoDBSearch Resource
+#### Step 7: Create Load Balancer TLS Certificates
 
-This is the main deployment step. It creates the `MongoDBSearch` custom resource pointing to your external replica set with managed LB mode:
+The managed Envoy proxy needs a **server certificate** (for incoming mongod connections) and a **client certificate** (for outgoing mongot connections). Both must be signed by the same CA.
 
 ```bash
-source code_snippets/10_0320_create_mongodb_search_resource.sh
+./code_snippets/10_0316b_create_lb_tls_certificates.sh
 ```
 
-The resource spec looks like:
+#### Step 8: Create MongoDBSearch Resource
+
+Applies the MongoDBSearch CR with `lb.mode: Managed` pointing to your external replica set:
 
 ```yaml
 apiVersion: mongodb.com/v1
 kind: MongoDBSearch
 metadata:
-  name: ext-rs-search
+  name: ${MDB_SEARCH_RESOURCE_NAME}
 spec:
-  replicas: 2                          # number of mongot pods
+  replicas: ${MDB_MONGOT_REPLICAS}
   source:
     username: search-sync-source
     passwordSecretRef:
-      name: ext-rs-search-search-sync-source-password
+      name: ${MDB_SEARCH_RESOURCE_NAME}-search-sync-source-password
       key: password
     external:
-      hostAndPorts:                     # your external RS members
-        - mongo-0.example.com:27017
-        - mongo-1.example.com:27017
-        - mongo-2.example.com:27017
+      hostAndPorts:
+        - "${MDB_EXTERNAL_HOST_0}"
+        - "${MDB_EXTERNAL_HOST_1}"
+        - "${MDB_EXTERNAL_HOST_2}"
       tls:
         ca:
-          name: root-secret            # CA secret for verifying external RS
+          name: ${MDB_TLS_CA_SECRET_NAME}
   security:
     tls:
-      certsSecretPrefix: certs
+      certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
   lb:
-    mode: Managed                       # operator creates Envoy automatically
+    mode: Managed
 ```
-
-**Important:** Before applying, create the password secret for the search-sync-source user:
 
 ```bash
-kubectl create secret generic <search-resource-name>-search-sync-source-password \
-  --from-literal=password='<your-search-sync-user-password>' \
-  -n "${MDB_NS}" --context "${K8S_CTX}"
+./code_snippets/10_0320_create_mongodb_search_resource.sh
 ```
 
-### Step 9: Wait for MongoDBSearch to Reach Running State
+#### Step 9: Wait for MongoDBSearch
+
+Wait for the MongoDBSearch resource to reach Running phase (up to 10 min).
 
 ```bash
-source code_snippets/10_0325_wait_for_search_resource.sh
+./code_snippets/10_0325_wait_for_search_resource.sh
 ```
 
-This polls the resource status for up to 10 minutes. The `MongoDBSearch` resource goes through these phases:
-1. **Pending** — resource accepted, operator is provisioning
-2. **Running** — mongot pods are synced and healthy
+### Verify the Deployment
 
-### Step 10: Verify Envoy Deployment
+#### Step 10: Verify Envoy Deployment
 
-Confirm the operator-managed Envoy proxy is running:
+Checks that the operator created the expected resources:
+
+| Resource | Name Pattern | Purpose |
+|----------|-------------|---------|
+| Deployment | `{name}-search-lb` | Envoy proxy pods |
+| ConfigMap | `{name}-search-lb-config` | Envoy routing configuration |
+| Service | `{name}-search-lb-svc` | Load balancer service (port 27029) |
+| StatefulSet | `{name}-search` | mongot pods |
+| Service | `{name}-search-svc` | Headless service for mongot pods |
 
 ```bash
-source code_snippets/10_0326_verify_envoy_deployment.sh
+./code_snippets/10_0326_verify_envoy_deployment.sh
 ```
 
-This checks for:
-- Envoy ConfigMap (`<name>-search-lb-config`)
-- Envoy Deployment (`<name>-search-lb`) with all replicas ready
-- LB Service (`<name>-search-lb-svc`)
-
-### Step 11: Show Running Pods
-
-Get an overview of all deployed resources:
+#### Step 11: Show Running Pods
 
 ```bash
-source code_snippets/10_0330_show_running_pods.sh
+./code_snippets/10_0330_show_running_pods.sh
 ```
-
-Expected output includes:
-- **mongot pods** (`<name>-search-0`, `<name>-search-1`, ...)
-- **Envoy proxy pod(s)** (`<name>-search-lb-*`)
-- **Operator pod** (`mongodb-kubernetes-operator-*`)
-
-## TLS Certificate Hierarchy
-
-```
-Self-Signed ClusterIssuer
-        │
-        ▼
-   CA Certificate (root-secret)
-        │
-        ▼
-   CA ClusterIssuer (my-ca-issuer)
-       ╱ │ ╲
-      ▼  ▼  ▼
- mongot  LB   LB      (+ external MongoDB RS cert,
-  cert  server client    if managed by cert-manager)
-        cert   cert
-```
-
-## Code Snippets Reference
-
-| # | Script | Internal | Description |
-|---|--------|----------|-------------|
-| 1 | `10_0040_validate_env.sh` | No | Validate all required environment variables |
-| 2 | `10_0045_create_namespaces.sh` | No | Create Kubernetes namespace |
-| 3 | `10_0046_internal_create_image_pull_secrets.sh` | Yes | Create image pull secrets (private registries) |
-| 4 | `10_0100_install_operator.sh` | No | Install MongoDB Kubernetes Operator via OCI |
-| 5 | `10_0300_internal_create_ops_manager_resources.sh` | Yes | Create Ops Manager connection resources |
-| 6 | `10_0301_install_cert_manager.sh` | No | Install cert-manager |
-| 7 | `10_0302_configure_tls_prerequisites.sh` | No | Configure self-signed CA and distribute certs |
-| 8 | `10_0304_internal_generate_tls_certificates.sh` | Yes | Generate TLS cert for simulated external RS |
-| 9 | `10_0310_internal_create_external_mongodb_rs.sh` | Yes | Create simulated external MongoDB RS |
-| 10 | `10_0315_internal_wait_for_external_cluster.sh` | Yes | Wait for simulated RS to be ready |
-| 11 | `10_0316_internal_create_external_mongodb_users.sh` | Yes | Create users on simulated RS |
-| 12 | `10_0316a_create_mongot_tls_certificates.sh` | No | Create TLS certificate for mongot pods |
-| 13 | `10_0316b_create_lb_tls_certificates.sh` | No | Create TLS certificates for Envoy LB |
-| 14 | `10_0320_create_mongodb_search_resource.sh` | No | Create MongoDBSearch custom resource |
-| 15 | `10_0325_wait_for_search_resource.sh` | No | Wait for MongoDBSearch to reach Running |
-| 16 | `10_0326_verify_envoy_deployment.sh` | No | Verify Envoy proxy deployment |
-| 17 | `10_0330_show_running_pods.sh` | No | Show all running pods and services |
-| 18 | `10_9010_internal_delete_namespace.sh` | Yes | Delete namespace (cleanup) |
-
-Scripts marked **Internal** are used for E2E testing to simulate an external MongoDB cluster. They are not needed when you already have a running external replica set.
 
 ## Troubleshooting
 
 ### MongoDBSearch stuck in Pending
 
 ```bash
-kubectl describe mongodbsearch <name> -n <namespace>
-kubectl logs -l app.kubernetes.io/component=mongot -n <namespace> --tail=50
+kubectl describe mongodbsearch ${MDB_SEARCH_RESOURCE_NAME} -n ${MDB_NS}
+kubectl logs -l app.kubernetes.io/component=mongot -n ${MDB_NS} --tail=50
 ```
 
 Common causes:
 - Password secret not created for `search-sync-source` user
-- TLS certificates not ready (check `kubectl get certificates -n <namespace>`)
+- TLS certificates not ready (check `kubectl get certificates -n ${MDB_NS}`)
 - External MongoDB not reachable from the cluster
 
 ### Envoy pods not starting
 
 ```bash
-kubectl describe deployment <name>-search-lb -n <namespace>
-kubectl logs -l app=<name>-search-lb -n <namespace>
+kubectl describe deployment ${MDB_SEARCH_RESOURCE_NAME}-search-lb -n ${MDB_NS}
+kubectl logs -l app=${MDB_SEARCH_RESOURCE_NAME}-search-lb -n ${MDB_NS}
 ```
 
 Common causes:
@@ -294,8 +211,6 @@ Common causes:
 - Verify TLS CA is trusted by both sides
 
 ## Cleanup
-
-To remove all resources created in the namespace:
 
 ```bash
 kubectl delete namespace "${MDB_NS}" --context "${K8S_CTX}"
