@@ -4,9 +4,7 @@
 #
 # Layout: 3 RS members, 2 mongot replicas (single StatefulSet)
 #
-# Key difference from sharded scenario (09):
-#   - Single mongot StatefulSet (not per-shard)
-#   - Single LB proxy Service (not per-shard)
+# Topology: single mongot StatefulSet and single LB proxy Service
 
 echo "Creating MongoDBSearch resource with managed Envoy LB..."
 echo "  Configuring ${MDB_MONGOT_REPLICAS} mongot replicas"

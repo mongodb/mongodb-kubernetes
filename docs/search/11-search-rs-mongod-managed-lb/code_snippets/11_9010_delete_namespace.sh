@@ -2,7 +2,7 @@
 # Clean up: Delete the namespace and all resources
 #
 # WARNING: This will delete ALL resources in the namespace including:
-# - MongoDB sharded cluster
+# - MongoDB replica set
 # - MongoDB Search resources
 # - Envoy proxy
 # - All data

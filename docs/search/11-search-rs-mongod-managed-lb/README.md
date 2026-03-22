@@ -2,7 +2,7 @@
 
 This guide walks you through deploying **MongoDB Search** against an **operator-managed MongoDB replica set** (deployed via the MongoDB Enterprise Kubernetes Operator) using the operator's **managed Envoy load balancer**.
 
-Unlike [scenario 09](../09-search-sharded-mongod-managed-lb/) (sharded cluster), this scenario deploys a single mongot StatefulSet and a single LB Service — there is no per-shard routing.
+The operator deploys a single mongot StatefulSet and a single LB Service for the replica set topology.
 
 ## Overview
 

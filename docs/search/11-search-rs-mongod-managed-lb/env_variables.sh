@@ -10,10 +10,10 @@
 #
 # Traffic flow: Operator-managed mongod → Envoy (operator-managed) → mongot
 #
-# Key difference from scenario 09 (sharded):
-#   - The MongoDB cluster is a replica set, not a sharded cluster
-#   - Single mongot StatefulSet (not per-shard)
-#   - Single LB proxy Service (not per-shard)
+# Topology:
+#   - The MongoDB cluster is a replica set
+#   - Single mongot StatefulSet
+#   - Single LB proxy Service
 
 # ============================================================================
 # KUBERNETES CONFIGURATION
