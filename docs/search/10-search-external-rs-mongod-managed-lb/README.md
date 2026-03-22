@@ -74,6 +74,8 @@ Run these steps in order after sourcing `env_variables.sh`.
 
 #### Step 4: Install cert-manager
 
+Required for automated TLS certificate lifecycle. Skipped if already installed.
+
 ```bash
 ./code_snippets/10_0301_install_cert_manager.sh
 ```
@@ -98,7 +100,7 @@ The CA is distributed as both a ConfigMap (`ca-pem` key) and a Secret (`ca.crt` 
 
 #### Step 6: Create mongot TLS Certificates
 
-Create a TLS certificate covering the mongot StatefulSet pods and the LB service.
+Create a TLS certificate covering the mongot StatefulSet pods and the LB service. The `certsSecretPrefix` field in the CR (`MDB_TLS_CERT_SECRET_PREFIX`) determines how the operator locates these secrets.
 
 ```bash
 ./code_snippets/10_0316a_create_mongot_tls_certificates.sh
