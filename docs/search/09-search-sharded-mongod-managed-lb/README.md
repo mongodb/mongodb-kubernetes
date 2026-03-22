@@ -91,172 +91,13 @@ To run all steps automatically:
 ./test.sh
 ```
 
-Or follow the steps below to run each snippet individually.
-
-## Key Configuration
-
-### MongoDBSearch CR with Managed LB (Operator-Managed Source)
-
-```yaml
-apiVersion: mongodb.com/v1
-kind: MongoDBSearch
-metadata:
-  name: ${MDB_RESOURCE_NAME}
-spec:
-  replicas: ${MDB_MONGOT_REPLICAS}  # mongot replicas per shard
-  source:
-    mongodbResourceRef:
-      name: ${MDB_RESOURCE_NAME}      # references the MongoDB CR directly
-  security:
-    tls:
-      certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  lb:
-    mode: Managed  # <-- This is the key setting!
-  resourceRequirements:        # optional — defaults apply if omitted
-    limits:
-      cpu: "2"
-      memory: 3Gi
-    requests:
-      cpu: "1"
-      memory: 2Gi
-```
-
-**Key difference from external scenario:** No `source.username`, `source.passwordSecretRef`, or `source.external` block — the operator infers everything from the referenced MongoDB CR.
-
-### MongoDB CR (No Search Parameters Needed)
-
-```yaml
-apiVersion: mongodb.com/v1
-kind: MongoDB
-metadata:
-  name: ${MDB_RESOURCE_NAME}
-spec:
-  type: ShardedCluster
-  shardCount: 2
-  mongodsPerShardCount: 1
-  mongosCount: 1
-  configServerCount: 2
-  # No shardOverrides or mongos.additionalMongodConfig for search!
-  # The operator automatically configures search parameters when MongoDBSearch is deployed.
-```
-
-### TLS Certificate Hierarchy
-
-cert-manager needs a 3-step bootstrap chain before it can issue certificates for mongot and Envoy:
-
-```
-Self-Signed ClusterIssuer ──signs──▶ CA Certificate ──stored-in──▶ CA ClusterIssuer ──signs──▶ all other certs
-```
-
-| cert-manager Object | Env Var | Purpose |
-|---------------------|---------|---------|
-| Self-Signed ClusterIssuer | `MDB_TLS_SELF_SIGNED_ISSUER` | Bootstrap-only issuer; can only sign the CA's own certificate |
-| CA Certificate (`isCA: true`) | `MDB_TLS_CA_CERT_NAME` / `MDB_TLS_CA_SECRET_NAME` | The root CA; stored as a Secret in the cert-manager namespace |
-| CA ClusterIssuer | `MDB_TLS_CA_ISSUER` | References the CA Secret; all mongot, LB, and mongod certs are signed by this issuer |
-
-The `certsSecretPrefix` field in the CR (`MDB_TLS_CERT_SECRET_PREFIX`) determines how the operator locates TLS secrets. It expects secrets named `{prefix}-{resource}-search-0-{shard}-cert` for each shard's mongot pods.
-
-### Load Balancer Certificates
-
-The Envoy proxy terminates one mTLS session (from mongod) and initiates another (to mongot), so it needs **two** certificates:
-
-| Certificate | Secret Name Pattern | Usages | dnsNames | Purpose |
-|-------------|---------------------|--------|----------|---------|
-| Server cert | `{prefix}-{name}-search-lb-cert` | `server auth`, `client auth` | Wildcard (`*.{namespace}.svc.cluster.local`) | Presented to mongod during TLS handshake |
-| Client cert | `{prefix}-{name}-search-lb-client-cert` | `client auth` only | Wildcard (`*.{namespace}.svc.cluster.local`) | Used by Envoy when connecting to mongot |
-
-Both certificates must be signed by the same CA that mongod and mongot trust (i.e., the CA ClusterIssuer created above).
-
-### Operator-Created Resources
-
-When you apply the MongoDBSearch CR with `lb.mode: Managed`, the operator creates:
-
-| Resource | Name Pattern | Purpose |
-|----------|--------------|---------|
-| ConfigMap | `{name}-search-lb-config` | Envoy bootstrap configuration |
-| Deployment | `{name}-search-lb` | Envoy proxy pods |
-| Service (per shard) | `{name}-search-0-{shardName}-proxy-svc` | SNI routing endpoints |
-| StatefulSet (per shard) | `{name}-search-0-{shardName}` | mongot pods for one shard |
-| Service (per shard, headless) | `{name}-search-0-{shardName}-svc` | Stable DNS for mongot pods |
-
-> **Note on `search-0`:** The `0` in `search-0` is the search deployment index (currently always `0`).
-> It appears in StatefulSet names, Service names, proxy Service names, and TLS secret names.
-> For example, shard `mdb-sh-0` produces: StatefulSet `mdb-sh-search-0-mdb-sh-0`, headless Service
-> `mdb-sh-search-0-mdb-sh-0-svc`, proxy Service `mdb-sh-search-0-mdb-sh-0-proxy-svc`, and TLS secret
-> `certs-mdb-sh-search-0-mdb-sh-0-cert`.
-
-## Troubleshooting
-
-### Envoy Pod Not Starting
-
-**Symptoms:** The `{name}-search-lb` Deployment has 0/1 ready pods.
-
-**Check:**
-```bash
-kubectl describe deployment ${MDB_RESOURCE_NAME}-search-lb -n ${MDB_NS}
-kubectl logs -l app=${MDB_RESOURCE_NAME}-search-lb -n ${MDB_NS}
-```
-
-**Common causes:**
-- TLS certificate secrets not found - ensure certificates are created first
-- ConfigMap not ready - check if `${MDB_RESOURCE_NAME}-search-lb-config` exists
-- Image pull issues - check image pull secrets
-
-### Search Index Creation Fails
-
-**Symptoms:** `createSearchIndex` command times out or fails.
-
-**Check:**
-```bash
-# Verify mongot pods are running
-kubectl get pods -n ${MDB_NS} | grep search
-
-# Check mongot logs
-kubectl logs ${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_0_NAME}-0 -n ${MDB_NS}
-```
-
-**Common causes:**
-- mongot cannot connect to MongoDB (check source credentials)
-- TLS CA mismatch between mongod and mongot
-- mongot pods not ready yet
-
-### MongoDBSearch Stuck in Pending
-
-**Symptoms:** MongoDBSearch resource doesn't reach Running phase.
-
-**Check:**
-```bash
-kubectl describe mongodbsearch ${MDB_RESOURCE_NAME} -n ${MDB_NS}
-kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_RESOURCE_NAME}
-```
-
-**Common causes:**
-- Referenced MongoDB CR not in Running phase
-- TLS certificate secrets missing
-- Operator version too old (needs search support)
-
-## Glossary
-
-| Term | Definition |
-|------|------------|
-| **SNI** | Server Name Indication - A TLS extension that allows a client to specify the hostname it's connecting to, enabling one server to host multiple TLS certificates |
-| **mTLS** | Mutual TLS - Both client and server authenticate each other using certificates |
-| **L7 Load Balancer** | Application layer load balancer that can inspect HTTP/gRPC traffic and make routing decisions based on content |
-| **mongot** | MongoDB Search server that indexes and serves search queries |
-| **Envoy** | High-performance L7 proxy used for traffic routing |
-| **mongodbResourceRef** | A reference in the MongoDBSearch CR that points to an operator-managed MongoDB CR, allowing the operator to automatically configure search parameters |
-
 ## Step-by-Step Execution
 
-Run these steps in order from the `09-search-sharded-mongod-managed-lb` directory after sourcing `env_variables.sh`.
-
-All scripts in this scenario are user-facing (no internal/test-only scripts).
+Run these steps in order after sourcing `env_variables.sh`.
 
 ### Set Up Kubernetes and the Operator
 
 #### Step 1: Validate Environment Variables
-
-Checks that all required environment variables are set before deployment. Run this first to catch configuration issues early.
 
 ```bash
 ./code_snippets/09_0040_validate_env.sh
@@ -269,8 +110,6 @@ Checks that all required environment variables are set before deployment. Run th
 ```
 
 #### Step 3: Create Image Pull Secrets
-
-Create image pull secrets if you use a private container registry.
 
 ```bash
 ./code_snippets/09_0046_create_image_pull_secrets.sh
@@ -300,15 +139,23 @@ Create Ops Manager project ConfigMap and credentials Secret.
 
 #### Step 7: Install cert-manager
 
-Install cert-manager for automated TLS certificate management.
-
 ```bash
 ./code_snippets/09_0301_install_cert_manager.sh
 ```
 
 #### Step 8: Configure TLS Prerequisites
 
-Create the self-signed ClusterIssuer, CA Certificate, and CA ClusterIssuer bootstrap chain.
+Creates the cert-manager bootstrap chain needed before any certificates can be issued:
+
+```
+Self-Signed ClusterIssuer ──signs──▶ CA Certificate ──stored-in──▶ CA ClusterIssuer ──signs──▶ all other certs
+```
+
+| cert-manager Object | Env Var | Purpose |
+|---------------------|---------|---------|
+| Self-Signed ClusterIssuer | `MDB_TLS_SELF_SIGNED_ISSUER` | Bootstrap-only issuer; can only sign the CA's own certificate |
+| CA Certificate (`isCA: true`) | `MDB_TLS_CA_CERT_NAME` / `MDB_TLS_CA_SECRET_NAME` | The root CA; stored as a Secret in the cert-manager namespace |
+| CA ClusterIssuer | `MDB_TLS_CA_ISSUER` | References the CA Secret; all mongot, LB, and mongod certs are signed by this issuer |
 
 ```bash
 ./code_snippets/09_0302_configure_tls_prerequisites.sh
@@ -332,8 +179,6 @@ Create a Secret with the CA in the target namespace for mongot TLS verification.
 
 #### Step 11: Generate TLS Certificates for MongoDB
 
-Generate TLS certificates for shards, config servers, and mongos.
-
 ```bash
 ./code_snippets/09_0304_generate_tls_certificates.sh
 ```
@@ -342,7 +187,20 @@ Generate TLS certificates for shards, config servers, and mongos.
 
 #### Step 12: Create MongoDB Sharded Cluster
 
-Create the operator-managed MongoDB sharded cluster CR.
+Creates the operator-managed sharded cluster. The operator automatically configures search parameters when MongoDBSearch is deployed later — no `shardOverrides` or `mongos.additionalMongodConfig` needed:
+
+```yaml
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: ${MDB_RESOURCE_NAME}
+spec:
+  type: ShardedCluster
+  shardCount: 2
+  mongodsPerShardCount: 1
+  mongosCount: 1
+  configServerCount: 2
+```
 
 ```bash
 ./code_snippets/09_0310_create_mongodb_sharded_cluster.sh
@@ -368,7 +226,7 @@ Create admin, application, and search-sync-source MongoDB users.
 
 #### Step 15: Create mongot TLS Certificates
 
-Create TLS certificates for mongot pods (one cert-manager Certificate per shard).
+Create TLS certificates for mongot pods (one cert-manager Certificate per shard). The `certsSecretPrefix` field in the CR (`MDB_TLS_CERT_SECRET_PREFIX`) determines how the operator locates these secrets — it expects names like `{prefix}-{resource}-search-0-{shard}-cert`.
 
 ```bash
 ./code_snippets/09_0316a_create_mongot_tls_certificates.sh
@@ -376,7 +234,14 @@ Create TLS certificates for mongot pods (one cert-manager Certificate per shard)
 
 #### Step 16: Create Load Balancer TLS Certificates
 
-Create server and client TLS certificates for the Envoy proxy.
+The Envoy proxy terminates one mTLS session (from mongod) and initiates another (to mongot), so it needs **two** certificates:
+
+| Certificate | Secret Name Pattern | Purpose |
+|-------------|---------------------|---------|
+| Server cert | `{prefix}-{name}-search-lb-cert` | Presented to mongod during TLS handshake |
+| Client cert | `{prefix}-{name}-search-lb-client-cert` | Used by Envoy when connecting to mongot |
+
+Both must be signed by the same CA that mongod and mongot trust.
 
 ```bash
 ./code_snippets/09_0316b_create_lb_tls_certificates.sh
@@ -384,7 +249,24 @@ Create server and client TLS certificates for the Envoy proxy.
 
 #### Step 17: Create MongoDBSearch Resource
 
-Apply the MongoDBSearch CR with `lb.mode: Managed` and `mongodbResourceRef` pointing to the MongoDB CR.
+Applies the MongoDBSearch CR with `lb.mode: Managed` and `mongodbResourceRef` pointing to the MongoDB CR. Unlike the external scenario, no `source.username`, `source.passwordSecretRef`, or `source.external` block is needed — the operator infers everything from the referenced MongoDB CR:
+
+```yaml
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: ${MDB_RESOURCE_NAME}
+spec:
+  replicas: ${MDB_MONGOT_REPLICAS}
+  source:
+    mongodbResourceRef:
+      name: ${MDB_RESOURCE_NAME}
+  security:
+    tls:
+      certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
+  lb:
+    mode: Managed
+```
 
 ```bash
 ./code_snippets/09_0320_create_mongodb_search_resource.sh
@@ -402,7 +284,15 @@ Wait for the MongoDBSearch resource to reach Running phase (up to 10 min).
 
 #### Step 19: Verify Envoy Deployment
 
-Verify that the operator-managed Envoy proxy is deployed and running. Checks ConfigMap, Deployment, and per-shard proxy Services.
+Checks that the operator created the expected resources:
+
+| Resource | Name Pattern | Purpose |
+|----------|--------------|---------|
+| ConfigMap | `{name}-search-lb-config` | Envoy bootstrap configuration |
+| Deployment | `{name}-search-lb` | Envoy proxy pods |
+| Service (per shard) | `{name}-search-0-{shardName}-proxy-svc` | SNI routing endpoints |
+| StatefulSet (per shard) | `{name}-search-0-{shardName}` | mongot pods for one shard |
+| Service (per shard, headless) | `{name}-search-0-{shardName}-svc` | Stable DNS for mongot pods |
 
 ```bash
 ./code_snippets/09_0326_verify_envoy_deployment.sh
@@ -410,15 +300,13 @@ Verify that the operator-managed Envoy proxy is deployed and running. Checks Con
 
 #### Step 20: Show Running Pods
 
-Show all running pods: mongod, mongot, Envoy proxy, and Operator pods.
-
 ```bash
 ./code_snippets/09_0330_show_running_pods.sh
 ```
 
 ### Next: Import Data and Run Search Queries
 
-Proceed to [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/) to import data, create search indexes, and run search queries. That module is shared across all sharded search scenarios.
+Proceed to [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/) to import data, create search indexes, and run search queries.
 
 ### Cleanup (Manual Only)
 
@@ -427,3 +315,53 @@ Proceed to [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/) 
 ```bash
 ./code_snippets/09_9010_delete_namespace.sh
 ```
+
+## Troubleshooting
+
+### Envoy Pod Not Starting
+
+**Check:**
+```bash
+kubectl describe deployment ${MDB_RESOURCE_NAME}-search-lb -n ${MDB_NS}
+kubectl logs -l app=${MDB_RESOURCE_NAME}-search-lb -n ${MDB_NS}
+```
+
+**Common causes:**
+- TLS certificate secrets not found - ensure certificates are created first
+- ConfigMap not ready - check if `${MDB_RESOURCE_NAME}-search-lb-config` exists
+- Image pull issues - check image pull secrets
+
+### Search Index Creation Fails
+
+**Check:**
+```bash
+kubectl get pods -n ${MDB_NS} | grep search
+kubectl logs ${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_0_NAME}-0 -n ${MDB_NS}
+```
+
+**Common causes:**
+- mongot cannot connect to MongoDB (check source credentials)
+- TLS CA mismatch between mongod and mongot
+- mongot pods not ready yet
+
+### MongoDBSearch Stuck in Pending
+
+**Check:**
+```bash
+kubectl describe mongodbsearch ${MDB_RESOURCE_NAME} -n ${MDB_NS}
+kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_RESOURCE_NAME}
+```
+
+**Common causes:**
+- Referenced MongoDB CR not in Running phase
+- TLS certificate secrets missing
+- Operator version too old (needs search support)
+
+## Glossary
+
+| Term | Definition |
+|------|------------|
+| **SNI** | Server Name Indication - TLS extension allowing hostname-based routing |
+| **mTLS** | Mutual TLS - Both client and server authenticate via certificates |
+| **mongot** | MongoDB Search server that indexes and serves search queries |
+| **Envoy** | High-performance L7 proxy used for traffic routing |
