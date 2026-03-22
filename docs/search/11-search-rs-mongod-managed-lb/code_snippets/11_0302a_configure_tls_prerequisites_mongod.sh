@@ -14,6 +14,7 @@ kubectl get secret "${MDB_TLS_CA_SECRET_NAME}" \
 
 kubectl create configmap "${MDB_TLS_CA_CONFIGMAP}" \
   --from-file=ca-pem=certs/ca-pem \
+  --from-file=ca.crt=certs/ca-pem \
   -n "${MDB_NS}" \
   --context "${K8S_CTX}" \
   --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" -f -
