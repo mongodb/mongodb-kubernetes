@@ -115,7 +115,6 @@ def lb_configmap_name(search_name: str) -> str:
     return f"{search_name}-search-lb-config"
 
 
-
 def lb_server_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
     """Managed LB server TLS certificate secret name. Mirrors LoadBalancerServerCert().
 

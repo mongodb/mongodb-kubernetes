@@ -36,10 +36,7 @@ from tests.common.search.rs_search_helper import (
     verify_rs_mongod_parameters,
 )
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
-from tests.common.search.search_resource_names import (
-    proxy_service_host,
-    proxy_service_name,
-)
+from tests.common.search.search_resource_names import proxy_service_host, proxy_service_name
 from tests.common.search.sharded_search_helper import create_issuer_ca, verify_text_search_query
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
@@ -106,7 +103,9 @@ def assert_proxy_service(
 
         grpc_ports = [p for p in svc.spec.ports if p.port == expected_port]
         if not grpc_ports:
-            errors.append(f"no port with port={expected_port} found, ports={[(p.port, p.target_port) for p in svc.spec.ports]}")
+            errors.append(
+                f"no port with port={expected_port} found, ports={[(p.port, p.target_port) for p in svc.spec.ports]}"
+            )
         elif grpc_ports[0].target_port != expected_target_port:
             errors.append(f"targetPort={grpc_ports[0].target_port}, expected {expected_target_port}")
 
@@ -253,13 +252,19 @@ def test_install_tls_certificates(namespace: str, helper: SearchDeploymentHelper
 
     # Mongot TLS certificate (with proxy service SAN)
     create_rs_search_tls_cert(
-        namespace, issuer, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX,
+        namespace,
+        issuer,
+        MDBS_RESOURCE_NAME,
+        MDBS_TLS_CERT_PREFIX,
         extra_domains=[proxy_svc_domain],
     )
 
     # LB server + client certificates (with proxy service SAN on the server cert)
     create_rs_lb_certificates(
-        namespace, issuer, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX,
+        namespace,
+        issuer,
+        MDBS_RESOURCE_NAME,
+        MDBS_TLS_CERT_PREFIX,
         extra_domains=[proxy_svc_domain],
     )
 
@@ -279,9 +284,12 @@ def test_create_users(
     mdb: MongoDB,
 ):
     helper.deploy_users(
-        admin_user, ADMIN_USER_PASSWORD,
-        user, USER_PASSWORD,
-        mongot_user, MONGOT_USER_PASSWORD,
+        admin_user,
+        ADMIN_USER_PASSWORD,
+        user,
+        USER_PASSWORD,
+        mongot_user,
+        MONGOT_USER_PASSWORD,
     )
 
 
