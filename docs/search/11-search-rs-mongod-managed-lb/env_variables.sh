@@ -1,20 +1,3 @@
-# Environment Variables for MongoDB Search with Operator-Managed RS MongoDB + Managed Envoy LB
-#
-# This configuration deploys MongoDB Search against an OPERATOR-MANAGED MongoDB replica set
-# (mongod runs under the Enterprise operator's management) with MANAGED Envoy load balancing.
-#
-# What "Managed Envoy" means:
-#   - The operator automatically deploys and configures an Envoy L7 proxy
-#   - You do NOT need to create Envoy ConfigMaps, Deployments, or Services manually
-#   - The operator creates a single LB Service for the RS topology
-#
-# Traffic flow: Operator-managed mongod → Envoy (operator-managed) → mongot
-#
-# Topology:
-#   - The MongoDB cluster is a replica set
-#   - Single mongot StatefulSet
-#   - Single LB proxy Service
-
 # ============================================================================
 # KUBERNETES CONFIGURATION
 # ============================================================================
