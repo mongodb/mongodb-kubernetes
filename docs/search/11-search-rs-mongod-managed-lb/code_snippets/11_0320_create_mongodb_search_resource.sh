@@ -1,11 +1,3 @@
-#!/usr/bin/env bash
-# Create MongoDBSearch resource with Operator-Managed RS Source + Managed Envoy LB
-# Traffic flow: Operator-managed mongod → Envoy (port 27029) → mongot (port 27028)
-#
-# Layout: 3 RS members, 2 mongot replicas (single StatefulSet)
-#
-# Topology: single mongot StatefulSet and single LB proxy Service
-
 echo "Creating MongoDBSearch resource with managed Envoy LB..."
 echo "  Configuring ${MDB_MONGOT_REPLICAS} mongot replicas"
 

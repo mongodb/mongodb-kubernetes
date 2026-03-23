@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Create Ops Manager / Cloud Manager connection resources
-
 echo "Creating Ops Manager connection resources..."
 
 # Create the credentials secret with API key

@@ -1,7 +1,3 @@
-#!/usr/bin/env bash
-# Create the operator-managed MongoDB replica set
-# The operator automatically configures search parameters when MongoDBSearch is deployed.
-
 echo "Creating operator-managed MongoDB replica set..."
 echo "  Members: ${MDB_RS_MEMBERS}"
 

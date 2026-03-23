@@ -95,6 +95,8 @@ Run these steps in order after sourcing `env_variables.sh`.
 
 #### Step 1: Validate Environment Variables
 
+Checks that all required environment variables are set and the Kubernetes context exists. Run this first to catch configuration issues early.
+
 ```bash
 ./code_snippets/11_0040_validate_env.sh
 ```
@@ -106,6 +108,8 @@ Run these steps in order after sourcing `env_variables.sh`.
 ```
 
 #### Step 3: Create Image Pull Secrets
+
+Only required if you're using private container registries. For public images, this step is automatically skipped.
 
 ```bash
 ./code_snippets/11_0046_create_image_pull_secrets.sh
@@ -135,6 +139,8 @@ Create Ops Manager project ConfigMap and credentials Secret.
 
 #### Step 7: Install cert-manager
 
+Installs cert-manager for TLS certificate management. Skipped if already installed.
+
 ```bash
 ./code_snippets/11_0301_install_cert_manager.sh
 ```
@@ -159,7 +165,7 @@ Self-Signed ClusterIssuer ──signs──▶ CA Certificate ──stored-in─
 
 #### Step 9: Distribute CA Certificate for mongod
 
-Create a ConfigMap with the CA in the target namespace for mongod TLS verification.
+MongoDB Enterprise expects the CA in a ConfigMap (key `ca-pem`). This step extracts the CA from the cert-manager namespace and creates the ConfigMap in the target namespace.
 
 ```bash
 ./code_snippets/11_0302a_configure_tls_prerequisites_mongod.sh
@@ -167,13 +173,15 @@ Create a ConfigMap with the CA in the target namespace for mongod TLS verificati
 
 #### Step 10: Distribute CA Certificate for mongot
 
-Create a Secret with the CA in the target namespace for mongot TLS verification.
+MongoDBSearch expects the CA in a Secret (key `ca.crt`). This step extracts the CA from the cert-manager namespace and creates the Secret in the target namespace.
 
 ```bash
 ./code_snippets/11_0302b_configure_tls_prerequisites_mongot.sh
 ```
 
 #### Step 11: Generate TLS Certificate for MongoDB RS
+
+Generate a TLS certificate for the operator-managed MongoDB replica set.
 
 ```bash
 ./code_snippets/11_0304_generate_tls_certificates.sh
@@ -219,7 +227,7 @@ Create admin, application, and search-sync-source MongoDB users.
 
 #### Step 15: Create mongot TLS Certificate
 
-Create a single TLS certificate for all mongot pods. The `certsSecretPrefix` field in the CR (`MDB_TLS_CERT_SECRET_PREFIX`) determines how the operator locates this secret — it expects a name like `{prefix}-{resource}-search-cert`.
+RS topology uses a single mongot StatefulSet (not per-shard). The certificate covers mongot pods via wildcard DNS and the LB service for SNI routing. The `certsSecretPrefix` field in the CR (`MDB_TLS_CERT_SECRET_PREFIX`) determines how the operator locates this secret — it expects a name like `{prefix}-{resource}-search-cert`.
 
 ```bash
 ./code_snippets/11_0316a_create_mongot_tls_certificates.sh
@@ -292,6 +300,8 @@ Checks that the operator created the expected resources:
 ```
 
 #### Step 20: Show Running Pods
+
+Shows all pods in the namespace including MongoDB replica set pods, mongot pods, Envoy proxy pods, and operator pods.
 
 ```bash
 ./code_snippets/11_0330_show_running_pods.sh

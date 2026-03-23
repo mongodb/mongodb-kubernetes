@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Generate TLS certificate for the operator-managed MongoDB replica set
-
 echo "Generating TLS certificate for MongoDB replica set..."
 
 echo "Creating certificate for RS ${MDB_RESOURCE_NAME}..."

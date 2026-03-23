@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Configuring CA certificate for mongot: create Secret with CA in target namespace
-
 echo "Configuring CA certificate (Secret) for mongot..."
 
 mkdir -p certs

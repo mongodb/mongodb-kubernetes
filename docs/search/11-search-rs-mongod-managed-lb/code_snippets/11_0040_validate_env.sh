@@ -1,9 +1,3 @@
-#!/usr/bin/env bash
-# Validate that all required environment variables are set
-#
-# This script checks that you've configured the necessary environment variables
-# before running the deployment. Run this first to catch configuration issues early.
-
 set -eou pipefail
 
 echo "Validating environment variables..."

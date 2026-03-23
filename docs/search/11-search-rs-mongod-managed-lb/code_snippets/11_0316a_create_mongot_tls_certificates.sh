@@ -1,9 +1,3 @@
-#!/usr/bin/env bash
-# Create TLS certificate for MongoDB Search (mongot) pods
-#
-# RS topology uses a single mongot StatefulSet (not per-shard).
-# The certificate covers mongot pods and the LB service for SNI routing.
-
 echo "Creating TLS certificate for MongoDB Search (mongot) pods..."
 
 sts_name="${MDB_RESOURCE_NAME}-search"
