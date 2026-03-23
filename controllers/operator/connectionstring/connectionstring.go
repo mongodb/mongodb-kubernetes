@@ -19,7 +19,7 @@ import (
 )
 
 type ConnectionStringBuilder interface {
-	BuildConnectionString(userName, password string, scheme Scheme, connectionParams map[string]string) string
+	BuildConnectionString(userName, password string, scheme Scheme, connectionParams map[string]string, userDatabase string) string
 }
 
 // Scheme states the connection string format.
@@ -53,6 +53,7 @@ type builder struct {
 
 	scheme           Scheme
 	connectionParams map[string]string
+	userDatabase     string
 }
 
 func (b *builder) SetName(name string) *builder {
@@ -137,6 +138,11 @@ func (b *builder) SetConnectionParams(cParams map[string]string) *builder {
 	return b
 }
 
+func (b *builder) SetUserDatabase(db string) *builder {
+	b.userDatabase = db
+	return b
+}
+
 // Build builds a new connection string from the builder.
 func (b *builder) Build() string {
 	var userAuth string
@@ -172,7 +178,7 @@ func (b *builder) Build() string {
 		connectionParams["ssl"] = "true"
 	}
 
-	authSource, authMechanism := authSourceAndMechanism(b.authenticationModes, b.version)
+	authSource, authMechanism := authSourceAndMechanism(b.authenticationModes, b.version, b.userDatabase)
 	if authSource != "" && authMechanism != "" {
 		connectionParams["authSource"] = authSource
 		connectionParams["authMechanism"] = authMechanism
@@ -205,11 +211,14 @@ func Builder() *builder {
 }
 
 // authSourceAndMechanism returns AuthSource and AuthMechanism.
-func authSourceAndMechanism(authenticationModes []string, version string) (string, string) {
+func authSourceAndMechanism(authenticationModes []string, version string, userDatabase string) (string, string) {
 	var authSource string
 	var authMechanism string
 	if stringutil.Contains(authenticationModes, util.SCRAM) {
 		authSource = util.DefaultUserDatabase
+		if userDatabase != "" {
+			authSource = userDatabase
+		}
 
 		comparison, err := util.CompareVersions(version, util.MinimumScramSha256MdbVersion)
 		if err != nil {

@@ -470,6 +470,27 @@ func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
 	assert.Contains(t, user.GetFinalizers(), util.UserFinalizer)
 }
 
+func TestConnectionStringSecret_UsesSpecDb_AsAuthSource(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase("mydb").Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().AgentAuthMode("SCRAM").SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	connectionString := string(secret.Data["connectionString.standard"])
+	assert.Contains(t, connectionString, "authSource=mydb", "authSource should be set to spec.db, not hardcoded 'admin'")
+	assert.NotContains(t, connectionString, "authSource=admin")
+}
+
 func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T) {
 	// Define the details of the member clusters for the sharded cluster setup
 	memberClusters := test.NewMemberClusters(

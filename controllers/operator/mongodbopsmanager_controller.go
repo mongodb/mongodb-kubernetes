@@ -79,7 +79,7 @@ const (
 type S3ConfigGetter interface {
 	GetAuthenticationModes() []string
 	GetResourceName() string
-	BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string
+	BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string, userDatabase string) string
 }
 
 // OpsManagerReconciler is a controller implementation.
@@ -1903,7 +1903,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(ctx context.Context, opsMa
 		}
 	}
 
-	uri := mongodb.BuildConnectionString(userName, password, connectionstring.SchemeMongoDB, map[string]string{})
+	uri := mongodb.BuildConnectionString(userName, password, connectionstring.SchemeMongoDB, map[string]string{}, "")
 
 	bucket := backup.S3Bucket{
 		Endpoint: config.S3BucketEndpoint,
@@ -2070,7 +2070,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(ctx context.Context, opsMa
 	}
 
 	tls := mongodb.Spec.Security.TLSConfig.Enabled
-	mongoUri := mongodb.BuildConnectionString(userName, password, connectionstring.SchemeMongoDB, map[string]string{})
+	mongoUri := mongodb.BuildConnectionString(userName, password, connectionstring.SchemeMongoDB, map[string]string{}, "")
 	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls, operatorConfig.AssignmentLabels), workflow.OK()
 }
 

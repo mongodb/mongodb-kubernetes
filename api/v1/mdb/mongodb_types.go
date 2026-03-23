@@ -1657,9 +1657,9 @@ func newSecurity() *Security {
 }
 
 // BuildConnectionString returns a string with a connection string for this resource.
-func (m *MongoDB) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *MongoDB) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string, userDatabase string) string {
 	builder := NewMongoDBConnectionStringBuilder(*m, nil)
-	return builder.BuildConnectionString(username, password, scheme, connectionParams)
+	return builder.BuildConnectionString(username, password, scheme, connectionParams, userDatabase)
 }
 
 func (m *MongoDB) GetAuthenticationModes() []string {
@@ -1747,7 +1747,7 @@ func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDB
 	}
 }
 
-func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string, userDatabase string) string {
 	name := m.Name
 	if m.Spec.ResourceType == ShardedCluster {
 		name = m.MongosRsName()
@@ -1769,7 +1769,8 @@ func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, passwor
 		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
 		SetConnectionParams(connectionParams).
 		SetScheme(scheme).
-		SetHostnames(m.hostnames)
+		SetHostnames(m.hostnames).
+		SetUserDatabase(userDatabase)
 
 	return builder.Build()
 }
