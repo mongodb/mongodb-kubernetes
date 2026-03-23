@@ -180,10 +180,15 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string) []env
 		proxyServiceName := search.LoadBalancerProxyServiceNameForShard(shardName)
 		mongotServiceName := search.MongotServiceForShard(shardName).Name
 
+		sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", proxyServiceName, namespace)
+		if endpoint := search.GetManagedLBEndpointForShard(shardName); endpoint != "" {
+			sniHostname = endpoint
+		}
+
 		routes = append(routes, envoyRoute{
 			Name:             shardName,
 			NameSafe:         strings.ReplaceAll(shardName, "-", "_"),
-			SNIHostname:      fmt.Sprintf("%s.%s.svc.cluster.local", proxyServiceName, namespace),
+			SNIHostname:      sniHostname,
 			UpstreamHost:     fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
 			UpstreamPort:     mongotPort,
 			ProxyServiceName: proxyServiceName,
@@ -199,10 +204,15 @@ func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
 	mongotServiceName := search.SearchServiceNamespacedName().Name
 	namespace := search.Namespace
 
+	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", proxyServiceName, namespace)
+	if endpoint := search.GetManagedLBEndpoint(); endpoint != "" {
+		sniHostname = endpoint
+	}
+
 	return envoyRoute{
 		Name:             "rs",
 		NameSafe:         "rs",
-		SNIHostname:      fmt.Sprintf("%s.%s.svc.cluster.local", proxyServiceName, namespace),
+		SNIHostname:      sniHostname,
 		UpstreamHost:     fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
 		UpstreamPort:     search.GetMongotGrpcPort(),
 		ProxyServiceName: proxyServiceName,
