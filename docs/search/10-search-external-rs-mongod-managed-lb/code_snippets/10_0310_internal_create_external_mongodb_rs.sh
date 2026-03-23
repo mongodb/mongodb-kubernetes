@@ -1,9 +1,4 @@
-#!/usr/bin/env bash
-# Create the simulated external MongoDB replica set
-# The cluster is created WITH search parameters pre-configured to point to the
-# operator-managed Envoy proxy endpoint created when MongoDBSearch is deployed.
-
-echo "Creating simulated external MongoDB replica set..."
+echo "Creating external MongoDB replica set..."
 echo "  Members: ${MDB_RS_MEMBERS}"
 echo "  mongotHost proxy: ${MDB_PROXY_HOST}"
 

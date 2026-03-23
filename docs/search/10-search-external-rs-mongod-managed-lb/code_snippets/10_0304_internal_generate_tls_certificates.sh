@@ -1,14 +1,6 @@
-#!/usr/bin/env bash
-# Generate TLS certificate for the MongoDB replica set
-#
-# DNS naming pattern: <pod>-<ordinal>.<headless-svc>.<namespace>.svc.cluster.local
-# A single certificate covers all RS members using a wildcard SAN.
-
 echo "Generating TLS certificate for MongoDB replica set..."
 
 cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_EXTERNAL_CLUSTER_NAME}-cert"
-
-dns_names="    - \"*.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local\""
 
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: cert-manager.io/v1
@@ -26,7 +18,7 @@ spec:
     - server auth
     - client auth
   dnsNames:
-${dns_names}
+    - "*.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer

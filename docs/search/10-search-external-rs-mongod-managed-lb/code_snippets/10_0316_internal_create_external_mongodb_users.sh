@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Create users for the simulated external MongoDB replica set
-
 echo "Creating password secrets for MongoDB users..."
 
 # Create password secrets for users
