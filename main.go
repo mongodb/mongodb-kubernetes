@@ -4,9 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"runtime/debug"
 	"slices"
@@ -20,7 +17,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
-	"golang.org/x/net/proxy"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
@@ -132,13 +128,6 @@ func main() {
 
 	klog.InitFlags(nil)
 	initializeEnvironment()
-
-	// Patch http.DefaultTransport to route non-K8s HTTP traffic (Ops Manager,
-	// telemetry) through a SOCKS5 proxy when K8S_FWD_PROXY_SOCKS is set.
-	// K8s API traffic is handled by proxy-url in kubeconfig instead.
-	if getOperatorEnv() != util.OperatorEnvironmentProd {
-		configureSocksProxy()
-	}
 
 	imageUrls := images.LoadImageUrlsFromEnv()
 	forceEnterprise := env.ReadBoolOrDefault(architectures.MdbAssumeEnterpriseImage, false)
@@ -345,45 +334,6 @@ func main() {
 	if err := mgr.Start(ctx); err != nil {
 		log.Fatal(err)
 	}
-}
-
-// configureSocksProxy patches http.DefaultTransport to route non-K8s HTTP
-// traffic (Ops Manager API, telemetry) through a SOCKS5 proxy. K8s API traffic
-// is handled natively by client-go via the proxy-url field in kubeconfig.
-//
-// Set K8S_FWD_PROXY_SOCKS=socks5://host:port to enable. Only used during
-// local development when running the operator on the host.
-func configureSocksProxy() {
-	proxyAddr := os.Getenv("K8S_FWD_PROXY_SOCKS")
-	if proxyAddr == "" {
-		return
-	}
-
-	proxyURL, err := url.Parse(proxyAddr)
-	if err != nil {
-		golog.Printf("K8S_FWD_PROXY_SOCKS: invalid URL %q: %v", proxyAddr, err)
-		return
-	}
-
-	dialer, err := proxy.FromURL(proxyURL, proxy.Direct)
-	if err != nil {
-		golog.Printf("K8S_FWD_PROXY_SOCKS: failed to create dialer: %v", err)
-		return
-	}
-
-	contextDialer, ok := dialer.(proxy.ContextDialer)
-	if !ok {
-		golog.Printf("K8S_FWD_PROXY_SOCKS: dialer does not support DialContext, skipping")
-		return
-	}
-
-	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
-		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return contextDialer.DialContext(ctx, network, addr)
-		}
-	}
-
-	golog.Printf("Configured SOCKS5 proxy for non-K8s HTTP traffic: %s", proxyAddr)
 }
 
 func startRootSpan(currentNamespace string, spanIDHex string, traceCtx context.Context) (context.Context, trace.Span) {

@@ -78,126 +78,122 @@ try:
 except Exception:
     kubernetes.config.load_incluster_config()
 
-# Route K8s API traffic through a SOCKS5 proxy when proxy-url is set in kubeconfig.
-# The Python kubernetes client does not read proxy-url from kubeconfig (unlike
-# Go client-go), and urllib3.ProxyManager does not support socks5://. We read the
-# proxy-url ourselves and patch the REST client to use SOCKSProxyManager instead.
-# Requires PySocks.
+# SOCKS5 proxy setup for local development. Two separate proxies:
+#
+# 1. K8s API traffic → proxy-url from kubeconfig (e.g. ssh -D to bastion)
+#    Go client-go reads proxy-url natively. The Python kubernetes client does
+#    not, so we read it ourselves and patch the REST + WebSocket layers.
+#
+# 2. Cluster-internal traffic (pymongo, Ops Manager HTTP from tests) →
+#    K8S_FWD_PROXY_SOCKS env var (e.g. kube-forwarding-proxy in SOCKS5 mode).
+#    Uses global socket.socket replacement so all non-K8s TCP goes through it.
+#
+# See README_SOCKS.md for full details.
 
-
-def load_proxy_config(
-    kube_config: dict,
-    configuration: kubernetes.client.Configuration,
-    context_name: Optional[str] = None,
-) -> bool:
-    """Load proxy-url from kubeconfig for the given context and set it on the
-    Configuration object. Returns True if a proxy was configured."""
-    context_name = context_name or (str(kube_config["current-context"]) if "current-context" in kube_config else None)
-    context_entry = (
-        next((c for c in kube_config["contexts"] if c["name"] == context_name), None)
-        if "contexts" in kube_config
-        else None
-    )
-    cluster_name = context_entry["context"]["cluster"] if context_entry else None
-    cluster_entry = (
-        next((c for c in kube_config["clusters"] if c["name"] == cluster_name), None)
-        if "clusters" in kube_config
-        else None
-    )
-    proxy_url = (
-        cluster_entry["cluster"]["proxy-url"] if cluster_entry and "proxy-url" in cluster_entry["cluster"] else None
-    )
-
-    if isinstance(proxy_url, str) and len(proxy_url) > 0:
-        configuration.proxy = proxy_url
-        return True
-
-    return False
-
-
+# --- Patch 1: K8s API via proxy-url from kubeconfig ---
 try:
     import yaml as _yaml
 
     _kubeconfig_path = os.environ.get("KUBECONFIG", os.path.expanduser("~/.kube/config"))
     with open(_kubeconfig_path) as _f:
         _kube_config_dict = _yaml.safe_load(_f)
-    _cfg = kubernetes.client.Configuration.get_default_copy()
-    if load_proxy_config(_kube_config_dict, _cfg):
+
+    def _get_proxy_url_from_kubeconfig(kube_config: dict) -> Optional[str]:
+        """Read proxy-url from the current context's cluster entry."""
+        ctx_name = kube_config.get("current-context")
+        ctx = next((c for c in kube_config.get("contexts", []) if c["name"] == ctx_name), None)
+        if not ctx:
+            return None
+        cluster_name = ctx["context"]["cluster"]
+        cluster = next((c for c in kube_config.get("clusters", []) if c["name"] == cluster_name), None)
+        if not cluster:
+            return None
+        return cluster.get("cluster", {}).get("proxy-url")
+
+    _kube_proxy_url = _get_proxy_url_from_kubeconfig(_kube_config_dict)
+    if _kube_proxy_url and _kube_proxy_url.startswith("socks"):
+        _cfg = kubernetes.client.Configuration.get_default_copy()
+        _cfg.proxy = _kube_proxy_url
         kubernetes.client.Configuration.set_default(_cfg)
-        if _cfg.proxy and _cfg.proxy.startswith("socks"):
-            import kubernetes.client.rest as _k8s_rest
-            from kubernetes.stream import ws_client as _ws_client
-            from urllib3.contrib.socks import SOCKSProxyManager
 
-            # Patch REST client: urllib3.ProxyManager doesn't support socks5,
-            # so we replace it with SOCKSProxyManager after construction.
-            _orig_init = _k8s_rest.RESTClientObject.__init__
+        from urllib3.contrib.socks import SOCKSProxyManager
+        import kubernetes.client.rest as _k8s_rest
+        from kubernetes.stream import ws_client as _ws_client
 
-            def _patched_init(self, configuration, pools_size=4, maxsize=None):
-                # Call original with proxy unset so it creates a plain PoolManager.
-                saved_proxy = configuration.proxy
-                configuration.proxy = None
-                _orig_init(self, configuration, pools_size, maxsize)
-                configuration.proxy = saved_proxy
-                # Replace the pool manager with a SOCKS-aware one, preserving TLS settings.
-                kw = self.pool_manager.connection_pool_kw
-                self.pool_manager = SOCKSProxyManager(
-                    saved_proxy,
-                    num_pools=pools_size,
-                    maxsize=maxsize or 4,
-                    cert_reqs=kw.get("cert_reqs"),
-                    ca_certs=kw.get("ca_certs"),
-                    cert_file=kw.get("cert_file"),
-                    key_file=kw.get("key_file"),
-                )
+        # Patch REST client: urllib3.ProxyManager doesn't support socks5://,
+        # replace with SOCKSProxyManager after construction.
+        _orig_rest_init = _k8s_rest.RESTClientObject.__init__
 
-            _k8s_rest.RESTClientObject.__init__ = _patched_init
+        def _patched_rest_init(self, configuration, pools_size=4, maxsize=None):
+            saved_proxy = configuration.proxy
+            configuration.proxy = None
+            _orig_rest_init(self, configuration, pools_size, maxsize)
+            configuration.proxy = saved_proxy
+            kw = self.pool_manager.connection_pool_kw
+            self.pool_manager = SOCKSProxyManager(
+                saved_proxy,
+                num_pools=pools_size,
+                maxsize=maxsize or 4,
+                cert_reqs=kw.get("cert_reqs"),
+                ca_certs=kw.get("ca_certs"),
+                cert_file=kw.get("cert_file"),
+                key_file=kw.get("key_file"),
+            )
 
-            # Patch websocket: websocket-client supports SOCKS5 via python-socks
-            # but the k8s client never sets proxy_type. We wrap websocket_proxycare
-            # to add it for socks:// proxy URLs.
-            _orig_proxycare = _ws_client.websocket_proxycare
+        _k8s_rest.RESTClientObject.__init__ = _patched_rest_init
 
-            def _socks_proxycare(connect_opt, configuration, url, headers):
-                connect_opt = _orig_proxycare(connect_opt, configuration, url, headers)
-                if configuration.proxy and configuration.proxy.startswith("socks"):
-                    connect_opt["proxy_type"] = "socks5"
-                return connect_opt
+        # Patch websocket: add proxy_type="socks5" for exec/port-forward.
+        _orig_proxycare = _ws_client.websocket_proxycare
 
-            _ws_client.websocket_proxycare = _socks_proxycare
+        def _socks_proxycare(connect_opt, configuration, url, headers):
+            connect_opt = _orig_proxycare(connect_opt, configuration, url, headers)
+            if configuration.proxy and configuration.proxy.startswith("socks"):
+                connect_opt["proxy_type"] = "socks5"
+            return connect_opt
+
+        _ws_client.websocket_proxycare = _socks_proxycare
 except Exception:
     pass
 
-# Route pymongo (raw TCP) connections through a SOCKS5 proxy when
-# K8S_FWD_PROXY_SOCKS is set. pymongo has no native proxy support, so we:
-# 1. Replace socket.socket with PySocks' socksocket (rdns=True for remote DNS)
-# 2. Patch socket.getaddrinfo to return a dummy result for cluster-internal
-#    hostnames — pymongo calls getaddrinfo before connect(), but the SOCKS5
-#    proxy handles DNS resolution remotely.
-_pymongo_socks_proxy = os.environ.get("K8S_FWD_PROXY_SOCKS")
-if _pymongo_socks_proxy:
+# --- Patch 2: cluster-internal traffic via K8S_FWD_PROXY_SOCKS ---
+# Global socket.socket replacement routes pymongo and any other non-K8s TCP
+# through kube-forwarding-proxy. Only affects hosts that can't be resolved
+# locally (*.svc.cluster.local etc). Locally resolvable hosts connect directly.
+_fwd_proxy = os.environ.get("K8S_FWD_PROXY_SOCKS")
+if _fwd_proxy:
     try:
         import socket
         from urllib.parse import urlparse as _urlparse
 
         import socks
 
-        _parsed = _urlparse(_pymongo_socks_proxy)
+        _parsed = _urlparse(_fwd_proxy)
         if _parsed.hostname and _parsed.port:
-            socks.set_default_proxy(socks.SOCKS5, _parsed.hostname, _parsed.port, rdns=True)
-            socket.socket = socks.socksocket
-
-            # pymongo calls getaddrinfo() before connecting, which fails for
-            # cluster-internal names. We intercept it and return a dummy AF_INET
-            # result so pymongo proceeds to socket.connect() where PySocks
-            # handles the remote DNS resolution via the SOCKS5 proxy.
+            _fwd_host = _parsed.hostname
+            _fwd_port = _parsed.port
             _orig_getaddrinfo = socket.getaddrinfo
+
+            class _SmartProxySocket(socks.socksocket):
+                """Routes through SOCKS5 proxy only for hosts that can't be
+                resolved locally. Locally reachable hosts connect directly."""
+
+                def connect(self, dest_pair):
+                    host = dest_pair[0]
+                    try:
+                        _orig_getaddrinfo(host, None)
+                        # Resolvable locally — direct connection.
+                        self.set_proxy(socks.PROXY_TYPE_NONE)
+                    except socket.gaierror:
+                        # Not in local DNS — route through proxy.
+                        self.set_proxy(socks.SOCKS5, _fwd_host, _fwd_port, rdns=True)
+                    super().connect(dest_pair)
+
+            socket.socket = _SmartProxySocket
 
             def _socks_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
                 try:
                     return _orig_getaddrinfo(host, port, family, type, proto, flags)
                 except socket.gaierror:
-                    # Unresolvable locally — let the SOCKS5 proxy resolve it.
                     return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (host, port))]
 
             socket.getaddrinfo = _socks_getaddrinfo
@@ -210,6 +206,7 @@ logger = test_logger.get_test_logger(__name__)
 @fixture(scope="module")
 def namespace() -> str:
     return get_namespace()
+
 
 
 def get_namespace() -> str:
