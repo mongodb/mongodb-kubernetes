@@ -54,7 +54,7 @@ USER_PASSWORD = "mdb-user-pass"
 
 # Ports
 MONGOT_PORT = 27028
-ENVOY_PROXY_PORT = 27029
+ENVOY_PROXY_PORT = 27028
 ENVOY_ADMIN_PORT = 9901
 
 # Resource names
@@ -280,5 +280,6 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
 
     phase = mdbs.get_status_phase()
     assert phase == Phase.Running, f"MongoDBSearch phase is {phase}, expected Running"
+    mdbs.assert_lb_status()
 
     logger.info(f"MongoDBSearch {mdbs.name} is in Running phase")

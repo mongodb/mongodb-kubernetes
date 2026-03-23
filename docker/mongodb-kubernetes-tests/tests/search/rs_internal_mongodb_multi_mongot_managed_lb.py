@@ -5,7 +5,7 @@ This test verifies the RS + managed LB implementation:
 - Deploys an Enterprise RS MongoDB cluster with TLS
 - Deploys MongoDBSearch with lb.mode: Managed and replicas: 2
 - Verifies the operator-managed Envoy proxy deployment
-- Verifies mongod parameters point to the Envoy proxy service (port 27029)
+- Verifies mongod parameters point to the Envoy proxy service (port 27028)
 - Imports sample data, creates search indexes, and executes search queries
 """
 
@@ -51,7 +51,7 @@ USER_NAME = "mdb-user"
 USER_PASSWORD = "mdb-user-pass"
 
 # Ports
-ENVOY_PROXY_PORT = 27029
+ENVOY_PROXY_PORT = 27028
 
 # Resource names
 MDB_RESOURCE_NAME = "mdb-rs-managed-lb"
@@ -236,6 +236,7 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
     mdbs.load()
     phase = mdbs.get_status_phase()
     assert phase == Phase.Running, f"MongoDBSearch phase is {phase}, expected Running"
+    mdbs.assert_lb_status()
     logger.info(f"MongoDBSearch {mdbs.name} is in Running phase")
 
 

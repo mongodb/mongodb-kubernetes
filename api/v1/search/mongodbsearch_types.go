@@ -26,6 +26,7 @@ const (
 	MongotDefaultGrpcPort           int32 = 27028
 	MongotDefaultPrometheusPort     int32 = 9946
 	MongotDefautHealthCheckPort     int32 = 8080
+	EnvoyDefaultProxyPort           int32 = 27028
 	MongotDefaultSyncSourceUsername       = "search-sync-source"
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
@@ -130,10 +131,6 @@ type LoadBalancerConfig struct {
 
 // EnvoyConfig contains configuration for the operator-managed Envoy load balancer.
 type EnvoyConfig struct {
-	// Image is the container image for the Envoy proxy.
-	// Overrides the operator-level default (MDB_ENVOY_IMAGE env var).
-	// +optional
-	Image string `json:"image,omitempty"`
 	// ResourceRequirements for the Envoy container.
 	// When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.
 	// When set, replaces the defaults entirely.
@@ -254,10 +251,20 @@ type TLS struct {
 	CertsSecretPrefix string `json:"certsSecretPrefix,omitempty"`
 }
 
+// LoadBalancerStatus reports the state of the operator-managed load balancer (Envoy).
+type LoadBalancerStatus struct {
+	Phase   status.Phase `json:"phase"`
+	Message string       `json:"message,omitempty"`
+}
+
 type MongoDBSearchStatus struct {
 	status.Common `json:",inline"`
 	Version       string           `json:"version,omitempty"`
 	Warnings      []status.Warning `json:"warnings,omitempty"`
+	// LoadBalancer reports the state of the operator-managed load balancer.
+	// Only populated when spec.lb.mode == Managed.
+	// +optional
+	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
@@ -266,6 +273,7 @@ type MongoDBSearchStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
 // +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="MongoDB Search version reconciled by the operator."
+// +kubebuilder:printcolumn:name="LoadBalancer",type="string",JSONPath=".status.loadBalancer.phase",description="Current state of the managed load balancer."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB resource was created."
 // +kubebuilder:resource:path=mongodbsearch,scope=Namespaced,shortName=mdbs
 type MongoDBSearch struct {
@@ -289,11 +297,21 @@ func (s *MongoDBSearch) GetCommonStatus(options ...status.Option) *status.Common
 	return &s.Status.Common
 }
 
-func (s *MongoDBSearch) GetStatus(...status.Option) interface{} {
+func (s *MongoDBSearch) GetStatus(options ...status.Option) interface{} {
+	if partOpt, exists := status.GetOption(options, SearchPartOption{}); exists {
+		if partOpt.(SearchPartOption).Part == SearchPartLoadBalancer {
+			return s.Status.LoadBalancer
+		}
+	}
 	return s.Status
 }
 
-func (s *MongoDBSearch) GetStatusPath(...status.Option) string {
+func (s *MongoDBSearch) GetStatusPath(options ...status.Option) string {
+	if partOpt, exists := status.GetOption(options, SearchPartOption{}); exists {
+		if partOpt.(SearchPartOption).Part == SearchPartLoadBalancer {
+			return "/status/loadBalancer"
+		}
+	}
 	return "/status"
 }
 
@@ -302,12 +320,30 @@ func (s *MongoDBSearch) SetWarnings(warnings []status.Warning, _ ...status.Optio
 }
 
 func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
+	if partOpt, exists := status.GetOption(statusOptions, SearchPartOption{}); exists {
+		if partOpt.(SearchPartOption).Part == SearchPartLoadBalancer {
+			s.updateLoadBalancerStatus(phase, statusOptions...)
+			return
+		}
+	}
+
 	s.Status.UpdateCommonFields(phase, s.GetGeneration(), statusOptions...)
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		s.Status.Warnings = append(s.Status.Warnings, option.(status.WarningsOption).Warnings...)
 	}
 	if option, exists := status.GetOption(statusOptions, MongoDBSearchVersionOption{}); exists {
 		s.Status.Version = option.(MongoDBSearchVersionOption).Version
+	}
+}
+
+func (s *MongoDBSearch) updateLoadBalancerStatus(phase status.Phase, statusOptions ...status.Option) {
+	if s.Status.LoadBalancer == nil {
+		s.Status.LoadBalancer = &LoadBalancerStatus{}
+	}
+	s.Status.LoadBalancer.Phase = phase
+	s.Status.LoadBalancer.Message = ""
+	if option, exists := status.GetOption(statusOptions, status.MessageOption{}); exists {
+		s.Status.LoadBalancer.Message = option.(status.MessageOption).Message
 	}
 }
 
@@ -604,6 +640,15 @@ func stripPort(endpoint string) string {
 		return endpoint
 	}
 	return host
+}
+
+// IsLoadBalancerReady returns true if managed LB is not configured,
+// or if it is configured and its status phase is Running.
+func (s *MongoDBSearch) IsLoadBalancerReady() bool {
+	if !s.IsLBModeManaged() {
+		return true
+	}
+	return s.Status.LoadBalancer != nil && s.Status.LoadBalancer.Phase == status.PhaseRunning
 }
 
 // LoadBalancerDeploymentName returns the name of the managed Envoy Deployment for this resource.

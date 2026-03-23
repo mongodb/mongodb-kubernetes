@@ -224,6 +224,10 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 		return statefulSetStatus
 	}
 
+	if !r.mdbSearch.IsLoadBalancerReady() {
+		return workflow.Pending("Waiting for managed load balancer to be ready").
+			WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
+	}
 	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
 }
 
@@ -320,6 +324,10 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		}
 	}
 
+	if !r.mdbSearch.IsLoadBalancerReady() {
+		return workflow.Pending("Waiting for managed load balancer to be ready").
+			WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
+	}
 	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
 }
 
@@ -1077,8 +1085,7 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 	// Managed LB: point mongod at the Envoy proxy service
 	if search.IsLBModeManaged() {
 		proxySvcName := search.LoadBalancerServiceName()
-		const envoyProxyPort = 27029
-		return fmt.Sprintf("%s.%s.svc.%s:%d", proxySvcName, search.Namespace, clusterDomain, envoyProxyPort)
+		return fmt.Sprintf("%s.%s.svc.%s:%d", proxySvcName, search.Namespace, clusterDomain, searchv1.EnvoyDefaultProxyPort)
 	}
 
 	// Default: direct to mongot headless service
@@ -1091,8 +1098,7 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 // Used when spec.lb.mode is Managed; the envoy controller creates per-shard proxy Services.
 func shardEnvoyProxyHostAndPort(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
 	proxySvcName := search.LoadBalancerProxyServiceNameForShard(shardName)
-	const envoyProxyPort = 27029
-	return fmt.Sprintf("%s.%s.svc.%s:%d", proxySvcName, search.Namespace, clusterDomain, envoyProxyPort)
+	return fmt.Sprintf("%s.%s.svc.%s:%d", proxySvcName, search.Namespace, clusterDomain, searchv1.EnvoyDefaultProxyPort)
 }
 
 // shardMongotHostAndPort returns the internal service endpoint for a shard's mongot deployment

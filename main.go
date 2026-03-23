@@ -402,14 +402,16 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
-		SearchRepo:    env.ReadOrPanic("MDB_SEARCH_REPO_URL"),
-		SearchName:    env.ReadOrPanic("MDB_SEARCH_NAME"),
-		SearchVersion: env.ReadOrPanic("MDB_SEARCH_VERSION"),
+		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
+		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
+		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
 	}); err != nil {
 		return err
 	}
 
-	envoyImage := env.ReadOrDefault("MDB_ENVOY_IMAGE", "envoyproxy/envoy:v1.31-latest")
+	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
+	// balancer
+	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
 	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage); err != nil {
 		return err
 	}
