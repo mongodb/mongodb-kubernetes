@@ -1,13 +1,3 @@
-#!/usr/bin/env bash
-# Create the operator-managed MongoDB sharded cluster
-# The operator automatically configures search parameters when MongoDBSearch is deployed,
-# so NO shardOverrides or mongos search config is needed.
-#
-# Cluster layout (hardcoded):
-#   2 shards — 1 mongod each
-#   1 mongos
-#   2 config servers
-
 echo "Creating operator-managed MongoDB sharded cluster..."
 echo "  Shards: ${MDB_SHARD_COUNT}"
 echo "  Members per shard: ${MDB_MONGODS_PER_SHARD}"

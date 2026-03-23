@@ -1,14 +1,3 @@
-#!/usr/bin/env bash
-# Clean up: Delete the namespace and all resources
-#
-# WARNING: This will delete ALL resources in the namespace including:
-# - MongoDB sharded cluster
-# - MongoDB Search resources
-# - Envoy proxy
-# - All data
-#
-# This is a destructive operation!
-
 echo "WARNING: This will delete namespace '${MDB_NS}' and all its resources."
 echo ""
 

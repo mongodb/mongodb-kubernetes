@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Configure TLS prerequisites: self-signed CA, ClusterIssuer, and CA distribution
-
 echo "Configuring TLS prerequisites..."
 
 kubectl apply --context "${K8S_CTX}" -f - <<EOF

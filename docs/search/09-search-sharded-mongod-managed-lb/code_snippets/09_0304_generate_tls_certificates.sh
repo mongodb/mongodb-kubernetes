@@ -1,11 +1,3 @@
-#!/usr/bin/env bash
-# Generate TLS certificates for MongoDB shards, config servers, and mongos
-#
-# Cluster layout (hardcoded):
-#   2 shards — 1 mongod each
-#   2 config servers
-#   1 mongos
-
 echo "Generating TLS certificates for MongoDB..."
 
 # --- Shard 0 ---

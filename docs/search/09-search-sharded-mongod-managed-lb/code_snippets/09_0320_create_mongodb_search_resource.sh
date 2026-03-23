@@ -1,13 +1,3 @@
-#!/usr/bin/env bash
-# Create MongoDBSearch resource with Operator-Managed Source + Managed Envoy LB
-# Traffic flow: Operator-managed mongod → Envoy (port 27029) → mongot (port 27028)
-#
-# Layout: 1 mongos router, 2 shards (1 mongod each), 2 mongot replicas per shard
-#
-# Key difference from external scenario:
-#   - Uses spec.source.mongodbResourceRef instead of spec.source.external
-#   - The operator automatically infers shard topology from the referenced MongoDB CR
-
 echo "Creating MongoDBSearch resource with managed Envoy LB..."
 echo "  Configuring ${MDB_MONGOT_REPLICAS} mongot replicas per shard"
 

@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Create users for the operator-managed MongoDB sharded cluster
-
 echo "Creating password secrets for MongoDB users..."
 
 # Create password secrets for users

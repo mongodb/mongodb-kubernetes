@@ -1,11 +1,3 @@
-#!/usr/bin/env bash
-# Create TLS certificates for MongoDB Search (mongot) pods
-#
-# "search-0" = first (and only) search deployment; the operator names
-# StatefulSets as {resource}-search-{index}-{shard}
-#
-# Layout: 2 shards × 2 mongot replicas each
-
 echo "Creating TLS certificates for MongoDB Search (mongot) pods..."
 
 # --- Shard 0 mongot certificate (2 replicas) ---

@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Wait for the operator-managed MongoDB sharded cluster to be ready
-
 echo "Waiting for MongoDB sharded cluster to be ready..."
 echo "This may take several minutes..."
 

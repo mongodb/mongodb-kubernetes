@@ -1,8 +1,3 @@
-#!/usr/bin/env bash
-# Configure CA certificate for mongod: create ConfigMap with CA in target namespace
-#
-# MongoDB Enterprise expects the CA in a ConfigMap (key "ca-pem").
-
 echo "Configuring CA certificate (ConfigMap) for mongod..."
 
 mkdir -p certs

@@ -1,12 +1,3 @@
-#!/usr/bin/env bash
-# Show all running pods in the namespace
-#
-# This gives an overview of the deployment including:
-# - MongoDB sharded cluster pods (operator-managed)
-# - mongot pods (MongoDB Search)
-# - Envoy proxy pods (operator-managed)
-# - Operator pods
-
 echo "Pods in namespace '${MDB_NS}':"
 echo ""
 

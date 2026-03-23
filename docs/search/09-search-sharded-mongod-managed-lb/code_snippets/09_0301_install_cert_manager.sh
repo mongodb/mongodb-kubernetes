@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Install cert-manager for TLS certificate management
-
 echo "Installing cert-manager..."
 
 # Check if cert-manager is already installed
