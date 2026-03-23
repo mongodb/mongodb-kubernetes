@@ -1,7 +1,3 @@
-#!/usr/bin/env bash
-# Create TLS certificates for the managed load balancer (Envoy proxy)
-# Server cert: for incoming mongod connections. Client cert: for outgoing mongot connections.
-
 echo "Creating TLS certificates for managed load balancer (Envoy)..."
 
 lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-cert"

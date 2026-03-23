@@ -1,14 +1,5 @@
-#!/usr/bin/env bash
-# Configure TLS prerequisites: self-signed CA, ClusterIssuer, and CA distribution
-#
-# cert-manager needs 3 objects to issue certificates:
-#   1. Self-signed ClusterIssuer  — bootstraps the CA (can only sign its own cert)
-#   2. CA Certificate             — the actual root CA, signed by step 1
-#   3. CA ClusterIssuer           — uses the CA from step 2 to sign all other certs
-
 echo "Configuring TLS prerequisites..."
 
-# Step 1: Create self-signed ClusterIssuer for bootstrapping
 kubectl apply --context "${K8S_CTX}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -20,7 +11,6 @@ EOF
 
 echo "  ✓ Self-signed ClusterIssuer created"
 
-# Step 2: Create CA Certificate (isCA: true, 10 year validity)
 kubectl apply --context "${K8S_CTX}" -n "${CERT_MANAGER_NAMESPACE}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -48,7 +38,6 @@ kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CA_CERT_NAME}" \
   --context "${K8S_CTX}" \
   --timeout=60s
 
-# Step 3: Create CA ClusterIssuer — all subsequent certificates reference this issuer
 kubectl apply --context "${K8S_CTX}" -n "${CERT_MANAGER_NAMESPACE}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -61,13 +50,9 @@ EOF
 
 echo "  ✓ CA Issuer created"
 
-# Distribute CA certificate to target namespace
-# MongoDB Enterprise expects CA in a ConfigMap (key "ca-pem")
-# MongoDBSearch expects CA in a Secret (key "ca.crt")
 echo "  Distributing CA certificate to namespace '${MDB_NS}'..."
 
-ca_tmp=$(mktemp)
-trap 'rm -f "${ca_tmp}"' EXIT
+ca_tmp="/tmp/ca-cert.pem"
 
 kubectl get secret "${MDB_TLS_CA_SECRET_NAME}" \
   -n "${CERT_MANAGER_NAMESPACE}" \
@@ -87,5 +72,7 @@ kubectl create secret generic "${MDB_TLS_CA_SECRET_NAME}" \
   -n "${MDB_NS}" \
   --context "${K8S_CTX}" \
   --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" -f -
+
+rm -f "${ca_tmp}"
 
 echo "✓ TLS prerequisites configured"
