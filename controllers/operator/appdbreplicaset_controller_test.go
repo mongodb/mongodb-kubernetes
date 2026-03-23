@@ -587,6 +587,58 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
 }
 
+func TestTryConfigureMonitoringInOpsManagerWithMalformedCredentials(t *testing.T) {
+	ctx := context.Background()
+	builder := DefaultOpsManagerBuilder().SetAppDbMembers(5)
+	opsManager := builder.Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	data := map[string]string{
+		util.OmPublicApiKey + "Malformed": "publicApiKey",
+		util.OmPrivateKey:                 "privateApiKey",
+	}
+	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, secrets.SecretClient{KubeClient: kubeClient}, "")
+	assert.NoError(t, err)
+
+	apiKeySecret := secret.Builder().
+		SetNamespace(operatorNamespace()).
+		SetName(APIKeySecretName).
+		SetStringMapToData(data).
+		Build()
+
+	err = reconciler.client.CreateSecret(ctx, apiKeySecret)
+	assert.NoError(t, err)
+
+	// the secret is malformed and tryConfigureMonitoringInOpsManager fails
+	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "error reading opsManager credentials")
+	assert.Empty(t, podVars)
+
+	updatedData := map[string]string{
+		util.OmPublicApiKey: "publicApiKey",
+		util.OmPrivateKey:   "privateApiKey",
+	}
+
+	updatedApiKeySecret := secret.Builder().
+		SetNamespace(operatorNamespace()).
+		SetName(APIKeySecretName).
+		SetStringMapToData(updatedData).
+		Build()
+
+	err = reconciler.client.UpdateSecret(ctx, updatedApiKeySecret)
+	assert.NoError(t, err)
+
+	// the secret is correct and tryConfigureMonitoringInOpsManager succeeds
+	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
+	assert.NoError(t, err)
+	assert.NotEmpty(t, podVars)
+	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
+	assert.Equal(t, "publicApiKey", podVars.User)
+}
+
 func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 	tests := map[string]struct {
 		members                int

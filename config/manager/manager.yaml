@@ -110,7 +110,7 @@ spec:
             - name: VERSION_UPGRADE_HOOK_IMAGE
               value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.10"
             - name: READINESS_PROBE_IMAGE
-              value: "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.23"
+              value: "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.24"
             - name: MDB_COMMUNITY_IMAGE
               value: "mongodb-community-server"
             - name: MDB_COMMUNITY_REPO_URL
@@ -164,6 +164,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_20_8953_1
               value: "quay.io/mongodb/mongodb-agent:108.0.20.8953-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_21_8972_1
+              value: "quay.io/mongodb/mongodb-agent:108.0.21.8972-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_3_8758_1
               value: "quay.io/mongodb/mongodb-agent:108.0.3.8758-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1
@@ -174,8 +176,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:108.0.7.8810-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1
               value: "quay.io/mongodb/mongodb-agent:12.0.35.7911-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_13_48_0_10348_1
-              value: "quay.io/mongodb/mongodb-agent:13.48.0.10348-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_13_49_0_10397_1
+              value: "quay.io/mongodb/mongodb-agent:13.49.0.10397-1"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_26
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.26"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_27
@@ -240,6 +242,8 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.19"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_20
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.20"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_21
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.21"
             # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
             - name: RELATED_IMAGE_MONGODB_IMAGE_4_4_0_ubi8
               value: "quay.io/mongodb/mongodb-enterprise-server:4.4.0-ubi8"

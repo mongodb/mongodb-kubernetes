@@ -155,7 +155,7 @@ versionUpgradeHook:
   version: 1.0.10
 readinessProbe:
   name: mongodb-kubernetes-readinessprobe
-  version: 1.0.23
+  version: 1.0.24
 # This is only used by the MongoDBCommunity resource reconciler - END
 
 # This is used by AppDB and by static containers to determine the image that the operator uses for databases.
