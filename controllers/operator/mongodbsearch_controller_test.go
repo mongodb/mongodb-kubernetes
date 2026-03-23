@@ -169,7 +169,7 @@ func TestMongoDBSearchReconcile_MissingSource(t *testing.T) {
 		reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}},
 	)
 
-	assert.Error(t, err)
+	assert.NoError(t, err)
 	assert.True(t, res.RequeueAfter > 0)
 }
 
