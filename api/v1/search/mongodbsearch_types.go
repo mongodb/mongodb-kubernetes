@@ -26,7 +26,7 @@ const (
 	MongotDefaultGrpcPort           int32 = 27028
 	MongotDefaultPrometheusPort     int32 = 9946
 	MongotDefautHealthCheckPort     int32 = 8080
-	EnvoyDefaultProxyPort           int32 = 27029
+	EnvoyDefaultProxyPort           int32 = 27028
 	MongotDefaultSyncSourceUsername       = "search-sync-source"
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
