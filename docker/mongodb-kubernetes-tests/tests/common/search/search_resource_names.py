@@ -115,15 +115,6 @@ def lb_configmap_name(search_name: str) -> str:
     return f"{search_name}-search-lb-config"
 
 
-def lb_service_name(search_name: str) -> str:
-    """Managed LB ClusterIP Service name. Mirrors LoadBalancerServiceName()."""
-    return f"{search_name}-search-lb-svc"
-
-
-def lb_proxy_service_host(search_name: str, namespace: str, port: int = 27029) -> str:
-    """Full hostname:port for the RS managed LB proxy Service."""
-    return f"{lb_service_name(search_name)}.{namespace}.svc.cluster.local:{port}"
-
 
 def lb_server_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
     """Managed LB server TLS certificate secret name. Mirrors LoadBalancerServerCert().

@@ -130,13 +130,15 @@ func generateShardResourceNames(s *MongoDBSearch, shardName string) []shardResou
 		})
 	}
 
-	if s.IsLBModeManaged() {
+	if !s.IsShardedUnmanagedLB() {
 		resources = append(resources, shardResourceName{
 			ResourceType: "Proxy Service",
-			Name:         s.LoadBalancerProxyServiceNameForShard(shardName),
+			Name:         s.ProxyServiceNameForShard(shardName).Name,
 			Standard:     dnsLabel,
 		})
+	}
 
+	if s.IsLBModeManaged() {
 		if s.IsTLSConfigured() {
 			resources = append(resources, shardResourceName{
 				ResourceType: "LB Server Certificate Secret",

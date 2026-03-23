@@ -98,7 +98,7 @@ def create_lb_certificates(
         namespace=namespace,
         resource_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
         replicas=1,
-        service_name=search_resource_names.lb_service_name(mdbs_resource_name),
+        service_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
         additional_domains=additional_domains,
         secret_name=lb_server_cert_name,
     )
@@ -110,7 +110,7 @@ def create_lb_certificates(
         namespace=namespace,
         resource_name=f"{search_resource_names.lb_deployment_name(mdbs_resource_name)}-client",
         replicas=1,
-        service_name=search_resource_names.lb_service_name(mdbs_resource_name),
+        service_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
         additional_domains=[f"*.{namespace}.svc.cluster.local"],
         secret_name=lb_client_cert_name,
     )

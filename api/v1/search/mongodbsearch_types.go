@@ -679,11 +679,6 @@ func (s *MongoDBSearch) LoadBalancerConfigMapName() string {
 	return s.Name + "-search-lb-config"
 }
 
-// LoadBalancerServiceName returns the name of the managed Envoy ClusterIP Service for this resource.
-func (s *MongoDBSearch) LoadBalancerServiceName() string {
-	return s.Name + "-search-lb-svc"
-}
-
 // LoadBalancerServerCert returns the namespaced name of the TLS server certificate secret for the
 // managed Envoy LB (ReplicaSet). Naming pattern:
 //   - With prefix: {prefix}-{name}-search-lb-cert
@@ -726,7 +721,3 @@ func (s *MongoDBSearch) LoadBalancerClientCert() types.NamespacedName {
 	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-client-cert", s.Name), Namespace: s.Namespace}
 }
 
-// LoadBalancerProxyServiceNameForShard returns the per-shard Envoy LB Service name used for L7 routing.
-func (s *MongoDBSearch) LoadBalancerProxyServiceNameForShard(shardName string) string {
-	return fmt.Sprintf("%s-search-0-%s-lb-svc", s.Name, shardName)
-}
