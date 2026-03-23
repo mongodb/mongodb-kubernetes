@@ -28,7 +28,7 @@ const (
 	tokenSecretSuffix      = "-token-secret"
 	projectConfigMapName   = "my-project"
 	credentialsSecretName  = "my-credentials"
-	kubeconfigSecretName   = "test-pod-kubeconfig"        //nolint:gosec
+	kubeconfigSecretName   = "test-pod-kubeconfig"           //nolint:gosec
 	multiClusterSecretName = "test-pod-multi-cluster-config" //nolint:gosec
 	imageRegistriesSecret  = "image-registries-secret"
 	kubernetesServiceName  = "kubernetes"

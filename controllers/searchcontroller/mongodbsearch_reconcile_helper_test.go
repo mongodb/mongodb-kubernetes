@@ -253,7 +253,7 @@ func TestGetMongodConfigParameters_ManagedLB(t *testing.T) {
 
 	setParams := params["setParameter"].(map[string]any)
 
-	expectedEndpoint := "test-mongodb-search-search-lb-svc.test.svc.cluster.local:27029"
+	expectedEndpoint := "test-mongodb-search-search-lb-svc.test.svc.cluster.local:27028"
 	assert.Equal(t, expectedEndpoint, setParams["mongotHost"])
 	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
 	assert.Equal(t, true, setParams["useGrpcForSearch"])
@@ -1965,8 +1965,8 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	x509Secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: "test-ns"},
 		Data: map[string][]byte{
-			"tls.crt":                 []byte("cert-data"),
-			"tls.key":                 []byte("key-data"),
+			"tls.crt":             []byte("cert-data"),
+			"tls.key":             []byte("key-data"),
 			"tls.keyFilePassword": []byte("my-key-password"),
 		},
 	}

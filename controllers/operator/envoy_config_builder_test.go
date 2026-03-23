@@ -310,7 +310,7 @@ func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify deprecated fields are NOT set
-	assert.Nil(t, cluster.Http2ProtocolOptions, "deprecated Http2ProtocolOptions should not be set on Cluster")         //nolint:staticcheck
+	assert.Nil(t, cluster.Http2ProtocolOptions, "deprecated Http2ProtocolOptions should not be set on Cluster")           //nolint:staticcheck
 	assert.Nil(t, cluster.CommonHttpProtocolOptions, "deprecated CommonHttpProtocolOptions should not be set on Cluster") //nolint:staticcheck
 
 	// Verify TypedExtensionProtocolOptions is set

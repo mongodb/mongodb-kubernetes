@@ -6,7 +6,7 @@ This test verifies the RS + external source + managed LB implementation:
   pointing to the operator-managed Envoy proxy service
 - Deploys MongoDBSearch with spec.source.external, lb.mode: Managed, and replicas: 2
 - Verifies the operator-managed Envoy proxy deployment
-- Verifies mongod parameters point to the Envoy proxy service (port 27029)
+- Verifies mongod parameters point to the Envoy proxy service (port 27028)
 - Imports sample data, creates search indexes, and executes search queries
 """
 
@@ -50,7 +50,7 @@ USER_NAME = "mdb-user"
 USER_PASSWORD = "mdb-user-pass"
 
 # Ports
-ENVOY_PROXY_PORT = 27029
+ENVOY_PROXY_PORT = 27028
 
 # Resource names — different names for MDB vs MDBS (external source pattern)
 MDB_RESOURCE_NAME = "mdb-rs-ext-lb"
