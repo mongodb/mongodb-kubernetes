@@ -11,6 +11,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+
 	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -100,7 +102,7 @@ func buildEnvoyBootstrapConfig(routes []envoyRoute, tlsEnabled bool, caKeyName s
 			Listeners: []*listenerv3.Listener{
 				{
 					Name:            "mongod_listener",
-					Address:         socketAddress("0.0.0.0", uint32(envoyProxyPort)),
+					Address:         socketAddress("0.0.0.0", uint32(searchv1.EnvoyDefaultProxyPort)),
 					ListenerFilters: listenerFilters,
 					FilterChains:    filterChains,
 				},
