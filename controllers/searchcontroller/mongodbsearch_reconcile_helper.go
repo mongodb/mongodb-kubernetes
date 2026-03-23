@@ -152,12 +152,23 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 		return workflow.Failed(err)
 	}
 
+	// Password auth volume is only needed when not using x509 auth
+	passwordAuthStsModification := statefulset.NOOP()
+	if !r.mdbSearch.IsX509Auth() {
+		passwordAuthStsModification = PasswordAuthModification(r.mdbSearch)
+	}
+
 	ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx, r.mdbSearch)
 	if err != nil {
 		return workflow.Failed(err)
 	}
 
 	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
+
+	x509MongotModification, x509StsModification, err := r.ensureX509ClientCertConfig(ctx)
+	if err != nil {
+		return workflow.Failed(err)
+	}
 
 	embeddingConfigMongotModification, embeddingConfigStsModification, err := r.ensureEmbeddingConfig(ctx, log)
 	if err != nil {
@@ -168,7 +179,17 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 
 	// the egress TLS modification needs to always be applied after the ingress one, because it toggles mTLS based on the mode set by the ingress modification
-	configHash, err := r.ensureMongotConfig(ctx, log, r.mdbSearch.MongotConfigConfigMapNamespacedName(), stsNsName.Name, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+	// the x509 modification must run after baseMongotConfig (which sets username/password) so it can clear them
+	configHash, err := r.ensureMongotConfig(ctx,
+		log,
+		r.mdbSearch.MongotConfigConfigMapNamespacedName(),
+		stsNsName.Name,
+		createMongotConfig(r.mdbSearch, r.db),
+		ingressTlsMongotModification,
+		egressTlsMongotModification,
+		x509MongotModification,
+		embeddingConfigMongotModification,
+	)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -186,10 +207,12 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 		log,
 		stsNsName,
 		CreateSearchStatefulSetFunc(r.mdbSearch, stsNsName.Name, stsNsName.Namespace, svcName, r.mdbSearch.MongotConfigConfigMapNamespacedName().Name, labels, fmt.Sprintf("%s:%s", image, version), usePerPodConfig),
+		passwordAuthStsModification,
 		configHashModification,
 		keyfileStsModification,
 		ingressTlsStsModification,
 		egressTlsStsModification,
+		x509StsModification,
 		embeddingConfigStsModification,
 	)
 	if err != nil {
@@ -225,7 +248,18 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		return status
 	}
 
+	// Password auth volume is only needed when not using x509 auth
+	passwordAuthStsModification := statefulset.NOOP()
+	if !r.mdbSearch.IsX509Auth() {
+		passwordAuthStsModification = PasswordAuthModification(r.mdbSearch)
+	}
+
 	egressTlsMongotModification, egressTlsStsModification := r.ensureEgressTlsConfig(ctx)
+
+	x509MongotModification, x509StsModification, err := r.ensureX509ClientCertConfig(ctx)
+	if err != nil {
+		return workflow.Failed(err)
+	}
 
 	embeddingConfigMongotModification, embeddingConfigStsModification, err := r.ensureEmbeddingConfig(ctx, log)
 	if err != nil {
@@ -253,7 +287,7 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 
 		mongotGroupStsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
 		shardMongotConfig := createMongotConfigForShard(r.mdbSearch, shardedSource, shardName)
-		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), mongotGroupStsName.Name, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, embeddingConfigMongotModification)
+		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), mongotGroupStsName.Name, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, x509MongotModification, embeddingConfigMongotModification)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -268,10 +302,12 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			shardLog,
 			mongotGroupStsName,
 			CreateSearchStatefulSetFunc(r.mdbSearch, mongotGroupStsName.Name, r.mdbSearch.Namespace, shardSvcName.Name, r.mdbSearch.MongotConfigMapForShard(shardName).Name, shardLabels, searchImage, usePerPodConfig),
+			passwordAuthStsModification,
 			configHashModification,
 			keyfileStsModification,
 			ingressTlsStsModification,
 			egressTlsStsModification,
+			x509StsModification,
 			embeddingConfigStsModification,
 		)
 		if err != nil {
@@ -714,6 +750,113 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	))
 
 	return mongotModification, statefulsetModification, nil
+}
+
+// x509AuthResource adapts MongoDBSearch to provide x509 client cert secret names.
+// It implements the tls.TLSConfigurableResource interface for use with tls.EnsureTLSSecret.
+type x509AuthResource struct {
+	*searchv1.MongoDBSearch
+}
+
+func (x *x509AuthResource) TLSSecretNamespacedName() types.NamespacedName {
+	return x.MongoDBSearch.X509ClientCertSecret()
+}
+
+func (x *x509AuthResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
+	return x.MongoDBSearch.X509OperatorManagedSecret()
+}
+
+// ensureX509ClientCertConfig processes x509 client certificate configuration for the sync source in case of mongot to mongod communication.
+// When x509 is configured, it replaces username/password auth with x509 certificate auth.
+func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
+	if !r.mdbSearch.IsX509Auth() {
+		return mongot.NOOP(), statefulset.NOOP(), nil
+	}
+
+	// in this https://docs.google.com/document/d/11xdolqdUR2Ht107AbxO5VKW658ytl6rPoJlYYc36ufE/edit?tab=t.0#heading=h.xpj7eo2nhgir document
+	// it's mentioned that tls=true is required for x509 auth.
+	if r.db.TLSConfig() == nil {
+		return nil, nil, xerrors.New("tls must be enabled for syncSource to enable x509 auth for search resource")
+	}
+
+	x509Resource := &x509AuthResource{MongoDBSearch: r.mdbSearch}
+	certFileName, err := tls.EnsureTLSSecret(ctx, r.client, x509Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	certPath := X509ClientCertOperatorMountPath + certFileName
+
+	// Check if the user secret contains an optional key password
+	hasKeyPassword := false
+	userProvidedClientSecret := r.mdbSearch.X509ClientCertSecret()
+	_, keyPasswordErr := secret.ReadKey(ctx, r.client, X509KeyPasswordSecretKey, userProvidedClientSecret)
+	if keyPasswordErr == nil {
+		hasKeyPassword = true
+	}
+
+	mongotModification := func(config *mongot.Config) {
+		config.SyncSource.ReplicaSet.Username = ""
+		config.SyncSource.ReplicaSet.PasswordFile = ""
+		// we don't really HAVE TO set it to `$external`, mongot uses $external in case of x509 anyway
+		config.SyncSource.ReplicaSet.AuthSource = ptr.To("$external")
+		config.SyncSource.ReplicaSet.X509 = &mongot.ConfigX509{
+			TLSCertificateKeyFile: ptr.To(certPath),
+		}
+		if hasKeyPassword {
+			config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile = ptr.To(TempX509KeyPasswordPath)
+		}
+
+		if config.SyncSource.Router != nil {
+			config.SyncSource.Router.Username = ""
+			config.SyncSource.Router.PasswordFile = ""
+			// we don't really HAVE TO set it to `$external`, mongot uses $external in case of x509 anyway
+			config.SyncSource.Router.AuthSource = ptr.To("$external")
+			config.SyncSource.Router.X509 = &mongot.ConfigX509{
+				TLSCertificateKeyFile: ptr.To(certPath),
+			}
+			if hasKeyPassword {
+				config.SyncSource.Router.X509.TLSCertificateKeyFilePasswordFile = ptr.To(TempX509KeyPasswordPath)
+			}
+		}
+	}
+
+	// Build volume/mount modifications for the x509 client cert
+	operatorSecret := x509Resource.TLSOperatorSecretNamespacedName()
+	x509Volume := statefulset.CreateVolumeFromSecret("x509-client-cert", operatorSecret.Name)
+	x509VolumeMount := statefulset.CreateVolumeMount("x509-client-cert", X509ClientCertOperatorMountPath, statefulset.WithReadOnly(true))
+
+	volumeMounts := []corev1.VolumeMount{x509VolumeMount}
+	volumes := []podtemplatespec.Modification{podtemplatespec.WithVolume(x509Volume)}
+	var prependCommands []string
+
+	// If the key password is present, reads the key password directly from the user-provided secret (not the operator-managed one). And mount that user secret as a separate volume
+	// (x509-key-password) with subPath: tls.keyFilePassword, so only that one key is exposed at /mongot/x509-key-password. After file permissions workaround we copy it to
+	// /tmp/x509-key-password.
+	if hasKeyPassword {
+		keyPasswordVolume := statefulset.CreateVolumeFromSecret("x509-key-password", userProvidedClientSecret.Name)
+		keyPasswordVolumeMount := statefulset.CreateVolumeMount("x509-key-password", X509KeyPasswordMountPath,
+			statefulset.WithReadOnly(true), statefulset.WithSubPath(X509KeyPasswordSecretKey))
+
+		volumeMounts = append(volumeMounts, keyPasswordVolumeMount)
+		volumes = append(volumes, podtemplatespec.WithVolume(keyPasswordVolume))
+		prependCommands = append(prependCommands, sensitiveFilePermissionsWorkaround(X509KeyPasswordMountPath, TempX509KeyPasswordPath, "0600"))
+	}
+
+	containerModifications := []container.Modification{
+		container.WithVolumeMounts(volumeMounts),
+	}
+	for _, cmd := range prependCommands {
+		containerModifications = append(containerModifications, prependCommand(cmd))
+	}
+
+	stsModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+		append(volumes, podtemplatespec.WithContainer(MongotContainerName, container.Apply(
+			containerModifications...,
+		)))...,
+	))
+
+	return mongotModification, stsModification, nil
 }
 
 // perShardTLSResource wraps MongoDBSearch to provide per-shard TLS secret names.

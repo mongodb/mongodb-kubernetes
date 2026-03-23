@@ -44,6 +44,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateEndpointTemplate,
 		validateShardNames,
 		validateJVMFlags,
+		validateX509AuthConfig,
 	}
 
 	var results []v1.ValidationResult
@@ -250,6 +251,27 @@ func validateResourceName(resource shardResourceName, searchName, shardName stri
 	}
 
 	return nil
+}
+
+// validateX509AuthConfig validates that x509 authentication is not configured alongside password authentication.
+func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Source == nil || s.Spec.Source.X509 == nil {
+		return v1.ValidationSuccess()
+	}
+
+	if s.Spec.Source.X509.ClientCertificateSecret.Name == "" {
+		return v1.ValidationError("spec.source.x509.clientCertificateSecretRef.name must not be empty")
+	}
+
+	if s.Spec.Source.PasswordSecretRef != nil {
+		return v1.ValidationError("x509 and password authentication are mutually exclusive: spec.source.x509 and spec.source.passwordSecretRef cannot both be set")
+	}
+
+	if s.Spec.Source.Username != nil {
+		return v1.ValidationError("x509 and password authentication are mutually exclusive: spec.source.x509 and spec.source.username cannot both be set")
+	}
+
+	return v1.ValidationSuccess()
 }
 
 func ValidateShardNameRFC1123(shardName string) error {

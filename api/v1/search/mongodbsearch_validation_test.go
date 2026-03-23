@@ -6,7 +6,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 )
 
 func TestValidateShardNames(t *testing.T) {
@@ -95,6 +100,89 @@ func TestValidateShardNames(t *testing.T) {
 				assert.Contains(t, err.Error(), tt.errorContains)
 			} else {
 				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateX509AuthConfig(t *testing.T) {
+	tests := []struct {
+		name          string
+		searchSource  *MongoDBSource
+		errorContains string
+	}{
+		{
+			name:         "no source configured",
+			searchSource: nil,
+		},
+		{
+			name:         "no x509 configured",
+			searchSource: &MongoDBSource{},
+		},
+		{
+			name: "x509 with valid secret name",
+			searchSource: &MongoDBSource{
+				X509: &X509Auth{
+					ClientCertificateSecret: corev1.LocalObjectReference{Name: "my-cert"},
+				},
+			},
+		},
+		{
+			name: "x509 with empty secret name",
+			searchSource: &MongoDBSource{
+				X509: &X509Auth{
+					ClientCertificateSecret: corev1.LocalObjectReference{Name: ""},
+				},
+			},
+			errorContains: "must not be empty",
+		},
+		{
+			name: "x509 with passwordSecretRef is mutually exclusive",
+			searchSource: &MongoDBSource{
+				X509: &X509Auth{
+					ClientCertificateSecret: corev1.LocalObjectReference{Name: "my-cert"},
+				},
+				PasswordSecretRef: &userv1.SecretKeyRef{Name: "my-password"},
+			},
+			errorContains: "mutually exclusive",
+		},
+		{
+			name: "x509 with username is mutually exclusive",
+			searchSource: &MongoDBSource{
+				X509: &X509Auth{
+					ClientCertificateSecret: corev1.LocalObjectReference{Name: "my-cert"},
+				},
+				Username: ptr.To("some-user"),
+			},
+			errorContains: "mutually exclusive",
+		},
+		{
+			name: "x509 with both passwordSecretRef and username",
+			searchSource: &MongoDBSource{
+				X509: &X509Auth{
+					ClientCertificateSecret: corev1.LocalObjectReference{Name: "my-cert"},
+				},
+				PasswordSecretRef: &userv1.SecretKeyRef{Name: "my-password"},
+				Username:          ptr.To("some-user"),
+			},
+			errorContains: "mutually exclusive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			search := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-search", Namespace: "test-ns"},
+				Spec:       MongoDBSearchSpec{Source: tt.searchSource},
+			}
+
+			result := validateX509AuthConfig(search)
+
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, result.Level)
 			}
 		})
 	}

@@ -4514,6 +4514,32 @@ spec:
                     type: object
                   username:
                     type: string
+                  x509:
+                    description: |-
+                      X509 configures x509 client certificate authentication for the sync source connection.
+                      When set, mongot authenticates to MongoDB using x509 instead of username/password.
+                      Mutually exclusive with PasswordSecretRef and Username.
+                    properties:
+                      clientCertificateSecretRef:
+                        description: |-
+                          ClientCertificateSecret is a reference to a Secret containing the x509 client
+                          certificate and key for authenticating to the MongoDB sync source.
+                          Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePassword" (optional).
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    required:
+                    - clientCertificateSecretRef
+                    type: object
                 type: object
               statefulSet:
                 description: |-
