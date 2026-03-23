@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -20,6 +19,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -54,7 +54,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 
 	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
 	if err != nil {
-		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, err
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("Waiting for MongoDB source: %s", err)), log)
 	}
 
 	if mdbSearch.IsWireprotoEnabled() {
