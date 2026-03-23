@@ -1,18 +1,9 @@
-#!/usr/bin/env bash
-# Create TLS certificate for MongoDB Search (mongot) pods
-#
-# RS topology uses a single mongot StatefulSet (not per-shard).
-# The certificate covers mongot pods and the LB service for SNI routing.
-
 echo "Creating TLS certificate for MongoDB Search (mongot) pods..."
 
 sts_name="${MDB_SEARCH_RESOURCE_NAME}-search"
 cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${sts_name}-cert"
 mongot_svc="${sts_name}-svc"
 lb_svc="${MDB_SEARCH_RESOURCE_NAME}-search-lb-svc"
-
-dns_names="    - \"*.${mongot_svc}.${MDB_NS}.svc.cluster.local\"
-    - ${lb_svc}.${MDB_NS}.svc.cluster.local"
 
 echo "  Creating certificate: ${cert_name}"
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
@@ -31,7 +22,8 @@ spec:
     - server auth
     - client auth
   dnsNames:
-${dns_names}
+    - "*.${mongot_svc}.${MDB_NS}.svc.cluster.local"
+    - ${lb_svc}.${MDB_NS}.svc.cluster.local
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer

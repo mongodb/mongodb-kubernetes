@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-# Verify that the operator-managed Envoy proxy is deployed and running
-
 echo "Verifying operator-managed Envoy deployment..."
 
 envoy_deployment="${MDB_SEARCH_RESOURCE_NAME}-search-lb"

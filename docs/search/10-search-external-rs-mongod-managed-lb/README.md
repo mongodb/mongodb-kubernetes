@@ -100,7 +100,7 @@ The CA is distributed as both a ConfigMap (`ca-pem` key) and a Secret (`ca.crt` 
 
 #### Step 6: Create mongot TLS Certificates
 
-Create a TLS certificate covering the mongot StatefulSet pods and the LB service. The `certsSecretPrefix` field in the CR (`MDB_TLS_CERT_SECRET_PREFIX`) determines how the operator locates these secrets.
+RS topology uses a single mongot StatefulSet (not per-shard). The certificate covers mongot pods via wildcard DNS and the LB service for SNI routing. The `certsSecretPrefix` field in the CR (`MDB_TLS_CERT_SECRET_PREFIX`) determines how the operator locates these secrets.
 
 ```bash
 ./code_snippets/10_0316a_create_mongot_tls_certificates.sh
@@ -176,6 +176,8 @@ Checks that the operator created the expected resources:
 ```
 
 #### Step 11: Show Running Pods
+
+Shows all pods in the namespace including external MongoDB replica set pods, mongot pods, Envoy proxy pods, and operator pods.
 
 ```bash
 ./code_snippets/10_0330_show_running_pods.sh

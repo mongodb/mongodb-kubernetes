@@ -9,10 +9,6 @@
 #   - The operator creates a single LB service for the RS topology
 #
 # Traffic flow: External mongod → Envoy (operator-managed) → mongot
-#
-# For testing purposes, we simulate an external cluster by deploying a MongoDB Enterprise
-# replica set in the same Kubernetes cluster, then configuring MongoDBSearch to treat
-# it as an external source using spec.source.external.hostAndPorts.
 
 # ============================================================================
 # KUBERNETES CONFIGURATION
@@ -21,15 +17,14 @@
 # Your Kubernetes context name (run: kubectl config get-contexts)
 export K8S_CTX="<local cluster context>"
 
-# Namespace where MongoDB Search and simulated external cluster will be deployed
+# Namespace where MongoDB Search will be deployed
 export MDB_NS="mongodb"
 
 # ============================================================================
 # CLUSTER NAMING
 # ============================================================================
 
-# Name for the simulated external MongoDB replica set
-# In production, this would be your actual external cluster identifier
+# Name for the external MongoDB replica set
 export MDB_EXTERNAL_CLUSTER_NAME="ext-mdb-rs"
 
 # MongoDB Search resource name (different from MDB name since it's "external")
@@ -47,7 +42,7 @@ export MDB_RS_MEMBERS=3
 export MDB_MONGOT_REPLICAS=2
 
 # ============================================================================
-# OPS MANAGER / CLOUD MANAGER (for simulated external cluster)
+# OPS MANAGER / CLOUD MANAGER
 # ============================================================================
 
 export OPS_MANAGER_PROJECT_NAME="<arbitrary project name>"
@@ -75,7 +70,7 @@ export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
 # OPERATOR CONFIGURATION
 # ============================================================================
 
-export OPERATOR_HELM_CHART="oci://ghcr.io/mongodb/helm-charts/mongodb-kubernetes"
+export OPERATOR_HELM_CHART="oci://quay.io/mongodb/helm-charts/mongodb-kubernetes"
 export OPERATOR_ADDITIONAL_HELM_VALUES=""
 
 # ============================================================================
@@ -96,8 +91,8 @@ export MDB_TLS_CA_ISSUER="my-ca-issuer"
 # EXTERNAL CLUSTER RESOURCE NAMES
 # ============================================================================
 # These names identify the components of the external MongoDB replica set.
-# Default values match the Kubernetes operator naming convention for the
-# simulated cluster. Override them when pointing at a real external cluster.
+# Default values match the Kubernetes operator naming convention.
+# Override them when pointing at a real external cluster.
 
 # External RS member host:port entries
 export MDB_EXTERNAL_HOST_0="${MDB_EXTERNAL_CLUSTER_NAME}-0.${MDB_EXTERNAL_CLUSTER_NAME}-svc.${MDB_NS}.svc.cluster.local:27017"
