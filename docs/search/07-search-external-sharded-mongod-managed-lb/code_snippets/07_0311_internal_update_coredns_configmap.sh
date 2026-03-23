@@ -1,17 +1,3 @@
-#!/usr/bin/env bash
-# Update CoreDNS to resolve the external domain to the mongos pod IP.
-# This simulates external DNS resolution within the
-# single-cluster test environment.
-#
-# We use the pod IP instead of the service ClusterIP to avoid a readiness-probe
-# deadlock: the automation agent must connect to the mongos via its external
-# hostname to mark the process "up", but a ClusterIP service only routes to
-# pods that have already passed their readiness check — creating a circular
-# dependency.  Mapping directly to the pod IP bypasses the service endpoints.
-#
-# The mongos pod is created asynchronously by the operator after the MongoDB
-# CR is applied, so we poll until it exists and has a pod IP assigned.
-
 MONGOS_POD="${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0"
 TIMEOUT=600
 INTERVAL=5

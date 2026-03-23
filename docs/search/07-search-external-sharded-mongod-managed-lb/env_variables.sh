@@ -30,7 +30,7 @@ export MDB_SEARCH_RESOURCE_NAME="ext-search"
 # ======================================================================
 
 export OPS_MANAGER_PROJECT_NAME="<arbitrary project name>"
-export OPS_MANAGER_API_URL="https://cloud-qa.mongodb.com"
+export OPS_MANAGER_API_URL="<SET API URL>"
 export OPS_MANAGER_API_USER="<SET API USER>"
 export OPS_MANAGER_API_KEY="<SET API KEY>"
 export OPS_MANAGER_ORG_ID="<SET ORG ID>"
