@@ -673,21 +673,21 @@ const (
 
 // buildProxyService builds the stable proxy Service for a ReplicaSet topology.
 // The service port is always GetEffectiveMongotPort() (stable for mongotHost).
-// The selector and targetPort flip based on whether managed LB is active.
+// The selector flips to Envoy only after the LB substatus reports Ready,
+// so traffic keeps flowing to mongot directly while Envoy is deploying.
 func buildProxyService(search *searchv1.MongoDBSearch) corev1.Service {
 	proxyNsName := search.ProxyServiceNamespacedName()
 
 	var selector map[string]string
 	var targetPort int32
 
-	if search.IsLBModeManaged() {
+	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {
 		selector = map[string]string{"app": search.LoadBalancerDeploymentName()}
-		targetPort = envoyProxyPort
 	} else {
 		svcName := search.SearchServiceNamespacedName().Name
 		selector = map[string]string{"app": svcName}
-		targetPort = search.GetEffectiveMongotPort()
 	}
+	targetPort = search.GetEffectiveMongotPort()
 
 	labels := map[string]string{
 		"app":       proxyNsName.Name,
@@ -713,6 +713,7 @@ func buildProxyService(search *searchv1.MongoDBSearch) corev1.Service {
 }
 
 // buildProxyServiceForShard builds the stable proxy Service for a specific shard.
+// Same substatus-gated selector logic as buildProxyService.
 func buildProxyServiceForShard(search *searchv1.MongoDBSearch, shardName string) corev1.Service {
 	proxyNsName := search.ProxyServiceNameForShard(shardName)
 	stsName := search.MongotStatefulSetForShard(shardName).Name
@@ -720,13 +721,12 @@ func buildProxyServiceForShard(search *searchv1.MongoDBSearch, shardName string)
 	var selector map[string]string
 	var targetPort int32
 
-	if search.IsLBModeManaged() {
+	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {
 		selector = map[string]string{"app": search.LoadBalancerDeploymentName()}
-		targetPort = envoyProxyPort
 	} else {
 		selector = map[string]string{"app": stsName}
-		targetPort = search.GetEffectiveMongotPort()
 	}
+	targetPort = search.GetEffectiveMongotPort()
 
 	labels := map[string]string{
 		"app":       proxyNsName.Name,

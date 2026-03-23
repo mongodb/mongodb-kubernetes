@@ -278,6 +278,78 @@ func TestGetMongodConfigParameters_NoLB(t *testing.T) {
 	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
 }
 
+func TestBuildProxyService_NoLB(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+	}
+	svc := buildProxyService(search)
+
+	assert.Equal(t, "test-search-proxy-svc", svc.Name)
+	assert.Equal(t, map[string]string{"app": "test-search-svc"}, svc.Spec.Selector)
+	assert.Equal(t, int32(27028), svc.Spec.Ports[0].Port)
+	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
+}
+
+func TestBuildProxyService_ManagedLB_NotReady(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Mode: searchv1.LBModeManaged},
+		},
+		// No status.loadBalancer → IsLoadBalancerReady() = false
+	}
+	svc := buildProxyService(search)
+
+	// Selector stays on mongot pods while Envoy is not ready
+	assert.Equal(t, map[string]string{"app": "test-search-svc"}, svc.Spec.Selector)
+	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
+}
+
+func TestBuildProxyService_ManagedLB_Ready(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Mode: searchv1.LBModeManaged},
+		},
+		Status: searchv1.MongoDBSearchStatus{
+			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
+		},
+	}
+	svc := buildProxyService(search)
+
+	// Selector flips to Envoy pods when LB is ready
+	assert.Equal(t, map[string]string{"app": "test-search-lb"}, svc.Spec.Selector)
+	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
+}
+
+func TestBuildProxyServiceForShard_ManagedLB_NotReady(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Mode: searchv1.LBModeManaged},
+		},
+	}
+	svc := buildProxyServiceForShard(search, "shard-0")
+
+	stsName := search.MongotStatefulSetForShard("shard-0").Name
+	assert.Equal(t, map[string]string{"app": stsName}, svc.Spec.Selector)
+}
+
+func TestBuildProxyServiceForShard_ManagedLB_Ready(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Mode: searchv1.LBModeManaged},
+		},
+		Status: searchv1.MongoDBSearchStatus{
+			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
+		},
+	}
+	svc := buildProxyServiceForShard(search, "shard-0")
+
+	assert.Equal(t, map[string]string{"app": "test-search-lb"}, svc.Spec.Selector)
+}
+
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {
 	t.Helper()
 	svcName := mdbSearch.SearchServiceNamespacedName()
