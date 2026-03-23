@@ -1,20 +1,3 @@
-# Environment Variables for MongoDB Search with Operator-Managed Sharded MongoDB + Managed Envoy LB
-#
-# This configuration deploys MongoDB Search against an OPERATOR-MANAGED sharded MongoDB cluster
-# (mongod runs under the Enterprise operator's management) with MANAGED Envoy load balancing.
-#
-# What "Managed Envoy" means:
-#   - The operator automatically deploys and configures an Envoy L7 proxy
-#   - You do NOT need to create Envoy ConfigMaps, Deployments, or Services manually
-#   - The operator creates per-shard proxy Services for SNI-based routing
-#
-# Traffic flow: Operator-managed mongod → Envoy (operator-managed) → mongot
-#
-# Key difference from scenario 07 (external):
-#   - The MongoDB sharded cluster is fully managed by the operator
-#   - MongoDBSearch uses spec.source.mongodbResourceRef (not spec.source.external)
-#   - The operator automatically configures mongod search parameters (no shardOverrides needed)
-
 # ============================================================================
 # KUBERNETES CONFIGURATION
 # ============================================================================

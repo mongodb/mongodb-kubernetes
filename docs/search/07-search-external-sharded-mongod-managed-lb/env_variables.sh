@@ -8,17 +8,15 @@
 # (run: kubectl config get-contexts)
 export K8S_CTX="<local cluster context>"
 
-# Namespace where MongoDB Search and simulated
-# external cluster will be deployed
+# Namespace for MongoDB Search and the
+# external cluster
 export MDB_NS="mongodb"
 
 # ======================================================================
 # CLUSTER NAMING
 # ======================================================================
 
-# Name for the simulated external MongoDB sharded cluster
-# In production, this would be your actual external
-# cluster identifier
+# Name for the external MongoDB sharded cluster
 export MDB_EXTERNAL_CLUSTER_NAME="ext-mdb-sh"
 
 # MongoDB Search resource name
@@ -26,7 +24,7 @@ export MDB_EXTERNAL_CLUSTER_NAME="ext-mdb-sh"
 export MDB_SEARCH_RESOURCE_NAME="ext-search"
 
 # ======================================================================
-# OPS MANAGER / CLOUD MANAGER (for simulated external cluster)
+# OPS MANAGER / CLOUD MANAGER
 # ======================================================================
 
 export OPS_MANAGER_PROJECT_NAME="<arbitrary project name>"
@@ -75,16 +73,12 @@ export MDB_TLS_CA_ISSUER="my-ca-issuer"
 # EXTERNAL CLUSTER TOPOLOGY (fill in your actual values)
 # ======================================================================
 # Your external MongoDB sharded cluster information.
-# If running on VMs or bare metal, replace with your
-# actual hostnames. The defaults below match the
-# simulated K8s cluster for testing.
+# Replace with your actual hostnames.
 
-# External domain used with spec.externalAccess.
-# externalDomain on the MongoDB CR. When set, mongos
-# pods are reachable at {podName}.{externalDomain}
-# instead of the internal K8s FQDN. CoreDNS is
-# configured to resolve this domain to the mongos
-# pod IP (see 07_0311_internal_update_coredns_configmap.sh).
+# External domain used with
+# spec.externalAccess.externalDomain on the MongoDB
+# CR. When set, mongos pods are reachable at
+# {podName}.{externalDomain}.
 export MDB_EXTERNAL_DOMAIN="ext-mdb.example.com"
 
 # -- Shard 0 --
