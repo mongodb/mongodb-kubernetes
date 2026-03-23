@@ -664,9 +664,6 @@ func buildSearchHeadlessServiceForShard(search *searchv1.MongoDBSearch, shardNam
 }
 
 const (
-	// envoyProxyPort is the port Envoy listens on for proxied gRPC traffic.
-	envoyProxyPort = int32(27029)
-
 	// proxyServiceComponent is the label value for the proxy service component.
 	proxyServiceComponent = "search-proxy"
 )

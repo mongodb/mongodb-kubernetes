@@ -4,7 +4,7 @@ E2E test for the stable proxy Service in MongoDBSearch (External RS).
 This test verifies that the operator creates a stable proxy Service whose
 name and port never change, even when the user transitions between:
   - Single mongot (no LB): proxy service selects mongot pods, targetPort=27028
-  - Multiple mongots (managed LB): proxy service selects Envoy pods, targetPort=27029
+  - Multiple mongots (managed LB): proxy service selects Envoy pods, targetPort=27028
   - Back to single mongot: proxy service reverts to mongot pods
 
 The mongotHost configured on mongod always points at the proxy Service,
@@ -61,7 +61,7 @@ USER_PASSWORD = "mdb-user-pass"
 
 # Ports
 MONGOT_GRPC_PORT = 27028
-ENVOY_PROXY_PORT = 27029
+ENVOY_PROXY_PORT = 27028
 
 # TLS
 MDBS_TLS_CERT_PREFIX = "certs"
