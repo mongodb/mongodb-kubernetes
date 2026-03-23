@@ -2,10 +2,13 @@ from typing import Callable
 
 import pymongo.errors
 import yaml
+from kubernetes import client
 from kubetester import create_or_update_configmap, create_or_update_secret
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongodb import MongoDB
+from kubetester.mongodb_search import MongoDBSearch
+from kubetester.phase import Phase
 from tests import test_logger
 from tests.common.search import search_resource_names
 from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
@@ -299,3 +302,51 @@ def verify_vector_search_before_and_after_sharding(
         verify_vector_search_after_sharding, timeout=300, sleep_time=10, msg="vector search after sharding"
     )
     logger.info(f"Vector search returns consistent {count_before} results after sharding")
+
+
+def patch_envoy_deployment_configuration(
+    mdbs: MongoDBSearch,
+    deployment_config: dict,
+    timeout: int = 300,
+):
+    """Patch the MongoDBSearch CR with a deploymentConfiguration override and wait for Running.
+
+    Preserves any existing fields under spec.lb.envoy.
+    """
+    mdbs.load()
+    mdbs["spec"]["lb"].setdefault("envoy", {})["deploymentConfiguration"] = deployment_config
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=timeout)
+
+
+def verify_envoy_deployment_override(
+    namespace: str,
+    mdbs_resource_name: str,
+    expected_container_names: list[str],
+    expected_labels: dict[str, str] | None = None,
+    expected_annotations: dict[str, str] | None = None,
+):
+    """Verify that deploymentConfiguration overrides were applied to the Envoy Deployment."""
+    envoy_deployment_name = search_resource_names.lb_deployment_name(mdbs_resource_name)
+    apps_v1 = client.AppsV1Api()
+    deployment = apps_v1.read_namespaced_deployment(envoy_deployment_name, namespace)
+
+    containers = deployment.spec.template.spec.containers
+    actual_names = [c.name for c in containers]
+    for name in expected_container_names:
+        assert name in actual_names, f"container {name!r} missing, found: {actual_names}"
+    assert len(containers) == len(
+        expected_container_names
+    ), f"Expected {len(expected_container_names)} containers, got {len(containers)}: {actual_names}"
+
+    if expected_labels:
+        for k, v in expected_labels.items():
+            actual = deployment.metadata.labels.get(k)
+            assert actual == v, f"label {k!r}: expected {v!r}, got {actual!r}"
+
+    if expected_annotations:
+        for k, v in expected_annotations.items():
+            actual = (deployment.metadata.annotations or {}).get(k)
+            assert actual == v, f"annotation {k!r}: expected {v!r}, got {actual!r}"
+
+    logger.info(f"Envoy Deployment {envoy_deployment_name} overrides verified")

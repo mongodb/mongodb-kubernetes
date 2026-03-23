@@ -28,7 +28,12 @@ from tests.common.search.rs_search_helper import (
     verify_rs_mongod_parameters,
 )
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
-from tests.common.search.sharded_search_helper import create_issuer_ca, verify_text_search_query
+from tests.common.search.sharded_search_helper import (
+    create_issuer_ca,
+    patch_envoy_deployment_configuration,
+    verify_envoy_deployment_override,
+    verify_text_search_query,
+)
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
 
@@ -226,3 +231,41 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
     phase = mdbs.get_status_phase()
     assert phase == Phase.Running, f"MongoDBSearch phase is {phase}, expected Running"
     logger.info(f"MongoDBSearch {mdbs.name} is in Running phase")
+
+
+@mark.e2e_search_rs_external_managed_lb
+def test_patch_envoy_deployment_override(mdbs: MongoDBSearch):
+    """Patch MongoDBSearch CR to add a sidecar via deploymentConfiguration."""
+    patch_envoy_deployment_configuration(
+        mdbs,
+        {
+            "metadata": {
+                "labels": {"test-override": "deployment-config"},
+            },
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "envoy-sidecar",
+                                "image": "busybox",
+                                "command": ["sleep"],
+                                "args": ["7200"],
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+    )
+
+
+@mark.e2e_search_rs_external_managed_lb
+def test_verify_envoy_deployment_override(namespace: str):
+    """Verify deploymentConfiguration overrides are applied to the Envoy Deployment."""
+    verify_envoy_deployment_override(
+        namespace,
+        MDBS_RESOURCE_NAME,
+        expected_container_names=["envoy", "envoy-sidecar"],
+        expected_labels={"test-override": "deployment-config"},
+    )
