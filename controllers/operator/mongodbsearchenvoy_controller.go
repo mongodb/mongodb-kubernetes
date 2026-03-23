@@ -17,7 +17,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -58,12 +57,11 @@ const (
 
 // envoyRoute defines routing information for one Envoy entrypoint (one per shard, or one for RS).
 type envoyRoute struct {
-	Name             string // identifier: shard name (e.g., "mdb-sh-0") or "rs" for ReplicaSets
-	NameSafe         string // identifier safe for Envoy (hyphens replaced with underscores)
-	SNIHostname      string // FQDN of the proxy service for SNI matching
-	UpstreamHost     string // FQDN of the mongot headless service
-	UpstreamPort     int32  // typically 27028
-	ProxyServiceName string // name of the ClusterIP proxy Service for this route
+	Name         string // identifier: shard name (e.g., "mdb-sh-0") or "rs" for ReplicaSets
+	NameSafe     string // identifier safe for Envoy (hyphens replaced with underscores)
+	SNIHostname  string // FQDN of the proxy service for SNI matching
+	UpstreamHost string // FQDN of the mongot headless service
+	UpstreamPort int32  // typically 27028
 }
 
 type MongoDBSearchEnvoyReconciler struct {
@@ -137,20 +135,6 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
 
-	// Ensure proxy Services (one per route)
-	currentServiceNames := make(map[string]bool, len(routes))
-	for _, route := range routes {
-		currentServiceNames[route.ProxyServiceName] = true
-		if err := r.ensureProxyService(ctx, mdbSearch, route, log); err != nil {
-			return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
-		}
-	}
-
-	// Clean up stale proxy Services for removed routes
-	if err := r.cleanupStaleProxyServices(ctx, mdbSearch, currentServiceNames, log); err != nil {
-		log.Warnf("Failed to cleanup stale proxy services: %s", err)
-	}
-
 	log.Info("MongoDBSearchEnvoy reconciliation complete")
 	return r.updateLBStatus(ctx, mdbSearch, workflow.OK(), log)
 }
@@ -199,22 +183,20 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string) []env
 	mongotPort := search.GetMongotGrpcPort()
 
 	for _, shardName := range shardNames {
-		lbServiceName := search.LoadBalancerProxyServiceNameForShard(shardName)
 		sniServiceName := search.ProxyServiceNameForShard(shardName).Name
 		mongotServiceName := search.MongotServiceForShard(shardName).Name
 
-		sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", proxyServiceName, namespace)
+		sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
 		if endpoint := search.GetManagedLBEndpointForShard(shardName); endpoint != "" {
 			sniHostname = endpoint
 		}
 
 		routes = append(routes, envoyRoute{
-			Name:             shardName,
-			NameSafe:         strings.ReplaceAll(shardName, "-", "_"),
-			SNIHostname:      sniHostname,
-			UpstreamHost:     fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
-			UpstreamPort:     mongotPort,
-			ProxyServiceName: lbServiceName,
+			Name:         shardName,
+			NameSafe:     strings.ReplaceAll(shardName, "-", "_"),
+			SNIHostname:  sniHostname,
+			UpstreamHost: fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
+			UpstreamPort: mongotPort,
 		})
 	}
 
@@ -223,23 +205,21 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string) []env
 
 // buildReplicaSetRoute returns the single route for a ReplicaSet.
 func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
-	lbServiceName := search.LoadBalancerServiceName()
 	sniServiceName := search.ProxyServiceNamespacedName().Name
 	mongotServiceName := search.SearchServiceNamespacedName().Name
 	namespace := search.Namespace
 
-	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", proxyServiceName, namespace)
+	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
 	if endpoint := search.GetManagedLBEndpoint(); endpoint != "" {
 		sniHostname = endpoint
 	}
 
 	return envoyRoute{
-		Name:             "rs",
-		NameSafe:         "rs",
-		SNIHostname:      sniHostname,
-		UpstreamHost:     fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
-		UpstreamPort:     search.GetMongotGrpcPort(),
-		ProxyServiceName: lbServiceName,
+		Name:         "rs",
+		NameSafe:     "rs",
+		SNIHostname:  sniHostname,
+		UpstreamHost: fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
+		UpstreamPort: search.GetMongotGrpcPort(),
 	}
 }
 
@@ -449,68 +429,6 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 	}
 }
 
-// ensureProxyService creates or updates a proxy Service pointing to Envoy for a given route.
-func (r *MongoDBSearchEnvoyReconciler) ensureProxyService(ctx context.Context, search *searchv1.MongoDBSearch, route envoyRoute, log *zap.SugaredLogger) error {
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      route.ProxyServiceName,
-			Namespace: search.Namespace,
-		},
-	}
-
-	_, err := controllerutil.CreateOrUpdate(ctx, r.kubeClient, svc, func() error {
-		svc.Labels = map[string]string{
-			"app":       search.LoadBalancerDeploymentName(),
-			"component": labelName,
-		}
-		svc.Spec = corev1.ServiceSpec{
-			Type:     corev1.ServiceTypeClusterIP,
-			Selector: envoyPodLabels(search),
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "grpc",
-					Port:       searchv1.EnvoyDefaultProxyPort,
-					TargetPort: intstr.FromInt32(searchv1.EnvoyDefaultProxyPort),
-				},
-			},
-		}
-		return controllerutil.SetOwnerReference(search, svc, r.kubeClient.Scheme())
-	})
-	if err != nil {
-		return fmt.Errorf("failed to ensure proxy Service %s: %w", route.ProxyServiceName, err)
-	}
-
-	log.Infof("Proxy Service %s ensured", route.ProxyServiceName)
-	return nil
-}
-
-// cleanupStaleProxyServices removes proxy Services that no longer correspond to any current route.
-func (r *MongoDBSearchEnvoyReconciler) cleanupStaleProxyServices(ctx context.Context, search *searchv1.MongoDBSearch, currentServiceNames map[string]bool, log *zap.SugaredLogger) error {
-	serviceList := &corev1.ServiceList{}
-	err := r.kubeClient.List(ctx, serviceList,
-		client.InNamespace(search.Namespace),
-		client.MatchingLabels{
-			"app":       search.LoadBalancerDeploymentName(),
-			"component": labelName,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to list proxy services: %w", err)
-	}
-
-	for i := range serviceList.Items {
-		svc := &serviceList.Items[i]
-		if !currentServiceNames[svc.Name] {
-			log.Infof("Deleting stale proxy Service %s", svc.Name)
-			if err := r.kubeClient.Delete(ctx, svc); err != nil && !apiErrors.IsNotFound(err) {
-				return fmt.Errorf("failed to delete stale proxy Service %s: %w", svc.Name, err)
-			}
-		}
-	}
-
-	return nil
-}
-
 // envoyLabels returns standard labels for Envoy resources.
 func envoyLabels(search *searchv1.MongoDBSearch) map[string]string {
 	return map[string]string{
@@ -542,6 +460,5 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 		Watches(&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.ConfigMap{}).
-		Owns(&corev1.Service{}).
 		Complete(r)
 }

@@ -17,28 +17,24 @@ import (
 
 func TestBuildReplicaSetRoute(t *testing.T) {
 	tests := []struct {
-		name          string
-		endpoint      string
-		expectedSNI   string
-		expectedProxy string
+		name        string
+		endpoint    string
+		expectedSNI string
 	}{
 		{
-			name:          "no endpoint uses proxy service FQDN",
-			endpoint:      "",
-			expectedSNI:   "mdb-search-search-lb-svc.test-ns.svc.cluster.local",
-			expectedProxy: "mdb-search-search-lb-svc",
+			name:        "no endpoint uses proxy service FQDN",
+			endpoint:    "",
+			expectedSNI: "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
 		},
 		{
-			name:          "endpoint with port uses endpoint hostname",
-			endpoint:      "lb.example.com:443",
-			expectedSNI:   "lb.example.com",
-			expectedProxy: "mdb-search-search-lb-svc",
+			name:        "endpoint with port uses endpoint hostname",
+			endpoint:    "lb.example.com:443",
+			expectedSNI: "lb.example.com",
 		},
 		{
-			name:          "endpoint without port uses endpoint as-is",
-			endpoint:      "lb.example.com",
-			expectedSNI:   "lb.example.com",
-			expectedProxy: "mdb-search-search-lb-svc",
+			name:        "endpoint without port uses endpoint as-is",
+			endpoint:    "lb.example.com",
+			expectedSNI: "lb.example.com",
 		},
 	}
 
@@ -62,7 +58,6 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 			assert.Equal(t, "rs", route.Name)
 			assert.Equal(t, "rs", route.NameSafe)
 			assert.Equal(t, tt.expectedSNI, route.SNIHostname)
-			assert.Equal(t, tt.expectedProxy, route.ProxyServiceName)
 			assert.Equal(t, "mdb-search-search-svc.test-ns.svc.cluster.local", route.UpstreamHost)
 			assert.Equal(t, int32(27028), route.UpstreamPort)
 		})
@@ -116,8 +111,6 @@ func TestBuildShardRoutes(t *testing.T) {
 			for i, route := range routes {
 				assert.Equal(t, shardNames[i], route.Name)
 				assert.Equal(t, tt.expectedSNIs[i], route.SNIHostname)
-				expectedProxy := "mdb-search-search-0-" + shardNames[i] + "-proxy-svc"
-				assert.Equal(t, expectedProxy, route.ProxyServiceName)
 			}
 		})
 	}
