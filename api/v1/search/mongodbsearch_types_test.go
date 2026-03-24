@@ -93,7 +93,7 @@ func TestIsLoadBalancerReady(t *testing.T) {
 			name: "managed LB, status nil",
 			search: MongoDBSearch{
 				Spec: MongoDBSearchSpec{
-					LoadBalancer: &LoadBalancerConfig{Mode: LBModeManaged},
+					LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}},
 				},
 			},
 			expected: false,
@@ -102,7 +102,7 @@ func TestIsLoadBalancerReady(t *testing.T) {
 			name: "managed LB, status Running",
 			search: MongoDBSearch{
 				Spec: MongoDBSearchSpec{
-					LoadBalancer: &LoadBalancerConfig{Mode: LBModeManaged},
+					LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}},
 				},
 				Status: MongoDBSearchStatus{
 					LoadBalancer: &LoadBalancerStatus{Phase: status.PhaseRunning},
@@ -114,7 +114,7 @@ func TestIsLoadBalancerReady(t *testing.T) {
 			name: "managed LB, status Pending",
 			search: MongoDBSearch{
 				Spec: MongoDBSearchSpec{
-					LoadBalancer: &LoadBalancerConfig{Mode: LBModeManaged},
+					LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}},
 				},
 				Status: MongoDBSearchStatus{
 					LoadBalancer: &LoadBalancerStatus{Phase: status.PhasePending},

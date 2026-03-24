@@ -2,7 +2,6 @@ package search
 
 import (
 	"fmt"
-	"net"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -67,7 +66,7 @@ type MongoDBSearchSpec struct {
 	// Replicas is the number of mongot pods to deploy.
 	// For ReplicaSet source: the number of mongot pods in total.
 	// For Sharded source: the number mongot pods per shard.
-	// When Replicas > 1, a load balancer configuration (spec.lb)
+	// When Replicas > 1, a load balancer configuration (spec.loadBalancer)
 	// is required to distribute traffic across mongot instances.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
@@ -99,54 +98,48 @@ type MongoDBSearchSpec struct {
 	AutoEmbedding *EmbeddingConfig `json:"autoEmbedding,omitempty"`
 	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
 	// +optional
-	LoadBalancer *LoadBalancerConfig `json:"lb,omitempty"`
+	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
 	// JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
 	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
 }
 
-// LBMode defines the load balancer mode for Search
-// +kubebuilder:validation:Enum=Managed;Unmanaged
-type LBMode string
-
-const (
-	// LBModeManaged indicates operator-managed load balancer
-	LBModeManaged LBMode = "Managed"
-	// LBModeUnmanaged indicates user-provided L7 load balancer (BYO LB)
-	LBModeUnmanaged LBMode = "Unmanaged"
-)
-
-// LoadBalancerConfig configures how mongod/mongos connect to mongot
+// LoadBalancerConfig configures L7 load balancing between mongod/mongos and mongot.
+// Exactly one of Managed or Unmanaged must be set.
+// +kubebuilder:validation:XValidation:rule="(has(self.managed) && !has(self.unmanaged)) || (!has(self.managed) && has(self.unmanaged))",message="exactly one of managed or unmanaged must be set"
 type LoadBalancerConfig struct {
-	// Mode specifies the load balancer mode: Managed (operator-managed) or Unmanaged (BYO L7 Load Balancer)
-	// +kubebuilder:validation:Required
-	Mode LBMode `json:"mode"`
-	// Endpoint is the LB endpoint for ReplicaSet, or a template for sharded clusters.
-	// For sharded clusters, at least one {shardName} placeholder must be present and will be substituted with the actual shard name.
-	// Each shard must connect to their mongots using a shard-unique endpoint to allow LoadBalancer to
-	// route the traffic to the mongot instances for that shard.
-	// Example: "lb-{shardName}.example.com:27028"
+	// Managed configures an operator-managed Envoy load balancer.
 	// +optional
-	Endpoint string `json:"endpoint,omitempty"`
-	// Envoy contains configuration for operator-managed Envoy load balancer
+	Managed *ManagedLBConfig `json:"managed,omitempty"`
+	// Unmanaged configures a user-provided (BYO) L7 load balancer.
 	// +optional
-	Envoy *EnvoyConfig `json:"envoy,omitempty"`
+	Unmanaged *UnmanagedLBConfig `json:"unmanaged,omitempty"`
 }
 
-// EnvoyConfig contains configuration for the operator-managed Envoy load balancer.
-type EnvoyConfig struct {
+// ManagedLBConfig configures the operator-deployed Envoy proxy.
+type ManagedLBConfig struct {
+	// ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
+	// For sharded clusters, may contain a {shardName} placeholder.
+	// Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
+	// +optional
+	ExternalHostname string `json:"externalHostname,omitempty"`
 	// ResourceRequirements for the Envoy container.
 	// When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.
-	// When set, replaces the defaults entirely.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
-	// DeploymentConfiguration holds the optional custom Deployment configuration
-	// that will be merged into the operator-created Envoy Deployment.
-	// Use to provide customizations (tolerations, affinity, nodeSelector, annotations, etc.)
-	// which aren't exposed as fields in spec.lb.envoy.
+	// Deployment holds optional overrides merged into the operator-created Envoy Deployment.
+	// Follows the same convention as spec.statefulSet on MongoDB resources.
 	// +optional
-	DeploymentConfiguration *common.DeploymentConfiguration `json:"deploymentConfiguration,omitempty"`
+	Deployment *common.DeploymentConfiguration `json:"deployment,omitempty"`
+}
+
+// UnmanagedLBConfig configures a user-provided (BYO) L7 load balancer.
+type UnmanagedLBConfig struct {
+	// Endpoint is the full host:port of the BYO load balancer written into mongod config.
+	// For sharded clusters, must contain a {shardName} placeholder.
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 type EmbeddingConfig struct {
@@ -267,7 +260,7 @@ type MongoDBSearchStatus struct {
 	Version       string           `json:"version,omitempty"`
 	Warnings      []status.Warning `json:"warnings,omitempty"`
 	// LoadBalancer reports the state of the operator-managed load balancer.
-	// Only populated when spec.lb.mode == Managed.
+	// Only populated when spec.loadBalancer.managed is set.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
 }
@@ -558,14 +551,14 @@ func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 }
 
 func (s *MongoDBSearch) IsLBModeUnmanaged() bool {
-	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Mode == LBModeUnmanaged
+	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Unmanaged != nil
 }
 
 // IsReplicaSetUnmanagedLB returns true if this is a ReplicaSet with unmanaged LB configuration.
 // An endpoint with a template placeholder ({shardName}) is NOT considered a ReplicaSet endpoint.
 func (s *MongoDBSearch) IsReplicaSetUnmanagedLB() bool {
 	return s.IsLBModeUnmanaged() &&
-		s.Spec.LoadBalancer.Endpoint != "" &&
+		s.Spec.LoadBalancer.Unmanaged.Endpoint != "" &&
 		!s.HasEndpointTemplate()
 }
 
@@ -573,15 +566,15 @@ func (s *MongoDBSearch) GetReplicaSetUnmanagedLBEndpoint() string {
 	if !s.IsReplicaSetUnmanagedLB() {
 		return ""
 	}
-	return s.Spec.LoadBalancer.Endpoint
+	return s.Spec.LoadBalancer.Unmanaged.Endpoint
 }
 
-// HasEndpointTemplate returns true if the endpoint contains the {shardName} template placeholder
+// HasEndpointTemplate returns true if the unmanaged endpoint contains the {shardName} template placeholder.
 func (s *MongoDBSearch) HasEndpointTemplate() bool {
-	if s.Spec.LoadBalancer == nil {
+	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Unmanaged == nil {
 		return false
 	}
-	return strings.Contains(s.Spec.LoadBalancer.Endpoint, ShardNamePlaceholder)
+	return strings.Contains(s.Spec.LoadBalancer.Unmanaged.Endpoint, ShardNamePlaceholder)
 }
 
 // IsShardedUnmanagedLB returns true if this is a sharded unmanaged LB configuration
@@ -596,7 +589,7 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 	if !s.IsShardedUnmanagedLB() {
 		return ""
 	}
-	return strings.ReplaceAll(s.Spec.LoadBalancer.Endpoint, ShardNamePlaceholder, shardName)
+	return strings.ReplaceAll(s.Spec.LoadBalancer.Unmanaged.Endpoint, ShardNamePlaceholder, shardName)
 }
 
 func (s *MongoDBSearch) GetReplicas() int {
@@ -628,36 +621,26 @@ func (s *MongoDBSearch) MongotConfigMapForShard(shardName string) types.Namespac
 }
 
 func (s *MongoDBSearch) IsLBModeManaged() bool {
-	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Mode == LBModeManaged
+	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Managed != nil
 }
 
-// GetManagedLBEndpoint returns the hostname (port stripped) from spec.lb.endpoint
-// when mode is Managed and an endpoint is configured. Returns "" otherwise.
+// GetManagedLBEndpoint returns the external hostname from spec.loadBalancer.managed.externalHostname
+// when managed LB is configured. Returns "" otherwise.
 func (s *MongoDBSearch) GetManagedLBEndpoint() string {
-	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Endpoint == "" {
+	if !s.IsLBModeManaged() {
 		return ""
 	}
-	return stripPort(s.Spec.LoadBalancer.Endpoint)
+	return s.Spec.LoadBalancer.Managed.ExternalHostname
 }
 
-// GetManagedLBEndpointForShard returns the hostname for a specific shard by resolving
-// the {shardName} template in spec.lb.endpoint and stripping the port.
-// Returns "" if mode is not Managed or no endpoint is configured.
+// GetManagedLBEndpointForShard returns the external hostname for a specific shard by substituting
+// the {shardName} template in spec.loadBalancer.managed.externalHostname.
+// Returns "" if managed LB is not configured or externalHostname is empty.
 func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
-	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Endpoint == "" {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return ""
 	}
-	endpoint := strings.ReplaceAll(s.Spec.LoadBalancer.Endpoint, ShardNamePlaceholder, shardName)
-	return stripPort(endpoint)
-}
-
-// stripPort extracts the hostname from a host:port string. If no port is present, returns as-is.
-func stripPort(endpoint string) string {
-	host, _, err := net.SplitHostPort(endpoint)
-	if err != nil {
-		return endpoint
-	}
-	return host
+	return strings.ReplaceAll(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder, shardName)
 }
 
 // IsLoadBalancerReady returns true if managed LB is not configured,

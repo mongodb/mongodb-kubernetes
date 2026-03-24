@@ -206,7 +206,7 @@ func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTL
 		search.Spec.Security.TLS = &TLS{CertsSecretPrefix: tlsPrefix}
 	}
 	if isLBManaged {
-		search.Spec.LoadBalancer = &LoadBalancerConfig{Mode: LBModeManaged}
+		search.Spec.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{}}
 	}
 	return search
 }
