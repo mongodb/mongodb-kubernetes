@@ -77,7 +77,7 @@ export MDB_MONGOT_REPLICAS=2
 # ============================================================================
 
 # Envoy proxy port (operator default)
-ENVOY_PROXY_PORT="27029"
+ENVOY_PROXY_PORT="27028"
 
 # DO NOT CHANGE this proxy service name.
 # The operator derives it via ProxyServiceNamespacedName
