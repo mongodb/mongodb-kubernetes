@@ -185,7 +185,7 @@ func (b *builder) Build() string {
 	}
 
 	// authSource is only meaningful when an authMechanism is set.
-	if authSource == "" || authMechanism == "" {
+	if connectionParams["authMechanism"] == "" {
 		delete(connectionParams, "authSource")
 	}
 	var keys []string
