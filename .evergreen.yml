@@ -46,6 +46,10 @@ variables:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
       - name: build_test_image
         variant: init_test_run
       - name: publish_helm_chart
