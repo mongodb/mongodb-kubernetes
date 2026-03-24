@@ -1380,7 +1380,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_rs_external_entrypoint_svc
+  - name: e2e_search_rs_external_proxy_svc
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
