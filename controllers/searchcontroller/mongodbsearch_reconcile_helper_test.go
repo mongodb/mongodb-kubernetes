@@ -243,7 +243,7 @@ func TestGetMongodConfigParameters_ManagedLB(t *testing.T) {
 		},
 		Spec: searchv1.MongoDBSearchSpec{
 			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Mode: searchv1.LBModeManaged,
+				Managed: &searchv1.ManagedLBConfig{},
 			},
 		},
 	}
@@ -294,7 +294,7 @@ func TestBuildProxyService_ManagedLB_NotReady(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Mode: searchv1.LBModeManaged},
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
 		},
 		// No status.loadBalancer → IsLoadBalancerReady() = false
 	}
@@ -309,7 +309,7 @@ func TestBuildProxyService_ManagedLB_Ready(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Mode: searchv1.LBModeManaged},
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
 		},
 		Status: searchv1.MongoDBSearchStatus{
 			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
@@ -326,7 +326,7 @@ func TestBuildProxyServiceForShard_ManagedLB_NotReady(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Mode: searchv1.LBModeManaged},
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
 		},
 	}
 	svc := buildProxyServiceForShard(search, "shard-0")
@@ -339,7 +339,7 @@ func TestBuildProxyServiceForShard_ManagedLB_Ready(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			LoadBalancer: &searchv1.LoadBalancerConfig{Mode: searchv1.LBModeManaged},
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
 		},
 		Status: searchv1.MongoDBSearchStatus{
 			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
@@ -919,8 +919,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 						},
 					},
 					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb-{shardName}.example.com:27028",
+						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 					},
 				},
 			},
@@ -943,8 +942,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 						},
 					},
 					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb-{shardName}.example.com:27028",
+						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 					},
 				},
 			},
@@ -976,8 +974,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 func TestCreateShardMongotConfig(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-			Mode:     searchv1.LBModeUnmanaged,
-			Endpoint: "lb-{shardName}.example.com:27028",
+			Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 		}
 	})
 
@@ -1004,8 +1001,7 @@ func TestCreateShardMongotConfig(t *testing.T) {
 func TestShardedMongotConfigWithTLS(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-			Mode:     searchv1.LBModeUnmanaged,
-			Endpoint: "lb-{shardName}.example.com:27028",
+			Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 		}
 	})
 
@@ -1049,8 +1045,7 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-			Mode:     searchv1.LBModeUnmanaged,
-			Endpoint: "lb-{shardName}.example.com:27028",
+			Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 		}
 	})
 
@@ -1202,7 +1197,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "multiple mongot replicas (3) require load balancer configuration; please configure load balancing in spec.lb.",
+			expectedError: "multiple mongot replicas (3) require load balancer configuration; please configure load balancing in spec.loadBalancer.",
 		},
 		{
 			name: "Multiple replicas with unmanaged LB - valid",
@@ -1219,9 +1214,8 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 						},
 					},
 					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb.example.com:27028",
-					},
+						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb.example.com:27028"},
+						},
 				},
 			},
 			expectedError: "",
@@ -1292,8 +1286,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 						},
 					},
 					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb-{shardName}.example.com:27028",
+						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 					},
 				},
 			},
@@ -1371,9 +1364,8 @@ func TestEndpointTemplateSubstitution(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
 				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-					Mode:     searchv1.LBModeUnmanaged,
-					Endpoint: tc.endpointTemplate,
-				}
+					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: tc.endpointTemplate},
+					}
 			})
 
 			assert.True(t, search.HasEndpointTemplate())
@@ -1477,9 +1469,19 @@ func TestValidateEndpointTemplate(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
+				// Use an external sharded source so that {shardName} templates are valid
+				s.Spec.Source = &searchv1.MongoDBSource{
+					ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+						ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+							Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example.com:27017"}},
+							Shards: []searchv1.ExternalShardConfig{
+								{ShardName: "shard0", Hosts: []string{"host:27017"}},
+							},
+						},
+					},
+				}
 				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-					Mode:     searchv1.LBModeUnmanaged,
-					Endpoint: tc.endpoint,
+					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: tc.endpoint},
 				}
 			})
 

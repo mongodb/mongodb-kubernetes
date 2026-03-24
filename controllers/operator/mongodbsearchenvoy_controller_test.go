@@ -27,12 +27,7 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 			expectedSNI: "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
 		},
 		{
-			name:        "endpoint with port uses endpoint hostname",
-			endpoint:    "lb.example.com:443",
-			expectedSNI: "lb.example.com",
-		},
-		{
-			name:        "endpoint without port uses endpoint as-is",
+			name:        "externalHostname set uses it for SNI",
 			endpoint:    "lb.example.com",
 			expectedSNI: "lb.example.com",
 		},
@@ -48,8 +43,7 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 			}
 			if tt.endpoint != "" {
 				search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-					Mode:     searchv1.LBModeManaged,
-					Endpoint: tt.endpoint,
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint},
 				}
 			}
 
@@ -81,8 +75,8 @@ func TestBuildShardRoutes(t *testing.T) {
 			},
 		},
 		{
-			name:     "endpoint template resolves per shard",
-			endpoint: "mongot-{shardName}-ns.apps.example.com:443",
+			name:     "externalHostname template resolves per shard",
+			endpoint: "mongot-{shardName}-ns.apps.example.com",
 			expectedSNIs: []string{
 				"mongot-mdb-sh-0-ns.apps.example.com",
 				"mongot-mdb-sh-1-ns.apps.example.com",
@@ -100,8 +94,7 @@ func TestBuildShardRoutes(t *testing.T) {
 			}
 			if tt.endpoint != "" {
 				search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-					Mode:     searchv1.LBModeManaged,
-					Endpoint: tt.endpoint,
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint},
 				}
 			}
 
@@ -134,9 +127,8 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
 			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Mode: searchv1.LBModeManaged,
-				Envoy: &searchv1.EnvoyConfig{
-					DeploymentConfiguration: &common.DeploymentConfiguration{
+				Managed: &searchv1.ManagedLBConfig{
+					Deployment: &common.DeploymentConfiguration{
 						SpecWrapper: common.DeploymentSpecWrapper{
 							Spec: appsv1.DeploymentSpec{
 								Template: corev1.PodTemplateSpec{
@@ -179,7 +171,7 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 		},
 	}
 
-	depCfg := search.Spec.LoadBalancer.Envoy.DeploymentConfiguration
+	depCfg := search.Spec.LoadBalancer.Managed.Deployment
 	dep.Spec = merge.DeploymentSpecs(dep.Spec, depCfg.SpecWrapper.Spec)
 	dep.Labels = merge.StringToStringMap(dep.Labels, depCfg.MetadataWrapper.Labels)
 	dep.Annotations = merge.StringToStringMap(dep.Annotations, depCfg.MetadataWrapper.Annotations)
@@ -200,19 +192,18 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 }
 
 func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *testing.T) {
-	// resourceRequirements shorthand sets 200m, deploymentConfiguration overrides to 500m
+	// resourceRequirements sets 200m, deployment override sets 500m
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 		Spec: searchv1.MongoDBSearchSpec{
 			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Mode: searchv1.LBModeManaged,
-				Envoy: &searchv1.EnvoyConfig{
+				Managed: &searchv1.ManagedLBConfig{
 					ResourceRequirements: &corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("200m"),
 						},
 					},
-					DeploymentConfiguration: &common.DeploymentConfiguration{
+					Deployment: &common.DeploymentConfiguration{
 						SpecWrapper: common.DeploymentSpecWrapper{
 							Spec: appsv1.DeploymentSpec{
 								Template: corev1.PodTemplateSpec{
@@ -237,7 +228,7 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 		},
 	}
 
-	// Build base with resourceRequirements shorthand (200m)
+	// Build base with resourceRequirements (200m)
 	resources := envoyResourceRequirements(search)
 	assert.Equal(t, resource.MustParse("200m"), resources.Requests[corev1.ResourceCPU])
 
@@ -250,9 +241,9 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 	}
 
 	// Apply deployment override
-	depCfg := search.Spec.LoadBalancer.Envoy.DeploymentConfiguration
+	depCfg := search.Spec.LoadBalancer.Managed.Deployment
 	dep.Spec = merge.DeploymentSpecs(dep.Spec, depCfg.SpecWrapper.Spec)
 
-	// deploymentConfiguration override wins (500m)
+	// deployment override wins (500m)
 	assert.Equal(t, resource.MustParse("500m"), dep.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
 }

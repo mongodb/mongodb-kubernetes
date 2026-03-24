@@ -1278,7 +1278,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 		if !r.mdbSearch.IsShardedUnmanagedLB() && !r.mdbSearch.IsLBModeManaged() {
 			return xerrors.Errorf(
 				"multiple mongot replicas (%d) require load balancer configuration; "+
-					"please configure load balancing in spec.lb.",
+					"please configure load balancing in spec.loadBalancer.",
 				r.mdbSearch.GetReplicas(),
 			)
 		}
@@ -1289,7 +1289,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 	if !r.mdbSearch.IsReplicaSetUnmanagedLB() && !r.mdbSearch.IsLBModeManaged() {
 		return xerrors.Errorf(
 			"multiple mongot replicas (%d) require load balancer configuration; "+
-				"please configure load balancing in spec.lb.",
+				"please configure load balancing in spec.loadBalancer.",
 			r.mdbSearch.GetReplicas(),
 		)
 	}
