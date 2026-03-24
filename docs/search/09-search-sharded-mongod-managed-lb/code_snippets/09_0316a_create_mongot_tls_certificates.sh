@@ -19,6 +19,7 @@ spec:
     - client auth
   dnsNames:
     - "*.${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_0_NAME}-svc.${MDB_NS}.svc.cluster.local"
+    - ${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_0_NAME}-proxy-svc.${MDB_NS}.svc.cluster.local
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
@@ -44,6 +45,7 @@ spec:
     - client auth
   dnsNames:
     - "*.${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_1_NAME}-svc.${MDB_NS}.svc.cluster.local"
+    - ${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_1_NAME}-proxy-svc.${MDB_NS}.svc.cluster.local
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer

@@ -179,15 +179,19 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
     create_x509_mongodb_tls_certs(issuer, namespace, mdb.name, f"certs-{mdb.name}-clusterfile")
     create_x509_mongodb_tls_certs(issuer, namespace, mdb.name, f"certs-{mdb.name}-cert", mdb.get_members())
 
-    # MongoDBSearch server cert (for gRPC ingress)
+    # MongoDBSearch server cert (for gRPC ingress — includes proxy service SAN)
     search_service_name = search_resource_names.mongot_service_name(mdbs.name)
+    proxy_service_name = search_resource_names.proxy_service_name(mdbs.name)
     create_tls_certs(
         issuer,
         namespace,
         search_resource_names.mongot_statefulset_name(mdbs.name),
         replicas=1,
         service_name=search_service_name,
-        additional_domains=[f"{search_service_name}.{namespace}.svc.cluster.local"],
+        additional_domains=[
+            f"{search_service_name}.{namespace}.svc.cluster.local",
+            f"{proxy_service_name}.{namespace}.svc.cluster.local",
+        ],
         secret_name=MDBS_TLS_SECRET_NAME,
     )
 

@@ -193,7 +193,7 @@ func TestBuildEnvoyConfigJSON_ReplicaSet_NoTLS(t *testing.T) {
 	route := envoyRoute{
 		Name:         "rs",
 		NameSafe:     "rs",
-		SNIHostname:  "mdb-search-search-lb-svc.test-ns.svc.cluster.local",
+		SNIHostname:  "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
 		UpstreamHost: "mdb-search-search-svc.test-ns.svc.cluster.local",
 		UpstreamPort: 27028,
 	}
@@ -229,7 +229,7 @@ func TestBuildEnvoyConfigJSON_ReplicaSet_WithTLS(t *testing.T) {
 	route := envoyRoute{
 		Name:         "rs",
 		NameSafe:     "rs",
-		SNIHostname:  "mdb-search-search-lb-svc.test-ns.svc.cluster.local",
+		SNIHostname:  "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
 		UpstreamHost: "mdb-search-search-svc.test-ns.svc.cluster.local",
 		UpstreamPort: 27028,
 	}

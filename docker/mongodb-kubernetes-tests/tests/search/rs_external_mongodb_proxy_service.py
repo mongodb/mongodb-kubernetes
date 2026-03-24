@@ -67,7 +67,7 @@ CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 # Module-level state for cross-test assertions (e.g., verifying ClusterIP stability)
 _state = {}
 
-TEST_MARKER = "e2e_search_rs_external_proxy_svc"
+TEST_MARKER = "e2e_search_rs_external_entrypoint_svc"
 
 
 # ---------------------------------------------------------------------------
@@ -224,13 +224,13 @@ def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBU
 # ---------------------------------------------------------------------------
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
     operator.assert_is_running()
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 @skip_if_cloud_manager
 def test_create_ops_manager(namespace: str):
     ops_manager = get_ops_manager(namespace)
@@ -240,7 +240,7 @@ def test_create_ops_manager(namespace: str):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_install_tls_certificates(namespace: str, helper: SearchDeploymentHelper, mdb: MongoDB, issuer: str):
     """Create all TLS certificates upfront (RS members, mongot, LB server, LB client).
 
@@ -271,13 +271,13 @@ def test_install_tls_certificates(namespace: str, helper: SearchDeploymentHelper
     )
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_create_database_resource(mdb: MongoDB):
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_create_users(
     helper: SearchDeploymentHelper,
     admin_user: MongoDBUser,
@@ -300,14 +300,14 @@ def test_create_users(
 # ---------------------------------------------------------------------------
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_create_search_resource_single(mdbs: MongoDBSearch):
     """Deploy MongoDBSearch with 1 replica, no LB."""
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_verify_proxy_service_single_mongot(namespace: str):
     """Core Phase 1 assertion: proxy Service targets mongot pods directly."""
     mongot_selector = {"app": search_resource_names.mongot_service_name(MDBS_RESOURCE_NAME)}
@@ -320,7 +320,7 @@ def test_verify_proxy_service_single_mongot(namespace: str):
     logger.info(f"Phase 1: proxy service ClusterIP = {_state['cluster_ip']}")
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_verify_headless_service_exists(namespace: str):
     """The headless Service (StatefulSet governing service) must still exist alongside the proxy service."""
     headless_svc_name = search_resource_names.mongot_service_name(MDBS_RESOURCE_NAME)
@@ -330,30 +330,30 @@ def test_verify_headless_service_exists(namespace: str):
     logger.info(f"Headless Service {headless_svc_name} exists with clusterIP=None")
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_verify_no_envoy_deployment(namespace: str):
     """Envoy Deployment should not exist when there is no LB."""
     assert_no_envoy_deployment(namespace)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_wait_for_database_ready_phase1(mdb: MongoDB):
     mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_verify_mongod_parameters(namespace: str, mdb: MongoDB):
     """Verify mongod's mongotHost points at the proxy Service."""
     expected_host = proxy_service_host(MDBS_RESOURCE_NAME, namespace, MONGOT_GRPC_PORT)
     verify_rs_mongod_parameters(namespace, MDB_RESOURCE_NAME, RS_MEMBERS, expected_host)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
     logger.info(f"Tools pod {tools_pod.pod_name} is ready")
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.ToolsPod):
     search_tester = get_rs_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
     search_tester.mongorestore_from_url(
@@ -363,14 +363,14 @@ def test_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.Tool
     )
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_create_search_index(mdb: MongoDB):
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
     search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_search_query_phase1(mdb: MongoDB):
     """Verify search works with single mongot through the proxy Service."""
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
@@ -382,7 +382,7 @@ def test_search_query_phase1(mdb: MongoDB):
 # ---------------------------------------------------------------------------
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_scale_up_to_managed_lb(mdbs: MongoDBSearch):
     """Scale to 2 replicas and enable managed LB. mongotHost does NOT change."""
     mdbs.load()
@@ -392,13 +392,13 @@ def test_scale_up_to_managed_lb(mdbs: MongoDBSearch):
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_verify_envoy_deployment(namespace: str):
     """Envoy Deployment should now exist and be ready."""
     assert_envoy_deployment_ready(namespace)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_verify_proxy_service_managed_lb(namespace: str):
     """Core Phase 2 assertion: proxy Service flips to Envoy, but name/IP/port stay the same."""
     envoy_selector = {"app": search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)}
@@ -410,14 +410,14 @@ def test_verify_proxy_service_managed_lb(namespace: str):
     )
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_verify_mongod_parameters_unchanged(namespace: str, mdb: MongoDB):
     """mongotHost still points at the proxy service — no reconfiguration needed."""
     expected_host = proxy_service_host(MDBS_RESOURCE_NAME, namespace, MONGOT_GRPC_PORT)
     verify_rs_mongod_parameters(namespace, MDB_RESOURCE_NAME, RS_MEMBERS, expected_host)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_search_query_phase2(mdb: MongoDB):
     """Search still works — traffic now flows through Envoy to 2 mongot pods."""
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
@@ -429,7 +429,7 @@ def test_search_query_phase2(mdb: MongoDB):
 # ---------------------------------------------------------------------------
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_scale_down_remove_lb(mdbs: MongoDBSearch):
     """Scale back to 1 replica and remove LB. mongotHost still does NOT change."""
     mdbs.load()
@@ -441,7 +441,7 @@ def test_scale_down_remove_lb(mdbs: MongoDBSearch):
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_verify_proxy_service_after_scaledown(namespace: str):
     """Core Phase 3 assertion: proxy Service reverts to mongot pods, same name/IP."""
     mongot_selector = {"app": search_resource_names.mongot_service_name(MDBS_RESOURCE_NAME)}
@@ -453,20 +453,20 @@ def test_verify_proxy_service_after_scaledown(namespace: str):
     )
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_verify_envoy_cleanup(namespace: str):
     """Envoy Deployment should be cleaned up (garbage collected via owner reference)."""
     assert_envoy_deployment_gone(namespace)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_search_query_phase3(mdb: MongoDB):
     """Search still works — back to direct single mongot through proxy service."""
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     verify_text_search_query(search_tester)
 
 
-@mark.e2e_search_rs_external_proxy_svc
+@mark.e2e_search_rs_external_entrypoint_svc
 def test_verify_final_status(mdbs: MongoDBSearch):
     mdbs.load()
     phase = mdbs.get_status_phase()
