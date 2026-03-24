@@ -19,7 +19,7 @@ import (
 )
 
 type ConnectionStringBuilder interface {
-	BuildConnectionString(userName, password string, scheme Scheme, authSource string, connectionParams map[string]string) string
+	BuildConnectionString(userName, password string, scheme Scheme, connectionParams map[string]string) string
 }
 
 // Scheme states the connection string format.
