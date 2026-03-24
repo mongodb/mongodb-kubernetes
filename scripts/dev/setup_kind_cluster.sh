@@ -212,6 +212,27 @@ function kind_install_calico() {
   echo "waiting for calico-kube-controllers to roll out"
   kubectl rollout status --kubeconfig "${kubeconfig_path}" \
     --namespace kube-system deployment/calico-kube-controllers --timeout=300s
+
+  # Add a blanket allow-all GlobalNetworkPolicy so that Calico acts purely as a
+  # CNI plugin without acting as a network firewall, similarly to kubenet.
+  #
+  # Background: applying any GlobalNetworkPolicy with selector: all() opts every
+  # pod into Calico's enforcement mode. Thereafter, any traffic not matching an
+  # explicit Allow rule is dropped by Felix. Without this policy MetalLB LoadBalancer
+  # traffic from the Docker bridge (which is needed for cross-cluster RS formation) is dropped.
+  kubectl apply --kubeconfig "${kubeconfig_path}" -f - <<EOF
+apiVersion: crd.projectcalico.org/v1
+kind: GlobalNetworkPolicy
+metadata:
+  name: allow-all-traffic
+spec:
+  order: 1000
+  selector: all()
+  ingress:
+  - action: Allow
+  egress:
+  - action: Allow
+EOF
 }
 
 function kind_install_metallb() {
