@@ -65,7 +65,6 @@ fi
 
 metallb_version="v0.13.7"
 metrics_server_version="v0.7.2"
-calico_version="v3.29.3"
 
 reg_name='kind-registry'
 reg_port='5000'
@@ -77,7 +76,7 @@ kind_delete_cluster() {
 
 kind_create_cluster_for_performance_tests() {
   echo "installing kind with more nodes with performance"
-  cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" -v=5 --config=-
+  cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" --wait 700s -v=5 --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -112,7 +111,6 @@ nodes:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 networking:
-  disableDefaultCNI: true
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
 kubeadmConfigPatches:
@@ -125,7 +123,7 @@ EOF
 }
 
 kind_create_cluster() {
-  cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" -v 5 --config=-
+  cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" --wait 700s -v 5 --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -135,7 +133,6 @@ nodes:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 networking:
-  disableDefaultCNI: true
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
 kubeadmConfigPatches:
@@ -175,64 +172,9 @@ data:
 EOF
 }
 
-function kind_wait_for_apiserver() {
-  echo "waiting for API server to be reachable"
-  local max_attempts=60
-  local attempt=0
-  until kubectl --kubeconfig "${kubeconfig_path}" get nodes &>/dev/null; do
-    attempt=$((attempt + 1))
-    if [[ ${attempt} -ge ${max_attempts} ]]; then
-      echo "ERROR: API server did not become ready in time"
-      exit 1
-    fi
-    sleep 5
-  done
-  echo "API server is ready"
-}
-
 function kind_wait_for_nodes_are_ready() {
   echo "testing for nodes to be ready"
   kubectl --kubeconfig "${kubeconfig_path}" wait nodes --all --for=condition=ready --timeout=600s >/dev/null
-}
-
-function kind_install_calico() {
-  echo "installing calico ${calico_version}"
-  curl -fsSL "https://raw.githubusercontent.com/projectcalico/calico/${calico_version}/manifests/calico.yaml" \
-    | sed \
-      -e '/CALICO_IPV4POOL_IPIP/,/CALICO_IPV4POOL_VXLAN/ s/value: "Always"/value: "Never"/' \
-      -e '/CALICO_IPV4POOL_VXLAN/,/CALICO_IPV6POOL_VXLAN/ s/value: "Never"/value: "Always"/' \
-      -e 's|# - name: CALICO_IPV4POOL_CIDR|- name: CALICO_IPV4POOL_CIDR|' \
-      -e "s|#   value: \"192.168.0.0/16\"|  value: \"${pod_network}\"|" \
-    | kubectl apply --kubeconfig "${kubeconfig_path}" -f -
-
-  echo "waiting for calico-node daemonset to roll out"
-  kubectl rollout status --kubeconfig "${kubeconfig_path}" \
-    --namespace kube-system daemonset/calico-node --timeout=300s
-
-  echo "waiting for calico-kube-controllers to roll out"
-  kubectl rollout status --kubeconfig "${kubeconfig_path}" \
-    --namespace kube-system deployment/calico-kube-controllers --timeout=300s
-
-  # Add a blanket allow-all GlobalNetworkPolicy so that Calico acts purely as a
-  # CNI plugin without acting as a network firewall, similarly to kubenet.
-  #
-  # Background: applying any GlobalNetworkPolicy with selector: all() opts every
-  # pod into Calico's enforcement mode. Thereafter, any traffic not matching an
-  # explicit Allow rule is dropped by Felix. Without this policy MetalLB LoadBalancer
-  # traffic from the Docker bridge (which is needed for cross-cluster RS formation) is dropped.
-  kubectl apply --kubeconfig "${kubeconfig_path}" -f - <<EOF
-apiVersion: crd.projectcalico.org/v1
-kind: GlobalNetworkPolicy
-metadata:
-  name: allow-all-traffic
-spec:
-  order: 1000
-  selector: all()
-  ingress:
-  - action: Allow
-  egress:
-  - action: Allow
-EOF
 }
 
 function kind_install_metallb() {
@@ -296,9 +238,7 @@ else
   kind_create_cluster
 fi
 
-kind_wait_for_apiserver
 kind_configure_local_registry
-kind_install_calico
 kind_wait_for_nodes_are_ready
 kind_install_metallb
 kind_install_metrics_server
