@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"time"
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -1905,6 +1906,16 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 			return workflow.Failed(err)
 		}
 		logWarnIgnoredDueToRecovery(log, err)
+	}
+
+	if sc.GetBackupSpec() != nil {
+		delaySeconds := env.ReadIntOrDefault(util.BackupStartDelaySecondsEnv, util.DefaultBackupStartDelaySeconds)
+		log.Infof("Waiting %d seconds before enabling backup to avoid race condition between OM topology discovery and backup enablement", delaySeconds)
+		select {
+		case <-ctx.Done():
+			return workflow.Failed(ctx.Err())
+		case <-time.After(time.Duration(delaySeconds) * time.Second):
+		}
 	}
 
 	if workflowStatus := r.commonController.ensureBackupConfigurationAndUpdateStatus(ctx, conn, sc, r.commonController.SecretClient, log); !workflowStatus.IsOK() {
