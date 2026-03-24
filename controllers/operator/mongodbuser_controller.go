@@ -278,8 +278,12 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
 	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{}, user.Spec.Database)
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{}, user.Spec.Database)
+	connParams := map[string]string{}
+	if user.Spec.Database != "" {
+		connParams["authSource"] = user.Spec.Database
+	}
+	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, connParams)
+	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, connParams)
 
 	connectionStringSecret := secret.Builder().
 		SetName(secretName).
