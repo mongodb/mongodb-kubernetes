@@ -8,7 +8,7 @@ Unlike [scenario 07](../07-search-external-sharded-mongod-managed-lb/) (external
 
 ### What is "Managed Envoy"?
 
-When you set `spec.lb.mode: Managed` in your MongoDBSearch resource, the operator automatically:
+When you set `spec.loadBalancer.managed: {}` in your MongoDBSearch resource, the operator automatically:
 
 1. **Deploys an Envoy proxy** - A Deployment that handles L7 (application layer) load balancing
 2. **Generates routing configuration** - SNI-based routing rules for each shard
@@ -35,7 +35,7 @@ You do NOT need to write Envoy configuration, deploy Envoy yourself, create prox
 │          ▼            ▼                                                     │
 │  ┌────────────────────────────────────────┐                                 │
 │  │    Envoy Proxy (operator-managed)      │                                 │
-│  │    • Listens on port 27029             │                                 │
+│  │    • Listens on port 27028             │                                 │
 │  │    • Routes by SNI hostname            │                                 │
 │  │    • mTLS to mongot backends           │                                 │
 │  └────────────────┬───────────────────────┘                                 │
@@ -57,7 +57,7 @@ In a sharded cluster, each shard has its own data. MongoDB Search deploys separa
 | Task | Your Responsibility |
 |------|---------------------|
 | MongoDB sharded cluster CR | ✅ Create the MongoDB CR (operator manages it) |
-| MongoDBSearch CR | ✅ Create with `lb.mode: Managed` and `mongodbResourceRef` |
+| MongoDBSearch CR | ✅ Create with `loadBalancer.managed: {}` and `mongodbResourceRef` |
 | TLS certificates | ✅ Create certs for mongot and LB |
 | Configure mongod search params | ❌ Operator handles this automatically |
 | Envoy deployment | ❌ Operator handles this |
@@ -253,7 +253,7 @@ Both must be signed by the same CA that mongod and mongot trust.
 
 #### Step 17: Create MongoDBSearch Resource
 
-Applies the MongoDBSearch CR with `lb.mode: Managed` and `mongodbResourceRef` pointing to the MongoDB CR. Unlike the external scenario, no `source.username`, `source.passwordSecretRef`, or `source.external` block is needed — the operator infers everything from the referenced MongoDB CR:
+Applies the MongoDBSearch CR with `loadBalancer.managed: {}` and `mongodbResourceRef` pointing to the MongoDB CR. Unlike the external scenario, no `source.username`, `source.passwordSecretRef`, or `source.external` block is needed — the operator infers everything from the referenced MongoDB CR:
 
 ```yaml
 apiVersion: mongodb.com/v1
@@ -268,8 +268,8 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  lb:
-    mode: Managed
+  loadBalancer:
+    managed: {}
 ```
 
 ```bash

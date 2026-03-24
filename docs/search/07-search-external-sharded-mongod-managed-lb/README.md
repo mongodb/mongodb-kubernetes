@@ -6,7 +6,7 @@ This guide walks you through deploying **MongoDB Search** against your **existin
 
 ### What is "Managed Envoy"?
 
-When you set `spec.lb.mode: Managed` in your MongoDBSearch resource, the operator automatically:
+When you set `spec.loadBalancer.managed: {}` in your MongoDBSearch resource, the operator automatically:
 
 1. **Deploys an Envoy proxy** - A Deployment that handles L7 (application layer) load balancing
 2. **Generates routing configuration** - SNI-based routing rules for each shard
@@ -31,7 +31,7 @@ You do NOT need to write Envoy configuration, deploy Envoy yourself, or create p
 │                    Kubernetes Cluster                                        │
 │  ┌────────────────────────────────────────┐                                 │
 │  │    Envoy Proxy (operator-managed)      │                                 │
-│  │    • Listens on port 27029             │                                 │
+│  │    • Listens on port 27028             │                                 │
 │  │    • Routes by SNI hostname            │                                 │
 │  │    • mTLS to mongot backends           │                                 │
 │  └────────────────┬───────────────────────┘                                 │
@@ -54,7 +54,7 @@ In a sharded cluster, each shard has its own data. MongoDB Search deploys separa
 |------|---------------------|
 | External MongoDB cluster | ✅ You manage your mongod instances |
 | Configure mongod search params | ✅ Point mongod at Envoy proxy endpoint |
-| MongoDBSearch CR | ✅ Create with `lb.mode: Managed` |
+| MongoDBSearch CR | ✅ Create with `loadBalancer.managed: {}` |
 | TLS certificates | ✅ Create certs for mongot (and optionally LB) |
 | Envoy deployment | ❌ Operator handles this |
 | Envoy configuration | ❌ Operator generates this |
@@ -180,7 +180,7 @@ Both must be signed by the same CA that mongod and mongot trust.
 
 #### Step 10: Create MongoDBSearch Resource
 
-Applies the MongoDBSearch CR with `lb.mode: Managed` and external cluster source configuration:
+Applies the MongoDBSearch CR with `loadBalancer.managed: {}` and external cluster source configuration:
 
 ```yaml
 apiVersion: mongodb.com/v1
@@ -212,11 +212,11 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  lb:
-    mode: Managed
+  loadBalancer:
+    managed: {}
 ```
 
-There is no `spec.lb.endpoint` — the operator creates and exposes the endpoints automatically.
+There is no `spec.loadBalancer.unmanaged.endpoint` — the operator creates and exposes the endpoints automatically.
 
 ```bash
 ./code_snippets/07_0320_create_mongodb_search_resource.sh
@@ -263,7 +263,7 @@ Proceed to [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/) 
 After the MongoDBSearch resource is running, configure your external mongod instances to connect to the operator-created proxy Services. The endpoint format is:
 
 ```
-{search-name}-search-0-{shard-name}-proxy-svc.{namespace}.svc.cluster.local:27029
+{search-name}-search-0-{shard-name}-proxy-svc.{namespace}.svc.cluster.local:27028
 ```
 
 Set these mongod parameters on each shard:
@@ -307,7 +307,7 @@ kubectl get svc -n ${MDB_NS} | grep proxy-svc
 # From your mongod host, test connectivity to the Envoy proxy endpoint
 curl -v ${MDB_PROXY_HOST_SHARD_0}
 # or
-openssl s_client -connect <envoy-endpoint>:27029 -servername <sni-hostname>
+openssl s_client -connect <envoy-endpoint>:27028 -servername <sni-hostname>
 ```
 
 **Common causes:**

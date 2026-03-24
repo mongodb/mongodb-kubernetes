@@ -15,9 +15,9 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  # lb.mode: Managed — operator automatically deploys and configures Envoy proxy
-  lb:
-    mode: Managed
+  # loadBalancer.managed — operator automatically deploys and configures Envoy proxy
+  loadBalancer:
+    managed: {}
   resourceRequirements:
     limits:
       cpu: "2"

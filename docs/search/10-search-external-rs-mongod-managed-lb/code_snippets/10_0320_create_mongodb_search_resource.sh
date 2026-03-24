@@ -24,8 +24,8 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  lb:
-    mode: Managed
+  loadBalancer:
+    managed: {}
   resourceRequirements:
     limits:
       cpu: "2"
