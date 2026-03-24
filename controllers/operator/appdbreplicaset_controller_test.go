@@ -613,7 +613,8 @@ func TestTryConfigureMonitoringInOpsManagerWithMalformedCredentials(t *testing.T
 
 	// the secret is malformed and tryConfigureMonitoringInOpsManager fails
 	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
-	assert.Errorf(t, err, "error reading opsManager credentials")
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "error reading opsManager credentials")
 	assert.Empty(t, podVars)
 
 	updatedData := map[string]string{
