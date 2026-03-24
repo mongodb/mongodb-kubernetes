@@ -29,7 +29,7 @@ MDBS_RESOURCE_NAME = MDBC_RESOURCE_NAME
 
 TLS_SECRET_NAME = "tls-secret"
 
-# MongoDBSearch TLS configuration — convention: {name}-search-cert
+# MongoDBSearch TLS configuration -- convention: {name}-search-cert
 MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME)
 
 

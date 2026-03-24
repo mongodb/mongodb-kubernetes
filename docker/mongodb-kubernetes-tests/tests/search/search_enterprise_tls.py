@@ -29,7 +29,7 @@ MONGOT_USER_PASSWORD = f"{MONGOT_USER_NAME}-password"
 USER_NAME = f"mdb-user"
 USER_PASSWORD = f"{USER_NAME}-password"
 
-# MongoDBSearch TLS configuration — convention: {name}-search-cert
+# MongoDBSearch TLS configuration -- convention: {name}-search-cert
 MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDB_RESOURCE_NAME)
 
 

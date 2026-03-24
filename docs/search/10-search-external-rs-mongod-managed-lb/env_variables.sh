@@ -94,7 +94,7 @@ export MDB_EXTERNAL_HOST_2="${MDB_EXTERNAL_CLUSTER_NAME}-2.${MDB_EXTERNAL_CLUSTE
 # Port where Envoy listens for mongod connections (operator default)
 export ENVOY_PROXY_PORT="27029"
 
-# Managed LB proxy host — stable proxy service for the RS topology
+# Managed LB proxy host -- stable proxy service for the RS topology
 export MDB_PROXY_HOST="${MDB_SEARCH_RESOURCE_NAME}-search-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
 
 # NOTE: Unlike unmanaged mode, you do NOT need to specify:

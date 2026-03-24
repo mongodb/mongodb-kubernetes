@@ -12,9 +12,9 @@ so the user never needs to reconfigure their database when scaling search.
 
 Phases:
   0. Infrastructure setup (operator, OM, TLS certs, MongoDB RS, users)
-  1. Single mongot, no LB — verify proxy service targets mongot directly
-  2. Scale to 2 mongots + managed LB — verify proxy service flips to Envoy
-  3. Scale back to 1 mongot, remove LB — verify proxy service reverts
+  1. Single mongot, no LB -- verify proxy service targets mongot directly
+  2. Scale to 2 mongots + managed LB -- verify proxy service flips to Envoy
+  3. Scale back to 1 mongot, remove LB -- verify proxy service reverts
 """
 
 from kubernetes import client as k8s_client
@@ -412,14 +412,14 @@ def test_verify_proxy_service_managed_lb(namespace: str):
 
 @mark.e2e_search_rs_external_entrypoint_svc
 def test_verify_mongod_parameters_unchanged(namespace: str, mdb: MongoDB):
-    """mongotHost still points at the proxy service — no reconfiguration needed."""
+    """mongotHost still points at the proxy service -- no reconfiguration needed."""
     expected_host = proxy_service_host(MDBS_RESOURCE_NAME, namespace, MONGOT_GRPC_PORT)
     verify_rs_mongod_parameters(namespace, MDB_RESOURCE_NAME, RS_MEMBERS, expected_host)
 
 
 @mark.e2e_search_rs_external_entrypoint_svc
 def test_search_query_phase2(mdb: MongoDB):
-    """Search still works — traffic now flows through Envoy to 2 mongot pods."""
+    """Search still works -- traffic now flows through Envoy to 2 mongot pods."""
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     verify_text_search_query(search_tester)
 
@@ -461,7 +461,7 @@ def test_verify_envoy_cleanup(namespace: str):
 
 @mark.e2e_search_rs_external_entrypoint_svc
 def test_search_query_phase3(mdb: MongoDB):
-    """Search still works — back to direct single mongot through proxy service."""
+    """Search still works -- back to direct single mongot through proxy service."""
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     verify_text_search_query(search_tester)
 
