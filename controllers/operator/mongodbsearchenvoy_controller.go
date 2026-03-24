@@ -17,6 +17,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -90,9 +91,12 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return result, err
 	}
 
-	// Only act when lb.mode == Managed
+	// TODO: can we find a better cleanup mechanism, and optimize the watching of the loadbalancer field by this controller ?
+	// Only act when lb.mode == Managed.
+	// If LB was previously active (status exists), clean up Envoy resources first.
 	if !mdbSearch.IsLBModeManaged() {
 		if mdbSearch.Status.LoadBalancer != nil {
+			r.deleteEnvoyResources(ctx, mdbSearch, log)
 			r.clearLBStatus(ctx, mdbSearch, log)
 		}
 		return reconcile.Result{}, nil
@@ -155,6 +159,27 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 	// GetStatus with LB part will return nil, which patches null into /status/loadBalancer
 	if _, err := commoncontroller.UpdateStatus(ctx, r.kubeClient, search, workflow.OK(), log, partOption); err != nil {
 		log.Warnf("Failed to clear loadBalancer status: %s", err)
+	}
+}
+
+// deleteEnvoyResources removes the Envoy Deployment and ConfigMap that were
+// created when managed LB was active. This is called exactly once per LB removal,
+// gated by Status.LoadBalancer != nil (cleared immediately after).
+func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
+	ns := search.Namespace
+
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentName(), Namespace: ns}}
+	if err := r.kubeClient.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
+		log.Warnf("Failed to delete Envoy Deployment %s: %s", dep.Name, err)
+	} else if err == nil {
+		log.Infof("Deleted Envoy Deployment %s", dep.Name)
+	}
+
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapName(), Namespace: ns}}
+	if err := r.kubeClient.Delete(ctx, cm); err != nil && !apierrors.IsNotFound(err) {
+		log.Warnf("Failed to delete Envoy ConfigMap %s: %s", cm.Name, err)
+	} else if err == nil {
+		log.Infof("Deleted Envoy ConfigMap %s", cm.Name)
 	}
 }
 
