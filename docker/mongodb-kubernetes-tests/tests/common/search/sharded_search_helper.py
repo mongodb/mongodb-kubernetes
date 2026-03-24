@@ -309,12 +309,12 @@ def patch_envoy_deployment_configuration(
     deployment_config: dict,
     timeout: int = 300,
 ):
-    """Patch the MongoDBSearch CR with a deploymentConfiguration override and wait for Running.
+    """Patch the MongoDBSearch CR with a deployment override and wait for Running.
 
-    Preserves any existing fields under spec.lb.envoy.
+    Preserves any existing fields under spec.loadBalancer.managed.
     """
     mdbs.load()
-    mdbs["spec"]["lb"].setdefault("envoy", {})["deploymentConfiguration"] = deployment_config
+    mdbs["spec"]["loadBalancer"].setdefault("managed", {})["deployment"] = deployment_config
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=timeout)
 
