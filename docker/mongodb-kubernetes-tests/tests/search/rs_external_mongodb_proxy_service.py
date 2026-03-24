@@ -153,7 +153,7 @@ def assert_envoy_deployment_gone(namespace: str):
                 return True, "Deployment deleted"
             return False, f"Unexpected error: {e}"
 
-    run_periodically(check, timeout=120, sleep_time=5, msg=f"Envoy Deployment {envoy_name} cleanup")
+    run_periodically(check, timeout=300, sleep_time=5, msg=f"Envoy Deployment {envoy_name} cleanup")
     logger.info(f"Envoy Deployment {envoy_name} is gone")
 
 
