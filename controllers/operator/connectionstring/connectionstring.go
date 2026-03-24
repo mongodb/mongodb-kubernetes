@@ -183,6 +183,11 @@ func (b *builder) Build() string {
 	for k, v := range b.connectionParams {
 		connectionParams[k] = v
 	}
+
+	// authSource is only meaningful when an authMechanism is set.
+	if authSource == "" || authMechanism == "" {
+		delete(connectionParams, "authSource")
+	}
 	var keys []string
 	for k := range connectionParams {
 		keys = append(keys, k)
