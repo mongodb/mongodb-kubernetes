@@ -74,9 +74,9 @@ class MongoDBSearch(MongoDB, CustomObject):
             return None
 
     def is_lb_mode_managed(self) -> bool:
-        """Returns True if spec.lb.mode is Managed."""
+        """Returns True if spec.loadBalancer.managed is set."""
         try:
-            return self["spec"]["lb"]["mode"] == "Managed"
+            return "managed" in self["spec"]["loadBalancer"]
         except KeyError:
             return False
 

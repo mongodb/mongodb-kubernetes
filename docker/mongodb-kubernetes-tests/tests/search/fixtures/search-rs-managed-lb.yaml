@@ -11,5 +11,5 @@ spec:
   security:
     tls:
       certsSecretPrefix: certs
-  lb:
-    mode: Managed
+  loadBalancer:
+    managed: {}

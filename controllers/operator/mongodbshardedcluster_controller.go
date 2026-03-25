@@ -1004,11 +1004,11 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 // 1. Per-shard mongod search parameters (when unmanaged or managed LB is configured)
 // 2. Mongos search parameters (always, when a MongoDBSearch resource exists)
 //
-// For sharded clusters with unmanaged LB (spec.lb.mode == Unmanaged):
-//   - spec.lb.endpoint contains a template with {shardName} placeholder
+// For sharded clusters with unmanaged LB (spec.loadBalancer.unmanaged):
+//   - spec.loadBalancer.unmanaged.endpoint contains a template with {shardName} placeholder
 //   - Each shard resolves its endpoint by substituting {shardName} with the actual shard name
 //
-// For sharded clusters with managed LB (spec.lb.mode == Managed):
+// For sharded clusters with managed LB (spec.loadBalancer.managed):
 //   - Each shard's mongod points to the operator-managed envoy proxy service
 //
 // For mongos (always configured when MongoDBSearch exists):

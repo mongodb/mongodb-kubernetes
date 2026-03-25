@@ -145,11 +145,18 @@ class SearchDeploymentHelper:
 
         if lb_mode or lb_endpoint:
             lb = {}
-            if lb_mode:
-                lb["mode"] = lb_mode
+            if lb_mode == "Managed":
+                external_hostname = (
+                    f"{self.mdbs_resource_name}-search-0-{{shardName}}-proxy-svc" f".{self.namespace}.svc.cluster.local"
+                )
+                lb["managed"] = {"externalHostname": external_hostname}
             if lb_endpoint:
-                lb["endpoint"] = lb_endpoint
-            resource["spec"]["lb"] = lb
+                if "unmanaged" not in lb:
+                    lb["unmanaged"] = {}
+                lb["unmanaged"]["endpoint"] = lb_endpoint
+            elif lb_mode == "Unmanaged":
+                lb["unmanaged"] = {}
+            resource["spec"]["loadBalancer"] = lb
 
         if replicas is not None:
             resource["spec"]["replicas"] = replicas
@@ -364,7 +371,11 @@ class SearchDeploymentHelper:
         }
 
         if lb_mode:
-            resource["spec"]["lb"] = {"mode": lb_mode}
+            if lb_mode == "Managed":
+                external_hostname = f"{self.mdbs_resource_name}-search-proxy-svc" f".{self.namespace}.svc.cluster.local"
+                resource["spec"]["loadBalancer"] = {"managed": {"externalHostname": external_hostname}}
+            elif lb_mode == "Unmanaged":
+                resource["spec"]["loadBalancer"] = {"unmanaged": {}}
 
         if replicas is not None:
             resource["spec"]["replicas"] = replicas

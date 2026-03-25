@@ -41,7 +41,9 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 	validators := []func(*MongoDBSearch) v1.ValidationResult{
 		validateLBConfig,
 		validateUnmanagedLBConfig,
+		validateManagedLBExternalHostname,
 		validateEndpointTemplate,
+		validateRSEndpointTemplate,
 		validateShardNames,
 		validateJVMFlags,
 		validateX509AuthConfig,
@@ -63,49 +65,77 @@ func validateLBConfig(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationSuccess()
 	}
 
-	// Mode must be specified if LB config is present
-	if s.Spec.LoadBalancer.Mode == "" {
-		return v1.ValidationError("spec.lb.mode must be specified when spec.lb is configured")
+	// Exactly one of managed or unmanaged must be set.
+	// The XValidation marker on LoadBalancerConfig enforces this at the CRD level;
+	// this check provides the same guarantee at the controller level.
+	if s.Spec.LoadBalancer.Managed == nil && s.Spec.LoadBalancer.Unmanaged == nil {
+		return v1.ValidationError("spec.loadBalancer must have exactly one of 'managed' or 'unmanaged' set")
 	}
-
-	// Mode must be either Managed or Unmanaged
-	if s.Spec.LoadBalancer.Mode != LBModeManaged && s.Spec.LoadBalancer.Mode != LBModeUnmanaged {
-		return v1.ValidationError("spec.lb.mode must be either 'Managed' or 'Unmanaged', got '%s'", s.Spec.LoadBalancer.Mode)
+	if s.Spec.LoadBalancer.Managed != nil && s.Spec.LoadBalancer.Unmanaged != nil {
+		return v1.ValidationError("spec.loadBalancer.managed and spec.loadBalancer.unmanaged are mutually exclusive")
 	}
 
 	return v1.ValidationSuccess()
 }
 
-// validateUnmanagedLBConfig validates that an endpoint is specified when mode is Unmanaged
+// validateUnmanagedLBConfig validates that an endpoint is specified when unmanaged LB is configured.
 func validateUnmanagedLBConfig(s *MongoDBSearch) v1.ValidationResult {
-	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Mode != LBModeUnmanaged {
+	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Unmanaged == nil {
 		return v1.ValidationSuccess()
 	}
 
-	if s.Spec.LoadBalancer.Endpoint == "" {
-		return v1.ValidationError("spec.lb.endpoint must be specified when spec.lb.mode is 'Unmanaged'")
+	if s.Spec.LoadBalancer.Unmanaged.Endpoint == "" {
+		return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must be specified when spec.loadBalancer.unmanaged is configured")
 	}
 
 	return v1.ValidationSuccess()
 }
 
-// validateEndpointTemplate validates the endpoint template format
+// validateManagedLBExternalHostname validates that externalHostname is set when using managed LB
+// with an external MongoDB source (Rule 5: Envoy needs the hostname for SNI matching).
+func validateManagedLBExternalHostname(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Managed == nil {
+		return v1.ValidationSuccess()
+	}
+
+	if s.IsExternalMongoDBSource() && s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+		return v1.ValidationError("spec.loadBalancer.managed.externalHostname must be specified when using managed load balancer with an external MongoDB source")
+	}
+
+	return v1.ValidationSuccess()
+}
+
+// validateEndpointTemplate validates the unmanaged endpoint template format for sharded clusters.
 func validateEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 	if !s.HasEndpointTemplate() {
 		return v1.ValidationSuccess()
 	}
 
-	endpoint := s.Spec.LoadBalancer.Endpoint
+	endpoint := s.Spec.LoadBalancer.Unmanaged.Endpoint
 
 	count := strings.Count(endpoint, ShardNamePlaceholder)
 	if count == 0 {
-		return v1.ValidationError("spec.lb.endpoint template must contain at least one %s placeholder to differentiate between shards, found %d", ShardNamePlaceholder, count)
+		return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint template must contain at least one %s placeholder to differentiate between shards, found %d", ShardNamePlaceholder, count)
 	}
 
 	// Endpoint must contain more than just the placeholder(s)
 	stripped := strings.TrimSpace(strings.ReplaceAll(endpoint, ShardNamePlaceholder, ""))
 	if stripped == "" {
-		return v1.ValidationError("spec.lb.endpoint must contain more than just the %s placeholder", ShardNamePlaceholder)
+		return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must contain more than just the %s placeholder", ShardNamePlaceholder)
+	}
+
+	return v1.ValidationSuccess()
+}
+
+// validateRSEndpointTemplate validates that a ReplicaSet unmanaged endpoint does not contain a
+// {shardName} template placeholder (Rule 8: template makes no sense for a ReplicaSet).
+func validateRSEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsLBModeUnmanaged() || s.IsExternalSourceSharded() || !s.IsExternalMongoDBSource() {
+		return v1.ValidationSuccess()
+	}
+
+	if s.HasEndpointTemplate() {
+		return v1.ValidationError("spec.loadBalancer.unmanaged.endpoint must not contain a %s placeholder for ReplicaSet deployments", ShardNamePlaceholder)
 	}
 
 	return v1.ValidationSuccess()

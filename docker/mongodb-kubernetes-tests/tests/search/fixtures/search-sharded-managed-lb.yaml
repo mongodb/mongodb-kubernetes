@@ -14,5 +14,5 @@ spec:
       # Secret naming pattern: {prefix}-{shardName}-search-cert
       # e.g., certs-mdb-sh-0-search-cert, certs-mdb-sh-1-search-cert
       certsSecretPrefix: certs
-  lb:
-    mode: Managed
+  loadBalancer:
+    managed: {}

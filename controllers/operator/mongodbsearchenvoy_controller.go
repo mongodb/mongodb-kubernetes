@@ -311,9 +311,9 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 
 		// Apply user deployment configuration override
 		if search.Spec.LoadBalancer != nil &&
-			search.Spec.LoadBalancer.Envoy != nil &&
-			search.Spec.LoadBalancer.Envoy.DeploymentConfiguration != nil {
-			depCfg := search.Spec.LoadBalancer.Envoy.DeploymentConfiguration
+			search.Spec.LoadBalancer.Managed != nil &&
+			search.Spec.LoadBalancer.Managed.Deployment != nil {
+			depCfg := search.Spec.LoadBalancer.Managed.Deployment
 			dep.Spec = merge.DeploymentSpecs(dep.Spec, depCfg.SpecWrapper.Spec)
 			dep.Labels = merge.StringToStringMap(dep.Labels, depCfg.MetadataWrapper.Labels)
 			dep.Annotations = merge.StringToStringMap(dep.Annotations, depCfg.MetadataWrapper.Annotations)
@@ -434,9 +434,9 @@ func (r *MongoDBSearchEnvoyReconciler) envoyContainerImage() (string, error) {
 // or the defaults (100m/128Mi requests, 500m/512Mi limits).
 func envoyResourceRequirements(search *searchv1.MongoDBSearch) corev1.ResourceRequirements {
 	if search.Spec.LoadBalancer != nil &&
-		search.Spec.LoadBalancer.Envoy != nil &&
-		search.Spec.LoadBalancer.Envoy.ResourceRequirements != nil {
-		return *search.Spec.LoadBalancer.Envoy.ResourceRequirements
+		search.Spec.LoadBalancer.Managed != nil &&
+		search.Spec.LoadBalancer.Managed.ResourceRequirements != nil {
+		return *search.Spec.LoadBalancer.Managed.ResourceRequirements
 	}
 	return defaultEnvoyResourceRequirements()
 }

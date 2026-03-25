@@ -14,7 +14,7 @@ This scenario is for users who already have a MongoDB replica set running outsid
 External mongod (your cluster)
         │
         ▼
-  Envoy L7 Proxy  ← operator-managed, port 27029
+  Envoy L7 Proxy  ← operator-managed, port 27028
         │
         ▼
    mongot pods     ← operator-managed, port 27028
@@ -116,7 +116,7 @@ The managed Envoy proxy needs a **server certificate** (for incoming mongod conn
 
 #### Step 8: Create MongoDBSearch Resource
 
-Applies the MongoDBSearch CR with `lb.mode: Managed` pointing to your external replica set:
+Applies the MongoDBSearch CR with `loadBalancer.managed: {}` pointing to your external replica set:
 
 ```yaml
 apiVersion: mongodb.com/v1
@@ -141,8 +141,8 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  lb:
-    mode: Managed
+  loadBalancer:
+    managed: {}
 ```
 
 ```bash
@@ -167,7 +167,7 @@ Checks that the operator created the expected resources:
 |----------|-------------|---------|
 | Deployment | `{name}-search-lb` | Envoy proxy pods |
 | ConfigMap | `{name}-search-lb-config` | Envoy routing configuration |
-| Service | `{name}-search-lb-svc` | Load balancer service (port 27029) |
+| Service | `{name}-search-proxy-svc` | Proxy service (port 27028) |
 | StatefulSet | `{name}-search` | mongot pods |
 | Service | `{name}-search-svc` | Headless service for mongot pods |
 

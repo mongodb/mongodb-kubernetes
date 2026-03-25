@@ -383,11 +383,12 @@ def test_search_query_phase1(mdb: MongoDB):
 
 
 @mark.e2e_search_rs_external_proxy_svc
-def test_scale_up_to_managed_lb(mdbs: MongoDBSearch):
+def test_scale_up_to_managed_lb(mdbs: MongoDBSearch, namespace: str):
     """Scale to 2 replicas and enable managed LB. mongotHost does NOT change."""
     mdbs.load()
     mdbs["spec"]["replicas"] = 2
-    mdbs["spec"]["lb"] = {"mode": "Managed"}
+    external_hostname = f"{proxy_service_name(MDBS_RESOURCE_NAME)}.{namespace}.svc.cluster.local"
+    mdbs["spec"]["loadBalancer"] = {"managed": {"externalHostname": external_hostname}}
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
@@ -434,9 +435,9 @@ def test_scale_down_remove_lb(mdbs: MongoDBSearch):
     """Scale back to 1 replica and remove LB. mongotHost still does NOT change."""
     mdbs.load()
     mdbs["spec"]["replicas"] = 1
-    # Remove the lb section entirely
-    if "lb" in mdbs["spec"]:
-        mdbs["spec"]["lb"] = None
+    # Remove the loadBalancer section entirely
+    if "loadBalancer" in mdbs["spec"]:
+        mdbs["spec"]["loadBalancer"] = None
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 

@@ -24,8 +24,9 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  lb:
-    mode: Managed
+  loadBalancer:
+    managed:
+      externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-proxy-svc.${MDB_NS}.svc.cluster.local
   resourceRequirements:
     limits:
       cpu: "2"

@@ -89,28 +89,18 @@ spec:
                 items:
                   type: string
                 type: array
-              lb:
+              loadBalancer:
                 description: LoadBalancer configures how mongod/mongos connect to
                   mongot (Managed vs Unmanaged/BYO Load Balancer).
                 properties:
-                  endpoint:
-                    description: |-
-                      Endpoint is the LB endpoint for ReplicaSet, or a template for sharded clusters.
-                      For sharded clusters, at least one {shardName} placeholder must be present and will be substituted with the actual shard name.
-                      Each shard must connect to their mongots using a shard-unique endpoint to allow LoadBalancer to
-                      route the traffic to the mongot instances for that shard.
-                      Example: "lb-{shardName}.example.com:27028"
-                    type: string
-                  envoy:
-                    description: Envoy contains configuration for operator-managed
-                      Envoy load balancer
+                  managed:
+                    description: Managed configures an operator-managed Envoy load
+                      balancer.
                     properties:
-                      deploymentConfiguration:
+                      deployment:
                         description: |-
-                          DeploymentConfiguration holds the optional custom Deployment configuration
-                          that will be merged into the operator-created Envoy Deployment.
-                          Use to provide customizations (tolerations, affinity, nodeSelector, annotations, etc.)
-                          which aren't exposed as fields in spec.lb.envoy.
+                          Deployment holds optional overrides merged into the operator-created Envoy Deployment.
+                          Follows the same convention as spec.statefulSet on MongoDB resources.
                         properties:
                           metadata:
                             description: DeploymentMetadataWrapper is a wrapper around
@@ -131,11 +121,16 @@ spec:
                         required:
                         - spec
                         type: object
+                      externalHostname:
+                        description: |-
+                          ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
+                          For sharded clusters, may contain a {shardName} placeholder.
+                          Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
+                        type: string
                       resourceRequirements:
                         description: |-
                           ResourceRequirements for the Envoy container.
                           When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.
-                          When set, replaces the defaults entirely.
                         properties:
                           claims:
                             description: |-
@@ -194,16 +189,21 @@ spec:
                             type: object
                         type: object
                     type: object
-                  mode:
-                    description: 'Mode specifies the load balancer mode: Managed (operator-managed)
-                      or Unmanaged (BYO L7 Load Balancer)'
-                    enum:
-                    - Managed
-                    - Unmanaged
-                    type: string
-                required:
-                - mode
+                  unmanaged:
+                    description: Unmanaged configures a user-provided (BYO) L7 load
+                      balancer.
+                    properties:
+                      endpoint:
+                        description: |-
+                          Endpoint is the full host:port of the BYO load balancer written into mongod config.
+                          For sharded clusters, must contain a {shardName} placeholder.
+                        type: string
+                    type: object
                 type: object
+                x-kubernetes-validations:
+                - message: exactly one of managed or unmanaged must be set
+                  rule: (has(self.managed) && !has(self.unmanaged)) || (!has(self.managed)
+                    && has(self.unmanaged))
               logLevel:
                 description: Configure verbosity of mongot logs. Defaults to INFO
                   if not set.
@@ -280,7 +280,7 @@ spec:
                   Replicas is the number of mongot pods to deploy.
                   For ReplicaSet source: the number of mongot pods in total.
                   For Sharded source: the number mongot pods per shard.
-                  When Replicas > 1, a load balancer configuration (spec.lb)
+                  When Replicas > 1, a load balancer configuration (spec.loadBalancer)
                   is required to distribute traffic across mongot instances.
                 minimum: 1
                 type: integer
@@ -581,7 +581,7 @@ spec:
               loadBalancer:
                 description: |-
                   LoadBalancer reports the state of the operator-managed load balancer.
-                  Only populated when spec.lb.mode == Managed.
+                  Only populated when spec.loadBalancer.managed is set.
                 properties:
                   message:
                     type: string

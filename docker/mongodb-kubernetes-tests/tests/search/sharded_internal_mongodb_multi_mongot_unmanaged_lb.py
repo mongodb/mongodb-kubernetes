@@ -110,8 +110,14 @@ def mdbs(namespace: str) -> MongoDBSearch:
         return resource
 
     spec = resource["spec"]
-    if "lb" in spec and "endpoint" in spec["lb"]:
-        spec["lb"]["endpoint"] = spec["lb"]["endpoint"].replace("NAMESPACE", namespace)
+    if (
+        "loadBalancer" in spec
+        and "unmanaged" in spec["loadBalancer"]
+        and "endpoint" in spec["loadBalancer"]["unmanaged"]
+    ):
+        spec["loadBalancer"]["unmanaged"]["endpoint"] = spec["loadBalancer"]["unmanaged"]["endpoint"].replace(
+            "NAMESPACE", namespace
+        )
 
     return resource
 
