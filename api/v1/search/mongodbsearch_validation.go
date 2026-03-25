@@ -130,7 +130,7 @@ func validateEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 // validateRSEndpointTemplate validates that a ReplicaSet unmanaged endpoint does not contain a
 // {shardName} template placeholder (Rule 8: template makes no sense for a ReplicaSet).
 func validateRSEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
-	if !s.IsLBModeUnmanaged() || s.IsExternalSourceSharded() {
+	if !s.IsLBModeUnmanaged() || s.IsExternalSourceSharded() || !s.IsExternalMongoDBSource() {
 		return v1.ValidationSuccess()
 	}
 

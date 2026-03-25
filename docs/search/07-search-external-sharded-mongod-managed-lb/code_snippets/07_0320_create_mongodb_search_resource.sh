@@ -37,7 +37,8 @@ spec:
   # loadBalancer.managed -- operator auto-deploys
   # and configures Envoy proxy
   loadBalancer:
-    managed: {}
+    managed:
+      externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-{shardName}-proxy-svc.${MDB_NS}.svc.cluster.local
   resourceRequirements:
     limits:
       cpu: "2"
