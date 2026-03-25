@@ -13,7 +13,7 @@ export MDB_NS="mongodb"
 # ============================================================================
 
 # Name for the operator-managed MongoDB replica set and MongoDBSearch resource
-# (same name for both — operator infers the reference)
+# (same name for both -- operator infers the reference)
 export MDB_RESOURCE_NAME="mdb-rs"
 
 # ============================================================================
@@ -77,14 +77,14 @@ export MDB_MONGOT_REPLICAS=2
 # ============================================================================
 
 # Envoy proxy port (operator default)
-ENVOY_PROXY_PORT="27029"
+ENVOY_PROXY_PORT="27028"
 
 # DO NOT CHANGE this proxy service name.
-# The operator derives it via LoadBalancerServiceName
+# The operator derives it via ProxyServiceNamespacedName
 # (api/v1/search/mongodbsearch_types.go) using the hardcoded pattern:
-#   {search-resource}-search-lb-svc
-# Changing this var won't change the real Service — it will just break the scripts.
-export MDB_PROXY_HOST="${MDB_RESOURCE_NAME}-search-lb-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
+#   {search-resource}-search-proxy-svc
+# Changing this var won't change the real Service -- it will just break the scripts.
+export MDB_PROXY_HOST="${MDB_RESOURCE_NAME}-search-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
 
 # RS member hosts (operator naming convention)
 export MDB_RS_HOST_0="${MDB_RESOURCE_NAME}-0.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local:27017"

@@ -2,7 +2,7 @@ echo "Verifying operator-managed Envoy deployment..."
 
 envoy_deployment="${MDB_SEARCH_RESOURCE_NAME}-search-lb"
 envoy_configmap="${MDB_SEARCH_RESOURCE_NAME}-search-lb-config"
-lb_service="${MDB_SEARCH_RESOURCE_NAME}-search-lb-svc"
+proxy_service="${MDB_SEARCH_RESOURCE_NAME}-search-proxy-svc"
 
 echo "Checking Envoy ConfigMap..."
 if kubectl get configmap "${envoy_configmap}" -n "${MDB_NS}" --context "${K8S_CTX}" &>/dev/null; then
@@ -31,11 +31,11 @@ else
   exit 1
 fi
 
-echo "Checking LB Service..."
-if kubectl get service "${lb_service}" -n "${MDB_NS}" --context "${K8S_CTX}" &>/dev/null; then
-  echo "  ✓ Service '${lb_service}' exists"
+echo "Checking Proxy Service..."
+if kubectl get service "${proxy_service}" -n "${MDB_NS}" --context "${K8S_CTX}" &>/dev/null; then
+  echo "  ✓ Service '${proxy_service}' exists"
 else
-  echo "  ✗ Service '${lb_service}' NOT FOUND"
+  echo "  ✗ Service '${proxy_service}' NOT FOUND"
   exit 1
 fi
 

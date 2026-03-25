@@ -119,7 +119,7 @@ export MDB_PROXY_SVC_SHARD_0=\
 export MDB_PROXY_SVC_SHARD_1=\
 "${SEARCH_PFX}-${MDB_EXTERNAL_SHARD_1_NAME}-proxy-svc"
 
-SVC_SUFFIX="${MDB_NS}.svc.cluster.local:27029"
+SVC_SUFFIX="${MDB_NS}.svc.cluster.local:27028"
 export MDB_PROXY_HOST_SHARD_0=\
 "${MDB_PROXY_SVC_SHARD_0}.${SVC_SUFFIX}"
 export MDB_PROXY_HOST_SHARD_1=\
