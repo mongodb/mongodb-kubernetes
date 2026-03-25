@@ -266,7 +266,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 		return fmt.Errorf("failed to ensure Envoy ConfigMap: %w", err)
 	}
 
-	log.Info("Envoy ConfigMap ensured")
+	log.Info("Envoy ConfigMap created/updated")
 	return nil
 }
 
@@ -310,10 +310,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 		}
 
 		// Apply user deployment configuration override
-		if search.Spec.LoadBalancer != nil &&
-			search.Spec.LoadBalancer.Managed != nil &&
-			search.Spec.LoadBalancer.Managed.Deployment != nil {
-			depCfg := search.Spec.LoadBalancer.Managed.Deployment
+		if depCfg := search.GetManagedLBDeploymentConfig(); depCfg != nil {
 			dep.Spec = merge.DeploymentSpecs(dep.Spec, depCfg.SpecWrapper.Spec)
 			dep.Labels = merge.StringToStringMap(dep.Labels, depCfg.MetadataWrapper.Labels)
 			dep.Annotations = merge.StringToStringMap(dep.Annotations, depCfg.MetadataWrapper.Annotations)
@@ -325,7 +322,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 		return fmt.Errorf("failed to ensure Envoy Deployment: %w", err)
 	}
 
-	log.Info("Envoy Deployment ensured")
+	log.Info("Envoy Deployment created/updated")
 	return nil
 }
 
@@ -433,10 +430,8 @@ func (r *MongoDBSearchEnvoyReconciler) envoyContainerImage() (string, error) {
 // envoyResourceRequirements returns user-specified resource requirements
 // or the defaults (100m/128Mi requests, 500m/512Mi limits).
 func envoyResourceRequirements(search *searchv1.MongoDBSearch) corev1.ResourceRequirements {
-	if search.Spec.LoadBalancer != nil &&
-		search.Spec.LoadBalancer.Managed != nil &&
-		search.Spec.LoadBalancer.Managed.ResourceRequirements != nil {
-		return *search.Spec.LoadBalancer.Managed.ResourceRequirements
+	if reqs := search.GetManagedLBResourceRequirements(); reqs != nil {
+		return *reqs
 	}
 	return defaultEnvoyResourceRequirements()
 }

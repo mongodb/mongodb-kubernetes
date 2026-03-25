@@ -54,7 +54,7 @@ const (
 type SearchSourceDBResource interface {
 	KeyfileSecretName() string
 	TLSConfig() *TLSSourceConfig
-	HostSeeds(shardName string) []string
+	HostSeeds(shardName string) ([]string, error)
 	Validate() error
 	ResourceType() mdb.ResourceType
 }

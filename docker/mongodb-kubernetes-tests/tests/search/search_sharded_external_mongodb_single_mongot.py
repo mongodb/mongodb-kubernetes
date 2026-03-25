@@ -96,13 +96,13 @@ def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBU
     return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
     operator.assert_is_running()
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 @skip_if_cloud_manager
 def test_create_ops_manager(namespace: str):
     ops_manager = get_ops_manager(namespace)
@@ -112,18 +112,18 @@ def test_create_ops_manager(namespace: str):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_install_tls_certificates(helper: SearchDeploymentHelper, mdb: MongoDB, issuer: str):
     helper.install_sharded_tls_certificates()
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_create_sharded_cluster(mdb: MongoDB):
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=900)
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_create_users(
     helper: SearchDeploymentHelper,
     admin_user: MongoDBUser,
@@ -141,7 +141,7 @@ def test_create_users(
     )
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_create_search_tls_certificate(namespace: str, issuer: str):
     """Create per-shard TLS certificates for MongoDBSearch resource."""
     create_per_shard_search_tls_certs(
@@ -155,20 +155,20 @@ def test_create_search_tls_certificate(namespace: str, issuer: str):
     logger.info(f"Per-shard Search TLS certificates created with prefix: {MDBS_TLS_CERT_PREFIX}")
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_create_search_resource(mdbs: MongoDBSearch):
     """Test MongoDBSearch resource deployment with external sharded source config."""
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_wait_for_sharded_cluster_ready(mdb: MongoDB):
     """Wait for sharded cluster to be ready after Search deployment."""
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_wait_for_agents_ready(mdb: MongoDB):
     """Wait for automation agents to be ready."""
     mdb.get_om_tester().wait_agents_ready()
@@ -177,7 +177,7 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 
 # TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
 # to wait for to get the mongod/mongos config properly generated.
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     verify_sharded_mongod_parameters(
         namespace,
@@ -192,12 +192,12 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
 
 # TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
 # to wait for to get the mongod/mongos config properly generated.
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
     verify_mongos_search_config(namespace, MDB_RESOURCE_NAME)
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_search_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
     # The tools_pod fixture handles deployment and waiting for readiness
     logger.info(f"Tools pod {tools_pod.pod_name} is ready")
@@ -213,7 +213,7 @@ def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.S
     )
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_search_restore_sample_database(
     mdb: MongoDB, sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper
 ):
@@ -221,14 +221,14 @@ def test_search_restore_sample_database(
     logger.info("Sample database restored")
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_search_shard_collections(mdb: MongoDB):
     search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=True)
     search_tester.shard_and_distribute_collection("sample_mflix", "movies")
     logger.info("Collections sharded and chunks are distributed")
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_verify_documents_count_in_shards(mdb: MongoDB):
     search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=True)
     movies_helper = SampleMoviesSearchHelper(search_tester)
@@ -247,7 +247,7 @@ def test_verify_documents_count_in_shards(mdb: MongoDB):
     logger.info(f"Document distribution verified: {shard_counts}, total: {shard_total}")
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_search_create_search_index(mdb: MongoDB):
     search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
@@ -260,19 +260,19 @@ def test_search_create_search_index(mdb: MongoDB):
     logger.info("Vector search index is ready on embedded_movies")
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_execute_text_search_query(mdb: MongoDB):
     search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     verify_text_search_query(search_tester)
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_search_verify_results_from_all_shards(mdb: MongoDB):
     search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     verify_search_results_from_all_shards(search_tester)
 
 
-@mark.e2e_search_sharded_external_mongod_single_mongot
+@mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_vector_search_before_and_after_sharding(mdb: MongoDB):
     search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     admin_search_tester = get_search_tester(

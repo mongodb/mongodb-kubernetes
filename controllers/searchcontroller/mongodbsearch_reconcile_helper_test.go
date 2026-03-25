@@ -986,14 +986,16 @@ func TestCreateShardMongotConfig(t *testing.T) {
 		},
 	}
 
+	seeds0, _ := shardedSource.HostSeeds(shardedSource.shardNames[0])
 	config := mongot.Config{}
-	createMongotConfigForShard(search, shardedSource, shardedSource.shardNames[0])(&config)
+	createMongotConfigForShard(search, seeds0, shardedSource, shardedSource.shardNames[0])(&config)
 
 	assert.Equal(t, []string{"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"}, config.SyncSource.ReplicaSet.HostAndPort)
 	assert.Equal(t, search.SourceUsername(), config.SyncSource.ReplicaSet.Username)
 
+	seeds1, _ := shardedSource.HostSeeds(shardedSource.shardNames[1])
 	config2 := mongot.Config{}
-	createMongotConfigForShard(search, shardedSource, shardedSource.shardNames[1])(&config2)
+	createMongotConfigForShard(search, seeds1, shardedSource, shardedSource.shardNames[1])(&config2)
 
 	assert.Equal(t, []string{"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"}, config2.SyncSource.ReplicaSet.HostAndPort)
 }
@@ -1016,8 +1018,9 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 		},
 	}
 
+	seedsTLS, _ := shardedSource.HostSeeds(shardedSource.shardNames[0])
 	config := mongot.Config{}
-	createMongotConfigForShard(search, shardedSource, shardedSource.shardNames[0])(&config)
+	createMongotConfigForShard(search, seedsTLS, shardedSource, shardedSource.shardNames[0])(&config)
 
 	require.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should initially be false")
@@ -1057,8 +1060,9 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 		tlsConfig: nil, // No TLS
 	}
 
+	seedsNoTLS, _ := shardedSource.HostSeeds(shardedSource.shardNames[0])
 	config := mongot.Config{}
-	createMongotConfigForShard(search, shardedSource, shardedSource.shardNames[0])(&config)
+	createMongotConfigForShard(search, seedsNoTLS, shardedSource, shardedSource.shardNames[0])(&config)
 
 	require.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be false when source has no TLS")
@@ -1092,13 +1096,13 @@ func (m *mockShardedSource) MongosHostAndPort() string {
 }
 
 // Implement SearchSourceDBResource interface
-func (m *mockShardedSource) HostSeeds(shardName string) []string {
+func (m *mockShardedSource) HostSeeds(shardName string) ([]string, error) {
 	for idx, name := range m.shardNames {
 		if name == shardName {
-			return m.hostSeeds[idx]
+			return m.hostSeeds[idx], nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func (m *mockShardedSource) Validate() error {

@@ -1335,12 +1335,12 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_external_basic
+  - name: e2e_search_community_external_mongod_basic
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_external_tls
+  - name: e2e_search_community_external_mongod_tls
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1360,32 +1360,32 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_sharded_enterprise_external_lb
+  - name: e2e_search_sharded_internal_mongodb_multi_mongot_unmanaged_lb
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_sharded_enterprise_managed_lb
+  - name: e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_rs_enterprise_managed_lb
+  - name: e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_rs_external_managed_lb
+  - name: e2e_search_replicaset_external_mongodb_multi_mongot_managed_lb
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_rs_external_proxy_svc
+  - name: e2e_search_replicaset_external_mongodb_proxy_service
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_sharded_enterprise_external_mongod
+  - name: e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1395,31 +1395,31 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_sharded_external_mongod_single_mongot
+  - name: e2e_search_sharded_external_mongodb_single_mongot
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
-  - name: e2e_search_external_rs_single_mongot
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_search_external_rs_multi_mongot_unmanaged_lb
+  - name: e2e_search_replicaset_external_mongodb_single_mongot
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_internal_rs_multi_mongot_unmanaged_lb
+  - name: e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_sharded_internal_single_mongot
+  - name: e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_mongot_rs_x509_auth
+  - name: e2e_search_sharded_internal_mongodb_single_mongot
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_mongot_replicaset_x509_auth
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

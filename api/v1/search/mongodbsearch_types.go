@@ -583,6 +583,20 @@ func (s *MongoDBSearch) IsShardedUnmanagedLB() bool {
 	return s.IsLBModeUnmanaged() && s.HasEndpointTemplate()
 }
 
+// IsShardedEndpoint returns true if the LB configuration uses a sharded endpoint pattern
+// (either unmanaged with {shardName} template, or managed with {shardName} in hostname).
+// This is a hint that the MongoDBSearch targets a sharded cluster, though the
+// authoritative check is the type assertion on SearchSourceShardedDeployment at the controller level.
+func (s *MongoDBSearch) IsShardedEndpoint() bool {
+	if s.IsShardedUnmanagedLB() {
+		return true
+	}
+	if s.IsLBModeManaged() && strings.Contains(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder) {
+		return true
+	}
+	return false
+}
+
 // GetEndpointForShard returns the endpoint for a specific shard by substituting
 // the {shardName} placeholder in the endpoint template.
 func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
@@ -622,6 +636,22 @@ func (s *MongoDBSearch) MongotConfigMapForShard(shardName string) types.Namespac
 
 func (s *MongoDBSearch) IsLBModeManaged() bool {
 	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Managed != nil
+}
+
+// GetManagedLBDeploymentConfig returns the user-provided Envoy Deployment override, or nil.
+func (s *MongoDBSearch) GetManagedLBDeploymentConfig() *common.DeploymentConfiguration {
+	if s.IsLBModeManaged() {
+		return s.Spec.LoadBalancer.Managed.Deployment
+	}
+	return nil
+}
+
+// GetManagedLBResourceRequirements returns user-specified Envoy resource requirements, or nil.
+func (s *MongoDBSearch) GetManagedLBResourceRequirements() *corev1.ResourceRequirements {
+	if s.IsLBModeManaged() {
+		return s.Spec.LoadBalancer.Managed.ResourceRequirements
+	}
+	return nil
 }
 
 // GetManagedLBEndpoint returns the external hostname from spec.loadBalancer.managed.externalHostname

@@ -274,7 +274,9 @@ func TestShardedExternalSearchSource_HostSeeds(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			src := newShardedExternalSearchSource(c.spec)
-			assert.Equal(t, c.expected, src.HostSeeds(c.shardName))
+			seeds, err := src.HostSeeds(c.shardName)
+			assert.NoError(t, err)
+			assert.Equal(t, c.expected, seeds)
 		})
 	}
 }

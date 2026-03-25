@@ -1,6 +1,8 @@
 package searchcontroller
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/types"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
@@ -54,10 +56,10 @@ func (r *externalSearchResource) KeyfileSecretName() string {
 	return ""
 }
 
-func (r *externalSearchResource) HostSeeds(shardName string) []string {
+func (r *externalSearchResource) HostSeeds(shardName string) ([]string, error) {
 	if shardName != "" {
-		panic("shardName is not supported for replica set")
+		return nil, fmt.Errorf("shardName is not supported for replica set")
 	}
 
-	return r.spec.HostAndPorts
+	return r.spec.HostAndPorts, nil
 }

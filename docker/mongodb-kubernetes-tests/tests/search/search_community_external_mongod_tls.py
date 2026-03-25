@@ -77,13 +77,13 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
     return resource
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
     operator.assert_is_running()
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
     create_or_update_secret(namespace=namespace, name=f"{USER_NAME}-password", data={"password": USER_PASSWORD})
     create_or_update_secret(
@@ -96,7 +96,7 @@ def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
     )
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_install_tls_secrets_and_configmaps(
     namespace: str, mdbc: MongoDBCommunity, mdbs: MongoDBSearch, issuer: str, issuer_ca_filepath: str
 ):
@@ -119,13 +119,13 @@ def test_install_tls_secrets_and_configmaps(
     create_or_update_secret(namespace=namespace, name=ca_secret_name, data={"ca.crt": ca})
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_create_database_resource(mdbc: MongoDBCommunity):
     mdbc.update()
     mdbc.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
     seeds = [
         f"{mdbc.name}-{i}.{mdbc.name}-svc.{mdbc.namespace}.svc.cluster.local:27017"
@@ -149,7 +149,7 @@ def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
     mdbc.assert_reaches_phase(Phase.Running, timeout=300)
 
@@ -162,16 +162,16 @@ def sample_movies_helper(mdbc: MongoDBCommunity, issuer_ca_filepath: str, namesp
     )
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_search_restore_sample_database(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.restore_sample_database()
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.create_search_index()
 
 
-@mark.e2e_search_external_tls
+@mark.e2e_search_community_external_mongod_tls
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.assert_search_query(retry_timeout=60)

@@ -123,8 +123,8 @@ func TestBuildEnvoyConfigJSON_SingleShard_WithTLS(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, downstreamTLS.RequireClientCertificate.GetValue())
-	assert.Equal(t, tlsv3.TlsParameters_TLSv1_2, downstreamTLS.CommonTlsContext.TlsParams.TlsMinimumProtocolVersion)
-	assert.Equal(t, tlsv3.TlsParameters_TLSv1_2, downstreamTLS.CommonTlsContext.TlsParams.TlsMaximumProtocolVersion)
+	assert.Equal(t, tlsv3.TlsParameters_TLSv1_3, downstreamTLS.CommonTlsContext.TlsParams.TlsMinimumProtocolVersion)
+	assert.Equal(t, tlsv3.TlsParameters_TLSv1_3, downstreamTLS.CommonTlsContext.TlsParams.TlsMaximumProtocolVersion)
 	assert.Equal(t, []string{"h2"}, downstreamTLS.CommonTlsContext.AlpnProtocols)
 
 	require.Len(t, downstreamTLS.CommonTlsContext.TlsCertificates, 1)
