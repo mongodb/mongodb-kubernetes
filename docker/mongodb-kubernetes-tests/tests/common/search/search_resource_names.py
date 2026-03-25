@@ -31,6 +31,16 @@ def mongot_service_host(search_name: str, namespace: str, port: int) -> str:
     return f"{mongot_service_name(search_name)}.{namespace}.svc.cluster.local:{port}"
 
 
+def proxy_service_name(search_name: str) -> str:
+    """Stable proxy Service name for RS. Mirrors ProxyServiceNamespacedName()."""
+    return f"{search_name}-search-proxy-svc"
+
+
+def proxy_service_host(search_name: str, namespace: str, port: int) -> str:
+    """Full hostname:port for the RS proxy Service."""
+    return f"{proxy_service_name(search_name)}.{namespace}.svc.cluster.local:{port}"
+
+
 def mongot_tls_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
     """TLS certificate secret name for RS mongot. Mirrors TLSSecretNamespacedName().
 
@@ -76,7 +86,7 @@ def shard_tls_cert_name(search_name: str, shard_name: str, certs_secret_prefix: 
 
 
 def shard_proxy_service_name(search_name: str, shard_name: str) -> str:
-    """Per-shard SNI proxy Service name. Mirrors LoadBalancerProxyServiceNameForShard()."""
+    """Per-shard stable proxy Service name. Mirrors ProxyServiceNameForShard()."""
     return f"{search_name}-search-0-{shard_name}-proxy-svc"
 
 
@@ -103,16 +113,6 @@ def lb_deployment_name(search_name: str) -> str:
 def lb_configmap_name(search_name: str) -> str:
     """Managed LB ConfigMap name. Mirrors LoadBalancerConfigMapName()."""
     return f"{search_name}-search-lb-config"
-
-
-def lb_service_name(search_name: str) -> str:
-    """Managed LB ClusterIP Service name. Mirrors LoadBalancerServiceName()."""
-    return f"{search_name}-search-lb-svc"
-
-
-def lb_proxy_service_host(search_name: str, namespace: str, port: int = 27029) -> str:
-    """Full hostname:port for the RS managed LB proxy Service."""
-    return f"{lb_service_name(search_name)}.{namespace}.svc.cluster.local:{port}"
 
 
 def lb_server_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:

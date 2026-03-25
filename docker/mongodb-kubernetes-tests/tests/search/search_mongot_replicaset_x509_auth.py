@@ -37,7 +37,7 @@ MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDB_RESOURCE_N
 # x509 client cert secret for sync source authentication
 X509_CLIENT_CERT_SECRET_NAME = f"{MDB_RESOURCE_NAME}-x509-sync-client-cert"
 
-# The CN used in the x509 client cert — must match the MongoDB $external user
+# The CN used in the x509 client cert -- must match the MongoDB $external user
 X509_CLIENT_CERT_CN = "mongot-sync-source"
 
 # Password used to encrypt the x509 client cert private key
@@ -150,7 +150,7 @@ def x509_mongot_user(namespace: str, helper: SearchDeploymentHelper) -> MongoDBU
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
     resource["spec"]["username"] = user_dn
     resource["spec"]["db"] = "$external"
-    # x509 users don't use password auth — remove passwordSecretKeyRef if present
+    # x509 users don't use password auth -- remove passwordSecretKeyRef if present
     resource["spec"].pop("passwordSecretKeyRef", None)
     return resource
 
@@ -179,15 +179,19 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
     create_x509_mongodb_tls_certs(issuer, namespace, mdb.name, f"certs-{mdb.name}-clusterfile")
     create_x509_mongodb_tls_certs(issuer, namespace, mdb.name, f"certs-{mdb.name}-cert", mdb.get_members())
 
-    # MongoDBSearch server cert (for gRPC ingress)
+    # MongoDBSearch server cert (for gRPC ingress -- includes proxy service SAN)
     search_service_name = search_resource_names.mongot_service_name(mdbs.name)
+    proxy_service_name = search_resource_names.proxy_service_name(mdbs.name)
     create_tls_certs(
         issuer,
         namespace,
         search_resource_names.mongot_statefulset_name(mdbs.name),
         replicas=1,
         service_name=search_service_name,
-        additional_domains=[f"{search_service_name}.{namespace}.svc.cluster.local"],
+        additional_domains=[
+            f"{search_service_name}.{namespace}.svc.cluster.local",
+            f"{proxy_service_name}.{namespace}.svc.cluster.local",
+        ],
         secret_name=MDBS_TLS_SECRET_NAME,
     )
 
@@ -203,7 +207,7 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
         "subject": x509_subject,
         "commonName": X509_CLIENT_CERT_CN,
         "usages": ["digital signature", "key encipherment", "client auth"],
-        # Override computed dnsNames — client certs don't need DNS SANs.
+        # Override computed dnsNames -- client certs don't need DNS SANs.
         # generate_cert computes invalid dnsNames when pod/dns are empty,
         # so we override it here. cert-manager accepts this since commonName is set.
         "dnsNames": [X509_CLIENT_CERT_CN],

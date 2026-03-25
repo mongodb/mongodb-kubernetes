@@ -199,7 +199,7 @@ def test_wait_for_database_ready(mdb: MongoDB):
 
 @mark.e2e_search_rs_enterprise_managed_lb
 def test_verify_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
-    expected_host = search_resource_names.lb_proxy_service_host(mdbs.name, namespace, ENVOY_PROXY_PORT)
+    expected_host = search_resource_names.proxy_service_host(mdbs.name, namespace, ENVOY_PROXY_PORT)
     verify_rs_mongod_parameters(namespace, MDB_RESOURCE_NAME, RS_MEMBERS, expected_host)
 
 
