@@ -152,8 +152,7 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     """Verify each shard's mongod has search parameters (mongotHost, searchIndexManagementHostAndPort).
 
-    For internal + no LB, mongotHost points to the stable per-shard proxy service (gRPC port 27028).
-    The proxy service selector targets mongot pods directly when no LB is configured.
+    For internal + no LB (single mongot), mongotHost points to the first pod's headless FQDN (gRPC port 27028).
     """
     MONGOT_GRPC_PORT = 27028
     verify_sharded_mongod_parameters(
@@ -161,7 +160,7 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
         MDB_RESOURCE_NAME,
         mdbs.name,
         SHARD_COUNT,
-        expected_host_fn=lambda shard: search_resource_names.shard_proxy_service_host(
+        expected_host_fn=lambda shard: search_resource_names.shard_pod_fqdn(
             mdbs.name, shard, namespace, MONGOT_GRPC_PORT
         ),
     )
