@@ -222,7 +222,8 @@ func TestGetMongodConfigParameters_TransportAndPorts(t *testing.T) {
 			if tc.withWireproto {
 				expectedPort = search.GetMongotWireprotoPort()
 			}
-			expectedPrefix := fmt.Sprintf("%s.%s.svc.%s", search.Name+"-search-proxy-svc", search.Namespace, clusterDomain)
+			// No LB: headless pod-0 FQDN = <sts>-0.<svc>.<ns>.svc.<domain>
+			expectedPrefix := fmt.Sprintf("%s-0.%s.%s.svc.%s", search.Name+"-search", search.Name+"-search-svc", search.Namespace, clusterDomain)
 			expectedSuffix := fmt.Sprintf(":%d", expectedPort)
 
 			for _, key := range []string{"mongotHost", "searchIndexManagementHostAndPort"} {
@@ -272,8 +273,8 @@ func TestGetMongodConfigParameters_NoLB(t *testing.T) {
 
 	setParams := params["setParameter"].(map[string]any)
 
-	// Without LB, should point to the stable proxy service
-	expectedEndpoint := "test-mongodb-search-search-proxy-svc.test.svc.cluster.local:27028"
+	// Without LB, should point to the first pod's headless FQDN
+	expectedEndpoint := "test-mongodb-search-search-0.test-mongodb-search-search-svc.test.svc.cluster.local:27028"
 	assert.Equal(t, expectedEndpoint, setParams["mongotHost"])
 	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
 }
@@ -886,7 +887,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 		useUnmanagedLB bool
 	}{
 		{
-			name: "Proxy service endpoint (no unmanaged LB)",
+			name: "No LB - headless pod-0 FQDN for shard",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -902,7 +903,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 			},
 			shardName:      "test-mdb-0",
 			clusterDomain:  "cluster.local",
-			expectedHost:   "test-search-search-0-test-mdb-0-proxy-svc.test-ns.svc.cluster.local:27028",
+			expectedHost:   "test-search-search-0-test-mdb-0-0.test-search-search-0-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
 			useUnmanagedLB: false,
 		},
 		{
@@ -1257,7 +1258,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 		expectedHost  string
 	}{
 		{
-			name: "Internal service endpoint (no unmanaged LB)",
+			name: "No LB - uses headless service endpoint",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -1273,7 +1274,28 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			},
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// Uses first shard's proxy service endpoint
+			// No LB: uses first shard's first pod headless FQDN
+			expectedHost: "test-search-search-0-test-mdb-0-0.test-search-search-0-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
+		},
+		{
+			name: "Managed LB - uses first shard's proxy service endpoint",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-search",
+					Namespace: "test-ns",
+				},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+							Name: "test-mdb",
+						},
+					},
+					LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+				},
+			},
+			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
+			clusterDomain: "cluster.local",
+			// Managed LB: uses first shard's proxy service endpoint
 			expectedHost: "test-search-search-0-test-mdb-0-proxy-svc.test-ns.svc.cluster.local:27028",
 		},
 		{
@@ -1333,6 +1355,100 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			useGrpc, ok := setParameter["useGrpcForSearch"].(bool)
 			require.True(t, ok, "useGrpcForSearch should be a bool")
 			assert.True(t, useGrpc, "useGrpcForSearch must be true for mongos")
+		})
+	}
+}
+
+func TestMongotHostAndPort_ReplicaSet(t *testing.T) {
+	tests := []struct {
+		name         string
+		search       *searchv1.MongoDBSearch
+		expectedHost string
+	}{
+		{
+			name: "No LB - uses first pod headless FQDN",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+			},
+			expectedHost: "test-search-0.test-search-svc.ns.svc.cluster.local:27028",
+		},
+		{
+			name: "Managed LB - uses proxy service",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+				Spec: searchv1.MongoDBSearchSpec{
+					LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+				},
+			},
+			expectedHost: "test-search-proxy-svc.ns.svc.cluster.local:27028",
+		},
+		{
+			name: "Unmanaged LB - uses user-provided endpoint",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+				Spec: searchv1.MongoDBSearchSpec{
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "my-lb.example.com:27028"},
+					},
+				},
+			},
+			expectedHost: "my-lb.example.com:27028",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			host := mongotHostAndPort(tc.search, "cluster.local")
+			assert.Equal(t, tc.expectedHost, host)
+		})
+	}
+}
+
+func TestMongotEndpointForShard(t *testing.T) {
+	tests := []struct {
+		name         string
+		search       *searchv1.MongoDBSearch
+		shardName    string
+		expectedHost string
+	}{
+		{
+			name: "No LB - uses first pod headless FQDN for shard",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+			},
+			shardName:    "shard-0",
+			expectedHost: "test-search-0-shard-0-0.test-search-0-shard-0-svc.ns.svc.cluster.local:27028",
+		},
+		{
+			name: "Managed LB - uses per-shard proxy service",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+				Spec: searchv1.MongoDBSearchSpec{
+					LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+				},
+			},
+			shardName:    "shard-0",
+			expectedHost: "test-search-0-shard-0-proxy-svc.ns.svc.cluster.local:27028",
+		},
+		{
+			name: "Unmanaged LB - uses template endpoint",
+			search: &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+				Spec: searchv1.MongoDBSearchSpec{
+					LoadBalancer: &searchv1.LoadBalancerConfig{
+						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
+					},
+				},
+			},
+			shardName:    "shard-0",
+			expectedHost: "lb-shard-0.example.com:27028",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			host := mongotEndpointForShard(tc.search, tc.shardName, "cluster.local")
+			assert.Equal(t, tc.expectedHost, host)
 		})
 	}
 }

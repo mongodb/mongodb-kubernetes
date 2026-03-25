@@ -51,7 +51,7 @@ def helper(namespace: str) -> SearchDeploymentHelper:
 
 @fixture(scope="function")
 def mdb(namespace: str, ca_configmap: str, issuer_ca_configmap: str, helper: SearchDeploymentHelper) -> MongoDB:
-    mongot_host = search_resource_names.mongot_service_host(MDBS_RESOURCE_NAME, namespace, 27028)
+    mongot_host = search_resource_names.mongot_pod_fqdn(MDBS_RESOURCE_NAME, namespace, 27028)
     return helper.create_replicaset_mdb(
         mongot_host=mongot_host,
         issuer_ca_configmap=issuer_ca_configmap,
@@ -147,8 +147,7 @@ def test_wait_for_database_resource_ready(mdb: MongoDB):
 
 @mark.e2e_search_replicaset_external_mongodb_single_mongot
 def test_wait_for_mongod_parameters(mdb: MongoDB):
-    proxy_svc = search_resource_names.proxy_service_name(mdb.name)
-    expected_host = f"{proxy_svc}.{mdb.namespace}.svc.cluster.local:27028"
+    expected_host = search_resource_names.mongot_pod_fqdn(mdb.name, mdb.namespace, 27028)
     verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members(), expected_host)
 
 

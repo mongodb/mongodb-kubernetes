@@ -184,7 +184,7 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
         MDB_RESOURCE_NAME,
         mdbs.name,
         SHARD_COUNT,
-        expected_host_fn=lambda shard: search_resource_names.shard_service_host(
+        expected_host_fn=lambda shard: search_resource_names.shard_pod_fqdn(
             mdbs.name, shard, namespace, MONGOT_PORT
         ),
     )

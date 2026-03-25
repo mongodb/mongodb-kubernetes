@@ -31,6 +31,11 @@ def mongot_service_host(search_name: str, namespace: str, port: int) -> str:
     return f"{mongot_service_name(search_name)}.{namespace}.svc.cluster.local:{port}"
 
 
+def mongot_pod_fqdn(search_name: str, namespace: str, port: int) -> str:
+    """Headless pod-0 FQDN for RS single mongot (pod-0.svc.ns.svc.cluster.local:port)."""
+    return f"{mongot_statefulset_name(search_name)}-0.{mongot_service_name(search_name)}.{namespace}.svc.cluster.local:{port}"
+
+
 def proxy_service_name(search_name: str) -> str:
     """Stable proxy Service name for RS. Mirrors ProxyServiceNamespacedName()."""
     return f"{search_name}-search-proxy-svc"
@@ -93,6 +98,11 @@ def shard_proxy_service_name(search_name: str, shard_name: str) -> str:
 def shard_service_host(search_name: str, shard_name: str, namespace: str, port: int) -> str:
     """Full hostname:port for the per-shard mongot Service."""
     return f"{shard_service_name(search_name, shard_name)}.{namespace}.svc.cluster.local:{port}"
+
+
+def shard_pod_fqdn(search_name: str, shard_name: str, namespace: str, port: int) -> str:
+    """Headless pod-0 FQDN for per-shard single mongot (pod-0.svc.ns.svc.cluster.local:port)."""
+    return f"{shard_statefulset_name(search_name, shard_name)}-0.{shard_service_name(search_name, shard_name)}.{namespace}.svc.cluster.local:{port}"
 
 
 def shard_proxy_service_host(search_name: str, shard_name: str, namespace: str, port: int) -> str:

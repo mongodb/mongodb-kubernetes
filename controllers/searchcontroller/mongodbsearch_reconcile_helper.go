@@ -1180,12 +1180,19 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 
 // mongotEndpointForShard resolves the mongot endpoint for a specific shard.
 // For unmanaged LB, the user-provided template endpoint is used.
-// Otherwise, the stable per-shard proxy service FQDN is used.
+// For managed LB, the stable per-shard proxy service FQDN is used.
+// For no LB (single mongot), the first pod's headless FQDN is returned (pod-0.svc).
 func mongotEndpointForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
 	if search.IsShardedUnmanagedLB() {
 		return search.GetEndpointForShard(shardName)
 	}
-	return proxyServiceHostAndPortForShard(search, shardName, clusterDomain)
+	if search.IsLBModeManaged() {
+		return proxyServiceHostAndPortForShard(search, shardName, clusterDomain)
+	}
+	stsName := search.MongotStatefulSetForShard(shardName)
+	svcName := search.MongotServiceForShard(shardName)
+	port := search.GetEffectiveMongotPort()
+	return fmt.Sprintf("%s-0.%s.%s.svc.%s:%d", stsName.Name, svcName.Name, svcName.Namespace, clusterDomain, port)
 }
 
 // GetMongodConfigParametersForShard returns the mongod configuration parameters for a specific shard
@@ -1227,14 +1234,20 @@ func buildSearchSetParameters(mongotEndpoint string, tlsMode automationconfig.TL
 
 // mongotHostAndPort returns the mongotHost endpoint for ReplicaSet topologies.
 // For unmanaged LB, the user-provided endpoint is returned.
-// Otherwise, the stable proxy service FQDN is returned (works for both no-LB and managed-LB).
+// For managed LB, the stable proxy service FQDN is returned (selector flips between mongot/envoy).
+// For no LB (single mongot), the first pod's headless FQDN is returned (pod-0.svc).
 func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
 	if search.IsReplicaSetUnmanagedLB() {
 		return search.GetReplicaSetUnmanagedLBEndpoint()
 	}
-	proxyName := search.ProxyServiceNamespacedName()
 	port := search.GetEffectiveMongotPort()
-	return fmt.Sprintf("%s.%s.svc.%s:%d", proxyName.Name, proxyName.Namespace, clusterDomain, port)
+	if search.IsLBModeManaged() {
+		proxyName := search.ProxyServiceNamespacedName()
+		return fmt.Sprintf("%s.%s.svc.%s:%d", proxyName.Name, proxyName.Namespace, clusterDomain, port)
+	}
+	stsName := search.StatefulSetNamespacedName()
+	svcName := search.SearchServiceNamespacedName()
+	return fmt.Sprintf("%s-0.%s.%s.svc.%s:%d", stsName.Name, svcName.Name, svcName.Namespace, clusterDomain, port)
 }
 
 // proxyServiceHostAndPortForShard returns the stable proxy service endpoint for a shard.
