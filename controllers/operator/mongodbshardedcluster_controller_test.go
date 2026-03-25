@@ -1516,10 +1516,6 @@ func TestIsBackupBeingEnabled(t *testing.T) {
 		assert.True(t, isBackupBeingEnabled(scWithMode("enabled"), newConn(), zap.S()))
 	})
 
-	t.Run("mode enabled with all configs Inactive returns true", func(t *testing.T) {
-		assert.True(t, isBackupBeingEnabled(scWithMode("enabled"), newConn(backup.Inactive, backup.Inactive, backup.Inactive), zap.S()))
-	})
-
 	t.Run("mode enabled with at least one config Started returns false", func(t *testing.T) {
 		// Backup already running — delay must not fire again
 		assert.False(t, isBackupBeingEnabled(scWithMode("enabled"), newConn(backup.Started, backup.Inactive), zap.S()))
@@ -1530,14 +1526,14 @@ func TestIsBackupBeingEnabled(t *testing.T) {
 	})
 
 	t.Run("mode enabled with Stopped config returns false", func(t *testing.T) {
-		// Backup was previously running and stopped — re-enabling should not delay
+		// Config is Stopped (not Inactive) so the backup job previously ran — no delay needed.
 		assert.False(t, isBackupBeingEnabled(scWithMode("enabled"), newConn(backup.Stopped), zap.S()))
 	})
 
-	t.Run("re-enable after termination returns true", func(t *testing.T) {
+	t.Run("mode enabled with all configs Inactive after termination returns true", func(t *testing.T) {
 		// After termination OM resets configs back to Inactive — the delay must fire again since
 		// monitoring events may not yet be fully processed.
-		assert.True(t, isBackupBeingEnabled(scWithMode("enabled"), newConn(backup.Inactive), zap.S()))
+		assert.True(t, isBackupBeingEnabled(scWithMode("enabled"), newConn(backup.Inactive, backup.Inactive, backup.Inactive), zap.S()))
 	})
 }
 
