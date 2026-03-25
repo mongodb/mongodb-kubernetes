@@ -1,20 +1,24 @@
 """
-E2E test for ReplicaSet MongoDB Search with external MongoDB source and multiple mongot instances.
+E2E test for ReplicaSet MongoDB Search with internal (operator-managed) MongoDB source
+and multiple mongot instances.
 
-This test verifies the ReplicaSet Search with external MongoDB source and unmanaged LB:
-- Deploys a ReplicaSet MongoDB cluster with TLS enabled (simulating an external cluster)
+This test verifies the ReplicaSet Search with internal MongoDB source and unmanaged LB:
+- Deploys a ReplicaSet MongoDB cluster with TLS enabled
 - Deploys Envoy proxy for L7 load balancing mongot traffic
-- Deploys MongoDBSearch with spec.source.external.hostAndPorts, replicas=2, and unmanaged LB
-- Verifies mongod parameters point to the Envoy proxy endpoint
+- Deploys MongoDBSearch with spec.source.passwordSecretRef (internal), replicas=2, and unmanaged LB
+- The operator automatically sets mongotHost on mongod processes to the LB endpoint
 - Imports sample data, creates text and vector search indexes
 - Executes search queries and verifies results
 
-Key difference from replicaset_external_mongodb_single_mongot.py:
-- This test deploys multiple mongot instances (replicas=2) with an Envoy LB
-- The single-mongot test has replicas=1 and no LB
+Key difference from replicaset_external_mongodb_multi_mongot_unmanaged_lb.py:
+- This test uses internal source (operator-managed MongoDB, matched by name)
+- The external test uses spec.source.external.hostAndPorts with explicit host list
+- For internal source, the operator automatically configures mongotHost from the LB endpoint
 """
 
+from kubetester import try_load
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -54,9 +58,8 @@ ENVOY_PROXY_PORT = 27029
 ENVOY_ADMIN_PORT = 9901
 
 # Resource names
-MDB_RESOURCE_NAME = "mdb-rs-ext-multi"
+MDB_RESOURCE_NAME = "mdb-rs-int-multi"
 MDBS_RESOURCE_NAME = MDB_RESOURCE_NAME
-RS_MEMBERS = 3
 
 # TLS configuration
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
@@ -100,17 +103,24 @@ def envoy(namespace: str) -> EnvoyProxy:
 
 @fixture(scope="function")
 def mdb(namespace: str, ca_configmap: str, issuer_ca_configmap: str, helper: SearchDeploymentHelper) -> MongoDB:
-    mongot_host = f"{ENVOY_PROXY_SVC_NAME}.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
     return helper.create_replicaset_mdb(
-        mongot_host=mongot_host,
         issuer_ca_configmap=issuer_ca_configmap,
         tls_cert_prefix="certs",
     )
 
 
 @fixture(scope="function")
-def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoDBSearch:
-    resource = helper.mdbs_for_ext_rs_source(mongot_user_name=MONGOT_USER_NAME, members=RS_MEMBERS)
+def mdbs(namespace: str, mdb: MongoDB) -> MongoDBSearch:
+    resource = MongoDBSearch.from_yaml(
+        yaml_fixture("search-minimal.yaml"),
+        namespace=namespace,
+        name=MDB_RESOURCE_NAME,
+    )
+
+    if try_load(resource):
+        return resource
+
+    resource["spec"]["source"] = {"passwordSecretRef": {"name": f"{resource.name}-{MONGOT_USER_NAME}-password"}}
     resource["spec"]["replicas"] = 2
     resource["spec"]["loadBalancer"] = {
         "unmanaged": {
@@ -123,12 +133,12 @@ def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoD
 
 @fixture(scope="function")
 def admin_user(helper: SearchDeploymentHelper) -> MongoDBUser:
-    return helper.admin_user_resource(ADMIN_USER_NAME)
+    return helper.admin_user_resource(f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}")
 
 
 @fixture(scope="function")
 def user(helper: SearchDeploymentHelper) -> MongoDBUser:
-    return helper.user_resource(USER_NAME)
+    return helper.user_resource(f"{MDB_RESOURCE_NAME}-{USER_NAME}")
 
 
 @fixture(scope="function")
@@ -136,14 +146,14 @@ def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBU
     return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     """Test that the operator is installed and running."""
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
     operator.assert_is_running()
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 @skip_if_cloud_manager
 def test_create_ops_manager(namespace: str):
     """Test OpsManager deployment (skipped for Cloud Manager)."""
@@ -154,7 +164,7 @@ def test_create_ops_manager(namespace: str):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_install_tls_certificates(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch, issuer: str):
     """Create TLS certificates for MongoDB RS and mongot (replicas=2)."""
     create_mongodb_tls_certs(issuer, namespace, mdb.name, f"certs-{mdb.name}-cert", mdb.get_members())
@@ -171,14 +181,14 @@ def test_install_tls_certificates(namespace: str, mdb: MongoDB, mdbs: MongoDBSea
     )
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_create_database_resource(mdb: MongoDB):
     """Test ReplicaSet deployment."""
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_create_users(
     helper: SearchDeploymentHelper,
     admin_user: MongoDBUser,
@@ -196,47 +206,50 @@ def test_create_users(
     )
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_deploy_envoy_certificates(envoy: EnvoyProxy, issuer: str):
     envoy.create_certificates(issuer)
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_deploy_envoy_proxy(envoy: EnvoyProxy):
     """Deploy Envoy proxy for L7 load balancing."""
     envoy.deploy()
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_create_search_resource(mdbs: MongoDBSearch):
-    """Test MongoDBSearch resource deployment with external RS source, replicas=2, and unmanaged LB."""
+    """Test MongoDBSearch resource deployment with internal RS source, replicas=2, and unmanaged LB."""
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_wait_for_database_resource_ready(mdb: MongoDB):
     """Wait for automation agents to be ready after Search deployment."""
     mdb.get_om_tester().wait_agents_ready()
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
-def test_wait_for_mongod_parameters(mdb: MongoDB):
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
+def test_wait_for_mongod_parameters(mdb: MongoDB, namespace: str):
     """Verify each mongod has mongotHost and searchIndexManagementHostAndPort set."""
-    verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members())
+    expected_host = f"{ENVOY_PROXY_SVC_NAME}.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
+    verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members(), expected_host)
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_search_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
     """Deploy mongodb-tools pod for running queries."""
     logger.info(f"Tools pod {tools_pod.pod_name} is ready")
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_search_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.ToolsPod):
     """Restore sample_mflix database to the ReplicaSet cluster."""
-    search_tester = get_rs_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
+    search_tester = get_rs_search_tester(
+        mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=True
+    )
     search_tester.mongorestore_from_url(
         archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
         ns_include="sample_mflix.*",
@@ -245,35 +258,35 @@ def test_search_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_p
     logger.info("Sample database restored")
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_search_create_search_index(mdb: MongoDB):
     """Create text search index on movies."""
-    search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    search_tester = get_rs_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
     search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
     logger.info("Text search index created")
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_execute_text_search_query(mdb: MongoDB):
-    search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    search_tester = get_rs_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     verify_text_search_query(search_tester)
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_search_verify_all_results(mdb: MongoDB):
-    search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    search_tester = get_rs_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     verify_search_results_from_all_shards(search_tester)
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_vector_search(mdb: MongoDB):
     """Verify vector search works with multi-mongot and Envoy LB."""
-    search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    search_tester = get_rs_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     verify_vector_search(search_tester)
 
 
-@mark.e2e_search_external_rs_multi_mongot_unmanaged_lb
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
 def test_verify_search_resource_status(mdbs: MongoDBSearch):
     """Verify the MongoDBSearch resource is in Running phase."""
     mdbs.load()

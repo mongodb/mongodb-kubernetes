@@ -15,6 +15,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 )
 
+// TODO: Add full Reconcile() integration tests covering:
+//   - LB mode transitions (managed -> unmanaged, managed -> disabled)
+//   - Envoy Deployment/ConfigMap lifecycle (create, update, cleanup)
+//   - Error paths (missing envoy image, unreachable source)
+//   - Status updates for the loadBalancer sub-status
+
 func TestBuildReplicaSetRoute(t *testing.T) {
 	tests := []struct {
 		name        string

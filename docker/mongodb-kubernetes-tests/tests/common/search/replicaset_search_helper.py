@@ -8,31 +8,50 @@ from tests.common.search.search_tester import SearchTester
 logger = test_logger.get_test_logger(__name__)
 
 
-def verify_rs_mongod_parameters(namespace: str, mdb_resource_name: str, member_count: int, timeout: int = 600):
-    """Verify each RS member's mongod has mongotHost and searchIndexManagementHostAndPort set.
+def verify_rs_mongod_parameters(
+    namespace: str,
+    mdb_resource_name: str,
+    member_count: int,
+    expected_host: str,
+    timeout: int = 600,
+):
+    """Verify each RS member's mongod has mongotHost and searchIndexManagementHostAndPort matching expected_host.
 
-    Polls each pod's /data/automation-mongod.conf until both parameters are present
-    in setParameter, or the timeout is reached.
+    Polls each pod's /data/automation-mongod.conf until both parameters match or the timeout is reached.
     """
 
     def check_mongod_parameters():
-        parameters_are_set = True
-        pod_parameters = []
+        all_correct = True
+        status_msgs = []
+
         for idx in range(member_count):
-            mongod_config = yaml.safe_load(
-                KubernetesTester.run_command_in_pod_container(
-                    f"{mdb_resource_name}-{idx}", namespace, ["cat", "/data/automation-mongod.conf"]
+            pod_name = f"{mdb_resource_name}-{idx}"
+            try:
+                mongod_config = yaml.safe_load(
+                    KubernetesTester.run_command_in_pod_container(
+                        pod_name, namespace, ["cat", "/data/automation-mongod.conf"]
+                    )
                 )
-            )
-            set_parameter = mongod_config.get("setParameter", {})
-            parameters_are_set = parameters_are_set and (
-                "mongotHost" in set_parameter and "searchIndexManagementHostAndPort" in set_parameter
-            )
-            pod_parameters.append(f"pod {idx} setParameter: {set_parameter}")
+                set_parameter = mongod_config.get("setParameter", {})
+                mongot_host = set_parameter.get("mongotHost", "")
+                search_index_host = set_parameter.get("searchIndexManagementHostAndPort", "")
 
-        return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
+                if mongot_host != expected_host:
+                    all_correct = False
+                    status_msgs.append(f"Pod {pod_name}: mongotHost={mongot_host}, expected={expected_host}")
+                elif search_index_host != expected_host:
+                    all_correct = False
+                    status_msgs.append(f"Pod {pod_name}: searchIndexMgmt={search_index_host}, expected={expected_host}")
+                else:
+                    status_msgs.append(f"Pod {pod_name}: hosts correctly set to {expected_host}")
 
-    run_periodically(check_mongod_parameters, timeout=timeout)
+            except Exception as e:
+                all_correct = False
+                status_msgs.append(f"Pod {pod_name}: Error - {e}")
+
+        return all_correct, "\n".join(status_msgs)
+
+    run_periodically(check_mongod_parameters, timeout=timeout, msg="RS mongod search parameters")
     logger.info("All RS members have correct mongod search parameters")
 
 

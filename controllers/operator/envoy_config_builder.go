@@ -312,8 +312,8 @@ func buildDownstreamTLSTransportSocket(caKeyName string) (*corev3.TransportSocke
 				},
 			},
 			TlsParams: &tlsv3.TlsParameters{
-				TlsMinimumProtocolVersion: tlsv3.TlsParameters_TLSv1_2,
-				TlsMaximumProtocolVersion: tlsv3.TlsParameters_TLSv1_2,
+				TlsMinimumProtocolVersion: tlsv3.TlsParameters_TLSv1_3,
+				TlsMaximumProtocolVersion: tlsv3.TlsParameters_TLSv1_3,
 			},
 			AlpnProtocols: []string{"h2"},
 		},

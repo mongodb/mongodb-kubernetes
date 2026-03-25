@@ -1,8 +1,6 @@
 """ReplicaSet helper functions for MongoDBSearch e2e tests."""
 
-import yaml
 from kubetester.certs import create_tls_certs
-from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongodb import MongoDB
 from tests import test_logger
 from tests.common.search import search_resource_names
@@ -89,45 +87,6 @@ def create_rs_search_tls_cert(
     logger.info(f"RS Search TLS certificate created: {secret_name}")
 
 
-def verify_rs_mongod_parameters(
-    namespace: str,
-    mdb_resource_name: str,
-    member_count: int,
-    expected_host: str,
-):
-    """Verify each RS member's mongod has correct mongotHost and searchIndexManagementHostAndPort."""
-
-    def check_mongod_parameters():
-        all_correct = True
-        status_msgs = []
-
-        for idx in range(member_count):
-            pod_name = f"{mdb_resource_name}-{idx}"
-
-            try:
-                mongod_config = yaml.safe_load(
-                    KubernetesTester.run_command_in_pod_container(
-                        pod_name, namespace, ["cat", "/data/automation-mongod.conf"]
-                    )
-                )
-                set_parameter = mongod_config.get("setParameter", {})
-                mongot_host = set_parameter.get("mongotHost", "")
-                search_index_host = set_parameter.get("searchIndexManagementHostAndPort", "")
-
-                if mongot_host != expected_host:
-                    all_correct = False
-                    status_msgs.append(f"Pod {pod_name}: mongotHost={mongot_host}, expected={expected_host}")
-                elif search_index_host != expected_host:
-                    all_correct = False
-                    status_msgs.append(f"Pod {pod_name}: searchIndexMgmt={search_index_host}, expected={expected_host}")
-                else:
-                    status_msgs.append(f"Pod {pod_name}: hosts correctly set to {expected_host}")
-
-            except Exception as e:
-                all_correct = False
-                status_msgs.append(f"Pod {pod_name}: Error - {e}")
-
-        return all_correct, "\n".join(status_msgs)
-
-    run_periodically(check_mongod_parameters, timeout=300, sleep_time=10, msg="RS mongod search parameters")
-    logger.info("All RS members have correct mongod search parameters")
+# verify_rs_mongod_parameters has been consolidated into replicaset_search_helper.py
+# Re-export for backward compatibility with existing imports
+from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters  # noqa: F401

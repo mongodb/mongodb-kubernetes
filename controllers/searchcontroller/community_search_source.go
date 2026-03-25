@@ -25,16 +25,16 @@ type CommunitySearchSource struct {
 	*mdbcv1.MongoDBCommunity
 }
 
-func (r *CommunitySearchSource) HostSeeds(shardName string) []string {
+func (r *CommunitySearchSource) HostSeeds(shardName string) ([]string, error) {
 	if shardName != "" {
-		panic("shardName is not supported for replica set")
+		return nil, fmt.Errorf("shardName is not supported for replica set")
 	}
 	seeds := make([]string, r.Spec.Members)
 	clusterDomain := r.Spec.GetClusterDomain()
 	for i := range seeds {
 		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.GetMongodConfiguration().GetDBPort())
 	}
-	return seeds
+	return seeds, nil
 }
 
 func (r *CommunitySearchSource) KeyfileSecretName() string {

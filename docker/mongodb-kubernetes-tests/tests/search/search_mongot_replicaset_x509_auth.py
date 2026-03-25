@@ -155,13 +155,13 @@ def x509_mongot_user(namespace: str, helper: SearchDeploymentHelper) -> MongoDBU
     return resource
 
 
-@mark.e2e_mongot_rs_x509_auth
+@mark.e2e_search_mongot_replicaset_x509_auth
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
     operator.assert_is_running()
 
 
-@mark.e2e_mongot_rs_x509_auth
+@mark.e2e_search_mongot_replicaset_x509_auth
 @skip_if_cloud_manager
 def test_create_ops_manager(namespace: str):
     ops_manager = get_ops_manager(namespace)
@@ -171,7 +171,7 @@ def test_create_ops_manager(namespace: str):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_mongot_rs_x509_auth
+@mark.e2e_search_mongot_replicaset_x509_auth
 def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch, issuer: str):
     # Agent certs (required for x509 agent authentication)
     create_agent_tls_certs(issuer, namespace, mdb.name, "certs")
@@ -226,13 +226,13 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
     encrypt_x509_key_with_password(namespace, X509_CLIENT_CERT_SECRET_NAME, X509_AUTH_KEY_PASSWORD)
 
 
-@mark.e2e_mongot_rs_x509_auth
+@mark.e2e_search_mongot_replicaset_x509_auth
 def test_create_database_resource(mdb: MongoDB):
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_mongot_rs_x509_auth
+@mark.e2e_search_mongot_replicaset_x509_auth
 def test_create_users(
     helper: SearchDeploymentHelper,
     admin_user: MongoDBUser,
@@ -263,13 +263,13 @@ def test_create_users(
     x509_mongot_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
 
-@mark.e2e_mongot_rs_x509_auth
+@mark.e2e_search_mongot_replicaset_x509_auth
 def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_mongot_rs_x509_auth
+@mark.e2e_search_mongot_replicaset_x509_auth
 def test_wait_for_agents_ready(mdb: MongoDB):
     mdb.get_om_tester().wait_agents_ready()
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
@@ -285,16 +285,16 @@ def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.S
     )
 
 
-@mark.e2e_mongot_rs_x509_auth
+@mark.e2e_search_mongot_replicaset_x509_auth
 def test_search_restore_sample_database(sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper):
     sample_movies_helper.restore_sample_database()
 
 
-@mark.e2e_mongot_rs_x509_auth
+@mark.e2e_search_mongot_replicaset_x509_auth
 def test_search_create_search_index(sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper):
     sample_movies_helper.create_search_index()
 
 
-@mark.e2e_mongot_rs_x509_auth
+@mark.e2e_search_mongot_replicaset_x509_auth
 def test_search_assert_search_query(sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper):
     sample_movies_helper.assert_search_query(retry_timeout=60)

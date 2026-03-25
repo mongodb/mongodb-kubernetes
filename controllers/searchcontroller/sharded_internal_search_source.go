@@ -37,7 +37,7 @@ func (r *ShardedInternalSearchSource) GetShardCount() int {
 	return r.Spec.ShardCount
 }
 
-func (r *ShardedInternalSearchSource) HostSeeds(shardName string) []string {
+func (r *ShardedInternalSearchSource) HostSeeds(shardName string) ([]string, error) {
 	members := r.Spec.MongodsPerShardCount
 	clusterDomain := r.Spec.GetClusterDomain()
 	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
@@ -48,7 +48,7 @@ func (r *ShardedInternalSearchSource) HostSeeds(shardName string) []string {
 		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d",
 			shardName, i, r.ShardServiceName(), r.Namespace, clusterDomain, port)
 	}
-	return seeds
+	return seeds, nil
 }
 
 func (r *ShardedInternalSearchSource) MongosHostAndPort() string {

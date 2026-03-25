@@ -137,15 +137,9 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 }
 
 func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, log *zap.SugaredLogger, version string) workflow.Status {
-	keyfileStsModification := statefulset.NOOP()
-	if r.mdbSearch.IsWireprotoEnabled() {
-		var err error
-		keyfileStsModification, err = r.ensureSourceKeyfile(ctx, log)
-		if apierrors.IsNotFound(err) {
-			return workflow.Pending("Waiting for keyfile secret to be created")
-		} else if err != nil {
-			return workflow.Failed(err)
-		}
+	keyfileStsModification, st, ok := r.ensureKeyfileModification(ctx, log)
+	if !ok {
+		return st
 	}
 
 	if err := r.ensureSearchService(ctx, log, r.mdbSearch.SearchServiceNamespacedName(), buildSearchHeadlessService(r.mdbSearch)); err != nil {
@@ -184,13 +178,18 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 	stsNsName := r.mdbSearch.StatefulSetNamespacedName()
 	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 
+	hostSeeds, err := r.db.HostSeeds("")
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
 	// the egress TLS modification needs to always be applied after the ingress one, because it toggles mTLS based on the mode set by the ingress modification
 	// the x509 modification must run after baseMongotConfig (which sets username/password) so it can clear them
 	configHash, err := r.ensureMongotConfig(ctx,
 		log,
 		r.mdbSearch.MongotConfigConfigMapNamespacedName(),
 		stsNsName.Name,
-		createMongotConfig(r.mdbSearch, r.db),
+		createMongotConfig(r.mdbSearch, hostSeeds),
 		ingressTlsMongotModification,
 		egressTlsMongotModification,
 		x509MongotModification,
@@ -241,15 +240,9 @@ func (r *MongoDBSearchReconcileHelper) reconcileNonSharded(ctx context.Context, 
 func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log *zap.SugaredLogger, shardedSource SearchSourceShardedDeployment, version string) workflow.Status {
 	log.Infof("Reconciling MongoDBSearch for sharded source deployment with %d shards", shardedSource.GetShardCount())
 
-	keyfileStsModification := statefulset.NOOP()
-	if r.mdbSearch.IsWireprotoEnabled() {
-		var err error
-		keyfileStsModification, err = r.ensureSourceKeyfile(ctx, log)
-		if apierrors.IsNotFound(err) {
-			return workflow.Pending("Waiting for keyfile secret to be created")
-		} else if err != nil {
-			return workflow.Failed(err)
-		}
+	keyfileStsModification, st, ok := r.ensureKeyfileModification(ctx, log)
+	if !ok {
+		return st
 	}
 
 	// Validate per-shard TLS secrets exist before proceeding (for per-shard TLS mode)
@@ -301,8 +294,13 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 			return workflow.Failed(err)
 		}
 
+		shardHostSeeds, err := shardedSource.HostSeeds(shardName)
+		if err != nil {
+			return workflow.Failed(err)
+		}
+
 		mongotGroupStsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
-		shardMongotConfig := createMongotConfigForShard(r.mdbSearch, shardedSource, shardName)
+		shardMongotConfig := createMongotConfigForShard(r.mdbSearch, shardHostSeeds, shardedSource, shardName)
 		configHash, err := r.ensureMongotConfig(ctx, shardLog, r.mdbSearch.MongotConfigMapForShard(shardName), mongotGroupStsName.Name, shardMongotConfig, ingressTlsMongotModification, egressTlsMongotModification, x509MongotModification, embeddingConfigMongotModification)
 		if err != nil {
 			return workflow.Failed(err)
@@ -382,7 +380,23 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleProxyServices(ctx context.Con
 	return nil
 }
 
-// This is called only if the wireproto server is enabled, to set up they keyfile necessary for authentication.
+// ensureKeyfileModification returns the keyfile StatefulSet modification if wireproto is enabled.
+// Returns (NOOP, nil, true) if wireproto is disabled.
+// Returns (nil, status, false) if the keyfile is not ready and reconciliation should stop.
+func (r *MongoDBSearchReconcileHelper) ensureKeyfileModification(ctx context.Context, log *zap.SugaredLogger) (statefulset.Modification, workflow.Status, bool) {
+	if !r.mdbSearch.IsWireprotoEnabled() {
+		return statefulset.NOOP(), nil, true
+	}
+	mod, err := r.ensureSourceKeyfile(ctx, log)
+	if apierrors.IsNotFound(err) {
+		return nil, workflow.Pending("Waiting for keyfile secret to be created"), false
+	} else if err != nil {
+		return nil, workflow.Failed(err), false
+	}
+	return mod, nil, true
+}
+
+// ensureSourceKeyfile is called only if the wireproto server is enabled, to set up the keyfile necessary for authentication.
 func (r *MongoDBSearchReconcileHelper) ensureSourceKeyfile(ctx context.Context, log *zap.SugaredLogger) (statefulset.Modification, error) {
 	keyfileSecretName := kube.ObjectKey(r.mdbSearch.GetNamespace(), r.db.KeyfileSecretName())
 	keyfileSecret := &corev1.Secret{}
@@ -751,9 +765,9 @@ func buildProxyServiceForShard(search *searchv1.MongoDBSearch, shardName string)
 
 // createMongotConfigForShard creates the mongot configuration for a specific shard.
 // Each shard's mongot connects to its own shard's mongod hosts and includes Router config for mongos.
-func createMongotConfigForShard(search *searchv1.MongoDBSearch, shardedSource SearchSourceShardedDeployment, shardName string) mongot.Modification {
+func createMongotConfigForShard(search *searchv1.MongoDBSearch, hostSeeds []string, shardedSource SearchSourceShardedDeployment, shardName string) mongot.Modification {
 	return func(config *mongot.Config) {
-		baseMongotConfig(search, shardedSource.HostSeeds(shardName))(config)
+		baseMongotConfig(search, hostSeeds)(config)
 
 		config.SyncSource.Router = &mongot.ConfigRouter{
 			HostAndPort:  shardedSource.MongosHostAndPort(),
@@ -1141,9 +1155,9 @@ func baseMongotConfig(search *searchv1.MongoDBSearch, hostAndPorts []string) mon
 	}
 }
 
-func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResource) mongot.Modification {
+func createMongotConfig(search *searchv1.MongoDBSearch, hostSeeds []string) mongot.Modification {
 	return func(config *mongot.Config) {
-		baseMongotConfig(search, db.HostSeeds(""))(config)
+		baseMongotConfig(search, hostSeeds)(config)
 
 		if search.IsWireprotoEnabled() {
 			config.Server.Wireproto = &mongot.ConfigWireproto{
@@ -1164,17 +1178,20 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain str
 	return buildSearchSetParameters(mongotHostAndPort(search, clusterDomain), searchTLSMode(search), !search.IsWireprotoEnabled())
 }
 
-// GetMongodConfigParametersForShard returns the mongod configuration parameters for a specific shard
-// in a sharded cluster. For unmanaged LB, each shard uses the resolved endpoint from the user-provided
-// template. Otherwise, the stable per-shard proxy service is used.
-func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) map[string]any {
-	var mongotEndpoint string
+// mongotEndpointForShard resolves the mongot endpoint for a specific shard.
+// For unmanaged LB, the user-provided template endpoint is used.
+// Otherwise, the stable per-shard proxy service FQDN is used.
+func mongotEndpointForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
 	if search.IsShardedUnmanagedLB() {
-		mongotEndpoint = search.GetEndpointForShard(shardName)
-	} else {
-		mongotEndpoint = proxyServiceHostAndPortForShard(search, shardName, clusterDomain)
+		return search.GetEndpointForShard(shardName)
 	}
-	return buildSearchSetParameters(mongotEndpoint, searchTLSMode(search), !search.IsWireprotoEnabled())
+	return proxyServiceHostAndPortForShard(search, shardName, clusterDomain)
+}
+
+// GetMongodConfigParametersForShard returns the mongod configuration parameters for a specific shard
+// in a sharded cluster.
+func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) map[string]any {
+	return buildSearchSetParameters(mongotEndpointForShard(search, shardName, clusterDomain), searchTLSMode(search), !search.IsWireprotoEnabled())
 }
 
 // GetMongosConfigParametersForSharded returns the mongos configuration parameters for a sharded cluster.
@@ -1183,11 +1200,7 @@ func GetMongodConfigParametersForShard(search *searchv1.MongoDBSearch, shardName
 func GetMongosConfigParametersForSharded(search *searchv1.MongoDBSearch, shardNames []string, clusterDomain string) map[string]any {
 	var mongotEndpoint string
 	if len(shardNames) > 0 {
-		if search.IsShardedUnmanagedLB() {
-			mongotEndpoint = search.GetEndpointForShard(shardNames[0])
-		} else {
-			mongotEndpoint = proxyServiceHostAndPortForShard(search, shardNames[0], clusterDomain)
-		}
+		mongotEndpoint = mongotEndpointForShard(search, shardNames[0], clusterDomain)
 	}
 	return buildSearchSetParameters(mongotEndpoint, searchTLSMode(search), true) // useGrpc must be true for mongos-to-mongot communication
 }

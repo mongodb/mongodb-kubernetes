@@ -111,19 +111,19 @@ func (r *ShardedExternalSearchSource) GetShardNames() []string {
 	return names
 }
 
-func (r *ShardedExternalSearchSource) HostSeeds(shardName string) []string {
+func (r *ShardedExternalSearchSource) HostSeeds(shardName string) ([]string, error) {
 	if r.spec.ShardedCluster == nil {
-		return nil
+		return nil, nil
 	}
 
 	shardIndex := slices.IndexFunc(r.spec.ShardedCluster.Shards, func(c searchv1.ExternalShardConfig) bool {
 		return c.ShardName == shardName
 	})
 	if shardIndex == -1 {
-		panic(fmt.Errorf("shardName %s not found", shardName))
+		return nil, fmt.Errorf("shardName %s not found in external sharded cluster configuration", shardName)
 	}
 
-	return r.spec.ShardedCluster.Shards[shardIndex].Hosts
+	return r.spec.ShardedCluster.Shards[shardIndex].Hosts, nil
 }
 
 func (r *ShardedExternalSearchSource) MongosHostAndPort() string {

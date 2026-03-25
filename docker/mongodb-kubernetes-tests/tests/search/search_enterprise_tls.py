@@ -155,7 +155,9 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 
 @mark.e2e_search_enterprise_tls
 def test_wait_for_mongod_parameters(mdb: MongoDB):
-    verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members())
+    proxy_svc = search_resource_names.proxy_service_name(mdb.name)
+    expected_host = f"{proxy_svc}.{mdb.namespace}.svc.cluster.local:27028"
+    verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members(), expected_host)
 
 
 @mark.e2e_search_enterprise_tls
