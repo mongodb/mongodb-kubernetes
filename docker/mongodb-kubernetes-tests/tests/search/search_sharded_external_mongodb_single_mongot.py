@@ -69,7 +69,7 @@ def helper(namespace: str) -> SearchDeploymentHelper:
 @fixture(scope="function")
 def mdb(namespace: str, sharded_ca_configmap: str, helper: SearchDeploymentHelper) -> MongoDB:
     return helper.create_sharded_mdb(
-        mongot_host_fn=lambda shard: search_resource_names.shard_service_host(
+        mongot_host_fn=lambda shard: search_resource_names.shard_pod_fqdn(
             MDBS_RESOURCE_NAME, shard, namespace, MONGOT_PORT
         ),
         set_tls_ca=True,
