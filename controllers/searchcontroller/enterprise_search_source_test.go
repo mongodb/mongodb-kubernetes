@@ -313,8 +313,7 @@ func newShardedUnmanagedLBSearch(name, namespace, mdbName string, endpointTempla
 	var lb *searchv1.LoadBalancerConfig
 	if endpointTemplate != "" {
 		lb = &searchv1.LoadBalancerConfig{
-			Mode:     searchv1.LBModeUnmanaged,
-			Endpoint: endpointTemplate,
+			Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: endpointTemplate},
 		}
 	}
 	return &searchv1.MongoDBSearch{

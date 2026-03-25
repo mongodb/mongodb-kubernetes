@@ -152,18 +152,16 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     """Verify each shard's mongod has search parameters (mongotHost, searchIndexManagementHostAndPort).
 
-    NOTE: This test will not pass until the controller bug is fixed. The guard at
-    mongodbshardedcluster_controller.go:1031 skips per-shard config when no LB is
-    configured. See docs/search-lb-replicaset-findings.md for details.
+    For internal + no LB, mongotHost points to the stable per-shard proxy service (gRPC port 27028).
+    The proxy service selector targets mongot pods directly when no LB is configured.
     """
-    # For internal + no LB, mongotHost should point to the direct mongot service (gRPC port 27028)
     MONGOT_GRPC_PORT = 27028
     verify_sharded_mongod_parameters(
         namespace,
         MDB_RESOURCE_NAME,
         mdbs.name,
         SHARD_COUNT,
-        expected_host_fn=lambda shard: search_resource_names.shard_service_host(
+        expected_host_fn=lambda shard: search_resource_names.shard_proxy_service_host(
             mdbs.name, shard, namespace, MONGOT_GRPC_PORT
         ),
     )

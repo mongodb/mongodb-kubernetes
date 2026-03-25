@@ -22,6 +22,7 @@ def create_rs_lb_certificates(
     issuer: str,
     mdbs_resource_name: str,
     tls_cert_prefix: str,
+    extra_domains: list[str] | None = None,
 ):
     """Create TLS certificates for the managed load balancer (Envoy proxy) in RS topology."""
     logger.info("Creating managed LB certificates for RS...")
@@ -29,16 +30,19 @@ def create_rs_lb_certificates(
     lb_server_cert_name = search_resource_names.lb_server_cert_name(mdbs_resource_name, tls_cert_prefix)
     lb_client_cert_name = search_resource_names.lb_client_cert_name(mdbs_resource_name, tls_cert_prefix)
 
-    lb_svc = search_resource_names.lb_service_name(mdbs_resource_name)
+    proxy_svc = search_resource_names.proxy_service_name(mdbs_resource_name)
 
-    # Server certificate — SAN for the LB service
+    # Server certificate — SAN for the proxy service (Envoy presents this cert)
+    server_domains = [f"{proxy_svc}.{namespace}.svc.cluster.local"]
+    if extra_domains:
+        server_domains.extend(extra_domains)
     create_tls_certs(
         issuer=issuer,
         namespace=namespace,
         resource_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
         replicas=1,
-        service_name=lb_svc,
-        additional_domains=[f"{lb_svc}.{namespace}.svc.cluster.local"],
+        service_name=proxy_svc,
+        additional_domains=server_domains,
         secret_name=lb_server_cert_name,
     )
     logger.info(f"LB server certificate created: {lb_server_cert_name}")
@@ -49,7 +53,7 @@ def create_rs_lb_certificates(
         namespace=namespace,
         resource_name=f"{search_resource_names.lb_deployment_name(mdbs_resource_name)}-client",
         replicas=1,
-        service_name=lb_svc,
+        service_name=proxy_svc,
         additional_domains=[f"*.{namespace}.svc.cluster.local"],
         secret_name=lb_client_cert_name,
     )
@@ -61,16 +65,19 @@ def create_rs_search_tls_cert(
     issuer: str,
     mdbs_resource_name: str,
     tls_cert_prefix: str,
+    extra_domains: list[str] | None = None,
 ):
     """Create mongot TLS certificate for RS topology."""
     secret_name = search_resource_names.mongot_tls_cert_name(mdbs_resource_name, tls_cert_prefix)
     mongot_svc = search_resource_names.mongot_service_name(mdbs_resource_name)
-    lb_svc = search_resource_names.lb_service_name(mdbs_resource_name)
+    proxy_svc = search_resource_names.proxy_service_name(mdbs_resource_name)
 
     additional_domains = [
         f"{mongot_svc}.{namespace}.svc.cluster.local",
-        f"{lb_svc}.{namespace}.svc.cluster.local",
+        f"{proxy_svc}.{namespace}.svc.cluster.local",
     ]
+    if extra_domains:
+        additional_domains.extend(extra_domains)
 
     create_tls_certs(
         issuer=issuer,

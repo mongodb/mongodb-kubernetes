@@ -222,7 +222,7 @@ func TestGetMongodConfigParameters_TransportAndPorts(t *testing.T) {
 			if tc.withWireproto {
 				expectedPort = search.GetMongotWireprotoPort()
 			}
-			expectedPrefix := fmt.Sprintf("%s.%s.svc.%s", search.Name+"-search-svc", search.Namespace, clusterDomain)
+			expectedPrefix := fmt.Sprintf("%s.%s.svc.%s", search.Name+"-search-proxy-svc", search.Namespace, clusterDomain)
 			expectedSuffix := fmt.Sprintf(":%d", expectedPort)
 
 			for _, key := range []string{"mongotHost", "searchIndexManagementHostAndPort"} {
@@ -243,7 +243,7 @@ func TestGetMongodConfigParameters_ManagedLB(t *testing.T) {
 		},
 		Spec: searchv1.MongoDBSearchSpec{
 			LoadBalancer: &searchv1.LoadBalancerConfig{
-				Mode: searchv1.LBModeManaged,
+				Managed: &searchv1.ManagedLBConfig{},
 			},
 		},
 	}
@@ -253,7 +253,7 @@ func TestGetMongodConfigParameters_ManagedLB(t *testing.T) {
 
 	setParams := params["setParameter"].(map[string]any)
 
-	expectedEndpoint := "test-mongodb-search-search-lb-svc.test.svc.cluster.local:27028"
+	expectedEndpoint := "test-mongodb-search-search-proxy-svc.test.svc.cluster.local:27028"
 	assert.Equal(t, expectedEndpoint, setParams["mongotHost"])
 	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
 	assert.Equal(t, true, setParams["useGrpcForSearch"])
@@ -272,10 +272,82 @@ func TestGetMongodConfigParameters_NoLB(t *testing.T) {
 
 	setParams := params["setParameter"].(map[string]any)
 
-	// Without LB, should point directly to mongot headless service
-	expectedEndpoint := "test-mongodb-search-search-svc.test.svc.cluster.local:27028"
+	// Without LB, should point to the stable proxy service
+	expectedEndpoint := "test-mongodb-search-search-proxy-svc.test.svc.cluster.local:27028"
 	assert.Equal(t, expectedEndpoint, setParams["mongotHost"])
 	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
+}
+
+func TestBuildProxyService_NoLB(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+	}
+	svc := buildProxyService(search)
+
+	assert.Equal(t, "test-search-proxy-svc", svc.Name)
+	assert.Equal(t, map[string]string{"app": "test-search-svc"}, svc.Spec.Selector)
+	assert.Equal(t, int32(27028), svc.Spec.Ports[0].Port)
+	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
+}
+
+func TestBuildProxyService_ManagedLB_NotReady(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+		},
+		// No status.loadBalancer → IsLoadBalancerReady() = false
+	}
+	svc := buildProxyService(search)
+
+	// Selector stays on mongot pods while Envoy is not ready
+	assert.Equal(t, map[string]string{"app": "test-search-svc"}, svc.Spec.Selector)
+	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
+}
+
+func TestBuildProxyService_ManagedLB_Ready(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+		},
+		Status: searchv1.MongoDBSearchStatus{
+			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
+		},
+	}
+	svc := buildProxyService(search)
+
+	// Selector flips to Envoy pods when LB is ready
+	assert.Equal(t, map[string]string{"app": "test-search-lb"}, svc.Spec.Selector)
+	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
+}
+
+func TestBuildProxyServiceForShard_ManagedLB_NotReady(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+		},
+	}
+	svc := buildProxyServiceForShard(search, "shard-0")
+
+	stsName := search.MongotStatefulSetForShard("shard-0").Name
+	assert.Equal(t, map[string]string{"app": stsName}, svc.Spec.Selector)
+}
+
+func TestBuildProxyServiceForShard_ManagedLB_Ready(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+		},
+		Status: searchv1.MongoDBSearchStatus{
+			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
+		},
+	}
+	svc := buildProxyServiceForShard(search, "shard-0")
+
+	assert.Equal(t, map[string]string{"app": "test-search-lb"}, svc.Spec.Selector)
 }
 
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {
@@ -814,7 +886,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 		useUnmanagedLB bool
 	}{
 		{
-			name: "Internal service endpoint (no unmanaged LB)",
+			name: "Proxy service endpoint (no unmanaged LB)",
 			search: &searchv1.MongoDBSearch{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-search",
@@ -830,7 +902,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 			},
 			shardName:      "test-mdb-0",
 			clusterDomain:  "cluster.local",
-			expectedHost:   "test-search-search-0-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
+			expectedHost:   "test-search-search-0-test-mdb-0-proxy-svc.test-ns.svc.cluster.local:27028",
 			useUnmanagedLB: false,
 		},
 		{
@@ -847,8 +919,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 						},
 					},
 					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb-{shardName}.example.com:27028",
+						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 					},
 				},
 			},
@@ -871,8 +942,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 						},
 					},
 					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb-{shardName}.example.com:27028",
+						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 					},
 				},
 			},
@@ -904,8 +974,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 func TestCreateShardMongotConfig(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-			Mode:     searchv1.LBModeUnmanaged,
-			Endpoint: "lb-{shardName}.example.com:27028",
+			Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 		}
 	})
 
@@ -932,8 +1001,7 @@ func TestCreateShardMongotConfig(t *testing.T) {
 func TestShardedMongotConfigWithTLS(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-			Mode:     searchv1.LBModeUnmanaged,
-			Endpoint: "lb-{shardName}.example.com:27028",
+			Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 		}
 	})
 
@@ -977,8 +1045,7 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
 		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-			Mode:     searchv1.LBModeUnmanaged,
-			Endpoint: "lb-{shardName}.example.com:27028",
+			Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 		}
 	})
 
@@ -1130,7 +1197,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "multiple mongot replicas (3) require load balancer configuration; please configure load balancing in spec.lb.",
+			expectedError: "multiple mongot replicas (3) require load balancer configuration; please configure load balancing in spec.loadBalancer.",
 		},
 		{
 			name: "Multiple replicas with unmanaged LB - valid",
@@ -1147,8 +1214,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 						},
 					},
 					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb.example.com:27028",
+						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb.example.com:27028"},
 					},
 				},
 			},
@@ -1203,8 +1269,8 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 			},
 			shardNames:    []string{"test-mdb-0", "test-mdb-1"},
 			clusterDomain: "cluster.local",
-			// Uses first shard's internal service endpoint
-			expectedHost: "test-search-search-0-test-mdb-0-svc.test-ns.svc.cluster.local:27028",
+			// Uses first shard's proxy service endpoint
+			expectedHost: "test-search-search-0-test-mdb-0-proxy-svc.test-ns.svc.cluster.local:27028",
 		},
 		{
 			name: "Unmanaged LB endpoint - uses first shard's endpoint via template",
@@ -1220,8 +1286,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 						},
 					},
 					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Mode:     searchv1.LBModeUnmanaged,
-						Endpoint: "lb-{shardName}.example.com:27028",
+						Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"},
 					},
 				},
 			},
@@ -1299,8 +1364,7 @@ func TestEndpointTemplateSubstitution(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
 				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-					Mode:     searchv1.LBModeUnmanaged,
-					Endpoint: tc.endpointTemplate,
+					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: tc.endpointTemplate},
 				}
 			})
 
@@ -1405,9 +1469,19 @@ func TestValidateEndpointTemplate(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
+				// Use an external sharded source so that {shardName} templates are valid
+				s.Spec.Source = &searchv1.MongoDBSource{
+					ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+						ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+							Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example.com:27017"}},
+							Shards: []searchv1.ExternalShardConfig{
+								{ShardName: "shard0", Hosts: []string{"host:27017"}},
+							},
+						},
+					},
+				}
 				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-					Mode:     searchv1.LBModeUnmanaged,
-					Endpoint: tc.endpoint,
+					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: tc.endpoint},
 				}
 			})
 

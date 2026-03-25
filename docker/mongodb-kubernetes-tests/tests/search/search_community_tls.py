@@ -29,7 +29,7 @@ MDBS_RESOURCE_NAME = MDBC_RESOURCE_NAME
 
 TLS_SECRET_NAME = "tls-secret"
 
-# MongoDBSearch TLS configuration — convention: {name}-search-cert
+# MongoDBSearch TLS configuration -- convention: {name}-search-cert
 MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME)
 
 
@@ -94,13 +94,17 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdbc: MongoDBCommuni
     create_tls_certs(issuer, namespace, mdbc.name, mdbc["spec"]["members"], secret_name=TLS_SECRET_NAME)
 
     search_service_name = search_resource_names.mongot_service_name(mdbs.name)
+    proxy_service_name = search_resource_names.proxy_service_name(mdbs.name)
     create_tls_certs(
         issuer,
         namespace,
         search_resource_names.mongot_statefulset_name(mdbs.name),
         replicas=1,
         service_name=search_service_name,
-        additional_domains=[f"{search_service_name}.{namespace}.svc.cluster.local"],
+        additional_domains=[
+            f"{search_service_name}.{namespace}.svc.cluster.local",
+            f"{proxy_service_name}.{namespace}.svc.cluster.local",
+        ],
         secret_name=MDBS_TLS_SECRET_NAME,
     )
 

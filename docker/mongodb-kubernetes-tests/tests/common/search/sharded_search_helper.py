@@ -98,7 +98,7 @@ def create_lb_certificates(
         namespace=namespace,
         resource_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
         replicas=1,
-        service_name=search_resource_names.lb_service_name(mdbs_resource_name),
+        service_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
         additional_domains=additional_domains,
         secret_name=lb_server_cert_name,
     )
@@ -110,7 +110,7 @@ def create_lb_certificates(
         namespace=namespace,
         resource_name=f"{search_resource_names.lb_deployment_name(mdbs_resource_name)}-client",
         replicas=1,
-        service_name=search_resource_names.lb_service_name(mdbs_resource_name),
+        service_name=search_resource_names.lb_deployment_name(mdbs_resource_name),
         additional_domains=[f"*.{namespace}.svc.cluster.local"],
         secret_name=lb_client_cert_name,
     )
@@ -309,12 +309,12 @@ def patch_envoy_deployment_configuration(
     deployment_config: dict,
     timeout: int = 300,
 ):
-    """Patch the MongoDBSearch CR with a deploymentConfiguration override and wait for Running.
+    """Patch the MongoDBSearch CR with a deployment override and wait for Running.
 
-    Preserves any existing fields under spec.lb.envoy.
+    Preserves any existing fields under spec.loadBalancer.managed.
     """
     mdbs.load()
-    mdbs["spec"]["lb"].setdefault("envoy", {})["deploymentConfiguration"] = deployment_config
+    mdbs["spec"]["loadBalancer"].setdefault("managed", {})["deployment"] = deployment_config
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=timeout)
 
