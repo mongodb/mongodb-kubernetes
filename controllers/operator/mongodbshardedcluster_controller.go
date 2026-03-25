@@ -1908,8 +1908,8 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		logWarnIgnoredDueToRecovery(log, err)
 	}
 
-	if sc.GetBackupSpec() != nil {
-		delaySeconds := env.ReadIntOrDefault(util.BackupStartDelaySecondsEnv, util.DefaultBackupStartDelaySeconds)
+	if isBackupBeingEnabled(sc, conn, log) {
+		delaySeconds := env.ReadIntOrDefault(util.BackupStartDelaySecondsEnv, util.DefaultBackupStartDelaySeconds) // nolint:forbidigo
 		log.Infof("Waiting %d seconds before enabling backup to avoid race condition between OM topology discovery and backup enablement", delaySeconds)
 		select {
 		case <-ctx.Done():
@@ -1927,6 +1927,36 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 
 	log.Info("Updated Ops Manager for sharded cluster")
 	return workflow.OK()
+}
+
+// See CLOUDP-389867.
+// isBackupBeingEnabled returns true whenever backup is transitioning into an enabled state, i.e. the
+// spec requests backup to be enabled and all OM backup configs are currently Inactive.
+//
+// Root cause of the race: when backup is started via /backupConfigs, OM takes a snapshot of the
+// cluster topology by reading mmsdbconfig.config.hosts and mmsdbconfig.config.hostClusters
+// (populated by agent monitoring pings). This snapshot can be incomplete if not all monitoring
+// events have been processed yet — even though /automationStatus already reports the cluster is in
+// goal state. The result is a partial topology being captured for the backup job.
+//
+// The delay mitigates this by giving OM time to finish processing monitoring events before the
+// /backupConfigs call is made. It applies to every enablement (including re-enables after
+// termination, since OM resets configs back to Inactive after termination).
+func isBackupBeingEnabled(sc *mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) bool {
+	if sc.GetBackupSpec() == nil || sc.GetBackupSpec().Mode != "enabled" {
+		return false
+	}
+	configs, err := conn.ReadBackupConfigs()
+	if err != nil {
+		log.Debugf("Could not read backup configs to determine if backup is being enabled: %s", err)
+		return false
+	}
+	for _, c := range configs.Configs {
+		if c.Status != backup.Inactive {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts *deploymentOptions, isRecovering bool, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {

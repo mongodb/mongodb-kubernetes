@@ -20,6 +20,7 @@ func InitDefaultEnvVariables() {
 	_ = os.Setenv(util.PodWaitRetriesEnv, "2")
 	_ = os.Setenv(util.BackupDisableWaitSecondsEnv, "1")
 	_ = os.Setenv(util.BackupDisableWaitRetriesEnv, "3")
+	_ = os.Setenv(util.BackupStartDelaySecondsEnv, "0")
 	_ = os.Unsetenv(util.ManagedSecurityContextEnv)
 	_ = os.Unsetenv(util.ImagePullSecrets)
 	_ = os.Unsetenv(architectures.DefaultEnvArchitecture)
