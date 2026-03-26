@@ -1,27 +1,13 @@
 """
-E2E test for sharded MongoDB Search with external MongoDB source and operator-managed Envoy LB.
+E2E test for sharded MongoDB Search on OpenShift with external source and managed Envoy LB.
 
-This test is a hybrid of two existing tests:
-- search_sharded_enterprise_external_mongod.py (external source, BYO Envoy)
-- search_sharded_enterprise_managed_lb.py (internal source, managed LB)
+Based on search_sharded_enterprise_external_mongod_managed_lb.py (Kind equivalent),
+with OpenShift-specific additions:
+- Creates OCP passthrough Routes per shard to expose proxy services externally
+- Configures mongotHost and spec.lb.endpoint to use Route hostnames (auto-assigned by OCP)
+- LB TLS certificates include Route hostnames in SANs (instead of proxy service FQDNs)
 
-It verifies:
-- Deploys a sharded MongoDB cluster with TLS enabled (simulating an external cluster)
-- Deploys MongoDBSearch with spec.source.external.shardedCluster + lb.mode: Managed
-- Operator automatically deploys and configures Envoy proxy (no manual deploy_envoy_proxy)
-- Verifies per-shard mongot Services and StatefulSets
-- Verifies mongod/mongos search parameters point to operator-managed Envoy proxy
-- Imports sample data, shards collections, creates search indexes
-- Executes search queries through mongos and verifies results from all shards
-
-Key difference from BYO LB external test:
-- No deploy_envoy_proxy() call - the operator deploys Envoy via lb.mode: Managed
-- We verify the operator-created ConfigMap, Deployment, and proxy Services
-
-Key difference from managed LB internal test:
-- Uses spec.source.external.shardedCluster (external MongoDB source)
-- MDB and MDBS have different resource names (mdb-sh vs mdb-sh-search)
-- MongoDB shardOverrides are configured upfront (pointing to operator-managed proxy services)
+Requires an OpenShift cluster (Route API).
 """
 
 import time
@@ -75,7 +61,8 @@ CONFIG_SERVER_COUNT = 1
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = "mdb-sh-ca"
 
-# Module-level storage for route hostnames (populated by test_create_ocp_routes)
+# TODO: replace module-level mutable state with a fixture or class-based approach
+# to avoid implicit coupling between test steps via global dict.
 _route_hostnames: dict[str, str] = {}
 
 
@@ -115,7 +102,7 @@ def create_ocp_routes_for_shards(namespace: str) -> dict[str, str]:
             else:
                 raise
 
-    # Wait for OCP to assign hostnames, then read them back
+    # TODO: replace sleep with polling for route.spec.host to be assigned
     time.sleep(5)
 
     for shard_idx in range(SHARD_COUNT):
@@ -238,14 +225,14 @@ def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBU
     return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     """Test that the operator is installed and running."""
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
     operator.assert_is_running()
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 @skip_if_cloud_manager
 def test_create_ops_manager(namespace: str):
     """Test OpsManager deployment (skipped for Cloud Manager)."""
@@ -256,7 +243,7 @@ def test_create_ops_manager(namespace: str):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_create_ocp_routes(namespace: str):
     """Create OCP passthrough Routes for each shard's proxy service and read back hostnames."""
     global _route_hostnames
@@ -266,19 +253,19 @@ def test_create_ocp_routes(namespace: str):
     logger.info(f"Derived lb.endpoint template: {lb_endpoint}")
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_install_tls_certificates(helper: SearchDeploymentHelper, mdb: MongoDB, issuer: str):
     helper.install_sharded_tls_certificates()
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_create_sharded_cluster(mdb: MongoDB):
     """Test sharded cluster deployment."""
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=900)
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_create_users(
     helper: SearchDeploymentHelper,
     admin_user: MongoDBUser,
@@ -296,27 +283,27 @@ def test_create_users(
     )
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_deploy_lb_certificates(namespace: str, issuer: str):
     """Create TLS certificates for the operator-managed load balancer with route hostnames in SANs."""
     create_lb_certificates_with_route_sans(namespace, issuer, _route_hostnames)
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_create_search_tls_certificate(namespace: str, issuer: str):
     create_per_shard_search_tls_certs(
         namespace, issuer, MDBS_TLS_CERT_PREFIX, SHARD_COUNT, MDB_RESOURCE_NAME, MDBS_RESOURCE_NAME
     )
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_create_search_resource(mdbs: MongoDBSearch):
     """Test MongoDBSearch resource deployment with external sharded source + managed LB."""
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_verify_envoy_deployment(namespace: str):
     envoy_deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
 
@@ -334,7 +321,7 @@ def test_verify_envoy_deployment(namespace: str):
     logger.info(f"Envoy Deployment {envoy_deployment_name} is running")
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_wait_for_sharded_cluster_ready(mdb: MongoDB):
     """Wait for sharded cluster to be ready after Search CR deployment."""
     mdb.assert_reaches_phase(Phase.Running, timeout=600)
@@ -342,7 +329,7 @@ def test_wait_for_sharded_cluster_ready(mdb: MongoDB):
 
 # TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
 # to wait for to get the mongod/mongos config properly generated.
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_verify_mongod_parameters_per_shard(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     verify_sharded_mongod_parameters(
         namespace,
@@ -355,18 +342,18 @@ def test_verify_mongod_parameters_per_shard(namespace: str, mdb: MongoDB, mdbs: 
 
 # TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
 # to wait for to get the mongod/mongos config properly generated.
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
     verify_mongos_search_config(namespace, MDB_RESOURCE_NAME)
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
     """Deploy mongodb-tools pod for running queries."""
     logger.info(f"Tools pod {tools_pod.pod_name} is ready")
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.ToolsPod):
     search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
     search_tester.mongorestore_from_url(
@@ -376,32 +363,32 @@ def test_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.Tool
     )
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_shard_collections(mdb: MongoDB):
     search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
     search_tester.shard_and_distribute_collection("sample_mflix", "movies")
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_create_search_index(mdb: MongoDB):
     search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
     search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_execute_text_search_query(mdb: MongoDB):
     search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     verify_text_search_query(search_tester)
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_verify_search_results_from_all_shards(mdb: MongoDB):
     search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     verify_search_results_from_all_shards(search_tester)
 
 
-@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+@mark.e2e_search_sharded_openshift_external
 def test_verify_search_resource_status(mdbs: MongoDBSearch):
     """Verify the MongoDBSearch resource is in Running phase with correct status."""
     mdbs.load()
