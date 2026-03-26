@@ -1426,6 +1426,17 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		restore := zap.ReplaceGlobals(zap.New(core))
 		defer restore()
 
+		// First reconcile: delay annotation is set, reconcile is requeued
+		require.NoError(t, clusterClient.Update(ctx, sc))
+		result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
+		require.NoError(t, err)
+		require.Equal(t, reconcile.Result{}, result, "expected requeue on first reconcile while waiting for backup start delay")
+		assert.Equal(t, 1, logs.FilterMessageSnippet("before enabling backup to avoid race condition").Len(), "expected backup start delay requeue log")
+
+		// Re-fetch sc so its ResourceVersion is current after the annotation patch
+		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
+
+		// Second reconcile: delay has elapsed (0s in tests), backup is configured
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
 
 		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
@@ -1434,8 +1445,6 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		assert.Equal(t, "1", config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 		assertAllOtherBackupConfigsRemainUntouched(t)
-
-		assert.Equal(t, 1, logs.FilterMessageSnippet("before enabling backup to avoid race condition").Len(), "expected backup start delay log when enabling backup for the first time")
 	})
 
 	t.Run("Backup snapshot schedule tests", backupSnapshotScheduleTests(sc, clusterClient, reconciler, omConnectionFactory, "1"))
@@ -1483,59 +1492,6 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 	})
 }
 
-func TestIsBackupBeingEnabled(t *testing.T) {
-	newConn := func(statuses ...backup.Status) *om.MockedOmConnection {
-		conn := om.NewMockedOmConnection(nil)
-		for i, s := range statuses {
-			conn.BackupConfigs[fmt.Sprintf("%d", i)] = &backup.Config{ClusterId: fmt.Sprintf("%d", i), Status: s}
-		}
-		return conn
-	}
-
-	scWithMode := func(mode string) *mdbv1.MongoDB {
-		return mdbv1.NewClusterBuilder().
-			SetNamespace(mock.TestNamespace).
-			SetBackup(mdbv1.Backup{Mode: mdbv1.BackupMode(mode)}).
-			Build()
-	}
-	scNoBackup := mdbv1.NewClusterBuilder().SetNamespace(mock.TestNamespace).Build()
-
-	t.Run("no backup spec returns false", func(t *testing.T) {
-		assert.False(t, isBackupBeingEnabled(scNoBackup, newConn(), zap.S()))
-	})
-
-	t.Run("mode disabled returns false", func(t *testing.T) {
-		assert.False(t, isBackupBeingEnabled(scWithMode("disabled"), newConn(backup.Inactive), zap.S()))
-	})
-
-	t.Run("mode terminated returns false", func(t *testing.T) {
-		assert.False(t, isBackupBeingEnabled(scWithMode("terminated"), newConn(backup.Inactive), zap.S()))
-	})
-
-	t.Run("mode enabled with no OM configs returns true", func(t *testing.T) {
-		assert.True(t, isBackupBeingEnabled(scWithMode("enabled"), newConn(), zap.S()))
-	})
-
-	t.Run("mode enabled with at least one config Started returns false", func(t *testing.T) {
-		// Backup already running — delay must not fire again
-		assert.False(t, isBackupBeingEnabled(scWithMode("enabled"), newConn(backup.Started, backup.Inactive), zap.S()))
-	})
-
-	t.Run("mode enabled with all configs Started returns false", func(t *testing.T) {
-		assert.False(t, isBackupBeingEnabled(scWithMode("enabled"), newConn(backup.Started, backup.Started), zap.S()))
-	})
-
-	t.Run("mode enabled with Stopped config returns false", func(t *testing.T) {
-		// Config is Stopped (not Inactive) so the backup job previously ran — no delay needed.
-		assert.False(t, isBackupBeingEnabled(scWithMode("enabled"), newConn(backup.Stopped), zap.S()))
-	})
-
-	t.Run("mode enabled with all configs Inactive after termination returns true", func(t *testing.T) {
-		// After termination OM resets configs back to Inactive — the delay must fire again since
-		// monitoring events may not yet be fully processed.
-		assert.True(t, isBackupBeingEnabled(scWithMode("enabled"), newConn(backup.Inactive, backup.Inactive, backup.Inactive), zap.S()))
-	})
-}
 
 // createShardedClusterTLSSecretsFromCustomCerts creates and populates all the required
 // secrets required to enabled TLS with custom certs for all sharded cluster components.
