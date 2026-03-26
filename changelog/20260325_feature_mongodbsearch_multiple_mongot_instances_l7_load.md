@@ -3,7 +3,7 @@ kind: feature
 date: 2026-03-25
 ---
 
-* MongoDBSearch: Multiple mongot instances, L7 Load Balancing, and Sharded Cluster Support
+**MongoDBSearch:** Multiple mongot instances, L7 Load Balancing, and Sharded Cluster Support
 
 The `MongoDBSearch` CRD now supports scaling search workloads across multiple mongot instances, with built-in L7 load balancing and sharded MongoDB cluster support.
 
