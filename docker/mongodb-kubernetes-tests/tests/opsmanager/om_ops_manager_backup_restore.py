@@ -8,6 +8,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
+from kubetester.mongotester import create_mongo_client
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
@@ -95,14 +96,14 @@ def mdb_prev(ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version:
 @fixture(scope="function")
 def mdb_prev_test_collection(mdb_prev):
     # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
-    collection = pymongo.MongoClient(mdb_prev.tester().cnx_string, **mdb_prev.tester().default_opts)["testdb"]
+    collection = create_mongo_client(mdb_prev.tester().cnx_string, **mdb_prev.tester().default_opts)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 
 @fixture(scope="function")
 def mdb_latest_test_collection(mdb_latest):
     # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
-    collection = pymongo.MongoClient(mdb_latest.tester().cnx_string, **mdb_latest.tester().default_opts)["testdb"]
+    collection = create_mongo_client(mdb_latest.tester().cnx_string, **mdb_latest.tester().default_opts)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 

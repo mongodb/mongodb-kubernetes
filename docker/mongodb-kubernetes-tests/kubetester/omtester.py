@@ -16,7 +16,7 @@ import requests
 import semver
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, build_agent_auth, build_auth, run_periodically
-from kubetester.mongotester import BackgroundHealthChecker
+from kubetester.mongotester import BackgroundHealthChecker, create_mongo_client
 from kubetester.om_queryable_backups import OMQueryableBackup
 from opentelemetry import trace
 from requests.adapters import HTTPAdapter, Retry
@@ -678,8 +678,8 @@ class OMTester(object):
         clientPem.write(connParams.client_pem)
         clientPem.flush()
 
-        dbClient = pymongo.MongoClient(
-            host=connParams.host,
+        dbClient = create_mongo_client(
+            connParams.host,
             tls=True,
             tlsCAFile=caPem.name,
             tlsCertificateKeyFile=clientPem.name,

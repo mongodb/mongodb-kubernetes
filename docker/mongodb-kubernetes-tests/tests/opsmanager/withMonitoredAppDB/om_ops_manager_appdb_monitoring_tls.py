@@ -5,6 +5,7 @@ import pymongo
 from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongotester import create_mongo_client
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
@@ -90,7 +91,7 @@ def test_appdb_password_can_be_changed(ops_manager: MongoDBOpsManager):
 def test_new_database_is_monitored_after_restart(ops_manager: MongoDBOpsManager):
     # Connect with the new connection string
     connection_string = ops_manager.read_appdb_connection_url()
-    client = pymongo.MongoClient(connection_string, tlsAllowInvalidCertificates=True)
+    client = create_mongo_client(connection_string, tlsAllowInvalidCertificates=True)
     database_name = "new_database"
     database = client[database_name]
     collection = database["new_collection"]

@@ -9,6 +9,7 @@ from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_ce
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
+from kubetester.mongotester import create_mongo_client
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
@@ -242,7 +243,7 @@ def mdb_prev_test_collection(mdb_prev, ca_path: str):
     tester = mdb_prev.tester(ca_path=ca_path, use_ssl=True)
 
     # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
-    collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
+    collection = create_mongo_client(tester.cnx_string, **tester.default_opts)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 
@@ -251,7 +252,7 @@ def mdb_latest_test_collection(mdb_latest, ca_path: str):
     tester = mdb_latest.tester(ca_path=ca_path, use_ssl=True)
 
     # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
-    collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
+    collection = create_mongo_client(tester.cnx_string, **tester.default_opts)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 

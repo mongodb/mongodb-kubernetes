@@ -23,6 +23,7 @@ from kubetester.kubetester import run_periodically, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.mongotester import create_mongo_client
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMTester
 from kubetester.operator import Operator
@@ -459,7 +460,7 @@ class TestBackupForMongodb:
             external=True,
         )
 
-        collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
+        collection = create_mongo_client(tester.cnx_string, **tester.default_opts)["testdb"]
 
         return collection["testcollection"]
 

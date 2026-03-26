@@ -9,6 +9,7 @@ from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_default_architecture_static
 from kubetester.mongodb import MongoDB
+from kubetester.mongotester import create_mongo_client
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
@@ -128,7 +129,7 @@ def mdb_latest_kmip_secrets(aws_s3_client: AwsS3Client, namespace, issuer, issue
 @fixture(scope="module")
 def mdb_latest_test_collection(mdb_latest):
     # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
-    collection = pymongo.MongoClient(mdb_latest.tester().cnx_string, **mdb_latest.tester().default_opts)["testdb"]
+    collection = create_mongo_client(mdb_latest.tester().cnx_string, **mdb_latest.tester().default_opts)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 

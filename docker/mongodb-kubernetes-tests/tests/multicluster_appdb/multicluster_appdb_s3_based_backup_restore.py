@@ -8,6 +8,7 @@ from kubetester import create_or_update_configmap, try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.mongotester import create_mongo_client
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
@@ -160,7 +161,7 @@ class TestBackupForMongodb:
     @fixture(scope="module")
     def mongodb_multi_one_collection(self, mongodb_multi_one: MongoDBMulti):
         # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
-        collection = pymongo.MongoClient(
+        collection = create_mongo_client(
             mongodb_multi_one.tester(port=MONGODB_PORT).cnx_string,
             **mongodb_multi_one.tester(port=MONGODB_PORT).default_opts,
         )["testdb"]

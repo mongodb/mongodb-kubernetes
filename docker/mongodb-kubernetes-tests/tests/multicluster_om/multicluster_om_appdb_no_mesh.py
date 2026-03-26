@@ -16,6 +16,7 @@ from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.mongotester import create_mongo_client
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
@@ -403,7 +404,7 @@ def mongodb_multi_collection(mongodb_multi: MongoDBMulti, ca_path: str):
         ca_path=ca_path,
     )
 
-    collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
+    collection = create_mongo_client(tester.cnx_string, **tester.default_opts)["testdb"]
 
     return collection["testcollection"]
 

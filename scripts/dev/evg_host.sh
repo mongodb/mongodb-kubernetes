@@ -106,6 +106,15 @@ get-kubeconfig() {
   remote_path="${host_url}:/home/ubuntu/.operator-dev/evg-host.kubeconfig"
   echo "Copying remote kubeconfig from ${remote_path} to ${kubeconfig_path}"
   scp "${remote_path}" "${kubeconfig_path}"
+  if [[ -n "${EVG_HOST_PROXY}" ]]; then
+    echo "Patching kubeconfig to use EVG_HOST_PROXY ${EVG_HOST_PROXY}"
+    yq -i ".clusters[].cluster.proxy-url |= \"socks5://${EVG_HOST_PROXY}\"" "${kubeconfig_path}"
+  fi
+
+  if [[ -n "${K8S_FWD_PROXY}" ]]; then
+    echo "Loading kubeconfig onto ${K8S_FWD_PROXY}"
+    curl -X PATCH --data-binary @"${kubeconfig_path}" "http://${K8S_FWD_PROXY}/kubeconfig"
+  fi
 }
 
 recreate-kind-clusters() {

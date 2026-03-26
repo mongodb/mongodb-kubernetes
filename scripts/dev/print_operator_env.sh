@@ -106,6 +106,9 @@ OPERATOR_NAME=\"${OPERATOR_NAME}\"
   if [[ "${OPERATOR_NAME:-""}" != "" ]]; then
     echo "OPERATOR_NAME=${OPERATOR_NAME}"
   fi
+  if [[ "${K8S_FWD_PROXY_SOCKS:-""}" != "" ]]; then
+    echo "HTTP_PROXY=${K8S_FWD_PROXY_SOCKS}"
+  fi
 }
 
 print_operator_env
