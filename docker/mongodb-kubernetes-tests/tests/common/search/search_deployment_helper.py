@@ -372,7 +372,9 @@ class SearchDeploymentHelper:
 
         if lb_mode:
             if lb_mode == "Managed":
-                external_hostname = f"{self.mdbs_resource_name}-search-0-proxy-svc" f".{self.namespace}.svc.cluster.local"
+                external_hostname = (
+                    f"{self.mdbs_resource_name}-search-0-proxy-svc" f".{self.namespace}.svc.cluster.local"
+                )
                 resource["spec"]["loadBalancer"] = {"managed": {"externalHostname": external_hostname}}
             elif lb_mode == "Unmanaged":
                 resource["spec"]["loadBalancer"] = {"unmanaged": {}}
