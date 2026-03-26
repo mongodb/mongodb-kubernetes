@@ -51,7 +51,11 @@ def replica_set(namespace: str, custom_mdb_version: str, squid_proxy: str) -> Mo
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
     resource.configure(om=get_ops_manager(namespace), project_name=resource.name)
-    # Uncomment the following to pass the -httpProxy flag to the agent at startup
+    # Comment out the following to not pass the -httpProxy flag to the agent at startup
+    # That will leave only the HTTP_PROXY environment variable set by the operator,
+    # but the automation agent currently doesn't seem to respect that, causing the test to fail.
+    # Ideally the agent can use the environment variable so users need to configure the proxy only
+    # once at the operator level, instead of configuring every MongoDB resource explicitly.
     if "agent" not in resource["spec"] or resource["spec"]["agent"] is None:
         resource["spec"]["agent"] = {}
     resource["spec"]["agent"]["startupOptions"] = {"httpProxy": squid_proxy}
