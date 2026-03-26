@@ -14,4 +14,4 @@ kubectl create configmap "${MDB_TLS_CA_CONFIGMAP}" \
   --context "${K8S_CTX}" \
   --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" -f -
 
-echo "✓ CA ConfigMap configured for mongod"
+echo "[ok] CA ConfigMap configured for mongod"

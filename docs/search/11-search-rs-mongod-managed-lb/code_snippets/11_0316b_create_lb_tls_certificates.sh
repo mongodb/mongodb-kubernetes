@@ -1,7 +1,7 @@
 echo "Creating TLS certificates for managed load balancer (Envoy)..."
 
-lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-search-lb-cert"
-lb_client_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-search-lb-client-cert"
+lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-search-lb-0-cert"
+lb_client_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-search-lb-0-client-cert"
 
 echo "Creating LB server certificate..."
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
@@ -25,7 +25,7 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  ✓ LB server certificate requested: ${lb_server_cert}"
+echo "  [ok] LB server certificate requested: ${lb_server_cert}"
 
 echo "Creating LB client certificate..."
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
@@ -48,7 +48,7 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  ✓ LB client certificate requested: ${lb_client_cert}"
+echo "  [ok] LB client certificate requested: ${lb_client_cert}"
 
 echo "Waiting for LB certificates to be ready..."
 kubectl wait --for=condition=Ready certificate/"${lb_server_cert}" \
@@ -60,4 +60,4 @@ kubectl wait --for=condition=Ready certificate/"${lb_client_cert}" \
   --context "${K8S_CTX}" \
   --timeout=60s
 
-echo "✓ All managed load balancer (Envoy) TLS certificates created"
+echo "[ok] All managed load balancer (Envoy) TLS certificates created"

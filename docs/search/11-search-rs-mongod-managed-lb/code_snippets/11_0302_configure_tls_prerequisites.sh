@@ -9,7 +9,7 @@ spec:
   selfSigned: {}
 EOF
 
-echo "  ✓ Self-signed ClusterIssuer created"
+echo "  [ok] Self-signed ClusterIssuer created"
 
 kubectl apply --context "${K8S_CTX}" -n "${CERT_MANAGER_NAMESPACE}" -f - <<EOF
 apiVersion: cert-manager.io/v1
@@ -30,7 +30,7 @@ spec:
     kind: ClusterIssuer
 EOF
 
-echo "  ✓ CA Certificate requested"
+echo "  [ok] CA Certificate requested"
 
 echo "  Waiting for CA certificate..."
 kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CA_CERT_NAME}" \
@@ -48,6 +48,6 @@ spec:
     secretName: ${MDB_TLS_CA_SECRET_NAME}
 EOF
 
-echo "  ✓ CA Issuer created"
+echo "  [ok] CA Issuer created"
 
-echo "✓ TLS prerequisites configured"
+echo "[ok] TLS prerequisites configured"

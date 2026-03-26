@@ -165,9 +165,9 @@ Checks that the operator created the expected resources:
 
 | Resource | Name Pattern | Purpose |
 |----------|-------------|---------|
-| Deployment | `{name}-search-lb` | Envoy proxy pods |
-| ConfigMap | `{name}-search-lb-config` | Envoy routing configuration |
-| Service | `{name}-search-proxy-svc` | Proxy service (port 27028) |
+| Deployment | `{name}-search-lb-0` | Envoy proxy pods |
+| ConfigMap | `{name}-search-lb-0-config` | Envoy routing configuration |
+| Service | `{name}-search-0-proxy-svc` | Proxy service (port 27028) |
 | StatefulSet | `{name}-search` | mongot pods |
 | Service | `{name}-search-svc` | Headless service for mongot pods |
 
@@ -200,8 +200,8 @@ Common causes:
 ### Envoy pods not starting
 
 ```bash
-kubectl describe deployment ${MDB_SEARCH_RESOURCE_NAME}-search-lb -n ${MDB_NS}
-kubectl logs -l app=${MDB_SEARCH_RESOURCE_NAME}-search-lb -n ${MDB_NS}
+kubectl describe deployment ${MDB_SEARCH_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
+kubectl logs -l app=${MDB_SEARCH_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
 ```
 
 Common causes:

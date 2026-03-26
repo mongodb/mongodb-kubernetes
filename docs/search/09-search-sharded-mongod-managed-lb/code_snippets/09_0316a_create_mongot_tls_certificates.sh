@@ -24,7 +24,7 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  ✓ Certificate requested: ${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_0_NAME}-cert"
+echo "  [ok] Certificate requested: ${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_0_NAME}-cert"
 
 # --- Shard 1 mongot certificate (2 replicas) ---
 echo "  Creating certificate: ${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_1_NAME}-cert"
@@ -50,7 +50,7 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  ✓ Certificate requested: ${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_1_NAME}-cert"
+echo "  [ok] Certificate requested: ${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_1_NAME}-cert"
 
 echo "Waiting for mongot certificates to be ready..."
 kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_0_NAME}-cert" \
@@ -62,4 +62,4 @@ kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CERT_SECRET_PREFIX}-${
   --context "${K8S_CTX}" \
   --timeout=60s
 
-echo "✓ All MongoDB Search (mongot) TLS certificates created"
+echo "[ok] All MongoDB Search (mongot) TLS certificates created"

@@ -3,5 +3,5 @@ kubectl create namespace "${MDB_NS}" \
   --dry-run=client -o yaml \
   | kubectl apply --context "${K8S_CTX}" -f -
 
-echo "✓ Namespace '${MDB_NS}' ready"
+echo "[ok] Namespace '${MDB_NS}' ready"
 

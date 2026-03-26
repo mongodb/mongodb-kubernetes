@@ -7,7 +7,7 @@ kubectl wait --for=jsonpath='{.status.phase}'=Running \
   --context "${K8S_CTX}" \
   --timeout=900s
 
-echo "✓ MongoDB replica set is Running"
+echo "[ok] MongoDB replica set is Running"
 
 echo ""
 echo "Replica set pods:"

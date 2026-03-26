@@ -3,7 +3,7 @@ echo "Creating TLS certificate for MongoDB Search (mongot) pods..."
 sts_name="${MDB_RESOURCE_NAME}-search"
 cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${sts_name}-cert"
 mongot_svc="${sts_name}-svc"
-proxy_svc="${MDB_RESOURCE_NAME}-search-proxy-svc"
+proxy_svc="${MDB_RESOURCE_NAME}-search-0-proxy-svc"
 
 echo "  Creating certificate: ${cert_name}"
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
@@ -28,7 +28,7 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  ✓ Certificate requested: ${cert_name}"
+echo "  [ok] Certificate requested: ${cert_name}"
 
 echo "Waiting for mongot certificate to be ready..."
 kubectl wait --for=condition=Ready certificate/"${cert_name}" \
@@ -36,4 +36,4 @@ kubectl wait --for=condition=Ready certificate/"${cert_name}" \
   --context "${K8S_CTX}" \
   --timeout=60s
 
-echo "✓ MongoDB Search (mongot) TLS certificate created"
+echo "[ok] MongoDB Search (mongot) TLS certificate created"

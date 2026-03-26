@@ -30,7 +30,7 @@ fi
 MONGOS_EXTERNAL_HOSTNAME=\
 "${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_DOMAIN}"
 echo "Mapping ${MONGOS_EXTERNAL_HOSTNAME}" \
-  "→ ${MONGOS_POD_IP} in CoreDNS"
+  "-> ${MONGOS_POD_IP} in CoreDNS"
 
 kubectl --context "${K8S_CTX}" -n kube-system apply -f - <<YAML
 apiVersion: v1
@@ -68,5 +68,5 @@ YAML
 kubectl --context "${K8S_CTX}" -n kube-system rollout restart deployment coredns
 kubectl --context "${K8S_CTX}" -n kube-system \
   rollout status deployment coredns --timeout=60s
-echo "✓ CoreDNS updated:" \
-  "${MONGOS_EXTERNAL_HOSTNAME} → ${MONGOS_POD_IP}"
+echo "[ok] CoreDNS updated:" \
+  "${MONGOS_EXTERNAL_HOSTNAME} -> ${MONGOS_POD_IP}"

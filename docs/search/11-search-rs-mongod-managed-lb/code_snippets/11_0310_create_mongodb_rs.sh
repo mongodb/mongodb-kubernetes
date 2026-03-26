@@ -41,4 +41,4 @@ spec:
                 memory: 512Mi
 EOF
 
-echo "✓ MongoDB replica set resource created"
+echo "[ok] MongoDB replica set resource created"

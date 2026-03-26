@@ -7,7 +7,7 @@ kubectl wait --for=jsonpath='{.status.phase}'=Running \
   --context "${K8S_CTX}" \
   --timeout=600s
 
-echo "✓ MongoDBSearch '${MDB_RESOURCE_NAME}' is Running"
+echo "[ok] MongoDBSearch '${MDB_RESOURCE_NAME}' is Running"
 
 echo ""
 echo "MongoDBSearch pods:"

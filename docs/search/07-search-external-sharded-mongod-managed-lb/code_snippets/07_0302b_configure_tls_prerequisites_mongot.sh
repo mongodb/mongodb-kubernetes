@@ -13,4 +13,4 @@ kubectl create secret generic "${MDB_TLS_CA_SECRET_NAME}" \
   --context "${K8S_CTX}" \
   --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX}" -f -
 
-echo "✓ CA Secret configured for mongot"
+echo "[ok] CA Secret configured for mongot"

@@ -13,4 +13,4 @@ kubectl rollout status deployment/mongodb-kubernetes-operator \
   --context "${K8S_CTX}" \
   --timeout=120s
 
-echo "✓ MongoDB Kubernetes Operator installed and ready"
+echo "[ok] MongoDB Kubernetes Operator installed and ready"

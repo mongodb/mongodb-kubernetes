@@ -43,7 +43,7 @@ if ! kubectl config get-contexts "${K8S_CTX}" &>/dev/null; then
   exit 1
 fi
 
-echo "✓ All required environment variables are set"
+echo "[ok] All required environment variables are set"
 echo "  Kubernetes context: ${K8S_CTX}"
 echo "  Namespace: ${MDB_NS}"
 echo "  External cluster name: ${MDB_EXTERNAL_CLUSTER_NAME}"

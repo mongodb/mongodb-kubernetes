@@ -47,4 +47,4 @@ spec:
                 memory: 512Mi
 EOF
 
-echo "✓ MongoDB sharded cluster resource created"
+echo "[ok] MongoDB sharded cluster resource created"

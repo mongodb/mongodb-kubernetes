@@ -7,7 +7,7 @@ kubectl wait --for=jsonpath='{.status.phase}'=Running \
   --context "${K8S_CTX}" \
   --timeout=900s
 
-echo "✓ MongoDB sharded cluster is Running"
+echo "[ok] MongoDB sharded cluster is Running"
 
 echo ""
 echo "Cluster pods:"

@@ -169,8 +169,8 @@ The Envoy proxy terminates one mTLS session (from mongod) and initiates another 
 
 | Certificate | Secret Name Pattern | Purpose |
 |-------------|---------------------|---------|
-| Server cert | `{prefix}-{name}-search-lb-cert` | Presented to mongod during TLS handshake |
-| Client cert | `{prefix}-{name}-search-lb-client-cert` | Used by Envoy when connecting to mongot |
+| Server cert | `{prefix}-{name}-search-lb-0-cert` | Presented to mongod during TLS handshake (wildcard SAN covers all shards) |
+| Client cert | `{prefix}-{name}-search-lb-0-client-cert` | Used by Envoy when connecting to mongot |
 
 Both must be signed by the same CA that mongod and mongot trust.
 
@@ -238,8 +238,8 @@ Checks that the operator created the expected resources:
 
 | Resource | Name Pattern | Purpose |
 |----------|--------------|---------|
-| ConfigMap | `{name}-search-lb-config` | Envoy bootstrap configuration |
-| Deployment | `{name}-search-lb` | Envoy proxy pods |
+| ConfigMap | `{name}-search-lb-0-config` | Envoy bootstrap configuration |
+| Deployment | `{name}-search-lb-0` | Envoy proxy pods |
 | Service (per shard) | `{name}-search-0-{shardName}-proxy-svc` | SNI routing endpoints |
 | StatefulSet (per shard) | `{name}-search-0-{shardName}` | mongot pods for one shard |
 | Service (per shard, headless) | `{name}-search-0-{shardName}-svc` | Stable DNS for mongot pods |
@@ -282,17 +282,17 @@ Set these mongod parameters on each shard:
 
 ### Envoy Pod Not Starting
 
-**Symptoms:** The `{name}-search-lb` Deployment has 0/1 ready pods.
+**Symptoms:** The `{name}-search-lb-0` Deployment has 0/1 ready pods.
 
 **Check:**
 ```bash
-kubectl describe deployment ${MDB_SEARCH_RESOURCE_NAME}-search-lb -n ${MDB_NS}
-kubectl logs -l app=${MDB_SEARCH_RESOURCE_NAME}-search-lb -n ${MDB_NS}
+kubectl describe deployment ${MDB_SEARCH_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
+kubectl logs -l app=${MDB_SEARCH_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
 ```
 
 **Common causes:**
 - TLS certificate secrets not found - ensure certificates are created first
-- ConfigMap not ready - check if `${MDB_SEARCH_RESOURCE_NAME}-search-lb-config` exists
+- ConfigMap not ready - check if `${MDB_SEARCH_RESOURCE_NAME}-search-lb-0-config` exists
 - Image pull issues - check image pull secrets
 
 ### mongod Cannot Reach Envoy

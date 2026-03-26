@@ -27,7 +27,7 @@ stringData:
   password: ${MDB_SEARCH_SYNC_USER_PASSWORD}
 EOF
 
-echo "  ✓ Password secrets created"
+echo "  [ok] Password secrets created"
 
 # Create admin user
 echo "Creating MongoDBUser CRDs..."
@@ -49,7 +49,7 @@ spec:
   - name: root
     db: admin
 EOF
-echo "  ✓ Admin user CRD created"
+echo "  [ok] Admin user CRD created"
 
 # Create regular user for queries
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
@@ -69,7 +69,7 @@ spec:
   - name: readWrite
     db: sample_mflix
 EOF
-echo "  ✓ Application user CRD created"
+echo "  [ok] Application user CRD created"
 
 # Create search sync user with searchCoordinator role
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
@@ -89,7 +89,7 @@ spec:
   - name: searchCoordinator
     db: admin
 EOF
-echo "  ✓ Search sync source user CRD created"
+echo "  [ok] Search sync source user CRD created"
 
 # Wait for users to be ready
 echo "Waiting for admin user to be ready..."
@@ -110,4 +110,4 @@ kubectl wait --context "${K8S_CTX}" -n "${MDB_NS}" \
   "mongodbuser/${MDB_RESOURCE_NAME}-search-sync-source" \
   --timeout=300s
 
-echo "✓ All MongoDB users created successfully"
+echo "[ok] All MongoDB users created successfully"

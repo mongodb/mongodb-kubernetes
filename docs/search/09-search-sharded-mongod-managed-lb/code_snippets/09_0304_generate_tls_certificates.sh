@@ -23,7 +23,7 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  ✓ Certificate requested for shard ${MDB_RESOURCE_NAME}-0"
+echo "  [ok] Certificate requested for shard ${MDB_RESOURCE_NAME}-0"
 
 # --- Shard 1 ---
 echo "Creating certificate for shard ${MDB_RESOURCE_NAME}-1..."
@@ -48,7 +48,7 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  ✓ Certificate requested for shard ${MDB_RESOURCE_NAME}-1"
+echo "  [ok] Certificate requested for shard ${MDB_RESOURCE_NAME}-1"
 
 # --- Config servers ---
 echo "Creating config server certificate..."
@@ -73,7 +73,7 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  ✓ Certificate requested for config servers"
+echo "  [ok] Certificate requested for config servers"
 
 # --- Mongos ---
 echo "Creating mongos certificate..."
@@ -99,7 +99,7 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  ✓ Certificate requested for mongos"
+echo "  [ok] Certificate requested for mongos"
 
 # Wait for all certificates
 echo ""
@@ -109,4 +109,4 @@ kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CERT_SECRET_PREFIX}-${
 kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-config-cert" -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
 kubectl wait --for=condition=Ready certificate/"${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_RESOURCE_NAME}-mongos-cert" -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=60s
 
-echo "✓ All MongoDB TLS certificates created"
+echo "[ok] All MongoDB TLS certificates created"

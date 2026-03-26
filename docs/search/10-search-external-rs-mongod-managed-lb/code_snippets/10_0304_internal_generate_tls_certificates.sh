@@ -23,7 +23,7 @@ spec:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
 EOF
-echo "  ✓ Certificate requested: ${cert_name}"
+echo "  [ok] Certificate requested: ${cert_name}"
 
 echo "Waiting for certificate to be ready..."
 kubectl wait --for=condition=Ready certificate/"${cert_name}" \
@@ -31,4 +31,4 @@ kubectl wait --for=condition=Ready certificate/"${cert_name}" \
   --context "${K8S_CTX}" \
   --timeout=60s
 
-echo "✓ MongoDB RS TLS certificate created"
+echo "[ok] MongoDB RS TLS certificate created"

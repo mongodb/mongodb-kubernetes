@@ -20,6 +20,6 @@ data:
   projectName: "${OPS_MANAGER_PROJECT_NAME}"
 EOF
 
-echo "✓ Ops Manager resources created"
+echo "[ok] Ops Manager resources created"
 echo "  - Secret: om-credentials"
 echo "  - ConfigMap: om-project"

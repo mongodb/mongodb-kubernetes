@@ -48,4 +48,4 @@ spec:
       memory: 2Gi
 EOF
 
-echo "✓ MongoDBSearch resource '${MDB_SEARCH_RESOURCE_NAME}' created"
+echo "[ok] MongoDBSearch resource '${MDB_SEARCH_RESOURCE_NAME}' created"

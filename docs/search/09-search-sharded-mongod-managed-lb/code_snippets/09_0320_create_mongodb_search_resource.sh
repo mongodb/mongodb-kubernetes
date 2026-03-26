@@ -15,7 +15,7 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  # loadBalancer.managed — operator automatically deploys and configures Envoy proxy
+  # loadBalancer.managed -- operator automatically deploys and configures Envoy proxy
   loadBalancer:
     managed: {}
   resourceRequirements:
@@ -27,4 +27,4 @@ spec:
       memory: 2Gi
 EOF
 
-echo "✓ MongoDBSearch resource '${MDB_RESOURCE_NAME}' created"
+echo "[ok] MongoDBSearch resource '${MDB_RESOURCE_NAME}' created"

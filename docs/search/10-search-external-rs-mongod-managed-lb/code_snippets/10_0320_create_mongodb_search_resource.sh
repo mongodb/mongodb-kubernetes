@@ -26,7 +26,7 @@ spec:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
   loadBalancer:
     managed:
-      externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-proxy-svc.${MDB_NS}.svc.cluster.local
+      externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local
   resourceRequirements:
     limits:
       cpu: "2"
@@ -36,4 +36,4 @@ spec:
       memory: 2Gi
 EOF
 
-echo "✓ MongoDBSearch resource '${MDB_SEARCH_RESOURCE_NAME}' created"
+echo "[ok] MongoDBSearch resource '${MDB_SEARCH_RESOURCE_NAME}' created"
