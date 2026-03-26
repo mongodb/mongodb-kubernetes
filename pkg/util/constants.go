@@ -288,10 +288,9 @@ const (
 	TLSCaMountPath   = PvcMmsHomeMountPath + "/tls/ca"
 
 	// Annotation keys used by the operator
-	LastAchievedSpec                   = "mongodb.com/v1.lastSuccessfulConfiguration"
-	LastAchievedRsMemberIds            = "mongodb.com/v1.lastAchievedRsMemberIds"
-	LastConfiguredRoles                = "mongodb.com/v1.lastConfiguredRoles"
-	BackupStartDelayTimestampAnnotation = "mongodb.com/v1.backupStartDelayTimestamp"
+	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
+	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
+	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
 
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"

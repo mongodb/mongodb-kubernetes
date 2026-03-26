@@ -1426,18 +1426,24 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		restore := zap.ReplaceGlobals(zap.New(core))
 		defer restore()
 
-		// First reconcile: delay annotation is set, reconcile is requeued
+		// First reconcile: delay timestamp is set in status, reconcile is requeued
 		require.NoError(t, clusterClient.Update(ctx, sc))
 		result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
 		require.NoError(t, err)
 		require.Equal(t, reconcile.Result{}, result, "expected requeue on first reconcile while waiting for backup start delay")
 		assert.Equal(t, 1, logs.FilterMessageSnippet("before enabling backup to avoid race condition").Len(), "expected backup start delay requeue log")
 
-		// Re-fetch sc so its ResourceVersion is current after the annotation patch
+		// Re-fetch sc so its ResourceVersion is current after the status patch
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
+		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after first reconcile")
+		assert.NotEmpty(t, sc.Status.BackupStatus.LastConfiguredTimestamp, "expected lastConfiguredTimestamp to be set during backup enable delay")
 
 		// Second reconcile: delay has elapsed (0s in tests), backup is configured
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
+
+		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
+		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after backup is configured")
+		assert.Empty(t, sc.Status.BackupStatus.LastConfiguredTimestamp, "expected lastConfiguredTimestamp to be cleared after backup is configured")
 
 		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
 		assert.NoError(t, err)
@@ -1491,7 +1497,6 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		assert.Equal(t, 0, logs.FilterMessageSnippet("before enabling backup to avoid race condition").Len(), "expected no backup start delay log when backup is not being enabled")
 	})
 }
-
 
 // createShardedClusterTLSSecretsFromCustomCerts creates and populates all the required
 // secrets required to enabled TLS with custom certs for all sharded cluster components.

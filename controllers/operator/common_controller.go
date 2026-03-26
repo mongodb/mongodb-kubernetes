@@ -427,7 +427,7 @@ func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
 
 // ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec.
 func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(ctx context.Context, conn om.Connection, mdb backup.ConfigReaderUpdater, secretsReader secrets.SecretClient, log *zap.SugaredLogger) workflow.Status {
-	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(ctx, mdb, secretsReader, conn.GroupID(), conn, conn, conn, log, r.client)
+	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(ctx, mdb, secretsReader, conn.GroupID(), conn, conn, conn, log)
 	if len(opts) > 0 {
 		if _, err := r.updateStatus(ctx, mdb, statusOpt, log, opts...); err != nil {
 			return workflow.Failed(err)

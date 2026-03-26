@@ -98,6 +98,20 @@ func (m *MongoDBMultiCluster) GetBackupSpec() *mdbv1.Backup {
 	return m.Spec.Backup
 }
 
+func (m *MongoDBMultiCluster) GetBackupLastConfiguredTimestamp() string {
+	if m.Status.BackupStatus == nil {
+		return ""
+	}
+	return m.Status.BackupStatus.LastConfiguredTimestamp
+}
+
+func (m *MongoDBMultiCluster) SetBackupLastConfiguredTimestamp(ts string) {
+	if m.Status.BackupStatus == nil {
+		m.Status.BackupStatus = &mdbv1.BackupStatus{}
+	}
+	m.Status.BackupStatus.LastConfiguredTimestamp = ts
+}
+
 func (m *MongoDBMultiCluster) GetResourceType() mdbv1.ResourceType {
 	return m.Spec.ResourceType
 }

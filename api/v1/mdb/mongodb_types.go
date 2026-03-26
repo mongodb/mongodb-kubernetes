@@ -152,6 +152,20 @@ func (m *MongoDB) GetBackupSpec() *Backup {
 	return m.Spec.Backup
 }
 
+func (m *MongoDB) GetBackupLastConfiguredTimestamp() string {
+	if m.Status.BackupStatus == nil {
+		return ""
+	}
+	return m.Status.BackupStatus.LastConfiguredTimestamp
+}
+
+func (m *MongoDB) SetBackupLastConfiguredTimestamp(ts string) {
+	if m.Status.BackupStatus == nil {
+		m.Status.BackupStatus = &BackupStatus{}
+	}
+	m.Status.BackupStatus.LastConfiguredTimestamp = ts
+}
+
 func (m *MongoDB) GetResourceType() ResourceType {
 	return m.Spec.ResourceType
 }
@@ -371,7 +385,8 @@ type MongoDbStatus struct {
 type BackupMode string
 
 type BackupStatus struct {
-	StatusName string `json:"statusName"`
+	StatusName              string `json:"statusName"`
+	LastConfiguredTimestamp string `json:"lastConfiguredTimestamp,omitempty"`
 }
 
 type DbCommonSpec struct {

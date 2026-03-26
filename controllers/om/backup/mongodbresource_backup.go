@@ -8,7 +8,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -17,7 +16,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -26,12 +24,14 @@ type ConfigReaderUpdater interface {
 	GetBackupSpec() *mdbv1.Backup
 	GetResourceType() mdbv1.ResourceType
 	GetResourceName() string
+	GetBackupLastConfiguredTimestamp() string
+	SetBackupLastConfiguredTimestamp(string)
 	v1.CustomResourceReadWriter
 }
 
 // EnsureBackupConfigurationInOpsManager updates the backup configuration based on the MongoDB resource
 // specification.
-func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger, kubeClient client.Client) (workflow.Status, []status.Option) {
+func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger) (workflow.Status, []status.Option) {
 	if mdb.GetBackupSpec() == nil {
 		return workflow.OK(), nil
 	}
@@ -54,7 +54,7 @@ func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReader
 		return workflow.Failed(err), nil
 	}
 
-	return ensureBackupConfigStatuses(ctx, mdb, projectConfigs, desiredConfig, log, configReadUpdater, kubeClient)
+	return ensureBackupConfigStatuses(ctx, mdb, projectConfigs, desiredConfig, log, configReadUpdater)
 }
 
 func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, reader GroupConfigReader, updater GroupConfigUpdater) error {
@@ -109,9 +109,8 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 }
 
 // ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.
-// See CLOUDP-389867: when backup transitions from Inactive/Stopped to Started it manages a timestamp
-// annotation to delay the /backupConfigs call until OM has processed all monitoring events.
-func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater, kubeClient client.Client) (workflow.Status, []status.Option) {
+// See CLOUDP-389867.
+func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater) (workflow.Status, []status.Option) {
 	for _, config := range projectConfigs {
 		var result workflow.Status = workflow.OK()
 
@@ -181,39 +180,25 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 			continue
 		}
 
-		// See CLOUDP-389867. When backup is transitioning from Inactive/Stopped to Started, wait for OM
-		// to finish processing monitoring events before calling /backupConfigs. We use a timestamp annotation
-		// to track when the delay started and requeue until the configured delay has elapsed.
 		if desiredConfig.Status == Started && (config.Status == Inactive || config.Status == Stopped) {
-			delaySeconds := env.ReadIntOrDefault(util.BackupStartDelaySecondsEnv, util.DefaultBackupStartDelaySeconds)
-			delay := time.Duration(delaySeconds) * time.Second
-			timestampStr := annotations.GetAnnotation(mdb, util.BackupStartDelayTimestampAnnotation)
+			timestampStr := mdb.GetBackupLastConfiguredTimestamp()
 			if timestampStr == "" {
 				now := time.Now().UTC().Format(time.RFC3339)
-				if err := annotations.SetAnnotations(ctx, mdb, map[string]string{util.BackupStartDelayTimestampAnnotation: now}, kubeClient); err != nil {
-					return workflow.Failed(err), nil
-				}
-				log.Debugf("Backup enable delay started, will proceed after %s", delay)
-				return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", delay).WithRetry(int(delaySeconds)), nil
+				mdb.SetBackupLastConfiguredTimestamp(now)
+				remaining := remainingBackupEnableDelay(time.Now())
+				log.Debugf("Backup enable delay started, will proceed after %s", remaining.Round(time.Second))
+				return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(remaining.Seconds())), nil
 			}
 			startTime, err := time.Parse(time.RFC3339, timestampStr)
 			if err != nil {
-				if err := annotations.SetAnnotations(ctx, mdb, map[string]string{util.BackupStartDelayTimestampAnnotation: ""}, kubeClient); err != nil {
-					return workflow.Failed(err), nil
-				}
-				return workflow.Pending("Resetting backup enable delay annotation").Requeue(), nil
+				return workflow.Failed(xerrors.Errorf("failed to parse backup enable delay timestamp %q: %w", timestampStr, err)), nil
 			}
-			elapsed := time.Since(startTime)
-			if elapsed < delay {
-				remaining := delay - elapsed
-				log.Debugf("Backup enable delay: %s elapsed, %s remaining", elapsed.Round(time.Second), remaining.Round(time.Second))
+			if remaining := remainingBackupEnableDelay(startTime); remaining > 0 {
+				log.Debugf("Backup enable delay: %s remaining", remaining.Round(time.Second))
 				return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(remaining.Seconds())), nil
 			}
-			// Delay has elapsed; clear the annotation and fall through to UpdateBackupConfig.
-			log.Debugf("Backup enable delay of %s has elapsed, proceeding with backup enable", delay)
-			if err := annotations.SetAnnotations(ctx, mdb, map[string]string{util.BackupStartDelayTimestampAnnotation: ""}, kubeClient); err != nil {
-				return workflow.Failed(err), nil
-			}
+			log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
+			mdb.SetBackupLastConfiguredTimestamp("")
 		}
 
 		updatedConfig, err := configReadUpdater.UpdateBackupConfig(desiredConfig)
@@ -248,6 +233,16 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 	}
 
 	return workflow.OK(), nil
+}
+
+func remainingBackupEnableDelay(startTime time.Time) time.Duration {
+	delaySeconds := env.ReadIntOrDefault(util.BackupStartDelaySecondsEnv, util.DefaultBackupStartDelaySeconds)
+	delay := time.Duration(delaySeconds) * time.Second
+	elapsed := time.Since(startTime)
+	if elapsed >= delay {
+		return 0
+	}
+	return delay - elapsed
 }
 
 func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {
