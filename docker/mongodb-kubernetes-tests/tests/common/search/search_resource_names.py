@@ -38,7 +38,7 @@ def mongot_pod_fqdn(search_name: str, namespace: str, port: int) -> str:
 
 def proxy_service_name(search_name: str) -> str:
     """Stable proxy Service name for RS. Mirrors ProxyServiceNamespacedName()."""
-    return f"{search_name}-search-proxy-svc"
+    return f"{search_name}-search-0-proxy-svc"
 
 
 def proxy_service_host(search_name: str, namespace: str, port: int) -> str:
@@ -117,33 +117,33 @@ def shard_proxy_service_host(search_name: str, shard_name: str, namespace: str, 
 
 def lb_deployment_name(search_name: str) -> str:
     """Managed LB Deployment name. Mirrors LoadBalancerDeploymentName()."""
-    return f"{search_name}-search-lb"
+    return f"{search_name}-search-lb-0"
 
 
 def lb_configmap_name(search_name: str) -> str:
     """Managed LB ConfigMap name. Mirrors LoadBalancerConfigMapName()."""
-    return f"{search_name}-search-lb-config"
+    return f"{search_name}-search-lb-0-config"
 
 
 def lb_server_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
     """Managed LB server TLS certificate secret name. Mirrors LoadBalancerServerCert().
 
     Pattern:
-      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-cert
-      - Without prefix: {search_name}-search-lb-cert
+      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-0-cert
+      - Without prefix: {search_name}-search-lb-0-cert
     """
     if certs_secret_prefix:
-        return f"{certs_secret_prefix}-{search_name}-search-lb-cert"
-    return f"{search_name}-search-lb-cert"
+        return f"{certs_secret_prefix}-{search_name}-search-lb-0-cert"
+    return f"{search_name}-search-lb-0-cert"
 
 
 def lb_client_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
     """Managed LB client TLS certificate secret name. Mirrors LoadBalancerClientCert().
 
     Pattern:
-      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-client-cert
-      - Without prefix: {search_name}-search-lb-client-cert
+      - With prefix: {certs_secret_prefix}-{search_name}-search-lb-0-client-cert
+      - Without prefix: {search_name}-search-lb-0-client-cert
     """
     if certs_secret_prefix:
-        return f"{certs_secret_prefix}-{search_name}-search-lb-client-cert"
-    return f"{search_name}-search-lb-client-cert"
+        return f"{certs_secret_prefix}-{search_name}-search-lb-0-client-cert"
+    return f"{search_name}-search-lb-0-client-cert"

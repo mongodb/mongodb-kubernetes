@@ -60,8 +60,8 @@ CONFIG_SERVER_COUNT = 1
 
 # TLS configuration
 # Per-shard mongot TLS: {prefix}-{name}-search-0-{shardName}-cert (e.g., certs-mdb-sh-search-0-mdb-sh-0-cert)
-# Managed LB server TLS: {prefix}-{name}-search-lb-cert (e.g., certs-mdb-sh-search-lb-cert)
-# Managed LB client TLS: {prefix}-{name}-search-lb-client-cert (e.g., certs-mdb-sh-search-lb-client-cert)
+# Managed LB server TLS: {prefix}-{name}-search-lb-0-cert (e.g., certs-mdb-sh-search-lb-0-cert)
+# Managed LB client TLS: {prefix}-{name}-search-lb-0-client-cert (e.g., certs-mdb-sh-search-lb-0-client-cert)
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 

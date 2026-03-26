@@ -30,7 +30,7 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 		{
 			name:        "no endpoint uses proxy service FQDN",
 			endpoint:    "",
-			expectedSNI: "mdb-search-search-proxy-svc.test-ns.svc.cluster.local",
+			expectedSNI: "mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local",
 		},
 		{
 			name:        "externalHostname set uses it for SNI",

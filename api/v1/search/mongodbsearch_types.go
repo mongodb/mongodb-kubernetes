@@ -355,7 +355,7 @@ func (s *MongoDBSearch) SearchServiceNamespacedName() types.NamespacedName {
 
 // ProxyServiceNamespacedName returns the stable proxy Service name for ReplicaSet topologies.
 func (s *MongoDBSearch) ProxyServiceNamespacedName() types.NamespacedName {
-	return types.NamespacedName{Name: s.Name + "-search-" + ProxyServiceSuffix, Namespace: s.Namespace}
+	return types.NamespacedName{Name: s.Name + "-search-0-" + ProxyServiceSuffix, Namespace: s.Namespace}
 }
 
 // ProxyServiceNameForShard returns the stable proxy Service name for a specific shard.
@@ -684,26 +684,26 @@ func (s *MongoDBSearch) IsLoadBalancerReady() bool {
 
 // LoadBalancerDeploymentName returns the name of the managed Envoy Deployment for this resource.
 func (s *MongoDBSearch) LoadBalancerDeploymentName() string {
-	return s.Name + "-search-lb"
+	return s.Name + "-search-lb-0"
 }
 
 // LoadBalancerConfigMapName returns the name of the managed Envoy ConfigMap for this resource.
 func (s *MongoDBSearch) LoadBalancerConfigMapName() string {
-	return s.Name + "-search-lb-config"
+	return s.Name + "-search-lb-0-config"
 }
 
 // LoadBalancerServerCert returns the namespaced name of the TLS server certificate secret for the
 // managed Envoy LB (ReplicaSet). Naming pattern:
-//   - With prefix: {prefix}-{name}-search-lb-cert
-//   - Without prefix: {name}-search-lb-cert
+//   - With prefix: {prefix}-{name}-search-lb-0-cert
+//   - Without prefix: {name}-search-lb-0-cert
 func (s *MongoDBSearch) LoadBalancerServerCert() types.NamespacedName {
 	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
 		return types.NamespacedName{
-			Name:      fmt.Sprintf("%s-%s-search-lb-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name),
+			Name:      fmt.Sprintf("%s-%s-search-lb-0-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name),
 			Namespace: s.Namespace,
 		}
 	}
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-cert", s.Name), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-0-cert", s.Name), Namespace: s.Namespace}
 }
 
 // LoadBalancerServerCertForShard returns the namespaced name of the TLS server certificate secret for
@@ -722,14 +722,14 @@ func (s *MongoDBSearch) LoadBalancerServerCertForShard(shardName string) types.N
 
 // LoadBalancerClientCert returns the namespaced name of the TLS client certificate secret used by the
 // managed Envoy LB to authenticate with mongot backends. Naming pattern:
-//   - With prefix: {prefix}-{name}-search-lb-client-cert
-//   - Without prefix: {name}-search-lb-client-cert
+//   - With prefix: {prefix}-{name}-search-lb-0-client-cert
+//   - Without prefix: {name}-search-lb-0-client-cert
 func (s *MongoDBSearch) LoadBalancerClientCert() types.NamespacedName {
 	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
 		return types.NamespacedName{
-			Name:      fmt.Sprintf("%s-%s-search-lb-client-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name),
+			Name:      fmt.Sprintf("%s-%s-search-lb-0-client-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name),
 			Namespace: s.Namespace,
 		}
 	}
-	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-client-cert", s.Name), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-0-client-cert", s.Name), Namespace: s.Namespace}
 }

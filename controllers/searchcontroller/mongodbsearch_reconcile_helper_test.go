@@ -254,7 +254,7 @@ func TestGetMongodConfigParameters_ManagedLB(t *testing.T) {
 
 	setParams := params["setParameter"].(map[string]any)
 
-	expectedEndpoint := "test-mongodb-search-search-proxy-svc.test.svc.cluster.local:27028"
+	expectedEndpoint := "test-mongodb-search-search-0-proxy-svc.test.svc.cluster.local:27028"
 	assert.Equal(t, expectedEndpoint, setParams["mongotHost"])
 	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
 	assert.Equal(t, true, setParams["useGrpcForSearch"])
@@ -285,7 +285,7 @@ func TestBuildProxyService_NoLB(t *testing.T) {
 	}
 	svc := buildProxyService(search)
 
-	assert.Equal(t, "test-search-proxy-svc", svc.Name)
+	assert.Equal(t, "test-search-0-proxy-svc", svc.Name)
 	assert.Equal(t, map[string]string{"app": "test-search-svc"}, svc.Spec.Selector)
 	assert.Equal(t, int32(27028), svc.Spec.Ports[0].Port)
 	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
@@ -319,7 +319,7 @@ func TestBuildProxyService_ManagedLB_Ready(t *testing.T) {
 	svc := buildProxyService(search)
 
 	// Selector flips to Envoy pods when LB is ready
-	assert.Equal(t, map[string]string{"app": "test-search-lb"}, svc.Spec.Selector)
+	assert.Equal(t, map[string]string{"app": "test-search-lb-0"}, svc.Spec.Selector)
 	assert.Equal(t, int32(27028), svc.Spec.Ports[0].TargetPort.IntVal)
 }
 
@@ -348,7 +348,7 @@ func TestBuildProxyServiceForShard_ManagedLB_Ready(t *testing.T) {
 	}
 	svc := buildProxyServiceForShard(search, "shard-0")
 
-	assert.Equal(t, map[string]string{"app": "test-search-lb"}, svc.Spec.Selector)
+	assert.Equal(t, map[string]string{"app": "test-search-lb-0"}, svc.Spec.Selector)
 }
 
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {
@@ -1380,7 +1380,7 @@ func TestMongotHostAndPort_ReplicaSet(t *testing.T) {
 					LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
 				},
 			},
-			expectedHost: "test-search-proxy-svc.ns.svc.cluster.local:27028",
+			expectedHost: "test-search-0-proxy-svc.ns.svc.cluster.local:27028",
 		},
 		{
 			name: "Unmanaged LB - uses user-provided endpoint",
