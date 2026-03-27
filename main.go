@@ -110,6 +110,13 @@ func (c *crdsToWatch) String() string {
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Error(err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	flag.Parse()
 	// If no CRDs are specified, we set default to non-multicluster CRDs
 	if len(crds) == 0 {
@@ -200,13 +207,13 @@ func main() {
 
 	mgr, err := ctrl.NewManager(cfg, managerOptions)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	log.Info("Registering Components.")
 
 	// Setup Scheme for all resources
 	if err := apiv1.AddToScheme(scheme); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	// memberClusterObjectsMap is a map of clusterName -> clusterObject
@@ -215,7 +222,7 @@ func main() {
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
 		memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
 		log.Infof("Watching Member clusters: %s", memberClustersNames)
@@ -226,7 +233,7 @@ func main() {
 
 		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames, multicluster.GetKubeConfigPath())
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
 		// Add the cluster object to the manager corresponding to each member clusters.
@@ -254,7 +261,7 @@ func main() {
 			log.Infof("Adding cluster %s to cluster map.", k)
 			memberClusterObjectsMap[k] = cluster
 			if err = mgr.Add(cluster); err != nil {
-				log.Fatal(err)
+				return err
 			}
 		}
 	}
@@ -262,27 +269,27 @@ func main() {
 	// Setup all Controllers
 	if slices.Contains(crds, mongoDBCRDPlural) {
 		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap, backupEnableDelay); err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
 	if slices.Contains(crds, mongoDBOpsManagerCRDPlural) {
 		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseNonStaticImageVersion, initOpsManagerImageVersion); err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
 	if slices.Contains(crds, mongoDBUserCRDPlural) {
 		if err := setupMongoDBUserCRD(ctx, mgr, memberClusterObjectsMap, backupEnableDelay); err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
 		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
 		if err := setupMongoDBSearchCRD(ctx, mgr); err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
 
@@ -303,7 +310,7 @@ func main() {
 			env.ReadOrPanic(mcoConstruct.VersionUpgradeHookImageEnv),
 			env.ReadOrPanic(mcoConstruct.ReadinessProbeImageEnv),
 		); err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
 
@@ -332,9 +339,7 @@ func main() {
 
 	log.Info("Starting the Cmd.")
 
-	if err := mgr.Start(ctx); err != nil {
-		log.Fatal(err)
-	}
+	return mgr.Start(ctx)
 }
 
 func startRootSpan(currentNamespace string, spanIDHex string, traceCtx context.Context) (context.Context, trace.Span) {
