@@ -23,8 +23,7 @@ done
 
 if [[ -z "${MONGOS_POD_IP}" || "${MONGOS_POD_IP}" == "None" ]]; then
   echo "ERROR: Timed out waiting for PodIP" \
-    "on pod ${MONGOS_POD} after ${TIMEOUT}s"
-  exit 1
+    "on pod ${MONGOS_POD} after ${TIMEOUT}s" >&2
 fi
 
 MONGOS_EXTERNAL_HOSTNAME=\

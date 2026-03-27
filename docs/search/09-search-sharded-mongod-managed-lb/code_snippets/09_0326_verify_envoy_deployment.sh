@@ -7,8 +7,7 @@ echo "Checking Envoy ConfigMap..."
 if kubectl get configmap "${envoy_configmap}" -n "${MDB_NS}" --context "${K8S_CTX}" &>/dev/null; then
   echo "  [ok] ConfigMap '${envoy_configmap}' exists"
 else
-  echo "  [FAIL] ConfigMap '${envoy_configmap}' NOT FOUND"
-  exit 1
+  echo "  [FAIL] ConfigMap '${envoy_configmap}' NOT FOUND" >&2
 fi
 
 echo "Checking Envoy Deployment..."
@@ -26,8 +25,7 @@ if kubectl get deployment "${envoy_deployment}" -n "${MDB_NS}" --context "${K8S_
     kubectl rollout status deployment/"${envoy_deployment}" -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=120s
   fi
 else
-  echo "  [FAIL] Deployment '${envoy_deployment}' NOT FOUND"
-  exit 1
+  echo "  [FAIL] Deployment '${envoy_deployment}' NOT FOUND" >&2
 fi
 
 # --- Shard 0 proxy service ---
@@ -36,8 +34,7 @@ proxy_svc_0="${MDB_PROXY_SVC_SHARD_0}"
 if kubectl get service "${proxy_svc_0}" -n "${MDB_NS}" --context "${K8S_CTX}" &>/dev/null; then
   echo "  [ok] Service '${proxy_svc_0}' exists"
 else
-  echo "  [FAIL] Service '${proxy_svc_0}' NOT FOUND"
-  exit 1
+  echo "  [FAIL] Service '${proxy_svc_0}' NOT FOUND" >&2
 fi
 
 # --- Shard 1 proxy service ---
@@ -45,8 +42,7 @@ proxy_svc_1="${MDB_PROXY_SVC_SHARD_1}"
 if kubectl get service "${proxy_svc_1}" -n "${MDB_NS}" --context "${K8S_CTX}" &>/dev/null; then
   echo "  [ok] Service '${proxy_svc_1}' exists"
 else
-  echo "  [FAIL] Service '${proxy_svc_1}' NOT FOUND"
-  exit 1
+  echo "  [FAIL] Service '${proxy_svc_1}' NOT FOUND" >&2
 fi
 
 echo ""

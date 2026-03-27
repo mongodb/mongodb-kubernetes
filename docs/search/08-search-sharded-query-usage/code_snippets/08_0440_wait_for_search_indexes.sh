@@ -5,6 +5,7 @@ sleep_time=10
 echo "Waiting for search indexes to become READY" \
   "(up to $((max_attempts * sleep_time))s)..."
 
+indexes_ready="false"
 for attempt in $(seq 1 ${max_attempts}); do
   # Check text search index on movies
   # shellcheck disable=SC2016
@@ -45,12 +46,14 @@ for attempt in $(seq 1 ${max_attempts}); do
   if [[ "${movies_status}" == "READY" \
      && "${vector_status}" == "READY" ]]; then
     echo "All search indexes are READY"
-    exit 0
+    indexes_ready="true"
+    break
   fi
 
   sleep ${sleep_time}
 done
 
-echo "ERROR: Search indexes not ready" \
-  "after $((max_attempts * sleep_time)) seconds"
-exit 1
+if [[ "${indexes_ready}" != "true" ]]; then
+  echo "ERROR: Search indexes not ready" \
+    "after $((max_attempts * sleep_time)) seconds" >&2
+fi

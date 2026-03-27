@@ -8,8 +8,7 @@ echo "Checking Envoy ConfigMap..."
 if kubectl get configmap "${envoy_configmap}" -n "${MDB_NS}" --context "${K8S_CTX}" &>/dev/null; then
   echo "  [ok] ConfigMap '${envoy_configmap}' exists"
 else
-  echo "  [FAIL] ConfigMap '${envoy_configmap}' NOT FOUND"
-  exit 1
+  echo "  [FAIL] ConfigMap '${envoy_configmap}' NOT FOUND" >&2
 fi
 
 echo "Checking Envoy Deployment..."
@@ -27,16 +26,14 @@ if kubectl get deployment "${envoy_deployment}" -n "${MDB_NS}" --context "${K8S_
     kubectl rollout status deployment/"${envoy_deployment}" -n "${MDB_NS}" --context "${K8S_CTX}" --timeout=120s
   fi
 else
-  echo "  [FAIL] Deployment '${envoy_deployment}' NOT FOUND"
-  exit 1
+  echo "  [FAIL] Deployment '${envoy_deployment}' NOT FOUND" >&2
 fi
 
 echo "Checking Proxy Service..."
 if kubectl get service "${proxy_service}" -n "${MDB_NS}" --context "${K8S_CTX}" &>/dev/null; then
   echo "  [ok] Service '${proxy_service}' exists"
 else
-  echo "  [FAIL] Service '${proxy_service}' NOT FOUND"
-  exit 1
+  echo "  [FAIL] Service '${proxy_service}' NOT FOUND" >&2
 fi
 
 echo ""

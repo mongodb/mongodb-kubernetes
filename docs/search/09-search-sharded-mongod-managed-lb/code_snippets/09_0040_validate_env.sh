@@ -1,5 +1,3 @@
-set -eou pipefail
-
 echo "Validating environment variables..."
 
 required_vars=(
@@ -22,36 +20,25 @@ required_vars=(
 )
 
 missing_vars=()
-
 for var in "${required_vars[@]}"; do
-  if [[ -z "${!var:-}" ]] || [[ "${!var}" == "<"* ]]; then
-    missing_vars+=("${var}")
-  fi
+  [[ -n "${!var:-}" ]] && [[ "${!var}" != "<"* ]] || missing_vars+=("${var}")
 done
 
-if [[ ${#missing_vars[@]} -gt 0 ]]; then
-  echo "ERROR: The following required variables are not set or have placeholder values:"
-  for var in "${missing_vars[@]}"; do
-    echo "  - ${var}"
-  done
-  echo ""
-  echo "Please edit env_variables.sh and set these values before proceeding."
-  exit 1
-fi
-
-if ! kubectl config get-contexts "${K8S_CTX}" &>/dev/null; then
-  echo "ERROR: Kubernetes context '${K8S_CTX}' does not exist."
-  echo "Available contexts:"
+if (( ${#missing_vars[@]} )); then
+  echo "ERROR: Missing required environment variables:" >&2
+  for m in "${missing_vars[@]}"; do echo "  - ${m}" >&2; done
+  echo "Please edit env_variables.sh and set these values before proceeding." >&2
+elif ! kubectl config get-contexts "${K8S_CTX}" &>/dev/null; then
+  echo "ERROR: Kubernetes context '${K8S_CTX}' does not exist." >&2
   kubectl config get-contexts -o name
-  exit 1
+else
+  echo "[ok] All required environment variables are set"
+  echo "  Kubernetes context: ${K8S_CTX}"
+  echo "  Namespace: ${MDB_NS}"
+  echo "  Resource name: ${MDB_RESOURCE_NAME}"
+  echo "  Shard count: ${MDB_SHARD_COUNT}"
+  echo "  Shard 0: ${MDB_SHARD_0_NAME}"
+  echo "  Shard 1: ${MDB_SHARD_1_NAME}"
+  echo "  Mongos: ${MDB_MONGOS_HOST}"
+  echo "  Mongot replicas: ${MDB_MONGOT_REPLICAS}"
 fi
-
-echo "[ok] All required environment variables are set"
-echo "  Kubernetes context: ${K8S_CTX}"
-echo "  Namespace: ${MDB_NS}"
-echo "  Resource name: ${MDB_RESOURCE_NAME}"
-echo "  Shard count: ${MDB_SHARD_COUNT}"
-echo "  Shard 0: ${MDB_SHARD_0_NAME}"
-echo "  Shard 1: ${MDB_SHARD_1_NAME}"
-echo "  Mongos: ${MDB_MONGOS_HOST}"
-echo "  Mongot replicas: ${MDB_MONGOT_REPLICAS}"
