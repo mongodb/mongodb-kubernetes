@@ -185,7 +185,8 @@ func (b *builder) Build() string {
 	}
 
 	// authSource is only meaningful when an authMechanism is set.
-	if connectionParams["authMechanism"] == "" {
+	mergedAuthMechanism, hasAuthMechanism := connectionParams["authMechanism"]
+	if !hasAuthMechanism || mergedAuthMechanism == "" {
 		delete(connectionParams, "authSource")
 	}
 	var keys []string
@@ -225,6 +226,11 @@ func authSourceAndMechanism(authenticationModes []string, version string) (strin
 		} else {
 			authMechanism = "SCRAM-SHA-256"
 		}
+	}
+
+	if stringutil.Contains(authenticationModes, util.SCRAMSHA1) {
+		authSource = util.DefaultUserDatabase
+		authMechanism = "SCRAM-SHA-1"
 	}
 
 	return authSource, authMechanism

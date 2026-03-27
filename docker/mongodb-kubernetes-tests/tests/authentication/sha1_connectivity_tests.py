@@ -157,6 +157,8 @@ class SHA1ConnectivityTests:
         assert "password" in standard_secret
         assert "connectionString.standard" in standard_secret
         assert "connectionString.standardSrv" in standard_secret
+        assert f"authSource={self.USER_DATABASE}" in standard_secret["connectionString.standard"]
+        assert f"authSource={self.USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
 
     def test_credentials_can_connect_to_db(self, standard_secret: Dict[str, str]):
         MongoTester(standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
@@ -178,6 +180,8 @@ class SHA1ConnectivityTests:
         assert "password" in non_admin_standard_secret
         assert "connectionString.standard" in non_admin_standard_secret
         assert "connectionString.standardSrv" in non_admin_standard_secret
+        assert f"authSource={self.NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
+        assert f"authSource={self.NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
 
     def test_non_admin_credentials_can_connect_to_db(self, non_admin_standard_secret: Dict[str, str]):
         MongoTester(non_admin_standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
