@@ -2750,6 +2750,8 @@ spec:
             properties:
               backup:
                 properties:
+                  lastConfiguredTimestamp:
+                    type: string
                   statusName:
                     type: string
                 required:
@@ -3871,6 +3873,8 @@ spec:
             properties:
               backup:
                 properties:
+                  lastConfiguredTimestamp:
+                    type: string
                   statusName:
                     type: string
                 required:
@@ -6396,6 +6400,8 @@ spec:
                 properties:
                   backup:
                     properties:
+                      lastConfiguredTimestamp:
+                        type: string
                       statusName:
                         type: string
                     required:

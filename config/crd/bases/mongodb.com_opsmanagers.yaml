@@ -1793,6 +1793,8 @@ spec:
                 properties:
                   backup:
                     properties:
+                      lastConfiguredTimestamp:
+                        type: string
                       statusName:
                         type: string
                     required:
