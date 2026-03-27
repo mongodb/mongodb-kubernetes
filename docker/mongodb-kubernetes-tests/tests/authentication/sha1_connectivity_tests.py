@@ -166,9 +166,10 @@ class SHA1ConnectivityTests:
     def test_credentials_can_connect_to_db_with_srv(self, standard_secret: Dict[str, str]):
         MongoTester(standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
 
-
     def test_create_non_admin_db_user(self, namespace: str, mdb_resource_name: str):
-        create_or_update_secret(namespace, self.NON_ADMIN_PASSWORD_SECRET_NAME, {"password": self.NON_ADMIN_USER_PASSWORD})
+        create_or_update_secret(
+            namespace, self.NON_ADMIN_PASSWORD_SECRET_NAME, {"password": self.NON_ADMIN_USER_PASSWORD}
+        )
         resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-non-admin-db.yaml"), namespace=namespace)
         resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
         try_load(resource)

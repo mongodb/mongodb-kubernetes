@@ -240,6 +240,20 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
 		cnx)
 
+	// Explicit SCRAM-SHA-1 mode -> user & password are included in the connection string
+	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAMSHA1, util.MONGODBCR}).EnableAgentAuth(util.MONGODBCR).Build()
+	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDB, nil)
+	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
+		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-1&authSource=admin&"+
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
+		cnx)
+
+	// Explicit SCRAM-SHA-1 mode with SRV scheme
+	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDBSRV, nil)
+	assert.Equal(t, "mongodb+srv://the_user:the_passwd@test-mdb-svc.testNS.svc.cluster.local/?authMechanism=SCRAM-SHA-1&authSource=admin&"+
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
+		cnx)
+
 	// Special symbols in user/password must be encoded
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).Build()
 	cnx = rs.BuildConnectionString("user/@", "pwd#!@", connectionstring.SchemeMongoDB, nil)

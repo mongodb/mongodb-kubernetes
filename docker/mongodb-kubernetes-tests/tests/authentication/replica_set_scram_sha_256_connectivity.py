@@ -213,13 +213,19 @@ def test_credentials_can_connect_to_db_with_srv(replica_set: MongoDB, standard_s
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_non_admin_credentials_can_connect_to_db(replica_set: MongoDB, non_admin_standard_secret: Dict[str, str]):
     print("Connecting with {}".format(non_admin_standard_secret["connectionString.standard"]))
-    replica_set.assert_connectivity_from_connection_string(non_admin_standard_secret["connectionString.standard"], tls=False)
+    replica_set.assert_connectivity_from_connection_string(
+        non_admin_standard_secret["connectionString.standard"], tls=False
+    )
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
-def test_non_admin_credentials_can_connect_to_db_with_srv(replica_set: MongoDB, non_admin_standard_secret: Dict[str, str]):
+def test_non_admin_credentials_can_connect_to_db_with_srv(
+    replica_set: MongoDB, non_admin_standard_secret: Dict[str, str]
+):
     print("Connecting with {}".format(non_admin_standard_secret["connectionString.standardSrv"]))
-    replica_set.assert_connectivity_from_connection_string(non_admin_standard_secret["connectionString.standardSrv"], tls=False)
+    replica_set.assert_connectivity_from_connection_string(
+        non_admin_standard_secret["connectionString.standardSrv"], tls=False
+    )
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity

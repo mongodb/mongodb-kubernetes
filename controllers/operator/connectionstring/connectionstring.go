@@ -140,9 +140,9 @@ func (b *builder) SetConnectionParams(cParams map[string]string) *builder {
 // Build builds a new connection string from the builder.
 func (b *builder) Build() string {
 	var userAuth string
-	if stringutil.Contains(b.authenticationModes, util.SCRAM) &&
-		b.username != "" && b.password != "" {
-
+	scramEnabled := stringutil.Contains(b.authenticationModes, util.SCRAM) ||
+		stringutil.Contains(b.authenticationModes, util.SCRAMSHA1)
+	if scramEnabled && b.username != "" && b.password != "" {
 		userAuth = fmt.Sprintf("%s:%s@", url.QueryEscape(b.username), url.QueryEscape(b.password))
 	}
 
