@@ -92,8 +92,11 @@ def create_ocp_routes_for_shards(namespace: str) -> dict[str, str]:
 
         try:
             custom_api.create_namespaced_custom_object(
-                group="route.openshift.io", version="v1",
-                namespace=namespace, plural="routes", body=route_body,
+                group="route.openshift.io",
+                version="v1",
+                namespace=namespace,
+                plural="routes",
+                body=route_body,
             )
             logger.info(f"Created OCP Route: {route_name} -> {proxy_svc}:{ENVOY_PROXY_PORT}")
         except client.exceptions.ApiException as e:
@@ -110,8 +113,11 @@ def create_ocp_routes_for_shards(namespace: str) -> dict[str, str]:
         route_name = f"mongot-{shard_name}"
 
         route = custom_api.get_namespaced_custom_object(
-            group="route.openshift.io", version="v1",
-            namespace=namespace, plural="routes", name=route_name,
+            group="route.openshift.io",
+            version="v1",
+            namespace=namespace,
+            plural="routes",
+            name=route_name,
         )
         hostname = route["spec"]["host"]
         hostnames[shard_name] = hostname
@@ -234,7 +240,9 @@ def test_install_operator(namespace: str, operator_installation_config: dict[str
     """Test that the operator is installed and running.
     apply_crds_first=True is needed on shared OCP clusters where a stale CRD
     (missing new fields like spec.loadBalancer) may already exist."""
-    operator = get_default_operator(namespace, operator_installation_config=operator_installation_config, apply_crds_first=True)
+    operator = get_default_operator(
+        namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
+    )
     operator.assert_is_running()
 
 
