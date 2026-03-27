@@ -1438,8 +1438,8 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after first reconcile")
 		assert.NotEmpty(t, sc.Status.BackupStatus.LastConfiguredTimestamp, "expected lastConfiguredTimestamp to be set during backup enable delay")
 
-		// Wait for the backup start delay (10s) to elapse
-		time.Sleep(11 * time.Second)
+		// Wait for the backup start delay (3s configured in test fixtures) to elapse
+		time.Sleep(4 * time.Second)
 
 		// Second reconcile: delay has elapsed, backup is configured
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)

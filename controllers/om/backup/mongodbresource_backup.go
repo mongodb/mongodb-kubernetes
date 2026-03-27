@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"math"
 	"reflect"
 	"time"
 
@@ -110,7 +111,7 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 
 // ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.
 // See CLOUDP-389867.
-func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater) (workflow.Status, []status.Option) {
+func ensureBackupConfigStatuses(_ context.Context, mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater) (workflow.Status, []status.Option) {
 	for _, config := range projectConfigs {
 		var result workflow.Status = workflow.OK()
 
@@ -188,7 +189,7 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 					now := time.Now().UTC().Format(time.RFC3339)
 					mdb.SetBackupLastConfiguredTimestamp(now)
 					log.Debugf("Backup enable delay started, will proceed after %s", remaining.Round(time.Second))
-					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(remaining.Seconds())), nil
+					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), nil
 				}
 			} else {
 				startTime, err := time.Parse(time.RFC3339, timestampStr)
@@ -197,7 +198,7 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 				}
 				if remaining := remainingBackupEnableDelay(startTime); remaining > 0 {
 					log.Debugf("Backup enable delay: %s remaining", remaining.Round(time.Second))
-					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(remaining.Seconds())), nil
+					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), nil
 				}
 				log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
 				mdb.SetBackupLastConfiguredTimestamp("")
@@ -240,12 +241,8 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 
 func remainingBackupEnableDelay(startTime time.Time) time.Duration {
 	delaySeconds := env.ReadIntOrDefault(util.BackupStartDelaySecondsEnv, util.DefaultBackupStartDelaySeconds)
-	delay := time.Duration(delaySeconds) * time.Second
-	elapsed := time.Since(startTime)
-	if elapsed >= delay {
-		return 0
-	}
-	return delay - elapsed
+	deadline := startTime.Add(time.Duration(delaySeconds) * time.Second)
+	return max(time.Until(deadline), 0)
 }
 
 func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {
