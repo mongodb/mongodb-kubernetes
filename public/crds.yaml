@@ -4047,6 +4047,10 @@ spec:
       jsonPath: .status.version
       name: Version
       type: string
+    - description: Current state of the managed load balancer.
+      jsonPath: .status.loadBalancer.phase
+      name: LoadBalancer
+      type: string
     - description: The time since the MongoDB resource was created.
       jsonPath: .metadata.creationTimestamp
       name: Age
@@ -4100,6 +4104,128 @@ spec:
                 required:
                 - embeddingModelAPIKeySecret
                 type: object
+              jvmFlags:
+                description: |-
+                  JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
+                  https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
+                items:
+                  type: string
+                type: array
+              loadBalancer:
+                description: LoadBalancer configures how mongod/mongos connect to
+                  mongot (Managed vs Unmanaged/BYO Load Balancer).
+                properties:
+                  managed:
+                    description: Managed configures an operator-managed Envoy load
+                      balancer.
+                    properties:
+                      deployment:
+                        description: |-
+                          Deployment holds optional overrides merged into the operator-created Envoy Deployment.
+                          Follows the same convention as spec.statefulSet on MongoDB resources.
+                        properties:
+                          metadata:
+                            description: DeploymentMetadataWrapper is a wrapper around
+                              Labels and Annotations
+                            properties:
+                              annotations:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                              labels:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                            type: object
+                          spec:
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                        required:
+                        - spec
+                        type: object
+                      externalHostname:
+                        description: |-
+                          ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
+                          For sharded clusters, may contain a {shardName} placeholder.
+                          Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
+                        type: string
+                      resourceRequirements:
+                        description: |-
+                          ResourceRequirements for the Envoy container.
+                          When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.
+                        properties:
+                          claims:
+                            description: |-
+                              Claims lists the names of resources, defined in spec.resourceClaims,
+                              that are used by this container.
+
+                              This is an alpha field and requires enabling the
+                              DynamicResourceAllocation feature gate.
+
+                              This field is immutable. It can only be set for containers.
+                            items:
+                              description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                              properties:
+                                name:
+                                  description: |-
+                                    Name must match the name of one entry in pod.spec.resourceClaims of
+                                    the Pod where this field is used. It makes that resource available
+                                    inside a container.
+                                  type: string
+                                request:
+                                  description: |-
+                                    Request is the name chosen for a request in the referenced claim.
+                                    If empty, everything from the claim is made available, otherwise
+                                    only the result of this request.
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Limits describes the maximum amount of compute resources allowed.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Requests describes the minimum amount of compute resources required.
+                              If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                              otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                        type: object
+                    type: object
+                  unmanaged:
+                    description: Unmanaged configures a user-provided (BYO) L7 load
+                      balancer.
+                    properties:
+                      endpoint:
+                        description: |-
+                          Endpoint is the full host:port of the BYO load balancer written into mongod config.
+                          For sharded clusters, must contain a {shardName} placeholder.
+                        type: string
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: exactly one of managed or unmanaged must be set
+                  rule: (has(self.managed) && !has(self.unmanaged)) || (!has(self.managed)
+                    && has(self.unmanaged))
               logLevel:
                 description: Configure verbosity of mongot logs. Defaults to INFO
                   if not set.
@@ -4170,6 +4296,16 @@ spec:
                     minimum: 0
                     type: integer
                 type: object
+              replicas:
+                default: 1
+                description: |-
+                  Replicas is the number of mongot pods to deploy.
+                  For ReplicaSet source: the number of mongot pods in total.
+                  For Sharded source: the number mongot pods per shard.
+                  When Replicas > 1, a load balancer configuration (spec.loadBalancer)
+                  is required to distribute traffic across mongot instances.
+                minimum: 1
+                type: integer
               resourceRequirements:
                 description: Configure resource requests and limits for the MongoDB
                   Search pods.
@@ -4403,6 +4539,32 @@ spec:
                     type: object
                   username:
                     type: string
+                  x509:
+                    description: |-
+                      X509 configures x509 client certificate authentication for the sync source connection.
+                      When set, mongot authenticates to MongoDB using x509 instead of username/password.
+                      Mutually exclusive with PasswordSecretRef and Username.
+                    properties:
+                      clientCertificateSecretRef:
+                        description: |-
+                          ClientCertificateSecret is a reference to a Secret containing the x509 client
+                          certificate and key for authenticating to the MongoDB sync source.
+                          Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePassword" (optional).
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    required:
+                    - clientCertificateSecretRef
+                    type: object
                 type: object
               statefulSet:
                 description: |-
@@ -4438,6 +4600,18 @@ spec:
             properties:
               lastTransition:
                 type: string
+              loadBalancer:
+                description: |-
+                  LoadBalancer reports the state of the operator-managed load balancer.
+                  Only populated when spec.loadBalancer.managed is set.
+                properties:
+                  message:
+                    type: string
+                  phase:
+                    type: string
+                required:
+                - phase
+                type: object
               message:
                 type: string
               observedGeneration:
