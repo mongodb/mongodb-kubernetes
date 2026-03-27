@@ -180,25 +180,28 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 			continue
 		}
 
-		if desiredConfig.Status == Started && (config.Status == Inactive || config.Status == Stopped) {
+		if desiredConfig.Status == Started && (config.Status == Inactive || config.Status == Stopped) && isShardedCluster {
 			timestampStr := mdb.GetBackupLastConfiguredTimestamp()
 			if timestampStr == "" {
-				now := time.Now().UTC().Format(time.RFC3339)
-				mdb.SetBackupLastConfiguredTimestamp(now)
 				remaining := remainingBackupEnableDelay(time.Now())
-				log.Debugf("Backup enable delay started, will proceed after %s", remaining.Round(time.Second))
-				return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(remaining.Seconds())), nil
+				if remaining > 0 {
+					now := time.Now().UTC().Format(time.RFC3339)
+					mdb.SetBackupLastConfiguredTimestamp(now)
+					log.Debugf("Backup enable delay started, will proceed after %s", remaining.Round(time.Second))
+					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(remaining.Seconds())), nil
+				}
+			} else {
+				startTime, err := time.Parse(time.RFC3339, timestampStr)
+				if err != nil {
+					return workflow.Failed(xerrors.Errorf("failed to parse backup enable delay timestamp %q: %w", timestampStr, err)), nil
+				}
+				if remaining := remainingBackupEnableDelay(startTime); remaining > 0 {
+					log.Debugf("Backup enable delay: %s remaining", remaining.Round(time.Second))
+					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(remaining.Seconds())), nil
+				}
+				log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
+				mdb.SetBackupLastConfiguredTimestamp("")
 			}
-			startTime, err := time.Parse(time.RFC3339, timestampStr)
-			if err != nil {
-				return workflow.Failed(xerrors.Errorf("failed to parse backup enable delay timestamp %q: %w", timestampStr, err)), nil
-			}
-			if remaining := remainingBackupEnableDelay(startTime); remaining > 0 {
-				log.Debugf("Backup enable delay: %s remaining", remaining.Round(time.Second))
-				return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(remaining.Seconds())), nil
-			}
-			log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
-			mdb.SetBackupLastConfiguredTimestamp("")
 		}
 
 		updatedConfig, err := configReadUpdater.UpdateBackupConfig(desiredConfig)
