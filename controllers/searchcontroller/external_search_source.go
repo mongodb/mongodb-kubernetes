@@ -1,8 +1,11 @@
 package searchcontroller
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/types"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -16,6 +19,10 @@ func NewExternalSearchSource(namespace string, spec *searchv1.ExternalMongoDBSou
 type externalSearchResource struct {
 	namespace string
 	spec      *searchv1.ExternalMongoDBSource
+}
+
+func (r *externalSearchResource) ResourceType() mdbv1.ResourceType {
+	return mdbv1.ReplicaSet
 }
 
 func (r *externalSearchResource) Validate() error {
@@ -49,4 +56,10 @@ func (r *externalSearchResource) KeyfileSecretName() string {
 	return ""
 }
 
-func (r *externalSearchResource) HostSeeds() []string { return r.spec.HostAndPorts }
+func (r *externalSearchResource) HostSeeds(shardName string) ([]string, error) {
+	if shardName != "" {
+		return nil, fmt.Errorf("shardName is not supported for replica set")
+	}
+
+	return r.spec.HostAndPorts, nil
+}

@@ -2,6 +2,7 @@ package search
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -16,16 +17,25 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 )
 
+// ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
+const ShardNamePlaceholder = "{shardName}"
+
 const (
 	MongotDefaultWireprotoPort      int32 = 27027
 	MongotDefaultGrpcPort           int32 = 27028
 	MongotDefaultPrometheusPort     int32 = 9946
 	MongotDefautHealthCheckPort     int32 = 8080
+	EnvoyDefaultProxyPort           int32 = 27028
 	MongotDefaultSyncSourceUsername       = "search-sync-source"
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
+
+	// ProxyServiceSuffix is the suffix used for the stable proxy Service that mongod connects to.
+	// This Service always exists (except for unmanaged LB) and its selector flips between
+	// mongot pods (no LB) and Envoy pods (managed LB), keeping mongotHost stable.
+	ProxyServiceSuffix = "proxy-svc"
 )
 
 func init() {
@@ -53,6 +63,15 @@ type MongoDBSearchSpec struct {
 	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
+	// Replicas is the number of mongot pods to deploy.
+	// For ReplicaSet source: the number of mongot pods in total.
+	// For Sharded source: the number mongot pods per shard.
+	// When Replicas > 1, a load balancer configuration (spec.loadBalancer)
+	// is required to distribute traffic across mongot instances.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=1
+	Replicas int `json:"replicas,omitempty"`
 	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
 	// which aren't exposed as fields in the MongoDBSearch.spec.
 	// +optional
@@ -77,6 +96,50 @@ type MongoDBSearchSpec struct {
 	// `embedding` field of mongot config is generated using the values provided here.
 	// +optional
 	AutoEmbedding *EmbeddingConfig `json:"autoEmbedding,omitempty"`
+	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
+	// +optional
+	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
+	// JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
+	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
+	// +optional
+	JVMFlags []string `json:"jvmFlags,omitempty"`
+}
+
+// LoadBalancerConfig configures L7 load balancing between mongod/mongos and mongot.
+// Exactly one of Managed or Unmanaged must be set.
+// +kubebuilder:validation:XValidation:rule="(has(self.managed) && !has(self.unmanaged)) || (!has(self.managed) && has(self.unmanaged))",message="exactly one of managed or unmanaged must be set"
+type LoadBalancerConfig struct {
+	// Managed configures an operator-managed Envoy load balancer.
+	// +optional
+	Managed *ManagedLBConfig `json:"managed,omitempty"`
+	// Unmanaged configures a user-provided (BYO) L7 load balancer.
+	// +optional
+	Unmanaged *UnmanagedLBConfig `json:"unmanaged,omitempty"`
+}
+
+// ManagedLBConfig configures the operator-deployed Envoy proxy.
+type ManagedLBConfig struct {
+	// ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
+	// For sharded clusters, may contain a {shardName} placeholder.
+	// Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
+	// +optional
+	ExternalHostname string `json:"externalHostname,omitempty"`
+	// ResourceRequirements for the Envoy container.
+	// When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.
+	// +optional
+	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// Deployment holds optional overrides merged into the operator-created Envoy Deployment.
+	// Follows the same convention as spec.statefulSet on MongoDB resources.
+	// +optional
+	Deployment *common.DeploymentConfiguration `json:"deployment,omitempty"`
+}
+
+// UnmanagedLBConfig configures a user-provided (BYO) L7 load balancer.
+type UnmanagedLBConfig struct {
+	// Endpoint is the full host:port of the BYO load balancer written into mongod config.
+	// For sharded clusters, must contain a {shardName} placeholder.
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 type EmbeddingConfig struct {
@@ -96,6 +159,20 @@ type MongoDBSource struct {
 	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
 	// +optional
 	Username *string `json:"username,omitempty"`
+	// X509 configures x509 client certificate authentication for the sync source connection.
+	// When set, mongot authenticates to MongoDB using x509 instead of username/password.
+	// Mutually exclusive with PasswordSecretRef and Username.
+	// +optional
+	X509 *X509Auth `json:"x509,omitempty"`
+}
+
+// X509Auth configures x509 client certificate authentication for mongot's sync source connection.
+type X509Auth struct {
+	// ClientCertificateSecret is a reference to a Secret containing the x509 client
+	// certificate and key for authenticating to the MongoDB sync source.
+	// Expected keys: "tls.crt", "tls.key" (required), "tls.keyFilePassword" (optional).
+	// +kubebuilder:validation:Required
+	ClientCertificateSecret corev1.LocalObjectReference `json:"clientCertificateSecretRef"`
 }
 
 type ExternalMongoDBSource struct {
@@ -172,10 +249,20 @@ type TLS struct {
 	CertsSecretPrefix string `json:"certsSecretPrefix,omitempty"`
 }
 
+// LoadBalancerStatus reports the state of the operator-managed load balancer (Envoy).
+type LoadBalancerStatus struct {
+	Phase   status.Phase `json:"phase"`
+	Message string       `json:"message,omitempty"`
+}
+
 type MongoDBSearchStatus struct {
 	status.Common `json:",inline"`
 	Version       string           `json:"version,omitempty"`
 	Warnings      []status.Warning `json:"warnings,omitempty"`
+	// LoadBalancer reports the state of the operator-managed load balancer.
+	// Only populated when spec.loadBalancer.managed is set.
+	// +optional
+	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
@@ -184,6 +271,7 @@ type MongoDBSearchStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
 // +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="MongoDB Search version reconciled by the operator."
+// +kubebuilder:printcolumn:name="LoadBalancer",type="string",JSONPath=".status.loadBalancer.phase",description="Current state of the managed load balancer."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB resource was created."
 // +kubebuilder:resource:path=mongodbsearch,scope=Namespaced,shortName=mdbs
 type MongoDBSearch struct {
@@ -207,11 +295,21 @@ func (s *MongoDBSearch) GetCommonStatus(options ...status.Option) *status.Common
 	return &s.Status.Common
 }
 
-func (s *MongoDBSearch) GetStatus(...status.Option) interface{} {
+func (s *MongoDBSearch) GetStatus(options ...status.Option) interface{} {
+	if partOpt, exists := status.GetOption(options, SearchPartOption{}); exists {
+		if partOpt.(SearchPartOption).Part == SearchPartLoadBalancer {
+			return s.Status.LoadBalancer
+		}
+	}
 	return s.Status
 }
 
-func (s *MongoDBSearch) GetStatusPath(...status.Option) string {
+func (s *MongoDBSearch) GetStatusPath(options ...status.Option) string {
+	if partOpt, exists := status.GetOption(options, SearchPartOption{}); exists {
+		if partOpt.(SearchPartOption).Part == SearchPartLoadBalancer {
+			return "/status/loadBalancer"
+		}
+	}
 	return "/status"
 }
 
@@ -220,6 +318,13 @@ func (s *MongoDBSearch) SetWarnings(warnings []status.Warning, _ ...status.Optio
 }
 
 func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
+	if partOpt, exists := status.GetOption(statusOptions, SearchPartOption{}); exists {
+		if partOpt.(SearchPartOption).Part == SearchPartLoadBalancer {
+			s.updateLoadBalancerStatus(phase, statusOptions...)
+			return
+		}
+	}
+
 	s.Status.UpdateCommonFields(phase, s.GetGeneration(), statusOptions...)
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		s.Status.Warnings = append(s.Status.Warnings, option.(status.WarningsOption).Warnings...)
@@ -229,12 +334,36 @@ func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status
 	}
 }
 
+func (s *MongoDBSearch) updateLoadBalancerStatus(phase status.Phase, statusOptions ...status.Option) {
+	if s.Status.LoadBalancer == nil {
+		s.Status.LoadBalancer = &LoadBalancerStatus{}
+	}
+	s.Status.LoadBalancer.Phase = phase
+	s.Status.LoadBalancer.Message = ""
+	if option, exists := status.GetOption(statusOptions, status.MessageOption{}); exists {
+		s.Status.LoadBalancer.Message = option.(status.MessageOption).Message
+	}
+}
+
 func (s *MongoDBSearch) NamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name, Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) SearchServiceNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-svc", Namespace: s.Namespace}
+}
+
+// ProxyServiceNamespacedName returns the stable proxy Service name for ReplicaSet topologies.
+func (s *MongoDBSearch) ProxyServiceNamespacedName() types.NamespacedName {
+	return types.NamespacedName{Name: s.Name + "-search-0-" + ProxyServiceSuffix, Namespace: s.Namespace}
+}
+
+// ProxyServiceNameForShard returns the stable proxy Service name for a specific shard.
+func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-0-%s-%s", s.Name, shardName, ProxyServiceSuffix),
+		Namespace: s.Namespace,
+	}
 }
 
 func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedName {
@@ -338,14 +467,14 @@ func (s *MongoDBSearch) CertificateKeySecretName() bool {
 // TLSSecretForShard returns the namespaced name of the TLS source secret for a specific shard.
 // This is used in per-shard TLS mode for sharded clusters.
 // Naming pattern:
-//   - With prefix: {prefix}-{shardName}-search-cert
-//   - Without prefix: {shardName}-search-cert
+//   - With prefix: {prefix}-{name}-search-0-{shardName}-cert
+//   - Without prefix: {name}-search-0-{shardName}-cert
 func (s *MongoDBSearch) TLSSecretForShard(shardName string) types.NamespacedName {
 	var secretName string
 	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
-		secretName = fmt.Sprintf("%s-%s-search-cert", s.Spec.Security.TLS.CertsSecretPrefix, shardName)
+		secretName = fmt.Sprintf("%s-%s-search-0-%s-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name, shardName)
 	} else {
-		secretName = fmt.Sprintf("%s-search-cert", shardName)
+		secretName = fmt.Sprintf("%s-search-0-%s-cert", s.Name, shardName)
 	}
 	return types.NamespacedName{Name: secretName, Namespace: s.Namespace}
 }
@@ -359,6 +488,25 @@ func (s *MongoDBSearch) TLSOperatorSecretForShard(shardName string) types.Namesp
 // IsTLSConfigured returns true if TLS is enabled (TLS struct is present)
 func (s *MongoDBSearch) IsTLSConfigured() bool {
 	return s.Spec.Security.TLS != nil
+}
+
+// IsX509Auth returns true if x509 client certificate authentication is configured for the sync source.
+func (s *MongoDBSearch) IsX509Auth() bool {
+	return s.Spec.Source != nil && s.Spec.Source.X509 != nil
+}
+
+// X509ClientCertSecret returns the namespaced name of the user-provided x509 client certificate secret.
+func (s *MongoDBSearch) X509ClientCertSecret() types.NamespacedName {
+	if !s.IsX509Auth() {
+		return types.NamespacedName{}
+	}
+	return types.NamespacedName{Name: s.Spec.Source.X509.ClientCertificateSecret.Name, Namespace: s.Namespace}
+}
+
+// X509OperatorManagedSecret returns the namespaced name of the operator-managed secret
+// containing the combined x509 client certificate and key.
+func (s *MongoDBSearch) X509OperatorManagedSecret() types.NamespacedName {
+	return types.NamespacedName{Name: s.Name + "-x509-client-cert", Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
@@ -402,14 +550,186 @@ func (s *MongoDBSearch) GetPrometheus() *Prometheus {
 	return s.Spec.Prometheus
 }
 
+func (s *MongoDBSearch) IsLBModeUnmanaged() bool {
+	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Unmanaged != nil
+}
+
+// IsReplicaSetUnmanagedLB returns true if this is a ReplicaSet with unmanaged LB configuration.
+// An endpoint with a template placeholder ({shardName}) is NOT considered a ReplicaSet endpoint.
+func (s *MongoDBSearch) IsReplicaSetUnmanagedLB() bool {
+	return s.IsLBModeUnmanaged() &&
+		s.Spec.LoadBalancer.Unmanaged.Endpoint != "" &&
+		!s.HasEndpointTemplate()
+}
+
+func (s *MongoDBSearch) GetReplicaSetUnmanagedLBEndpoint() string {
+	if !s.IsReplicaSetUnmanagedLB() {
+		return ""
+	}
+	return s.Spec.LoadBalancer.Unmanaged.Endpoint
+}
+
+// HasEndpointTemplate returns true if the unmanaged endpoint contains the {shardName} template placeholder.
+func (s *MongoDBSearch) HasEndpointTemplate() bool {
+	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Unmanaged == nil {
+		return false
+	}
+	return strings.Contains(s.Spec.LoadBalancer.Unmanaged.Endpoint, ShardNamePlaceholder)
+}
+
+// IsShardedUnmanagedLB returns true if this is a sharded unmanaged LB configuration
+// identified by the presence of the {shardName} template placeholder in the endpoint.
+func (s *MongoDBSearch) IsShardedUnmanagedLB() bool {
+	return s.IsLBModeUnmanaged() && s.HasEndpointTemplate()
+}
+
+// IsShardedEndpoint returns true if the LB configuration uses a sharded endpoint pattern
+// (either unmanaged with {shardName} template, or managed with {shardName} in hostname).
+// This is a hint that the MongoDBSearch targets a sharded cluster, though the
+// authoritative check is the type assertion on SearchSourceShardedDeployment at the controller level.
+func (s *MongoDBSearch) IsShardedEndpoint() bool {
+	if s.IsShardedUnmanagedLB() {
+		return true
+	}
+	if s.IsLBModeManaged() && strings.Contains(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder) {
+		return true
+	}
+	return false
+}
+
+// GetEndpointForShard returns the endpoint for a specific shard by substituting
+// the {shardName} placeholder in the endpoint template.
+func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
+	if !s.IsShardedUnmanagedLB() {
+		return ""
+	}
+	return strings.ReplaceAll(s.Spec.LoadBalancer.Unmanaged.Endpoint, ShardNamePlaceholder, shardName)
+}
+
+func (s *MongoDBSearch) GetReplicas() int {
+	if s.Spec.Replicas > 0 {
+		return s.Spec.Replicas
+	}
+	return 1
+}
+
+func (s *MongoDBSearch) HasMultipleReplicas() bool {
+	return s.GetReplicas() > 1
+}
+
+// HasAutoEmbedding returns true when auto-embedding is configured.
+func (s *MongoDBSearch) HasAutoEmbedding() bool {
+	return s.Spec.AutoEmbedding != nil
+}
+
 func (s *MongoDBSearch) MongotStatefulSetForShard(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s", s.Name, shardName), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-0-%s", s.Name, shardName), Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) MongotServiceForShard(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s-svc", s.Name, shardName), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-0-%s-svc", s.Name, shardName), Namespace: s.Namespace}
 }
 
 func (s *MongoDBSearch) MongotConfigMapForShard(shardName string) types.NamespacedName {
-	return types.NamespacedName{Name: fmt.Sprintf("%s-mongot-%s-config", s.Name, shardName), Namespace: s.Namespace}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-0-%s-config", s.Name, shardName), Namespace: s.Namespace}
+}
+
+func (s *MongoDBSearch) IsLBModeManaged() bool {
+	return s.Spec.LoadBalancer != nil && s.Spec.LoadBalancer.Managed != nil
+}
+
+// GetManagedLBDeploymentConfig returns the user-provided Envoy Deployment override, or nil.
+func (s *MongoDBSearch) GetManagedLBDeploymentConfig() *common.DeploymentConfiguration {
+	if s.IsLBModeManaged() {
+		return s.Spec.LoadBalancer.Managed.Deployment
+	}
+	return nil
+}
+
+// GetManagedLBResourceRequirements returns user-specified Envoy resource requirements, or nil.
+func (s *MongoDBSearch) GetManagedLBResourceRequirements() *corev1.ResourceRequirements {
+	if s.IsLBModeManaged() {
+		return s.Spec.LoadBalancer.Managed.ResourceRequirements
+	}
+	return nil
+}
+
+// GetManagedLBEndpoint returns the external hostname from spec.loadBalancer.managed.externalHostname
+// when managed LB is configured. Returns "" otherwise.
+func (s *MongoDBSearch) GetManagedLBEndpoint() string {
+	if !s.IsLBModeManaged() {
+		return ""
+	}
+	return s.Spec.LoadBalancer.Managed.ExternalHostname
+}
+
+// GetManagedLBEndpointForShard returns the external hostname for a specific shard by substituting
+// the {shardName} template in spec.loadBalancer.managed.externalHostname.
+// Returns "" if managed LB is not configured or externalHostname is empty.
+func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+		return ""
+	}
+	return strings.ReplaceAll(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder, shardName)
+}
+
+// IsLoadBalancerReady returns true if managed LB is not configured,
+// or if it is configured and its status phase is Running.
+func (s *MongoDBSearch) IsLoadBalancerReady() bool {
+	if !s.IsLBModeManaged() {
+		return true
+	}
+	return s.Status.LoadBalancer != nil && s.Status.LoadBalancer.Phase == status.PhaseRunning
+}
+
+// LoadBalancerDeploymentName returns the name of the managed Envoy Deployment for this resource.
+func (s *MongoDBSearch) LoadBalancerDeploymentName() string {
+	return s.Name + "-search-lb-0"
+}
+
+// LoadBalancerConfigMapName returns the name of the managed Envoy ConfigMap for this resource.
+func (s *MongoDBSearch) LoadBalancerConfigMapName() string {
+	return s.Name + "-search-lb-0-config"
+}
+
+// LoadBalancerServerCert returns the namespaced name of the TLS server certificate secret for the
+// managed Envoy LB (ReplicaSet). Naming pattern:
+//   - With prefix: {prefix}-{name}-search-lb-0-cert
+//   - Without prefix: {name}-search-lb-0-cert
+func (s *MongoDBSearch) LoadBalancerServerCert() types.NamespacedName {
+	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
+		return types.NamespacedName{
+			Name:      fmt.Sprintf("%s-%s-search-lb-0-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name),
+			Namespace: s.Namespace,
+		}
+	}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-0-cert", s.Name), Namespace: s.Namespace}
+}
+
+// LoadBalancerServerCertForShard returns the namespaced name of the TLS server certificate secret for
+// a specific shard of the managed Envoy LB (sharded cluster). Naming pattern:
+//   - With prefix: {prefix}-{name}-search-lb-0-{shardName}-cert
+//   - Without prefix: {name}-search-lb-0-{shardName}-cert
+func (s *MongoDBSearch) LoadBalancerServerCertForShard(shardName string) types.NamespacedName {
+	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
+		return types.NamespacedName{
+			Name:      fmt.Sprintf("%s-%s-search-lb-0-%s-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name, shardName),
+			Namespace: s.Namespace,
+		}
+	}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-0-%s-cert", s.Name, shardName), Namespace: s.Namespace}
+}
+
+// LoadBalancerClientCert returns the namespaced name of the TLS client certificate secret used by the
+// managed Envoy LB to authenticate with mongot backends. Naming pattern:
+//   - With prefix: {prefix}-{name}-search-lb-0-client-cert
+//   - Without prefix: {name}-search-lb-0-client-cert
+func (s *MongoDBSearch) LoadBalancerClientCert() types.NamespacedName {
+	if s.Spec.Security.TLS != nil && s.Spec.Security.TLS.CertsSecretPrefix != "" {
+		return types.NamespacedName{
+			Name:      fmt.Sprintf("%s-%s-search-lb-0-client-cert", s.Spec.Security.TLS.CertsSecretPrefix, s.Name),
+			Namespace: s.Namespace,
+		}
+	}
+	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-0-client-cert", s.Name), Namespace: s.Namespace}
 }

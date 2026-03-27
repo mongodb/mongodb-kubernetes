@@ -33,6 +33,7 @@ rules:
       - apps
     resources:
       - statefulsets
+      - deployments
     verbs:
       - create
       - get
@@ -647,14 +648,18 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_0_ubi9
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi9"
-            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_0_60_1
-              value: "quay.io/mongodb/mongodb-search:0.60.1"
+            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_f85ffd3e5a
+              value: "quay.io/mongodb/mongodb-search:f85ffd3e5a"
+            - name: RELATED_IMAGE_MDB_ENVOY_IMAGE
+              value: "envoyproxy/envoy:v1.37-latest"
             - name: MDB_SEARCH_REPO_URL
               value: "quay.io/mongodb"
             - name: MDB_SEARCH_NAME
               value: "mongodb-search"
             - name: MDB_SEARCH_VERSION
-              value: "0.60.1"
+              value: "f85ffd3e5a"
+            - name: MDB_ENVOY_IMAGE
+              value: "envoyproxy/envoy:v1.37-latest"
       volumes:
         - name: webhook-server-dir
           emptyDir: {}
