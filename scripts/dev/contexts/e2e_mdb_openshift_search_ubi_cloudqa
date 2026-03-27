@@ -7,3 +7,7 @@ script_dir=$(dirname "${script_name}")
 
 source "${script_dir}/e2e_mdb_openshift_ubi_cloudqa"
 source "${script_dir}/variables/mongodb_search_dev"
+
+# On large hosts, a stale kind-kind kubectl context may exist. Clear CLUSTER_NAME
+# so switch_context.sh doesn't override the oc login context with kind-kind.
+export CLUSTER_NAME=""
