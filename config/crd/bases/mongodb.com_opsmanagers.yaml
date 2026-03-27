@@ -1793,7 +1793,7 @@ spec:
                 properties:
                   backup:
                     properties:
-                      lastConfiguredTimestamp:
+                      enableDelayStartTimestamp:
                         type: string
                       statusName:
                         type: string

@@ -25,8 +25,8 @@ type ConfigReaderUpdater interface {
 	GetBackupSpec() *mdbv1.Backup
 	GetResourceType() mdbv1.ResourceType
 	GetResourceName() string
-	GetBackupLastConfiguredTimestamp() string
-	SetBackupLastConfiguredTimestamp(string)
+	GetBackupEnableDelayStartTimestamp() string
+	SetBackupEnableDelayStartTimestamp(string)
 	v1.CustomResourceReadWriter
 }
 
@@ -182,12 +182,12 @@ func ensureBackupConfigStatuses(_ context.Context, mdb ConfigReaderUpdater, proj
 		}
 
 		if desiredConfig.Status == Started && (config.Status == Inactive || config.Status == Stopped) && isShardedCluster {
-			timestampStr := mdb.GetBackupLastConfiguredTimestamp()
+			timestampStr := mdb.GetBackupEnableDelayStartTimestamp()
 			if timestampStr == "" {
 				remaining := remainingBackupEnableDelay(time.Now())
 				if remaining > 0 {
 					now := time.Now().UTC().Format(time.RFC3339)
-					mdb.SetBackupLastConfiguredTimestamp(now)
+					mdb.SetBackupEnableDelayStartTimestamp(now)
 					log.Debugf("Backup enable delay started, will proceed after %s", remaining.Round(time.Second))
 					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), nil
 				}
@@ -201,7 +201,7 @@ func ensureBackupConfigStatuses(_ context.Context, mdb ConfigReaderUpdater, proj
 					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), nil
 				}
 				log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
-				mdb.SetBackupLastConfiguredTimestamp("")
+				mdb.SetBackupEnableDelayStartTimestamp("")
 			}
 		}
 

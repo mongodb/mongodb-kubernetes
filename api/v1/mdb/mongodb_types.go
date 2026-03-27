@@ -152,18 +152,18 @@ func (m *MongoDB) GetBackupSpec() *Backup {
 	return m.Spec.Backup
 }
 
-func (m *MongoDB) GetBackupLastConfiguredTimestamp() string {
+func (m *MongoDB) GetBackupEnableDelayStartTimestamp() string {
 	if m.Status.BackupStatus == nil {
 		return ""
 	}
-	return m.Status.BackupStatus.LastConfiguredTimestamp
+	return m.Status.BackupStatus.EnableDelayStartTimestamp
 }
 
-func (m *MongoDB) SetBackupLastConfiguredTimestamp(ts string) {
+func (m *MongoDB) SetBackupEnableDelayStartTimestamp(ts string) {
 	if m.Status.BackupStatus == nil {
 		m.Status.BackupStatus = &BackupStatus{}
 	}
-	m.Status.BackupStatus.LastConfiguredTimestamp = ts
+	m.Status.BackupStatus.EnableDelayStartTimestamp = ts
 }
 
 func (m *MongoDB) GetResourceType() ResourceType {
@@ -386,7 +386,7 @@ type BackupMode string
 
 type BackupStatus struct {
 	StatusName              string `json:"statusName"`
-	LastConfiguredTimestamp string `json:"lastConfiguredTimestamp,omitempty"`
+	EnableDelayStartTimestamp string `json:"enableDelayStartTimestamp,omitempty"`
 }
 
 type DbCommonSpec struct {

@@ -55,6 +55,11 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
+func init() {
+	logger, _ := zap.NewDevelopment()
+	zap.ReplaceGlobals(logger)
+}
+
 func TestChangingFCVShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().Build()
@@ -1381,6 +1386,10 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 }
 
 func TestBackupConfiguration_ShardedCluster(t *testing.T) {
+	core, logs := observer.New(zapcore.InfoLevel)
+	restore := zap.ReplaceGlobals(zap.New(core))
+	defer restore()
+
 	ctx := context.Background()
 	sc := mdbv1.NewClusterBuilder().
 		SetNamespace(mock.TestNamespace).
@@ -1422,10 +1431,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 	}
 
 	t.Run("Backup can be started", func(t *testing.T) {
-		core, logs := observer.New(zapcore.InfoLevel)
-		restore := zap.ReplaceGlobals(zap.New(core))
-		defer restore()
-
+		logs.TakeAll()
 		// First reconcile: delay timestamp is set in status, reconcile is requeued
 		require.NoError(t, clusterClient.Update(ctx, sc))
 		result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
@@ -1436,7 +1442,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		// Re-fetch sc so its ResourceVersion is current after the status patch
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
 		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after first reconcile")
-		assert.NotEmpty(t, sc.Status.BackupStatus.LastConfiguredTimestamp, "expected lastConfiguredTimestamp to be set during backup enable delay")
+		assert.NotEmpty(t, sc.Status.BackupStatus.EnableDelayStartTimestamp, "expected enableDelayStartTimestamp to be set during backup enable delay")
 
 		// Wait for the backup start delay (3s configured in test fixtures) to elapse
 		time.Sleep(4 * time.Second)
@@ -1446,7 +1452,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
 		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after backup is configured")
-		assert.Empty(t, sc.Status.BackupStatus.LastConfiguredTimestamp, "expected lastConfiguredTimestamp to be cleared after backup is configured")
+		assert.Empty(t, sc.Status.BackupStatus.EnableDelayStartTimestamp, "expected enableDelayStartTimestamp to be cleared after backup is configured")
 
 		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
 		assert.NoError(t, err)
@@ -1459,10 +1465,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 	t.Run("Backup snapshot schedule tests", backupSnapshotScheduleTests(sc, clusterClient, reconciler, omConnectionFactory, "1"))
 
 	t.Run("Backup can be stopped", func(t *testing.T) {
-		core, logs := observer.New(zapcore.InfoLevel)
-		restore := zap.ReplaceGlobals(zap.New(core))
-		defer restore()
-
+		logs.TakeAll()
 		sc.Spec.Backup.Mode = "disabled"
 		err := clusterClient.Update(ctx, sc)
 		assert.NoError(t, err)
@@ -1475,15 +1478,11 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		assert.Equal(t, "1", config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 		assertAllOtherBackupConfigsRemainUntouched(t)
-
 		assert.Equal(t, 0, logs.FilterMessageSnippet("before enabling backup to allow OM to process monitoring events").Len(), "expected no backup start delay log when backup is not being enabled")
 	})
 
 	t.Run("Backup can be terminated", func(t *testing.T) {
-		core, logs := observer.New(zapcore.InfoLevel)
-		restore := zap.ReplaceGlobals(zap.New(core))
-		defer restore()
-
+		logs.TakeAll()
 		sc.Spec.Backup.Mode = "terminated"
 		err := clusterClient.Update(ctx, sc)
 		assert.NoError(t, err)
@@ -1496,7 +1495,6 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		assert.Equal(t, "1", config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 		assertAllOtherBackupConfigsRemainUntouched(t)
-
 		assert.Equal(t, 0, logs.FilterMessageSnippet("before enabling backup to allow OM to process monitoring events").Len(), "expected no backup start delay log when backup is not being enabled")
 	})
 }

@@ -2750,7 +2750,7 @@ spec:
             properties:
               backup:
                 properties:
-                  lastConfiguredTimestamp:
+                  enableDelayStartTimestamp:
                     type: string
                   statusName:
                     type: string
@@ -3873,7 +3873,7 @@ spec:
             properties:
               backup:
                 properties:
-                  lastConfiguredTimestamp:
+                  enableDelayStartTimestamp:
                     type: string
                   statusName:
                     type: string
@@ -6400,7 +6400,7 @@ spec:
                 properties:
                   backup:
                     properties:
-                      lastConfiguredTimestamp:
+                      enableDelayStartTimestamp:
                         type: string
                       statusName:
                         type: string
