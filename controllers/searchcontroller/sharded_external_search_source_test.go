@@ -72,7 +72,7 @@ func TestShardedExternalSearchSource_Validate(t *testing.T) {
 				}),
 			},
 			expectError:    true,
-			expectedErrMsg: "shard[0].shardName is required",
+			expectedErrMsg: "shard[0]: shardName is required",
 		},
 		{
 			name: "Shard with empty hosts list",
@@ -93,7 +93,7 @@ func TestShardedExternalSearchSource_Validate(t *testing.T) {
 				}),
 			},
 			expectError:    true,
-			expectedErrMsg: "shard[1].shardName is required",
+			expectedErrMsg: "shard[1]: shardName is required",
 		},
 		{
 			name: "Valid single shard config",
@@ -234,65 +234,18 @@ func TestShardedExternalSearchSource_GetShardNames(t *testing.T) {
 	}
 }
 
-func TestShardedExternalSearchSource_HostSeedsForShard(t *testing.T) {
-	spec := &searchv1.ExternalMongoDBSource{
-		ShardedCluster: newExternalShardedConfig([]string{"mongos:27017"}, []searchv1.ExternalShardConfig{
-			{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017", "shard0-1.example.com:27017"}},
-			{ShardName: "shard-1", Hosts: []string{"shard1-0.example.com:27017"}},
-		}),
-	}
-	src := newShardedExternalSearchSource(spec)
-
-	cases := []struct {
-		name     string
-		shardIdx int
-		expected []string
-	}{
-		{
-			name:     "First shard",
-			shardIdx: 0,
-			expected: []string{"shard0-0.example.com:27017", "shard0-1.example.com:27017"},
-		},
-		{
-			name:     "Second shard",
-			shardIdx: 1,
-			expected: []string{"shard1-0.example.com:27017"},
-		},
-		{
-			name:     "Negative index",
-			shardIdx: -1,
-			expected: nil,
-		},
-		{
-			name:     "Out of bounds index",
-			shardIdx: 5,
-			expected: nil,
-		},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.expected, src.HostSeedsForShard(c.shardIdx))
-		})
-	}
-
-	// Test with nil sharded config
-	t.Run("Nil sharded config", func(t *testing.T) {
-		nilSrc := newShardedExternalSearchSource(&searchv1.ExternalMongoDBSource{})
-		assert.Nil(t, nilSrc.HostSeedsForShard(0))
-	})
-}
-
 func TestShardedExternalSearchSource_HostSeeds(t *testing.T) {
 	cases := []struct {
-		name     string
-		spec     *searchv1.ExternalMongoDBSource
-		expected []string
+		name      string
+		spec      *searchv1.ExternalMongoDBSource
+		shardName string
+		expected  []string
 	}{
 		{
-			name:     "Nil sharded config",
-			spec:     &searchv1.ExternalMongoDBSource{},
-			expected: nil,
+			name:      "Nil sharded config",
+			spec:      &searchv1.ExternalMongoDBSource{},
+			shardName: "",
+			expected:  nil,
 		},
 		{
 			name: "Returns first shard hosts",
@@ -302,14 +255,28 @@ func TestShardedExternalSearchSource_HostSeeds(t *testing.T) {
 					{ShardName: "shard-1", Hosts: []string{"second-0.example.com:27017"}},
 				}),
 			},
-			expected: []string{"first-0.example.com:27017", "first-1.example.com:27017"},
+			shardName: "shard-0",
+			expected:  []string{"first-0.example.com:27017", "first-1.example.com:27017"},
+		},
+		{
+			name: "Returns second shard hosts",
+			spec: &searchv1.ExternalMongoDBSource{
+				ShardedCluster: newExternalShardedConfig([]string{"mongos:27017"}, []searchv1.ExternalShardConfig{
+					{ShardName: "shard-0", Hosts: []string{"first-0.example.com:27017", "first-1.example.com:27017"}},
+					{ShardName: "shard-1", Hosts: []string{"second-0.example.com:27017"}},
+				}),
+			},
+			shardName: "shard-1",
+			expected:  []string{"second-0.example.com:27017"},
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			src := newShardedExternalSearchSource(c.spec)
-			assert.Equal(t, c.expected, src.HostSeeds())
+			seeds, err := src.HostSeeds(c.shardName)
+			assert.NoError(t, err)
+			assert.Equal(t, c.expected, seeds)
 		})
 	}
 }

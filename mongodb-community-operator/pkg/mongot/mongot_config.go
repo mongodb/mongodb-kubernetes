@@ -38,19 +38,27 @@ type ConfigSyncSource struct {
 }
 
 type ConfigRouter struct {
-	HostAndPort  string `json:"hostAndPort"`
-	Username     string `json:"username"`
-	PasswordFile string `json:"passwordFile"`
-	TLS          *bool  `json:"tls,omitempty"`
+	HostAndPort  string      `json:"hostAndPort"`
+	Username     string      `json:"username,omitempty"`
+	PasswordFile string      `json:"passwordFile,omitempty"`
+	TLS          *bool       `json:"tls,omitempty"`
+	AuthSource   *string     `json:"authSource,omitempty"`
+	X509         *ConfigX509 `json:"x509,omitempty"`
 }
 
 type ConfigReplicaSet struct {
-	HostAndPort    []string `json:"hostAndPort"`
-	Username       string   `json:"username"`
-	PasswordFile   string   `json:"passwordFile"`
-	TLS            *bool    `json:"tls,omitempty"`
-	ReadPreference *string  `json:"readPreference,omitempty"`
-	AuthSource     *string  `json:"authSource,omitempty"`
+	HostAndPort    []string    `json:"hostAndPort"`
+	Username       string      `json:"username,omitempty"`
+	PasswordFile   string      `json:"passwordFile,omitempty"`
+	TLS            *bool       `json:"tls,omitempty"`
+	ReadPreference *string     `json:"readPreference,omitempty"`
+	AuthSource     *string     `json:"authSource,omitempty"`
+	X509           *ConfigX509 `json:"x509,omitempty"`
+}
+
+type ConfigX509 struct {
+	TLSCertificateKeyFile             *string `json:"tlsCertificateKeyFile,omitempty"`
+	TLSCertificateKeyFilePasswordFile *string `json:"tlsCertificateKeyFilePasswordFile,omitempty"`
 }
 
 type ConfigStorage struct {

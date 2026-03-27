@@ -1,9 +1,13 @@
 package searchcontroller
 
 import (
+	"fmt"
+	"slices"
+
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -22,6 +26,10 @@ func NewShardedExternalSearchSource(namespace string, spec *searchv1.ExternalMon
 	}
 }
 
+func (r *ShardedExternalSearchSource) ResourceType() mdbv1.ResourceType {
+	return mdbv1.ShardedCluster
+}
+
 func (r *ShardedExternalSearchSource) Validate() error {
 	if r.spec.ShardedCluster == nil {
 		return xerrors.New("sharded configuration is required for ShardedExternalSearchSource")
@@ -37,8 +45,8 @@ func (r *ShardedExternalSearchSource) Validate() error {
 
 	seenShards := make(map[string]struct{}, len(r.spec.ShardedCluster.Shards))
 	for i, shard := range r.spec.ShardedCluster.Shards {
-		if shard.ShardName == "" {
-			return xerrors.Errorf("shard[%d].shardName is required", i)
+		if err := searchv1.ValidateShardNameRFC1123(shard.ShardName); err != nil {
+			return xerrors.Errorf("shard[%d]: %w", i, err)
 		}
 
 		if _, ok := seenShards[shard.ShardName]; ok {
@@ -85,13 +93,6 @@ func (r *ShardedExternalSearchSource) KeyfileSecretName() string {
 	return ""
 }
 
-func (r *ShardedExternalSearchSource) HostSeeds() []string {
-	if r.spec.ShardedCluster != nil && len(r.spec.ShardedCluster.Shards) > 0 {
-		return r.spec.ShardedCluster.Shards[0].Hosts
-	}
-	return nil
-}
-
 func (r *ShardedExternalSearchSource) GetShardCount() int {
 	if r.spec.ShardedCluster == nil {
 		return 0
@@ -110,11 +111,19 @@ func (r *ShardedExternalSearchSource) GetShardNames() []string {
 	return names
 }
 
-func (r *ShardedExternalSearchSource) HostSeedsForShard(shardIdx int) []string {
-	if r.spec.ShardedCluster == nil || shardIdx < 0 || shardIdx >= len(r.spec.ShardedCluster.Shards) {
-		return nil
+func (r *ShardedExternalSearchSource) HostSeeds(shardName string) ([]string, error) {
+	if r.spec.ShardedCluster == nil {
+		return nil, nil
 	}
-	return r.spec.ShardedCluster.Shards[shardIdx].Hosts
+
+	shardIndex := slices.IndexFunc(r.spec.ShardedCluster.Shards, func(c searchv1.ExternalShardConfig) bool {
+		return c.ShardName == shardName
+	})
+	if shardIndex == -1 {
+		return nil, fmt.Errorf("shardName %s not found in external sharded cluster configuration", shardName)
+	}
+
+	return r.spec.ShardedCluster.Shards[shardIndex].Hosts, nil
 }
 
 func (r *ShardedExternalSearchSource) MongosHostAndPort() string {
@@ -122,4 +131,10 @@ func (r *ShardedExternalSearchSource) MongosHostAndPort() string {
 		return ""
 	}
 	return r.spec.ShardedCluster.Router.Hosts[0]
+}
+
+// GetUnmanagedLBEndpointForShard returns an empty string for external sharded sources
+// since unmanaged LB configuration is not applicable - the operator is not managing neither LB nor MongoDB cluster.
+func (r *ShardedExternalSearchSource) GetUnmanagedLBEndpointForShard(shardName string) string {
+	return ""
 }

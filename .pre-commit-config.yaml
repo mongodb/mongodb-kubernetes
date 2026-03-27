@@ -129,6 +129,16 @@ repos:
             ^scripts/funcs/[^/]+$
           )
 
+  - repo: local
+    hooks:
+      - id: ty-search
+        name: ty (search tests)
+        entry: bash -c 'cd docker/mongodb-kubernetes-tests && uvx ty check tests/search/ tests/common/search/'
+        language: system
+        pass_filenames: false
+        files: docker/mongodb-kubernetes-tests/tests/(common/)?search/.*\.py$
+        stages: [pre-commit]
+
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.0.2
     hooks:
