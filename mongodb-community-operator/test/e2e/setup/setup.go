@@ -55,7 +55,7 @@ func Setup(ctx context.Context, t *testing.T) *e2eutil.TestContext {
 	return testCtx
 }
 
-func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, additionalHelmArgs ...HelmArg) (*e2eutil.TestContext, TestConfig) {
+func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, useX509 bool, userX509Cert bool, additionalHelmArgs ...HelmArg) (*e2eutil.TestContext, TestConfig) {
 	textCtx, err := e2eutil.NewContext(ctx, t, envvar.ReadBool(performCleanupEnv)) // nolint:forbidigo
 	if err != nil {
 		t.Fatal(err)
@@ -66,9 +66,9 @@ func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, additi
 		t.Fatal(err)
 	}
 
-	// if err := SetupCertificates(t, resourceName); err != nil {
-
-	// }
+	if err := SetupCertificates(t, config, resourceName, useX509, userX509Cert); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := DeployMCKOperator(ctx, t, config, true, false, additionalHelmArgs...); err != nil {
 		t.Fatal(err)
@@ -318,6 +318,7 @@ func SetupCertificates(t *testing.T, config TestConfig, resourceName string, use
 		"resourceName":   resourceName,
 		"useX509":        strconv.FormatBool(useX509),
 		"sampleX509User": strconv.FormatBool((userX509Cert)),
+		"namespace":      config.Namespace,
 	}
 	helmFlags := map[string]string{
 		"namespace": config.Namespace,

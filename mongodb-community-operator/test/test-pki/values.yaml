@@ -1,6 +1,6 @@
 namespace: mongodb
 resourceName: example-mongodb
-caCertificateSecretRef: ca-key-pair
+caCertificateSecretRef: tls-ca-key-pair
 certificateKeySecretRef: tls-certificate
 certDuration: "8760h"
 renewCertBefore: "720h"

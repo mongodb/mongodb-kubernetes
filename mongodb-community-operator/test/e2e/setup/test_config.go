@@ -54,7 +54,7 @@ func LoadTestConfigFromEnv() TestConfig {
 		PerformCleanup:      envvar.ReadBool(performCleanupEnvName),                                                                              // nolint:forbidigo
 		ReadinessProbeImage: envvar.GetEnvOrDefault(construct.ReadinessProbeImageEnv, "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.3"), // nolint:forbidigo
 		HelmChartPath:       "../../../../helm_chart",                                                                                            // TODO: MCK update this later once we change folder or choose a different solution, alternatives, copy helm chart to test folder/search for helm_chart folder
-		TestPKIChartPath:    "./test-pki",
+		TestPKIChartPath:    "../../test-pki",
 		LocalOperator:       envvar.ReadBool(LocalOperatorEnvName), // nolint:forbidigo // TODO MCK: combine with meko one
 	}
 }
