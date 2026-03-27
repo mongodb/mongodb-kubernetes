@@ -465,7 +465,6 @@ func envoyPodLabels(search *searchv1.MongoDBSearch) map[string]string {
 }
 
 // Controller Registration
-
 func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string) error {
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.

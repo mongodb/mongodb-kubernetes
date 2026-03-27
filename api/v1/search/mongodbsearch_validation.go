@@ -219,7 +219,7 @@ func validateShardNames(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// validateJVMFlags validates the JVM flags passed provided by the users using MongoDBSearch's
+// validateJVMFlags validates the JVM flags provided by the users using MongoDBSearch's
 // spec.JVMFlags field.
 // These jvm flags are directly passed to the mongot process that we run.
 func validateJVMFlags(s *MongoDBSearch) v1.ValidationResult {

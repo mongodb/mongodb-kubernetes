@@ -26,10 +26,6 @@ import (
 	upstreamhttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 )
 
-// ============================================================================
-// Envoy Config Builder
-// ============================================================================
-
 // buildEnvoyConfigJSON builds the Envoy bootstrap configuration using
 // go-control-plane protobuf types and marshals it to JSON.
 func buildEnvoyConfigJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (string, error) {
