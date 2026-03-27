@@ -49,6 +49,8 @@ DOCS_BRANCH=${DOCS_BRANCH:-"main"}
 DOCS_VERSION=${DOCS_VERSION:-"upcoming"}
 # Branch name for snippets
 DOCS_PR_BRANCH=${DOCS_PR_BRANCH:-"MCK-snippets-update-${OUTPUTS_VERSION_ID}"}
+# Set NO_PUSH=1 to skip pushing after commit
+NO_PUSH=${NO_PUSH:-0}
 
 docs_include_code_examples_dir="${DOCS_DIR}/content/kubernetes/${DOCS_VERSION}/source/includes/code-examples"
 
@@ -102,7 +104,11 @@ function prepare_docs_pr() {
 
   git add "${docs_include_code_examples_dir}"
   git commit -m "Update sample files from MCK"
-  git push
+  if [[ "${NO_PUSH}" != "1" ]]; then
+    git push
+  else
+    echo "Skipping push (NO_PUSH=1)"
+  fi
   popd
 }
 
@@ -123,11 +129,11 @@ if download_snippets_outputs "${tmp_dir}" "${OUTPUTS_VERSION_ID}"; then
   tree "${outputs_dir}"
 fi
 
-rm -rf "${docs_include_code_examples_dir}/reference-architectures"
-cp -r "${MCK_DIR}/public/architectures" "${docs_include_code_examples_dir}/reference-architectures"
+rsync -a --delete --exclude='README.md' --exclude='env_variables_*.sh' \
+  "${MCK_DIR}/public/architectures/" "${docs_include_code_examples_dir}/reference-architectures/"
 
-rm -rf "${docs_include_code_examples_dir}/search"
-cp -r "${MCK_DIR}/docs/search" "${docs_include_code_examples_dir}/search"
+rsync -a --delete --exclude='README.md' --exclude='env_variables_*.sh' \
+  "${MCK_DIR}/docs/search/" "${docs_include_code_examples_dir}/search/"
 
 prepare_docs_pr
 popd
