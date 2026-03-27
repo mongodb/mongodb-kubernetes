@@ -121,16 +121,17 @@ def create_ocp_routes_for_shards(namespace: str) -> dict[str, str]:
 
 
 def derive_lb_endpoint_template(route_hostnames: dict[str, str]) -> str:
-    """Derive the spec.lb.endpoint template from actual route hostnames.
+    """Derive the spec.loadBalancer.managed.externalHostname template from route hostnames.
 
     Takes one hostname like 'mongot-mdb-sh-0-ns.apps.domain' and replaces the
-    shard name with {shardName} placeholder to get 'mongot-{shardName}-ns.apps.domain:443'.
+    shard name with {shardName} placeholder: 'mongot-{shardName}-ns.apps.domain'.
+    No port — externalHostname is used for Envoy SNI matching (hostname only).
     """
     first_shard = f"{MDB_RESOURCE_NAME}-0"
     hostname = route_hostnames[first_shard]
     # Replace the concrete shard name with the template placeholder
     template = hostname.replace(first_shard, "{shardName}")
-    return f"{template}:{OCP_ROUTE_PORT}"
+    return template
 
 
 def create_lb_certificates_with_route_sans(
@@ -150,7 +151,7 @@ def create_lb_certificates_with_route_sans(
         namespace=namespace,
         resource_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME),
         replicas=1,
-        service_name=search_resource_names.lb_service_name(MDBS_RESOURCE_NAME),
+        service_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME),
         additional_domains=additional_domains,
         secret_name=lb_server_cert_name,
     )
@@ -161,7 +162,7 @@ def create_lb_certificates_with_route_sans(
         namespace=namespace,
         resource_name=f"{search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)}-client",
         replicas=1,
-        service_name=search_resource_names.lb_service_name(MDBS_RESOURCE_NAME),
+        service_name=search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME),
         additional_domains=[f"*.{namespace}.svc.cluster.local"],
         secret_name=lb_client_cert_name,
     )
@@ -197,13 +198,16 @@ def mdb(namespace: str, sharded_ca_configmap: str, helper: SearchDeploymentHelpe
 
 @fixture(scope="function")
 def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoDBSearch:
-    lb_endpoint = derive_lb_endpoint_template(_route_hostnames) if _route_hostnames else None
     resource = helper.mdbs_for_ext_sharded_source(
         mongot_user_name=MONGOT_USER_NAME,
         lb_mode="Managed",
-        lb_endpoint=lb_endpoint,
         replicas=2,
     )
+    # Override the managed LB externalHostname with OCP Route template.
+    # The helper sets it to the in-cluster proxy-svc FQDN, but on OCP
+    # mongod connects via Route hostnames instead.
+    if _route_hostnames:
+        resource["spec"]["loadBalancer"]["managed"]["externalHostname"] = derive_lb_endpoint_template(_route_hostnames)
     resource["spec"]["resourceRequirements"] = {
         "requests": {"cpu": "1", "memory": "2Gi"},
     }
@@ -227,8 +231,10 @@ def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBU
 
 @mark.e2e_search_sharded_openshift_external
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
-    """Test that the operator is installed and running."""
-    operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
+    """Test that the operator is installed and running.
+    apply_crds_first=True is needed on shared OCP clusters where a stale CRD
+    (missing new fields like spec.loadBalancer) may already exist."""
+    operator = get_default_operator(namespace, operator_installation_config=operator_installation_config, apply_crds_first=True)
     operator.assert_is_running()
 
 

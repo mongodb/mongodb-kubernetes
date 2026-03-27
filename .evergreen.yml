@@ -1493,17 +1493,9 @@ buildvariants:
   - name: e2e_mdb_openshift_search_ubi_cloudqa
     display_name: e2e_mdb_openshift_search_ubi_cloudqa
     tags: [ "staging", "e2e_openshift_test_suite", "cloudqa", "cloudqa_non_static" ]
-    depends_on:
-      - name: build_operator_ubi
-        variant: init_test_run
-      - name: build_init_database_image_ubi
-        variant: init_test_run
-      - name: build_database_image_ubi
-        variant: init_test_run
-      - name: build_test_image
-        variant: init_test_run
     run_on:
       - ubuntu2404-large
+    <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_openshift_search_ubi_cloudqa_task_group
 
