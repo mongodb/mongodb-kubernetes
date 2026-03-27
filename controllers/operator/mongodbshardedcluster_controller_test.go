@@ -55,11 +55,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
-func init() {
-	logger, _ := zap.NewDevelopment()
-	zap.ReplaceGlobals(logger)
-}
-
 func TestChangingFCVShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().Build()
