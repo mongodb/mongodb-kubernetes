@@ -1430,15 +1430,18 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		require.NoError(t, clusterClient.Update(ctx, sc))
 		result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
 		require.NoError(t, err)
-		require.Equal(t, reconcile.Result{}, result, "expected requeue on first reconcile while waiting for backup start delay")
-		assert.Equal(t, 1, logs.FilterMessageSnippet("before enabling backup to avoid race condition").Len(), "expected backup start delay requeue log")
+		assert.True(t, result.RequeueAfter > 0, "expected requeue on first reconcile while waiting for backup start delay")
+		assert.Equal(t, 1, logs.FilterMessageSnippet("before enabling backup to allow OM to process monitoring events").Len(), "expected backup start delay requeue log")
 
 		// Re-fetch sc so its ResourceVersion is current after the status patch
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
 		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after first reconcile")
 		assert.NotEmpty(t, sc.Status.BackupStatus.LastConfiguredTimestamp, "expected lastConfiguredTimestamp to be set during backup enable delay")
 
-		// Second reconcile: delay has elapsed (0s in tests), backup is configured
+		// Wait for the backup start delay (10s) to elapse
+		time.Sleep(11 * time.Second)
+
+		// Second reconcile: delay has elapsed, backup is configured
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
 
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
@@ -1473,7 +1476,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 		assertAllOtherBackupConfigsRemainUntouched(t)
 
-		assert.Equal(t, 0, logs.FilterMessageSnippet("before enabling backup to avoid race condition").Len(), "expected no backup start delay log when backup is not being enabled")
+		assert.Equal(t, 0, logs.FilterMessageSnippet("before enabling backup to allow OM to process monitoring events").Len(), "expected no backup start delay log when backup is not being enabled")
 	})
 
 	t.Run("Backup can be terminated", func(t *testing.T) {
@@ -1494,7 +1497,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 		assertAllOtherBackupConfigsRemainUntouched(t)
 
-		assert.Equal(t, 0, logs.FilterMessageSnippet("before enabling backup to avoid race condition").Len(), "expected no backup start delay log when backup is not being enabled")
+		assert.Equal(t, 0, logs.FilterMessageSnippet("before enabling backup to allow OM to process monitoring events").Len(), "expected no backup start delay log when backup is not being enabled")
 	})
 }
 
