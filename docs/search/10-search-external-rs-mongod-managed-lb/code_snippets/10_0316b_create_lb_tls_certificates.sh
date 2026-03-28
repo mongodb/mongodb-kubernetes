@@ -2,7 +2,6 @@ echo "Creating TLS certificates for managed load balancer (Envoy)..."
 
 lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-0-cert"
 lb_client_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-0-client-cert"
-proxy_svc="${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc"
 
 echo "Creating LB server certificate..."
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
@@ -19,9 +18,7 @@ spec:
     size: 2048
   usages:
     - server auth
-    - client auth
   dnsNames:
-    - ${proxy_svc}.${MDB_NS}.svc.cluster.local
     - "*.${MDB_NS}.svc.cluster.local"
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}

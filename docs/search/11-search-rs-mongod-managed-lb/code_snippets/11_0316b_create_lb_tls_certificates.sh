@@ -18,7 +18,6 @@ spec:
     size: 2048
   usages:
     - server auth
-    - client auth
   dnsNames:
     - "*.${MDB_NS}.svc.cluster.local"
   issuerRef:
