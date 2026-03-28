@@ -7,7 +7,7 @@ echo "Waiting for search indexes to become READY" \
 
 indexes_ready="false"
 for attempt in $(seq 1 ${max_attempts}); do
-  # Check text search index on movies
+  # shellcheck disable=SC2016
   movies_status=$(\
     kubectl exec mongodb-tools \
       -n "${MDB_NS}" \
@@ -22,7 +22,7 @@ for attempt in $(seq 1 ${max_attempts}); do
     }
   ' 2>/dev/null | tail -1)
 
-  # Check vector search index on embedded_movies
+  # shellcheck disable=SC2016
   vector_status=$(\
     kubectl exec mongodb-tools \
       -n "${MDB_NS}" \
