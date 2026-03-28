@@ -105,13 +105,7 @@ Run these steps in order after sourcing `env_variables.sh`.
 ./code_snippets/07_0045_create_namespaces.sh
 ```
 
-#### Step 3: Add MongoDB Helm Repository
-
-```bash
-./code_snippets/07_0090_helm_add_mongodb_repo.sh
-```
-
-#### Step 4: Install the MongoDB Kubernetes Operator
+#### Step 3: Install the MongoDB Kubernetes Operator
 
 ```bash
 ./code_snippets/07_0100_install_operator.sh

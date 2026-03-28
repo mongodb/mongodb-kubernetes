@@ -29,7 +29,6 @@ run 07_0040_validate_env.sh
 run 07_0045_create_namespaces.sh
 run 07_0046_internal_create_image_pull_secrets.sh
 
-run_for_output 07_0090_helm_add_mongodb_repo.sh
 run_for_output 07_0100_install_operator.sh
 
 # Ops Manager resources (for simulated external cluster)

@@ -19,7 +19,6 @@ spec:
     size: 2048
   usages:
     - server auth
-    - client auth
   dnsNames:
     - ${proxy_svc}.${MDB_NS}.svc.cluster.local
     - "*.${MDB_NS}.svc.cluster.local"

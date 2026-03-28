@@ -1,4 +1,3 @@
-# shellcheck disable=SC2086
 helm upgrade --install --debug --kube-context "${K8S_CTX}" \
   --create-namespace --namespace="${MDB_NS}" \
   mongodb-kubernetes \

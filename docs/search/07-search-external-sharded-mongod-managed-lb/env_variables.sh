@@ -21,7 +21,7 @@ export MDB_EXTERNAL_CLUSTER_NAME="ext-mdb-sh"
 
 # MongoDB Search resource name
 # (different from MDB name since it's "external")
-export MDB_SEARCH_RESOURCE_NAME="ext-search"
+export MDB_SEARCH_RESOURCE_NAME="ext-sh"
 
 # ======================================================================
 # OPS MANAGER / CLOUD MANAGER
@@ -37,7 +37,7 @@ export OPS_MANAGER_ORG_ID="<SET ORG ID>"
 # MONGODB VERSION
 # ======================================================================
 
-# Minimum required MongoDB version for Search is 8.2.0
+# Minimum required MongoDB version for Search is 8.2
 export MDB_VERSION="8.2.0-ent"
 
 # ======================================================================
@@ -75,22 +75,18 @@ export MDB_TLS_CA_ISSUER="my-ca-issuer"
 # Your external MongoDB sharded cluster information.
 # Replace with your actual hostnames.
 
-# External domain used with
-# spec.externalAccess.externalDomain on the MongoDB
-# CR. When set, mongos pods are reachable at
-# {podName}.{externalDomain}.
+# Domain used for external access to the MongoDB pods
 export MDB_EXTERNAL_DOMAIN="ext-mdb.example.com"
 
 # -- Shard 0 --
 export MDB_EXTERNAL_SHARD_0_NAME="ext-mdb-sh-0"
-MDB_SH_SVC="${MDB_NS}.svc.cluster.local:27017"
 export MDB_EXTERNAL_SHARD_0_HOST=\
-"ext-mdb-sh-0-0.ext-mdb-sh-sh.${MDB_SH_SVC}"
+"${MDB_EXTERNAL_CLUSTER_NAME}-0-0.${MDB_EXTERNAL_DOMAIN}:27017"
 
 # -- Shard 1 --
 export MDB_EXTERNAL_SHARD_1_NAME="ext-mdb-sh-1"
 export MDB_EXTERNAL_SHARD_1_HOST=\
-"ext-mdb-sh-1-0.ext-mdb-sh-sh.${MDB_SH_SVC}"
+"${MDB_EXTERNAL_CLUSTER_NAME}-1-0.${MDB_EXTERNAL_DOMAIN}:27017"
 
 # -- Mongos router (uses external domain) --
 MDB_MONGOS_PREFIX="${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0"
@@ -105,14 +101,7 @@ export MDB_MONGOT_REPLICAS=2
 # ======================================================================
 # DERIVED VALUES (computed from topology + search config)
 # ======================================================================
-# DO NOT CHANGE these proxy service names.
-# The operator derives them via
-# LoadBalancerProxyServiceNameForShard
-# (api/v1/search/mongodbsearch_types.go) using the
-# hardcoded pattern:
-#   {search-resource}-search-0-{shard-name}-proxy-svc
-# Changing these vars won't change the real Services
-# -- it will just break the scripts.
+# Proxy service names (operator-derived, do not change)
 SEARCH_PFX="${MDB_SEARCH_RESOURCE_NAME}-search-0"
 export MDB_PROXY_SVC_SHARD_0=\
 "${SEARCH_PFX}-${MDB_EXTERNAL_SHARD_0_NAME}-proxy-svc"

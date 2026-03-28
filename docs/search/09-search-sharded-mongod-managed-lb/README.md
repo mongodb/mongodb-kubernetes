@@ -115,13 +115,7 @@ Run these steps in order after sourcing `env_variables.sh`.
 ./code_snippets/09_0046_create_image_pull_secrets.sh
 ```
 
-#### Step 4: Add MongoDB Helm Repository
-
-```bash
-./code_snippets/09_0090_helm_add_mongodb_repo.sh
-```
-
-#### Step 5: Install the MongoDB Kubernetes Operator
+#### Step 4: Install the MongoDB Kubernetes Operator
 
 ```bash
 ./code_snippets/09_0100_install_operator.sh

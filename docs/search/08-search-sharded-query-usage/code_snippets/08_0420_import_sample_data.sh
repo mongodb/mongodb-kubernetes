@@ -37,12 +37,5 @@ kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
     'sh.shardCollection("sample_mflix.movies", { _id: "hashed" })'
 echo "  Sharded sample_mflix.movies collection"
 
-echo "Verifying shard distribution..."
-sleep 5
-
-kubectl exec mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
-  mongosh "${admin_conn}" --quiet --eval \
-    'db.getSiblingDB("sample_mflix").movies.getShardDistribution()'
-
 echo ""
 echo "Sample data imported and sharded"

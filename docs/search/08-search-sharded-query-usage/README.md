@@ -82,7 +82,7 @@ Create a vector search index on the `embedded_movies` collection. The `sample_mf
 Wait for all search indexes to reach READY state (up to 5 min). Polls using `listSearchIndexes` until status is READY.
 
 ```bash
-./code_snippets/08_0440_wait_for_search_indexes.sh
+./code_snippets/08_0440_internal_wait_for_search_indexes.sh
 ```
 
 ### Run Search Queries

@@ -1,6 +1,8 @@
 # E2E Test Environment - Public Configuration
 #
-# This file is used for public CI/CD testing.
-# It sources the private environment without modifications.
+# Sources the default environment and overrides
+# CI-specific values for public testing.
 
-source "$(dirname "${BASH_SOURCE[0]}")/env_variables_e2e_private.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/env_variables.sh"
+
+export K8S_CTX="kind-kind"

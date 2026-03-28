@@ -16,7 +16,7 @@ export MDB_NS="mongodb"
 export MDB_EXTERNAL_CLUSTER_NAME="ext-mdb-rs"
 
 # MongoDB Search resource name (different from MDB name since it's "external")
-export MDB_SEARCH_RESOURCE_NAME="ext-rs-search"
+export MDB_SEARCH_RESOURCE_NAME="ext-rs"
 
 # ============================================================================
 # REPLICA SET CONFIGURATION
@@ -34,7 +34,7 @@ export MDB_MONGOT_REPLICAS=2
 # ============================================================================
 
 export OPS_MANAGER_PROJECT_NAME="<arbitrary project name>"
-export OPS_MANAGER_API_URL="https://cloud-qa.mongodb.com"
+export OPS_MANAGER_API_URL="<SET API URL>"
 export OPS_MANAGER_API_USER="<SET API USER>"
 export OPS_MANAGER_API_KEY="<SET API KEY>"
 export OPS_MANAGER_ORG_ID="<SET ORG ID>"
@@ -43,7 +43,7 @@ export OPS_MANAGER_ORG_ID="<SET ORG ID>"
 # MONGODB VERSION
 # ============================================================================
 
-# Minimum required MongoDB version for Search is 8.2.0
+# Minimum required MongoDB version for Search is 8.2
 export MDB_VERSION="8.2.0-ent"
 
 # ============================================================================

@@ -3,7 +3,6 @@ echo "Creating vector search index" \
 
 user_conn="${MDB_USER_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"
 
-# shellcheck disable=SC2016,SC1078,SC1079
 kubectl exec mongodb-tools \
   -n "${MDB_NS}" \
   --context "${K8S_CTX}" \

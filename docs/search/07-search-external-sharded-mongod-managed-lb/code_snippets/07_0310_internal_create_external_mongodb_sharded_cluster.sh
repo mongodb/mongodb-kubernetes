@@ -1,8 +1,8 @@
 echo "Creating simulated external MongoDB sharded cluster..."
 echo "  Shards: 2"
-echo "  Members per shard: 1"
+echo "  Members per shard: 3"
 echo "  mongos count: 1"
-echo "  Config servers: 2"
+echo "  Config servers: 3"
 
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1
@@ -12,9 +12,9 @@ metadata:
 spec:
   type: ShardedCluster
   shardCount: 2
-  mongodsPerShardCount: 1
+  mongodsPerShardCount: 3
   mongosCount: 1
-  configServerCount: 2
+  configServerCount: 3
   version: ${MDB_VERSION}
   opsManager:
     configMapRef:

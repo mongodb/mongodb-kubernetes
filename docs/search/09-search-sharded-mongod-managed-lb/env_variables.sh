@@ -30,7 +30,7 @@ export OPS_MANAGER_ORG_ID="<SET ORG ID>"
 # MONGODB VERSION
 # ============================================================================
 
-# Minimum required MongoDB version for Search is 8.2.0
+# Minimum required MongoDB version for Search is 8.2
 export MDB_VERSION="8.2.0-ent"
 
 # ============================================================================
@@ -85,11 +85,7 @@ export MDB_MONGOT_REPLICAS=2
 # ============================================================================
 # DERIVED VALUES (computed from topology + search config above)
 # ============================================================================
-# DO NOT CHANGE these proxy service names.
-# The operator derives them via LoadBalancerProxyServiceNameForShard
-# (api/v1/search/mongodbsearch_types.go) using the hardcoded pattern:
-#   {search-resource}-search-0-{shard-name}-proxy-svc
-# Changing these vars won't change the real Services — it will just break the scripts.
+# Proxy service names (operator-derived, do not change)
 export MDB_PROXY_SVC_SHARD_0="${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_0_NAME}-proxy-svc"
 export MDB_PROXY_SVC_SHARD_1="${MDB_RESOURCE_NAME}-search-0-${MDB_SHARD_1_NAME}-proxy-svc"
 

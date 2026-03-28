@@ -3,7 +3,6 @@ echo "Creating TLS certificate for MongoDB Search (mongot) pods..."
 sts_name="${MDB_RESOURCE_NAME}-search"
 cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${sts_name}-cert"
 mongot_svc="${sts_name}-svc"
-proxy_svc="${MDB_RESOURCE_NAME}-search-0-proxy-svc"
 
 echo "  Creating certificate: ${cert_name}"
 kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
@@ -23,7 +22,6 @@ spec:
     - client auth
   dnsNames:
     - "*.${mongot_svc}.${MDB_NS}.svc.cluster.local"
-    - ${proxy_svc}.${MDB_NS}.svc.cluster.local
   issuerRef:
     name: ${MDB_TLS_CA_ISSUER}
     kind: ClusterIssuer
