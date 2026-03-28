@@ -28,18 +28,11 @@
 # MongoDB version (used for tools pod image)
 #export MDB_VERSION="8.2.0-ent"
 
-# admin user connection string
-# (for import and sharding commands)
-#export MDB_ADMIN_CONNECTION_STRING=\
-#"mongodb://mdb-admin:PASSWORD@HOST/\
-#?tls=true&tlsCAFile=/tls/ca-pem\
-#&authSource=admin&authMechanism=SCRAM-SHA-256"
+# admin user connection string (for import and sharding commands)
+#export MDB_ADMIN_CONNECTION_STRING="mongodb://mdb-admin:PASSWORD@HOST/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin&authMechanism=SCRAM-SHA-256"
 
 # regular user connection string (for search queries)
-#export MDB_USER_CONNECTION_STRING=\
-#"mongodb://mdb-user:PASSWORD@HOST/\
-#?tls=true&tlsCAFile=/tls/ca-pem\
-#&authSource=admin&authMechanism=SCRAM-SHA-256"
+#export MDB_USER_CONNECTION_STRING="mongodb://mdb-user:PASSWORD@HOST/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin&authMechanism=SCRAM-SHA-256"
 
 # TLS CA ConfigMap mounted in the tools pod at /tls
 #export MDB_TLS_CA_CONFIGMAP="ext-mdb-sh-ca"

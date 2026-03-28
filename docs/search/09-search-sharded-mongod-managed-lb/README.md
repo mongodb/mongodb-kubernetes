@@ -293,7 +293,7 @@ Checks that the operator created the expected resources:
 | Service (per shard, headless) | `{name}-search-0-{shardName}-svc` | Stable DNS for mongot pods |
 
 ```bash
-./code_snippets/09_0326_verify_envoy_deployment.sh
+./code_snippets/09_0326_internal_verify_envoy_deployment.sh
 ```
 
 #### Step 20: Show Running Pods
