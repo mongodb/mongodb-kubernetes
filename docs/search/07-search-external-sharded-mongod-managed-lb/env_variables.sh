@@ -16,11 +16,7 @@ export MDB_NS="mongodb"
 # CLUSTER NAMING
 # ======================================================================
 
-# Name for the external MongoDB sharded cluster
-export MDB_EXTERNAL_CLUSTER_NAME="ext-mdb-sh"
-
 # MongoDB Search resource name
-# (different from MDB name since it's "external")
 export MDB_SEARCH_RESOURCE_NAME="ext-sh"
 
 # ======================================================================
@@ -61,7 +57,7 @@ export OPERATOR_ADDITIONAL_HELM_VALUES=""
 # ======================================================================
 
 export MDB_TLS_CERT_SECRET_PREFIX="certs"
-export MDB_TLS_CA_CONFIGMAP="${MDB_EXTERNAL_CLUSTER_NAME}-ca"
+export MDB_TLS_CA_CONFIGMAP="mongodb-ca"
 
 export CERT_MANAGER_NAMESPACE="cert-manager"
 export MDB_TLS_SELF_SIGNED_ISSUER="selfsigned-bootstrap-issuer"
@@ -72,22 +68,20 @@ export MDB_TLS_CA_ISSUER="my-ca-issuer"
 # ======================================================================
 # EXTERNAL CLUSTER TOPOLOGY (fill in your actual values)
 # ======================================================================
-# Your external MongoDB sharded cluster information.
-# Replace with your actual hostnames.
+# Replace with your actual hostnames and shard names.
 
-# Domain used for external access to the MongoDB pods
 export MDB_EXTERNAL_DOMAIN="ext-mdb.example.com"
 
 # -- Shard 0 --
-export MDB_EXTERNAL_SHARD_0_NAME="ext-mdb-sh-0"
-export MDB_EXTERNAL_SHARD_0_HOST="${MDB_EXTERNAL_CLUSTER_NAME}-0-0.${MDB_EXTERNAL_DOMAIN}:27017"
+export MDB_EXTERNAL_SHARD_0_NAME="<your-shard-0-name>"
+export MDB_EXTERNAL_SHARD_0_HOST="<shard-0-host>:27017"
 
 # -- Shard 1 --
-export MDB_EXTERNAL_SHARD_1_NAME="ext-mdb-sh-1"
-export MDB_EXTERNAL_SHARD_1_HOST="${MDB_EXTERNAL_CLUSTER_NAME}-1-0.${MDB_EXTERNAL_DOMAIN}:27017"
+export MDB_EXTERNAL_SHARD_1_NAME="<your-shard-1-name>"
+export MDB_EXTERNAL_SHARD_1_HOST="<shard-1-host>:27017"
 
-# -- Mongos router (uses external domain) --
-export MDB_EXTERNAL_MONGOS_HOST="${MDB_EXTERNAL_CLUSTER_NAME}-mongos-0.${MDB_EXTERNAL_DOMAIN}:27017"
+# -- Mongos router --
+export MDB_EXTERNAL_MONGOS_HOST="<mongos-host>:27017"
 
 # ======================================================================
 # SEARCH CONFIGURATION
