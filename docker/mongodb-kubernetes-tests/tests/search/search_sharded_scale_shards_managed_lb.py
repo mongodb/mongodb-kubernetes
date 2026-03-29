@@ -459,28 +459,10 @@ def test_scale_down_wait_for_search_running(mdbs: MongoDBSearch):
 
 @MARKER
 def test_scale_down_verify_stale_resources_cleaned(namespace: str):
-    """Check if proxy service for the removed shard is cleaned up.
-
-    NOTE: The operator currently does not clean up per-shard proxy services
-    when shards are removed (cleanupStaleProxyServices does not trigger).
-    This test logs the current state rather than asserting deletion, to avoid
-    blocking the rest of the scale-down verification.
-    """
-    core_v1 = client.CoreV1Api()
+    """Verify that the proxy service for the removed shard is cleaned up by the operator."""
     removed_shard_name = f"{MDB_RESOURCE_NAME}-{SCALED_UP_SHARD_COUNT - 1}"
-    proxy_svc_name = search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, removed_shard_name)
-
-    try:
-        core_v1.read_namespaced_service(proxy_svc_name, namespace)
-        logger.warning(
-            f"Proxy service {proxy_svc_name} still exists after scale-down "
-            "(operator does not currently clean up stale proxy services on shard removal)"
-        )
-    except kubernetes.client.ApiException as e:
-        if e.status == 404:
-            logger.info(f"Proxy service {proxy_svc_name} was cleaned up")
-        else:
-            raise
+    verify_shard_proxy_service_deleted(namespace, MDBS_RESOURCE_NAME, removed_shard_name)
+    logger.info(f"Stale proxy service for {removed_shard_name} confirmed deleted")
 
 
 @MARKER

@@ -2313,133 +2313,60 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 }
 
 func TestIsOwnedBy(t *testing.T) {
-	owner := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-search",
-			Namespace: "test-ns",
-			UID:       "test-owner-uid-123",
-		},
+	owner := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{UID: "uid-1"}}
+
+	withRef := func(uid string) *corev1.Service {
+		return &corev1.Service{ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{UID: metav1.OwnerReference{}.UID}}}}
 	}
+	// Build services with owner refs using assignment to avoid types.UID import
+	matching := withRef("")
+	matching.OwnerReferences[0].UID = owner.UID
+	nonMatching := withRef("")
+	nonMatching.OwnerReferences[0].UID = "uid-other"
 
-	t.Run("returns true when owned (without controller flag)", func(t *testing.T) {
-		svc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-svc",
-				Namespace: "test-ns",
-				OwnerReferences: []metav1.OwnerReference{
-					{UID: "test-owner-uid-123"},
-				},
-			},
-		}
-		assert.True(t, isOwnedBy(svc, owner))
-	})
-
-	t.Run("returns true when owned with controller flag", func(t *testing.T) {
-		svc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-svc",
-				Namespace: "test-ns",
-				OwnerReferences: []metav1.OwnerReference{
-					{UID: "test-owner-uid-123", Controller: ptr.To(true)},
-				},
-			},
-		}
-		assert.True(t, isOwnedBy(svc, owner))
-	})
-
-	t.Run("returns false when not owned", func(t *testing.T) {
-		svc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-svc",
-				Namespace: "test-ns",
-				OwnerReferences: []metav1.OwnerReference{
-					{UID: "different-uid"},
-				},
-			},
-		}
-		assert.False(t, isOwnedBy(svc, owner))
-	})
-
-	t.Run("returns false when no owner references", func(t *testing.T) {
-		svc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-svc",
-				Namespace: "test-ns",
-			},
-		}
-		assert.False(t, isOwnedBy(svc, owner))
-	})
-
+	assert.True(t, isOwnedBy(matching, owner))
+	assert.False(t, isOwnedBy(nonMatching, owner))
+	assert.False(t, isOwnedBy(&corev1.Service{}, owner))
 }
 
-func TestCleanupStaleProxyServices(t *testing.T) {
-	namespace := "test-ns"
-
-	search := newTestMongoDBSearch("test-search", namespace, func(s *searchv1.MongoDBSearch) {
-		s.UID = "search-uid-456"
-		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
-			Managed: &searchv1.ManagedLBConfig{},
-		}
+func TestCleanupStaleShardResources(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.UID = "search-uid"
+		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
 	})
 
-	// Proxy services for shards 0, 1, 2 (shard-2 is the removed one)
-	makeProxySvc := func(shardName string) *corev1.Service {
-		return &corev1.Service{
+	proxySvc := func(shard string, owned bool) *corev1.Service {
+		svc := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      search.ProxyServiceNameForShard(shardName).Name,
-				Namespace: namespace,
-				Labels:    map[string]string{"component": proxyServiceComponent, "shard": shardName},
-				OwnerReferences: []metav1.OwnerReference{
-					{UID: "search-uid-456", Name: "test-search", Kind: "MongoDBSearch", APIVersion: "mongodb.com/v1"},
-				},
+				Name: search.ProxyServiceNameForShard(shard).Name, Namespace: "test-ns",
+				Labels: map[string]string{"component": proxyServiceComponent},
 			},
-			Spec: corev1.ServiceSpec{
-				ClusterIP: "10.0.0.1",
-				Ports:     []corev1.ServicePort{{Port: 27028}},
-			},
+			Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1", Ports: []corev1.ServicePort{{Port: 27028}}},
 		}
+		if owned {
+			svc.OwnerReferences = []metav1.OwnerReference{{UID: search.UID}}
+		} else {
+			svc.OwnerReferences = []metav1.OwnerReference{{}}
+			svc.OwnerReferences[0].UID = "other-uid"
+		}
+		return svc
 	}
 
-	svc0 := makeProxySvc("shard-0")
-	svc1 := makeProxySvc("shard-1")
-	svc2 := makeProxySvc("shard-2") // stale — shard removed
-
-	// Unrelated proxy service (different owner)
-	unrelatedSvc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "other-search-proxy-svc",
-			Namespace: namespace,
-			Labels:    map[string]string{"component": proxyServiceComponent},
-			OwnerReferences: []metav1.OwnerReference{
-				{UID: "different-uid", Name: "other-search", Kind: "MongoDBSearch", APIVersion: "mongodb.com/v1"},
-			},
-		},
-		Spec: corev1.ServiceSpec{
-			ClusterIP: "10.0.0.5",
-			Ports:     []corev1.ServicePort{{Port: 27028}},
-		},
-	}
-
-	fakeClient := newTestFakeClient(search, svc0, svc1, svc2, unrelatedSvc)
+	fakeClient := newTestFakeClient(search,
+		proxySvc("shard-0", true),  // active, owned
+		proxySvc("shard-1", true),  // active, owned
+		proxySvc("shard-2", true),  // stale, owned
+		proxySvc("shard-x", false), // different owner
+	)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
+	require.NoError(t, helper.cleanupStaleShardResources(t.Context(), zap.S(), []string{"shard-0", "shard-1"}))
 
-	// Cleanup with only shard-0 and shard-1 as current shards
-	err := helper.cleanupStaleShardResources(t.Context(), zap.S(), []string{"shard-0", "shard-1"})
-	require.NoError(t, err)
-
-	// svc0 and svc1 should still exist
-	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-0"))
-	assert.NoError(t, err, "shard-0 proxy service should still exist")
-
+	_, err := fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-0"))
+	assert.NoError(t, err, "active shard preserved")
 	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-1"))
-	assert.NoError(t, err, "shard-1 proxy service should still exist")
-
-	// svc2 (stale) should be deleted
+	assert.NoError(t, err, "active shard preserved")
 	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-2"))
-	assert.Error(t, err, "shard-2 proxy service should have been deleted")
-
-	// Unrelated service should still exist
-	_, err = fakeClient.GetService(t.Context(), client.ObjectKey{Name: "other-search-proxy-svc", Namespace: namespace})
-	assert.NoError(t, err, "unrelated proxy service should still exist")
-
+	assert.Error(t, err, "stale shard deleted")
+	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-x"))
+	assert.NoError(t, err, "different owner untouched")
 }
