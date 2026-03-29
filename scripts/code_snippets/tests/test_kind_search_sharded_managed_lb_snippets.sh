@@ -26,9 +26,6 @@ echo "Sourcing env variables for ${CODE_SNIPPETS_FLAVOR} flavor"
 test -f "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh" && source "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh"
 ${test_dir}/test.sh
 
-echo "Sleeping for 60s to let search configuration propagate."
-sleep 60
-
 # Phase 2: Sharded queries (08)
 test_dir="./docs/search/08-search-sharded-query-usage"
 echo "Sourcing env variables for ${CODE_SNIPPETS_FLAVOR} flavor"
