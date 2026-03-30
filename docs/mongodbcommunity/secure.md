@@ -42,36 +42,95 @@ To secure connections to MongoDBCommunity resources with TLS using `cert-manager
    helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --set crds.enabled=true
    ```
 
-3. Create a TLS-secured MongoDBCommunity resource:
+3. Create `cert-manager` resources to generate TLS certificates for your
+   MongoDBCommunity resource. This assumes you already have the operator
+   installed in namespace `<namespace>`.
 
-    This assumes you already have the operator installed in namespace `<namespace>`
+   Save the following YAML to a file (e.g. `tls-certs.yaml`), replacing
+   `<resource-name>` with the name of your MongoDBCommunity resource and
+   `<namespace>` with your namespace:
+
+   ```yaml
+   # Self-signed issuer to bootstrap the CA
+   apiVersion: cert-manager.io/v1
+   kind: Issuer
+   metadata:
+     name: tls-selfsigned-issuer
+     namespace: <namespace>
+   spec:
+     selfSigned: {}
+   ---
+   # Self-signed CA certificate
+   apiVersion: cert-manager.io/v1
+   kind: Certificate
+   metadata:
+     name: tls-selfsigned-ca
+     namespace: <namespace>
+   spec:
+     isCA: true
+     commonName: "*.<resource-name>-svc.<namespace>.svc.cluster.local"
+     dnsNames:
+       - "*.<resource-name>-svc.<namespace>.svc.cluster.local"
+     secretName: tls-ca-key-pair
+     privateKey:
+       algorithm: ECDSA
+       size: 256
+     issuerRef:
+       name: tls-selfsigned-issuer
+       kind: Issuer
+   ---
+   # CA issuer that signs server certificates
+   apiVersion: cert-manager.io/v1
+   kind: Issuer
+   metadata:
+     name: tls-ca-issuer
+     namespace: <namespace>
+   spec:
+     ca:
+       secretName: tls-ca-key-pair
+   ---
+   # TLS certificate for the MongoDB replica set
+   apiVersion: cert-manager.io/v1
+   kind: Certificate
+   metadata:
+     name: cert-manager-tls-certificate
+     namespace: <namespace>
+   spec:
+     secretName: tls-certificate
+     issuerRef:
+       name: tls-ca-issuer
+       kind: Issuer
+     duration: 8760h    # 365 days
+     renewBefore: 720h  # 30 days
+     commonName: "*.<resource-name>-svc.<namespace>.svc.cluster.local"
+     dnsNames:
+       - "*.<resource-name>-svc.<namespace>.svc.cluster.local"
+   ```
+
+   Apply the file:
 
    ```
-   helm upgrade --install community-operator mongodb/community-operator \
-   --namespace <namespace> --set resource.tls.useCertManager=true \
-   --set createResource=true --set resource.tls.enabled=true \
-   --set namespace=<namespace>
+   kubectl apply -f tls-certs.yaml --namespace <namespace>
    ```
 
-  This creates a resource secured with TLS and generates the necessary
-  certificates with `cert-manager` according to the values specified in
-  the `values.yaml` file in the Community Kubernetes Operator 
-  [chart repository](https://github.com/mongodb/helm-charts/tree/main/charts/community-operator).
+   **Note:** `cert-manager` automatically reissues certificates before
+   they expire. To change the reissuance interval, update `spec.renewBefore`
+   on the Certificate resource.
 
-  `cert-manager` automatically reissues certificates according to the
-  value of `resource.tls.certManager.renewCertBefore`. To alter the 
-  reissuance interval, either: 
-  
-  - Set `resource.tls.certManager.renewCertBefore` in `values.yaml` to 
-     the desired interval in hours before running `helm upgrade`
+4. Create a `MongoDBCommunity` resource with TLS enabled. For an example,
+   see [mongodb.com_v1_mongodbcommunity_tls_cr.yaml](https://github.com/mongodb/mongodb-kubernetes/blob/master/public/samples/community/mongodb.com_v1_mongodbcommunity_tls_cr.yaml).
 
-  - Set `spec.renewBefore` in the Certificate resource file generated
-     by `cert-manager` to the desired interval in hours after running 
-     `helm upgrade`
-  
+   Ensure the `spec.security.tls.certificateKeySecretRef.name` and
+   `spec.security.tls.caConfigMapRef.name` match the secret and
+   ConfigMap created by `cert-manager` in the previous step.
 
+   Apply the file:
 
-1. Test your connection over TLS by 
+   ```
+   kubectl apply -f <your-mongodb-resource>.yaml --namespace <namespace>
+   ```
+
+5. Test your connection over TLS by 
 
    - Connecting to a `mongod` container inside a pod using `kubectl`:
 
