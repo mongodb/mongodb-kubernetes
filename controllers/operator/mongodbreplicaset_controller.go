@@ -212,6 +212,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	if util.ShouldSnapshotAC() {
 		attachACSnapshotHook(ctx, reconciler.client, conn, rs.Namespace, rs.Name, log)
 	}
+	if util.ShouldDryRunAC() {
+		conn = attachACDryRunWrapper(ctx, reconciler.client, conn, rs.Namespace, rs.Name, log)
+	}
 
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
 		return r.updateStatus(ctx, status)
@@ -811,6 +814,9 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.reconciler.SecretClient, projectConfig, credsConfig, r.reconciler.omConnectionFactory, rs.Namespace, log)
 	if err != nil {
 		return err
+	}
+	if util.ShouldDryRunAC() {
+		conn = attachACDryRunWrapper(ctx, r.reconciler.client, conn, rs.Namespace, rs.Name, log)
 	}
 
 	processNames := make([]string, 0)

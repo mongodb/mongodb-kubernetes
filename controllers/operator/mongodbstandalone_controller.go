@@ -177,6 +177,9 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	if err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
+	if util.ShouldDryRunAC() {
+		conn = attachACDryRunWrapper(ctx, r.client, conn, s.Namespace, s.Name, log)
+	}
 
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
 		return r.updateStatus(ctx, s, status, log)
@@ -403,6 +406,9 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
 		return err
+	}
+	if util.ShouldDryRunAC() {
+		conn = attachACDryRunWrapper(ctx, r.client, conn, s.Namespace, s.Name, log)
 	}
 
 	processNames := make([]string, 0)

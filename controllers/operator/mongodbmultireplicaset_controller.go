@@ -157,6 +157,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("error establishing connection to Ops Manager: %w", err)), log)
 	}
+	if util.ShouldDryRunAC() {
+		conn = attachACDryRunWrapper(ctx, r.client, conn, mrs.Namespace, mrs.Name, log)
+	}
 
 	log = log.With("MemberCluster Namespace", mrs.Namespace)
 
@@ -1216,6 +1219,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
 	if err != nil {
 		return err
+	}
+	if util.ShouldDryRunAC() {
+		conn = attachACDryRunWrapper(ctx, r.client, conn, mrs.Namespace, mrs.Name, log)
 	}
 
 	processNames := make([]string, 0)

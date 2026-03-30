@@ -205,6 +205,9 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 	if err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
+	if util.ShouldDryRunAC() {
+		conn = attachACDryRunWrapper(ctx, r.client, conn, user.Namespace, user.Name, log)
+	}
 
 	if err = r.updateConnectionStringSecret(ctx, *user, log); err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)

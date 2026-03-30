@@ -876,6 +876,9 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
+	if util.ShouldDryRunAC() {
+		conn = attachACDryRunWrapper(ctx, r.commonController.client, conn, sc.Namespace, sc.Name, log)
+	}
 
 	if err := r.replicateAgentKeySecret(ctx, conn, agentAPIKey, log); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
@@ -1601,6 +1604,9 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
 	if err != nil {
 		return err
+	}
+	if util.ShouldDryRunAC() {
+		conn = attachACDryRunWrapper(ctx, r.commonController.client, conn, sc.Namespace, sc.Name, log)
 	}
 
 	processNames := make([]string, 0)

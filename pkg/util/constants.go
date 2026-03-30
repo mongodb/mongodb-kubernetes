@@ -358,6 +358,14 @@ func ShouldSnapshotAC() bool {
 	return strings.EqualFold(os.Getenv("MDB_AC_SNAPSHOT"), "true")
 }
 
+// ShouldDryRunAC returns true when the MDB_AC_DRY_RUN=true env var is set at operator runtime.
+// When enabled, every Deployment PUT is recorded as a numbered step in a
+// <resource-name>-ac-dry-run ConfigMap but NOT pushed to OpsManager.
+// This is a debug-only feature — enable it only when diagnosing what AC changes a reconcile would make.
+func ShouldDryRunAC() bool {
+	return strings.EqualFold(os.Getenv("MDB_AC_DRY_RUN"), "true")
+}
+
 const (
 	TWENTY_FOUR_HOURS = 24 * time.Hour
 )
