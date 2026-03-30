@@ -27,6 +27,10 @@ echo "Aligning metadata.annotations.containerImage version with deployment's ima
 operator_deployment_image=$(yq '.spec.install.spec.deployments[0].spec.template.spec.containers[0].image' < "${bundle_csv_file}")
 yq e ".metadata.annotations.containerImage = \"${operator_deployment_image}\"" -i "${bundle_csv_file}"
 
+echo "Setting installation-method annotation to 'olm' in deployment pod template in ${bundle_csv_file}"
+yq e '.spec.install.spec.deployments[0].spec.template.metadata.annotations."mongodb.com/installation-method" = "olm"' \
+  -i "${bundle_csv_file}"
+
 echo "Edited CSV: ${bundle_csv_file}"
 cat "${bundle_csv_file}"
 
