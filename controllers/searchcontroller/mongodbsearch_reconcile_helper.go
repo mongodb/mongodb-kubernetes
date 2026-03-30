@@ -334,10 +334,8 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 		}
 	}
 
-	if !r.mdbSearch.IsShardedUnmanagedLB() {
-		if err := r.cleanupStaleProxyServices(ctx, log, shardNames); err != nil {
-			log.Warnf("Failed to cleanup stale proxy services: %s", err)
-		}
+	if err := r.cleanupStaleShardResources(ctx, log, shardNames); err != nil {
+		log.Warnf("Failed to cleanup stale shard resources: %s", err)
 	}
 
 	if !r.mdbSearch.IsLoadBalancerReady() {
@@ -348,18 +346,33 @@ func (r *MongoDBSearchReconcileHelper) reconcileSharded(ctx context.Context, log
 	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(version))
 }
 
-// cleanupStaleProxyServices removes proxy Services for shards that no longer exist.
-func (r *MongoDBSearchReconcileHelper) cleanupStaleProxyServices(ctx context.Context, log *zap.SugaredLogger, currentShardNames []string) error {
+// isOwnedBy returns true if the object has an owner reference pointing to the given owner.
+// Unlike metav1.IsControlledBy, this does not require the controller: true field,
+// which is not set by controllerutil.SetOwnerReference.
+func isOwnedBy(obj client.Object, owner client.Object) bool {
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.UID == owner.GetUID() {
+			return true
+		}
+	}
+	return false
+}
+
+// cleanupStaleShardResources removes per-shard proxy Services for shards that no longer exist after a scale-down.
+func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Context, log *zap.SugaredLogger, currentShardNames []string) error {
+	if r.mdbSearch.IsShardedUnmanagedLB() {
+		return nil
+	}
+
 	serviceList := &corev1.ServiceList{}
-	err := r.client.List(ctx, serviceList,
+	if err := r.client.List(ctx, serviceList,
 		client.InNamespace(r.mdbSearch.Namespace),
 		client.MatchingLabels{"component": proxyServiceComponent},
-	)
-	if err != nil {
+	); err != nil {
 		return xerrors.Errorf("failed to list proxy services: %w", err)
 	}
 
-	expectedNames := make(map[string]bool, len(currentShardNames)+1)
+	expectedNames := make(map[string]bool, len(currentShardNames))
 	for _, shardName := range currentShardNames {
 		expectedNames[r.mdbSearch.ProxyServiceNameForShard(shardName).Name] = true
 	}
@@ -369,7 +382,7 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleProxyServices(ctx context.Con
 		if expectedNames[svc.Name] {
 			continue
 		}
-		if !metav1.IsControlledBy(svc, r.mdbSearch) {
+		if !isOwnedBy(svc, r.mdbSearch) {
 			continue
 		}
 		log.Infof("Deleting stale proxy Service %s", svc.Name)
