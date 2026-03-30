@@ -9,9 +9,7 @@ kubectl exec mongodb-tools \
   -n "${MDB_NS}" \
   --context "${K8S_CTX}" \
   -- mongosh "${user_conn}" --quiet --eval '
-  use sample_mflix;
-
-  print("Running $search aggregation pipeline...\n");
+  use("sample_mflix");
 
   const results = db.movies.aggregate([
     {
@@ -34,18 +32,23 @@ kubectl exec mongodb-tools \
     { $limit: 5 }
   ]).toArray();
 
-  print("Top 5 search results:\n");
+  if (results.length === 0) {
+    console.log("ERROR: search query returned 0 results");
+    quit(1);
+  }
+
+  console.log("Top 5 search results:\n");
 
   results.forEach((doc, i) => {
-    print(`${i + 1}. "${doc.title}" (${doc.year || "N/A"})`);
-    print(`   Score: ${doc.score.toFixed(4)}`);
+    console.log((i + 1) + ". \"" + doc.title + "\" (" + (doc.year || "N/A") + ")");
+    console.log("   Score: " + doc.score.toFixed(4));
     if (doc.plot) {
-      print(`   Plot: ${doc.plot.substring(0, 100)}...`);
+      console.log("   Plot: " + doc.plot.substring(0, 100) + "...");
     }
-    print("");
+    console.log("");
   });
 
-  print(`Total results shown: ${results.length}`);
+  console.log("Total results shown: " + results.length);
 '
 
 echo ""
