@@ -175,6 +175,7 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 		uid := getKubernetesClusterUUID(ctx, uncachedClient)
 		kubeClusterUUIDList = append(kubeClusterUUIDList, uid)
 	}
+	installMethod := envvar.GetEnvOrDefault("MCK_INSTALLER", "")
 
 	slices.Sort(kubeClusterUUIDList)
 
@@ -186,6 +187,7 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 		OperatorType:         MEKO,
 		OperatorArchitecture: runtime.GOARCH,
 		OperatorOS:           runtime.GOOS,
+		OperatorInstaller:    installMethod,
 	}
 
 	event := createEvent(operatorEvent, time.Now(), Operators)
