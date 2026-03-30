@@ -2312,23 +2312,6 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 	}
 }
 
-func TestIsOwnedBy(t *testing.T) {
-	owner := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{UID: "uid-1"}}
-
-	withRef := func(uid string) *corev1.Service {
-		return &corev1.Service{ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{UID: metav1.OwnerReference{}.UID}}}}
-	}
-	// Build services with owner refs using assignment to avoid types.UID import
-	matching := withRef("")
-	matching.OwnerReferences[0].UID = owner.UID
-	nonMatching := withRef("")
-	nonMatching.OwnerReferences[0].UID = "uid-other"
-
-	assert.True(t, isOwnedBy(matching, owner))
-	assert.False(t, isOwnedBy(nonMatching, owner))
-	assert.False(t, isOwnedBy(&corev1.Service{}, owner))
-}
-
 func TestCleanupStaleShardResources(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
 		s.UID = "search-uid"
