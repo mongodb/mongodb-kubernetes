@@ -152,14 +152,14 @@ func (m *MongoDB) GetBackupSpec() *Backup {
 	return m.Spec.Backup
 }
 
-func (m *MongoDB) GetBackupEnableDelayStartTimestamp() string {
+func (m *MongoDB) GetEnableDelayStartTimestampStatus() string {
 	if m.Status.BackupStatus == nil {
 		return ""
 	}
 	return m.Status.BackupStatus.EnableDelayStartTimestamp
 }
 
-func (m *MongoDB) SetBackupEnableDelayStartTimestamp(ts string) {
+func (m *MongoDB) SetEnableDelayStartTimestampStatus(ts string) {
 	if m.Status.BackupStatus == nil {
 		m.Status.BackupStatus = &BackupStatus{}
 	}
@@ -385,7 +385,7 @@ type MongoDbStatus struct {
 type BackupMode string
 
 type BackupStatus struct {
-	StatusName              string `json:"statusName"`
+	StatusName                string `json:"statusName"`
 	EnableDelayStartTimestamp string `json:"enableDelayStartTimestamp,omitempty"`
 }
 

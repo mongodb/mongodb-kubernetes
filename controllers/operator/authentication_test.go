@@ -65,7 +65,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 	ctx := context.Background()
 	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
-	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil)
+	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil, testBackupEnableDelay)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
@@ -76,7 +76,7 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 	ctx := context.Background()
 	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
-	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil)
+	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil, testBackupEnableDelay)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
@@ -333,7 +333,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 		EnableX509InternalClusterAuth().
 		Build()
 
-	r, _, kubeClient, omConnectionFactory, _ := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil)
+	r, _, kubeClient, omConnectionFactory, _ := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay)
 	addKubernetesTlsResources(ctx, r.client, sc)
 	checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
 

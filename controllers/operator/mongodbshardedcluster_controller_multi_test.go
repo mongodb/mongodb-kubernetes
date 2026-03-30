@@ -44,8 +44,8 @@ import (
 )
 
 func newShardedClusterReconcilerForMultiCluster(ctx context.Context, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
+	r := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), testBackupEnableDelay)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1524,7 +1524,7 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	globalMemberClustersMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusterNames, omConnectionFactory, true, false)
 
 	ctx := context.Background()
-	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
+	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
 
 	allHostnames := generateHostsForCluster(ctx, reconciler, false, sc, mongosDistribution, configSrvDistribution, shardDistribution)
 	allHostnames1 := generateHostsForCluster(ctx, reconciler, false, sc1, mongosDistribution, configSrvDistribution, shardDistribution)
@@ -2685,7 +2685,7 @@ func reconcileUntilSuccessful(ctx context.Context, t *testing.T, reconciler reco
 }
 
 func generateHostsForCluster(ctx context.Context, reconciler *ReconcileMongoDbShardedCluster, forceEnterprise bool, sc *mdbv1.MongoDB, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) []string {
-	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zap.S())
+	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zap.S(), testBackupEnableDelay)
 	allHostnames, _ := generateAllHosts(sc, mongosDistribution, reconcileHelper.deploymentState.ClusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 	return allHostnames
 }
@@ -2876,7 +2876,7 @@ func TestComputeMembersToScaleDown(t *testing.T) {
 			_, omConnectionFactory := mock.NewDefaultFakeClient(targetSpec)
 			memberClusterMap := getFakeMultiClusterMapWithClusters(memberClusterNames, omConnectionFactory)
 
-			_, reconcileHelper, _, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", targetSpec, memberClusterMap)
+			_, reconcileHelper, _, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", targetSpec, memberClusterMap, testBackupEnableDelay)
 			assert.NoError(t, err)
 
 			membersToScaleDown := reconcileHelper.computeMembersToScaleDown(tc.cfgServerCurrentClusters, tc.shardsCurrentClusters, zap.S())

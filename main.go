@@ -134,6 +134,7 @@ func main() {
 	initDatabaseNonStaticImageVersion := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
 	databaseNonStaticImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
 	initOpsManagerImageVersion := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
+	backupEnableDelay := time.Duration(env.ReadIntOrPanic(util.BackupStartDelaySecondsEnv)) * time.Second
 	// Namespace where the operator is installed
 	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
 	webhookSVCSelector := env.ReadOrPanic(util.OperatorNameEnv)
@@ -260,7 +261,7 @@ func main() {
 
 	// Setup all Controllers
 	if slices.Contains(crds, mongoDBCRDPlural) {
-		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap, backupEnableDelay); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -363,14 +364,14 @@ func shutdownTracerProvider(signalCtx context.Context, tp *sdktrace.TracerProvid
 	}
 }
 
-func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration) error {
 	if err := operator.AddStandaloneController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage); err != nil {
 		return err
 	}
 	if err := operator.AddReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage); err != nil {
 		return err
 	}
-	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap); err != nil {
+	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, memberClusterObjectsMap, backupEnableDelay); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).
@@ -409,7 +410,7 @@ func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
 }
 
 func setupCommunityController(
-	ctx context.Context,
+	_ context.Context,
 	mgr manager.Manager,
 	mongodbRepoURL string,
 	mongodbImage string,
@@ -602,6 +603,7 @@ func initEnvVariables() {
 
 	env.EnsureVar(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
 	env.EnsureVar(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
+	env.EnsureVar(util.BackupStartDelaySecondsEnv, strconv.Itoa(util.DefaultBackupStartDelaySeconds))
 	env.EnsureVar(util.OpsManagerMonitorAppDB, strconv.FormatBool(util.OpsManagerMonitorAppDBDefault))
 }
 

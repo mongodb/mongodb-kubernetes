@@ -98,14 +98,14 @@ func (m *MongoDBMultiCluster) GetBackupSpec() *mdbv1.Backup {
 	return m.Spec.Backup
 }
 
-func (m *MongoDBMultiCluster) GetBackupEnableDelayStartTimestamp() string {
+func (m *MongoDBMultiCluster) GetEnableDelayStartTimestampStatus() string {
 	if m.Status.BackupStatus == nil {
 		return ""
 	}
 	return m.Status.BackupStatus.EnableDelayStartTimestamp
 }
 
-func (m *MongoDBMultiCluster) SetBackupEnableDelayStartTimestamp(ts string) {
+func (m *MongoDBMultiCluster) SetEnableDelayStartTimestampStatus(ts string) {
 	if m.Status.BackupStatus == nil {
 		m.Status.BackupStatus = &mdbv1.BackupStatus{}
 	}

@@ -18,21 +18,25 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
+
+// BackupStatusReadWriter provides read/write access to backup-specific status fields.
+type BackupStatusReadWriter interface {
+	GetEnableDelayStartTimestampStatus() string
+	SetEnableDelayStartTimestampStatus(string)
+}
 
 type ConfigReaderUpdater interface {
 	GetBackupSpec() *mdbv1.Backup
 	GetResourceType() mdbv1.ResourceType
 	GetResourceName() string
-	GetBackupEnableDelayStartTimestamp() string
-	SetBackupEnableDelayStartTimestamp(string)
+	BackupStatusReadWriter
 	v1.CustomResourceReadWriter
 }
 
 // EnsureBackupConfigurationInOpsManager updates the backup configuration based on the MongoDB resource
 // specification.
-func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger) (workflow.Status, []status.Option) {
+func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger, backupEnableDelay time.Duration) (workflow.Status, []status.Option) {
 	if mdb.GetBackupSpec() == nil {
 		return workflow.OK(), nil
 	}
@@ -55,7 +59,7 @@ func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReader
 		return workflow.Failed(err), nil
 	}
 
-	return ensureBackupConfigStatuses(ctx, mdb, projectConfigs, desiredConfig, log, configReadUpdater)
+	return ensureBackupConfigStatuses(mdb, projectConfigs, desiredConfig, log, configReadUpdater, backupEnableDelay)
 }
 
 func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, reader GroupConfigReader, updater GroupConfigUpdater) error {
@@ -111,7 +115,7 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 
 // ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.
 // See CLOUDP-389867.
-func ensureBackupConfigStatuses(_ context.Context, mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater) (workflow.Status, []status.Option) {
+func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater, backupEnableDelay time.Duration) (workflow.Status, []status.Option) {
 	for _, config := range projectConfigs {
 		var result workflow.Status = workflow.OK()
 
@@ -182,12 +186,13 @@ func ensureBackupConfigStatuses(_ context.Context, mdb ConfigReaderUpdater, proj
 		}
 
 		if desiredConfig.Status == Started && (config.Status == Inactive || config.Status == Stopped) && isShardedCluster {
-			timestampStr := mdb.GetBackupEnableDelayStartTimestamp()
+			timestampStr := mdb.GetEnableDelayStartTimestampStatus()
 			if timestampStr == "" {
-				remaining := remainingBackupEnableDelay(time.Now())
+				now := time.Now().UTC()
+				remaining := remainingBackupEnableDelay(now, backupEnableDelay)
 				if remaining > 0 {
-					now := time.Now().UTC().Format(time.RFC3339)
-					mdb.SetBackupEnableDelayStartTimestamp(now)
+					startTimestamp := now.Format(time.RFC3339)
+					mdb.SetEnableDelayStartTimestampStatus(startTimestamp)
 					log.Debugf("Backup enable delay started, will proceed after %s", remaining.Round(time.Second))
 					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), nil
 				}
@@ -196,12 +201,12 @@ func ensureBackupConfigStatuses(_ context.Context, mdb ConfigReaderUpdater, proj
 				if err != nil {
 					return workflow.Failed(xerrors.Errorf("failed to parse backup enable delay timestamp %q: %w", timestampStr, err)), nil
 				}
-				if remaining := remainingBackupEnableDelay(startTime); remaining > 0 {
+				if remaining := remainingBackupEnableDelay(startTime, backupEnableDelay); remaining > 0 {
 					log.Debugf("Backup enable delay: %s remaining", remaining.Round(time.Second))
 					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), nil
 				}
 				log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
-				mdb.SetBackupEnableDelayStartTimestamp("")
+				mdb.SetEnableDelayStartTimestampStatus("")
 			}
 		}
 
@@ -239,10 +244,8 @@ func ensureBackupConfigStatuses(_ context.Context, mdb ConfigReaderUpdater, proj
 	return workflow.OK(), nil
 }
 
-func remainingBackupEnableDelay(startTime time.Time) time.Duration {
-	delaySeconds := env.ReadIntOrDefault(util.BackupStartDelaySecondsEnv, util.DefaultBackupStartDelaySeconds)
-	deadline := startTime.Add(time.Duration(delaySeconds) * time.Second)
-	return max(time.Until(deadline), 0)
+func remainingBackupEnableDelay(startTime time.Time, delay time.Duration) time.Duration {
+	return max(time.Until(startTime.Add(delay)), 0)
 }
 
 func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {

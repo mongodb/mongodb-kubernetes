@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"time"
 
 	"github.com/blang/semver"
 	"github.com/hashicorp/go-multierror"
@@ -425,9 +426,9 @@ func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
 	return nil
 }
 
-// ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec.
-func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(ctx context.Context, conn om.Connection, mdb backup.ConfigReaderUpdater, secretsReader secrets.SecretClient, log *zap.SugaredLogger) workflow.Status {
-	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(ctx, mdb, secretsReader, conn.GroupID(), conn, conn, conn, log)
+// ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec
+func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(ctx context.Context, conn om.Connection, mdb backup.ConfigReaderUpdater, secretsReader secrets.SecretClient, log *zap.SugaredLogger, backupEnableDelay time.Duration) workflow.Status {
+	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(ctx, mdb, secretsReader, conn.GroupID(), conn, conn, conn, log, backupEnableDelay)
 	if len(opts) > 0 {
 		if _, err := r.updateStatus(ctx, mdb, statusOpt, log, opts...); err != nil {
 			return workflow.Failed(err)
