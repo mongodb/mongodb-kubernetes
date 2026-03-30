@@ -7,12 +7,12 @@ mdb_script=$(cat <<'MONGOSH'
 use sample_mflix;
 
 const sample = db.embedded_movies.findOne(
-  { plot_embedding: { $exists: true } },
-  { plot_embedding: 1, title: 1 }
+  { plot_embedding_voyage_3_large: { $exists: true } },
+  { plot_embedding_voyage_3_large: 1, title: 1 }
 );
 
-if (!sample || !sample.plot_embedding) {
-  print("Warning: No documents with plot_embedding found.");
+if (!sample || !sample.plot_embedding_voyage_3_large) {
+  print("Warning: No documents with plot_embedding_voyage_3_large found.");
   quit(0);
 }
 
@@ -20,8 +20,8 @@ db.embedded_movies.aggregate([
   {
     $vectorSearch: {
       index: "vector_index",
-      path: "plot_embedding",
-      queryVector: sample.plot_embedding,
+      path: "plot_embedding_voyage_3_large",
+      queryVector: sample.plot_embedding_voyage_3_large,
       numCandidates: 50,
       limit: 5
     }

@@ -1,5 +1,4 @@
-echo "Executing text search query" \
-  "for 'drama adventure'..."
+echo "Executing text search query..."
 echo ""
 
 user_conn="${MDB_USER_CONNECTION_STRING:-${MDB_CONNECTION_STRING}}"
@@ -9,23 +8,37 @@ use sample_mflix;
 db.movies.aggregate([
   {
     $search: {
-      index: "default",
-      text: {
-        query: "drama adventure",
-        path: { wildcard: "*" }
+      "compound": {
+        "must": [ {
+          "text": {
+            "query": "baseball",
+            "path": "plot"
+          }
+        }],
+        "mustNot": [ {
+          "text": {
+            "query": ["Comedy", "Romance"],
+            "path": "genres"
+          }
+        } ]
+      },
+      "sort": {
+        "released": -1
       }
     }
   },
   {
-    $project: {
-      _id: 0,
-      title: 1,
-      year: 1,
-      plot: 1,
-      score: { $meta: "searchScore" }
-    }
+    $limit: 3
   },
-  { $limit: 5 }
+  {
+    $project: {
+      "_id": 0,
+      "title": 1,
+      "plot": 1,
+      "genres": 1,
+      "released": 1
+    }
+  }
 ]);
 MONGOSH
 )
