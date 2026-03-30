@@ -56,8 +56,8 @@ import (
 )
 
 const (
-	testBackupEnableDelay      = 3 * time.Second
-	testNoBackupEnableDelay    = -1 * time.Second
+	testBackupEnableDelay   = 3 * time.Second
+	testNoBackupEnableDelay = -1 * time.Second
 )
 
 func TestChangingFCVShardedCluster(t *testing.T) {

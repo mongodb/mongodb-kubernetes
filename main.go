@@ -271,7 +271,7 @@ func main() {
 		}
 	}
 	if slices.Contains(crds, mongoDBUserCRDPlural) {
-		if err := setupMongoDBUserCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBUserCRD(ctx, mgr, memberClusterObjectsMap, backupEnableDelay); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -388,8 +388,8 @@ func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberC
 		Complete()
 }
 
-func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
-	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap)
+func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration) error {
+	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap, backupEnableDelay)
 }
 
 func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {

@@ -635,9 +635,10 @@ func NewReadOnlyClusterReconcilerHelper(
 	sc *mdbv1.MongoDB,
 	globalMemberClustersMap map[string]client.Client,
 	log *zap.SugaredLogger,
+	backupEnableDelay time.Duration,
 ) (*ShardedClusterReconcileHelper, error) {
 	return newShardedClusterReconcilerHelper(ctx, reconciler, nil, "", "", false, false, false, "",
-		sc, globalMemberClustersMap, nil, log, true, 0)
+		sc, globalMemberClustersMap, nil, log, true, backupEnableDelay)
 }
 
 func NewShardedClusterReconcilerHelper(
