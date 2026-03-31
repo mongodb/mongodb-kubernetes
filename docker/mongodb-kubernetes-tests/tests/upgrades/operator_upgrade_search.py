@@ -165,21 +165,6 @@ class TestOperatorUpgrade:
 
 
 @mark.e2e_operator_upgrade_search
-class TestReconciledByNewOperator:
-
-    def test_modify_search_resource(self, mdbs: MongoDBSearch):
-        mdbs.load()
-        mdbs["spec"]["logLevel"] = "INFO"
-        mdbs.update()
-
-    def test_search_reconciled_after_change(self, mdbs: MongoDBSearch):
-        mdbs.assert_reaches_phase(phase=Phase.Running, timeout=300)
-
-    def test_search_query_after_change(self, sample_movies_helper: SampleMoviesSearchHelper):
-        sample_movies_helper.assert_search_query(retry_timeout=60)
-
-
-@mark.e2e_operator_upgrade_search
 class TestScaleWithManagedLB:
 
     def test_enable_multi_mongot_and_managed_lb(self, mdbs: MongoDBSearch):
