@@ -78,7 +78,7 @@ go.opentelemetry.io/proto/otlp,v1.9.0,https://github.com/open-telemetry/opentele
 go.uber.org/multierr,v1.11.0,https://github.com/uber-go/multierr/blob/v1.11.0/LICENSE.txt,MIT
 go.uber.org/zap,v1.27.1,https://github.com/uber-go/zap/blob/v1.27.1/LICENSE,MIT
 go.yaml.in/yaml/v2,v2.4.2,https://github.com/yaml/go-yaml/blob/v2.4.2/LICENSE,Apache-2.0
-gomodules.xyz/jsonpatch/v2,v2.4.0,Unknown,Apache-2.0
+gomodules.xyz/jsonpatch/v2,v2.4.0,https://github.com/gomodules/jsonpatch/blob/v2.4.0/v2/LICENSE,Apache-2.0
 google.golang.org/genproto/googleapis/api,v0.0.0-20260209200024-4cfbd4190f57,https://github.com/googleapis/go-genproto/blob/4cfbd4190f57/googleapis/api/LICENSE,Apache-2.0
 google.golang.org/genproto/googleapis/rpc,v0.0.0-20260209200024-4cfbd4190f57,https://github.com/googleapis/go-genproto/blob/4cfbd4190f57/googleapis/rpc/LICENSE,Apache-2.0
 google.golang.org/grpc,v1.79.3,https://github.com/grpc/grpc-go/blob/v1.79.3/LICENSE,Apache-2.0
