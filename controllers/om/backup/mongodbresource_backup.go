@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,8 +23,8 @@ import (
 
 // BackupStatusReadWriter provides read/write access to backup-specific status fields.
 type BackupStatusReadWriter interface {
-	GetEnableDelayStartTimestampStatus() string
-	SetEnableDelayStartTimestampStatus(string)
+	GetEnableDelayStartTimestampStatus() *metav1.Time
+	SetEnableDelayStartTimestampStatus(*metav1.Time)
 }
 
 type ConfigReaderUpdater interface {
@@ -144,6 +145,11 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 			continue
 		}
 
+		// If backup is not being enabled for a sharded cluster, clear any pending delay timestamp immediately.
+		if isShardedCluster && desiredConfig.Status != Started {
+			mdb.SetEnableDelayStartTimestampStatus(nil)
+		}
+
 		// config.Status        = current backup status in OM
 		// desiredConfig.Status = spec.backup.mode from CR, mapped as:
 		//  status in CR | status in OM
@@ -182,31 +188,15 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 			// we are already in the desired state, nothing to change
 			// if we attempt to send the desired state again we get
 			// CANNOT_START_BACKUP_INVALID_STATE: Cannot start backup unless the cluster is in the INACTIVE or STOPPED state.
+			if isShardedCluster {
+				mdb.SetEnableDelayStartTimestampStatus(nil)
+			}
 			continue
 		}
 
-		if desiredConfig.Status == Started && (config.Status == Inactive || config.Status == Stopped) && isShardedCluster {
-			timestampStr := mdb.GetEnableDelayStartTimestampStatus()
-			if timestampStr == "" {
-				now := time.Now().UTC()
-				remaining := remainingBackupEnableDelay(now, backupEnableDelay)
-				if remaining > 0 {
-					startTimestamp := now.Format(time.RFC3339)
-					mdb.SetEnableDelayStartTimestampStatus(startTimestamp)
-					log.Debugf("Backup enable delay started, will proceed after %s", remaining.Round(time.Second))
-					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), nil
-				}
-			} else {
-				startTime, err := time.Parse(time.RFC3339, timestampStr)
-				if err != nil {
-					return workflow.Failed(xerrors.Errorf("failed to parse backup enable delay timestamp %q: %w", timestampStr, err)), nil
-				}
-				if remaining := remainingBackupEnableDelay(startTime, backupEnableDelay); remaining > 0 {
-					log.Debugf("Backup enable delay: %s remaining", remaining.Round(time.Second))
-					return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), nil
-				}
-				log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
-				mdb.SetEnableDelayStartTimestampStatus("")
+		if isShardedCluster {
+			if s, stop := applyShardedClusterBackupEnableDelay(mdb, desiredConfig.Status, config.Status, backupEnableDelay, log); stop {
+				return s, nil
 			}
 		}
 
@@ -227,6 +217,7 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 		}
 
 		log.Debugf("Backup has reached the desired state of %s", desiredConfig.Status)
+		mdb.SetEnableDelayStartTimestampStatus(nil)
 
 		// second run for cases when backup was inactive (see comment above)
 		if err := updateSnapshotSchedule(mdb.GetBackupSpec().SnapshotSchedule, configReadUpdater, desiredConfig, log); err != nil {
@@ -242,6 +233,34 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 	}
 
 	return workflow.OK(), nil
+}
+
+// applyShardedClusterBackupEnableDelay enforces the backup enable delay for sharded clusters.
+// It returns (status, true) if the caller should return early (delay still pending),
+// or (zero, false) if the caller should proceed with the backup configuration update.
+func applyShardedClusterBackupEnableDelay(mdb BackupStatusReadWriter, desiredStatus, currentStatus Status, backupEnableDelay time.Duration, log *zap.SugaredLogger) (workflow.Status, bool) {
+	if desiredStatus == Started && (currentStatus == Inactive || currentStatus == Stopped) {
+		startTimestamp := mdb.GetEnableDelayStartTimestampStatus()
+		if startTimestamp == nil {
+			now := metav1.NewTime(time.Now().UTC())
+			remaining := remainingBackupEnableDelay(now.Time, backupEnableDelay)
+			if remaining > 0 {
+				mdb.SetEnableDelayStartTimestampStatus(&now)
+				return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), true
+			}
+		} else {
+			if remaining := remainingBackupEnableDelay(startTimestamp.Time, backupEnableDelay); remaining > 0 {
+				return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), true
+			}
+			log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
+		}
+	} else if desiredStatus != Started {
+		// Backup is being disabled/terminated — clear any pending delay timestamp.
+		// We only clear when not attempting to start, to avoid resetting the timer
+		// if OM is transiently in a state like Terminating while we want Started.
+		mdb.SetEnableDelayStartTimestampStatus(nil)
+	}
+	return workflow.OK(), false
 }
 
 func remainingBackupEnableDelay(startTime time.Time, delay time.Duration) time.Duration {

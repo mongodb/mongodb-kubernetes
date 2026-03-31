@@ -1012,8 +1012,6 @@ spec:
             properties:
               backup:
                 properties:
-                  enableDelayStartTimestamp:
-                    type: string
                   statusName:
                     type: string
                 required:

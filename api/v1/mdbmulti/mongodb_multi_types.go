@@ -98,18 +98,15 @@ func (m *MongoDBMultiCluster) GetBackupSpec() *mdbv1.Backup {
 	return m.Spec.Backup
 }
 
-func (m *MongoDBMultiCluster) GetEnableDelayStartTimestampStatus() string {
-	if m.Status.BackupStatus == nil {
-		return ""
-	}
-	return m.Status.BackupStatus.EnableDelayStartTimestamp
+// GetEnableDelayStartTimestampStatus is a no-op: MongoDBMultiCluster is always a ReplicaSet,
+// so the sharded cluster backup enable delay never applies.
+func (m *MongoDBMultiCluster) GetEnableDelayStartTimestampStatus() *metav1.Time {
+	return nil
 }
 
-func (m *MongoDBMultiCluster) SetEnableDelayStartTimestampStatus(ts string) {
-	if m.Status.BackupStatus == nil {
-		m.Status.BackupStatus = &mdbv1.BackupStatus{}
-	}
-	m.Status.BackupStatus.EnableDelayStartTimestamp = ts
+// SetEnableDelayStartTimestampStatus is a no-op: MongoDBMultiCluster is always a ReplicaSet,
+// so the sharded cluster backup enable delay never applies.
+func (m *MongoDBMultiCluster) SetEnableDelayStartTimestampStatus(_ *metav1.Time) {
 }
 
 func (m *MongoDBMultiCluster) GetResourceType() mdbv1.ResourceType {

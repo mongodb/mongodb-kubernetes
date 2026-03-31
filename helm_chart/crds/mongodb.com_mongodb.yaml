@@ -2642,8 +2642,6 @@ spec:
             properties:
               backup:
                 properties:
-                  enableDelayStartTimestamp:
-                    type: string
                   statusName:
                     type: string
                 required:
@@ -2652,6 +2650,12 @@ spec:
               configServerCount:
                 type: integer
               featureCompatibilityVersion:
+                type: string
+              internalEnableBackupRequestedAt:
+                description: |-
+                  InternalEnableBackupRequestedAt records the time when backup enablement was first requested
+                  for a sharded cluster, used to enforce a startup delay. Internal operator use only.
+                format: date-time
                 type: string
               lastTransition:
                 type: string
