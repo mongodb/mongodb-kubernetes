@@ -3,6 +3,6 @@
 set -Eeou pipefail
 
 # Temporary development images built from mongot master
-export MDB_SEARCH_VERSION="a67221f4db" # built after x509 authn support
+export MDB_SEARCH_VERSION="1.64.0-66-g7b0f85e89c" # built after x509 authn support
 export MDB_SEARCH_NAME="staging/mongodb-search"
 export MDB_SEARCH_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com"
