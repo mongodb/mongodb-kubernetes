@@ -26,7 +26,7 @@
 #export MDB_NS="mongodb"
 
 # MongoDB version (used for tools pod image)
-#export MDB_VERSION="8.2.X-ent"
+#export MDB_VERSION="8.2.0-ent"
 
 # admin user connection string (for import and sharding commands)
 #export MDB_ADMIN_CONNECTION_STRING="mongodb://mdb-admin:PASSWORD@HOST/?tls=true&tlsCAFile=/tls/ca-pem&authSource=admin&authMechanism=SCRAM-SHA-256"
