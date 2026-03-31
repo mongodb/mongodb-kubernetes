@@ -272,16 +272,16 @@ func TestShardedExternalSearchSource_HostSeeds(t *testing.T) {
 	}
 }
 
-func TestShardedExternalSearchSource_MongosHostAndPort(t *testing.T) {
+func TestShardedExternalSearchSource_MongosHostsAndPorts(t *testing.T) {
 	cases := []struct {
 		name     string
 		spec     *searchv1.ExternalMongoDBSource
-		expected string
+		expected []string
 	}{
 		{
 			name:     "Nil sharded config",
 			spec:     &searchv1.ExternalMongoDBSource{},
-			expected: "",
+			expected: nil,
 		},
 		{
 			name: "Single router host",
@@ -290,16 +290,16 @@ func TestShardedExternalSearchSource_MongosHostAndPort(t *testing.T) {
 					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
 				}),
 			},
-			expected: "mongos.example.com:27017",
+			expected: []string{"mongos.example.com:27017"},
 		},
 		{
-			name: "Multiple router hosts returns first",
+			name: "Multiple router hosts returns all",
 			spec: &searchv1.ExternalMongoDBSource{
 				ShardedCluster: newExternalShardedConfig([]string{"mongos1.example.com:27017", "mongos2.example.com:27017"}, []searchv1.ExternalShardConfig{
 					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
 				}),
 			},
-			expected: "mongos1.example.com:27017",
+			expected: []string{"mongos1.example.com:27017", "mongos2.example.com:27017"},
 		},
 		{
 			name: "Empty router hosts",
@@ -308,14 +308,14 @@ func TestShardedExternalSearchSource_MongosHostAndPort(t *testing.T) {
 					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
 				}),
 			},
-			expected: "",
+			expected: nil,
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			src := newShardedExternalSearchSource(c.spec)
-			assert.Equal(t, c.expected, src.MongosHostAndPort())
+			assert.Equal(t, c.expected, src.MongosHostsAndPorts())
 		})
 	}
 }

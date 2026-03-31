@@ -1092,8 +1092,8 @@ func (m *mockShardedSource) GetUnmanagedLBEndpointForShard(shardName string) str
 	return ""
 }
 
-func (m *mockShardedSource) MongosHostAndPort() string {
-	return "mongos-svc.test-ns.svc.cluster.local:27017"
+func (m *mockShardedSource) MongosHostsAndPorts() []string {
+	return []string{"mongos-svc.test-ns.svc.cluster.local:27017"}
 }
 
 // Implement SearchSourceDBResource interface
@@ -2087,7 +2087,7 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 				AuthSource:   ptr.To("admin"),
 			},
 			Router: &mongot.ConfigRouter{
-				HostAndPort:  "mongos-svc:27017",
+				HostAndPort:  []string{"mongos-svc:27017"},
 				Username:     "search-sync-source",
 				PasswordFile: TempSourceUserPasswordPath,
 			},

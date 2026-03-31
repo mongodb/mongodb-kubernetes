@@ -118,11 +118,11 @@ func (r *ShardedExternalSearchSource) HostSeeds(shardName string) ([]string, err
 	return r.spec.ShardedCluster.Shards[shardIndex].Hosts, nil
 }
 
-func (r *ShardedExternalSearchSource) MongosHostAndPort() string {
+func (r *ShardedExternalSearchSource) MongosHostsAndPorts() []string {
 	if r.spec.ShardedCluster == nil || len(r.spec.ShardedCluster.Router.Hosts) == 0 {
-		return ""
+		return nil
 	}
-	return r.spec.ShardedCluster.Router.Hosts[0]
+	return r.spec.ShardedCluster.Router.Hosts
 }
 
 // GetUnmanagedLBEndpointForShard returns an empty string for external sharded sources
