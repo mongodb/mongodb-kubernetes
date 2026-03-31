@@ -44,7 +44,7 @@ func ValidateMigration(ac *om.AutomationConfig, projectAgentConfigs *ProjectAgen
 	var results []ValidationResult
 
 	processMap := ac.Deployment.ProcessMap()
-	results = append(results, validateAuth(ac.Auth)...)
+	results = append(results, validateAgentAuth(ac.Auth)...)
 	results = append(results, validateTLS(ac.AgentSSL)...)
 	results = append(results, validateAgentConfig(projectAgentConfigs)...)
 	results = append(results, validateLDAP(ac.Ldap)...)
@@ -54,7 +54,16 @@ func ValidateMigration(ac *om.AutomationConfig, projectAgentConfigs *ProjectAgen
 	return results
 }
 
-// validateAuth checks auth-level fields (keyFile, keyFileWindows, autoUser)
+// validateAgentAuth groups all agent authentication validations.
+func validateAgentAuth(auth *om.Auth) []ValidationResult {
+	var results []ValidationResult
+	results = append(results, validateAuth(auth)...)
+	results = append(results, validateScram(auth)...)
+	results = append(results, validateX509(auth)...)
+	return results
+}
+
+// validateAuth checks generic auth fields (autoUser, keyFile, keyFileWindows)
 // against operator-hardcoded defaults.
 func validateAuth(auth *om.Auth) []ValidationResult {
 	if auth == nil || auth.Disabled {
@@ -68,20 +77,7 @@ func validateAuth(auth *om.Auth) []ValidationResult {
 			Severity: SeverityError,
 			Message:  "auth.autoUser is empty. The operator requires an automation agent user when authentication is enabled.",
 		})
-	} else if auth.AutoAuthMechanism != "MONGODB-X509" {
-		// X509 agents authenticate with their certificate subject DN,
-		// not a database user in usersWanted.
-		hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
-			return u != nil && u.Username == auth.AutoUser && u.Database == util.DefaultUserDatabase
-		})
-		if !hasMatchingUser {
-			results = append(results, ValidationResult{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("auth.autoUser %q has no matching entry in auth.usersWanted (database: %q). Agent authentication will fail after migration.", auth.AutoUser, util.DefaultUserDatabase),
-			})
-		}
 	}
-
 	if auth.KeyFile != "" && auth.KeyFile != defaultKeyFile {
 		results = append(results, ValidationResult{
 			Severity: SeverityError,
@@ -98,8 +94,32 @@ func validateAuth(auth *om.Auth) []ValidationResult {
 	return results
 }
 
+// validateScram checks that autoUser has a matching entry in usersWanted for
+// SCRAM-based mechanisms. X509 and LDAP agents authenticate without a database user.
+func validateScram(auth *om.Auth) []ValidationResult {
+	if auth == nil || auth.Disabled || auth.AutoUser == "" {
+		return nil
+	}
+	switch auth.AutoAuthMechanism {
+	case "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-CR":
+	default:
+		return nil
+	}
+	hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
+		return u != nil && u.Username == auth.AutoUser && u.Database == util.DefaultUserDatabase
+	})
+	if !hasMatchingUser {
+		return []ValidationResult{{
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("auth.autoUser %q has no matching entry in auth.usersWanted (database: %q). Agent authentication will fail after migration.", auth.AutoUser, util.DefaultUserDatabase),
+		}}
+	}
+	return nil
+}
+
 // validateTLS checks project-level TLS paths (autoPEMKeyFilePath, CAFilePath)
-// against operator-managed defaults.
+// against operator-managed defaults, and warns that TLS certificate Secrets
+// must be pre-created in Kubernetes before applying the Custom Resource.
 func validateTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL == nil {
 		return nil
@@ -119,8 +139,30 @@ func validateTLS(agentSSL *om.AgentSSL) []ValidationResult {
 			Message:  fmt.Sprintf("tls.CAFilePath %q differs from the operator default %q and will be overwritten.", agentSSL.CAFilePath, defaultCAFilePath),
 		})
 	}
+	if agentSSL.CAFilePath != "" {
+		results = append(results, ValidationResult{
+			Severity: SeverityWarning,
+			Message:  "TLS is enabled. Create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource.",
+		})
+	}
 
 	return results
+}
+
+// validateX509 warns when MONGODB-X509 agent authentication is configured that
+// the agent certificate Secret must be pre-created in Kubernetes,
+// since X509 agents authenticate via their certificate subject DN rather than a database user.
+func validateX509(auth *om.Auth) []ValidationResult {
+	if auth == nil || auth.Disabled {
+		return nil
+	}
+	if auth.AutoAuthMechanism != "MONGODB-X509" {
+		return nil
+	}
+	return []ValidationResult{{
+		Severity: SeverityWarning,
+		Message:  "MONGODB-X509 agent authentication is configured. Create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-agent-certs\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource.",
+	}}
 }
 
 // validateAgentConfig checks monitoring and backup agent log paths against

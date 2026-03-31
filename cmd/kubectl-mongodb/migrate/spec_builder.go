@@ -28,7 +28,7 @@ func IsAutomationConfigTLSEnabled(ac *om.AutomationConfig) (bool, error) {
 	}
 	processMap := ac.Deployment.ProcessMap()
 	members := replicaSets[0].Members()
-	return isTLSEnabledForAnyMember(processMap, members)
+	return isTLSEnabled(processMap, members)
 }
 
 // buildSecurity assembles the top-level spec.security block by inspecting
@@ -46,7 +46,7 @@ func buildSecurity(
 	security := &mdbv1.Security{}
 	hasSettings := false
 
-	tlsEnabled, err := isTLSEnabledForAnyMember(processMap, members)
+	tlsEnabled, err := isTLSEnabled(processMap, members)
 	if err != nil {
 		return nil, err
 	}
@@ -186,36 +186,27 @@ func mapClusterAuthMode(mode string) (string, error) {
 	}
 }
 
-// isTLSEnabledForAnyMember returns true if at least one replica set member
-// has a non-disabled TLS mode in its process args2_6.
-func isTLSEnabledForAnyMember(processMap map[string]om.Process, members []om.ReplicaSetMember) (bool, error) {
+// isTLSEnabled returns true if at least one replica set member has TLS enabled.
+func isTLSEnabled(processMap map[string]om.Process, members []om.ReplicaSetMember) (bool, error) {
 	for i, m := range members {
 		host := m.Name()
 		proc, ok := processMap[host]
 		if !ok {
 			return false, fmt.Errorf("process %q referenced by member at index %d was not found", host, i)
 		}
-		if isTLSEnabled(proc) {
+		args := proc.Args()
+		if len(args) == 0 {
+			continue
+		}
+		// GetTLSModeFromMongodConfig defaults to Require when no mode is set,
+		// but that only applies when TLS is already known to be enabled.
+		// Here we need to detect presence: if args2_6 has no net.tls/ssl section
+		// at all, TLS is not configured.
+		if hasTLSSection(args) && pkgtls.GetTLSModeFromMongodConfig(args) != pkgtls.Disabled {
 			return true, nil
 		}
 	}
 	return false, nil
-}
-
-// isTLSEnabled returns true if the process has an explicit non-disabled TLS mode.
-func isTLSEnabled(process om.Process) bool {
-	args := process.Args()
-	if len(args) == 0 {
-		return false
-	}
-	// GetTLSModeFromMongodConfig defaults to Require when no mode is set,
-	// but that only applies when TLS is already known to be enabled.
-	// Here we need to detect presence: if args2_6 has no net.tls/ssl section
-	// at all, TLS is not configured.
-	if !hasTLSSection(args) {
-		return false
-	}
-	return pkgtls.GetTLSModeFromMongodConfig(args) != pkgtls.Disabled
 }
 
 func hasTLSSection(args map[string]interface{}) bool {
@@ -335,8 +326,6 @@ func extractAdditionalMongodConfig(processMap map[string]om.Process, members []o
 	return config, nil
 }
 
-// populateConfigFromMap recursively walks a nested map and calls AddOption
-// for each leaf value, preserving original Go types (no JSON roundtrip).
 func populateConfigFromMap(config *mdbv1.AdditionalMongodConfig, m map[string]interface{}, prefix string) {
 	for k, v := range m {
 		key := k
@@ -351,9 +340,6 @@ func populateConfigFromMap(config *mdbv1.AdditionalMongodConfig, m map[string]in
 	}
 }
 
-// intersectConfigMaps returns a map containing only the keys and values
-// that are identical across all input maps. Nested maps are intersected
-// recursively; a nested key is kept only when all inputs agree on its value.
 func intersectConfigMaps(maps []map[string]interface{}) map[string]interface{} {
 	if len(maps) == 0 {
 		return nil

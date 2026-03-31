@@ -14,10 +14,10 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
@@ -25,7 +25,6 @@ import (
 
 var (
 	omConnectionFactory om.ConnectionFactory = om.NewOpsManagerConnection
-	kubeClientFactory                        = newKubeClient
 )
 
 func prepareConnection(ctx context.Context) (om.Connection, kubernetesClient.Client, error) {
@@ -33,7 +32,7 @@ func prepareConnection(ctx context.Context) (om.Connection, kubernetesClient.Cli
 		return nil, nil, xerrors.Errorf("--config-map-name and --secret-name are required")
 	}
 
-	kubeClient, err := kubeClientFactory()
+	kubeClient, err := newKubeClient()
 	if err != nil {
 		return nil, nil, xerrors.Errorf("error creating Kubernetes client: %w", err)
 	}
@@ -196,12 +195,12 @@ func readProjectConfigs(conn om.Connection) (*ProjectAgentConfigs, *ProjectProce
 		return nil, nil, xerrors.Errorf("error reading audit log rotate config: %w", err)
 	}
 	return &ProjectAgentConfigs{
-		MonitoringConfig: monitoringConfig,
-		BackupConfig:     backupConfig,
-	}, &ProjectProcessConfigs{
-		SystemLogRotate: systemLogRotate,
-		AuditLogRotate:  auditLogRotate,
-	}, nil
+			MonitoringConfig: monitoringConfig,
+			BackupConfig:     backupConfig,
+		}, &ProjectProcessConfigs{
+			SystemLogRotate: systemLogRotate,
+			AuditLogRotate:  auditLogRotate,
+		}, nil
 }
 
 func newKubeClient() (kubernetesClient.Client, error) {

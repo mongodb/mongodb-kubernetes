@@ -159,42 +159,63 @@ func TestIsTLSEnabled_TLSMode(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			process := map[string]interface{}{
-				"args2_6": map[string]interface{}{
-					"net": map[string]interface{}{
-						"tls": map[string]interface{}{
-							"mode": tt.mode,
+			processMap := map[string]om.Process{
+				"host-0": {
+					"args2_6": map[string]interface{}{
+						"net": map[string]interface{}{
+							"tls": map[string]interface{}{
+								"mode": tt.mode,
+							},
 						},
 					},
 				},
 			}
-			assert.Equal(t, tt.enabled, isTLSEnabled(process))
+			members := []om.ReplicaSetMember{{"host": "host-0"}}
+			enabled, err := isTLSEnabled(processMap, members)
+			require.NoError(t, err)
+			assert.Equal(t, tt.enabled, enabled)
 		})
 	}
 }
 
 func TestIsTLSEnabled_SSLMode(t *testing.T) {
-	process := map[string]interface{}{
-		"args2_6": map[string]interface{}{
-			"net": map[string]interface{}{
-				"ssl": map[string]interface{}{
-					"mode": "requireSSL",
+	processMap := map[string]om.Process{
+		"host-0": {
+			"args2_6": map[string]interface{}{
+				"net": map[string]interface{}{
+					"ssl": map[string]interface{}{
+						"mode": "requireSSL",
+					},
 				},
 			},
 		},
 	}
-	assert.True(t, isTLSEnabled(process))
+	members := []om.ReplicaSetMember{{"host": "host-0"}}
+	enabled, err := isTLSEnabled(processMap, members)
+	require.NoError(t, err)
+	assert.True(t, enabled)
 }
 
 func TestIsTLSEnabled_NoArgs(t *testing.T) {
-	assert.False(t, isTLSEnabled(map[string]interface{}{}))
+	processMap := map[string]om.Process{
+		"host-0": {},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}}
+	enabled, err := isTLSEnabled(processMap, members)
+	require.NoError(t, err)
+	assert.False(t, enabled)
 }
 
 func TestIsTLSEnabled_NoNet(t *testing.T) {
-	process := map[string]interface{}{
-		"args2_6": map[string]interface{}{},
+	processMap := map[string]om.Process{
+		"host-0": {
+			"args2_6": map[string]interface{}{},
+		},
 	}
-	assert.False(t, isTLSEnabled(process))
+	members := []om.ReplicaSetMember{{"host": "host-0"}}
+	enabled, err := isTLSEnabled(processMap, members)
+	require.NoError(t, err)
+	assert.False(t, enabled)
 }
 
 func TestBuildSecurity_NilAuth(t *testing.T) {
@@ -300,7 +321,6 @@ func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
 	require.NotNil(t, result.Authentication)
 	assert.Equal(t, "X509", result.Authentication.InternalCluster)
 }
-
 
 func TestBuildSecurity_MissingProcess(t *testing.T) {
 	processMap := map[string]om.Process{}
@@ -410,7 +430,6 @@ func TestExtractAdditionalMongodConfig_NoMembers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, config)
 }
-
 
 func TestExtractAdditionalMongodConfig_MissingProcess(t *testing.T) {
 	processMap := map[string]om.Process{}
@@ -572,7 +591,6 @@ func TestExtractInternalClusterAuthMode_UnsupportedMode(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported clusterAuthMode")
 }
 
-
 func TestExtractInternalClusterAuthMode_MissingProcess(t *testing.T) {
 	processMap := map[string]om.Process{}
 	members := []om.ReplicaSetMember{
@@ -585,12 +603,12 @@ func TestExtractInternalClusterAuthMode_MissingProcess(t *testing.T) {
 
 func TestConvertACLdapToCR(t *testing.T) {
 	l := &ldap.Ldap{
-		Servers:              "ldap.example.com:636",
-		TransportSecurity:    "tls",
-		BindQueryUser:        "cn=admin,dc=example,dc=com",
-		AuthzQueryTemplate:   "{USER}?memberOf?base",
-		UserToDnMapping:      `[{"match":"(.+)","substitution":"cn={0},dc=example,dc=com"}]`,
-		TimeoutMS:            10000,
+		Servers:            "ldap.example.com:636",
+		TransportSecurity:  "tls",
+		BindQueryUser:      "cn=admin,dc=example,dc=com",
+		AuthzQueryTemplate: "{USER}?memberOf?base",
+		UserToDnMapping:    `[{"match":"(.+)","substitution":"cn={0},dc=example,dc=com"}]`,
+		TimeoutMS:          10000,
 	}
 
 	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
@@ -649,23 +667,23 @@ func TestConvertACLdapToCR_NoCaFileContents(t *testing.T) {
 func TestMapACOIDCToProviderConfigs(t *testing.T) {
 	configs := []oidc.ProviderConfig{
 		{
-			AuthNamePrefix:     "WORKFORCE",
-			Audience:           "my-audience",
-			IssuerUri:          "https://issuer.example.com",
-			UserClaim:          "sub",
-			SupportsHumanFlows: true,
+			AuthNamePrefix:        "WORKFORCE",
+			Audience:              "my-audience",
+			IssuerUri:             "https://issuer.example.com",
+			UserClaim:             "sub",
+			SupportsHumanFlows:    true,
 			UseAuthorizationClaim: false,
-			ClientId:           strPtr("client-123"),
-			RequestedScopes:    []string{"openid", "profile"},
+			ClientId:              strPtr("client-123"),
+			RequestedScopes:       []string{"openid", "profile"},
 		},
 		{
-			AuthNamePrefix:     "WORKLOAD",
-			Audience:           "api-audience",
-			IssuerUri:          "https://issuer.example.com",
-			UserClaim:          "sub",
-			SupportsHumanFlows: false,
+			AuthNamePrefix:        "WORKLOAD",
+			Audience:              "api-audience",
+			IssuerUri:             "https://issuer.example.com",
+			UserClaim:             "sub",
+			SupportsHumanFlows:    false,
 			UseAuthorizationClaim: true,
-			GroupsClaim:        strPtr("groups"),
+			GroupsClaim:           strPtr("groups"),
 		},
 	}
 
@@ -1647,10 +1665,10 @@ func TestExtractAdditionalMongodConfig_ThreeMembers_OneDiffers_Excluded(t *testi
 func TestExtractAdditionalMongodConfig_MultiMember_AllFieldsSame_KitchenSink(t *testing.T) {
 	args := map[string]interface{}{
 		"net": map[string]interface{}{
-			"port":                  27018,
+			"port":                   27018,
 			"maxIncomingConnections": 500,
-			"compression":           map[string]interface{}{"compressors": []interface{}{"snappy", "zstd"}},
-			"tls":                   map[string]interface{}{"mode": "preferSSL"},
+			"compression":            map[string]interface{}{"compressors": []interface{}{"snappy", "zstd"}},
+			"tls":                    map[string]interface{}{"mode": "preferSSL"},
 		},
 		"storage": map[string]interface{}{
 			"engine":         "inMemory",
@@ -1699,10 +1717,10 @@ func TestExtractAdditionalMongodConfig_MultiMember_AllFieldsDifferent_AllExclude
 	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{
 			"net": map[string]interface{}{
-				"port":                  27018,
+				"port":                   27018,
 				"maxIncomingConnections": 500,
-				"compression":           map[string]interface{}{"compressors": []interface{}{"snappy"}},
-				"tls":                   map[string]interface{}{"mode": "preferSSL"},
+				"compression":            map[string]interface{}{"compressors": []interface{}{"snappy"}},
+				"tls":                    map[string]interface{}{"mode": "preferSSL"},
 			},
 			"storage": map[string]interface{}{
 				"engine":         "inMemory",
@@ -1720,10 +1738,10 @@ func TestExtractAdditionalMongodConfig_MultiMember_AllFieldsDifferent_AllExclude
 		}},
 		"host-1": {"args2_6": map[string]interface{}{
 			"net": map[string]interface{}{
-				"port":                  27019,
+				"port":                   27019,
 				"maxIncomingConnections": 1000,
-				"compression":           map[string]interface{}{"compressors": []interface{}{"zstd"}},
-				"tls":                   map[string]interface{}{"mode": "allowTLS"},
+				"compression":            map[string]interface{}{"compressors": []interface{}{"zstd"}},
+				"tls":                    map[string]interface{}{"mode": "allowTLS"},
 			},
 			"storage": map[string]interface{}{
 				"directoryPerDB": false,
