@@ -340,44 +340,30 @@ Proceed to [`03-search-query-usage`](../03-search-query-usage/) to import data, 
 
 ## Troubleshooting
 
-### Envoy Pod Not Starting
+### Check Resource Status
 
-**Check:**
-```bash
-kubectl describe deployment ${MDB_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
-kubectl logs -l app=${MDB_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
-```
-
-**Common causes:**
-- TLS certificate secrets not found - ensure certificates are created first
-- ConfigMap not ready - check if `${MDB_RESOURCE_NAME}-search-lb-0-config` exists
-- Image pull issues - check image pull secrets
-
-### Search Index Creation Fails
-
-**Check:**
-```bash
-kubectl get pods -n ${MDB_NS} | grep search
-kubectl logs ${MDB_RESOURCE_NAME}-search-0 -n ${MDB_NS}
-```
-
-**Common causes:**
-- mongot cannot connect to MongoDB (check source credentials)
-- TLS CA mismatch between mongod and mongot
-- mongot pods not ready yet
-
-### MongoDBSearch Stuck in Pending
-
-**Check:**
 ```bash
 kubectl describe mongodbsearch ${MDB_RESOURCE_NAME} -n ${MDB_NS}
 kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_RESOURCE_NAME}
 ```
 
-**Common causes:**
-- Referenced MongoDB CR not in Running phase
-- TLS certificate secrets missing
-- Operator version too old (needs search support)
+Look at the resource phase, conditions, and events for issues like missing secrets, invalid configuration, or TLS certificate problems.
+
+### Get mongot Logs
+
+Connectivity errors between mongot and MongoDB (auth failures, TLS mismatches, unreachable hosts) are visible here:
+
+```bash
+kubectl logs ${MDB_RESOURCE_NAME}-search-0 -n ${MDB_NS}
+```
+
+### Get Envoy Proxy Logs
+
+For issues with the managed Envoy proxy (routing errors, TLS handshake failures, backend health):
+
+```bash
+kubectl logs -l app=${MDB_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
+```
 
 ## Glossary
 

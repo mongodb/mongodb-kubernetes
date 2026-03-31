@@ -311,69 +311,39 @@ Set these mongod parameters on each shard:
 
 ## Troubleshooting
 
-### Envoy Pod Not Starting
+### Check Resource Status
 
-**Symptoms:** The `{name}-search-lb-0` Deployment has 0/1 ready pods.
-
-**Check:**
-```bash
-kubectl describe deployment ${MDB_SEARCH_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
-kubectl logs -l app=${MDB_SEARCH_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
-```
-
-**Common causes:**
-- TLS certificate secrets not found - ensure certificates are created first
-- ConfigMap not ready - check if `${MDB_SEARCH_RESOURCE_NAME}-search-lb-0-config` exists
-- Image pull issues - check image pull secrets
-
-### mongod Cannot Reach Envoy
-
-**Symptoms:** Search queries fail with connection errors.
-
-**Check:**
-```bash
-# Verify proxy Services exist in K8s
-kubectl get svc -n ${MDB_NS} | grep proxy-svc
-
-# From your mongod host, test connectivity to the Envoy proxy endpoint
-curl -v ${MDB_PROXY_HOST_SHARD_0}
-# or
-openssl s_client -connect <envoy-endpoint>:27028 -servername <sni-hostname>
-```
-
-**Common causes:**
-- Proxy Services not created - MongoDBSearch may not be in Running phase
-- Network policies blocking traffic
-- DNS resolution issues
-- External mongod host cannot reach K8s cluster network
-
-### Search Index Creation Fails
-
-**Symptoms:** `createSearchIndex` command times out or fails.
-
-**Check:**
-```bash
-kubectl get pods -n ${MDB_NS} | grep search
-kubectl logs ${MDB_SEARCH_RESOURCE_NAME}-search-0-${MDB_EXTERNAL_SHARD_0_NAME}-0 -n ${MDB_NS}
-```
-
-**Common causes:**
-- mongot cannot connect to MongoDB (check source credentials)
-- TLS CA mismatch between mongod and mongot
-- mongot pods not ready yet
-
-### MongoDBSearch Stuck in Pending
-
-**Check:**
 ```bash
 kubectl describe mongodbsearch ${MDB_SEARCH_RESOURCE_NAME} -n ${MDB_NS}
 kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_SEARCH_RESOURCE_NAME}
 ```
 
-**Common causes:**
-- Missing password secret for search-sync-source user
-- Invalid external cluster configuration (wrong hostnames)
-- TLS certificate secrets missing
+Look at the resource phase, conditions, and events for issues like missing secrets, invalid configuration, or TLS certificate problems.
+
+### Get mongot Logs
+
+Connectivity errors between mongot and MongoDB (auth failures, TLS mismatches, unreachable hosts) are visible here:
+
+```bash
+kubectl logs ${MDB_SEARCH_RESOURCE_NAME}-search-0-${MDB_EXTERNAL_SHARD_0_NAME}-0 -n ${MDB_NS}
+```
+
+### Get Envoy Proxy Logs
+
+For issues with the managed Envoy proxy (routing errors, TLS handshake failures, backend health):
+
+```bash
+kubectl logs -l app=${MDB_SEARCH_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
+```
+
+### mongod Cannot Reach Envoy
+
+If your external mongod instances cannot connect to the Envoy proxy, verify proxy Services exist and test connectivity from the mongod host:
+
+```bash
+kubectl get svc -n ${MDB_NS} | grep proxy-svc
+openssl s_client -connect <envoy-endpoint>:27028 -servername <sni-hostname>
+```
 
 ## Glossary
 

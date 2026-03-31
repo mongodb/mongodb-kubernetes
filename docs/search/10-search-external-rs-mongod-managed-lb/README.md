@@ -229,34 +229,39 @@ Shows all pods in the namespace including external MongoDB replica set pods, mon
 
 ## Troubleshooting
 
-### MongoDBSearch stuck in Pending
+### Check Resource Status
 
 ```bash
 kubectl describe mongodbsearch ${MDB_SEARCH_RESOURCE_NAME} -n ${MDB_NS}
-kubectl logs -l app.kubernetes.io/component=mongot -n ${MDB_NS} --tail=50
+kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_SEARCH_RESOURCE_NAME}
 ```
 
-Common causes:
-- Password secret not created for `search-sync-source` user
-- TLS certificates not ready (check `kubectl get certificates -n ${MDB_NS}`)
-- External MongoDB not reachable from the cluster
+Look at the resource phase, conditions, and events for issues like missing secrets, invalid configuration, or TLS certificate problems.
 
-### Envoy pods not starting
+### Get mongot Logs
+
+Connectivity errors between mongot and MongoDB (auth failures, TLS mismatches, unreachable hosts) are visible here:
 
 ```bash
-kubectl describe deployment ${MDB_SEARCH_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
+kubectl logs -l app.kubernetes.io/component=mongot -n ${MDB_NS}
+```
+
+### Get Envoy Proxy Logs
+
+For issues with the managed Envoy proxy (routing errors, TLS handshake failures, backend health):
+
+```bash
 kubectl logs -l app=${MDB_SEARCH_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
 ```
 
-Common causes:
-- LB TLS certificates not ready
-- Resource limits too restrictive
+### mongod Cannot Reach Envoy
 
-### mongot cannot connect to external MongoDB
+If your external mongod instances cannot connect to the Envoy proxy, verify proxy Services exist and test connectivity from the mongod host:
 
-- Verify network connectivity: `kubectl run --rm -it nettest --image=busybox -- nc -zv <host> <port>`
-- Check the `search-sync-source` user exists on the external RS with correct permissions
-- Verify TLS CA is trusted by both sides
+```bash
+kubectl get svc -n ${MDB_NS} | grep proxy-svc
+openssl s_client -connect <envoy-endpoint>:27028 -servername <sni-hostname>
+```
 
 ## Cleanup
 
