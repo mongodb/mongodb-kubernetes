@@ -8,12 +8,12 @@ from kubetester.omtester import skip_if_cloud_manager
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_resource_names import lb_deployment_name, mongot_statefulset_name, proxy_service_name
 from tests.common.search.search_tester import SearchTester
-from tests import test_logger
 from tests.conftest import get_default_operator, log_deployments_info
 from tests.search.om_deployment import get_ops_manager
 
