@@ -11,36 +11,42 @@ This scenario is for users who already have a MongoDB replica set running outsid
 ### Traffic Flow
 
 ```mermaid
-%%{init: {'theme': 'base'}}%%
+---
+config:
+  theme: base
+  themeVariables:
+    primaryColor: "#00684A"
+    primaryTextColor: "#fff"
+    primaryBorderColor: "#023430"
+    lineColor: "#00684A"
+    secondaryColor: "#E3FCF7"
+    tertiaryColor: "#F9FBFA"
+---
 graph TD
     subgraph ext["External MongoDB Replica Set"]
-        rs0["<b>rs-0</b> mongod"]
-        rs1["<b>rs-1</b> mongod"]
-        rs2["<b>rs-2</b> mongod"]
+        rs0(["rs-0 mongod"])
+        rs1(["rs-1 mongod"])
+        rs2(["rs-2 mongod"])
     end
 
     subgraph k8s["Kubernetes Cluster"]
-        ps["<b>Proxy Service</b><br/><i>{name}-search-0-proxy-svc</i><br/>port 27028"]
-        envoy["<b>Envoy Proxy</b><br/><i>{name}-search-lb-0</i> Deployment"]
-        mongot["<b>mongot</b><br/><i>{name}-search</i> StatefulSet"]
+        ps["Proxy Service\nNAME-search-0-proxy-svc\nport 27028"]
+        envoy["Envoy Proxy\nNAME-search-lb-0 Deployment"]
+        mongot["mongot\nNAME-search StatefulSet"]
     end
 
-    rs0 -- "mTLS (server cert)" --> ps
-    rs1 -- "mTLS (server cert)" --> ps
-    rs2 -- "mTLS (server cert)" --> ps
+    rs0 -- "mTLS\nserver cert" --> ps
+    rs1 -- "mTLS\nserver cert" --> ps
+    rs2 -- "mTLS\nserver cert" --> ps
     ps --> envoy
-    envoy -- "mTLS (client cert)" --> mongot
+    envoy -- "mTLS\nclient cert" --> mongot
 
-    classDef mongod fill:#00684A,stroke:#023430,color:#fff
-    classDef mongot fill:#00ED64,stroke:#00684A,color:#023430
-    classDef envoyNode fill:#001E2B,stroke:#00684A,color:#fff
-    classDef svc fill:#E3FCF7,stroke:#00684A,color:#023430
-
-    class rs0,rs1,rs2 mongod
-    class mongot mongot
-    class envoy envoyNode
-    class ps svc
-
+    style rs0 fill:#00684A,stroke:#023430,color:#fff
+    style rs1 fill:#00684A,stroke:#023430,color:#fff
+    style rs2 fill:#00684A,stroke:#023430,color:#fff
+    style ps fill:#E3FCF7,stroke:#00684A,color:#023430
+    style envoy fill:#001E2B,stroke:#00684A,color:#fff
+    style mongot fill:#00ED64,stroke:#00684A,color:#023430
     style ext fill:#023430,stroke:#00684A,color:#fff
     style k8s fill:#F9FBFA,stroke:#00684A,color:#023430
 ```
