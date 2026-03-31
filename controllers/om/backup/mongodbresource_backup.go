@@ -223,7 +223,9 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 		}
 
 		log.Debugf("Backup has reached the desired state of %s", desiredConfig.Status)
-		clearBackupDelayTimestamp(ctx, cmClient, ns, delayConfigMapName, log)
+		if isShardedCluster {
+			clearBackupDelayTimestamp(ctx, cmClient, ns, delayConfigMapName, log)
+		}
 
 		// second run for cases when backup was inactive (see comment above)
 		if err := updateSnapshotSchedule(mdb.GetBackupSpec().SnapshotSchedule, configReadUpdater, desiredConfig, log); err != nil {
