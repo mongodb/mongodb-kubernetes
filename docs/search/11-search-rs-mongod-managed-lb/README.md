@@ -20,33 +20,25 @@ You do NOT need to write Envoy configuration, deploy Envoy yourself, create prox
 
 ### Traffic Flow
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Kubernetes Cluster                                        │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │           Operator-Managed MongoDB Replica Set                     │    │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐                            │    │
-│  │  │ rs-0    │  │ rs-1    │  │ rs-2    │  (mongod managed by op.)   │    │
-│  │  └────┬────┘  └────┬────┘  └────┬────┘                            │    │
-│  └───────┼────────────┼────────────┼────────────────────────────────┘    │
-│          │            │            │                                       │
-│          └────────────┼────────────┘                                       │
-│                       │ TLS                                                │
-│                       ▼                                                    │
-│  ┌────────────────────────────────────────┐                                │
-│  │    Envoy Proxy (operator-managed)      │                                │
-│  │    • Listens on port 27028             │                                │
-│  │    • Single LB Service                 │                                │
-│  │    • mTLS to mongot backends           │                                │
-│  └────────────────────┬───────────────────┘                                │
-│           ┌───────────┴───────────┐                                        │
-│           ▼                       ▼                                        │
-│  ┌──────────────┐       ┌──────────────┐                                   │
-│  │ mongot-0     │       │ mongot-1     │  (Search pods)                    │
-│  │ StatefulSet  │       │ StatefulSet  │                                   │
-│  └──────────────┘       └──────────────┘                                   │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph k8s["Kubernetes Cluster"]
+        subgraph mdb["Operator-Managed MongoDB Replica Set"]
+            rs0["<b>rs-0</b> mongod"]
+            rs1["<b>rs-1</b> mongod"]
+            rs2["<b>rs-2</b> mongod"]
+        end
+
+        ps["<b>Proxy Service</b><br/><i>{name}-search-0-proxy-svc</i><br/>port 27028"]
+        envoy["<b>Envoy Proxy</b><br/><i>{name}-search-lb-0</i> Deployment"]
+        mongot["<b>mongot</b><br/><i>{name}-search</i> StatefulSet"]
+    end
+
+    rs0 -- "mTLS (server cert)" --> ps
+    rs1 -- "mTLS (server cert)" --> ps
+    rs2 -- "mTLS (server cert)" --> ps
+    ps --> envoy
+    envoy -- "mTLS (client cert)" --> mongot
 ```
 
 ## What You're Responsible For
@@ -143,8 +135,11 @@ Installs cert-manager for TLS certificate management. Skipped if already install
 
 Creates the cert-manager bootstrap chain needed before any certificates can be issued:
 
-```
-Self-Signed ClusterIssuer ──signs──▶ CA Certificate ──stored-in──▶ CA ClusterIssuer ──signs──▶ all other certs
+```mermaid
+graph LR
+    A["Self-Signed<br/>ClusterIssuer"] -- signs --> B["CA Certificate<br/><i>isCA: true</i>"]
+    B -- stored in --> C["CA ClusterIssuer"]
+    C -- signs --> D["All other certs<br/><i>mongot, LB, mongod</i>"]
 ```
 
 | cert-manager Object | Env Var | Purpose |

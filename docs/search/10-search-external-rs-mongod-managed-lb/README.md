@@ -10,14 +10,25 @@ This scenario is for users who already have a MongoDB replica set running outsid
 
 ### Traffic Flow
 
-```
-External mongod (your cluster)
-        │
-        ▼
-  Envoy L7 Proxy  ← operator-managed, port 27028
-        │
-        ▼
-   mongot pods     ← operator-managed, port 27028
+```mermaid
+graph TD
+    subgraph ext["External MongoDB Replica Set"]
+        rs0["<b>rs-0</b> mongod"]
+        rs1["<b>rs-1</b> mongod"]
+        rs2["<b>rs-2</b> mongod"]
+    end
+
+    subgraph k8s["Kubernetes Cluster"]
+        ps["<b>Proxy Service</b><br/><i>{name}-search-0-proxy-svc</i><br/>port 27028"]
+        envoy["<b>Envoy Proxy</b><br/><i>{name}-search-lb-0</i> Deployment"]
+        mongot["<b>mongot</b><br/><i>{name}-search</i> StatefulSet"]
+    end
+
+    rs0 -- "mTLS (server cert)" --> ps
+    rs1 -- "mTLS (server cert)" --> ps
+    rs2 -- "mTLS (server cert)" --> ps
+    ps --> envoy
+    envoy -- "mTLS (client cert)" --> mongot
 ```
 
 ## Prerequisites
@@ -84,8 +95,11 @@ Required for automated TLS certificate lifecycle. Skipped if already installed.
 
 Creates the cert-manager bootstrap chain and distributes the CA certificate to the target namespace:
 
-```
-Self-Signed ClusterIssuer ──signs──▶ CA Certificate ──stored-in──▶ CA ClusterIssuer ──signs──▶ all other certs
+```mermaid
+graph LR
+    A["Self-Signed<br/>ClusterIssuer"] -- signs --> B["CA Certificate<br/><i>isCA: true</i>"]
+    B -- stored in --> C["CA ClusterIssuer"]
+    C -- signs --> D["All other certs<br/><i>mongot, LB, mongod</i>"]
 ```
 
 The CA is distributed as both a ConfigMap (`ca-pem` key) and a Secret (`ca.crt` key) in the target namespace.

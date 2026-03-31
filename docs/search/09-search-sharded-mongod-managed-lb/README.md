@@ -20,32 +20,35 @@ You do NOT need to write Envoy configuration, deploy Envoy yourself, create prox
 
 ### Traffic Flow
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Kubernetes Cluster                                        │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │           Operator-Managed MongoDB Sharded Cluster                  │    │
-│  │  ┌─────────┐  ┌─────────┐                                          │    │
-│  │  │ shard-0 │  │ shard-1 │  (mongod managed by operator)            │    │
-│  │  └────┬────┘  └────┬────┘                                          │    │
-│  └───────┼────────────┼───────────────────────────────────────────────┘    │
-│          │            │                                                     │
-│          │ TLS (SNI-based routing)                                          │
-│          ▼            ▼                                                     │
-│  ┌────────────────────────────────────────┐                                 │
-│  │    Envoy Proxy (operator-managed)      │                                 │
-│  │    • Listens on port 27028             │                                 │
-│  │    • Routes by SNI hostname            │                                 │
-│  │    • mTLS to mongot backends           │                                 │
-│  └────────────────┬───────────────────────┘                                 │
-│           ┌───────┴───────┐                                                 │
-│           ▼               ▼                                                 │
-│  ┌─────────────┐  ┌─────────────┐                                           │
-│  │ mongot-0    │  │ mongot-1    │  (Search pods per shard)                  │
-│  │ StatefulSet │  │ StatefulSet │                                           │
-│  └─────────────┘  └─────────────┘                                           │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph k8s["Kubernetes Cluster"]
+        subgraph mdb["Operator-Managed MongoDB Sharded Cluster"]
+            mongos["<b>mongos</b><br/><i>query router</i>"]
+            s0["<b>shard-0</b> mongod"]
+            s1["<b>shard-1</b> mongod"]
+            cfg["<b>config servers</b>"]
+        end
+
+        subgraph proxy["Per-Shard Proxy Services (port 27028)"]
+            ps0["<b>Proxy Service</b><br/><i>{name}-search-0-{shard0}-proxy-svc</i>"]
+            ps1["<b>Proxy Service</b><br/><i>{name}-search-0-{shard1}-proxy-svc</i>"]
+        end
+
+        envoy["<b>Envoy Proxy</b><br/><i>{name}-search-lb-0</i> Deployment<br/>SNI-based routing"]
+
+        m0["<b>mongot</b> shard-0<br/><i>{name}-search-0-{shard0}</i> StatefulSet"]
+        m1["<b>mongot</b> shard-1<br/><i>{name}-search-0-{shard1}</i> StatefulSet"]
+    end
+
+    s0 -- "mTLS (server cert)" --> ps0
+    s1 -- "mTLS (server cert)" --> ps1
+    ps0 --> envoy
+    ps1 --> envoy
+    envoy -- "mTLS (client cert)" --> m0
+    envoy -- "mTLS (client cert)" --> m1
+
+    style proxy fill:none,stroke:#666,stroke-dasharray:5 5
 ```
 
 ### Why Per-Shard Routing?
@@ -143,8 +146,11 @@ Required for automated TLS certificate lifecycle. Skipped if already installed.
 
 Creates the cert-manager bootstrap chain needed before any certificates can be issued:
 
-```
-Self-Signed ClusterIssuer ──signs──▶ CA Certificate ──stored-in──▶ CA ClusterIssuer ──signs──▶ all other certs
+```mermaid
+graph LR
+    A["Self-Signed<br/>ClusterIssuer"] -- signs --> B["CA Certificate<br/><i>isCA: true</i>"]
+    B -- stored in --> C["CA ClusterIssuer"]
+    C -- signs --> D["All other certs<br/><i>mongot, LB, mongod</i>"]
 ```
 
 | cert-manager Object | Env Var | Purpose |
