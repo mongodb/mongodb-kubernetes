@@ -128,6 +128,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
+	if err := r.ValidateManagedLBShardedTLS(); err != nil {
+		return workflow.Failed(err)
+	}
+
 	if shardedSource, ok := r.db.(SearchSourceShardedDeployment); ok {
 		return r.reconcileSharded(ctx, log, shardedSource, version)
 	}
@@ -1330,6 +1334,28 @@ func (r *MongoDBSearchReconcileHelper) ValidateMultipleReplicasConfig() error {
 			"multiple mongot replicas (%d) require load balancer configuration; "+
 				"please configure load balancing in spec.loadBalancer.",
 			r.mdbSearch.GetReplicas(),
+		)
+	}
+
+	return nil
+}
+
+// ValidateManagedLBShardedTLS validates that TLS is configured when using managed LB
+// with a sharded cluster (internal or external). Envoy's SNI-based filter-chain routing
+// requires a TLS ClientHello; without it, traffic cannot be routed to the correct shard.
+func (r *MongoDBSearchReconcileHelper) ValidateManagedLBShardedTLS() error {
+	if !r.mdbSearch.IsLBModeManaged() {
+		return nil
+	}
+
+	if _, ok := r.db.(SearchSourceShardedDeployment); !ok {
+		return nil
+	}
+
+	if !r.mdbSearch.IsTLSConfigured() {
+		return xerrors.Errorf(
+			"TLS (spec.security.tls) is required when using managed load balancer with a sharded cluster; " +
+				"Envoy uses SNI-based routing which depends on the TLS ClientHello to route traffic to the correct shard",
 		)
 	}
 

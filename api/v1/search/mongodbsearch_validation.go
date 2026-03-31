@@ -42,6 +42,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateLBConfig,
 		validateUnmanagedLBConfig,
 		validateManagedLBExternalHostname,
+		validateManagedLBShardedTLS,
 		validateEndpointTemplate,
 		validateRSEndpointTemplate,
 		validateShardNames,
@@ -100,6 +101,29 @@ func validateManagedLBExternalHostname(s *MongoDBSearch) v1.ValidationResult {
 
 	if s.IsExternalMongoDBSource() && s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
 		return v1.ValidationError("spec.loadBalancer.managed.externalHostname must be specified when using managed load balancer with an external MongoDB source")
+	}
+
+	return v1.ValidationSuccess()
+}
+
+// validateManagedLBShardedTLS validates that TLS is configured when using managed LB
+// with an external sharded cluster. Envoy's SNI-based routing requires TLS: without a
+// TLS ClientHello there is no SNI, so filter-chain matching cannot route traffic to the
+// correct shard's mongot group.
+func validateManagedLBShardedTLS(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsLBModeManaged() {
+		return v1.ValidationSuccess()
+	}
+
+	if !s.IsExternalSourceSharded() {
+		return v1.ValidationSuccess()
+	}
+
+	if !s.IsTLSConfigured() {
+		return v1.ValidationError(
+			"TLS (spec.security.tls) is required when using managed load balancer with a sharded cluster; " +
+				"Envoy uses SNI-based routing which depends on the TLS ClientHello to route traffic to the correct shard",
+		)
 	}
 
 	return v1.ValidationSuccess()
