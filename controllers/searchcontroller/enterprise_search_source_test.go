@@ -287,3 +287,84 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestEnterpriseResourceSearchSource_HostSeeds(t *testing.T) {
+	cases := []struct {
+		name            string
+		members         int
+		externalMembers []mdbv1.ExternalMember
+		clusterDomain   string
+		expectedSeeds   []string
+	}{
+		{
+			name:          "internal members only",
+			members:       3,
+			clusterDomain: "",
+			expectedSeeds: []string{
+				"test-mongodb-0.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+				"test-mongodb-1.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+				"test-mongodb-2.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+			},
+		},
+		{
+			name:    "external members only",
+			members: 0,
+			externalMembers: []mdbv1.ExternalMember{
+				{ProcessName: "ext-0", Hostname: "ext-host-0.example.com:27017"},
+				{ProcessName: "ext-1", Hostname: "ext-host-1.example.com:27017"},
+			},
+			expectedSeeds: []string{
+				"ext-host-0.example.com:27017",
+				"ext-host-1.example.com:27017",
+			},
+		},
+		{
+			name:    "mixed internal and external members",
+			members: 2,
+			externalMembers: []mdbv1.ExternalMember{
+				{ProcessName: "ext-0", Hostname: "ext-host-0.example.com:27017"},
+			},
+			expectedSeeds: []string{
+				"test-mongodb-0.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+				"test-mongodb-1.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+				"ext-host-0.example.com:27017",
+			},
+		},
+		{
+			name:          "custom cluster domain",
+			members:       1,
+			clusterDomain: "custom.domain",
+			expectedSeeds: []string{
+				"test-mongodb-0.test-mongodb-svc.test-namespace.svc.custom.domain:27017",
+			},
+		},
+		{
+			name:    "single member",
+			members: 1,
+			expectedSeeds: []string{
+				"test-mongodb-0.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := EnterpriseResourceSearchSource{
+				MongoDB: &mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-mongodb",
+						Namespace: "test-namespace",
+					},
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ExternalMembers: c.externalMembers,
+							ClusterDomain:   c.clusterDomain,
+						},
+						Members: c.members,
+					},
+				},
+			}
+			assert.Equal(t, c.expectedSeeds, src.HostSeeds())
+		})
+	}
+}
