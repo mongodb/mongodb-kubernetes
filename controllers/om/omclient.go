@@ -197,6 +197,7 @@ func (oc *HTTPOmConnection) SetPUTHook(hook func(path string, body []byte)) {
 	client.AfterSuccessfulPUT = hook
 }
 
+
 func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
 	// We don't have to wait for each step for the agent to reach goal state as setting logrotation does not require order
 	if logRotateSetting.Mongod.LogRotate == nil && logRotateSetting.MonitoringAgent.LogRotate == nil &&

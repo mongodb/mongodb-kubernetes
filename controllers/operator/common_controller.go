@@ -1218,15 +1218,18 @@ func attachACSnapshotHook(ctx context.Context, client kubernetesClient.Client, c
 	})
 }
 
-// attachACDryRunWrapper wraps conn with a dry-run interceptor.
-// Every would-be AC change is recorded as a numbered step in a ConfigMap named
-// <resourceName>-ac-dry-run, but no changes are pushed to OpsManager.
+// attachACDryRunWrapper wraps conn with a stateful DryRunOmConnection that accumulates
+// would-be AC changes in memory (shadow deployment) and records each change as a
+// numbered step in a ConfigMap named <resourceName>-ac-dry-run. No changes are pushed
+// to OpsManager. No-ops when conn is not *om.HTTPOmConnection.
 // Enable with MDB_AC_DRY_RUN=true on the operator Pod.
 func attachACDryRunWrapper(ctx context.Context, client kubernetesClient.Client, conn om.Connection, namespace, resourceName string, log *zap.SugaredLogger) om.Connection {
+	if _, ok := conn.(*om.HTTPOmConnection); !ok {
+		return conn
+	}
 	cmName := resourceName + "-ac-dry-run"
-	log.Infow("AC dry-run mode active — AC changes will be recorded but not applied to OpsManager", "configMap", cmName)
 
-	// Seed step counter from existing ConfigMap so numbering is continuous across reconciles.
+	// Seed from existing ConfigMap so step numbering is continuous across reconciles.
 	accumulated := make(map[string]string)
 	existing := corev1.ConfigMap{}
 	if err := client.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, &existing); err == nil {
@@ -1237,14 +1240,14 @@ func attachACDryRunWrapper(ctx context.Context, client kubernetesClient.Client, 
 	step := len(accumulated)
 
 	return om.NewDryRunConnection(conn, log, func(changelog diff.Changelog) {
-		step++
 		changelog = acSnapshotFilter(changelog)
 		if len(changelog) == 0 {
 			return
 		}
+		step++
 		data, err := json.Marshal(changelog)
 		if err != nil {
-			log.Warnw("AC dry-run: failed to marshal changelog", "step", step, "error", err)
+			log.Warnw("AC dry-run: failed to marshal diff", "step", step, "error", err)
 			return
 		}
 		accumulated[fmt.Sprintf("step-%03d", step)] = string(data)
@@ -1255,5 +1258,6 @@ func attachACDryRunWrapper(ctx context.Context, client kubernetesClient.Client, 
 		if err := configmap.CreateOrUpdate(ctx, client, cm); err != nil {
 			log.Warnw("AC dry-run: failed to write ConfigMap", "name", cmName, "error", err)
 		}
+		log.Infow("AC dry-run: recorded would-be AC change (not applied)", "configMap", cmName, "step", step, "num_changes", len(changelog))
 	})
 }
