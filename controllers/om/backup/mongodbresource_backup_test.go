@@ -1,89 +1,89 @@
 package backup
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// backupStatusReadWriter is a simple in-memory BackupStatusReadWriter for testing.
-type backupStatusReadWriter struct {
-	timestamp *metav1.Time
+// inMemoryConfigMapClient is a simple in-memory configmap.GetUpdateCreator for testing.
+type inMemoryConfigMapClient struct {
+	data map[string]string
 }
 
-func (b *backupStatusReadWriter) GetEnableDelayStartTimestampStatus() *metav1.Time {
-	return b.timestamp
+func (c *inMemoryConfigMapClient) GetConfigMap(_ context.Context, _ k8sclient.ObjectKey) (corev1.ConfigMap, error) {
+	return corev1.ConfigMap{Data: c.data}, nil
 }
 
-func (b *backupStatusReadWriter) SetEnableDelayStartTimestampStatus(ts *metav1.Time) {
-	b.timestamp = ts
+func (c *inMemoryConfigMapClient) UpdateConfigMap(_ context.Context, cm corev1.ConfigMap) error {
+	c.data = cm.Data
+	return nil
+}
+
+func (c *inMemoryConfigMapClient) CreateConfigMap(_ context.Context, cm corev1.ConfigMap) error {
+	c.data = cm.Data
+	return nil
+}
+
+func (c *inMemoryConfigMapClient) DeleteConfigMap(_ context.Context, _ k8sclient.ObjectKey) error {
+	c.data = nil
+	return nil
+}
+
+func newTestCMClient(ts *metav1.Time) *inMemoryConfigMapClient {
+	data := map[string]string{}
+	if ts != nil {
+		data[BackupDelayTimestampKey] = ts.UTC().Format(time.RFC3339)
+	}
+	return &inMemoryConfigMapClient{data: data}
 }
 
 func TestApplyShardedClusterBackupEnableDelay(t *testing.T) {
+	ctx := context.Background()
 	log := zap.NewNop().Sugar()
+	ns, name := "ns", "resource-backup-delay"
 
 	t.Run("delay started when timestamp is nil and remaining > 0", func(t *testing.T) {
-		mdb := &backupStatusReadWriter{}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, Started, Inactive, 60*time.Second, log)
+		cm := newTestCMClient(nil)
+		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 60*time.Second, log)
 		assert.True(t, stop)
-		assert.NotNil(t, mdb.timestamp, "expected timestamp to be set when delay starts")
+		assert.NotNil(t, getBackupDelayTimestamp(ctx, cm, ns, name), "expected timestamp to be set when delay starts")
 	})
 
 	t.Run("proceeds immediately when delay is negative (no delay)", func(t *testing.T) {
-		mdb := &backupStatusReadWriter{}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, Started, Inactive, -1*time.Second, log)
+		cm := newTestCMClient(nil)
+		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, -1*time.Second, log)
 		assert.False(t, stop)
-		assert.Nil(t, mdb.timestamp, "expected no timestamp when delay is skipped")
+		assert.Nil(t, getBackupDelayTimestamp(ctx, cm, ns, name), "expected no timestamp when delay is skipped")
 	})
 
 	t.Run("proceeds immediately when delay is zero", func(t *testing.T) {
-		mdb := &backupStatusReadWriter{}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, Started, Stopped, 0, log)
+		cm := newTestCMClient(nil)
+		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 0, log)
 		assert.False(t, stop)
-		assert.Nil(t, mdb.timestamp)
+		assert.Nil(t, getBackupDelayTimestamp(ctx, cm, ns, name))
 	})
 
 	t.Run("delay still pending when timestamp is set and not elapsed", func(t *testing.T) {
 		now := metav1.NewTime(time.Now().UTC())
-		mdb := &backupStatusReadWriter{timestamp: &now}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, Started, Inactive, 60*time.Second, log)
+		cm := newTestCMClient(&now)
+		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 60*time.Second, log)
 		assert.True(t, stop)
-		assert.NotNil(t, mdb.timestamp, "expected timestamp to remain set while delay is pending")
+		assert.NotNil(t, getBackupDelayTimestamp(ctx, cm, ns, name), "expected timestamp to remain set while delay is pending")
 	})
 
 	t.Run("proceeds when timestamp is set and delay has elapsed", func(t *testing.T) {
 		past := metav1.NewTime(time.Now().UTC().Add(-10 * time.Second))
-		mdb := &backupStatusReadWriter{timestamp: &past}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, Started, Inactive, 5*time.Second, log)
+		cm := newTestCMClient(&past)
+		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 5*time.Second, log)
 		assert.False(t, stop)
-		assert.NotNil(t, mdb.timestamp, "expected timestamp to remain set until caller clears it after UpdateBackupConfig")
-	})
-
-	t.Run("timestamp cleared when desired is Stopped", func(t *testing.T) {
-		past := metav1.NewTime(time.Now().UTC())
-		mdb := &backupStatusReadWriter{timestamp: &past}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, Stopped, Started, 60*time.Second, log)
-		assert.False(t, stop)
-		assert.Nil(t, mdb.timestamp, "expected timestamp to be cleared when disabling backup")
-	})
-
-	t.Run("timestamp cleared when desired is Terminating", func(t *testing.T) {
-		past := metav1.NewTime(time.Now().UTC())
-		mdb := &backupStatusReadWriter{timestamp: &past}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, Terminating, Started, 60*time.Second, log)
-		assert.False(t, stop)
-		assert.Nil(t, mdb.timestamp, "expected timestamp to be cleared when terminating backup")
-	})
-
-	t.Run("timer not reset when desired is Started but current is Terminating", func(t *testing.T) {
-		past := metav1.NewTime(time.Now().UTC())
-		mdb := &backupStatusReadWriter{timestamp: &past}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, Started, Terminating, 60*time.Second, log)
-		assert.False(t, stop)
-		assert.NotNil(t, mdb.timestamp, "expected timestamp to be preserved when OM is transiently Terminating")
+		assert.NotNil(t, getBackupDelayTimestamp(ctx, cm, ns, name), "expected timestamp to remain set until caller clears it after UpdateBackupConfig")
 	})
 }
 

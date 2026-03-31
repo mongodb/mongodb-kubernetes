@@ -152,14 +152,6 @@ func (m *MongoDB) GetBackupSpec() *Backup {
 	return m.Spec.Backup
 }
 
-func (m *MongoDB) GetEnableDelayStartTimestampStatus() *metav1.Time {
-	return m.Status.InternalEnableBackupRequestedAt
-}
-
-func (m *MongoDB) SetEnableDelayStartTimestampStatus(ts *metav1.Time) {
-	m.Status.InternalEnableBackupRequestedAt = ts
-}
-
 func (m *MongoDB) GetResourceType() ResourceType {
 	return m.Spec.ResourceType
 }
@@ -373,10 +365,7 @@ type MongoDbStatus struct {
 	Version                                string                                     `json:"version"`
 	Link                                   string                                     `json:"link,omitempty"`
 	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
-	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
-	// InternalEnableBackupRequestedAt records the time when backup enablement was first requested
-	// for a sharded cluster, used to enforce a startup delay. Internal operator use only.
-	InternalEnableBackupRequestedAt *metav1.Time `json:"internalEnableBackupRequestedAt,omitempty"`
+	Warnings []status.Warning `json:"warnings,omitempty"`
 }
 
 type BackupMode string

@@ -782,7 +782,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return xerrors.Errorf("failed to complete reconciliation")
 	}
 
-	status = r.ensureBackupConfigurationAndUpdateStatus(ctx, conn, &mrs, r.SecretClient, log, 0)
+	status = r.ensureBackupConfigurationAndUpdateStatus(ctx, conn, &mrs, r.SecretClient, log, 0, r.client)
 	if !status.IsOK() && !isRecovering {
 		return xerrors.Errorf("failed to configure backup for MongoDBMultiCluster RS")
 	}

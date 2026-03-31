@@ -1386,7 +1386,7 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 }
 
 func TestBackupConfiguration_ShardedCluster(t *testing.T) {
-	core, logs := observer.New(zapcore.InfoLevel)
+	core, logs := observer.New(zapcore.DebugLevel)
 	restore := zap.ReplaceGlobals(zap.New(core))
 	defer restore()
 
@@ -1437,11 +1437,11 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
 		require.NoError(t, err)
 		assert.True(t, result.RequeueAfter > 0, "expected requeue on first reconcile while waiting for backup start delay")
-		assert.Equal(t, 1, logs.FilterMessageSnippet("before enabling backup to allow OM to process monitoring events").Len(), "expected backup start delay requeue log")
+		assert.Equal(t, 1, logs.FilterLevelExact(zapcore.InfoLevel).FilterMessageSnippet("before enabling backup to allow OM to process monitoring events").Len(), "expected backup start delay requeue log")
 
 		// Re-fetch sc so its ResourceVersion is current after the status patch
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
-		assert.NotNil(t, sc.Status.InternalEnableBackupRequestedAt, "expected internalEnableBackupRequestedAt to be set during backup enable delay")
+		assert.True(t, backupDelayTimestampSet(ctx, t, clusterClient, sc), "expected backup delay configmap to have timestamp set during backup enable delay")
 
 		// Wait for the backup start delay (3s configured in test fixtures) to elapse
 		time.Sleep(4 * time.Second)
@@ -1449,11 +1449,11 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		// Second reconcile: delay has elapsed, backup is configured
 		logs.TakeAll()
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
-		assert.Equal(t, 1, logs.FilterMessageSnippet("Backup enable delay has elapsed, proceeding with backup enable").Len(), "expected backup enable delay elapsed log on second reconcile")
+		assert.Equal(t, 1, logs.FilterLevelExact(zapcore.DebugLevel).FilterMessage("Backup enable delay has elapsed, proceeding with backup enable").Len(), "expected backup enable delay elapsed log on second reconcile")
 
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
 		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after backup is configured")
-		assert.Nil(t, sc.Status.InternalEnableBackupRequestedAt, "expected internalEnableBackupRequestedAt to be cleared after backup is configured")
+		assert.False(t, backupDelayTimestampSet(ctx, t, clusterClient, sc), "expected backup delay configmap to be cleared after backup is configured")
 
 		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
 		assert.NoError(t, err)
@@ -1537,14 +1537,13 @@ func TestBackupConfiguration_ShardedCluster_TimestampClearedWhenBackupDisabledDu
 	assert.True(t, result.RequeueAfter > 0, "expected requeue while waiting for backup start delay")
 
 	require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
-	assert.NotNil(t, sc.Status.InternalEnableBackupRequestedAt, "expected timestamp to be set during delay")
+	assert.True(t, backupDelayTimestampSet(ctx, t, clusterClient, sc), "expected timestamp to be set during delay")
 
 	// User disables backup while delay is still pending.
 	sc.Spec.Backup.Mode = "disabled"
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
 
-	require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
-	assert.Nil(t, sc.Status.InternalEnableBackupRequestedAt, "expected timestamp to be cleared when backup is disabled during delay")
+	assert.False(t, backupDelayTimestampSet(ctx, t, clusterClient, sc), "expected timestamp to be cleared when backup is disabled during delay")
 }
 
 func TestBackupConfiguration_ShardedCluster_NegativeDelay(t *testing.T) {
@@ -1585,8 +1584,18 @@ func TestBackupConfiguration_ShardedCluster_NegativeDelay(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, backup.Started, config.Status)
 
-	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
-	assert.Nil(t, sc.Status.InternalEnableBackupRequestedAt, "expected internalEnableBackupRequestedAt to be nil when delay is negative")
+	assert.False(t, backupDelayTimestampSet(ctx, t, kubeClient, sc), "expected backup delay configmap to be empty when delay is negative")
+}
+
+// backupDelayTimestampSet returns true if the backup delay ConfigMap for sc has the startTimestamp key set.
+func backupDelayTimestampSet(ctx context.Context, t *testing.T, client kubernetesClient.Client, sc *mdbv1.MongoDB) bool {
+	t.Helper()
+	cm := corev1.ConfigMap{}
+	if err := client.Get(ctx, kube.ObjectKey(sc.Namespace, sc.Name+backup.BackupDelayConfigMapSuffix), &cm); err != nil {
+		return false
+	}
+	_, ok := cm.Data[backup.BackupDelayTimestampKey]
+	return ok
 }
 
 // createShardedClusterTLSSecretsFromCustomCerts creates and populates all the required

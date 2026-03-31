@@ -19,6 +19,11 @@ const (
 	ShardedClusterType MongoDbResourceType = "ShardedCluster"
 )
 
+const (
+	BackupDelayConfigMapSuffix = "-backup-delay"
+	BackupDelayTimestampKey    = "startTimestamp"
+)
+
 /*
 for sharded cluster:
 

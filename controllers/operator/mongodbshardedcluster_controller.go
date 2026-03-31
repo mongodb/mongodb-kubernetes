@@ -1916,7 +1916,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		logWarnIgnoredDueToRecovery(log, err)
 	}
 
-	if workflowStatus := r.commonController.ensureBackupConfigurationAndUpdateStatus(ctx, conn, sc, r.commonController.SecretClient, log, r.backupEnableDelay); !workflowStatus.IsOK() {
+	if workflowStatus := r.commonController.ensureBackupConfigurationAndUpdateStatus(ctx, conn, sc, r.commonController.SecretClient, log, r.backupEnableDelay, r.commonController.client); !workflowStatus.IsOK() {
 		if !isRecovering {
 			return workflowStatus
 		}
