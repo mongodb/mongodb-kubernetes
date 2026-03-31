@@ -29,6 +29,19 @@ graph TD
     rs2 -- "mTLS (server cert)" --> ps
     ps --> envoy
     envoy -- "mTLS (client cert)" --> mongot
+
+    classDef mongod fill:#00684A,stroke:#023430,color:#fff
+    classDef mongot fill:#00ED64,stroke:#00684A,color:#023430
+    classDef envoyNode fill:#001E2B,stroke:#00684A,color:#fff
+    classDef svc fill:#E3FCF7,stroke:#00684A,color:#023430
+
+    class rs0,rs1,rs2 mongod
+    class mongot mongot
+    class envoy envoyNode
+    class ps svc
+
+    style ext fill:#023430,stroke:#00684A,color:#fff
+    style k8s fill:#F9FBFA,stroke:#00684A,color:#023430
 ```
 
 ## Prerequisites
@@ -100,6 +113,14 @@ graph LR
     A["Self-Signed<br/>ClusterIssuer"] -- signs --> B["CA Certificate<br/><i>isCA: true</i>"]
     B -- stored in --> C["CA ClusterIssuer"]
     C -- signs --> D["All other certs<br/><i>mongot, LB, mongod</i>"]
+
+    classDef issuer fill:#00684A,stroke:#023430,color:#fff
+    classDef cert fill:#00ED64,stroke:#00684A,color:#023430
+    classDef leaf fill:#E3FCF7,stroke:#00684A,color:#023430
+
+    class A,C issuer
+    class B cert
+    class D leaf
 ```
 
 The CA is distributed as both a ConfigMap (`ca-pem` key) and a Secret (`ca.crt` key) in the target namespace.

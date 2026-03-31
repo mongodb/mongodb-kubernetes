@@ -48,7 +48,19 @@ graph TD
     envoy -- "mTLS (client cert)" --> m0
     envoy -- "mTLS (client cert)" --> m1
 
-    style proxy fill:none,stroke:#666,stroke-dasharray:5 5
+    classDef mongod fill:#00684A,stroke:#023430,color:#fff
+    classDef mongot fill:#00ED64,stroke:#00684A,color:#023430
+    classDef envoyNode fill:#001E2B,stroke:#00684A,color:#fff
+    classDef svc fill:#E3FCF7,stroke:#00684A,color:#023430
+
+    class mongos,s0,s1,cfg mongod
+    class m0,m1 mongot
+    class envoy envoyNode
+    class ps0,ps1 svc
+
+    style k8s fill:#F9FBFA,stroke:#00684A,color:#023430
+    style mdb fill:#023430,stroke:#00684A,color:#fff
+    style proxy fill:none,stroke:#889397,stroke-dasharray:5 5
 ```
 
 ### Why Per-Shard Routing?
@@ -151,6 +163,14 @@ graph LR
     A["Self-Signed<br/>ClusterIssuer"] -- signs --> B["CA Certificate<br/><i>isCA: true</i>"]
     B -- stored in --> C["CA ClusterIssuer"]
     C -- signs --> D["All other certs<br/><i>mongot, LB, mongod</i>"]
+
+    classDef issuer fill:#00684A,stroke:#023430,color:#fff
+    classDef cert fill:#00ED64,stroke:#00684A,color:#023430
+    classDef leaf fill:#E3FCF7,stroke:#00684A,color:#023430
+
+    class A,C issuer
+    class B cert
+    class D leaf
 ```
 
 | cert-manager Object | Env Var | Purpose |
