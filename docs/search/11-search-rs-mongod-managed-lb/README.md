@@ -21,6 +21,7 @@ You do NOT need to write Envoy configuration, deploy Envoy yourself, create prox
 ### Traffic Flow
 
 ```mermaid
+%%{init: {'theme': 'base'}}%%
 graph TD
     subgraph k8s["Kubernetes Cluster"]
         subgraph mdb["Operator-Managed MongoDB Replica Set"]
@@ -149,6 +150,7 @@ Installs cert-manager for TLS certificate management. Skipped if already install
 Creates the cert-manager bootstrap chain needed before any certificates can be issued:
 
 ```mermaid
+%%{init: {'theme': 'base'}}%%
 graph LR
     A["Self-Signed<br/>ClusterIssuer"] -- signs --> B["CA Certificate<br/><i>isCA: true</i>"]
     B -- stored in --> C["CA ClusterIssuer"]

@@ -18,6 +18,7 @@ You do NOT need to write Envoy configuration, deploy Envoy yourself, or create p
 ### Traffic Flow
 
 ```mermaid
+%%{init: {'theme': 'base'}}%%
 graph TD
     subgraph ext["External MongoDB Cluster"]
         mongos["<b>mongos</b><br/><i>query router</i>"]
@@ -141,6 +142,7 @@ Required for automated TLS certificate lifecycle. Skipped if already installed.
 Creates the cert-manager bootstrap chain needed before any certificates can be issued:
 
 ```mermaid
+%%{init: {'theme': 'base'}}%%
 graph LR
     A["Self-Signed<br/>ClusterIssuer"] -- signs --> B["CA Certificate<br/><i>isCA: true</i>"]
     B -- stored in --> C["CA ClusterIssuer"]

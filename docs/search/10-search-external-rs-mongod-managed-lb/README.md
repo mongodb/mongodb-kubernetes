@@ -11,6 +11,7 @@ This scenario is for users who already have a MongoDB replica set running outsid
 ### Traffic Flow
 
 ```mermaid
+%%{init: {'theme': 'base'}}%%
 graph TD
     subgraph ext["External MongoDB Replica Set"]
         rs0["<b>rs-0</b> mongod"]
@@ -109,6 +110,7 @@ Required for automated TLS certificate lifecycle. Skipped if already installed.
 Creates the cert-manager bootstrap chain and distributes the CA certificate to the target namespace:
 
 ```mermaid
+%%{init: {'theme': 'base'}}%%
 graph LR
     A["Self-Signed<br/>ClusterIssuer"] -- signs --> B["CA Certificate<br/><i>isCA: true</i>"]
     B -- stored in --> C["CA ClusterIssuer"]
