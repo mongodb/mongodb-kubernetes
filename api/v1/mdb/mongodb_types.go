@@ -365,7 +365,7 @@ type MongoDbStatus struct {
 	Version                                string                                     `json:"version"`
 	Link                                   string                                     `json:"link,omitempty"`
 	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
-	Warnings []status.Warning `json:"warnings,omitempty"`
+	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
 }
 
 type BackupMode string

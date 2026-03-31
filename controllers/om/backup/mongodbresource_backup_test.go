@@ -51,21 +51,21 @@ func TestApplyShardedClusterBackupEnableDelay(t *testing.T) {
 
 	t.Run("delay started when timestamp is nil and remaining > 0", func(t *testing.T) {
 		cm := newTestCMClient(nil)
-		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 60*time.Second, log)
+		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 60*time.Second, nil, log)
 		assert.True(t, stop)
 		assert.NotNil(t, getBackupDelayTimestamp(ctx, cm, ns, name), "expected timestamp to be set when delay starts")
 	})
 
 	t.Run("proceeds immediately when delay is negative (no delay)", func(t *testing.T) {
 		cm := newTestCMClient(nil)
-		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, -1*time.Second, log)
+		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, -1*time.Second, nil, log)
 		assert.False(t, stop)
 		assert.Nil(t, getBackupDelayTimestamp(ctx, cm, ns, name), "expected no timestamp when delay is skipped")
 	})
 
 	t.Run("proceeds immediately when delay is zero", func(t *testing.T) {
 		cm := newTestCMClient(nil)
-		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 0, log)
+		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 0, nil, log)
 		assert.False(t, stop)
 		assert.Nil(t, getBackupDelayTimestamp(ctx, cm, ns, name))
 	})
@@ -73,7 +73,7 @@ func TestApplyShardedClusterBackupEnableDelay(t *testing.T) {
 	t.Run("delay still pending when timestamp is set and not elapsed", func(t *testing.T) {
 		now := metav1.NewTime(time.Now().UTC())
 		cm := newTestCMClient(&now)
-		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 60*time.Second, log)
+		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 60*time.Second, nil, log)
 		assert.True(t, stop)
 		assert.NotNil(t, getBackupDelayTimestamp(ctx, cm, ns, name), "expected timestamp to remain set while delay is pending")
 	})
@@ -81,7 +81,7 @@ func TestApplyShardedClusterBackupEnableDelay(t *testing.T) {
 	t.Run("proceeds when timestamp is set and delay has elapsed", func(t *testing.T) {
 		past := metav1.NewTime(time.Now().UTC().Add(-10 * time.Second))
 		cm := newTestCMClient(&past)
-		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 5*time.Second, log)
+		_, stop := applyShardedClusterBackupEnableDelay(ctx, cm, ns, name, 5*time.Second, nil, log)
 		assert.False(t, stop)
 		assert.NotNil(t, getBackupDelayTimestamp(ctx, cm, ns, name), "expected timestamp to remain set until caller clears it after UpdateBackupConfig")
 	})

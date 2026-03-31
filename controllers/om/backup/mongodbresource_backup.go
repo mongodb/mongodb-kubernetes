@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -27,6 +28,7 @@ type ConfigReaderUpdater interface {
 	GetBackupSpec() *mdbv1.Backup
 	GetResourceType() mdbv1.ResourceType
 	GetResourceName() string
+	GetKind() string
 	v1.CustomResourceReadWriter
 }
 
@@ -114,6 +116,13 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater, backupEnableDelay time.Duration, cmClient configmap.GetUpdateCreateDeleter) (workflow.Status, []status.Option) {
 	delayConfigMapName := mdb.GetName() + BackupDelayConfigMapSuffix
 	ns := mdb.GetNamespace()
+	ownerRefs := []metav1.OwnerReference{
+		*metav1.NewControllerRef(mdb, schema.GroupVersionKind{
+			Group:   v1.SchemeGroupVersion.Group,
+			Version: v1.SchemeGroupVersion.Version,
+			Kind:    mdb.GetKind(),
+		}),
+	}
 	for _, config := range projectConfigs {
 		var result workflow.Status = workflow.OK()
 
@@ -192,7 +201,7 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 		}
 
 		if isShardedCluster && (desiredConfig.Status == Started && (config.Status == Inactive || config.Status == Stopped)) {
-			if s, stop := applyShardedClusterBackupEnableDelay(ctx, cmClient, ns, delayConfigMapName, backupEnableDelay, log); stop {
+			if s, stop := applyShardedClusterBackupEnableDelay(ctx, cmClient, ns, delayConfigMapName, backupEnableDelay, ownerRefs, log); stop {
 				return s, nil
 			}
 		}
@@ -233,13 +242,15 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 }
 
 // applyShardedClusterBackupEnableDelay enforces the backup enable delay for sharded clusters.
-func applyShardedClusterBackupEnableDelay(ctx context.Context, cmClient configmap.GetUpdateCreateDeleter, namespace, name string, backupEnableDelay time.Duration, log *zap.SugaredLogger) (workflow.Status, bool) {
+func applyShardedClusterBackupEnableDelay(ctx context.Context, cmClient configmap.GetUpdateCreateDeleter, namespace, name string, backupEnableDelay time.Duration, ownerRefs []metav1.OwnerReference, log *zap.SugaredLogger) (workflow.Status, bool) {
 	startTimestamp := getBackupDelayTimestamp(ctx, cmClient, namespace, name)
 	if startTimestamp == nil {
 		now := metav1.NewTime(time.Now().UTC())
 		remaining := remainingBackupEnableDelay(now.Time, backupEnableDelay)
 		if remaining > 0 {
-			setBackupDelayTimestamp(ctx, cmClient, namespace, name, &now, log)
+			if err := setBackupDelayTimestamp(ctx, cmClient, namespace, name, &now, ownerRefs); err != nil {
+				return workflow.Failed(err), true
+			}
 			return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), true
 		}
 	} else {
@@ -374,15 +385,14 @@ func getBackupDelayTimestamp(ctx context.Context, cmClient configmap.GetUpdateCr
 	return &mt
 }
 
-func setBackupDelayTimestamp(ctx context.Context, cmClient configmap.GetUpdateCreateDeleter, namespace, name string, t *metav1.Time, log *zap.SugaredLogger) {
+func setBackupDelayTimestamp(ctx context.Context, cmClient configmap.GetUpdateCreateDeleter, namespace, name string, t *metav1.Time, ownerRefs []metav1.OwnerReference) error {
 	cm := configmap.Builder().
 		SetName(name).
 		SetNamespace(namespace).
+		SetOwnerReferences(ownerRefs).
 		SetData(map[string]string{BackupDelayTimestampKey: t.UTC().Format(time.RFC3339)}).
 		Build()
-	if err := configmap.CreateOrUpdate(ctx, cmClient, cm); err != nil {
-		log.Errorf("failed to set backup delay configmap: %s", err)
-	}
+	return configmap.CreateOrUpdate(ctx, cmClient, cm)
 }
 
 func clearBackupDelayTimestamp(ctx context.Context, cmClient configmap.GetUpdateCreateDeleter, namespace, name string, log *zap.SugaredLogger) {

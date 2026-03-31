@@ -1443,6 +1443,18 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
 		assert.True(t, backupDelayTimestampSet(ctx, t, clusterClient, sc), "expected backup delay configmap to have timestamp set during backup enable delay")
 
+		// Fetch the delay ConfigMap and assert it has the correct owner reference pointing to sc.
+		cm := corev1.ConfigMap{}
+		require.NoError(t, clusterClient.Get(ctx, kube.ObjectKey(sc.Namespace, sc.Name+backup.BackupDelayConfigMapSuffix), &cm))
+		require.Len(t, cm.OwnerReferences, 1, "expected exactly one owner reference on backup delay ConfigMap")
+		ownerRef := cm.OwnerReferences[0]
+		assert.Equal(t, sc.Name, ownerRef.Name)
+		assert.Equal(t, sc.UID, ownerRef.UID)
+		assert.Equal(t, "MongoDB", ownerRef.Kind)
+		assert.Equal(t, v1.SchemeGroupVersion.String(), ownerRef.APIVersion)
+		assert.NotNil(t, ownerRef.Controller)
+		assert.True(t, *ownerRef.Controller)
+
 		// Wait for the backup start delay (3s configured in test fixtures) to elapse
 		time.Sleep(4 * time.Second)
 
