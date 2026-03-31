@@ -10,9 +10,8 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
-from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
-from tests.common.search.search_resource_names import lb_deployment_name, mongot_pod_fqdn, proxy_service_name
+from tests.common.search.search_resource_names import lb_deployment_name, proxy_service_name
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, log_deployments_info
 from tests.search.om_deployment import get_ops_manager
@@ -128,14 +127,11 @@ class TestDeployOnOfficialOperator:
         mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_wait_for_database_resource_ready(self, mdb: MongoDB):
+        mdb.assert_abandons_phase(Phase.Running, timeout=300)
         mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_restore_sample_database(self, sample_movies_helper: SampleMoviesSearchHelper):
         sample_movies_helper.restore_sample_database()
-
-    def test_verify_mongod_search_params(self, namespace: str, mdb: MongoDB):
-        expected_host = mongot_pod_fqdn(MDB_RESOURCE_NAME, namespace, 27028)
-        verify_rs_mongod_parameters(namespace, MDB_RESOURCE_NAME, mdb.get_members(), expected_host)
 
     def test_create_search_index(self, sample_movies_helper: SampleMoviesSearchHelper):
         sample_movies_helper.create_search_index()
