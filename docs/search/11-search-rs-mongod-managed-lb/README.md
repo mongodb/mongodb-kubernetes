@@ -21,38 +21,44 @@ You do NOT need to write Envoy configuration, deploy Envoy yourself, create prox
 ### Traffic Flow
 
 ```mermaid
-%%{init: {'theme': 'base'}}%%
+---
+config:
+  theme: base
+  themeVariables:
+    primaryColor: "#00684A"
+    primaryTextColor: "#fff"
+    primaryBorderColor: "#023430"
+    lineColor: "#00684A"
+    secondaryColor: "#E3FCF7"
+    tertiaryColor: "#F9FBFA"
+---
 graph TD
     subgraph k8s["Kubernetes Cluster"]
         subgraph mdb["Operator-Managed MongoDB Replica Set"]
-            rs0["<b>rs-0</b> mongod"]
-            rs1["<b>rs-1</b> mongod"]
-            rs2["<b>rs-2</b> mongod"]
+            rs0(["rs-0 mongod"])
+            rs1(["rs-1 mongod"])
+            rs2(["rs-2 mongod"])
         end
 
-        ps["<b>Proxy Service</b><br/><i>{name}-search-0-proxy-svc</i><br/>port 27028"]
-        envoy["<b>Envoy Proxy</b><br/><i>{name}-search-lb-0</i> Deployment"]
-        mongot["<b>mongot</b><br/><i>{name}-search</i> StatefulSet"]
+        ps["Proxy Service\nNAME-search-0-proxy-svc\nport 27028"]
+        envoy["Envoy Proxy\nNAME-search-lb-0 Deployment"]
+        mongot["mongot\nNAME-search StatefulSet"]
     end
 
-    rs0 -- "mTLS (server cert)" --> ps
-    rs1 -- "mTLS (server cert)" --> ps
-    rs2 -- "mTLS (server cert)" --> ps
+    rs0 -- "mTLS\nserver cert" --> ps
+    rs1 -- "mTLS\nserver cert" --> ps
+    rs2 -- "mTLS\nserver cert" --> ps
     ps --> envoy
-    envoy -- "mTLS (client cert)" --> mongot
+    envoy -- "mTLS\nclient cert" --> mongot
 
-    classDef mongod fill:#00684A,stroke:#023430,color:#fff
-    classDef mongot fill:#00ED64,stroke:#00684A,color:#023430
-    classDef envoyNode fill:#001E2B,stroke:#00684A,color:#fff
-    classDef svc fill:#E3FCF7,stroke:#00684A,color:#023430
-
-    class rs0,rs1,rs2 mongod
-    class mongot mongot
-    class envoy envoyNode
-    class ps svc
-
-    style k8s fill:#F9FBFA,stroke:#00684A,color:#023430
-    style mdb fill:#023430,stroke:#00684A,color:#fff
+    style rs0 fill:#00684A,stroke:#fff,color:#fff
+    style rs1 fill:#00684A,stroke:#fff,color:#fff
+    style rs2 fill:#00684A,stroke:#fff,color:#fff
+    style ps fill:#E3FCF7,stroke:#00684A,color:#023430
+    style envoy fill:#001E2B,stroke:#E3FCF7,color:#fff
+    style mongot fill:#00ED64,stroke:#023430,color:#023430
+    style k8s fill:#E8EDEB,stroke:#00684A,color:#023430
+    style mdb fill:#023430,stroke:#E3FCF7,color:#fff
 ```
 
 ## What You're Responsible For
@@ -150,19 +156,19 @@ Installs cert-manager for TLS certificate management. Skipped if already install
 Creates the cert-manager bootstrap chain needed before any certificates can be issued:
 
 ```mermaid
-%%{init: {'theme': 'base'}}%%
+---
+config:
+  theme: base
+---
 graph LR
-    A["Self-Signed<br/>ClusterIssuer"] -- signs --> B["CA Certificate<br/><i>isCA: true</i>"]
+    A["Self-Signed\nClusterIssuer"] -- signs --> B["CA Certificate\nisCA: true"]
     B -- stored in --> C["CA ClusterIssuer"]
-    C -- signs --> D["All other certs<br/><i>mongot, LB, mongod</i>"]
+    C -- signs --> D["All other certs\nmongot, LB, mongod"]
 
-    classDef issuer fill:#00684A,stroke:#023430,color:#fff
-    classDef cert fill:#00ED64,stroke:#00684A,color:#023430
-    classDef leaf fill:#E3FCF7,stroke:#00684A,color:#023430
-
-    class A,C issuer
-    class B cert
-    class D leaf
+    style A fill:#00684A,stroke:#fff,color:#fff
+    style B fill:#00ED64,stroke:#023430,color:#023430
+    style C fill:#00684A,stroke:#fff,color:#fff
+    style D fill:#E3FCF7,stroke:#00684A,color:#023430
 ```
 
 | cert-manager Object | Env Var | Purpose |

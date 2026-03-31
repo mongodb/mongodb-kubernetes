@@ -41,14 +41,14 @@ graph TD
     ps --> envoy
     envoy -- "mTLS\nclient cert" --> mongot
 
-    style rs0 fill:#00684A,stroke:#023430,color:#fff
-    style rs1 fill:#00684A,stroke:#023430,color:#fff
-    style rs2 fill:#00684A,stroke:#023430,color:#fff
+    style rs0 fill:#00684A,stroke:#fff,color:#fff
+    style rs1 fill:#00684A,stroke:#fff,color:#fff
+    style rs2 fill:#00684A,stroke:#fff,color:#fff
     style ps fill:#E3FCF7,stroke:#00684A,color:#023430
-    style envoy fill:#001E2B,stroke:#00684A,color:#fff
-    style mongot fill:#00ED64,stroke:#00684A,color:#023430
-    style ext fill:#023430,stroke:#00684A,color:#fff
-    style k8s fill:#F9FBFA,stroke:#00684A,color:#023430
+    style envoy fill:#001E2B,stroke:#E3FCF7,color:#fff
+    style mongot fill:#00ED64,stroke:#023430,color:#023430
+    style ext fill:#023430,stroke:#E3FCF7,color:#fff
+    style k8s fill:#E8EDEB,stroke:#00684A,color:#023430
 ```
 
 ## Prerequisites
@@ -116,19 +116,19 @@ Required for automated TLS certificate lifecycle. Skipped if already installed.
 Creates the cert-manager bootstrap chain and distributes the CA certificate to the target namespace:
 
 ```mermaid
-%%{init: {'theme': 'base'}}%%
+---
+config:
+  theme: base
+---
 graph LR
-    A["Self-Signed<br/>ClusterIssuer"] -- signs --> B["CA Certificate<br/><i>isCA: true</i>"]
+    A["Self-Signed\nClusterIssuer"] -- signs --> B["CA Certificate\nisCA: true"]
     B -- stored in --> C["CA ClusterIssuer"]
-    C -- signs --> D["All other certs<br/><i>mongot, LB, mongod</i>"]
+    C -- signs --> D["All other certs\nmongot, LB, mongod"]
 
-    classDef issuer fill:#00684A,stroke:#023430,color:#fff
-    classDef cert fill:#00ED64,stroke:#00684A,color:#023430
-    classDef leaf fill:#E3FCF7,stroke:#00684A,color:#023430
-
-    class A,C issuer
-    class B cert
-    class D leaf
+    style A fill:#00684A,stroke:#fff,color:#fff
+    style B fill:#00ED64,stroke:#023430,color:#023430
+    style C fill:#00684A,stroke:#fff,color:#fff
+    style D fill:#E3FCF7,stroke:#00684A,color:#023430
 ```
 
 The CA is distributed as both a ConfigMap (`ca-pem` key) and a Secret (`ca.crt` key) in the target namespace.

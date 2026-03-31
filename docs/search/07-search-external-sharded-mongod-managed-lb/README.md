@@ -18,46 +18,54 @@ You do NOT need to write Envoy configuration, deploy Envoy yourself, or create p
 ### Traffic Flow
 
 ```mermaid
-%%{init: {'theme': 'base'}}%%
+---
+config:
+  theme: base
+  themeVariables:
+    primaryColor: "#00684A"
+    primaryTextColor: "#fff"
+    primaryBorderColor: "#023430"
+    lineColor: "#00684A"
+    secondaryColor: "#E3FCF7"
+    tertiaryColor: "#F9FBFA"
+---
 graph TD
     subgraph ext["External MongoDB Cluster"]
-        mongos["<b>mongos</b><br/><i>query router</i>"]
-        s0["<b>shard-0</b> mongod"]
-        s1["<b>shard-1</b> mongod"]
+        mongos(["mongos\nquery router"])
+        s0(["shard-0 mongod"])
+        s1(["shard-1 mongod"])
     end
 
     subgraph k8s["Kubernetes Cluster"]
-        subgraph proxy["Per-Shard Proxy Services (port 27028)"]
-            ps0["<b>Proxy Service</b><br/><i>{name}-search-0-{shard0}-proxy-svc</i>"]
-            ps1["<b>Proxy Service</b><br/><i>{name}-search-0-{shard1}-proxy-svc</i>"]
+        subgraph proxy["Per-Shard Proxy Services · port 27028"]
+            ps0["Proxy Service\nNAME-search-0-SHARD0-proxy-svc"]
+            ps1["Proxy Service\nNAME-search-0-SHARD1-proxy-svc"]
         end
 
-        envoy["<b>Envoy Proxy</b><br/><i>{name}-search-lb-0</i> Deployment<br/>SNI-based routing"]
+        envoy["Envoy Proxy\nNAME-search-lb-0 Deployment\nSNI-based routing"]
 
-        m0["<b>mongot</b> shard-0<br/><i>{name}-search-0-{shard0}</i> StatefulSet"]
-        m1["<b>mongot</b> shard-1<br/><i>{name}-search-0-{shard1}</i> StatefulSet"]
+        m0["mongot shard-0\nNAME-search-0-SHARD0 StatefulSet"]
+        m1["mongot shard-1\nNAME-search-0-SHARD1 StatefulSet"]
     end
 
-    s0 -- "mTLS (server cert)" --> ps0
-    s1 -- "mTLS (server cert)" --> ps1
+    s0 -- "mTLS\nserver cert" --> ps0
+    s1 -- "mTLS\nserver cert" --> ps1
     ps0 --> envoy
     ps1 --> envoy
-    envoy -- "mTLS (client cert)" --> m0
-    envoy -- "mTLS (client cert)" --> m1
+    envoy -- "mTLS\nclient cert" --> m0
+    envoy -- "mTLS\nclient cert" --> m1
 
-    classDef mongod fill:#00684A,stroke:#023430,color:#fff
-    classDef mongot fill:#00ED64,stroke:#00684A,color:#023430
-    classDef envoyNode fill:#001E2B,stroke:#00684A,color:#fff
-    classDef svc fill:#E3FCF7,stroke:#00684A,color:#023430
-
-    class mongos,s0,s1 mongod
-    class m0,m1 mongot
-    class envoy envoyNode
-    class ps0,ps1 svc
-
-    style ext fill:#023430,stroke:#00684A,color:#fff
-    style k8s fill:#F9FBFA,stroke:#00684A,color:#023430
-    style proxy fill:none,stroke:#889397,stroke-dasharray:5 5
+    style mongos fill:#00684A,stroke:#fff,color:#fff
+    style s0 fill:#00684A,stroke:#fff,color:#fff
+    style s1 fill:#00684A,stroke:#fff,color:#fff
+    style ps0 fill:#E3FCF7,stroke:#00684A,color:#023430
+    style ps1 fill:#E3FCF7,stroke:#00684A,color:#023430
+    style envoy fill:#001E2B,stroke:#E3FCF7,color:#fff
+    style m0 fill:#00ED64,stroke:#023430,color:#023430
+    style m1 fill:#00ED64,stroke:#023430,color:#023430
+    style ext fill:#023430,stroke:#E3FCF7,color:#fff
+    style k8s fill:#E8EDEB,stroke:#00684A,color:#023430
+    style proxy fill:#F9FBFA,stroke:#889397,stroke-dasharray:5 5,color:#023430
 ```
 
 ### Why Per-Shard Routing?
@@ -142,19 +150,19 @@ Required for automated TLS certificate lifecycle. Skipped if already installed.
 Creates the cert-manager bootstrap chain needed before any certificates can be issued:
 
 ```mermaid
-%%{init: {'theme': 'base'}}%%
+---
+config:
+  theme: base
+---
 graph LR
-    A["Self-Signed<br/>ClusterIssuer"] -- signs --> B["CA Certificate<br/><i>isCA: true</i>"]
+    A["Self-Signed\nClusterIssuer"] -- signs --> B["CA Certificate\nisCA: true"]
     B -- stored in --> C["CA ClusterIssuer"]
-    C -- signs --> D["All other certs<br/><i>mongot, LB, mongod</i>"]
+    C -- signs --> D["All other certs\nmongot, LB, mongod"]
 
-    classDef issuer fill:#00684A,stroke:#023430,color:#fff
-    classDef cert fill:#00ED64,stroke:#00684A,color:#023430
-    classDef leaf fill:#E3FCF7,stroke:#00684A,color:#023430
-
-    class A,C issuer
-    class B cert
-    class D leaf
+    style A fill:#00684A,stroke:#fff,color:#fff
+    style B fill:#00ED64,stroke:#023430,color:#023430
+    style C fill:#00684A,stroke:#fff,color:#fff
+    style D fill:#E3FCF7,stroke:#00684A,color:#023430
 ```
 
 | cert-manager Object | Env Var | Purpose |
