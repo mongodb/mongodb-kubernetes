@@ -225,7 +225,7 @@ type ExternalShardConfig struct {
 }
 
 type ExternalMongodTLS struct {
-	// CA is a reference to a Secret containing the CA certificate that issued mongod's TLS certificate.
+	// CA is a reference to a ConfigMap containing the CA certificate that issued mongod's TLS certificate.
 	// The CA certificate is expected to be PEM encoded and available at the "ca.crt" key.
 	CA *corev1.LocalObjectReference `json:"ca"`
 }

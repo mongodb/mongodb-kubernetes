@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	corev1 "k8s.io/api/core/v1"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
@@ -380,7 +381,7 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		assert.NotNil(t, tlsConfig)
 		assert.Equal(t, "ca.crt", tlsConfig.CAFileName)
 		assert.Equal(t, "ca", tlsConfig.CAVolume.Name)
-		assert.Equal(t, "top-level-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
+		assert.Equal(t, "top-level-ca-secret", tlsConfig.CAVolume.ConfigMap.Name)
 		assert.NotNil(t, tlsConfig.ResourcesToWatch)
 	})
 
@@ -408,7 +409,7 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 
 		assert.NotNil(t, tlsConfig)
 		assert.Equal(t, "ca.crt", tlsConfig.CAFileName)
-		assert.Equal(t, "router-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
+		assert.Equal(t, "router-ca-secret", tlsConfig.CAVolume.ConfigMap.Name)
 	})
 
 	t.Run("Router TLS without top-level TLS", func(t *testing.T) {
@@ -429,7 +430,7 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		tlsConfig := src.TLSConfig()
 
 		assert.NotNil(t, tlsConfig)
-		assert.Equal(t, "router-only-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
+		assert.Equal(t, "router-only-ca-secret", tlsConfig.CAVolume.ConfigMap.Name)
 	})
 
 	t.Run("Falls back to top-level TLS when router TLS not specified", func(t *testing.T) {
@@ -447,6 +448,6 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		tlsConfig := src.TLSConfig()
 
 		assert.NotNil(t, tlsConfig)
-		assert.Equal(t, "fallback-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
+		assert.Equal(t, "fallback-ca-secret", tlsConfig.CAVolume.ConfigMap.Name)
 	})
 }
