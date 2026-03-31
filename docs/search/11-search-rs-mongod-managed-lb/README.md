@@ -315,7 +315,7 @@ Checks that the operator created the expected resources:
 | Service (headless) | `{name}-search-svc` | Stable DNS for mongot pods |
 
 ```bash
-./code_snippets/11_0326_verify_envoy_deployment.sh
+./code_snippets/11_0326_internal_verify_envoy_deployment.sh
 ```
 
 #### Step 20: Show Running Pods

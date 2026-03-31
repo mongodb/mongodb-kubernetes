@@ -82,7 +82,7 @@ run_for_output 07_0325_wait_for_search_resource.sh
 # ============================================================================
 
 # Verify operator-managed Envoy is deployed
-run_for_output 07_0326_verify_envoy_deployment.sh
+run_for_output 07_0326_internal_verify_envoy_deployment.sh
 
 # Show all running pods
 run_for_output 07_0330_show_running_pods.sh

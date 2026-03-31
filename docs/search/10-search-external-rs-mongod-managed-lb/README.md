@@ -216,7 +216,7 @@ Checks that the operator created the expected resources:
 | Service | `{name}-search-svc` | Headless service for mongot pods |
 
 ```bash
-./code_snippets/10_0326_verify_envoy_deployment.sh
+./code_snippets/10_0326_internal_verify_envoy_deployment.sh
 ```
 
 #### Step 11: Show Running Pods
