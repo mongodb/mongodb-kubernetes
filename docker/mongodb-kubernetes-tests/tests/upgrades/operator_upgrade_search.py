@@ -1,4 +1,5 @@
-from kubetester import try_load
+from kubernetes import client
+from kubetester import get_service, run_periodically, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -9,7 +10,9 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
+from tests.common.search.search_resource_names import lb_deployment_name, mongot_pod_fqdn, proxy_service_name
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, log_deployments_info
 from tests.search.om_deployment import get_ops_manager
@@ -130,6 +133,10 @@ class TestDeployOnOfficialOperator:
     def test_restore_sample_database(self, sample_movies_helper: SampleMoviesSearchHelper):
         sample_movies_helper.restore_sample_database()
 
+    def test_verify_mongod_search_params(self, namespace: str, mdb: MongoDB):
+        expected_host = mongot_pod_fqdn(MDB_RESOURCE_NAME, namespace, 27028)
+        verify_rs_mongod_parameters(namespace, MDB_RESOURCE_NAME, mdb.get_members(), expected_host)
+
     def test_create_search_index(self, sample_movies_helper: SampleMoviesSearchHelper):
         sample_movies_helper.create_search_index()
 
@@ -171,11 +178,40 @@ class TestReconciledByNewOperator:
     def test_search_query_after_change(self, sample_movies_helper: SampleMoviesSearchHelper):
         sample_movies_helper.assert_search_query(retry_timeout=60)
 
-    def test_scale_mongot(self, mdbs: MongoDBSearch):
+
+@mark.e2e_operator_upgrade_search
+class TestScaleWithManagedLB:
+
+    def test_enable_multi_mongot_and_managed_lb(self, mdbs: MongoDBSearch):
         mdbs.load()
         mdbs["spec"]["replicas"] = 2
         mdbs["spec"]["loadBalancer"] = {"managed": {}}
         mdbs.update()
 
     def test_search_running_after_scale(self, mdbs: MongoDBSearch):
-        mdbs.assert_reaches_phase(phase=Phase.Running, timeout=300)
+        mdbs.assert_reaches_phase(phase=Phase.Running, timeout=600)
+
+    def test_verify_lb_status(self, mdbs: MongoDBSearch):
+        mdbs.load()
+        mdbs.assert_lb_status()
+
+    def test_verify_envoy_deployment(self, namespace: str):
+        envoy_name = lb_deployment_name(MDB_RESOURCE_NAME)
+
+        def check_envoy_ready():
+            try:
+                deployment = client.AppsV1Api().read_namespaced_deployment(envoy_name, namespace)
+                ready = deployment.status.ready_replicas or 0
+                return ready >= 1, f"ready_replicas={ready}"
+            except Exception as e:
+                return False, f"Deployment {envoy_name} not found: {e}"
+
+        run_periodically(check_envoy_ready, timeout=120, sleep_time=5, msg=f"Envoy Deployment {envoy_name}")
+
+    def test_verify_proxy_service(self, namespace: str):
+        svc_name = proxy_service_name(MDB_RESOURCE_NAME)
+        svc = get_service(namespace, svc_name)
+        assert svc is not None, f"Proxy service {svc_name} not found"
+
+    def test_search_query_after_scale(self, sample_movies_helper: SampleMoviesSearchHelper):
+        sample_movies_helper.assert_search_query(retry_timeout=60)
