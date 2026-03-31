@@ -25,7 +25,8 @@ config:
     primaryColor: "#00684A"
     primaryTextColor: "#fff"
     primaryBorderColor: "#023430"
-    lineColor: "#00684A"
+    lineColor: "#023430"
+    edgeLabelBackground: "#fff"
     secondaryColor: "#E3FCF7"
     tertiaryColor: "#F9FBFA"
 ---
