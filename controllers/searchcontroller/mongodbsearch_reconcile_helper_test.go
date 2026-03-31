@@ -2311,3 +2311,45 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 		assert.Contains(t, cm.Data, MongotConfigFilename)
 	}
 }
+
+func TestCleanupStaleShardResources(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.UID = "search-uid"
+		s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}
+	})
+
+	proxySvc := func(shard string, owned bool) *corev1.Service {
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: search.ProxyServiceNameForShard(shard).Name, Namespace: "test-ns",
+				Labels: map[string]string{"component": proxyServiceComponent},
+			},
+			Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1", Ports: []corev1.ServicePort{{Port: 27028}}},
+		}
+		if owned {
+			svc.OwnerReferences = []metav1.OwnerReference{{UID: search.UID}}
+		} else {
+			svc.OwnerReferences = []metav1.OwnerReference{{}}
+			svc.OwnerReferences[0].UID = "other-uid"
+		}
+		return svc
+	}
+
+	fakeClient := newTestFakeClient(search,
+		proxySvc("shard-0", true),  // active, owned
+		proxySvc("shard-1", true),  // active, owned
+		proxySvc("shard-2", true),  // stale, owned
+		proxySvc("shard-x", false), // different owner
+	)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
+	require.NoError(t, helper.cleanupStaleShardResources(t.Context(), zap.S(), []string{"shard-0", "shard-1"}))
+
+	_, err := fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-0"))
+	assert.NoError(t, err, "active shard preserved")
+	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-1"))
+	assert.NoError(t, err, "active shard preserved")
+	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-2"))
+	assert.Error(t, err, "stale shard deleted")
+	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-x"))
+	assert.NoError(t, err, "different owner untouched")
+}
