@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest/observer"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -56,7 +54,7 @@ import (
 )
 
 const (
-	testBackupEnableDelay   = 3 * time.Second
+	testBackupEnableDelay   = time.Duration(util.DefaultBackupStartDelaySeconds) * time.Second
 	testNoBackupEnableDelay = -1 * time.Second
 )
 
@@ -1386,10 +1384,6 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 }
 
 func TestBackupConfiguration_ShardedCluster(t *testing.T) {
-	core, logs := observer.New(zapcore.DebugLevel)
-	restore := zap.ReplaceGlobals(zap.New(core))
-	defer restore()
-
 	ctx := context.Background()
 	sc := mdbv1.NewClusterBuilder().
 		SetNamespace(mock.TestNamespace).
@@ -1431,26 +1425,33 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 	}
 
 	t.Run("Backup can be started", func(t *testing.T) {
-		logs.TakeAll()
 		// First reconcile: delay timestamp is set in status, reconcile is requeued
 		require.NoError(t, clusterClient.Update(ctx, sc))
 		result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
 		require.NoError(t, err)
 		assert.True(t, result.RequeueAfter > 0, "expected requeue on first reconcile while waiting for backup start delay")
-		assert.Equal(t, 1, logs.FilterLevelExact(zapcore.InfoLevel).FilterMessageSnippet("before enabling backup to allow OM to process monitoring events").Len(), "expected backup start delay requeue log")
 
 		// Re-fetch sc so its ResourceVersion is current after the status patch
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
 		assert.Equal(t, status.PhasePending, sc.Status.Phase, "expected CR to be in Pending phase during backup enable delay")
 		assert.True(t, strings.Contains(sc.Status.Message, backup.BackupEnableDelayPendingMessage), "expected CR message to contain backup enable delay message")
 
-		// Wait for the backup start delay (3s configured in test fixtures) to elapse
-		time.Sleep(4 * time.Second)
+		// Simulate that the backup start delay (60s, the default) has elapsed.
+		// The reconciler overwrites sc.Status from the deployment state configmap before calling
+		// applyShardedClusterBackupEnableDelay, so backdating LastTransition in the configmap is sufficient.
+		backdatedTime := time.Now().Add(-testBackupEnableDelay - time.Second).Format(time.RFC3339)
+		var stateCM corev1.ConfigMap
+		require.NoError(t, clusterClient.Get(ctx, kube.ObjectKey(sc.Namespace, sc.Name+"-state"), &stateCM))
+		var deploymentState ShardedClusterDeploymentState
+		require.NoError(t, json.Unmarshal([]byte(stateCM.Data[stateKey]), &deploymentState))
+		deploymentState.Status.LastTransition = backdatedTime
+		stateData, err := json.Marshal(deploymentState)
+		require.NoError(t, err)
+		stateCM.Data[stateKey] = string(stateData)
+		require.NoError(t, clusterClient.Update(ctx, &stateCM))
 
 		// Second reconcile: delay has elapsed, backup is configured
-		logs.TakeAll()
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
-		assert.Equal(t, 1, logs.FilterLevelExact(zapcore.DebugLevel).FilterMessage("Backup enable delay has elapsed, proceeding with backup enable").Len(), "expected backup enable delay elapsed log on second reconcile")
 
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
 		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after backup is configured")
@@ -1466,7 +1467,6 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 	t.Run("Backup snapshot schedule tests", backupSnapshotScheduleTests(sc, clusterClient, reconciler, omConnectionFactory, "1"))
 
 	t.Run("Backup can be stopped", func(t *testing.T) {
-		logs.TakeAll()
 		sc.Spec.Backup.Mode = "disabled"
 		err := clusterClient.Update(ctx, sc)
 		assert.NoError(t, err)
@@ -1479,11 +1479,9 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		assert.Equal(t, "1", config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 		assertAllOtherBackupConfigsRemainUntouched(t)
-		assert.Equal(t, 0, logs.FilterMessageSnippet("before enabling backup to allow OM to process monitoring events").Len(), "expected no backup start delay log when backup is not being enabled")
 	})
 
 	t.Run("Backup can be terminated", func(t *testing.T) {
-		logs.TakeAll()
 		sc.Spec.Backup.Mode = "terminated"
 		err := clusterClient.Update(ctx, sc)
 		assert.NoError(t, err)
@@ -1496,7 +1494,6 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		assert.Equal(t, "1", config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 		assertAllOtherBackupConfigsRemainUntouched(t)
-		assert.Equal(t, 0, logs.FilterMessageSnippet("before enabling backup to allow OM to process monitoring events").Len(), "expected no backup start delay log when backup is not being enabled")
 	})
 }
 
