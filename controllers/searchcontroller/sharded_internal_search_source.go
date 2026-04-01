@@ -51,10 +51,10 @@ func (r *ShardedInternalSearchSource) HostSeeds(shardName string) ([]string, err
 	return seeds, nil
 }
 
-func (r *ShardedInternalSearchSource) MongosHostAndPort() string {
+func (r *ShardedInternalSearchSource) MongosHostsAndPorts() []string {
 	clusterDomain := r.Spec.GetClusterDomain()
 	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
-	return fmt.Sprintf("%s.%s.svc.%s:%d", r.ServiceName(), r.Namespace, clusterDomain, port)
+	return []string{fmt.Sprintf("%s.%s.svc.%s:%d", r.ServiceName(), r.Namespace, clusterDomain, port)}
 }
 
 func (r *ShardedInternalSearchSource) TLSConfig() *TLSSourceConfig {

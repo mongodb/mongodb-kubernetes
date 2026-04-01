@@ -4437,30 +4437,6 @@ spec:
                                   type: string
                                 minItems: 1
                                 type: array
-                              tls:
-                                description: TLS configuration specific to the router.
-                                  If not specified, falls back to the top-level external.tls
-                                  config.
-                                properties:
-                                  ca:
-                                    description: |-
-                                      CA is a reference to a Secret containing the CA certificate that issued mongod's TLS certificate.
-                                      The CA certificate is expected to be PEM encoded and available at the "ca.crt" key.
-                                    properties:
-                                      name:
-                                        default: ""
-                                        description: |-
-                                          Name of the referent.
-                                          This field is effectively required, but due to backwards compatibility is
-                                          allowed to be empty. Instances of this type with an empty value here are
-                                          almost certainly wrong.
-                                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                        type: string
-                                    type: object
-                                    x-kubernetes-map-type: atomic
-                                required:
-                                - ca
-                                type: object
                             required:
                             - hosts
                             type: object

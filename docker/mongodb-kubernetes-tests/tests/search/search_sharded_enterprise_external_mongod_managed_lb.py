@@ -62,7 +62,7 @@ MDB_RESOURCE_NAME = "mdb-sh"  # MongoDB resource
 MDBS_RESOURCE_NAME = "mdb-sh-search"  # MongoDBSearch resource (different name since external)
 SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
-MONGOS_COUNT = 1
+MONGOS_COUNT = 3
 CONFIG_SERVER_COUNT = 1
 
 # TLS configuration
@@ -81,17 +81,20 @@ def helper(namespace: str) -> SearchDeploymentHelper:
         namespace=namespace,
         mdb_resource_name=MDB_RESOURCE_NAME,
         mdbs_resource_name=MDBS_RESOURCE_NAME,
+        mongos_count=MONGOS_COUNT,
     )
 
 
 @fixture(scope="function")
 def mdb(namespace: str, sharded_ca_configmap: str, helper: SearchDeploymentHelper) -> MongoDB:
-    return helper.create_sharded_mdb(
+    resource = helper.create_sharded_mdb(
         mongot_host_fn=lambda shard: search_resource_names.shard_proxy_service_host(
             MDBS_RESOURCE_NAME, shard, namespace, ENVOY_PROXY_PORT
         ),
         set_tls_ca=True,
     )
+    resource["spec"]["mongosCount"] = MONGOS_COUNT
+    return resource
 
 
 @fixture(scope="function")
