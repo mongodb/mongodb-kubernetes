@@ -63,24 +63,16 @@ func (r *ShardedExternalSearchSource) Validate() error {
 }
 
 func (r *ShardedExternalSearchSource) TLSConfig() *TLSSourceConfig {
-	// Prioritize router-specific TLS if present, otherwise fall back to top-level TLS
-	var tlsConfig *searchv1.ExternalMongodTLS
-	if r.spec.ShardedCluster != nil && r.spec.ShardedCluster.Router.TLS != nil {
-		tlsConfig = r.spec.ShardedCluster.Router.TLS
-	} else if r.spec.TLS != nil {
-		tlsConfig = r.spec.TLS
-	}
-
-	if tlsConfig == nil {
+	if r.spec.TLS == nil {
 		return nil
 	}
 
 	return &TLSSourceConfig{
 		CAFileName: tlsCACertName,
-		CAVolume:   statefulset.CreateVolumeFromSecret("ca", tlsConfig.CA.Name),
+		CAVolume:   statefulset.CreateVolumeFromSecret("ca", r.spec.TLS.CA.Name),
 		ResourcesToWatch: map[watch.Type][]types.NamespacedName{
 			watch.Secret: {
-				{Namespace: r.namespace, Name: tlsConfig.CA.Name},
+				{Namespace: r.namespace, Name: r.spec.TLS.CA.Name},
 			},
 		},
 	}
@@ -126,11 +118,11 @@ func (r *ShardedExternalSearchSource) HostSeeds(shardName string) ([]string, err
 	return r.spec.ShardedCluster.Shards[shardIndex].Hosts, nil
 }
 
-func (r *ShardedExternalSearchSource) MongosHostAndPort() string {
+func (r *ShardedExternalSearchSource) MongosHostsAndPorts() []string {
 	if r.spec.ShardedCluster == nil || len(r.spec.ShardedCluster.Router.Hosts) == 0 {
-		return ""
+		return nil
 	}
-	return r.spec.ShardedCluster.Router.Hosts[0]
+	return r.spec.ShardedCluster.Router.Hosts
 }
 
 // GetUnmanagedLBEndpointForShard returns an empty string for external sharded sources

@@ -783,7 +783,7 @@ func createMongotConfigForShard(search *searchv1.MongoDBSearch, hostSeeds []stri
 		baseMongotConfig(search, hostSeeds)(config)
 
 		config.SyncSource.Router = &mongot.ConfigRouter{
-			HostAndPort:  shardedSource.MongosHostAndPort(),
+			HostAndPort:  shardedSource.MongosHostsAndPorts(),
 			Username:     search.SourceUsername(),
 			PasswordFile: TempSourceUserPasswordPath,
 			TLS:          ptr.To(false),
