@@ -12,7 +12,10 @@ from kubetester import create_or_update_secret, get_pod_when_ready
 from kubetester.helm import helm_install_from_chart
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
+from tests import test_logger
 from tests.conftest import is_multi_cluster
+
+logger = test_logger.get_test_logger(__name__)
 
 MINIO_OPERATOR = "minio-operator"
 MINIO_TENANT = "minio-tenant"
@@ -124,9 +127,9 @@ def _create_minio_buckets(
     secret_key: str = "minio123",
     timeout: int = 120,
     interval: int = 5,
-    issuer_ca_filepath: Optional[str] = os.getenv("MINIO_ISSUER_CA_FILEPATH", None),
+    issuer_ca_filepath: Optional[str] = None,
 ) -> None:
-    """Ensure MinIO buckets exist via S3 API (create if missing). Uses test CA when tenant has custom TLS."""
+    """Ensure MinIO buckets exist via S3 API (create each; already-exists is treated as success). Uses test CA when tenant has custom TLS."""
     s3 = boto3.client(
         "s3",
         endpoint_url=f"https://{endpoint}",
@@ -143,18 +146,26 @@ def _create_minio_buckets(
             if bucket in ready:
                 continue
             try:
-                s3.head_bucket(Bucket=bucket)
+                s3.create_bucket(Bucket=bucket)
                 ready.add(bucket)
-            except ClientError as e:
-                if e.response["Error"].get("Code") in ("404", "NoSuchBucket"):
-                    try:
-                        s3.create_bucket(Bucket=bucket)
-                        ready.add(bucket)
-                    except ClientError as ce:
-                        if ce.response["Error"].get("Code") == "BucketAlreadyOwnedByYou":
-                            ready.add(bucket)
-            except Exception:
-                pass  # MinIO not ready (connection/SSL), retry
+            except ClientError as ce:
+                # boto3 ClientError.response: ResponseMetadata.HTTPStatusCode, Error.Code
+                # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/error-handling.html
+                # MinIO/S3 use HTTP 409 for bucket-already-exists.
+                status_code = ce.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                message_code = ce.response.get("Error", {}).get("Code", "")
+                logger.debug(
+                    "MinIO bucket %s create: HTTP %s, Code=%s, %s",
+                    bucket,
+                    status_code,
+                    message_code,
+                    ce,
+                )
+                if status_code == 409:
+                    ready.add(bucket)
+            except Exception as e:
+                logger.debug("MinIO bucket create failed for %s (will retry): %s", bucket, e)
+                # MinIO not ready (connection/SSL) or transient S3 errors, retry
         if ready >= target:
             return
         time.sleep(interval)
