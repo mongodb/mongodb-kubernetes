@@ -14,6 +14,7 @@ The `MongoDBSearch` CRD now supports scaling search workloads across multiple mo
 - x509 client certificate authentication for mongot-to-mongod connections via `spec.source.x509`, as an alternative to username/password.
 - Custom JVM flags for mongot via `spec.jvmFlags` (e.g., `-Xms`, `-Xmx`). The operator auto-calculates heap size when not specified.
 - Convention-based TLS secret naming via `spec.security.tls.certsSecretPrefix`, replacing the single secret reference (required for sharded clusters).
+- Updated the default `mongodb/mongodb-search` image version to `0.64.0`. This is the version of search that MCK uses if `.spec.version` is not specified in the `MongoDBSearch` resource.
 
 <!-- TODO: put correct link -->
 For configuration examples and the full API reference, see the [MongoDBSearch documentation](link-to-docs).
