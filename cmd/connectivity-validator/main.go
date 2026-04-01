@@ -14,9 +14,13 @@ import (
 func main() {
 	_, _ = fmt.Fprintf(os.Stdout, "connectivity-validator starting\n")
 
-	// All logs to stdout. Console encoder is readable in kubectl logs; use ProductionEncoderConfig() for JSON.
-	encoder := zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())
-	core := zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), zapcore.DebugLevel)
+	encCfg := zap.NewProductionEncoderConfig()
+	encCfg.EncodeTime = zapcore.ISO8601TimeEncoder
+	core := zapcore.NewCore(
+		zapcore.NewJSONEncoder(encCfg),
+		zapcore.AddSync(os.Stdout),
+		zapcore.DebugLevel, // connectivitycheck logs diagnostics at debug
+	)
 	logger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
 	defer func() { _ = logger.Sync() }()
 	zap.ReplaceGlobals(logger) // validator package uses zap.S()

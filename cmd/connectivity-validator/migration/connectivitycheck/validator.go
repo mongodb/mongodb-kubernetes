@@ -20,14 +20,15 @@ import (
 
 // Exit codes returned by Validate. Mirrored in pkg/migration/exitcodes.go for operator use.
 const (
-	ExitSuccess           = 0
-	ExitUnknown           = 1
-	ExitAuthFailed        = 2
-	ExitRoleNotFound      = 3
-	ExitMemberUnreachable = 4
-	ExitDNSFailed         = 5
-	ExitTLSFailed         = 6
+	ExitSuccess       = 0
+	ExitUnknown       = 1
+	ExitAuthFailed    = 2 // credentials rejected or __system@local role missing
+	ExitNetworkFailed = 3 // DNS, TLS, timeouts, unreachable members
 )
+
+// mongodbErrAuthenticationFailed is MongoDB server error code AuthenticationFailed.
+// https://www.mongodb.com/docs/manual/reference/error-codes/
+const mongodbErrAuthenticationFailed int32 = 18
 
 // Config holds all inputs the validator needs; populated from env vars in main.go.
 type Config struct {
@@ -56,14 +57,8 @@ func ExitCodeName(code int) string {
 		return "Unknown"
 	case ExitAuthFailed:
 		return "AuthFailed"
-	case ExitRoleNotFound:
-		return "RoleNotFound"
-	case ExitMemberUnreachable:
-		return "MemberUnreachable"
-	case ExitDNSFailed:
-		return "DNSFailed"
-	case ExitTLSFailed:
-		return "TLSFailed"
+	case ExitNetworkFailed:
+		return "NetworkFailed"
 	default:
 		return fmt.Sprintf("Exit%d", code)
 	}
@@ -116,8 +111,8 @@ func Validate(ctx context.Context, cfg Config) int {
 	// When auth is disabled (no AuthMechanism) skip this check so local/dev runs can validate reachability.
 	if cfg.AuthMechanism != "" {
 		if !hasSystemRole(ctx, client) {
-			log.Warnw("__system@local role not found", "exitCode", ExitRoleNotFound, "exitCodeName", ExitCodeName(ExitRoleNotFound))
-			return ExitRoleNotFound
+			log.Warnw("__system@local role not found", "exitCode", ExitAuthFailed, "exitCodeName", ExitCodeName(ExitAuthFailed))
+			return ExitAuthFailed
 		}
 		log.Debugw("__system@local role verified")
 	}
@@ -305,55 +300,49 @@ func classifyError(err error) int {
 				}
 			}
 		}
-		return ExitMemberUnreachable
+		return ExitNetworkFailed
 	}
 	code := classifyConnectionError(err)
 	log.Debugw("Classified error", "error", err, "errorType", fmt.Sprintf("%T", err), "exitCode", code)
 	return code
 }
 
-// classifyConnectionError classifies a ConnectionError or its inner cause.
+// classifyConnectionError maps the error tree to an exit code.
 func classifyConnectionError(err error) int {
 	if err == nil {
 		return ExitSuccess
 	}
 	log := zap.S()
-	// ConnectionError.Wrapped holds the actual cause (net.OpError, x509 error, etc.).
-	var connErr topology.ConnectionError
-	if errors.As(err, &connErr) {
-		log.Debugw("Unwrapping ConnectionError", "wrapped", connErr.Wrapped)
-		return classifyConnectionError(connErr.Wrapped)
-	}
+	// DNS implements net.Error; check DNS before net.Error.
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		log.Debugw("Classified as DNS error", "err", dnsErr)
-		return ExitDNSFailed
+		return ExitNetworkFailed
 	}
-	var certInvalidErr x509.CertificateInvalidError
-	if errors.As(err, &certInvalidErr) {
-		log.Debugw("Classified as cert invalid", "reason", certInvalidErr.Reason)
-		return ExitTLSFailed
+	var certInvalid x509.CertificateInvalidError
+	if errors.As(err, &certInvalid) {
+		log.Debugw("Classified as cert invalid", "reason", certInvalid.Reason)
+		return ExitNetworkFailed
 	}
-	var unknownAuthorityErr x509.UnknownAuthorityError
-	if errors.As(err, &unknownAuthorityErr) {
+	var unknownAuthority x509.UnknownAuthorityError
+	if errors.As(err, &unknownAuthority) {
 		log.Debugw("Classified as unknown authority")
-		return ExitTLSFailed
+		return ExitNetworkFailed
 	}
-	// Auth failures during connection handshake surface as driver.Error (not mongo.CommandError).
 	var drvErr driver.Error
-	if errors.As(err, &drvErr) && drvErr.Code == 18 {
+	if errors.As(err, &drvErr) && drvErr.Code == mongodbErrAuthenticationFailed {
 		log.Debugw("Classified as auth failed (driver)", "code", drvErr.Code)
 		return ExitAuthFailed
 	}
 	var cmdErr mongo.CommandError
-	if errors.As(err, &cmdErr) && cmdErr.Code == 18 {
+	if errors.As(err, &cmdErr) && cmdErr.Code == mongodbErrAuthenticationFailed {
 		log.Debugw("Classified as auth failed (command)", "code", cmdErr.Code)
 		return ExitAuthFailed
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		log.Debugw("Classified as network error", "timeout", netErr.Timeout(), "temporary", netErr.Temporary())
-		return ExitMemberUnreachable
+		return ExitNetworkFailed
 	}
 	log.Debugw("Unclassified error", "error", err, "type", fmt.Sprintf("%T", err))
 	return ExitUnknown

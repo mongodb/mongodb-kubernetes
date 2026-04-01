@@ -13,8 +13,8 @@ import (
 func TestClassifyConnectionError_TLS(t *testing.T) {
 	wrap := func(inner error) error { return topology.ConnectionError{Wrapped: inner} }
 
-	assert.Equal(t, ExitTLSFailed, classifyConnectionError(wrap(x509.UnknownAuthorityError{})))
-	assert.Equal(t, ExitTLSFailed, classifyConnectionError(wrap(x509.CertificateInvalidError{Reason: x509.Expired})))
+	assert.Equal(t, ExitNetworkFailed, classifyConnectionError(wrap(x509.UnknownAuthorityError{})))
+	assert.Equal(t, ExitNetworkFailed, classifyConnectionError(wrap(x509.CertificateInvalidError{Reason: x509.Expired})))
 }
 
 // These tests make real network calls but require no Docker or external services.
@@ -25,7 +25,7 @@ func TestValidate_DNSFailed_ConnectionString(t *testing.T) {
 		AuthMechanism:    "SCRAM-SHA-256",
 		KeyfilePath:      "/dev/null",
 	}
-	assert.Equal(t, ExitDNSFailed, Validate(context.Background(), cfg))
+	assert.Equal(t, ExitNetworkFailed, Validate(context.Background(), cfg))
 }
 
 func TestValidate_MemberUnreachable(t *testing.T) {
@@ -34,5 +34,5 @@ func TestValidate_MemberUnreachable(t *testing.T) {
 		AuthMechanism:    "SCRAM-SHA-256",
 		KeyfilePath:      "/dev/null",
 	}
-	assert.Equal(t, ExitMemberUnreachable, Validate(context.Background(), cfg))
+	assert.Equal(t, ExitNetworkFailed, Validate(context.Background(), cfg))
 }

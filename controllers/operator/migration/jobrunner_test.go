@@ -135,7 +135,7 @@ func TestRunConnectivityJob_StateMachine_JobFailedRecentReturnsFailedNoReplace(t
 				Name: "connectivity-validator",
 				State: corev1.ContainerState{
 					Terminated: &corev1.ContainerStateTerminated{
-						ExitCode:   migration.ExitMemberUnreachable,
+						ExitCode:   migration.ExitNetworkFailed,
 						FinishedAt: metav1.NewTime(now.Add(-1 * time.Minute)),
 					},
 				},
@@ -149,7 +149,7 @@ func TestRunConnectivityJob_StateMachine_JobFailedRecentReturnsFailedNoReplace(t
 
 	assert.NoError(t, result.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckFailed, result.Phase)
-	assert.Equal(t, "MemberUnreachable", result.Reason)
+	assert.Equal(t, "NetworkFailed", result.Reason)
 	opt := conditionFromResult(result)
 	c := opt.(mdbstatus.MigrationConditionOption).Condition
 	assert.Equal(t, metav1.ConditionFalse, c.Status, "condition: False when failed")
@@ -236,7 +236,7 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles_Failure(t *testing.T
 				Name: "connectivity-validator",
 				State: corev1.ContainerState{
 					Terminated: &corev1.ContainerStateTerminated{
-						ExitCode:   migration.ExitMemberUnreachable,
+						ExitCode:   migration.ExitNetworkFailed,
 						FinishedAt: metav1.NewTime(now.Add(-1 * time.Minute)),
 					},
 				},
@@ -251,7 +251,7 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles_Failure(t *testing.T
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckFailed, r2.Phase, "reconcile 2: Failed when job failed recently")
 	c2 := conditionFromResult(r2).(mdbstatus.MigrationConditionOption).Condition
 	assert.Equal(t, metav1.ConditionFalse, c2.Status)
-	assert.Equal(t, "MemberUnreachable", r2.Reason)
+	assert.Equal(t, "NetworkFailed", r2.Reason)
 
 	// Simulate TTL: Job was deleted by Kubernetes after it finished. Next reconcile will create a new one.
 	require.NoError(t, kubeClient.Get(ctx, client.ObjectKeyFromObject(template), &job))

@@ -492,7 +492,7 @@ func TestUpdateStatus_MigrationConditionReplacesByType(t *testing.T) {
 
 	m.Generation = 2
 	m.UpdateStatus(status.PhasePending, status.NewMigrationConditionOption(status.MigrationCondition(
-		status.MigrationPhaseConnectivityCheckFailed, "MemberUnreachable", "second",
+		status.MigrationPhaseConnectivityCheckFailed, "NetworkFailed", "second",
 	)))
 	assert.Len(t, m.Status.Conditions, 1)
 	assert.Equal(t, "second", m.Status.Conditions[0].Message)

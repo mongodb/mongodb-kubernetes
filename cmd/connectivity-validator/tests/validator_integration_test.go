@@ -147,7 +147,7 @@ func TestValidate_SingleMongod(t *testing.T) {
 			AuthMechanism:    "SCRAM-SHA-256",
 			KeyfilePath:      tempKeyfile(t, keyfileBody),
 		}
-		assert.Equal(t, connectivitycheck.ExitMemberUnreachable, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, connectivitycheck.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg))
 	})
 
 	t.Run("DNSFailed_ExternalMember", func(t *testing.T) {
@@ -157,7 +157,7 @@ func TestValidate_SingleMongod(t *testing.T) {
 			AuthMechanism:    "SCRAM-SHA-256",
 			KeyfilePath:      tempKeyfile(t, keyfileBody),
 		}
-		assert.Equal(t, connectivitycheck.ExitDNSFailed, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, connectivitycheck.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg))
 	})
 }
 
