@@ -1441,19 +1441,8 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 		// Re-fetch sc so its ResourceVersion is current after the status patch
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
-		assert.True(t, backupDelayTimestampSet(ctx, t, clusterClient, sc), "expected backup delay configmap to have timestamp set during backup enable delay")
-
-		// Fetch the delay ConfigMap and assert it has the correct owner reference pointing to sc.
-		cm := corev1.ConfigMap{}
-		require.NoError(t, clusterClient.Get(ctx, kube.ObjectKey(sc.Namespace, sc.Name+backup.BackupDelayConfigMapSuffix), &cm))
-		require.Len(t, cm.OwnerReferences, 1, "expected exactly one owner reference on backup delay ConfigMap")
-		ownerRef := cm.OwnerReferences[0]
-		assert.Equal(t, sc.Name, ownerRef.Name)
-		assert.Equal(t, sc.UID, ownerRef.UID)
-		assert.Equal(t, "MongoDB", ownerRef.Kind)
-		assert.Equal(t, v1.SchemeGroupVersion.String(), ownerRef.APIVersion)
-		assert.NotNil(t, ownerRef.Controller)
-		assert.True(t, *ownerRef.Controller)
+		assert.Equal(t, status.PhasePending, sc.Status.Phase, "expected CR to be in Pending phase during backup enable delay")
+		assert.True(t, strings.Contains(sc.Status.Message, backup.BackupEnableDelayPendingMessage), "expected CR message to contain backup enable delay message")
 
 		// Wait for the backup start delay (3s configured in test fixtures) to elapse
 		time.Sleep(4 * time.Second)
@@ -1465,7 +1454,6 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
 		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after backup is configured")
-		assert.False(t, backupDelayTimestampSet(ctx, t, clusterClient, sc), "expected backup delay configmap to be cleared after backup is configured")
 
 		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
 		assert.NoError(t, err)
@@ -1512,7 +1500,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 	})
 }
 
-func TestBackupConfiguration_ShardedCluster_TimestampClearedWhenBackupDisabledDuringDelay(t *testing.T) {
+func TestBackupConfiguration_ShardedCluster_DelayStateResetWhenBackupDisabledDuringDelay(t *testing.T) {
 	ctx := context.Background()
 	sc := mdbv1.NewClusterBuilder().
 		SetNamespace(mock.TestNamespace).
@@ -1542,20 +1530,22 @@ func TestBackupConfiguration_ShardedCluster_TimestampClearedWhenBackupDisabledDu
 		}
 	})
 
-	// First reconcile: delay is pending, timestamp is set.
+	// First reconcile: delay is pending, CR enters Pending phase with delay message.
 	require.NoError(t, clusterClient.Update(ctx, sc))
 	result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
 	require.NoError(t, err)
 	assert.True(t, result.RequeueAfter > 0, "expected requeue while waiting for backup start delay")
 
 	require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
-	assert.True(t, backupDelayTimestampSet(ctx, t, clusterClient, sc), "expected timestamp to be set during delay")
+	assert.Equal(t, status.PhasePending, sc.Status.Phase, "expected CR to be Pending during delay")
+	assert.True(t, strings.Contains(sc.Status.Message, backup.BackupEnableDelayPendingMessage), "expected delay message to be set")
 
 	// User disables backup while delay is still pending.
 	sc.Spec.Backup.Mode = "disabled"
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
 
-	assert.False(t, backupDelayTimestampSet(ctx, t, clusterClient, sc), "expected timestamp to be cleared when backup is disabled during delay")
+	require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
+	assert.NotEqual(t, backup.BackupEnableDelayPendingMessage, sc.Status.Message, "expected delay message to be cleared when backup is disabled during delay")
 }
 
 func TestBackupConfiguration_ShardedCluster_NegativeDelay(t *testing.T) {
@@ -1595,19 +1585,6 @@ func TestBackupConfiguration_ShardedCluster_NegativeDelay(t *testing.T) {
 	config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
 	require.NoError(t, err)
 	assert.Equal(t, backup.Started, config.Status)
-
-	assert.False(t, backupDelayTimestampSet(ctx, t, kubeClient, sc), "expected backup delay configmap to be empty when delay is negative")
-}
-
-// backupDelayTimestampSet returns true if the backup delay ConfigMap for sc has the startTimestamp key set.
-func backupDelayTimestampSet(ctx context.Context, t *testing.T, client kubernetesClient.Client, sc *mdbv1.MongoDB) bool {
-	t.Helper()
-	cm := corev1.ConfigMap{}
-	if err := client.Get(ctx, kube.ObjectKey(sc.Namespace, sc.Name+backup.BackupDelayConfigMapSuffix), &cm); err != nil {
-		return false
-	}
-	_, ok := cm.Data[backup.BackupDelayTimestampKey]
-	return ok
 }
 
 // createShardedClusterTLSSecretsFromCustomCerts creates and populates all the required

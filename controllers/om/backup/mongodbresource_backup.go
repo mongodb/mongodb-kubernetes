@@ -4,14 +4,12 @@ import (
 	"context"
 	"math"
 	"reflect"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -20,7 +18,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -32,9 +29,15 @@ type ConfigReaderUpdater interface {
 	v1.CustomResourceReadWriter
 }
 
+// commonStatusReader is a narrow interface used by applyShardedClusterBackupEnableDelay to read the
+// current CR status without depending on the full ConfigReaderUpdater.
+type commonStatusReader interface {
+	GetCommonStatus(...status.Option) *status.Common
+}
+
 // EnsureBackupConfigurationInOpsManager updates the backup configuration based on the MongoDB resource
 // specification.
-func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger, backupEnableDelay time.Duration, cmClient configmap.GetUpdateCreateDeleter) (workflow.Status, []status.Option) {
+func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger, backupEnableDelay time.Duration) (workflow.Status, []status.Option) {
 	if mdb.GetBackupSpec() == nil {
 		return workflow.OK(), nil
 	}
@@ -57,7 +60,7 @@ func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReader
 		return workflow.Failed(err), nil
 	}
 
-	return ensureBackupConfigStatuses(ctx, mdb, projectConfigs, desiredConfig, log, configReadUpdater, backupEnableDelay, cmClient)
+	return ensureBackupConfigStatuses(mdb, projectConfigs, desiredConfig, log, configReadUpdater, backupEnableDelay)
 }
 
 func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, reader GroupConfigReader, updater GroupConfigUpdater) error {
@@ -112,17 +115,7 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 }
 
 // ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.
-// See CLOUDP-389867.
-func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater, backupEnableDelay time.Duration, cmClient configmap.GetUpdateCreateDeleter) (workflow.Status, []status.Option) {
-	delayConfigMapName := mdb.GetName() + BackupDelayConfigMapSuffix
-	ns := mdb.GetNamespace()
-	ownerRefs := []metav1.OwnerReference{
-		*metav1.NewControllerRef(mdb, schema.GroupVersionKind{
-			Group:   v1.SchemeGroupVersion.Group,
-			Version: v1.SchemeGroupVersion.Version,
-			Kind:    mdb.GetKind(),
-		}),
-	}
+func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater, backupEnableDelay time.Duration) (workflow.Status, []status.Option) {
 	for _, config := range projectConfigs {
 		var result workflow.Status = workflow.OK()
 
@@ -149,11 +142,6 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 		// Status: 409 (Conflict), ErrorCode: CANNOT_MODIFY_SHARD_BACKUP_CONFIG, Detail: Cannot modify backup configuration for individual shard; use cluster ID 611a63f668d22f4e2e62c2e3 for entire cluster.
 		if !shouldUpdateBackupConfiguration {
 			continue
-		}
-
-		// If backup is not being enabled for a sharded cluster, clear any pending delay timestamp immediately.
-		if isShardedCluster && desiredConfig.Status != Started {
-			clearBackupDelayTimestamp(ctx, cmClient, ns, delayConfigMapName, log)
 		}
 
 		// config.Status        = current backup status in OM
@@ -190,18 +178,14 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 
 		if desiredConfig.Status == config.Status {
 			log.Debug("Config is already in the desired state, not updating configuration")
-
 			// we are already in the desired state, nothing to change
 			// if we attempt to send the desired state again we get
 			// CANNOT_START_BACKUP_INVALID_STATE: Cannot start backup unless the cluster is in the INACTIVE or STOPPED state.
-			if isShardedCluster {
-				clearBackupDelayTimestamp(ctx, cmClient, ns, delayConfigMapName, log)
-			}
 			continue
 		}
 
 		if isShardedCluster && (desiredConfig.Status == Started && (config.Status == Inactive || config.Status == Stopped)) {
-			if s, stop := applyShardedClusterBackupEnableDelay(ctx, cmClient, ns, delayConfigMapName, backupEnableDelay, ownerRefs, log); stop {
+			if s, stop := applyShardedClusterBackupEnableDelay(mdb, backupEnableDelay, log); stop {
 				return s, nil
 			}
 		}
@@ -223,9 +207,6 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 		}
 
 		log.Debugf("Backup has reached the desired state of %s", desiredConfig.Status)
-		if isShardedCluster {
-			clearBackupDelayTimestamp(ctx, cmClient, ns, delayConfigMapName, log)
-		}
 
 		// second run for cases when backup was inactive (see comment above)
 		if err := updateSnapshotSchedule(mdb.GetBackupSpec().SnapshotSchedule, configReadUpdater, desiredConfig, log); err != nil {
@@ -243,29 +224,32 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 	return workflow.OK(), nil
 }
 
-// applyShardedClusterBackupEnableDelay enforces the backup enable delay for sharded clusters.
-func applyShardedClusterBackupEnableDelay(ctx context.Context, cmClient configmap.GetUpdateCreateDeleter, namespace, name string, backupEnableDelay time.Duration, ownerRefs []metav1.OwnerReference, log *zap.SugaredLogger) (workflow.Status, bool) {
-	startTimestamp := getBackupDelayTimestamp(ctx, cmClient, namespace, name)
-	if startTimestamp == nil {
-		now := metav1.NewTime(time.Now().UTC())
-		remaining := remainingBackupEnableDelay(now.Time, backupEnableDelay)
-		if remaining > 0 {
-			if err := setBackupDelayTimestamp(ctx, cmClient, namespace, name, &now, ownerRefs); err != nil {
-				return workflow.Failed(err), true
-			}
-			return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), true
+// applyShardedClusterBackupEnableDelay waits before enabling backup for sharded clusters.
+// It uses the CR's LastTransition timestamp to measure elapsed time across reconciles.
+// See CLOUDP-389867.
+func applyShardedClusterBackupEnableDelay(mdb commonStatusReader, backupEnableDelay time.Duration, log *zap.SugaredLogger) (workflow.Status, bool) {
+	if backupEnableDelay <= 0 {
+		return workflow.OK(), false
+	}
+
+	commonStatus := mdb.GetCommonStatus()
+	if commonStatus.Phase == status.PhasePending && strings.Contains(commonStatus.Message, BackupEnableDelayPendingMessage) {
+		// Already in waiting state — check whether the delay has elapsed using LastTransition.
+		startTime, err := time.Parse(time.RFC3339, commonStatus.LastTransition)
+		if err != nil {
+			// Cannot parse timestamp; restart the delay so a fresh LastTransition is recorded.
+			return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(backupEnableDelay.Seconds())), true
 		}
-	} else {
-		if remaining := remainingBackupEnableDelay(startTimestamp.Time, backupEnableDelay); remaining > 0 {
-			return workflow.Pending("Waiting %s before enabling backup to allow OM to process monitoring events", remaining.Round(time.Second)).WithRetry(int(math.Ceil(remaining.Seconds()))), true
+		if remaining := max(time.Until(startTime.Add(backupEnableDelay)), 0); remaining > 0 {
+			return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(math.Ceil(remaining.Seconds()))), true
 		}
 		log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
+		return workflow.OK(), false
 	}
-	return workflow.OK(), false
-}
 
-func remainingBackupEnableDelay(startTime time.Time, delay time.Duration) time.Duration {
-	return max(time.Until(startTime.Add(delay)), 0)
+	// First entry into the waiting state — return Pending so the controller writes the status and
+	// records LastTransition. The next reconcile will measure elapsed time from that timestamp.
+	return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(backupEnableDelay.Seconds())), true
 }
 
 func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {
@@ -368,37 +352,4 @@ func getDesiredStatus(desiredConfig, currentConfig *Config) Status {
 	}
 
 	return desiredConfig.Status
-}
-
-func getBackupDelayTimestamp(ctx context.Context, cmClient configmap.GetUpdateCreateDeleter, namespace, name string) *metav1.Time {
-	cm, err := cmClient.GetConfigMap(ctx, k8sclient.ObjectKey{Namespace: namespace, Name: name})
-	if err != nil {
-		return nil
-	}
-	val, ok := cm.Data[BackupDelayTimestampKey]
-	if !ok {
-		return nil
-	}
-	t, err := time.Parse(time.RFC3339, val)
-	if err != nil {
-		return nil
-	}
-	mt := metav1.NewTime(t)
-	return &mt
-}
-
-func setBackupDelayTimestamp(ctx context.Context, cmClient configmap.GetUpdateCreateDeleter, namespace, name string, t *metav1.Time, ownerRefs []metav1.OwnerReference) error {
-	cm := configmap.Builder().
-		SetName(name).
-		SetNamespace(namespace).
-		SetOwnerReferences(ownerRefs).
-		SetData(map[string]string{BackupDelayTimestampKey: t.UTC().Format(time.RFC3339)}).
-		Build()
-	return configmap.CreateOrUpdate(ctx, cmClient, cm)
-}
-
-func clearBackupDelayTimestamp(ctx context.Context, cmClient configmap.GetUpdateCreateDeleter, namespace, name string, log *zap.SugaredLogger) {
-	if err := cmClient.DeleteConfigMap(ctx, k8sclient.ObjectKey{Namespace: namespace, Name: name}); err != nil && !apiErrors.IsNotFound(err) {
-		log.Errorf("failed to delete backup delay configmap: %s", err)
-	}
 }

@@ -2,7 +2,7 @@ import time
 from typing import Optional
 
 from kubernetes.client.rest import ApiException
-from kubetester import create_or_update_secret, get_default_storage_class, read_configmap, try_load, wait_until
+from kubetester import create_or_update_secret, get_default_storage_class, try_load, wait_until
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -381,17 +381,6 @@ class TestBackupForMongodb:
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev["spec"]["backup"]["autoTerminateOnDeletion"] = True
         mdb_prev.update()
-
-        # assert the backup delay ConfigMap is created while the delay is pending
-        def backup_delay_configmap_exists() -> bool:
-            try:
-                read_configmap(mdb_prev.namespace, f"{mdb_prev.name}-backup-delay")
-                return True
-            except ApiException:
-                return False
-
-        run_periodically(backup_delay_configmap_exists, timeout=180)
-
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=1600)
         mdb_prev.delete()
 
@@ -404,16 +393,6 @@ class TestBackupForMongodb:
 
         # wait until the resource is deleted
         run_periodically(resource_is_deleted, timeout=300)
-
-        # assert the backup delay ConfigMap was garbage-collected along with the CR
-        def backup_delay_configmap_is_deleted() -> bool:
-            try:
-                read_configmap(mdb_prev.namespace, f"{mdb_prev.name}-backup-delay")
-                return False
-            except ApiException as e:
-                return e.status == 404
-
-        run_periodically(backup_delay_configmap_is_deleted, timeout=60)
 
         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
         om_tester_second.wait_until_backup_snapshots_are_ready(

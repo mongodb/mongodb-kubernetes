@@ -19,10 +19,8 @@ const (
 	ShardedClusterType MongoDbResourceType = "ShardedCluster"
 )
 
-const (
-	BackupDelayConfigMapSuffix = "-backup-delay"
-	BackupDelayTimestampKey    = "startTimestamp"
-)
+// BackupEnableDelayPendingMessage is the CR status message set while waiting before enabling backup for a sharded cluster.
+const BackupEnableDelayPendingMessage = "Waiting before enabling backup to allow OM to process monitoring events"
 
 /*
 for sharded cluster:
