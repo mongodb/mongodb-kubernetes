@@ -54,7 +54,7 @@ graph TD
 
 ## Prerequisites
 
-- A running **MongoDB replica set** (v8.2.0+ Enterprise) accessible from your Kubernetes cluster
+- A running **MongoDB replica set** (v8.2+ Enterprise) accessible from your Kubernetes cluster
 - A **search-sync-source** user on the external cluster with appropriate permissions for mongot sync
 - **kubectl** configured with access to your target Kubernetes cluster
 - **Helm 3** installed

@@ -92,7 +92,7 @@ In a sharded cluster, each shard has its own data. MongoDB Search deploys separa
 - Helm 3.x installed
 - cert-manager installed (for TLS certificates)
 - MongoDB Kubernetes Operator installed
-- Access to an external MongoDB 8.2.0+ sharded cluster (or use the simulated cluster in this guide)
+- Access to an external MongoDB 8.2+ sharded cluster (or use the simulated cluster in this guide)
 
 ## Getting Started
 

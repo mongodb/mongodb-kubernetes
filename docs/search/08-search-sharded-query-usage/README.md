@@ -12,7 +12,7 @@ Complete one of the sharded search infrastructure guides (07 or 09) before runni
 |----------|-------------|
 | `K8S_CTX` | Kubernetes context name |
 | `MDB_NS` | Kubernetes namespace |
-| `MDB_VERSION` | MongoDB version (e.g., `8.2.0-ent`) |
+| `MDB_VERSION` | MongoDB version (e.g., `8.2.6-ent`) |
 | `MDB_ADMIN_CONNECTION_STRING` | Admin connection string (for data import and sharding) |
 | `MDB_USER_CONNECTION_STRING` | User connection string (for search queries) |
 | `MDB_TLS_CA_CONFIGMAP` | CA certificate ConfigMap name (mounted in the tools pod) |
