@@ -1,0 +1,270 @@
+# MongoDB Search with External Replica Set + Managed Envoy LB
+
+Deploy **MongoDB Search** against your **existing external MongoDB replica set** using the operator's **managed Envoy load balancer**.
+
+## Overview
+
+This scenario is for users who already have a MongoDB replica set running outside the operator's management (e.g. on VMs, another Kubernetes cluster, or a self-hosted deployment) and want to add on-prem Search capabilities via the MongoDB Kubernetes Operator.
+
+**Key characteristic — Managed LB mode:** the operator automatically deploys and configures the Envoy proxy. You do **not** need to create Envoy ConfigMaps, Deployments, or Services yourself.
+
+### Traffic Flow
+
+```mermaid
+---
+config:
+  theme: base
+  themeVariables:
+    primaryColor: "#00684A"
+    primaryTextColor: "#fff"
+    primaryBorderColor: "#023430"
+    lineColor: "#023430"
+    edgeLabelBackground: "#fff"
+    secondaryColor: "#E3FCF7"
+    tertiaryColor: "#F9FBFA"
+---
+graph TD
+    subgraph ext["External MongoDB Replica Set"]
+        rs0(["rs-0 mongod"])
+        rs1(["rs-1 mongod"])
+        rs2(["rs-2 mongod"])
+    end
+
+    subgraph k8s["Kubernetes Cluster"]
+        ps["Proxy Service\nNAME-search-0-proxy-svc\nport 27028"]
+        envoy["Envoy Proxy\nNAME-search-lb-0 Deployment"]
+        mongot["mongot\nNAME-search StatefulSet"]
+    end
+
+    rs0 -- "mTLS\nserver cert" --> ps
+    rs1 -- "mTLS\nserver cert" --> ps
+    rs2 -- "mTLS\nserver cert" --> ps
+    ps --> envoy
+    envoy -- "mTLS\nclient cert" --> mongot
+
+    style rs0 fill:#00684A,stroke:#fff,color:#fff
+    style rs1 fill:#00684A,stroke:#fff,color:#fff
+    style rs2 fill:#00684A,stroke:#fff,color:#fff
+    style ps fill:#E3FCF7,stroke:#00684A,color:#023430
+    style envoy fill:#001E2B,stroke:#E3FCF7,color:#fff
+    style mongot fill:#00ED64,stroke:#023430,color:#023430
+    style ext fill:#023430,stroke:#E3FCF7,color:#fff
+    style k8s fill:#E8EDEB,stroke:#00684A,color:#023430
+```
+
+## Prerequisites
+
+- A running **MongoDB replica set** (v8.2+ Enterprise) accessible from your Kubernetes cluster
+- A **search-sync-source** user on the external cluster with appropriate permissions for mongot sync
+- **kubectl** configured with access to your target Kubernetes cluster
+- **Helm 3** installed
+- **Network connectivity** from your Kubernetes cluster to the external MongoDB hosts
+
+## Getting Started
+
+```bash
+cd docs/search/10-search-external-rs-mongod-managed-lb
+
+# Edit env_variables.sh to set your Kubernetes context, namespace, external hosts, and TLS settings
+vi env_variables.sh
+
+# Source the environment variables
+source env_variables.sh
+```
+
+To run all steps automatically:
+
+```bash
+./test.sh
+```
+
+## Step-by-Step Execution
+
+Run these steps in order after sourcing `env_variables.sh`.
+
+### Set Up Kubernetes and the Operator
+
+#### Step 1: Validate Environment Variables
+
+```bash
+./code_snippets/10_0040_validate_env.sh
+```
+
+#### Step 2: Create Kubernetes Namespace
+
+```bash
+./code_snippets/10_0045_create_namespaces.sh
+```
+
+#### Step 3: Install the MongoDB Kubernetes Operator
+
+```bash
+./code_snippets/10_0100_install_operator.sh
+```
+
+### Configure TLS
+
+#### Step 4: Install cert-manager
+
+Required for automated TLS certificate lifecycle. Skipped if already installed.
+
+```bash
+./code_snippets/10_0301_install_cert_manager.sh
+```
+
+#### Step 5: Configure TLS Prerequisites
+
+Creates the cert-manager bootstrap chain and distributes the CA certificate to the target namespace:
+
+```mermaid
+---
+config:
+  theme: base
+---
+graph LR
+    A["Self-Signed\nClusterIssuer"] -- signs --> B["CA Certificate\nisCA: true"]
+    B -- stored in --> C["CA ClusterIssuer"]
+    C -- signs --> D["All other certs\nmongot, LB, mongod"]
+
+    style A fill:#00684A,stroke:#fff,color:#fff
+    style B fill:#00ED64,stroke:#023430,color:#023430
+    style C fill:#00684A,stroke:#fff,color:#fff
+    style D fill:#E3FCF7,stroke:#00684A,color:#023430
+```
+
+The CA is distributed as both a ConfigMap (`ca-pem` key) and a Secret (`ca.crt` key) in the target namespace.
+
+> **Note:** If you already have a CA and cert-manager issuer, skip this step and update `MDB_TLS_CA_ISSUER`, `MDB_TLS_CA_CONFIGMAP`, and `MDB_TLS_CA_SECRET_NAME` to reference your existing resources.
+
+```bash
+./code_snippets/10_0302_configure_tls_prerequisites.sh
+```
+
+### Deploy MongoDB Search with Managed Envoy LB
+
+#### Step 6: Create mongot TLS Certificates
+
+RS topology uses a single mongot StatefulSet (not per-shard). The certificate covers mongot pods via wildcard DNS and the LB service for SNI routing. The `certsSecretPrefix` field in the CR (`MDB_TLS_CERT_SECRET_PREFIX`) determines how the operator locates these secrets.
+
+```bash
+./code_snippets/10_0316a_create_mongot_tls_certificates.sh
+```
+
+#### Step 7: Create Load Balancer TLS Certificates
+
+The managed Envoy proxy needs a **server certificate** (for incoming mongod connections) and a **client certificate** (for outgoing mongot connections). Both must be signed by the same CA.
+
+```bash
+./code_snippets/10_0316b_create_lb_tls_certificates.sh
+```
+
+#### Step 8: Create MongoDBSearch Resource
+
+Applies the MongoDBSearch CR with `loadBalancer.managed: {}` pointing to your external replica set:
+
+```yaml
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: ${MDB_SEARCH_RESOURCE_NAME}
+spec:
+  replicas: ${MDB_MONGOT_REPLICAS}
+  source:
+    username: search-sync-source
+    passwordSecretRef:
+      name: ${MDB_SEARCH_RESOURCE_NAME}-search-sync-source-password
+      key: password
+    external:
+      hostAndPorts:
+        - "${MDB_EXTERNAL_HOST_0}"
+        - "${MDB_EXTERNAL_HOST_1}"
+        - "${MDB_EXTERNAL_HOST_2}"
+      tls:
+        ca:
+          name: ${MDB_TLS_CA_SECRET_NAME}
+  security:
+    tls:
+      certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
+  loadBalancer:
+    managed: {}
+```
+
+```bash
+./code_snippets/10_0320_create_mongodb_search_resource.sh
+```
+
+#### Step 9: Wait for MongoDBSearch
+
+Wait for the MongoDBSearch resource to reach Running phase (up to 10 min).
+
+```bash
+./code_snippets/10_0325_wait_for_search_resource.sh
+```
+
+### Verify the Deployment
+
+#### Step 10: Verify Envoy Deployment
+
+Checks that the operator created the expected resources:
+
+| Resource | Name Pattern | Purpose |
+|----------|-------------|---------|
+| Deployment | `{name}-search-lb-0` | Envoy proxy pods |
+| ConfigMap | `{name}-search-lb-0-config` | Envoy routing configuration |
+| Service | `{name}-search-0-proxy-svc` | Proxy service (port 27028) |
+| StatefulSet | `{name}-search` | mongot pods |
+| Service | `{name}-search-svc` | Headless service for mongot pods |
+
+```bash
+./code_snippets/10_0326_internal_verify_envoy_deployment.sh
+```
+
+#### Step 11: Show Running Pods
+
+Shows all pods in the namespace including external MongoDB replica set pods, mongot pods, Envoy proxy pods, and operator pods.
+
+```bash
+./code_snippets/10_0330_show_running_pods.sh
+```
+
+## Troubleshooting
+
+### Check Resource Status
+
+```bash
+kubectl describe mongodbsearch ${MDB_SEARCH_RESOURCE_NAME} -n ${MDB_NS}
+kubectl get events -n ${MDB_NS} --field-selector involvedObject.name=${MDB_SEARCH_RESOURCE_NAME}
+```
+
+Look at the resource phase, conditions, and events for issues like missing secrets, invalid configuration, or TLS certificate problems.
+
+### Get mongot Logs
+
+Connectivity errors between mongot and MongoDB (auth failures, TLS mismatches, unreachable hosts) are visible here:
+
+```bash
+kubectl logs -l app.kubernetes.io/component=mongot -n ${MDB_NS}
+```
+
+### Get Envoy Proxy Logs
+
+For issues with the managed Envoy proxy (routing errors, TLS handshake failures, backend health):
+
+```bash
+kubectl logs -l app=${MDB_SEARCH_RESOURCE_NAME}-search-lb-0 -n ${MDB_NS}
+```
+
+### mongod Cannot Reach Envoy
+
+If your external mongod instances cannot connect to the Envoy proxy, verify proxy Services exist and test connectivity from the mongod host:
+
+```bash
+kubectl get svc -n ${MDB_NS} | grep proxy-svc
+openssl s_client -connect <envoy-endpoint>:27028 -servername <sni-hostname>
+```
+
+## Cleanup
+
+```bash
+kubectl delete namespace "${MDB_NS}" --context "${K8S_CTX}"
+```
