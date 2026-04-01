@@ -128,10 +128,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if err := r.ValidateManagedLBShardedTLS(); err != nil {
-		return workflow.Failed(err)
-	}
-
 	if shardedSource, ok := r.db.(SearchSourceShardedDeployment); ok {
 		return r.reconcileSharded(ctx, log, shardedSource, version)
 	}
