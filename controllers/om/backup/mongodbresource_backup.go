@@ -25,14 +25,7 @@ type ConfigReaderUpdater interface {
 	GetBackupSpec() *mdbv1.Backup
 	GetResourceType() mdbv1.ResourceType
 	GetResourceName() string
-	GetKind() string
 	v1.CustomResourceReadWriter
-}
-
-// commonStatusReader is a narrow interface used by applyShardedClusterBackupEnableDelay to read the
-// current CR status without depending on the full ConfigReaderUpdater.
-type commonStatusReader interface {
-	GetCommonStatus(...status.Option) *status.Common
 }
 
 // EnsureBackupConfigurationInOpsManager updates the backup configuration based on the MongoDB resource
@@ -178,6 +171,7 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 
 		if desiredConfig.Status == config.Status {
 			log.Debug("Config is already in the desired state, not updating configuration")
+
 			// we are already in the desired state, nothing to change
 			// if we attempt to send the desired state again we get
 			// CANNOT_START_BACKUP_INVALID_STATE: Cannot start backup unless the cluster is in the INACTIVE or STOPPED state.
@@ -227,7 +221,7 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 // applyShardedClusterBackupEnableDelay waits before enabling backup for sharded clusters.
 // It uses the CR's LastTransition timestamp to measure elapsed time across reconciles.
 // See CLOUDP-389867.
-func applyShardedClusterBackupEnableDelay(mdb commonStatusReader, backupEnableDelay time.Duration, log *zap.SugaredLogger) workflow.Status {
+func applyShardedClusterBackupEnableDelay(mdb status.Reader, backupEnableDelay time.Duration, log *zap.SugaredLogger) workflow.Status {
 	if backupEnableDelay <= 0 {
 		return workflow.OK()
 	}

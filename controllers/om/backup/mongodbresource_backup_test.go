@@ -25,6 +25,10 @@ func (m *mockCommonStatusResource) GetCommonStatus(_ ...status.Option) *status.C
 	}
 }
 
+func (m *mockCommonStatusResource) GetStatus(_ ...status.Option) interface{} {
+	return m.GetCommonStatus()
+}
+
 func TestApplyShardedClusterBackupEnableDelay(t *testing.T) {
 	log := zap.NewNop().Sugar()
 
