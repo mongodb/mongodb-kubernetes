@@ -208,9 +208,6 @@ type ExternalRouterConfig struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
 	Hosts []string `json:"hosts"`
-	// TLS configuration specific to the router. If not specified, falls back to the top-level external.tls config.
-	// +optional
-	TLS *ExternalMongodTLS `json:"tls,omitempty"`
 }
 
 // ExternalShardConfig contains configuration for a single shard in an external sharded cluster

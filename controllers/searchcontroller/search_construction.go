@@ -65,7 +65,7 @@ type SearchSourceShardedDeployment interface {
 	GetShardCount() int
 	GetShardNames() []string
 	GetUnmanagedLBEndpointForShard(shardName string) string
-	MongosHostAndPort() string
+	MongosHostsAndPorts() []string
 }
 
 type TLSSourceConfig struct {
