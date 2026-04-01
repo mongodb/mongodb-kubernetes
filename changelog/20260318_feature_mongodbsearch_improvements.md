@@ -3,7 +3,7 @@ kind: feature
 date: 2026-03-18
 ---
 
-**MongoDBSearch**: The `MongoDBSearch` CRD now supports scaling search workloads across multiple mongot instances, with built-in L7 load balancing and sharded MongoDB cluster support.
+* **MongoDBSearch**: The `MongoDBSearch` CRD now supports scaling search workloads across multiple mongot instances, with built-in L7 load balancing and sharded MongoDB cluster support.
 
   * Added support for sharded MongoDB clusters as a source, in addition to replica sets. The operator supports both operator-managed (internal) and externally-managed sharded clusters.
   * Added support for multiple mongot replicas through `spec.replicas`, enabling horizontal scaling of search capacity. For replica sets, this field controls the total mongot pods. For sharded clusters, it controls the number of mongot pods per shard.
