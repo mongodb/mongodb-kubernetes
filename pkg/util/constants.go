@@ -194,6 +194,7 @@ const (
 	MemberListConfigMapName          = OperatorName + "-member-list"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
+	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"
 	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"
 	CurrentNamespace                 = "NAMESPACE"
 	OperatorNameEnv                  = "OPERATOR_NAME"
@@ -227,6 +228,7 @@ const (
 	OpsManagerDefaultPortHTTPS         = 8443
 	DefaultBackupDisableWaitSeconds    = "3"
 	DefaultBackupDisableWaitRetries    = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
+	DefaultBackupStartDelaySeconds     = 60   // 60 seconds delay to avoid race condition between OM topology discovery and backup enablement
 	DefaultPodTerminationPeriodSeconds = 600  // 10 min. Keep this in sync with 'cleanup()' function in agent-launcher-lib.sh
 	DefaultK8sCacheRefreshTimeSeconds  = 2
 	OpsManagerMonitorAppDBDefault      = true
