@@ -23,15 +23,6 @@ func newExternalShardedConfig(routerHosts []string, shards []searchv1.ExternalSh
 	}
 }
 
-func newExternalShardedConfigWithRouterTLS(routerHosts []string, routerTLS *searchv1.ExternalMongodTLS, shards []searchv1.ExternalShardConfig) *searchv1.ExternalShardedClusterConfig {
-	return &searchv1.ExternalShardedClusterConfig{
-		Router: searchv1.ExternalRouterConfig{
-			Hosts: routerHosts,
-			TLS:   routerTLS,
-		},
-		Shards: shards,
-	}
-}
 
 func TestShardedExternalSearchSource_Validate(t *testing.T) {
 	cases := []struct {
@@ -281,16 +272,16 @@ func TestShardedExternalSearchSource_HostSeeds(t *testing.T) {
 	}
 }
 
-func TestShardedExternalSearchSource_MongosHostAndPort(t *testing.T) {
+func TestShardedExternalSearchSource_MongosHostsAndPorts(t *testing.T) {
 	cases := []struct {
 		name     string
 		spec     *searchv1.ExternalMongoDBSource
-		expected string
+		expected []string
 	}{
 		{
 			name:     "Nil sharded config",
 			spec:     &searchv1.ExternalMongoDBSource{},
-			expected: "",
+			expected: nil,
 		},
 		{
 			name: "Single router host",
@@ -299,16 +290,16 @@ func TestShardedExternalSearchSource_MongosHostAndPort(t *testing.T) {
 					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
 				}),
 			},
-			expected: "mongos.example.com:27017",
+			expected: []string{"mongos.example.com:27017"},
 		},
 		{
-			name: "Multiple router hosts returns first",
+			name: "Multiple router hosts returns all",
 			spec: &searchv1.ExternalMongoDBSource{
 				ShardedCluster: newExternalShardedConfig([]string{"mongos1.example.com:27017", "mongos2.example.com:27017"}, []searchv1.ExternalShardConfig{
 					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
 				}),
 			},
-			expected: "mongos1.example.com:27017",
+			expected: []string{"mongos1.example.com:27017", "mongos2.example.com:27017"},
 		},
 		{
 			name: "Empty router hosts",
@@ -317,14 +308,14 @@ func TestShardedExternalSearchSource_MongosHostAndPort(t *testing.T) {
 					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
 				}),
 			},
-			expected: "",
+			expected: nil,
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			src := newShardedExternalSearchSource(c.spec)
-			assert.Equal(t, c.expected, src.MongosHostAndPort())
+			assert.Equal(t, c.expected, src.MongosHostsAndPorts())
 		})
 	}
 }
@@ -384,62 +375,14 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		assert.NotNil(t, tlsConfig.ResourcesToWatch)
 	})
 
-	t.Run("Router-specific TLS overrides top-level TLS", func(t *testing.T) {
-		spec := &searchv1.ExternalMongoDBSource{
-			ShardedCluster: newExternalShardedConfigWithRouterTLS(
-				[]string{"mongos:27017"},
-				&searchv1.ExternalMongodTLS{
-					CA: &corev1.LocalObjectReference{
-						Name: "router-ca-secret",
-					},
-				},
-				[]searchv1.ExternalShardConfig{
-					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
-				},
-			),
-			TLS: &searchv1.ExternalMongodTLS{
-				CA: &corev1.LocalObjectReference{
-					Name: "top-level-ca-secret",
-				},
-			},
-		}
-		src := newShardedExternalSearchSource(spec)
-		tlsConfig := src.TLSConfig()
-
-		assert.NotNil(t, tlsConfig)
-		assert.Equal(t, "ca.crt", tlsConfig.CAFileName)
-		assert.Equal(t, "router-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
-	})
-
-	t.Run("Router TLS without top-level TLS", func(t *testing.T) {
-		spec := &searchv1.ExternalMongoDBSource{
-			ShardedCluster: newExternalShardedConfigWithRouterTLS(
-				[]string{"mongos:27017"},
-				&searchv1.ExternalMongodTLS{
-					CA: &corev1.LocalObjectReference{
-						Name: "router-only-ca-secret",
-					},
-				},
-				[]searchv1.ExternalShardConfig{
-					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
-				},
-			),
-		}
-		src := newShardedExternalSearchSource(spec)
-		tlsConfig := src.TLSConfig()
-
-		assert.NotNil(t, tlsConfig)
-		assert.Equal(t, "router-only-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
-	})
-
-	t.Run("Falls back to top-level TLS when router TLS not specified", func(t *testing.T) {
+	t.Run("Top-level TLS used with sharded config", func(t *testing.T) {
 		spec := &searchv1.ExternalMongoDBSource{
 			ShardedCluster: newExternalShardedConfig([]string{"mongos:27017"}, []searchv1.ExternalShardConfig{
 				{ShardName: "shard-0", Hosts: []string{"host:27017"}},
 			}),
 			TLS: &searchv1.ExternalMongodTLS{
 				CA: &corev1.LocalObjectReference{
-					Name: "fallback-ca-secret",
+					Name: "ca-secret",
 				},
 			},
 		}
@@ -447,6 +390,6 @@ func TestShardedExternalSearchSource_TLSConfig(t *testing.T) {
 		tlsConfig := src.TLSConfig()
 
 		assert.NotNil(t, tlsConfig)
-		assert.Equal(t, "fallback-ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
+		assert.Equal(t, "ca-secret", tlsConfig.CAVolume.VolumeSource.Secret.SecretName)
 	})
 }

@@ -38,7 +38,7 @@ type ConfigSyncSource struct {
 }
 
 type ConfigRouter struct {
-	HostAndPort  string      `json:"hostAndPort"`
+	HostAndPort  []string    `json:"hostAndPort"`
 	Username     string      `json:"username,omitempty"`
 	PasswordFile string      `json:"passwordFile,omitempty"`
 	TLS          *bool       `json:"tls,omitempty"`
