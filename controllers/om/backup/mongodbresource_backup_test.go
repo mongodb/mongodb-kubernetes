@@ -70,14 +70,14 @@ func TestApplyShardedClusterBackupEnableDelay(t *testing.T) {
 		assert.True(t, s.IsOK(), "expected OK after delay has elapsed")
 	})
 
-	t.Run("restarts delay when LastTransition cannot be parsed", func(t *testing.T) {
+	t.Run("proceeds when LastTransition cannot be parsed", func(t *testing.T) {
 		mdb := &mockCommonStatusResource{
 			phase:          status.PhasePending,
 			message:        BackupEnableDelayPendingMessage,
 			lastTransition: "not-a-timestamp",
 		}
 		s := applyShardedClusterBackupEnableDelay(mdb, 60*time.Second, log)
-		assert.False(t, s.IsOK(), "expected non-OK to restart delay when timestamp is unparseable")
+		assert.True(t, s.IsOK(), "expected OK to avoid getting stuck when timestamp is unparseable")
 	})
 }
 

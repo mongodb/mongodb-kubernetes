@@ -231,9 +231,9 @@ func applyShardedClusterBackupEnableDelay(mdb status.Reader, backupEnableDelay t
 		// Already in waiting state — check whether the delay has elapsed using LastTransition.
 		startTime, err := time.Parse(time.RFC3339, commonStatus.LastTransition)
 		if err != nil {
-			// Cannot parse timestamp; restart the delay so a fresh LastTransition is recorded.
+			// Cannot parse timestamp; treat delay as elapsed to avoid getting stuck in the delay loop.
 			log.Errorf("Backup enable delay: could not parse LastTransition timestamp: %s", err)
-			return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(backupEnableDelay.Seconds()))
+			return workflow.OK()
 		}
 		if remaining := max(time.Until(startTime.Add(backupEnableDelay)), 0); remaining > 0 {
 			return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(math.Ceil(remaining.Seconds())))
