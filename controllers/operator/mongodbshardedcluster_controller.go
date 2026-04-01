@@ -970,6 +970,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	// Save last achieved spec in state
 	r.deploymentState.LastAchievedSpec = &sc.Spec
+	workflow.ResetOMRetryCount(sc)
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	// It's the second place in the reconcile logic we're updating sizes of all the components
 	// We're also updating the shardCount here - it's the only place we're doing that.
@@ -1015,7 +1016,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	currentAgentAuthMode, err := conn.GetAgentAuthMode()
 	if err != nil {
-		return workflow.Failed(err)
+		return handleOMError(err, sc)
 	}
 
 	podEnvVars := newPodVars(conn, projectConfig, sc.Spec.LogLevel)
@@ -1037,7 +1038,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	if err = r.prepareScaleDownShardedCluster(conn, log); err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to perform scale down preliminary actions: %w", err))
+		return handleOMError(xerrors.Errorf("failed to perform scale down preliminary actions: %w", err), sc)
 	}
 
 	if workflowStatus := validateMongoDBResource(sc, conn); !workflowStatus.IsOK() {
@@ -1838,7 +1839,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	err := r.waitForAgentsToRegister(sc, conn, log)
 	if err != nil {
 		if !isRecovering {
-			return workflow.Failed(err)
+			return handleOMError(err, sc)
 		}
 		logWarnIgnoredDueToRecovery(log, err)
 	}
@@ -1846,7 +1847,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	dep, err := conn.ReadDeployment()
 	if err != nil {
 		if !isRecovering {
-			return workflow.Failed(err)
+			return handleOMError(err, sc)
 		}
 		logWarnIgnoredDueToRecovery(log, err)
 	}
@@ -1870,7 +1871,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 			if shardsRemoving {
 				return workflow.Pending("automation agents haven't reached READY state: shards removal in progress: %v", err)
 			}
-			return workflow.Failed(err)
+			return handleOMError(err, sc)
 		}
 		logWarnIgnoredDueToRecovery(log, err)
 	}
@@ -1891,7 +1892,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "shardsRemoving"))
 		if err = om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 			if !isRecovering {
-				return workflow.Failed(xerrors.Errorf("automation agents haven't reached READY state while cleaning replica set and processes: %w", err))
+				return handleOMError(xerrors.Errorf("automation agents haven't reached READY state while cleaning replica set and processes: %w", err), sc)
 			}
 			logWarnIgnoredDueToRecovery(log, err)
 		}
@@ -1902,7 +1903,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 
 	if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
 		if !isRecovering {
-			return workflow.Failed(err)
+			return handleOMError(err, sc)
 		}
 		logWarnIgnoredDueToRecovery(log, err)
 	}
@@ -1946,7 +1947,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	existingDeployment, err := conn.ReadDeployment()
 	if err != nil {
-		return nil, false, workflow.Failed(err)
+		return nil, false, handleOMError(err, sc)
 	}
 
 	configSrvProcesses, configSrvMemberOptions := r.createDesiredConfigSrvProcessesAndMemberOptions(configSrvMemberCertPath)
@@ -1970,7 +1971,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		setInternalAuthClusterFileIfItHasChanged(d, sc.GetSecurity().GetInternalClusterAuthenticationMode(), sc.Name, configSrvInternalClusterPath, mongosInternalClusterPath, shardInternalClusterPaths, isRecovering)
 		return nil
 	}, log); err != nil {
-		return nil, false, workflow.Failed(err)
+		return nil, false, handleOMError(err, sc)
 	}
 
 	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(conn, log)
@@ -2047,7 +2048,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		log,
 	)
 	if err != nil {
-		return nil, shardsRemoving, workflow.Failed(err)
+		return nil, shardsRemoving, handleOMError(err, sc)
 	}
 
 	// Here we only support sc.Spec.Agent on purpose because logRotation for the agents and all processes
@@ -2059,7 +2060,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	healthyProcessesToWaitForReadyState = r.getHealthyProcessNamesToWaitForReadyState(conn, log)
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "publishDeployment"))
 	if err := om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
-		return nil, shardsRemoving, workflow.Failed(err)
+		return nil, shardsRemoving, handleOMError(err, sc)
 	}
 
 	if additionalReconciliationRequired {

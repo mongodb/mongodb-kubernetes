@@ -202,7 +202,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 
 	currentAgentAuthMode, err := conn.GetAgentAuthMode()
 	if err != nil {
-		return r.updateStatus(ctx, s, workflow.Failed(err), log)
+		return r.updateStatus(ctx, s, handleOMError(err, s), log)
 	}
 
 	podVars := newPodVars(conn, projectConfig, s.Spec.LogLevel)
@@ -338,13 +338,14 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
 
+	workflow.ResetOMRetryCount(s)
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(ctx, s, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())))
 }
 
 func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, conn om.Connection, s *mdbv1.MongoDB, set appsv1.StatefulSet, isRecovering bool, agentCertPath string, log *zap.SugaredLogger) workflow.Status {
 	if err := agents.WaitForRsAgentsToRegister(set, 0, s.Spec.GetClusterDomain(), conn, log, s); err != nil {
-		return workflow.Failed(err)
+		return handleOMError(err, s)
 	}
 
 	// TODO standalone PR
@@ -375,11 +376,11 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 		log,
 	)
 	if err != nil {
-		return workflow.Failed(err)
+		return handleOMError(err, s)
 	}
 
 	if err := om.WaitForReadyState(conn, []string{set.Name}, isRecovering, log); err != nil {
-		return workflow.Failed(err)
+		return handleOMError(err, s)
 	}
 
 	if additionalReconciliationRequired {

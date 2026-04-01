@@ -258,13 +258,13 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	currentAgentAuthMode, err := conn.GetAgentAuthMode()
 	if err != nil {
-		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)))
+		return r.updateStatus(ctx, handleOMError(xerrors.Errorf("failed to get agent auth mode: %w", err), rs))
 	}
 
 	// Check if we need to prepare for scale-down
 	if scale.ReplicasThisReconciliation(rs) < r.deploymentState.LastReconcileMemberCount {
 		if err := replicaset.PrepareScaleDownFromMongoDB(conn, rs, log); err != nil {
-			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
+			return r.updateStatus(ctx, handleOMError(xerrors.Errorf("failed to prepare Replica Set for scaling down using Ops Manager: %w", err), rs))
 		}
 	}
 	deploymentOpts := deploymentOptionsRS{
@@ -339,6 +339,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not update resource annotations: %w", err)))
 	}
 
+	workflow.ResetOMRetryCount(rs)
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
@@ -716,7 +717,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	replicasTarget := scale.ReplicasThisReconciliation(rs)
 	err := agents.WaitForRsAgentsToRegisterByResource(rs, util_int.Min(membersNumberBefore, replicasTarget), conn, log)
 	if err != nil && !isRecovering {
-		return workflow.Failed(err)
+		return handleOMError(err, rs)
 	}
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
@@ -755,11 +756,11 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	)
 
 	if err != nil && !isRecovering {
-		return workflow.Failed(err)
+		return handleOMError(err, rs)
 	}
 
 	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
-		return workflow.Failed(err)
+		return handleOMError(err, rs)
 	}
 
 	reconcileResult, _ := ReconcileLogRotateSetting(conn, rs.Spec.Agent, log)
@@ -775,7 +776,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	hostsAfter := getAllHostsForReplicas(rs, scale.ReplicasThisReconciliation(rs))
 
 	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil && !isRecovering {
-		return workflow.Failed(err)
+		return handleOMError(err, rs)
 	}
 
 	if status := reconciler.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, reconciler.SecretClient, log); !status.IsOK() && !isRecovering {

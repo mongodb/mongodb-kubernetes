@@ -397,7 +397,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 		if shouldRetry {
 			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()).WithRetry(10), log)
 		}
-		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
+		return r.updateStatus(ctx, user, handleOMError(xerrors.Errorf("error updating user %w", err), user), log)
 	}
 
 	// Before we update the MongoDBUser's status to Updated,
@@ -416,6 +416,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
+	workflow.ResetOMRetryCount(user)
 	log.Infof("Finished reconciliation for MongoDBUser!")
 	return r.updateStatus(ctx, user, workflow.OK(), log)
 }
@@ -447,7 +448,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 		if shouldRetry {
 			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()).WithRetry(10), log)
 		}
-		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
+		return r.updateStatus(ctx, user, handleOMError(xerrors.Errorf("error updating user %w", err), user), log)
 	}
 
 	// Before we update the MongoDBUser's status to Updated,
@@ -466,6 +467,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
+	workflow.ResetOMRetryCount(user)
 	log.Infow("Finished reconciliation for MongoDBUser!")
 	return r.updateStatus(ctx, user, workflow.OK(), log)
 }

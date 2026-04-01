@@ -80,6 +80,14 @@ func (f *failedStatus) Log(log *zap.SugaredLogger) {
 	log.Errorf("%+v", f.err)
 }
 
+// FailedWithOMBackoff creates a failed status with exponential backoff computed
+// from the given retry count. This is intended for transient OpsManager/CloudManager
+// API errors so the reconciler re-queues with increasing delays.
+func FailedWithOMBackoff(err error, retryCount int) *failedStatus {
+	backoff := ExponentialBackoff(retryCount)
+	return Failed(err).WithRetry(backoff)
+}
+
 func mergedFailed(p1, p2 *failedStatus) *failedStatus {
 	msg := p1.msg + ", " + p2.msg
 	p := Failed(xerrors.Errorf(msg))

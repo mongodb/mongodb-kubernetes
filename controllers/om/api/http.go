@@ -50,7 +50,6 @@ func registerClientMetrics() {
 const (
 	defaultRetryWaitMin = 1 * time.Second
 	defaultRetryWaitMax = 10 * time.Second
-	defaultRetryMax     = 3
 )
 
 type Client struct {
@@ -82,13 +81,11 @@ func newDefaultHTTPClient() *retryablehttp.Client {
 		HTTPClient:   &http.Client{Transport: http.DefaultTransport},
 		RetryWaitMin: defaultRetryWaitMin,
 		RetryWaitMax: defaultRetryWaitMax,
-		RetryMax:     defaultRetryMax,
-		// Will retry on all errors
+		// HTTP-level retries are disabled; retries are handled by the Kubernetes
+		// reconciler loop using exponential backoff (see workflow.FailedWithOMBackoff).
+		RetryMax:   0,
 		CheckRetry: retryablehttp.DefaultRetryPolicy,
-		// Exponential backoff based on the attempt number and limited by the provided minimum and maximum durations.
-		// We don't need Jitter here as we're the only client to the OM, so there's no risk
-		// of overwhelming it in a peek.
-		Backoff: retryablehttp.DefaultBackoff,
+		Backoff:    retryablehttp.DefaultBackoff,
 	}
 }
 

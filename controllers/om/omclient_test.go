@@ -105,7 +105,11 @@ func OptionRetryConfig(retryWaitMin, retryWaitMax time.Duration, retryMax int) f
 	}
 }
 
-func TestRetriesOnWritingAutomationConfig(t *testing.T) {
+// TestNoHTTPRetryOnWritingAutomationConfig verifies that with HTTP retries
+// disabled (RetryMax=0), the first error response from the server causes an
+// immediate failure without additional HTTP-level retry attempts. Retries are
+// now expected to happen at the Kubernetes reconciler level instead.
+func TestNoHTTPRetryOnWritingAutomationConfig(t *testing.T) {
 	logger := zap.NewNop().Sugar()
 	testAutomationConfig := getTestAutomationConfig()
 	successfulResponse := automationConfigResponse{config: testAutomationConfig}
@@ -114,16 +118,17 @@ func TestRetriesOnWritingAutomationConfig(t *testing.T) {
 	srv := serverMock(handleFunc)
 	defer srv.Close()
 
-	connection := NewOpsManagerConnectionWithOptions(
+	// Default client now has RetryMax=0, so the first GET returning 500 will
+	// fail immediately without HTTP-level retries.
+	connection := NewOpsManagerConnection(
 		&OMContext{BaseURL: srv.URL, GroupID: "1"},
-		OptionRetryConfig(0, 0, 3), // No delay between retries, still retry 3 times
 	)
 	err := connection.ReadUpdateAutomationConfig(func(ac *AutomationConfig) error {
 		return nil
 	}, logger)
 
-	assert.NoError(t, err)
-	assert.Equal(t, 3, counters.getHitCount)
+	assert.Error(t, err)
+	assert.Equal(t, 1, counters.getHitCount)
 }
 
 func TestHTTPOmConnectionGetHTTPClientRace(t *testing.T) {

@@ -28,6 +28,7 @@ import (
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
@@ -1100,4 +1101,19 @@ func ReconcileLogRotateSetting(conn om.Connection, agentConfig mdbv1.AgentConfig
 		return workflow.Failed(err), err
 	}
 	return workflow.OK(), nil
+}
+
+// handleOMError classifies an OpsManager/CloudManager API error and returns the
+// appropriate workflow status. For retryable errors (transient network issues,
+// 429, 5xx) it increments the retry counter annotation and returns a status
+// with exponential backoff. For non-retryable errors it resets the counter and
+// returns a plain failed status.
+func handleOMError(err error, resource client.Object) workflow.Status {
+	if apierror.IsRetryableError(err) {
+		retryCount := workflow.GetOMRetryCount(resource)
+		workflow.IncrementOMRetryCount(resource)
+		return workflow.FailedWithOMBackoff(err, retryCount)
+	}
+	workflow.ResetOMRetryCount(resource)
+	return workflow.Failed(err)
 }

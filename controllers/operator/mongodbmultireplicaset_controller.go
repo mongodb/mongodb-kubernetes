@@ -218,7 +218,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
 			if err := r.updateOmDeploymentRs(ctx, conn, mrs, agentCertPath, tlsCertPath, internalClusterCertPath, false, log); err != nil {
-				return workflow.Failed(err)
+				return handleOMError(err, &mrs)
 			}
 			return workflow.OK()
 		},
@@ -232,7 +232,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	finalMemberIds, err := om.GetReplicaSetMemberIds(conn)
 	if err != nil {
-		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
+		return r.updateStatus(ctx, &mrs, handleOMError(err, &mrs), log)
 	}
 
 	mrs.Status.FeatureCompatibilityVersion = mrs.CalculateFeatureCompatibilityVersion()
@@ -251,6 +251,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Pending("MongoDBMultiCluster deployment is not yet ready, requeuing reconciliation."), log)
 	}
 
+	workflow.ResetOMRetryCount(&mrs)
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
 	return r.updateStatus(ctx, &mrs, workflow.OK(), log, mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }

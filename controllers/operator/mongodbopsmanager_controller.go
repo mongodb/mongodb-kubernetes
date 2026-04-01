@@ -515,6 +515,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log)
 	}
 	// All statuses are updated by now - we don't need to update any others - just return
+	workflow.ResetOMRetryCount(opsManager)
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
 	// success
 	return workflow.OK().ReconcileResult()

@@ -77,6 +77,43 @@ func (e *Error) Error() string {
 	return e.Detail
 }
 
+// IsRetryableError returns true if the error is retryable. For API errors, this
+// means the status is nil (network error wrapped as api.Error), 429 (rate limited),
+// or 500-599 (server error) except 501 (Not Implemented). For non-API errors
+// (network, DNS, timeout, etc.) we default to retryable.
+func IsRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *Error
+	if errors.As(err, &apiErr) {
+		return apiErr.isRetryable()
+	}
+	// Non-API errors (network failures, DNS, timeouts) are retryable by default
+	return true
+}
+
+// isRetryable returns true if the API error represents a transient/retryable condition.
+func (e *Error) isRetryable() bool {
+	if e == nil {
+		return false
+	}
+	// No HTTP status means this is a wrapped network/transport error
+	if e.Status == nil {
+		return true
+	}
+	status := *e.Status
+	// 429 Too Many Requests
+	if status == 429 {
+		return true
+	}
+	// 5xx server errors except 501 Not Implemented
+	if status >= 500 && status <= 599 && status != 501 {
+		return true
+	}
+	return false
+}
+
 // ErrorBackupDaemonConfigIsNotFound returns whether the api-error is of not found. Sometimes OM only returns the
 // http code.
 func (e *Error) ErrorBackupDaemonConfigIsNotFound() bool {
