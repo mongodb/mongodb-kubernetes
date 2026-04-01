@@ -188,63 +188,6 @@ func TestValidateX509AuthConfig(t *testing.T) {
 	}
 }
 
-func TestValidateManagedLBShardedTLS(t *testing.T) {
-	shard := func(name string) ExternalShardConfig {
-		return ExternalShardConfig{ShardName: name, Hosts: []string{"host:27017"}}
-	}
-
-	tests := []struct {
-		name          string
-		search        *MongoDBSearch
-		errorContains string
-	}{
-		{
-			name:   "no LB, no sharded - ok",
-			search: &MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"}},
-		},
-		{
-			name:   "sharded, no managed LB - ok",
-			search: newSearch("my-search", []ExternalShardConfig{shard("shard0")}, "", false, false),
-		},
-		{
-			name:   "sharded, managed LB, TLS configured - ok",
-			search: newSearch("my-search", []ExternalShardConfig{shard("shard0")}, "prefix", true, true),
-		},
-		{
-			name:          "sharded, managed LB, no TLS - error",
-			search:        newSearch("my-search", []ExternalShardConfig{shard("shard0")}, "", false, true),
-			errorContains: "TLS (spec.security.tls) is required",
-		},
-		{
-			name: "external RS, managed LB, no TLS - ok",
-			search: &MongoDBSearch{
-				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
-				Spec: MongoDBSearchSpec{
-					Source: &MongoDBSource{
-						ExternalMongoDBSource: &ExternalMongoDBSource{
-							HostAndPorts: []string{"host:27017"},
-						},
-					},
-					LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}},
-				},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := validateManagedLBShardedTLS(tt.search)
-
-			if tt.errorContains != "" {
-				assert.Equal(t, v1.ErrorLevel, result.Level)
-				assert.Contains(t, result.Msg, tt.errorContains)
-			} else {
-				assert.Equal(t, v1.SuccessLevel, result.Level)
-			}
-		})
-	}
-}
-
 func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTLS, isLBManaged bool) *MongoDBSearch {
 	search := &MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-namespace"},

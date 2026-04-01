@@ -128,6 +128,13 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
+	// This validation lives at reconcile level (not spec validations level) because for internal MongoDB sources, the
+	// sharded topology is only known after fetching the referenced MongoDB resource.
+	// It's not part of the MongoDBSearch spec itself.
+	if err := r.ValidateManagedLBShardedTLS(); err != nil {
+		return workflow.Failed(err)
+	}
+
 	if shardedSource, ok := r.db.(SearchSourceShardedDeployment); ok {
 		return r.reconcileSharded(ctx, log, shardedSource, version)
 	}
