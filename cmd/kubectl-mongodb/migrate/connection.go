@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"go.uber.org/zap"
-	"golang.org/x/xerrors"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -28,13 +27,9 @@ var (
 )
 
 func prepareConnection(ctx context.Context) (om.Connection, kubernetesClient.Client, error) {
-	if configMapName == "" || secretName == "" {
-		return nil, nil, xerrors.Errorf("--config-map-name and --secret-name are required")
-	}
-
 	kubeClient, err := newKubeClient()
 	if err != nil {
-		return nil, nil, xerrors.Errorf("error creating Kubernetes client: %w", err)
+		return nil, nil, fmt.Errorf("error creating Kubernetes client: %w", err)
 	}
 
 	log := zap.S()
@@ -45,33 +40,30 @@ func prepareConnection(ctx context.Context) (om.Connection, kubernetesClient.Cli
 
 	conn, err := resolveProjectReadOnly(config, credentials, log)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("error resolving Ops Manager project: %w", err)
+		return nil, nil, fmt.Errorf("error resolving Ops Manager project: %w", err)
 	}
 	return conn, kubeClient, nil
 }
 
 func readConfigAndCredentials(ctx context.Context, kubeClient kubernetesClient.Client, log *zap.SugaredLogger) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
-	const unset = ""
-	config, err := project.ReadProjectConfig(ctx, kubeClient, kube.ObjectKey(namespace, configMapName), unset)
+	config, err := project.ReadProjectConfig(ctx, kubeClient, kube.ObjectKey(namespace, configMapName), "")
 	if err != nil {
-		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("error reading project config: %w", err)
+		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading project config: %w", err)
 	}
 	if config.ProjectName == "" {
-		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("ConfigMap %s/%s does not contain a projectName", namespace, configMapName)
+		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("ConfigMap %s/%s does not contain a projectName", namespace, configMapName)
 	}
 	secretClient := secrets.SecretClient{KubeClient: kubeClient}
 	credentials, err := project.ReadCredentials(ctx, secretClient, kube.ObjectKey(namespace, secretName), log)
 	if err != nil {
-		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("error reading credentials secret: %w", err)
+		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading credentials secret: %w", err)
 	}
 	return config, credentials, nil
 }
 
 func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Credentials, log *zap.SugaredLogger) (om.Connection, error) {
-	projectName := config.ProjectName
-
 	omContext := om.OMContext{
-		GroupName:                  projectName,
+		GroupName:                  config.ProjectName,
 		OrgID:                      config.OrgID,
 		BaseURL:                    config.BaseURL,
 		PublicKey:                  credentials.PublicAPIKey,
@@ -81,20 +73,20 @@ func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Creden
 	}
 	conn := omConnectionFactory(&omContext)
 
-	org, err := resolveOrganization(conn, config.OrgID, projectName, log)
+	org, err := resolveOrganization(conn, config.OrgID, config.ProjectName, log)
 	if err != nil {
 		return nil, err
 	}
 	if org == nil {
-		return nil, xerrors.Errorf("organization not found for project name %q", projectName)
+		return nil, fmt.Errorf("organization not found for project name %q", config.ProjectName)
 	}
 
-	proj, err := resolveProjectInOrg(conn, projectName, org)
+	proj, err := resolveProjectInOrg(conn, config.ProjectName, org)
 	if err != nil {
 		return nil, err
 	}
 	if proj == nil {
-		return nil, xerrors.Errorf("project %q not found in organization %s (%q)", projectName, org.ID, org.Name)
+		return nil, fmt.Errorf("project %q not found in organization %s (%q)", config.ProjectName, org.ID, org.Name)
 	}
 
 	conn.ConfigureProject(proj)
@@ -107,10 +99,10 @@ func resolveOrgIDByName(conn om.Connection, name string) (string, error) {
 		if v, ok := err.(*apierror.Error); ok && v.ErrorCode == apierror.OrganizationNotFound {
 			return "", nil
 		}
-		return "", xerrors.Errorf("could not find organization %s: %w", name, err)
+		return "", fmt.Errorf("could not find organization %s: %w", name, err)
 	}
 	for _, org := range organizations {
-		if org != nil && org.Name == name {
+		if org.Name == name {
 			return org.ID, nil
 		}
 	}
@@ -131,7 +123,7 @@ func resolveOrganization(conn om.Connection, orgID string, projectName string, l
 
 	organization, err := conn.ReadOrganization(orgID)
 	if err != nil {
-		return nil, xerrors.Errorf("organization with id %s not found: %w", orgID, err)
+		return nil, fmt.Errorf("organization with id %s not found: %w", orgID, err)
 	}
 	return organization, nil
 }
@@ -142,23 +134,21 @@ func resolveProjectInOrg(conn om.Connection, projectName string, organization *o
 		if v, ok := err.(*apierror.Error); ok && v.ErrorCode == apierror.ProjectNotFound {
 			return nil, nil
 		}
-		return nil, xerrors.Errorf("error looking up project %s in organization %s: %w", projectName, organization.ID, err)
+		return nil, fmt.Errorf("error looking up project %s in organization %s: %w", projectName, organization.ID, err)
 	}
-	var found []*om.Project
+	var found *om.Project
+	var names []string
 	for _, p := range projects {
-		if p != nil && p.Name == projectName {
-			found = append(found, p)
-		}
-	}
-	if len(found) == 1 {
-		return found[0], nil
-	}
-	if len(found) > 1 {
-		names := make([]string, 0, len(found))
-		for _, p := range found {
+		if p.Name == projectName {
+			found = p
 			names = append(names, fmt.Sprintf("%s (%s)", p.Name, p.ID))
 		}
-		return nil, xerrors.Errorf("found more than one project with name %s in organization %s (%s): %s", projectName, organization.ID, organization.Name, strings.Join(names, ", "))
+	}
+	if len(names) == 1 {
+		return found, nil
+	}
+	if len(names) > 1 {
+		return nil, fmt.Errorf("found more than one project with name %s in organization %s (%s): %s", projectName, organization.ID, organization.Name, strings.Join(names, ", "))
 	}
 	return nil, nil
 }
@@ -180,19 +170,19 @@ type ProjectProcessConfigs struct {
 func readProjectConfigs(conn om.Connection) (*ProjectAgentConfigs, *ProjectProcessConfigs, error) {
 	monitoringConfig, err := conn.ReadMonitoringAgentConfig()
 	if err != nil {
-		return nil, nil, xerrors.Errorf("error reading monitoring agent config: %w", err)
+		return nil, nil, fmt.Errorf("error reading monitoring agent config: %w", err)
 	}
 	backupConfig, err := conn.ReadBackupAgentConfig()
 	if err != nil {
-		return nil, nil, xerrors.Errorf("error reading backup agent config: %w", err)
+		return nil, nil, fmt.Errorf("error reading backup agent config: %w", err)
 	}
 	systemLogRotate, err := conn.ReadProcessLogRotation()
 	if err != nil {
-		return nil, nil, xerrors.Errorf("error reading system log rotate config: %w", err)
+		return nil, nil, fmt.Errorf("error reading system log rotate config: %w", err)
 	}
 	auditLogRotate, err := conn.ReadAuditLogRotation()
 	if err != nil {
-		return nil, nil, xerrors.Errorf("error reading audit log rotate config: %w", err)
+		return nil, nil, fmt.Errorf("error reading audit log rotate config: %w", err)
 	}
 	return &ProjectAgentConfigs{
 			MonitoringConfig: monitoringConfig,

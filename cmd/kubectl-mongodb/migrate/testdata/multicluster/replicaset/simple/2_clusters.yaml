@@ -9,6 +9,10 @@ spec:
     storage:
       engine: inMemory
   agent:
+    backupAgent:
+      logRotate:
+        sizeThresholdMB: 100
+        timeThresholdHrs: 1
     maxLogFileDurationHours: 0
     mongod:
       auditlogRotate:
@@ -27,6 +31,10 @@ spec:
         destination: file
         logAppend: false
         path: /var/log/mongodb-mms-automation/mongodb.log
+    monitoringAgent:
+      logRotate:
+        sizeThresholdMB: 100
+        timeThresholdHrs: 1
   clusterSpecList:
   - clusterName: east1
     memberConfig:

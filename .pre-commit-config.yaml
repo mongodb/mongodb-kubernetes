@@ -129,6 +129,15 @@ repos:
             ^scripts/funcs/[^/]+$
           )
 
+  - repo: local
+    hooks:
+      - id: migrate-unit-tests
+        name: migrate unit tests
+        entry: go test ./cmd/kubectl-mongodb/migrate/...
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.0.2
     hooks:

@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cast"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -102,6 +103,19 @@ func (m *MonitoringAgentConfig) ReadLogRotate() *mdbv1.LogRotateForBackupAndMoni
 		return nil
 	}
 	return &result
+}
+
+// LogRotateForAgentsFromAc converts an AcLogRotate (OM API representation) to
+// the simpler LogRotateForBackupAndMonitoring type used by monitoring and backup
+// agent specs. Returns nil when the input is nil or has no meaningful thresholds.
+func LogRotateForAgentsFromAc(ac *automationconfig.AcLogRotate) *mdbv1.LogRotateForBackupAndMonitoring {
+	if ac == nil || (ac.SizeThresholdMB == 0 && ac.TimeThresholdHrs == 0) {
+		return nil
+	}
+	return &mdbv1.LogRotateForBackupAndMonitoring{
+		SizeThresholdMB:  int(ac.SizeThresholdMB),
+		TimeThresholdHrs: ac.TimeThresholdHrs,
+	}
 }
 
 func BuildMonitoringAgentConfigFromBytes(jsonBytes []byte) (*MonitoringAgentConfig, error) {

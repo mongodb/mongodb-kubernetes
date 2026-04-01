@@ -3,6 +3,7 @@ package migrate
 import (
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
@@ -36,35 +37,63 @@ var (
 	defaultProtocolVersion        = "1"
 )
 
-// ValidateMigration checks the automation config for fields that would conflict
-// with operator defaults or are unsupported by the migration tool. Each category
-// is validated independently; structural errors in one category do not block
-// validation of others.
-func ValidateMigration(ac *om.AutomationConfig, projectAgentConfigs *ProjectAgentConfigs, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
+// ValidateMigration checks the automation config for conflicts with operator defaults.
+// Structural checks run first; errors there gate the remaining checks.
+// Returns the selected source process (first active member) or nil on structural errors.
+func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process, projectAgentConfigs *ProjectAgentConfigs, projectProcessConfigs *ProjectProcessConfigs) ([]ValidationResult, *om.Process) {
 	var results []ValidationResult
 
-	processMap := ac.Deployment.ProcessMap()
-	results = append(results, validateAgentAuth(ac.Auth)...)
+	results = append(results, checkOneDeploymentPerProject(ac.Deployment)...)
+	results = append(results, checkReplicaSetsExist(ac.Deployment)...)
+	results = append(results, checkMembersReferenceProcesses(ac.Deployment, processMap)...)
+	for _, r := range results {
+		if r.Severity == SeverityError {
+			return results, nil
+		}
+	}
+
+	members := ac.Deployment.GetReplicaSets()[0].Members()
+
+	results = append(results, validateAuth(ac.Auth)...)
+	results = append(results, validateScram(ac.Auth)...)
+	results = append(results, validateX509(ac.Auth)...)
 	results = append(results, validateTLS(ac.AgentSSL)...)
 	results = append(results, validateAgentConfig(projectAgentConfigs)...)
 	results = append(results, validateLDAP(ac.Ldap)...)
 	results = append(results, validateProjectOptions(ac.Deployment)...)
 	results = append(results, validateProcessConfig(ac.Deployment, processMap)...)
-	results = append(results, validateReplicaSetConfig(ac.Deployment, processMap, projectProcessConfigs)...)
-	return results
+	results = append(results, checkReplicaSetProtocolVersion(ac.Deployment)...)
+	results = append(results, checkVersionConsistency(ac.Deployment, processMap)...)
+	results = append(results, checkMemberPreservedFields(ac.Deployment)...)
+	for _, r := range results {
+		if r.Severity == SeverityError {
+			return results, nil
+		}
+	}
+
+	sourceProcess := pickSourceProcess(members, processMap)
+	results = append(results, checkHeterogeneousProcessConfig(members, processMap, sourceProcess)...)
+	results = append(results, checkProcessConfigDrift(members, processMap, projectProcessConfigs)...)
+
+	return results, sourceProcess
 }
 
-// validateAgentAuth groups all agent authentication validations.
-func validateAgentAuth(auth *om.Auth) []ValidationResult {
-	var results []ValidationResult
-	results = append(results, validateAuth(auth)...)
-	results = append(results, validateScram(auth)...)
-	results = append(results, validateX509(auth)...)
-	return results
+// pickSourceProcess returns the first active member's process (votes > 0 and priority > 0),
+// falling back to members[0]. Phase 1 guarantees all members resolve in processMap.
+func pickSourceProcess(members []om.ReplicaSetMember, processMap map[string]om.Process) *om.Process {
+	m := members[0]
+	for _, candidate := range members {
+		if candidate.Votes() > 0 && candidate.Priority() > 0 {
+			m = candidate
+			break
+		}
+	}
+	fmt.Fprintf(os.Stderr, "spec.additionalMongodConfig and spec.agent.mongod.systemLog will be taken from process %q. Review all members and reconcile any differences before migration.\n", m.Name())
+	proc := processMap[m.Name()]
+	return &proc
 }
 
-// validateAuth checks generic auth fields (autoUser, keyFile, keyFileWindows)
-// against operator-hardcoded defaults.
+// validateAuth checks auth.autoUser, keyFile, and keyFileWindows against operator defaults.
 func validateAuth(auth *om.Auth) []ValidationResult {
 	if auth == nil || auth.Disabled {
 		return nil
@@ -94,8 +123,7 @@ func validateAuth(auth *om.Auth) []ValidationResult {
 	return results
 }
 
-// validateScram checks that autoUser has a matching entry in usersWanted for
-// SCRAM-based mechanisms. X509 and LDAP agents authenticate without a database user.
+// validateScram checks that the autoUser has a matching usersWanted entry for SCRAM mechanisms.
 func validateScram(auth *om.Auth) []ValidationResult {
 	if auth == nil || auth.Disabled || auth.AutoUser == "" {
 		return nil
@@ -117,9 +145,7 @@ func validateScram(auth *om.Auth) []ValidationResult {
 	return nil
 }
 
-// validateTLS checks project-level TLS paths (autoPEMKeyFilePath, CAFilePath)
-// against operator-managed defaults, and warns that TLS certificate Secrets
-// must be pre-created in Kubernetes before applying the Custom Resource.
+// validateTLS checks project-level TLS paths against operator defaults and warns about required Secrets.
 func validateTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL == nil {
 		return nil
@@ -149,9 +175,7 @@ func validateTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	return results
 }
 
-// validateX509 warns when MONGODB-X509 agent authentication is configured that
-// the agent certificate Secret must be pre-created in Kubernetes,
-// since X509 agents authenticate via their certificate subject DN rather than a database user.
+// validateX509 warns that the agent certificate Secret must be pre-created when X509 auth is configured.
 func validateX509(auth *om.Auth) []ValidationResult {
 	if auth == nil || auth.Disabled {
 		return nil
@@ -165,8 +189,7 @@ func validateX509(auth *om.Auth) []ValidationResult {
 	}}
 }
 
-// validateAgentConfig checks monitoring and backup agent log paths against
-// operator-hardcoded defaults.
+// validateAgentConfig checks monitoring and backup agent log paths against operator defaults.
 func validateAgentConfig(configs *ProjectAgentConfigs) []ValidationResult {
 	if configs == nil {
 		return nil
@@ -197,9 +220,7 @@ func validateAgentConfig(configs *ProjectAgentConfigs) []ValidationResult {
 	return results
 }
 
-// validateLDAP checks LDAP-specific fields that the operator handles differently
-// (bindMethod is hardcoded to "simple") and warns about CA contents that require
-// manual ConfigMap creation.
+// validateLDAP checks that bindMethod is "simple" and warns when a CA certificate is present.
 func validateLDAP(l *ldap.Ldap) []ValidationResult {
 	if l == nil {
 		return nil
@@ -223,8 +244,7 @@ func validateLDAP(l *ldap.Ldap) []ValidationResult {
 	return results
 }
 
-// validateProjectOptions checks project-level AC fields (e.g. downloadBase)
-// against operator-hardcoded defaults.
+// validateProjectOptions checks options.downloadBase against the operator default.
 func validateProjectOptions(d om.Deployment) []ValidationResult {
 	downloadBase := d.DownloadBase()
 	if downloadBase != defaultDownloadBase {
@@ -236,8 +256,7 @@ func validateProjectOptions(d om.Deployment) []ValidationResult {
 	return nil
 }
 
-// validateProcessConfig checks all process-level fields: structure and identity,
-// version compatibility, and args2_6 settings (dbPath, TLS mode/paths, sharding).
+// validateProcessConfig runs all process-level checks.
 func validateProcessConfig(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
 	var results []ValidationResult
 
@@ -248,24 +267,6 @@ func validateProcessConfig(d om.Deployment, processMap map[string]om.Process) []
 	results = append(results, checkTLSAllowMode(d)...)
 	results = append(results, checkTLSPaths(d)...)
 	results = append(results, checkShardingClusterRole(d)...)
-
-	return results
-}
-
-// validateReplicaSetConfig checks replica set topology: single deployment per
-// project, protocol version, member→process references, and member-level fields
-// that are preserved or lost during migration (slaveDelay, hidden).
-func validateReplicaSetConfig(d om.Deployment, processMap map[string]om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
-	var results []ValidationResult
-
-	results = append(results, checkOneDeploymentPerProject(d)...)
-	results = append(results, checkReplicaSetsExist(d)...)
-	results = append(results, checkReplicaSetProtocolVersion(d)...)
-	results = append(results, checkMembersReferenceProcesses(d, processMap)...)
-	results = append(results, checkHeterogeneousProcessConfig(d, processMap)...)
-	results = append(results, checkProcessConfigDrift(d, processMap, projectProcessConfigs)...)
-	results = append(results, checkVersionConsistency(d, processMap)...)
-	results = append(results, checkMemberPreservedFields(d)...)
 
 	return results
 }
@@ -337,9 +338,7 @@ func checkNonDefaultDbPath(d om.Deployment, processMap map[string]om.Process) []
 	return nil
 }
 
-// checkTLSModeNotNull reports an error when a process has net.tls or net.ssl in the AC
-// but mode is null or missing. Null/missing mode is not allowed; the user must set
-// mode to a valid value (e.g. "disabled") in the automation config before migration.
+// checkTLSModeNotNull errors when net.tls/net.ssl is present but mode is null or missing.
 func checkTLSModeNotNull(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, proc := range d.GetProcesses() {
@@ -372,8 +371,9 @@ func checkTLSAllowMode(d om.Deployment) []ValidationResult {
 	for _, proc := range d.GetProcesses() {
 		args := proc.Args()
 
-		// Both conditions needed: no section => GetTLSModeFromMongodConfig returns Require (default); section with mode "disabled" => second condition.
-		if !hasTLSSection(args) || pkgtls.GetTLSModeFromMongodConfig(args) == pkgtls.Disabled {
+		mode := pkgtls.GetTLSModeFromMongodConfig(args)
+		// No section means GetTLSModeFromMongodConfig returns Require (default); section with "disabled" also qualifies.
+		if !hasTLSSection(args) || mode == pkgtls.Disabled {
 			if !noTLSReported {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
@@ -383,7 +383,6 @@ func checkTLSAllowMode(d om.Deployment) []ValidationResult {
 			}
 			continue
 		}
-		mode := pkgtls.GetTLSModeFromMongodConfig(args)
 		if mode == pkgtls.Allow || mode == "allowSSL" {
 			results = append(results, ValidationResult{
 				Severity: SeverityWarning,
@@ -444,7 +443,20 @@ func checkShardingClusterRole(d om.Deployment) []ValidationResult {
 }
 
 func checkOneDeploymentPerProject(d om.Deployment) []ValidationResult {
-	count := countDeployments(d)
+	shardedClusters := d.GetShardedClusters()
+	shardRSNames := map[string]bool{}
+	for _, sc := range shardedClusters {
+		for _, sh := range sc.Shards() {
+			shardRSNames[sh.Id()] = true
+		}
+	}
+	independentRSCount := 0
+	for _, rs := range d.GetReplicaSets() {
+		if !shardRSNames[rs.Name()] {
+			independentRSCount++
+		}
+	}
+	count := len(shardedClusters) + independentRSCount
 	if count <= 1 {
 		return nil
 	}
@@ -452,26 +464,6 @@ func checkOneDeploymentPerProject(d om.Deployment) []ValidationResult {
 		Severity: SeverityError,
 		Message:  fmt.Sprintf("The project contains %d deployments. The operator requires exactly one deployment per project. Split the project before migrating.", count),
 	}}
-}
-
-func countDeployments(d om.Deployment) int {
-	shardedClusters := d.GetShardedClusters()
-
-	shardRSNames := map[string]bool{}
-	for _, sc := range shardedClusters {
-		for _, sh := range sc.Shards() {
-			shardRSNames[sh.Id()] = true
-		}
-	}
-
-	independentRSCount := 0
-	for _, rs := range d.GetReplicaSets() {
-		if !shardRSNames[rs.Name()] {
-			independentRSCount++
-		}
-	}
-
-	return len(shardedClusters) + independentRSCount
 }
 
 func checkReplicaSetsExist(d om.Deployment) []ValidationResult {
@@ -531,61 +523,44 @@ func checkMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Pr
 	return results
 }
 
-// checkHeterogeneousProcessConfig warns when replica set members have different
-// additionalMongodConfig-relevant settings. Only fields that end up in
-// spec.additionalMongodConfig are compared, since those must be uniform
-// across all members in Kubernetes. Operator-managed or per-process fields
-// (systemLog, TLS paths, security.clusterAuthMode, etc.) are excluded.
-//
-// Fields that differ between members are excluded from the generated CR
-// because Kubernetes applies additionalMongodConfig uniformly to every pod.
-// A warning is emitted for each excluded field so the user can review and
-// reconcile the processes before migration.
-func checkHeterogeneousProcessConfig(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
-	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 {
+// checkHeterogeneousProcessConfig warns when a member's additionalMongodConfig-relevant
+// fields differ from the source process; differing fields are excluded from the generated CR.
+func checkHeterogeneousProcessConfig(members []om.ReplicaSetMember, processMap map[string]om.Process, sourceProcess *om.Process) []ValidationResult {
+	if sourceProcess == nil || len(members) < 2 {
 		return nil
 	}
 
-	members := replicaSets[0].Members()
-	if len(members) < 2 {
-		return nil
-	}
-
-	var allFlat []map[string]string
-	for _, m := range members {
-		host := m.Name()
-		proc, ok := processMap[host]
-		if !ok {
-			continue
-		}
-		cfg := mdbv1.NewEmptyAdditionalMongodConfig()
-		args := proc.Args()
-		extractNetConfig(args, cfg)
-		extractStorageConfig(args, cfg)
-		extractReplicationConfig(args, cfg)
-		extractGenericSections(args, cfg)
-		extractNonDefaultTLSMode(args, cfg)
-		allFlat = append(allFlat, maputil.ToFlatMap(cfg.ToMap()))
-	}
-
-	if len(allFlat) < 2 {
-		return nil
-	}
+	sourceFlat := flatAdditionalMongodConfig(*sourceProcess)
 
 	var results []ValidationResult
-	for _, key := range findInconsistentKeys(allFlat) {
-		results = append(results, ValidationResult{
-			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("Field %q differs across replica set members and will be excluded from the Custom Resource. Reconcile before migration.", key),
-		})
+	for _, m := range members {
+		proc, ok := processMap[m.Name()]
+		if !ok || proc.Name() == sourceProcess.Name() {
+			continue
+		}
+		memberFlat := flatAdditionalMongodConfig(proc)
+		for _, key := range findInconsistentKeys([]map[string]string{sourceFlat, memberFlat}) {
+			results = append(results, ValidationResult{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("Field %q on process %q differs from source process %q and will be excluded from the Custom Resource. Reconcile before migration.", key, proc.Name(), sourceProcess.Name()),
+			})
+		}
 	}
 	return results
 }
 
-// findInconsistentKeys returns a sorted list of dotted keys whose serialized
-// values differ across the flat config maps. Keys that are absent in all maps
-// or identical everywhere are excluded.
+func flatAdditionalMongodConfig(proc om.Process) map[string]string {
+	cfg := mdbv1.NewEmptyAdditionalMongodConfig()
+	args := proc.Args()
+	extractNetConfig(args, cfg)
+	extractStorageConfig(args, cfg)
+	extractReplicationConfig(args, cfg)
+	extractGenericSections(args, cfg)
+	extractNonDefaultTLSMode(args, cfg)
+	return maputil.ToFlatMap(cfg.ToMap())
+}
+
+// findInconsistentKeys returns sorted dotted keys whose values differ across the flat maps.
 func findInconsistentKeys(allFlat []map[string]string) []string {
 	seen := map[string]bool{}
 	for _, flat := range allFlat {
@@ -593,20 +568,13 @@ func findInconsistentKeys(allFlat []map[string]string) []string {
 			seen[k] = true
 		}
 	}
-
 	var inconsistent []string
 	for _, key := range slices.Sorted(maps.Keys(seen)) {
-		var refVal string
-		refSet := false
+		refVal, refExists := allFlat[0][key]
 		consistent := true
-		for _, flat := range allFlat {
+		for _, flat := range allFlat[1:] {
 			val, exists := flat[key]
-			if !refSet {
-				refVal = val
-				refSet = exists
-				continue
-			}
-			if exists != refSet || val != refVal {
+			if exists != refExists || val != refVal {
 				consistent = false
 				break
 			}
@@ -618,9 +586,7 @@ func findInconsistentKeys(allFlat []map[string]string) []string {
 	return inconsistent
 }
 
-// checkVersionConsistency warns when members in the first replica set have
-// different MongoDB versions or featureCompatibilityVersions. The generated
-// CR uses the version from the first member, so mismatches should be reconciled.
+// checkVersionConsistency warns when members have different MongoDB versions or FCVs.
 func checkVersionConsistency(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
 	replicaSets := d.GetReplicaSets()
 	if len(replicaSets) == 0 {
@@ -642,33 +608,24 @@ func checkVersionConsistency(d om.Deployment, processMap map[string]om.Process) 
 
 	var results []ValidationResult
 	if len(versions) > 1 {
-		keys := slices.Sorted(maps.Keys(versions))
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("Members have different MongoDB versions %v. The Custom Resource will use the first member's version. Reconcile before migration.", keys),
+			Message:  fmt.Sprintf("Members have different MongoDB versions %v. The Custom Resource will use the first member's version. Reconcile before migration.", slices.Sorted(maps.Keys(versions))),
 		})
 	}
 	if len(fcvs) > 1 {
-		keys := slices.Sorted(maps.Keys(fcvs))
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("Members have different feature compatibility versions %v. The Custom Resource will use the first member's FCV.", keys),
+			Message:  fmt.Sprintf("Members have different feature compatibility versions %v. The Custom Resource will use the first member's FCV.", slices.Sorted(maps.Keys(fcvs))),
 		})
 	}
 	return results
 }
 
 // checkProcessConfigDrift warns when per-process logRotate or auditLogRotate
-// in the AC differs from the project-level values returned by the OM API. The
-// generated CR uses the project-level values, so any drift means the AC
-// processes have stale or manually edited settings.
-func checkProcessConfigDrift(d om.Deployment, processMap map[string]om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
+// differs from the project-level values; the CR uses the project-level values.
+func checkProcessConfigDrift(members []om.ReplicaSetMember, processMap map[string]om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
 	if projectProcessConfigs == nil {
-		return nil
-	}
-
-	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 {
 		return nil
 	}
 
@@ -676,7 +633,7 @@ func checkProcessConfigDrift(d om.Deployment, processMap map[string]om.Process, 
 	projectAuditLogRotate, _ := maputil.StructToMap(projectProcessConfigs.AuditLogRotate)
 
 	var results []ValidationResult
-	for _, m := range replicaSets[0].Members() {
+	for _, m := range members {
 		proc, ok := processMap[m.Name()]
 		if !ok {
 			continue
