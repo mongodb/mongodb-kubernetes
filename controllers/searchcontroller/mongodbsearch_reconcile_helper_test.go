@@ -1249,6 +1249,83 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 	}
 }
 
+func TestValidateManagedLBShardedTLS(t *testing.T) {
+	mdbc := newTestMongoDBCommunity("test-mongodb", "test")
+
+	tests := []struct {
+		name          string
+		search        *searchv1.MongoDBSearch
+		source        SearchSourceDBResource
+		expectedError string
+	}{
+		{
+			name: "non-sharded source, managed LB, no TLS - ok",
+			search: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{},
+				}
+			}),
+			source: NewCommunityResourceSearchSource(mdbc),
+		},
+		{
+			name:   "sharded source, no LB - ok",
+			search: newTestMongoDBSearch("test-search", "test"),
+			source: &mockShardedSource{shardNames: []string{"shard-0"}},
+		},
+		{
+			name: "sharded source, managed LB, TLS configured - ok",
+			search: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{},
+				}
+				s.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "prefix"}
+			}),
+			source: &mockShardedSource{shardNames: []string{"shard-0"}},
+		},
+		{
+			name: "sharded source, managed LB, no TLS - error",
+			search: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{},
+				}
+			}),
+			source:        &mockShardedSource{shardNames: []string{"shard-0"}},
+			expectedError: "TLS (spec.security.tls) is required when using managed load balancer with a sharded cluster",
+		},
+		{
+			name: "sharded source, unmanaged LB, no TLS - ok",
+			search: newTestMongoDBSearch("test-search", "test", func(s *searchv1.MongoDBSearch) {
+				s.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+					Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb.example.com:27028"},
+				}
+			}),
+			source: &mockShardedSource{shardNames: []string{"shard-0"}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clientBuilder := mock.NewEmptyFakeClientBuilder()
+			clientBuilder.WithObjects(mdbc)
+
+			helper := NewMongoDBSearchReconcileHelper(
+				kubernetesClient.NewClient(clientBuilder.Build()),
+				tc.search,
+				tc.source,
+				OperatorSearchConfig{},
+			)
+
+			err := helper.ValidateManagedLBShardedTLS()
+			if tc.expectedError == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedError)
+			}
+		})
+	}
+}
+
 func TestGetMongosConfigParametersForSharded(t *testing.T) {
 	tests := []struct {
 		name          string
