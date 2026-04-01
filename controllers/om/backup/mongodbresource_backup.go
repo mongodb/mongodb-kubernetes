@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"math"
 	"reflect"
 	"strings"
 	"time"
@@ -236,7 +235,7 @@ func applyShardedClusterBackupEnableDelay(mdb status.Reader, backupEnableDelay t
 			return workflow.OK()
 		}
 		if remaining := max(time.Until(startTime.Add(backupEnableDelay)), 0); remaining > 0 {
-			return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(math.Ceil(remaining.Seconds())))
+			return workflow.Pending(BackupEnableDelayPendingMessage)
 		}
 		log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
 		return workflow.OK()
@@ -244,7 +243,7 @@ func applyShardedClusterBackupEnableDelay(mdb status.Reader, backupEnableDelay t
 
 	// First entry into the waiting state — return Pending so the controller writes the status and
 	// records LastTransition. The next reconcile will measure elapsed time from that timestamp.
-	return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(backupEnableDelay.Seconds()))
+	return workflow.Pending(BackupEnableDelayPendingMessage)
 }
 
 func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {
