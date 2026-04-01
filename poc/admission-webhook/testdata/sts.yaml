@@ -1,0 +1,45 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-sts
+  namespace: default
+spec:
+  clusterIP: None
+  selector:
+    app: my-sts
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: my-sts
+  namespace: default
+spec:
+  replicas: 3
+  serviceName: my-sts
+  selector:
+    matchLabels:
+      app: my-sts
+  template:
+    metadata:
+      labels:
+        app: my-sts
+        "per-pod-secret-webhook/enabled": "true"
+      annotations:
+        "per-pod-secret-webhook/secret-name-prefix": "my-sts"
+    spec:
+      containers:
+        - name: cert-reader
+          image: busybox
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                if [ -f /per-pod-cert/tls.crt ]; then
+                  echo "=== $(hostname) cert ==="
+                  cat /per-pod-cert/tls.crt
+                else
+                  echo "Waiting for cert..."
+                fi
+                sleep 15
+              done
