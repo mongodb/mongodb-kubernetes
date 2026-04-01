@@ -23,6 +23,7 @@ const (
 
 // HandleMutatePods is the http.HandlerFunc for the /mutate-pods webhook endpoint.
 func HandleMutatePods(w http.ResponseWriter, r *http.Request) {
+	log.Printf("HandleMutatePods: received request from %s", r.RemoteAddr)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("reading body: %v", err), http.StatusBadRequest)
@@ -44,6 +45,7 @@ func HandleMutatePods(w http.ResponseWriter, r *http.Request) {
 	response := mutate(ar.Request)
 	response.UID = ar.Request.UID
 	ar.Response = response
+	log.Printf("HandleMutatePods: pod=%s allowed=%v patch=%s", ar.Request.Name, response.Allowed, string(response.Patch))
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(ar); err != nil {

@@ -51,6 +51,11 @@ func TestAdmissionWebhookIntegration(t *testing.T) {
 	// 3. Register MutatingWebhookConfiguration; cleanup registered IMMEDIATELY (LIFO: runs last)
 	registerWebhook(t, clientset, webhookURL, certPEM)
 
+	// Wait for the API server to pick up the new webhook configuration before applying the StatefulSet.
+	// Without this, pods may be created and admitted before the webhook is active.
+	t.Log("waiting 5s for webhook config propagation...")
+	time.Sleep(5 * time.Second)
+
 	// 4. Create per-pod Secrets (cleanup registered after each creation; LIFO: run before webhook cleanup)
 	secretValues := map[string]string{
 		"my-sts-0": "cert-data-for-pod-my-sts-0",

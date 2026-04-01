@@ -41,7 +41,7 @@ Single `http.HandlerFunc` on `/mutate-pods`.
 **Handler steps:**
 
 1. Decode `admissionv1.AdmissionReview` from request body.
-2. Extract pod from `request.Object` using `k8s.io/apimachinery/pkg/runtime/serializer`.
+2. Extract pod from `request.Object` via `json.Unmarshal(req.Object.Raw, &pod)` — simpler than the full codec factory and functionally equivalent for JSON-encoded admission objects from the kube API server.
 3. If pod lacks label `per-pod-secret-webhook/enabled: "true"` → return allow with no patch (safe fallback; shouldn't happen due to `objectSelector` pre-filtering).
 4. Read annotation `per-pod-secret-webhook/secret-name-prefix` from pod — if missing, return deny with a descriptive message.
 5. Extract ordinal by splitting pod name on `-` and taking the last segment. Validate with `strconv.Atoi` — if the last segment is not a valid non-negative integer, return a denial response with a clear error message.
@@ -58,7 +58,7 @@ Single `http.HandlerFunc` on `/mutate-pods`.
 - Generates a self-signed TLS cert via `pkg/webhook/certificates.go` (`createSelfSignedCert` returns raw DER bytes; `server.go` PEM-encodes them before writing and before returning `certPEM`).
 - `certPEM` returned by `Start` is always **PEM-encoded** — this is required by the `caBundle` field in `MutatingWebhookConfiguration`.
 - Starts HTTPS listener on the given address.
-- Exposes `Start(addr string) (certPEM []byte, actualAddr string, err error)` for use in tests.
+- Exposes `Start(addr string, hosts []string, mux *http.ServeMux) (certPEM []byte, actualAddr string, err error)` for use in tests.
 
 ## Sample StatefulSet YAML (`testdata/sts.yaml`)
 
