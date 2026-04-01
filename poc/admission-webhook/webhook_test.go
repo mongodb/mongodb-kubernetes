@@ -1,3 +1,11 @@
+// Integration test for the per-pod-secret mutating admission webhook.
+// Requires a local kind cluster (not a remote cluster — the webhook server runs on the host machine).
+//
+// To run:
+//
+//	kind create cluster --name webhook-poc
+//	KUBECONFIG=~/.kube/config go test -v -run TestAdmissionWebhookIntegration ./poc/admission-webhook/...
+//	kind delete cluster --name webhook-poc
 package admissionwebhook_test
 
 import (
