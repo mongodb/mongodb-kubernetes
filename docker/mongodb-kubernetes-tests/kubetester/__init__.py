@@ -75,7 +75,7 @@ def delete_service_account(namespace: str, name: str) -> str:
 
 def get_service(
     namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
-) -> client.V1ServiceSpec:
+) -> Optional[client.V1Service]:
     """Gets a service with `name` in `namespace.
     :return None if the service does not exist
     """

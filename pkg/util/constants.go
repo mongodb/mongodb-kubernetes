@@ -208,6 +208,12 @@ const (
 
 	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
 
+	// Search environment variables
+	SearchRepoURLEnv = "MDB_SEARCH_REPO_URL"
+	SearchNameEnv    = "MDB_SEARCH_NAME"
+	SearchVersionEnv = "MDB_SEARCH_VERSION"
+	EnvoyImageEnv    = "MDB_ENVOY_IMAGE"
+
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
 	DefaultConfigSrvStorageSize        = "5G"
