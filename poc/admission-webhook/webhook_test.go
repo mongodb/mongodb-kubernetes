@@ -78,12 +78,10 @@ func TestAdmissionWebhookIntegration(t *testing.T) {
 		assertVolumeMount(t, clientset, podName, expectedSecret)
 	}
 
-	// 8. Poll pod logs until the expected cert content appears (or 60s timeout)
-	logCtx, logCancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer logCancel()
+	// 8. Poll pod logs until the expected cert content appears (60s per pod, independent timeouts)
 	for ordinal := 0; ordinal < 3; ordinal++ {
 		podName := fmt.Sprintf("%s-%d", stsName, ordinal)
-		waitForPodLogs(t, logCtx, clientset, podName, secretValues[podName])
+		waitForPodLogs(t, clientset, podName, secretValues[podName])
 	}
 }
 
@@ -277,11 +275,13 @@ func assertVolumeMount(t *testing.T, clientset *kubernetes.Clientset, podName, e
 		podName, pod.Spec.Containers[0].VolumeMounts)
 }
 
-// waitForPodLogs polls the cert-reader container logs until expectedContent appears or ctx expires.
+// waitForPodLogs polls the cert-reader container logs until expectedContent appears or 60s elapses.
+// Each call owns its own independent 60-second budget — no shared context starvation.
 // This is more reliable than a fixed sleep because it handles slow image pulls and volume mount delays.
-func waitForPodLogs(t *testing.T, ctx context.Context, clientset *kubernetes.Clientset, podName, expectedContent string) {
+func waitForPodLogs(t *testing.T, clientset *kubernetes.Clientset, podName, expectedContent string) {
 	t.Helper()
-	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 60*time.Second, true,
+	// Each pod gets its own independent 60-second budget — no shared context starvation.
+	err := wait.PollUntilContextTimeout(context.Background(), 5*time.Second, 60*time.Second, true,
 		func(ctx context.Context) (bool, error) {
 			stream, err := clientset.CoreV1().Pods(testNamespace).GetLogs(podName, &corev1.PodLogOptions{
 				Container: "cert-reader",
