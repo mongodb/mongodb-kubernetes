@@ -1,6 +1,6 @@
 ---
 kind: feature
-date: 2026-03-18
+date: 2026-04-01
 ---
 
 * **MongoDBSearch**: The `MongoDBSearch` CRD now supports scaling search workloads across multiple mongot instances, with built-in L7 load balancing and sharded MongoDB cluster support.
