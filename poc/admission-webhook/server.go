@@ -2,7 +2,9 @@ package admissionwebhook
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -51,7 +53,11 @@ func Start(addr string, hosts []string, mux *http.ServeMux) (certPEM []byte, act
 		},
 	}
 
-	go func() { _ = srv.ServeTLS(ln, "", "") }()
+	go func() {
+		if err := srv.ServeTLS(ln, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("webhook server exited unexpectedly: %v", err)
+		}
+	}()
 
 	return certPEM, ln.Addr().String(), nil
 }

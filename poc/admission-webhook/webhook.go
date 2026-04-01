@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -46,7 +47,8 @@ func HandleMutatePods(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(ar); err != nil {
-		http.Error(w, fmt.Sprintf("encoding response: %v", err), http.StatusInternalServerError)
+		// Headers already sent; log server-side only — http.Error would corrupt the response body
+		log.Printf("encoding AdmissionReview response: %v", err)
 	}
 }
 
@@ -73,6 +75,8 @@ func mutate(req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
 		return denyResponse(fmt.Sprintf("pod name %q does not end with a valid non-negative ordinal", pod.Name))
 	}
 
+	// NOTE: this assumes the pod name ends with -<integer>, which is always true for
+	// StatefulSet pods. Non-StatefulSet pods with the webhook label will be denied.
 	secretName := fmt.Sprintf("%s-%d", prefix, ordinal)
 	patchBytes, err := buildPatches(pod, secretName)
 	if err != nil {
