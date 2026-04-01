@@ -10,8 +10,6 @@ with OpenShift-specific additions:
 Requires an OpenShift cluster (Route API).
 """
 
-import time
-
 from kubernetes import client
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import run_periodically
@@ -105,23 +103,27 @@ def create_ocp_routes_for_shards(namespace: str) -> dict[str, str]:
             else:
                 raise
 
-    # TODO: replace sleep with polling for route.spec.host to be assigned
-    time.sleep(5)
-
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
         route_name = f"mongot-{shard_name}"
+        resolved_host = {}
 
-        route = custom_api.get_namespaced_custom_object(
-            group="route.openshift.io",
-            version="v1",
-            namespace=namespace,
-            plural="routes",
-            name=route_name,
-        )
-        hostname = route["spec"]["host"]
-        hostnames[shard_name] = hostname
-        logger.info(f"Route {route_name} assigned hostname: {hostname}")
+        def poll_route_host(rname=route_name, out=resolved_host):
+            route = custom_api.get_namespaced_custom_object(
+                group="route.openshift.io",
+                version="v1",
+                namespace=namespace,
+                plural="routes",
+                name=rname,
+            )
+            host = route.get("spec", {}).get("host", "")
+            if host:
+                out["host"] = host
+            return bool(host), f"host={host!r}"
+
+        run_periodically(poll_route_host, timeout=60, sleep_time=2, msg=f"Route {route_name} host assignment")
+        hostnames[shard_name] = resolved_host["host"]
+        logger.info(f"Route {route_name} assigned hostname: {resolved_host['host']}")
 
     return hostnames
 
