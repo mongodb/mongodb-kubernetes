@@ -30,20 +30,20 @@ func TestApplyShardedClusterBackupEnableDelay(t *testing.T) {
 
 	t.Run("delay starts on first entry (phase is not pending with our message)", func(t *testing.T) {
 		mdb := &mockCommonStatusResource{phase: status.PhaseRunning}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, 60*time.Second, log)
-		assert.True(t, stop, "expected stop=true on first entry")
+		s := applyShardedClusterBackupEnableDelay(mdb, 60*time.Second, log)
+		assert.False(t, s.IsOK(), "expected non-OK on first entry")
 	})
 
 	t.Run("proceeds immediately when delay is zero", func(t *testing.T) {
 		mdb := &mockCommonStatusResource{phase: status.PhaseRunning}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, 0, log)
-		assert.False(t, stop)
+		s := applyShardedClusterBackupEnableDelay(mdb, 0, log)
+		assert.True(t, s.IsOK())
 	})
 
 	t.Run("proceeds immediately when delay is negative", func(t *testing.T) {
 		mdb := &mockCommonStatusResource{phase: status.PhaseRunning}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, -1*time.Second, log)
-		assert.False(t, stop)
+		s := applyShardedClusterBackupEnableDelay(mdb, -1*time.Second, log)
+		assert.True(t, s.IsOK())
 	})
 
 	t.Run("delay still pending when LastTransition is recent", func(t *testing.T) {
@@ -52,8 +52,8 @@ func TestApplyShardedClusterBackupEnableDelay(t *testing.T) {
 			message:        BackupEnableDelayPendingMessage,
 			lastTransition: time.Now().UTC().Format(time.RFC3339),
 		}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, 60*time.Second, log)
-		assert.True(t, stop, "expected stop=true while delay is pending")
+		s := applyShardedClusterBackupEnableDelay(mdb, 60*time.Second, log)
+		assert.False(t, s.IsOK(), "expected non-OK while delay is pending")
 	})
 
 	t.Run("proceeds when LastTransition is old enough", func(t *testing.T) {
@@ -62,8 +62,8 @@ func TestApplyShardedClusterBackupEnableDelay(t *testing.T) {
 			message:        BackupEnableDelayPendingMessage,
 			lastTransition: time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339),
 		}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, 5*time.Second, log)
-		assert.False(t, stop, "expected stop=false after delay has elapsed")
+		s := applyShardedClusterBackupEnableDelay(mdb, 5*time.Second, log)
+		assert.True(t, s.IsOK(), "expected OK after delay has elapsed")
 	})
 
 	t.Run("restarts delay when LastTransition cannot be parsed", func(t *testing.T) {
@@ -72,8 +72,8 @@ func TestApplyShardedClusterBackupEnableDelay(t *testing.T) {
 			message:        BackupEnableDelayPendingMessage,
 			lastTransition: "not-a-timestamp",
 		}
-		_, stop := applyShardedClusterBackupEnableDelay(mdb, 60*time.Second, log)
-		assert.True(t, stop, "expected stop=true to restart delay when timestamp is unparseable")
+		s := applyShardedClusterBackupEnableDelay(mdb, 60*time.Second, log)
+		assert.False(t, s.IsOK(), "expected non-OK to restart delay when timestamp is unparseable")
 	})
 }
 

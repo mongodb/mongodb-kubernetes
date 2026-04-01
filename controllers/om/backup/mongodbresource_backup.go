@@ -185,7 +185,7 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 		}
 
 		if isShardedCluster && (desiredConfig.Status == Started && (config.Status == Inactive || config.Status == Stopped)) {
-			if s, stop := applyShardedClusterBackupEnableDelay(mdb, backupEnableDelay, log); stop {
+			if s := applyShardedClusterBackupEnableDelay(mdb, backupEnableDelay, log); !s.IsOK() {
 				return s, nil
 			}
 		}
@@ -227,9 +227,9 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 // applyShardedClusterBackupEnableDelay waits before enabling backup for sharded clusters.
 // It uses the CR's LastTransition timestamp to measure elapsed time across reconciles.
 // See CLOUDP-389867.
-func applyShardedClusterBackupEnableDelay(mdb commonStatusReader, backupEnableDelay time.Duration, log *zap.SugaredLogger) (workflow.Status, bool) {
+func applyShardedClusterBackupEnableDelay(mdb commonStatusReader, backupEnableDelay time.Duration, log *zap.SugaredLogger) workflow.Status {
 	if backupEnableDelay <= 0 {
-		return workflow.OK(), false
+		return workflow.OK()
 	}
 
 	commonStatus := mdb.GetCommonStatus()
@@ -238,18 +238,19 @@ func applyShardedClusterBackupEnableDelay(mdb commonStatusReader, backupEnableDe
 		startTime, err := time.Parse(time.RFC3339, commonStatus.LastTransition)
 		if err != nil {
 			// Cannot parse timestamp; restart the delay so a fresh LastTransition is recorded.
-			return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(backupEnableDelay.Seconds())), true
+			log.Errorf("Backup enable delay: could not parse LastTransition timestamp: %s", err)
+			return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(backupEnableDelay.Seconds()))
 		}
 		if remaining := max(time.Until(startTime.Add(backupEnableDelay)), 0); remaining > 0 {
-			return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(math.Ceil(remaining.Seconds()))), true
+			return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(math.Ceil(remaining.Seconds())))
 		}
 		log.Debugf("Backup enable delay has elapsed, proceeding with backup enable")
-		return workflow.OK(), false
+		return workflow.OK()
 	}
 
 	// First entry into the waiting state — return Pending so the controller writes the status and
 	// records LastTransition. The next reconcile will measure elapsed time from that timestamp.
-	return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(backupEnableDelay.Seconds())), true
+	return workflow.Pending(BackupEnableDelayPendingMessage).WithRetry(int(backupEnableDelay.Seconds()))
 }
 
 func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {
