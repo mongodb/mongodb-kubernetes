@@ -1,0 +1,79 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-sts
+spec:
+  clusterIP: None
+  selector:
+    app: my-sts
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-sts-uber-secret
+type: Opaque
+data:
+  my-sts-0: Y2VydC1kYXRhLWZvci1wb2QtbXktc3RzLTA=
+  my-sts-1: Y2VydC1kYXRhLWZvci1wb2QtbXktc3RzLTE=
+  my-sts-2: Y2VydC1kYXRhLWZvci1wb2QtbXktc3RzLTItbW9kaWZpZWQ=
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: my-sts
+spec:
+  replicas: 3
+  serviceName: my-sts
+  selector:
+    matchLabels:
+      app: my-sts
+  template:
+    metadata:
+      labels:
+        app: my-sts
+    spec:
+      containers:
+        - name: cert-sidecar
+          image: busybox
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                cp /uber-secret/$POD_NAME /per-pod-cert/tls.crt
+                sleep 10
+              done
+          volumeMounts:
+            - name: uber-secret-vol
+              mountPath: /uber-secret
+              readOnly: true
+            - name: per-pod-cert
+              mountPath: /per-pod-cert
+        - name: cert-reader
+          image: busybox
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                if [ -f /per-pod-cert/tls.crt ]; then
+                  cat /per-pod-cert/tls.crt
+                else
+                  echo "Waiting for cert..."
+                fi
+                sleep 15
+              done
+          volumeMounts:
+            - name: per-pod-cert
+              mountPath: /per-pod-cert
+              readOnly: true
+      volumes:
+        - name: uber-secret-vol
+          secret:
+            secretName: my-sts-uber-secret
+        - name: per-pod-cert
+          emptyDir: {}
