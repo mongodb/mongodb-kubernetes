@@ -6,3 +6,5 @@
 source "$(dirname "${BASH_SOURCE[0]}")/env_variables.sh"
 
 export K8S_CTX="kind-kind"
+
+source "$(dirname "${BASH_SOURCE[0]}")/env_variables_e2e_common.sh"
