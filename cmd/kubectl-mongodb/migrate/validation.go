@@ -68,6 +68,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 	}
 	members := ac.Deployment.GetReplicaSets()[0].Members()
 	sourceProcess := pickSourceProcess(members, processMap)
+	fmt.Fprintf(os.Stderr, "[WARNING] spec.additionalMongodConfig and spec.agent.mongod.systemLog will be taken from process %q. Review all members and reconcile any differences before migration.\n", sourceProcess.Name())
 	results = append(results, checkDifferentMongodConfig(members, processMap, sourceProcess)...)
 	results = append(results, checkProcessConfigDrift(members, processMap, projectProcessConfigs)...)
 
@@ -83,7 +84,6 @@ func pickSourceProcess(members []om.ReplicaSetMember, processMap map[string]om.P
 			break
 		}
 	}
-	fmt.Fprintf(os.Stderr, "spec.additionalMongodConfig and spec.agent.mongod.systemLog will be taken from process %q. Review all members and reconcile any differences before migration.\n", m.Name())
 	proc := processMap[m.Name()]
 	return &proc
 }
@@ -232,7 +232,7 @@ func validateLDAP(l *ldap.Ldap) []ValidationResult {
 	if l.CaFileContents != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  "LDAP CA certificate is present. Create ConfigMap \"ldap-ca\" with key \"ca.pem\" before applying the Custom Resource.",
+			Message:  "LDAP CA certificate is present. The tool will create ConfigMap \"ldap-ca\" with key \"ca.pem\" automatically (or include it in the output when --dry-run is set).",
 		})
 	}
 

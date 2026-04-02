@@ -10,10 +10,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 const defaultNamespace = "default"
@@ -25,6 +27,7 @@ var (
 	multiClusterNames      string
 	outputFile             string
 	replicaSetNameOverride string
+	dryRun                 bool
 )
 
 var MigrateCmd = &cobra.Command{
@@ -51,6 +54,7 @@ func init() {
 	MigrateCmd.Flags().StringVar(&multiClusterNames, "multi-cluster-names", "", "Comma-separated list of target cluster names (e.g., east1,west1); generates a MongoDBMultiCluster CR")
 	MigrateCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
 	MigrateCmd.Flags().StringVar(&replicaSetNameOverride, "replicaset-name-override", "", "Kubernetes resource name for the generated CR; required when the replica set name is not a valid Kubernetes name (sets spec.replicaSetNameOverride automatically)")
+	MigrateCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print supportive resources (secrets, configmaps) to output instead of applying them to the cluster")
 	_ = MigrateCmd.MarkFlagRequired("config-map-name")
 	_ = MigrateCmd.MarkFlagRequired("secret-name")
 }
@@ -86,6 +90,7 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 		ProcessMap:             processMap,
 		Members:                ac.Deployment.GetReplicaSets()[0].Members(), // safe: ValidateMigration returns an error above when there are no replica sets
 		SourceProcess:          sourceProcess,
+		DryRun:                 dryRun,
 	}
 
 	if multiClusterNames != "" {
@@ -100,27 +105,15 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	if err := ensureTLS(&opts, stdinScanner); err != nil {
 		return err
 	}
-
-	mongodbYAML, crName, err := GenerateMongoDBCR(ac, opts)
-	if err != nil {
-		return fmt.Errorf("failed to generate Custom Resource: %w", err)
+	if err := collectPrometheusPassword(ac, &opts, stdinScanner); err != nil {
+		return err
 	}
-
-	userCRs, err := GenerateUserCRs(ac, crName)
-	if err != nil {
-		return fmt.Errorf("failed to generate user Custom Resources: %w", err)
-	}
-
-	ldapBindQuerySecret, ldapCAConfigMap, err := GenerateLdapResources(ac, namespace)
-	if err != nil {
-		return fmt.Errorf("failed to generate LDAP resources: %w", err)
-	}
-
-	if err := ensurePrometheus(ctx, ac, kubeClient, stdinScanner); err != nil {
+	if err := collectUserPasswords(ac, &opts, stdinScanner); err != nil {
 		return err
 	}
 
-	if err := ensureUserSecrets(ctx, ac, userCRs, kubeClient, stdinScanner); err != nil {
+	mongodbYAML, userCRs, clusterYAML, err := generateAll(ctx, ac, opts, kubeClient)
+	if err != nil {
 		return err
 	}
 
@@ -134,28 +127,105 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 
 	_, _ = fmt.Fprint(out, mongodbYAML)
 	for _, u := range userCRs {
-		_, _ = fmt.Fprintf(out, "---\n%s", u.YAML)
+		_, _ = fmt.Fprint(out, "---\n")
+		_, _ = fmt.Fprint(out, u.YAML)
 	}
-	if ldapBindQuerySecret != "" {
-		_, _ = fmt.Fprintf(out, "---\n%s", ldapBindQuerySecret)
-	}
-	if ldapCAConfigMap != "" {
-		_, _ = fmt.Fprintf(out, "---\n%s", ldapCAConfigMap)
-	}
-
+	_, _ = fmt.Fprint(out, clusterYAML)
 	if outputFile != "" {
 		fmt.Fprintf(os.Stderr, "CRs written to %s\n", outputFile)
 	}
-
 	return nil
 }
+
+// generateAll generates all CRs and cluster resources, returning each piece separately.
+func generateAll(ctx context.Context, ac *om.AutomationConfig, opts GenerateOptions, kubeClient kubernetesClient.Client) (mongodbYAML string, userCRs []UserCROutput, clusterYAML string, err error) {
+	mongodbYAML, crName, err := GenerateMongoDBCR(ac, opts)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to generate Custom Resource: %w", err)
+	}
+
+	userCRs, err = GenerateUserCRs(ac, crName)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to generate user Custom Resources: %w", err)
+	}
+
+	clusterYAML, err = applyClusterResources(ctx, ac, opts, userCRs, kubeClient)
+	if err != nil {
+		return "", nil, "", err
+	}
+
+	return mongodbYAML, userCRs, clusterYAML, nil
+}
+
+// applyClusterResources applies secrets/configmaps to the cluster, or returns their YAML when dry-run.
+func applyClusterResources(ctx context.Context, ac *om.AutomationConfig, opts GenerateOptions, userCRs []UserCROutput, kubeClient kubernetesClient.Client) (string, error) {
+	var resources []any
+
+	if ac.Ldap != nil {
+		if ac.Ldap.BindQueryPassword != "" {
+			resources = append(resources, GeneratePasswordSecret(LdapBindQuerySecretName, namespace, ac.Ldap.BindQueryPassword))
+		}
+		if ac.Ldap.CaFileContents != "" {
+			resources = append(resources, buildLdapCAConfigMap(namespace, ac.Ldap.CaFileContents))
+		}
+	}
+
+	acProm := ac.Deployment.GetPrometheus()
+	if opts.PrometheusPassword != "" && acProm != nil && acProm.Enabled && acProm.Username != "" {
+		resources = append(resources, GeneratePasswordSecret(PrometheusPasswordSecretName, namespace, opts.PrometheusPassword))
+	}
+
+	for _, u := range userCRs {
+		if !u.NeedsPassword {
+			continue
+		}
+		password, ok := opts.UserPasswords[userKey(u.Username, u.Database)]
+		if !ok {
+			continue
+		}
+		resources = append(resources, GeneratePasswordSecret(u.PasswordSecret, namespace, password))
+	}
+
+	if !opts.DryRun && kubeClient == nil && len(resources) > 0 {
+		return "", fmt.Errorf("cluster resources require a Kubernetes client, but none is available. Ensure kubeconfig is configured")
+	}
+
+	var sb strings.Builder
+	for _, r := range resources {
+		if opts.DryRun {
+			y, err := marshalCRToYAML(r)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal %T: %w", r, err)
+			}
+			sb.WriteString("---\n")
+			sb.WriteString(y)
+		} else {
+			switch v := r.(type) {
+			case corev1.Secret:
+				if err := kubeClient.CreateSecret(ctx, v); err != nil {
+					return "", fmt.Errorf("failed to create secret %q: %w", v.Name, err)
+				}
+				fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", v.Name, namespace)
+			case corev1.ConfigMap:
+				if err := kubeClient.CreateConfigMap(ctx, v); err != nil {
+					return "", fmt.Errorf("failed to create configmap %q: %w", v.Name, err)
+				}
+				fmt.Fprintf(os.Stderr, "Created configmap %q in namespace %q\n", v.Name, namespace)
+			}
+		}
+	}
+	return sb.String(), nil
+}
+
+// userKey returns the map key used to associate a user with their password.
+func userKey(username, database string) string { return username + ":" + database }
 
 // openOutput returns os.Stdout when path is empty, otherwise opens path for writing.
 func openOutput(path string) (io.Writer, error) {
 	if path == "" {
 		return os.Stdout, nil
 	}
-	f, err := os.Create(path)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open output file %q: %w", path, err)
 	}
@@ -193,13 +263,11 @@ func promptCertsSecretPrefix(scanner *bufio.Scanner) (string, error) {
 	return s, nil
 }
 
-func ensurePrometheus(ctx context.Context, ac *om.AutomationConfig, kubeClient kubernetesClient.Client, scanner *bufio.Scanner) error {
+// collectPrometheusPassword prompts for the Prometheus user password and stores it in opts.
+func collectPrometheusPassword(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner) error {
 	acProm := ac.Deployment.GetPrometheus()
 	if acProm == nil || !acProm.Enabled || acProm.Username == "" {
 		return nil
-	}
-	if kubeClient == nil {
-		return fmt.Errorf("prometheus is enabled and requires a password secret, but no Kubernetes client is available. Ensure kubeconfig is configured")
 	}
 	fmt.Fprintf(os.Stderr, "Enter password for Prometheus user: ")
 	if !scanner.Scan() {
@@ -209,46 +277,40 @@ func ensurePrometheus(ctx context.Context, ac *om.AutomationConfig, kubeClient k
 	if promPassword == "" {
 		return fmt.Errorf("prometheus password cannot be empty")
 	}
-	sec := GeneratePasswordSecret(PrometheusPasswordSecretName, namespace, promPassword)
-	if err := secret.CreateOrUpdate(ctx, kubeClient, sec); err != nil {
-		return fmt.Errorf("failed to create Prometheus password secret: %w", err)
-	}
-	fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", PrometheusPasswordSecretName, namespace)
+	opts.PrometheusPassword = promPassword
 	return nil
 }
 
-// ensureUserSecrets prompts for each SCRAM user's password, validates it against OM, and creates the Kubernetes Secret.
-func ensureUserSecrets(ctx context.Context, ac *om.AutomationConfig, userCRs []UserCROutput, kubeClient kubernetesClient.Client, scanner *bufio.Scanner) error {
-	if len(userCRs) == 0 {
+// collectUserPasswords prompts for each SCRAM user's password, validates it against OM, and stores it in opts.
+func collectUserPasswords(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner) error {
+	if ac.Auth == nil || len(ac.Auth.Users) == 0 {
 		return nil
 	}
-
-	for _, u := range userCRs {
-		if !u.NeedsPassword {
+	for _, user := range ac.Auth.Users {
+		if user == nil || user.Username == "" {
 			continue
 		}
-		if kubeClient == nil {
-			return fmt.Errorf("user Custom Resources require password secrets, but no Kubernetes client is available. Ensure kubeconfig is configured")
+		if user.Username == ac.Auth.AutoUser && user.Database == util.DefaultUserDatabase {
+			continue
 		}
-
-		fmt.Fprintf(os.Stderr, "Enter password for SCRAM user %q (db: %s): ", u.Username, u.Database)
+		if user.Database == externalDatabase {
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "Enter password for SCRAM user %q (db: %s): ", user.Username, user.Database)
 		if !scanner.Scan() {
-			return fmt.Errorf("failed to read password for user %q", u.Username)
+			return fmt.Errorf("failed to read password for user %q", user.Username)
 		}
 		password := strings.TrimSpace(scanner.Text())
 		if password == "" {
-			return fmt.Errorf("password for user %q cannot be empty", u.Username)
+			return fmt.Errorf("password for user %q cannot be empty", user.Username)
 		}
-
-		if err := validatePasswordAgainstOM(u.Username, u.Database, password, ac); err != nil {
+		if err := validatePasswordAgainstOM(user.Username, user.Database, password, ac); err != nil {
 			return err
 		}
-
-		sec := GeneratePasswordSecret(u.PasswordSecret, namespace, password)
-		if err := secret.CreateOrUpdate(ctx, kubeClient, sec); err != nil {
-			return fmt.Errorf("failed to create password secret %q for user %q: %w", u.PasswordSecret, u.Username, err)
+		if opts.UserPasswords == nil {
+			opts.UserPasswords = map[string]string{}
 		}
-		fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", u.PasswordSecret, namespace)
+		opts.UserPasswords[userKey(user.Username, user.Database)] = password
 	}
 	return nil
 }
@@ -281,10 +343,10 @@ func parseMultiClusterNames(raw string) []string {
 func printValidationResults(w io.Writer, results []ValidationResult) int {
 	errorCount := 0
 	for _, r := range results {
-		_, _ = fmt.Fprintf(w, "[%s] %s\n\n", r.Severity, r.Message)
 		if r.Severity == SeverityError {
 			errorCount++
 		}
+		_, _ = fmt.Fprintf(w, "[%s] %s\n\n", r.Severity, r.Message)
 	}
 	return errorCount
 }

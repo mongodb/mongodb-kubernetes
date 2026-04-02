@@ -26,6 +26,8 @@ const (
 	LdapCAKey                    = "ca.pem"
 
 	migrateToolVersionAnnotation = "mongodb.com/migrate-tool-version"
+
+	externalDatabase = "$external" // MongoDB virtual database for X.509 and LDAP users.
 )
 
 // GenerateOptions holds CLI flags and pre-extracted deployment data for CR generation.
@@ -40,7 +42,11 @@ type GenerateOptions struct {
 	CertsSecretPrefix string
 	ProcessMap        map[string]om.Process
 	Members           []om.ReplicaSetMember
-	SourceProcess     *om.Process
+	// SourceProcess is the OM process used as the template for spec fields (e.g. version, args).
+	SourceProcess      *om.Process
+	UserPasswords      map[string]string // maps "username:database" to plaintext passwords for SCRAM users.
+	PrometheusPassword string            // plaintext password for the Prometheus user secret.
+	DryRun             bool              // skips Kubernetes writes; cluster resources are appended to the output as YAML.
 }
 
 // UserCROutput holds the generated YAML and metadata for a single MongoDBUser CR.
@@ -166,7 +172,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 			continue
 		}
 
-		needsPassword := user.Database != "$external"
+		needsPassword := user.Database != externalDatabase
 		crName := userv1.NormalizeName(user.Username)
 		if crName == "" {
 			return nil, fmt.Errorf("username %q cannot be normalized to a valid Kubernetes name: no alphanumeric characters", user.Username)
@@ -243,53 +249,32 @@ func GeneratePasswordSecret(secretName, namespace, password string) corev1.Secre
 	}
 }
 
-// GenerateLdapResources creates the LDAP bind-query Secret and CA ConfigMap, or returns empty strings when LDAP is absent.
-func GenerateLdapResources(ac *om.AutomationConfig, namespace string) (bindQueryPasswordSecret, caConfigMap string, err error) {
-	if ac.Ldap == nil {
-		return "", "", nil
+func buildLdapCAConfigMap(namespace, caFileContents string) corev1.ConfigMap {
+	return corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      LdapCAConfigMapName,
+			Namespace: namespace,
+		},
+		Data: map[string]string{
+			LdapCAKey: caFileContents,
+		},
 	}
+}
 
-	if ac.Ldap.BindQueryPassword != "" {
-		sec := corev1.Secret{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: "v1",
-				Kind:       "Secret",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      LdapBindQuerySecretName,
-				Namespace: namespace,
-			},
-			StringData: map[string]string{
-				"password": ac.Ldap.BindQueryPassword,
-			},
-		}
-		bindQueryPasswordSecret, err = marshalCRToYAML(sec)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to marshal LDAP bind query secret: %w", err)
-		}
+// GenerateLdapCAConfigMap returns the LDAP CA ConfigMap as YAML, or empty when absent.
+func GenerateLdapCAConfigMap(ac *om.AutomationConfig, namespace string) (string, error) {
+	if ac.Ldap == nil || ac.Ldap.CaFileContents == "" {
+		return "", nil
 	}
-
-	if ac.Ldap.CaFileContents != "" {
-		cm := corev1.ConfigMap{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: "v1",
-				Kind:       "ConfigMap",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      LdapCAConfigMapName,
-				Namespace: namespace,
-			},
-			Data: map[string]string{
-				LdapCAKey: ac.Ldap.CaFileContents,
-			},
-		}
-		caConfigMap, err = marshalCRToYAML(cm)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to marshal LDAP CA ConfigMap: %w", err)
-		}
+	out, err := marshalCRToYAML(buildLdapCAConfigMap(namespace, ac.Ldap.CaFileContents))
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal LDAP CA ConfigMap: %w", err)
 	}
-
-	return bindQueryPasswordSecret, caConfigMap, nil
+	return out, nil
 }
 
 // marshalCRToYAML marshals a resource to YAML, stripping status, creationTimestamp, and empty fields.

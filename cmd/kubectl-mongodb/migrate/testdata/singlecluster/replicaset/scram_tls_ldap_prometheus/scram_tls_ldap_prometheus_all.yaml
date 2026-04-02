@@ -165,3 +165,83 @@ spec:
         role: read
   type: ReplicaSet
   version: 7.0.12-ent
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: app-user
+spec:
+  db: admin
+  migratedFromVm: true
+  mongodbResourceRef:
+    name: my-rs
+  passwordSecretKeyRef:
+    key: password
+    name: app-user-password
+  roles:
+  - db: myapp
+    name: readWrite
+  - db: reporting
+    name: read
+  username: app-user
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: cn-x509-client-o-mongodb
+spec:
+  db: $external
+  mongodbResourceRef:
+    name: my-rs
+  roles:
+  - db: secure-db
+    name: readWrite
+  username: CN=x509-client,O=MongoDB
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: ldap-reader
+spec:
+  db: $external
+  mongodbResourceRef:
+    name: my-rs
+  roles:
+  - db: reporting
+    name: read
+  username: ldap-reader
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ldap-bind-query-password
+  namespace: mongodb
+stringData:
+  password: ldap-s3cret
+---
+apiVersion: v1
+data:
+  ca.pem: |-
+    -----BEGIN CERTIFICATE-----
+    MIIBxTCCAWugAwIBAgIUFakeCAContentsForTesting=
+    -----END CERTIFICATE-----
+kind: ConfigMap
+metadata:
+  name: ldap-ca
+  namespace: mongodb
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prometheus-password
+  namespace: mongodb
+stringData:
+  password: prom-s3cret
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-user-password
+  namespace: mongodb
+stringData:
+  password: test-password
