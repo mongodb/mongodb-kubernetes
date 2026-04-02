@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -255,6 +256,15 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		}
 	}
 
+	var externalAgentVersion string
+	if len(s.Spec.GetExternalMembers()) > 0 {
+		externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(conn)
+		if err != nil {
+			status := workflow.Failed(xerrors.Errorf("Failed to retrieve agent version from Ops Manager: %w", err))
+			return r.updateStatus(ctx, s, status, log)
+		}
+	}
+
 	standaloneOpts := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
@@ -267,6 +277,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, s.Spec.Version, s.GetAnnotations())),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
+		WithExternalAgentVersion(externalAgentVersion),
 	)
 
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, log)

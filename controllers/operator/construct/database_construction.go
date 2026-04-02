@@ -115,6 +115,17 @@ type DatabaseStatefulSetOptions struct {
 	Labels      map[string]string
 	StsLabels   map[string]string
 
+	// ExternalAgentVersion pins non-static agent downloads when spec.externalMembers is non-empty:
+	// databaseEnvVars forwards it as MDB_AGENT_VERSION only for non-static pods.
+	ExternalAgentVersion string
+
+	// AgentCertExternalPath is the autoPEMKeyFilePath already configured in the AC when
+	// spec.externalMembers is non-empty. When set, the agent cert secret is mounted using
+	// an items mapping so the cert file appears at exactly this path on K8s pods — matching
+	// the path VM agents already have — instead of the default directory mount at AgentCertMountPath.
+	// After migration completes (externalMembers empty) this field is unset and the default applies.
+	AgentCertExternalPath string
+
 	// These fields are only relevant for multi-cluster
 	MultiClusterMode bool // should always be "false" in single-cluster
 	// This needs to be provided for the multi-cluster statefulsets as they contain a member index in the name.
@@ -660,13 +671,35 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	volumeMounts = append(volumeMounts, prometheusVolumeMounts...)
 
 	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
-		agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			MountPath: util.AgentCertMountPath,
-			Name:      agentSecretVolume.Name,
-			ReadOnly:  true,
-		})
-		volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		if databaseOpts.AgentCertExternalPath != "" {
+			// Migration mode: VM agents already have their cert at AgentCertExternalPath.
+			// Mount the operator-created cert secret using an items mapping so the cert file
+			// appears at exactly the same path on K8s pods (key=GO_HASH → filename=basename(path),
+			// directory=dirname(path)). This handles any arbitrary customer cert path.
+			certFileName := path.Base(databaseOpts.AgentCertExternalPath)
+			certDir := path.Dir(databaseOpts.AgentCertExternalPath)
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName, func(v *corev1.Volume) {
+				v.VolumeSource.Secret.Items = []corev1.KeyToPath{
+					{Key: databaseOpts.AgentCertHash, Path: certFileName},
+				}
+			})
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: certDir,
+				Name:      agentSecretVolume.Name,
+				ReadOnly:  true,
+			})
+			volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		} else {
+			// Normal mode: mount the whole secret as a directory at AgentCertMountPath.
+			// All hash-keyed cert files are accessible; hash changes trigger StatefulSet rollout.
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: util.AgentCertMountPath,
+				Name:      agentSecretVolume.Name,
+				ReadOnly:  true,
+			})
+			volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		}
 	}
 
 	// add volume for x509 cert used in internal cluster authentication
@@ -1025,10 +1058,14 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		)
 	}
 
-	// This is only used for debugging
 	if agentVersion := os.Getenv(util.EnvVarAgentVersion); agentVersion != "" { // nolint:forbidigo
-		zap.S().Debugf("using a custom agent version: %s", agentVersion)
+		zap.S().Debugf("using a custom agent version from operator env: %s", agentVersion)
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: agentVersion})
+	} else if opts.ExternalAgentVersion != "" {
+		// Non-static pods download the agent tarball; pin to deployment.agentVersion.name when OM has set it
+		// (e.g. mixed external + Kubernetes members) so new pods match existing agents.
+		zap.S().Debugf("using external agent version for: %s", opts.ExternalAgentVersion)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: opts.ExternalAgentVersion})
 	}
 
 	// append any additional env vars specified.

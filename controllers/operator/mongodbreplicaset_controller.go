@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/go-multierror"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -267,11 +268,38 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
 		}
 	}
-	deploymentOpts := deploymentOptionsRS{
-		prometheusCertHash:   prometheusCertHash,
-		agentCertPath:        agentCertPath,
-		agentCertHash:        agentCertHash,
-		currentAgentAuthMode: currentAgentAuthMode,
+	// Resolve the agent cert path from the existing AC.
+	//
+	// During migration (externalMembers present), VM agents use a custom autoPEMKeyFilePath that
+	// differs from the operator default (AgentCertMountPath/<hash>). We preserve that path in both
+	// the auth config and the StatefulSet items-based mount so all agents share it seamlessly.
+	//
+	// On the reconcile where the last external member is removed, the AC still carries the custom
+	// path. We keep the items mount (agentCertExternalPath set) but let agentCertPath revert to
+	// the operator default so updateOmAuthentication updates the AC this reconcile. The next
+	// reconcile sees the AC path matching the operator default → agentCertExternalPath is empty →
+	// StatefulSet switches to the normal directory mount. This two-step transition avoids a window
+	// where pods have been rolled to the new mount before the AC has been updated.
+	var agentCertExternalPath string
+	if existing, err := conn.ReadDeployment(); err == nil {
+		if tls, ok := existing["tls"].(map[string]interface{}); ok {
+			if pemPath, ok := tls["autoPEMKeyFilePath"].(string); ok && pemPath != "" && pemPath != agentCertPath {
+				agentCertExternalPath = pemPath
+				if len(rs.Spec.GetExternalMembers()) > 0 {
+					// Full migration mode: preserve the custom path in the auth config too so
+					// updateOmAuthentication does not overwrite it with the operator default.
+					agentCertPath = pemPath
+				}
+			}
+		}
+	}
+
+	deploymentOpts := &deploymentOptionsRS{
+		prometheusCertHash:    prometheusCertHash,
+		agentCertPath:         agentCertPath,
+		agentCertHash:         agentCertHash,
+		currentAgentAuthMode:  currentAgentAuthMode,
+		agentCertExternalPath: agentCertExternalPath,
 	}
 
 	// 3. Search Overrides
@@ -364,6 +392,13 @@ type deploymentOptionsRS struct {
 	agentCertHash        string
 	prometheusCertHash   string
 	currentAgentAuthMode string
+	// externalAgentVersion is set during OM reconcile when len(spec.GetExternalMembers()) > 0.
+	externalAgentVersion string
+	// agentCertExternalPath is the autoPEMKeyFilePath already set in the AC when
+	// externalMembers are present. When non-empty, the operator preserves this path in the AC
+	// and mounts the cert at exactly this path on K8s pods (via items-based StatefulSet volume),
+	// so VM and K8s agents share the same cert path without a migration window.
+	agentCertExternalPath string
 }
 
 // Generic Kubernetes Resources
@@ -494,7 +529,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx cont
 // reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
 // All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
 // should be reconciled in this method.
-func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS, lastConfiguredRoles []string) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions *deploymentOptionsRS, lastConfiguredRoles []string) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -512,7 +547,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	return r.reconcileStatefulSet(ctx, conn, projectConfig, deploymentOptions)
 }
 
-func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions *deploymentOptionsRS) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -572,7 +607,7 @@ func (r *ReplicaSetReconcilerHelper) handlePVCResize(ctx context.Context, sts *a
 }
 
 // buildStatefulSetOptions creates the options needed for constructing the StatefulSet
-func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, error) {
+func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions *deploymentOptionsRS) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, error) {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -603,6 +638,11 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
 	internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)
 
+	var externalAgentVersion string
+	if len(rs.Spec.GetExternalMembers()) > 0 {
+		externalAgentVersion = deploymentOptions.externalAgentVersion
+	}
+
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
 		CurrentAgentAuthMechanism(deploymentOptions.currentAgentAuthMode),
@@ -619,6 +659,8 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
+		WithExternalAgentVersion(externalAgentVersion),
+		WithAgentCertExternalPath(deploymentOptions.agentCertExternalPath),
 	)
 
 	return rsConfig, nil
@@ -705,7 +747,7 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions *deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool) workflow.Status {
 	rs := r.resource
 	log := r.log
 	reconciler := r.reconciler
@@ -744,6 +786,12 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
+			if len(rs.Spec.GetExternalMembers()) > 0 {
+				deploymentOptions.externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(conn)
+				if err != nil {
+					return err
+				}
+			}
 			if shouldMirrorKeyfileForMongot {
 				if err := r.mirrorKeyfileIntoSecretForMongot(ctx, d); err != nil {
 					return err

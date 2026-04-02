@@ -22,6 +22,23 @@ func PodEnvVars(vars *env.PodEnvVars) func(options *construct.DatabaseStatefulSe
 	}
 }
 
+// WithExternalAgentVersion sets MDB_AGENT_VERSION for non-static database pods when non-empty
+func WithExternalAgentVersion(version string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ExternalAgentVersion = version
+	}
+}
+
+// WithAgentCertExternalPath sets the path at which the agent cert must be mounted on K8s pods
+// during VM migration (when spec.externalMembers is non-empty). When set, the StatefulSet mounts
+// the agent cert secret using an items mapping so the cert file appears at exactly this path —
+// matching where VM agents already have it — instead of the default directory mount at AgentCertMountPath.
+func WithAgentCertExternalPath(path string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentCertExternalPath = path
+	}
+}
+
 // Replicas will set the given number of replicas when building a StatefulSet.
 func Replicas(replicas int) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {

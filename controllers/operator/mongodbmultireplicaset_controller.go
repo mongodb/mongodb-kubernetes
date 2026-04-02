@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -414,6 +415,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("Failed to retrieve current automation config: %w", err))
 	}
+	var externalAgentVersion string
+	if len(mrs.Spec.GetExternalMembers()) > 0 {
+		externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(conn)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("Failed to retrieve agent version from Ops Manager: %w", err))
+		}
+	}
 	currentAgentAuthMode := automationConfig.GetAgentAuthMode()
 	processes := automationConfig.Deployment.GetAllProcessNames()
 	// If we don't have processes defined yet, that means we are in the first deployment, and we can deploy all
@@ -532,6 +540,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations())),
 			WithAgentDebug(r.agentDebug),
 			WithAgentDebugImage(r.agentDebugImage),
+			WithExternalAgentVersion(externalAgentVersion),
 		)
 
 		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
