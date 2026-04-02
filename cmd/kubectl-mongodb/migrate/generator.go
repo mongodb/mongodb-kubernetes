@@ -21,7 +21,7 @@ import (
 const (
 	PrometheusPasswordSecretName = "prometheus-password"
 	PrometheusTLSSecretName      = "prometheus-tls"
-	LdapBindQuerySecretName      = "ldap-bind-query-password"
+	LdapBindQuerySecretName      = "ldap-bind-query-password" //nolint:gosec // secret name, not a credential
 	LdapCAConfigMapName          = "ldap-ca"
 	LdapCAKey                    = "ca.pem"
 

@@ -1062,7 +1062,6 @@ func TestExtractAdditionalMongodConfig_MultiMember_SamePort_Included(t *testing.
 	assert.Equal(t, 27018, maputil.ReadMapValueAsInt(config.ToMap(), "net", "port"))
 }
 
-
 func strPtr(s string) *string {
 	return &s
 }

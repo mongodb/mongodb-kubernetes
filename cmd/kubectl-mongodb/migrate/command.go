@@ -74,7 +74,7 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	processMap := ac.Deployment.ProcessMap()
 	results, sourceProcess := ValidateMigration(ac, processMap, projectAgentConfigs, projectProcessConfigs)
 	if errorCount := printValidationResults(os.Stderr, results); errorCount > 0 {
-		return fmt.Errorf("validation failed: %d error(s) found. Resolve the issues above before generating Custom Resources.", errorCount)
+		return fmt.Errorf("validation failed: %d error(s) found. Resolve the issues above before generating Custom Resources", errorCount)
 	}
 
 	opts := GenerateOptions{
@@ -207,7 +207,7 @@ func ensurePrometheus(ctx context.Context, ac *om.AutomationConfig, kubeClient k
 	}
 	promPassword := strings.TrimSpace(scanner.Text())
 	if promPassword == "" {
-		return fmt.Errorf("Prometheus password cannot be empty")
+		return fmt.Errorf("prometheus password cannot be empty")
 	}
 	sec := GeneratePasswordSecret(PrometheusPasswordSecretName, namespace, promPassword)
 	if err := secret.CreateOrUpdate(ctx, kubeClient, sec); err != nil {
@@ -237,7 +237,7 @@ func ensureUserSecrets(ctx context.Context, ac *om.AutomationConfig, userCRs []U
 		}
 		password := strings.TrimSpace(scanner.Text())
 		if password == "" {
-			return fmt.Errorf("Password for user %q cannot be empty.", u.Username)
+			return fmt.Errorf("password for user %q cannot be empty", u.Username)
 		}
 
 		if err := validatePasswordAgainstOM(u.Username, u.Database, password, ac); err != nil {
@@ -262,8 +262,7 @@ func validatePasswordAgainstOM(username, database, password string, ac *om.Autom
 		return fmt.Errorf("failed to validate password for user %q: %w", username, err)
 	}
 	if changed {
-		return fmt.Errorf("password for user %q does not match the existing credentials in Ops Manager. "+
-			"Please enter the correct password that the user currently has in OM.", username)
+		return fmt.Errorf("password for user %q does not match the existing credentials in Ops Manager", username)
 	}
 	return nil
 }

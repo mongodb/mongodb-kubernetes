@@ -9,6 +9,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
@@ -22,9 +23,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
 )
 
-var (
-	omConnectionFactory om.ConnectionFactory = om.NewOpsManagerConnection
-)
+var omConnectionFactory om.ConnectionFactory = om.NewOpsManagerConnection
 
 func prepareConnection(ctx context.Context) (om.Connection, kubernetesClient.Client, error) {
 	kubeClient, err := newKubeClient()

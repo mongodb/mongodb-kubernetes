@@ -153,9 +153,9 @@ func mapClusterAuthMode(mode string) (string, error) {
 	case "x509":
 		return util.X509, nil
 	case "keyFile":
-		return "", fmt.Errorf("clusterAuthMode %q is not supported by the operator (only x509 is supported). Migrate the deployment to x509 internal cluster authentication before using the operator.", mode)
+		return "", fmt.Errorf("clusterAuthMode %q is not supported by the operator (only x509 is supported). Migrate the deployment to x509 internal cluster authentication before using the operator", mode)
 	default:
-		return "", fmt.Errorf("unsupported clusterAuthMode %q in automation config. Only x509 is supported by the operator.", mode)
+		return "", fmt.Errorf("unsupported clusterAuthMode %q in automation config. Only x509 is supported by the operator", mode)
 	}
 }
 
@@ -244,7 +244,6 @@ func extractAgentConfig(sourceProcess *om.Process, projectProcessConfigs *Projec
 	}
 	return agentConfig
 }
-
 
 // sharedSpecFields holds fields common to single-cluster and multi-cluster specs.
 type sharedSpecFields struct {
