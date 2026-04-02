@@ -198,6 +198,10 @@ parameters:
     value: "0"
     description: set this to 1 if you want shell scripts to enable set -x
 
+  - key: MDB_AC_SNAPSHOT
+    value: "false"
+    description: set to true to enable automation-config snapshot ConfigMaps (operator MDB_AC_SNAPSHOT); for debugging
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"
