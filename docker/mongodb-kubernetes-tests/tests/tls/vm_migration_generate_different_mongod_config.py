@@ -1,28 +1,3 @@
-"""
-VM migration test using kubectl-mongodb migrate generate with HETEROGENEOUS
-process configurations.
-
-Exercises the intersection logic added to the migration tool: when mongod
-processes in the same replica set have different logRotate, systemLog, or
-additionalMongodConfig values, only fields with identical values across all
-members appear in the generated CR.
-
-Setup:
-  - 3-member RS with SCRAM auth and one app user
-  - Members share: port 27017, storage.directoryPerDB, compression.compressors
-  - Members differ:
-      * logRotate.sizeThresholdMB  (1000 vs 2000 on member-2)
-      * systemLog.logAppend        (true vs false on member-2)
-      * replication.oplogSizeMB    (2048 on member-0/1, absent on member-2)
-
-Assertions after migrate generate:
-  - logRotate keeps ONLY the fields common to all 3 members
-  - systemLog keeps only destination + path (logAppend excluded)
-  - additionalMongodConfig has compressors + directoryPerDB (common)
-  - additionalMongodConfig does NOT have oplogSizeMB (not on all members)
-  - Full promote-and-prune lifecycle
-"""
-
 import yaml
 from kubetester import get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, fcv_from_version
@@ -42,7 +17,7 @@ from tests.tls.vm_migration_helpers import (
 )
 
 RS_NAME = "vm-mongodb-rs"
-APP_USER_PASSWORD = "heteroPwd123!"
+APP_USER_PASSWORD = "diffMongodCfgPwd123!"
 
 
 @fixture(scope="module")
@@ -182,14 +157,31 @@ def _configure_ac_heterogeneous(namespace: str, om_tester: OMTester, vm_sts: dic
                 "port": 27017,
                 "tls": {"mode": "disabled"},
                 "compression": {"compressors": "zlib,zstd"},
+                "maxIncomingConnections": 512,
             },
             "storage": {
                 "dbPath": "/data/",
                 "directoryPerDB": True,
+                "wiredTiger": {
+                    "engineConfig": {
+                        "cacheSizeGB": 1,
+                        "journalCompressor": "snappy",
+                    },
+                    "collectionConfig": {
+                        "blockCompressor": "zstd",
+                    },
+                },
+            },
+            "operationProfiling": {
+                "mode": "slowOp",
+                "slowOpThresholdMs": 200,
             },
             "systemLog": overrides["systemLog"],
             "replication": {"replSetName": rs_name},
-            "setParameter": {"authenticationMechanisms": "SCRAM-SHA-256"},
+            "setParameter": {
+                "authenticationMechanisms": "SCRAM-SHA-256",
+                "connPoolMaxConnsPerHost": 800,
+            },
         }
         if overrides["oplogSizeMB"] is not None:
             args["replication"]["oplogSizeMB"] = overrides["oplogSizeMB"]
@@ -261,7 +253,7 @@ def ac_before_promote(om_tester: OMTester) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
@@ -270,22 +262,22 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
     _configure_ac_heterogeneous(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_log_ac_after_vm_setup(om_tester: OMTester):
     log_automation_config(om_tester.api_get_automation_config(), label="after-vm-setup")
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_logrotate_from_endpoint(generated_cr: dict):
     """logRotate is read from the deployment-level systemLogRotateConfig endpoint,
     so all fields are present regardless of per-process differences."""
@@ -294,7 +286,7 @@ def test_logrotate_from_endpoint(generated_cr: dict):
     assert "sizeThresholdMB" in lr, f"Expected sizeThresholdMB from endpoint, got: {lr}"
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_monitoring_agent_logrotate(generated_cr: dict):
     """monitoringAgent.logRotate is read from the deployment-level monitoringAgentConfig endpoint,
     so per-host monitoringVersions overrides are not reflected."""
@@ -304,7 +296,7 @@ def test_monitoring_agent_logrotate(generated_cr: dict):
     assert "timeThresholdHrs" in ma_lr, f"Expected timeThresholdHrs from endpoint, got: {ma_lr}"
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_systemlog_intersection(generated_cr: dict):
     """systemLog should keep destination + path (common). logAppend may appear as false
     (Go zero value) because the SystemLog struct uses a non-pointer bool field."""
@@ -313,16 +305,46 @@ def test_systemlog_intersection(generated_cr: dict):
     assert sl.get("path") == "/data/mongodb.log", f"Expected path, got: {sl}"
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_additional_config_common_fields(generated_cr: dict):
     """Compression and directoryPerDB are the same on all members — must be present."""
     amc = generated_cr["spec"].get("additionalMongodConfig", {})
     compressors = amc.get("net", {}).get("compression", {}).get("compressors")
     assert compressors == "zlib,zstd", f"Expected compressors 'zlib,zstd', got: {compressors}"
+    assert amc.get("net", {}).get("maxIncomingConnections") == 512
     assert amc.get("storage", {}).get("directoryPerDB") is True
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
+def test_additional_config_wiredtiger_pass_through(generated_cr: dict):
+    """WiredTiger fields pass through unchanged."""
+    amc = generated_cr["spec"].get("additionalMongodConfig", {})
+    wt = amc.get("storage", {}).get("wiredTiger", {})
+    engine = wt.get("engineConfig", {})
+    assert engine.get("cacheSizeGB") == 1, f"Expected cacheSizeGB=1, got: {engine}"
+    assert engine.get("journalCompressor") == "snappy", f"Expected journalCompressor=snappy, got: {engine}"
+    coll = wt.get("collectionConfig", {})
+    assert coll.get("blockCompressor") == "zstd", f"Expected blockCompressor=zstd, got: {coll}"
+
+
+@mark.e2e_vm_migration_generate_different_mongod_config
+def test_additional_config_operation_profiling(generated_cr: dict):
+    """operationProfiling passes through unchanged."""
+    amc = generated_cr["spec"].get("additionalMongodConfig", {})
+    op = amc.get("operationProfiling", {})
+    assert op.get("mode") == "slowOp", f"Expected mode=slowOp, got: {op}"
+    assert op.get("slowOpThresholdMs") == 200, f"Expected slowOpThresholdMs=200, got: {op}"
+
+
+@mark.e2e_vm_migration_generate_different_mongod_config
+def test_additional_config_set_parameter(generated_cr: dict):
+    """setParameter fields pass through (excluding operator-managed authenticationMechanisms)."""
+    amc = generated_cr["spec"].get("additionalMongodConfig", {})
+    sp = amc.get("setParameter", {})
+    assert sp.get("connPoolMaxConnsPerHost") == 800, f"Expected connPoolMaxConnsPerHost=800, got: {sp}"
+
+
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_additional_config_excludes_differing(generated_cr: dict):
     """oplogSizeMB is only on 2 of 3 members — must NOT be in the CR."""
     amc = generated_cr["spec"].get("additionalMongodConfig", {})
@@ -330,7 +352,7 @@ def test_additional_config_excludes_differing(generated_cr: dict):
     assert "oplogSizeMB" not in repl, f"oplogSizeMB is not present on all members and should be excluded, got: {repl}"
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_security_present(generated_cr: dict):
     """Auth is enabled — security section must be present with SCRAM."""
     sec = generated_cr["spec"].get("security", {})
@@ -340,14 +362,14 @@ def test_security_present(generated_cr: dict):
     assert "SCRAM" in modes, f"Expected SCRAM in modes, got: {modes}"
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_user_cr_emitted(generated_cr_yaml: str):
     docs = list(yaml.safe_load_all(generated_cr_yaml))
     user_docs = [d for d in docs if d and d.get("kind") == "MongoDBUser"]
     assert len(user_docs) == 1, f"Expected 1 user CR, got {len(user_docs)}"
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_external_members_structure(generated_cr: dict):
     ext = generated_cr["spec"]["externalMembers"]
     assert len(ext) == 3
@@ -361,24 +383,24 @@ def test_external_members_structure(generated_cr: dict):
 # ---------------------------------------------------------------------------
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB, ac_before_migration: dict):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migration: MongoDB, om_tester: OMTester):
     apply_user_crs_and_verify_ac(generated_cr_yaml, namespace, om_tester)
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_log_ac_after_migration(om_tester: OMTester, ac_before_migration: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="after-migration")
     log_automation_config_diff(ac_before_migration, ac_after)
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, ac_before_promote: dict):
     try_load(mdb_migration)
     for i in range(vm_sts["spec"]["replicas"]):
@@ -392,19 +414,19 @@ def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, ac_before_promote: di
         mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_log_ac_after_promote(om_tester: OMTester, ac_before_promote: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="after-promote")
     log_automation_config_diff(ac_before_promote, ac_after)
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_password_rotation_keeps_migrated_flag(generated_cr_yaml: str, namespace: str, om_tester: OMTester):
     rotate_password_and_verify(generated_cr_yaml, namespace, om_tester)
 
 
-@mark.e2e_vm_migration_generate_heterogeneous
+@mark.e2e_vm_migration_generate_different_mongod_config
 def test_log_ac_end_to_end(om_tester: OMTester, ac_before_migration: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="final")

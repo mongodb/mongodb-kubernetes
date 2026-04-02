@@ -53,16 +53,16 @@ func TestFixtureMatch(t *testing.T) {
 		generate   func(t *testing.T, ac *om.AutomationConfig) string
 	}{
 		{
-			name:       "replicaset single-cluster CR",
-			inputJSON:  "singlecluster/replicaset/full/input.json",
-			goldenYAML: "singlecluster/replicaset/full/mongodb_cr.yaml",
+			name:       "single-cluster replica set — SCRAM, TLS, LDAP, Prometheus, log rotation",
+			inputJSON:  "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json",
+			goldenYAML: "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				agentCfg, processCfg := fullTestConfigs()
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
 					ConfigMapName:         "my-om-config",
-					AgentConfigs:          agentCfg,
-					ProcessConfigs:        processCfg,
+					ProjectAgentConfigs:   agentCfg,
+					ProjectProcessConfigs: processCfg,
 					CertsSecretPrefix:     "mdb",
 				}))
 				require.NoError(t, err)
@@ -70,43 +70,43 @@ func TestFixtureMatch(t *testing.T) {
 			},
 		},
 		{
-			name:       "5-member geo-distributed multi-cluster CR (2 clusters)",
-			inputJSON:  "multicluster/replicaset/simple/input.json",
-			goldenYAML: "multicluster/replicaset/simple/2_clusters.yaml",
+			name:       "5-member distributed multi-cluster replica set — split across 2 clusters",
+			inputJSON:  "multicluster/replicaset/distributed/distributed_input.json",
+			goldenYAML: "multicluster/replicaset/distributed/distributed_2_clusters_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				agentCfg, processCfg := multiClusterTestConfigs()
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "mc-credentials",
 					ConfigMapName:         "mc-om-config",
 					MultiClusterNames:     []string{"east1", "west1"},
-					AgentConfigs:          agentCfg,
-					ProcessConfigs:        processCfg,
+					ProjectAgentConfigs:   agentCfg,
+					ProjectProcessConfigs: processCfg,
 				}))
 				require.NoError(t, err)
 				return out
 			},
 		},
 		{
-			name:       "5-member geo-distributed multi-cluster CR (3 clusters)",
-			inputJSON:  "multicluster/replicaset/simple/input.json",
-			goldenYAML: "multicluster/replicaset/simple/3_clusters.yaml",
+			name:       "5-member distributed multi-cluster replica set — split across 3 clusters",
+			inputJSON:  "multicluster/replicaset/distributed/distributed_input.json",
+			goldenYAML: "multicluster/replicaset/distributed/distributed_3_clusters_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				agentCfg, processCfg := multiClusterTestConfigs()
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "mc-credentials",
 					ConfigMapName:         "mc-om-config",
 					MultiClusterNames:     []string{"cluster-a", "cluster-b", "cluster-c"},
-					AgentConfigs:          agentCfg,
-					ProcessConfigs:        processCfg,
+					ProjectAgentConfigs:   agentCfg,
+					ProjectProcessConfigs: processCfg,
 				}))
 				require.NoError(t, err)
 				return out
 			},
 		},
 		{
-			name:       "replicaset user CRs",
-			inputJSON:  "singlecluster/replicaset/full/input.json",
-			goldenYAML: "singlecluster/replicaset/full/user_crs.yaml",
+			name:       "single-cluster replica set — MongoDBUser CRs for SCRAM and X509 users",
+			inputJSON:  "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json",
+			goldenYAML: "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_mongodbuser_crs.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				users, err := GenerateUserCRs(ac, "my-rs")
 				require.NoError(t, err)
@@ -121,9 +121,9 @@ func TestFixtureMatch(t *testing.T) {
 			},
 		},
 		{
-			name:       "SCRAM user password secrets",
-			inputJSON:  "singlecluster/replicaset/full/input.json",
-			goldenYAML: "singlecluster/replicaset/full/password_secrets.yaml",
+			name:       "single-cluster replica set — password Secrets for SCRAM users",
+			inputJSON:  "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json",
+			goldenYAML: "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_password_secrets.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				users, err := GenerateUserCRs(ac, "my-rs")
 				require.NoError(t, err)
@@ -145,9 +145,9 @@ func TestFixtureMatch(t *testing.T) {
 			},
 		},
 		{
-			name:       "Prometheus password secret",
-			inputJSON:  "singlecluster/replicaset/full/input.json",
-			goldenYAML: "singlecluster/replicaset/full/prometheus_password.yaml",
+			name:       "single-cluster replica set — password Secret for Prometheus",
+			inputJSON:  "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json",
+			goldenYAML: "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_prometheus_password.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				acProm := ac.Deployment.GetPrometheus()
 				require.True(t, acProm != nil && acProm.Enabled && acProm.Username != "", "expected prometheus to be enabled")
@@ -157,9 +157,9 @@ func TestFixtureMatch(t *testing.T) {
 			},
 		},
 		{
-			name:       "LDAP resources (Secret + ConfigMap)",
-			inputJSON:  "singlecluster/replicaset/full/input.json",
-			goldenYAML: "singlecluster/replicaset/full/ldap_resources.yaml",
+			name:       "single-cluster replica set — LDAP bind-query Secret and CA ConfigMap",
+			inputJSON:  "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json",
+			goldenYAML: "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_ldap_resources.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				bindQuerySecret, caConfigMap, err := GenerateLdapResources(ac, "mongodb")
 				require.NoError(t, err)
@@ -172,9 +172,9 @@ func TestFixtureMatch(t *testing.T) {
 			},
 		},
 		{
-			name:       "LDAP resources (Secret only, no CA)",
-			inputJSON:  "multicluster/replicaset/simple/input.json",
-			goldenYAML: "multicluster/replicaset/simple/ldap_resources.yaml",
+			name:       "multi-cluster replica set — LDAP bind-query Secret only (no CA file)",
+			inputJSON:  "multicluster/replicaset/distributed/distributed_input.json",
+			goldenYAML: "multicluster/replicaset/distributed/distributed_ldap_resources.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				bindQuerySecret, caConfigMap, err := GenerateLdapResources(ac, "mongodb")
 				require.NoError(t, err)
@@ -184,9 +184,22 @@ func TestFixtureMatch(t *testing.T) {
 			},
 		},
 		{
-			name:       "heterogeneous processes — additionalMongodConfig taken from first process",
-			inputJSON:  "singlecluster/replicaset/heterogeneous/input.json",
-			goldenYAML: "singlecluster/replicaset/heterogeneous/heterogeneous_cr.yaml",
+			name:       "additionalMongodConfig — unknown fields (zstdCompressionLevel) are passed through",
+			inputJSON:  "singlecluster/replicaset/additional_mongod_config/additional_mongod_config_input.json",
+			goldenYAML: "singlecluster/replicaset/additional_mongod_config/additional_mongod_config_mongodb_cr.yaml",
+			generate: func(t *testing.T, ac *om.AutomationConfig) string {
+				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
+					CredentialsSecretName: "my-credentials",
+					ConfigMapName:         "my-om-config",
+				}))
+				require.NoError(t, err)
+				return out
+			},
+		},
+		{
+			name:       "different mongod config — additionalMongodConfig taken from first process",
+			inputJSON:  "singlecluster/replicaset/different_mongod_config/different_mongod_config_input.json",
+			goldenYAML: "singlecluster/replicaset/different_mongod_config/different_mongod_config_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
@@ -199,8 +212,8 @@ func TestFixtureMatch(t *testing.T) {
 		// --- tls/ ---
 		{
 			name:       "TLS requireSSL — TLS enabled, mode not in additionalMongodConfig",
-			inputJSON:  "singlecluster/replicaset/tls/require/input.json",
-			goldenYAML: "singlecluster/replicaset/tls/require/require_cr.yaml",
+			inputJSON:  "singlecluster/replicaset/tls/require/require_input.json",
+			goldenYAML: "singlecluster/replicaset/tls/require/require_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
@@ -213,8 +226,8 @@ func TestFixtureMatch(t *testing.T) {
 		},
 		{
 			name:       "TLS allowTLS — TLS enabled, mode preserved in additionalMongodConfig",
-			inputJSON:  "singlecluster/replicaset/tls/allow/input.json",
-			goldenYAML: "singlecluster/replicaset/tls/allow/allow_cr.yaml",
+			inputJSON:  "singlecluster/replicaset/tls/allow/allow_input.json",
+			goldenYAML: "singlecluster/replicaset/tls/allow/allow_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
@@ -227,8 +240,8 @@ func TestFixtureMatch(t *testing.T) {
 		},
 		{
 			name:       "TLS disabled — no TLS section at all",
-			inputJSON:  "singlecluster/replicaset/tls/disabled/input.json",
-			goldenYAML: "singlecluster/replicaset/tls/disabled/disabled_cr.yaml",
+			inputJSON:  "singlecluster/replicaset/tls/disabled/disabled_input.json",
+			goldenYAML: "singlecluster/replicaset/tls/disabled/disabled_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
@@ -241,8 +254,8 @@ func TestFixtureMatch(t *testing.T) {
 		// --- authentication/ ---
 		{
 			name:       "auth disabled — no security block",
-			inputJSON:  "singlecluster/replicaset/authentication/disabled/input.json",
-			goldenYAML: "singlecluster/replicaset/authentication/disabled/disabled_cr.yaml",
+			inputJSON:  "singlecluster/replicaset/authentication/disabled/disabled_input.json",
+			goldenYAML: "singlecluster/replicaset/authentication/disabled/disabled_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
@@ -254,8 +267,8 @@ func TestFixtureMatch(t *testing.T) {
 		},
 		{
 			name:       "SCRAM-only auth — no TLS, no X509, no LDAP",
-			inputJSON:  "singlecluster/replicaset/authentication/scram_only/input.json",
-			goldenYAML: "singlecluster/replicaset/authentication/scram_only/scram_only_cr.yaml",
+			inputJSON:  "singlecluster/replicaset/authentication/scram_only/scram_only_input.json",
+			goldenYAML: "singlecluster/replicaset/authentication/scram_only/scram_only_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
@@ -267,8 +280,8 @@ func TestFixtureMatch(t *testing.T) {
 		},
 		{
 			name:       "SCRAM-only auth — user CRs",
-			inputJSON:  "singlecluster/replicaset/authentication/scram_only/input.json",
-			goldenYAML: "singlecluster/replicaset/authentication/scram_only/scram_only_user_crs.yaml",
+			inputJSON:  "singlecluster/replicaset/authentication/scram_only/scram_only_input.json",
+			goldenYAML: "singlecluster/replicaset/authentication/scram_only/scram_only_mongodbuser_crs.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				users, err := GenerateUserCRs(ac, "scram-rs")
 				require.NoError(t, err)
@@ -285,8 +298,8 @@ func TestFixtureMatch(t *testing.T) {
 		{
 			// Empty mechanisms means the operator created the user — no migration flag.
 			name:       "SCRAM auth — empty mechanisms (operator-created) — user CRs",
-			inputJSON:  "singlecluster/replicaset/authentication/scram_empty_mechanisms/input.json",
-			goldenYAML: "singlecluster/replicaset/authentication/scram_empty_mechanisms/scram_empty_mechanisms_user_crs.yaml",
+			inputJSON:  "singlecluster/replicaset/authentication/scram_empty_mechanisms/scram_empty_mechanisms_input.json",
+			goldenYAML: "singlecluster/replicaset/authentication/scram_empty_mechanisms/scram_empty_mechanisms_mongodbuser_crs.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				users, err := GenerateUserCRs(ac, "scram-rs")
 				require.NoError(t, err)
@@ -303,8 +316,8 @@ func TestFixtureMatch(t *testing.T) {
 		},
 		{
 			name:       "SCRAM+X509 auth — dual modes, X509 cluster auth",
-			inputJSON:  "singlecluster/replicaset/authentication/x509/input.json",
-			goldenYAML: "singlecluster/replicaset/authentication/x509/x509_cr.yaml",
+			inputJSON:  "singlecluster/replicaset/authentication/x509/x509_input.json",
+			goldenYAML: "singlecluster/replicaset/authentication/x509/x509_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
@@ -317,8 +330,8 @@ func TestFixtureMatch(t *testing.T) {
 		},
 		{
 			name:       "SCRAM+X509 auth — user CRs",
-			inputJSON:  "singlecluster/replicaset/authentication/x509/input.json",
-			goldenYAML: "singlecluster/replicaset/authentication/x509/x509_user_crs.yaml",
+			inputJSON:  "singlecluster/replicaset/authentication/x509/x509_input.json",
+			goldenYAML: "singlecluster/replicaset/authentication/x509/x509_mongodbuser_crs.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				users, err := GenerateUserCRs(ac, "x509-rs")
 				require.NoError(t, err)
@@ -334,8 +347,8 @@ func TestFixtureMatch(t *testing.T) {
 		},
 		{
 			name:       "X509-only auth — single mode, keyFile internal cluster",
-			inputJSON:  "singlecluster/replicaset/authentication/x509_only/input.json",
-			goldenYAML: "singlecluster/replicaset/authentication/x509_only/x509_only_cr.yaml",
+			inputJSON:  "singlecluster/replicaset/authentication/x509_only/x509_only_input.json",
+			goldenYAML: "singlecluster/replicaset/authentication/x509_only/x509_only_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
@@ -348,8 +361,8 @@ func TestFixtureMatch(t *testing.T) {
 		},
 		{
 			name:       "member options — hidden, slaveDelay, tags",
-			inputJSON:  "singlecluster/replicaset/member_options/input.json",
-			goldenYAML: "singlecluster/replicaset/member_options/member_options_cr.yaml",
+			inputJSON:  "singlecluster/replicaset/member_options/member_options_input.json",
+			goldenYAML: "singlecluster/replicaset/member_options/member_options_mongodb_cr.yaml",
 			generate: func(t *testing.T, ac *om.AutomationConfig) string {
 				out, _, err := GenerateMongoDBCR(ac, withDeploymentData(ac, GenerateOptions{
 					CredentialsSecretName: "my-credentials",
@@ -385,7 +398,7 @@ func TestFixtureMatch(t *testing.T) {
 }
 
 func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 
 	opts := withDeploymentData(ac, GenerateOptions{
 		ReplicaSetNameOverride: "custom-name",
@@ -402,7 +415,7 @@ func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 }
 
 func TestGenerateMongoDBCR_MultiCluster_CustomResourceName(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "multicluster/replicaset/simple/input.json")
+	ac := loadTestAutomationConfig(t, "multicluster/replicaset/distributed/distributed_input.json")
 
 	opts := withDeploymentData(ac, GenerateOptions{
 		ReplicaSetNameOverride: "custom-mc-name",
@@ -519,7 +532,7 @@ func TestDistributeMembers_EmptyClusterNames(t *testing.T) {
 }
 
 func TestGenerateUserCRs_DuplicateNormalizedNames(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Auth.Users = append(ac.Auth.Users,
 		&om.MongoDBUser{Username: "App_User", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
 		&om.MongoDBUser{Username: "app.user", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},

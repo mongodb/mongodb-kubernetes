@@ -1,26 +1,21 @@
 """
-VM migration test using kubectl-mongodb migrate generate with CA bundle.
+VM migration test using kubectl-mongodb migrate generate.
 
-VM agents validate Ops Manager TLS via a CA ConfigMap (no disabled
-verification). Use when the environment trusts the OM server cert
-(e.g. cloud-qa.mongodb.com).
-
-Configures a different AC profile from vm_migration_generate.py:
-  - SCRAM-SHA-256 auth with one app user (admin-user)
-  - operationProfiling (slowOpThresholdMs)
-  - wiredTiger engine config (cacheSizeGB, journalCompressor)
-  - storage.directoryPerDB
-  - No auditLog, no custom roles
+Configures a realistic automation config with:
+  - SCRAM-SHA-256 auth with automation agent user + two app users
+  - Custom role (appReadOnly)
+  - logRotate + auditLogRotate per process
+  - args2_6: compression, oplogSizeMB, directoryPerDB, setParameter,
+    auditLog, systemLog.logAppend
+  - Member tags (region / role)
   - FCV
 
-Provides SCRAM user password to the migrate tool via stdin.
+Provides SCRAM user passwords to the migrate tool via stdin, then runs the
+full promote-and-prune lifecycle.
 """
 
-import os
-import ssl
-
 import yaml
-from kubetester import create_or_update_configmap, get_statefulset, try_load
+from kubetester import get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, fcv_from_version
 from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMContext, OMTester
@@ -37,30 +32,9 @@ from tests.tls.vm_migration_helpers import (
     run_migrate_generate,
 )
 
-VM_AGENT_OM_CA_PATH = "/etc/mongodb-mms-ca/ca.pem"
-VM_OM_CA_CONFIGMAP_NAME = "vm-mongodb-om-ca"
 RS_NAME = "vm-mongodb-rs"
-ADMIN_USER_PASSWORD = "adminPwd789!"
-
-
-def _get_ca_bundle_content() -> str:
-    """Return PEM content of a CA bundle that trusts public CAs."""
-    path = None
-    try:
-        import certifi
-
-        path = certifi.where()
-    except ImportError:
-        pass
-    if not path:
-        paths = ssl.get_default_verify_paths()
-        path = getattr(paths, "cafile", None) or getattr(paths, "openssl_cafile", None)
-    if not path:
-        path = "/etc/ssl/certs/ca-certificates.crt"
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"No CA bundle found; tried certifi, ssl.get_default_verify_paths(), and {path}")
-    with open(path, "r") as f:
-        return f.read()
+APP_USER_PASSWORD = "appUser123!"
+REPORTING_USER_PASSWORD = "reporting456!"
 
 
 @fixture(scope="module")
@@ -73,26 +47,8 @@ def om_tester(namespace: str) -> OMTester:
 
 
 @fixture(scope="module")
-def vm_om_ca_configmap(namespace: str):
-    """ConfigMap with CA bundle so VM agents can validate Ops Manager TLS."""
-    content = _get_ca_bundle_content()
-    create_or_update_configmap(namespace, VM_OM_CA_CONFIGMAP_NAME, {"ca.pem": content})
-    return VM_OM_CA_CONFIGMAP_NAME
-
-
-@fixture(scope="module")
-def vm_sts(namespace: str, om_tester: OMTester, vm_om_ca_configmap: str):
-    return deploy_vm_statefulset(
-        namespace,
-        om_tester,
-        extra_command_args=f"-httpsCAFile={VM_AGENT_OM_CA_PATH}",
-        extra_volumes=[
-            {"name": "om-ca", "configMap": {"name": vm_om_ca_configmap}},
-        ],
-        extra_volume_mounts=[
-            {"name": "om-ca", "mountPath": "/etc/mongodb-mms-ca", "readOnly": True},
-        ],
-    )
+def vm_sts(namespace: str, om_tester: OMTester):
+    return deploy_vm_statefulset(namespace, om_tester)
 
 
 @fixture(scope="module")
@@ -101,7 +57,7 @@ def vm_service(namespace: str):
 
 
 def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mdb_version: str):
-    """Set up a SCRAM-authenticated replica set with operationProfiling and wiredTiger tuning."""
+    """Set up a SCRAM-authenticated replica set with users, roles, and rich mongod config."""
     mdb_version = ensure_ent_version(mdb_version)
     ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
@@ -127,25 +83,38 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                 "authenticationRestrictions": [],
             },
             {
-                "user": "admin-user",
+                "user": "app-user",
                 "db": "admin",
                 "roles": [
-                    {"role": "userAdminAnyDatabase", "db": "admin"},
-                    {"role": "dbAdminAnyDatabase", "db": "admin"},
+                    {"role": "readWrite", "db": "myapp"},
+                    {"role": "read", "db": "reporting"},
                 ],
                 "mechanisms": ["SCRAM-SHA-256"],
                 "scramSha256Creds": {
                     "iterationCount": 15000,
-                    "salt": "lQZ8IQAim8rd8ciYu7QEI4QsDOmyLHrOnN2wvQ==",
-                    "serverKey": "YVsb7Bhkuap68wdtIkrC46OU4wrNzWgOPkqUxXDXT28=",
-                    "storedKey": "3EcYkRFdPTN57pDbPg5JZwJX+XWU4k4lIIvNum8kiFA=",
+                    "salt": "wksiNA03uUywS7DhdN062N8rpp2wgN535t9V+A==",
+                    "serverKey": "QWoYhFkf0f5fo3zM11wFVXw6eEDtWToNg3aCurCmIww=",
+                    "storedKey": "kQXatG95rq6ZysZFr00M8hK0kN13VuxX1pV3xxUpYSE=",
+                },
+                "authenticationRestrictions": [],
+            },
+            {
+                "user": "reporting-user",
+                "db": "admin",
+                "roles": [{"role": "read", "db": "reporting"}],
+                "mechanisms": ["SCRAM-SHA-256"],
+                "scramSha256Creds": {
+                    "iterationCount": 15000,
+                    "salt": "Usm13I846IhrVWvzO1BCXn17qe2tWMHP+GXtKg==",
+                    "serverKey": "0mGWp+V4qze1mWdoQLhss0OvL5smZ1VfineTeRYw4qE=",
+                    "storedKey": "fLNS6LPqK12byCGG6wFexh5eNpniyAWouhKhaqODt7g=",
                 },
                 "authenticationRestrictions": [],
             },
         ],
         "usersDeleted": [],
         "disabled": False,
-        "authoritativeSet": True,
+        "authoritativeSet": False,
         "deploymentAuthMechanisms": ["SCRAM-SHA-256"],
         "autoAuthMechanisms": ["SCRAM-SHA-256"],
         "autoAuthMechanism": "SCRAM-SHA-256",
@@ -156,6 +125,26 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
         "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
         "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
     }
+
+    ac["roles"] = [
+        {
+            "role": "appReadOnly",
+            "db": "myapp",
+            "privileges": [
+                {
+                    "resource": {"db": "myapp", "collection": ""},
+                    "actions": ["find", "listCollections"],
+                }
+            ],
+            "roles": [{"role": "read", "db": "myapp"}],
+        }
+    ]
+
+    tags_per_member = [
+        {"region": "us-east-1", "role": "primary"},
+        {"region": "us-east-1", "role": "secondary"},
+        {"region": "us-west-2", "role": "secondary"},
+    ]
 
     ac["processes"] = []
     ac["monitoringVersions"] = []
@@ -180,6 +169,16 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                 "logRotate": {
                     "sizeThresholdMB": 1000,
                     "timeThresholdHrs": 24,
+                    "numUncompressed": 5,
+                    "numTotal": 10,
+                    "percentOfDiskspace": 0.4,
+                },
+                "auditLogRotate": {
+                    "sizeThresholdMB": 500,
+                    "timeThresholdHrs": 48,
+                    "numUncompressed": 2,
+                    "numTotal": 10,
+                    "percentOfDiskspace": 0.4,
                 },
                 "authSchemaVersion": 5,
                 "featureCompatibilityVersion": fcv_from_version(mdb_version),
@@ -188,38 +187,34 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                     "net": {
                         "port": 27017,
                         "tls": {"mode": "disabled"},
+                        "compression": {"compressors": "zlib,zstd"},
                     },
                     "storage": {
                         "dbPath": "/data/",
                         "directoryPerDB": True,
-                        "wiredTiger": {
-                            "engineConfig": {
-                                "cacheSizeGB": 1,
-                                "journalCompressor": "snappy",
-                            },
-                            "collectionConfig": {
-                                "blockCompressor": "zstd",
-                            },
-                        },
                     },
                     "systemLog": {
                         "path": "/data/mongodb.log",
                         "destination": "file",
+                        "logAppend": True,
                     },
                     "replication": {
                         "replSetName": rs_name,
-                    },
-                    "operationProfiling": {
-                        "mode": "slowOp",
-                        "slowOpThresholdMs": 200,
+                        "oplogSizeMB": 2048,
                     },
                     "setParameter": {
                         "authenticationMechanisms": "SCRAM-SHA-256",
+                    },
+                    "auditLog": {
+                        "destination": "file",
+                        "format": "JSON",
+                        "path": "/var/log/mongodb-mms-automation/mongodb-audit-changed.log",
                     },
                 },
             }
         )
 
+        member_tags = tags_per_member[i] if i < len(tags_per_member) else {}
         ac["replicaSets"][0]["members"].append(
             {
                 "_id": i + 100,
@@ -229,6 +224,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                 "secondaryDelaySecs": 0,
                 "hidden": False,
                 "arbiterOnly": False,
+                "tags": member_tags,
             }
         )
 
@@ -237,7 +233,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
-    return run_migrate_generate(namespace, passwords=[ADMIN_USER_PASSWORD])
+    return run_migrate_generate(namespace, passwords=[APP_USER_PASSWORD, REPORTING_USER_PASSWORD])
 
 
 @fixture(scope="module")
@@ -264,7 +260,7 @@ def ac_before_promote(om_tester: OMTester) -> dict:
     return om_tester.api_get_automation_config()
 
 
-@mark.e2e_vm_migration_generate_tls
+@mark.e2e_vm_migration_generate_scram_full
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
         sts = get_statefulset(namespace, vm_sts["metadata"]["name"])
@@ -273,39 +269,40 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
     KubernetesTester.wait_until(sts_is_ready, timeout=300)
 
 
-@mark.e2e_vm_migration_generate_tls
+@mark.e2e_vm_migration_generate_scram_full
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
     _configure_ac(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
 
 
-@mark.e2e_vm_migration_generate_tls
+@mark.e2e_vm_migration_generate_scram_full
 def test_log_ac_after_vm_setup(om_tester: OMTester):
     log_automation_config(om_tester.api_get_automation_config(), label="after-vm-setup")
 
 
-@mark.e2e_vm_migration_generate_tls
+@mark.e2e_vm_migration_generate_scram_full
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-@mark.e2e_vm_migration_generate_tls
-def test_user_cr_emitted(generated_cr_yaml: str):
+@mark.e2e_vm_migration_generate_scram_full
+def test_user_crs_emitted(generated_cr_yaml: str):
     docs = list(yaml.safe_load_all(generated_cr_yaml))
     user_docs = [d for d in docs if d and d.get("kind") == "MongoDBUser"]
-    assert len(user_docs) == 1, f"Expected 1 user CR, got {len(user_docs)}"
+    usernames = {d["spec"]["username"] for d in user_docs}
+    assert usernames == {"app-user", "reporting-user"}, f"Unexpected user CRs: {usernames}"
 
 
-@mark.e2e_vm_migration_generate_tls
+@mark.e2e_vm_migration_generate_scram_full
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB, ac_before_migration: dict):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
-@mark.e2e_vm_migration_generate_tls
+@mark.e2e_vm_migration_generate_scram_full
 def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migration: MongoDB, om_tester: OMTester):
     apply_user_crs_and_verify_ac(generated_cr_yaml, namespace, om_tester)
 
 
-@mark.e2e_vm_migration_generate_tls
+@mark.e2e_vm_migration_generate_scram_full
 def test_log_ac_after_migration(om_tester: OMTester, ac_before_migration: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="after-migration")
@@ -313,7 +310,7 @@ def test_log_ac_after_migration(om_tester: OMTester, ac_before_migration: dict):
 
 
 # TODO insert sample data, assert it is still there after migration
-@mark.e2e_vm_migration_generate_tls
+@mark.e2e_vm_migration_generate_scram_full
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, ac_before_promote: dict):
     try_load(mdb_migration)
     for i in range(vm_sts["spec"]["replicas"]):
@@ -327,19 +324,19 @@ def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, ac_before_promote: di
         mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
-@mark.e2e_vm_migration_generate_tls
+@mark.e2e_vm_migration_generate_scram_full
 def test_log_ac_after_promote(om_tester: OMTester, ac_before_promote: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="after-promote")
     log_automation_config_diff(ac_before_promote, ac_after)
 
 
-@mark.e2e_vm_migration_generate_tls
+@mark.e2e_vm_migration_generate_scram_full
 def test_password_rotation_keeps_migrated_flag(generated_cr_yaml: str, namespace: str, om_tester: OMTester):
-    rotate_password_and_verify(generated_cr_yaml, namespace, om_tester)
+    rotate_password_and_verify(generated_cr_yaml, namespace, om_tester, target_username="app-user")
 
 
-@mark.e2e_vm_migration_generate_tls
+@mark.e2e_vm_migration_generate_scram_full
 def test_log_ac_end_to_end(om_tester: OMTester, ac_before_migration: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="final")

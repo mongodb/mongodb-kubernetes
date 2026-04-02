@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"sigs.k8s.io/yaml"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
-	"sigs.k8s.io/yaml"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
@@ -16,7 +17,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
-
 
 const (
 	PrometheusPasswordSecretName = "prometheus-password"
@@ -28,26 +28,19 @@ const (
 	migrateToolVersionAnnotation = "mongodb.com/migrate-tool-version"
 )
 
-// GenerateOptions holds parameters for CR generation that come from CLI flags
-// and deployment-level agent configuration read from the OM API.
+// GenerateOptions holds CLI flags and pre-extracted deployment data for CR generation.
 type GenerateOptions struct {
 	ReplicaSetNameOverride string
 	CredentialsSecretName  string
 	ConfigMapName          string
-	Namespace              string
 	MultiClusterNames      []string
-	AgentConfigs           *ProjectAgentConfigs
-	ProcessConfigs         *ProjectProcessConfigs
+	ProjectAgentConfigs    *ProjectAgentConfigs
+	ProjectProcessConfigs  *ProjectProcessConfigs
 	// CertsSecretPrefix is spec.security.certsSecretPrefix; required when TLS is enabled.
 	CertsSecretPrefix string
-	// ProcessMap, Members, and SourceProcess are pre-extracted from the automation
-	// config in runGenerate so that validation, TLS detection, and spec building
-	// all share the same values without re-parsing the deployment.
-	// SourceProcess is the process of the first active data-bearing member, used
-	// as the source for spec.additionalMongodConfig and spec.agent.mongod.systemLog.
-	ProcessMap    map[string]om.Process
-	Members       []om.ReplicaSetMember
-	SourceProcess *om.Process
+	ProcessMap        map[string]om.Process
+	Members           []om.ReplicaSetMember
+	SourceProcess     *om.Process
 }
 
 // UserCROutput holds the generated YAML and metadata for a single MongoDBUser CR.
@@ -57,14 +50,11 @@ type UserCROutput struct {
 	Database       string
 	NeedsPassword  bool
 	PasswordSecret string
-	// MigratedFromVM mirrors spec.migratedFromVm: true when OM had an
-	// explicit mechanisms list, so the operator preserves only those mechanisms.
+	// MigratedFromVM mirrors spec.migratedFromVm; set when OM had an explicit mechanisms list.
 	MigratedFromVM bool
 }
 
-// GenerateMongoDBCR generates a MongoDB CR from the given automation config.
-// It detects the deployment type (replica set vs sharded cluster) and topology
-// (single vs multi-cluster) and dispatches to the appropriate builder.
+// GenerateMongoDBCR generates a MongoDB CR for the given topology.
 func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
 	isSharded := len(ac.Deployment.GetShardedClusters()) > 0
 
@@ -77,8 +67,7 @@ func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, s
 	return generateReplicaSet(ac, opts)
 }
 
-// isValidKubernetesName returns true when name is a valid DNS label (RFC 1123),
-// which is the requirement for most Kubernetes resource names.
+// isValidKubernetesName reports whether name is a valid DNS label (RFC 1123).
 func isValidKubernetesName(name string) bool {
 	return len(k8svalidation.IsDNS1123Label(name)) == 0
 }
@@ -157,9 +146,7 @@ func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOption
 	return out, resourceName, nil
 }
 
-
-// GenerateUserCRs creates MongoDBUser CRs for each user in auth.usersWanted,
-// skipping the automation agent user.
+// GenerateUserCRs creates MongoDBUser CRs for each user in auth.usersWanted, skipping the agent user.
 func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]UserCROutput, error) {
 	if ac.Auth == nil || len(ac.Auth.Users) == 0 {
 		return nil, nil
@@ -239,7 +226,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 	return results, nil
 }
 
-// GeneratePasswordSecret builds a Kubernetes Secret for a SCRAM user's password.
+// GeneratePasswordSecret returns a Kubernetes Secret for a SCRAM user's password.
 func GeneratePasswordSecret(secretName, namespace, password string) corev1.Secret {
 	return corev1.Secret{
 		TypeMeta: metav1.TypeMeta{
@@ -256,9 +243,7 @@ func GeneratePasswordSecret(secretName, namespace, password string) corev1.Secre
 	}
 }
 
-
-// GenerateLdapResources creates the Secret and/or ConfigMap that the CR's
-// LDAP config references. Returns empty strings when the AC has no LDAP configuration.
+// GenerateLdapResources creates the LDAP bind-query Secret and CA ConfigMap, or returns empty strings when LDAP is absent.
 func GenerateLdapResources(ac *om.AutomationConfig, namespace string) (bindQueryPasswordSecret, caConfigMap string, err error) {
 	if ac.Ldap == nil {
 		return "", "", nil
@@ -307,11 +292,7 @@ func GenerateLdapResources(ac *om.AutomationConfig, namespace string) (bindQuery
 	return bindQueryPasswordSecret, caConfigMap, nil
 }
 
-// marshalCRToYAML marshals a Kubernetes resource to YAML, stripping the
-// "status" block, "creationTimestamp: null", and structurally-empty fields
-// (empty strings, nil, empty maps/slices). Numbers and booleans are always
-// preserved — 0 and false can be semantically meaningful (e.g. votes: 0,
-// logAppend: false).
+// marshalCRToYAML marshals a resource to YAML, stripping status, creationTimestamp, and empty fields.
 func marshalCRToYAML(obj interface{}) (string, error) {
 	jsonBytes, err := json.Marshal(obj)
 	if err != nil {
@@ -333,9 +314,7 @@ func marshalCRToYAML(obj interface{}) (string, error) {
 	return string(out), nil
 }
 
-// stripZeroValues recursively removes structurally-empty entries from a map:
-// empty strings, nil, empty maps, and empty slices. Numbers and booleans are
-// never removed.
+// stripZeroValues recursively removes nil, empty strings, maps, and slices.
 func stripZeroValues(m map[string]interface{}) {
 	for k, v := range m {
 		if isZeroValue(v) {
@@ -359,10 +338,7 @@ func stripZeroValues(m map[string]interface{}) {
 	}
 }
 
-// isZeroValue returns true for values that are Go struct serialization
-// artifacts: empty strings, nil, empty maps, and empty slices.
-// Numbers and booleans are never stripped since 0 and false can be
-// semantically meaningful (e.g. votes: 0 for draining members).
+// isZeroValue reports whether v is nil, an empty string, map, or slice.
 func isZeroValue(v interface{}) bool {
 	if v == nil {
 		return true
@@ -391,4 +367,3 @@ func convertRoles(roles []*om.Role) ([]userv1.Role, error) {
 	}
 	return out, nil
 }
-

@@ -15,13 +15,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
-// buildSecurity assembles the top-level spec.security block by inspecting
-// TLS state, authentication mechanisms, LDAP, and OIDC from the automation config.
-// certsSecretPrefix is the value for spec.security.certsSecretPrefix when TLS is enabled;
-// must be non-empty when TLS is enabled (no default).
+// buildSecurity assembles spec.security. certsSecretPrefix non-empty means TLS is enabled
+// (set by ensureTLS, mirrors the operator's IsSecurityTLSConfigEnabled).
 func buildSecurity(
 	auth *om.Auth,
 	processMap map[string]om.Process,
@@ -33,16 +30,8 @@ func buildSecurity(
 	security := &mdbv1.Security{}
 	hasSettings := false
 
-	tlsEnabled, err := isTLSEnabled(processMap, members)
-	if err != nil {
-		return nil, err
-	}
-	if tlsEnabled {
-		// Use certsSecretPrefix to enable TLS; tls.enabled is deprecated (see RELEASE_NOTES_MEKO.md 1.15).
-		// Caller must provide a non-empty prefix (no default).
-		if certsSecretPrefix == "" {
-			return nil, fmt.Errorf("certsSecretPrefix is required when TLS is enabled; provide a value when prompted")
-		}
+	if certsSecretPrefix != "" {
+		// certsSecretPrefix enables TLS (tls.enabled is deprecated, see RELEASE_NOTES_MEKO.md 1.15).
 		security.CertificatesSecretsPrefix = certsSecretPrefix
 		hasSettings = true
 	}
@@ -114,8 +103,7 @@ func buildAuthenticationConfig(
 	return authConfig, nil
 }
 
-// buildAuthModes merges mechanisms from both deploymentAuthMechanisms and
-// autoAuthMechanisms, deduplicating by the mapped CR mode value.
+// buildAuthModes deduplicates deploymentAuthMechanisms and autoAuthMechanisms into CR auth modes.
 func buildAuthModes(auth *om.Auth) ([]mdbv1.AuthMode, error) {
 	seen := map[mdbv1.AuthMode]bool{}
 	var modes []mdbv1.AuthMode
@@ -145,9 +133,7 @@ func buildAuthModes(auth *om.Auth) ([]mdbv1.AuthMode, error) {
 	return modes, nil
 }
 
-// extractInternalClusterAuthMode reads security.clusterAuthMode from the
-// first member's process args2_6 and maps it to
-// spec.security.authentication.internalCluster.
+// extractInternalClusterAuthMode maps the first member's clusterAuthMode to the CR internalCluster field.
 func extractInternalClusterAuthMode(processMap map[string]om.Process, members []om.ReplicaSetMember) (string, error) {
 	for i, m := range members {
 		host := m.Name()
@@ -155,8 +141,8 @@ func extractInternalClusterAuthMode(processMap map[string]om.Process, members []
 		if !ok {
 			return "", fmt.Errorf("process %q referenced by member at index %d was not found", host, i)
 		}
-		if mode := proc.ClusterAuthMode(); mode != "" {
-			return mapClusterAuthMode(mode)
+		if proc.HasInternalClusterAuthentication() {
+			return mapClusterAuthMode(proc.ClusterAuthMode())
 		}
 	}
 	return "", nil
@@ -173,7 +159,7 @@ func mapClusterAuthMode(mode string) (string, error) {
 	}
 }
 
-// isTLSEnabled returns true if at least one replica set member has TLS enabled.
+// isTLSEnabled returns true if any member has an explicit TLS section with a non-disabled mode.
 func isTLSEnabled(processMap map[string]om.Process, members []om.ReplicaSetMember) (bool, error) {
 	for i, m := range members {
 		host := m.Name()
@@ -181,27 +167,15 @@ func isTLSEnabled(processMap map[string]om.Process, members []om.ReplicaSetMembe
 		if !ok {
 			return false, fmt.Errorf("process %q referenced by member at index %d was not found", host, i)
 		}
-		args := proc.Args()
-		if len(args) == 0 {
-			continue
-		}
-		// GetTLSModeFromMongodConfig defaults to Require when no mode is set,
-		// but that only applies when TLS is already known to be enabled.
-		// Here we need to detect presence: if args2_6 has no net.tls/ssl section
-		// at all, TLS is not configured.
-		if hasTLSSection(args) && pkgtls.GetTLSModeFromMongodConfig(args) != pkgtls.Disabled {
+		// Require explicit section: GetTLSModeFromMongodConfig defaults to Require when absent.
+		if len(proc.NetTLSSections()) > 0 && pkgtls.GetTLSModeFromMongodConfig(proc.Args()) != pkgtls.Disabled {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func hasTLSSection(args map[string]interface{}) bool {
-	return maputil.ReadMapValueAsMap(args, "net", "tls") != nil ||
-		maputil.ReadMapValueAsMap(args, "net", "ssl") != nil
-}
-
-// extractCustomRoles returns the custom MongoDB roles defined in the deployment.
+// extractCustomRoles returns custom roles from the deployment, or nil if none.
 func extractCustomRoles(d om.Deployment) []mdbv1.MongoDBRole {
 	roles := d.GetRoles()
 	if len(roles) == 0 {
@@ -210,8 +184,7 @@ func extractCustomRoles(d om.Deployment) []mdbv1.MongoDBRole {
 	return roles
 }
 
-// extractPrometheusConfig reads the Prometheus section from the deployment
-// and maps it to the CR's spec.prometheus block.
+// extractPrometheusConfig builds spec.prometheus from the deployment's Prometheus section.
 func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 	acProm := d.GetPrometheus()
 	if acProm == nil || !acProm.Enabled {
@@ -253,136 +226,16 @@ func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 	return prom, nil
 }
 
-
-// extractAdditionalMongodConfig reads user-facing mongod options from the source
-// process's args2_6 and maps them to spec.additionalMongodConfig.
-// Fields the operator fully owns (dbPath, systemLog, replication.replSetName)
-// are excluded.
-func extractAdditionalMongodConfig(sourceProcess *om.Process) (*mdbv1.AdditionalMongodConfig, error) {
-	if sourceProcess == nil {
-		return nil, nil
-	}
-
-	args := sourceProcess.Args()
-	if len(args) == 0 {
-		return nil, nil
-	}
-
-	cfg := mdbv1.NewEmptyAdditionalMongodConfig()
-	extractNetConfig(args, cfg)
-	extractStorageConfig(args, cfg)
-	extractReplicationConfig(args, cfg)
-	extractGenericSections(args, cfg)
-	extractNonDefaultTLSMode(args, cfg)
-
-	if len(cfg.ToMap()) == 0 {
-		return nil, nil
-	}
-	return cfg, nil
-}
-
-
-func extractNetConfig(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {
-	netMap := maputil.ReadMapValueAsMap(args, "net")
-	if netMap == nil {
-		return false
-	}
-	hasConfig := false
-	if port := maputil.ReadMapValueAsInt(netMap, "port"); port != 0 && port != util.MongoDbDefaultPort {
-		config.AddOption("net.port", port)
-		hasConfig = true
-	}
-	if compressors := maputil.ReadMapValueAsInterface(netMap, "compression", "compressors"); compressors != nil {
-		config.AddOption("net.compression.compressors", compressors)
-		hasConfig = true
-	}
-	if maxConns := maputil.ReadMapValueAsInt(netMap, "maxIncomingConnections"); maxConns != 0 {
-		config.AddOption("net.maxIncomingConnections", maxConns)
-		hasConfig = true
-	}
-	return hasConfig
-}
-
-func extractStorageConfig(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {
-	if maputil.ReadMapValueAsMap(args, "storage") == nil {
-		return false
-	}
-	hasConfig := false
-	if engine := maputil.ReadMapValueAsString(args, "storage", "engine"); engine != "" && engine != "wiredTiger" {
-		config.AddOption("storage.engine", engine)
-		hasConfig = true
-	}
-	if v := maputil.ReadMapValueAsInterface(args, "storage", "directoryPerDB"); v != nil {
-		config.AddOption("storage.directoryPerDB", v)
-		hasConfig = true
-	}
-	if v := maputil.ReadMapValueAsInterface(args, "storage", "journal", "enabled"); v != nil {
-		config.AddOption("storage.journal.enabled", v)
-		hasConfig = true
-	}
-	if v := maputil.ReadMapValueAsInterface(args, "storage", "wiredTiger", "engineConfig", "cacheSizeGB"); v != nil {
-		config.AddOption("storage.wiredTiger.engineConfig.cacheSizeGB", v)
-		hasConfig = true
-	}
-	if v := maputil.ReadMapValueAsInterface(args, "storage", "wiredTiger", "engineConfig", "journalCompressor"); v != nil {
-		config.AddOption("storage.wiredTiger.engineConfig.journalCompressor", v)
-		hasConfig = true
-	}
-	if v := maputil.ReadMapValueAsInterface(args, "storage", "wiredTiger", "collectionConfig", "blockCompressor"); v != nil {
-		config.AddOption("storage.wiredTiger.collectionConfig.blockCompressor", v)
-		hasConfig = true
-	}
-	return hasConfig
-}
-
-func extractReplicationConfig(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {
-	replMap := maputil.ReadMapValueAsMap(args, "replication")
-	if replMap == nil {
-		return false
-	}
-	if v := replMap["oplogSizeMB"]; v != nil {
-		config.AddOption("replication.oplogSizeMB", v)
-		return true
-	}
-	return false
-}
-
-func extractGenericSections(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {
-	hasConfig := false
-
-	for _, section := range []string{"setParameter", "auditLog", "operationProfiling"} {
-		if sectionMap, ok := args[section].(map[string]interface{}); ok && len(sectionMap) > 0 {
-			for k, v := range sectionMap {
-				config.AddOption(section+"."+k, v)
-				hasConfig = true
-			}
-		}
-	}
-
-	return hasConfig
-}
-
-// extractNonDefaultTLSMode adds the TLS mode to additionalMongodConfig when
-// it differs from the operator's default (requireTLS). Modes "disabled" and
-// empty are excluded: the customer must explicitly add
-// net.tls.mode: "disabled" to the CR before applying.
-func extractNonDefaultTLSMode(args map[string]interface{}, config *mdbv1.AdditionalMongodConfig) bool {
-	mode := pkgtls.GetTLSModeFromMongodConfig(args)
-	if mode == pkgtls.Disabled || mode == pkgtls.Require || mode == "requireSSL" {
-		return false
-	}
-	config.AddOption("net.tls.mode", string(mode))
-	return true
-}
-
-// extractAgentConfig reads log rotation settings from the project-level OM API
-// endpoints and systemLog from the first process in the automation config.
-// Log rotation is applied uniformly to mongod, monitoring agent, and backup agent.
+// extractAgentConfig builds spec.agent from project-level log rotation and the source process systemLog.
 func extractAgentConfig(sourceProcess *om.Process, projectProcessConfigs *ProjectProcessConfigs) mdbv1.AgentConfig {
 	var agentConfig mdbv1.AgentConfig
 	if projectProcessConfigs != nil {
-		agentConfig.Mongod.LogRotate = crdLogRotateFromAc(projectProcessConfigs.SystemLogRotate)
-		agentConfig.Mongod.AuditLogRotate = crdLogRotateFromAc(projectProcessConfigs.AuditLogRotate)
+		if lr := projectProcessConfigs.SystemLogRotate; lr != nil && (lr.SizeThresholdMB != 0 || lr.TimeThresholdHrs != 0) {
+			agentConfig.Mongod.LogRotate = automationconfig.ConvertACLogRotateToCrd(lr)
+		}
+		if alr := projectProcessConfigs.AuditLogRotate; alr != nil && (alr.SizeThresholdMB != 0 || alr.TimeThresholdHrs != 0) {
+			agentConfig.Mongod.AuditLogRotate = automationconfig.ConvertACLogRotateToCrd(alr)
+		}
 		agentConfig.MonitoringAgent.LogRotate = om.LogRotateForAgentsFromAc(projectProcessConfigs.SystemLogRotate)
 		agentConfig.BackupAgent.LogRotate = om.LogRotateForAgentsFromAc(projectProcessConfigs.SystemLogRotate)
 	}
@@ -393,17 +246,7 @@ func extractAgentConfig(sourceProcess *om.Process, projectProcessConfigs *Projec
 }
 
 
-// crdLogRotateFromAc converts an AcLogRotate (agent representation with float64
-// thresholds) into a CrdLogRotate (CRD representation with string thresholds).
-func crdLogRotateFromAc(ac *automationconfig.AcLogRotate) *automationconfig.CrdLogRotate {
-	if ac == nil || (ac.SizeThresholdMB == 0 && ac.TimeThresholdHrs == 0) {
-		return nil
-	}
-	return automationconfig.ConvertACLogRotateToCrd(ac)
-}
-
-// sharedSpecFields holds the computed fields that are identical between
-// single-cluster and multi-cluster replica set specs.
+// sharedSpecFields holds fields common to single-cluster and multi-cluster specs.
 type sharedSpecFields struct {
 	security               *mdbv1.Security
 	prometheus             *mdbcv1.Prometheus
@@ -411,9 +254,7 @@ type sharedSpecFields struct {
 	additionalMongodConfig *mdbv1.AdditionalMongodConfig
 }
 
-// buildReplicaSetCommonSpec constructs the DbCommonSpec for replica set deployments,
-// embedded by both MongoDbSpec (single-cluster) and MongoDBMultiSpec (multi-cluster).
-// Not suitable for sharded clusters, which use a different ResourceType and spec structure.
+// buildReplicaSetCommonSpec constructs the DbCommonSpec shared across topologies.
 func buildReplicaSetCommonSpec(version, fcv, rsName, resourceName string, externalMembers []mdbv1.ExternalMember, opts GenerateOptions) mdbv1.DbCommonSpec {
 	common := mdbv1.DbCommonSpec{
 		Version:                     version,
@@ -437,9 +278,7 @@ func buildReplicaSetCommonSpec(version, fcv, rsName, resourceName string, extern
 	return common
 }
 
-// buildSharedSpecFields computes the spec fields shared across topologies:
-// security (including custom roles), prometheus, additional mongod config,
-// and agent config.
+// buildSharedSpecFields computes the fields shared by all topologies.
 func buildSharedSpecFields(ac *om.AutomationConfig, opts GenerateOptions) (sharedSpecFields, error) {
 	security, err := buildSecurity(ac.Auth, opts.ProcessMap, opts.Members, ac.Ldap, ac.OIDCProviderConfigs, opts.CertsSecretPrefix)
 	if err != nil {
@@ -457,12 +296,12 @@ func buildSharedSpecFields(ac *om.AutomationConfig, opts GenerateOptions) (share
 		return sharedSpecFields{}, fmt.Errorf("failed to extract Prometheus config: %w", err)
 	}
 
-	additionalConfig, err := extractAdditionalMongodConfig(opts.SourceProcess)
-	if err != nil {
-		return sharedSpecFields{}, fmt.Errorf("failed to extract additional mongod config: %w", err)
+	var additionalConfig *mdbv1.AdditionalMongodConfig
+	if opts.SourceProcess != nil {
+		additionalConfig = opts.SourceProcess.AdditionalMongodConfig()
 	}
 
-	agentConfig := extractAgentConfig(opts.SourceProcess, opts.ProcessConfigs)
+	agentConfig := extractAgentConfig(opts.SourceProcess, opts.ProjectProcessConfigs)
 	return sharedSpecFields{
 		security:               security,
 		prometheus:             prom,
@@ -471,8 +310,7 @@ func buildSharedSpecFields(ac *om.AutomationConfig, opts GenerateOptions) (share
 	}, nil
 }
 
-// applySharedFields sets the fields from sharedSpecFields onto a DbCommonSpec.
-// Called by each spec builder after constructing the topology-specific parts.
+// applySharedFields copies sharedSpecFields into a DbCommonSpec.
 func applySharedFields(common *mdbv1.DbCommonSpec, shared sharedSpecFields) {
 	common.Security = shared.security
 	common.Prometheus = shared.prometheus
@@ -501,8 +339,7 @@ func buildReplicaSetSpec(
 	return spec, nil
 }
 
-// buildReplicaSetMultiClusterSpec assembles a MongoDBMultiSpec, distributing members
-// across the provided target clusters.
+// buildReplicaSetMultiClusterSpec assembles a MongoDBMultiSpec, distributing members across target clusters.
 func buildReplicaSetMultiClusterSpec(
 	version, fcv string,
 	externalMembers []mdbv1.ExternalMember,
@@ -529,9 +366,7 @@ func buildReplicaSetMultiClusterSpec(
 	return spec, nil
 }
 
-// buildMemberConfig creates MemberOptions for each member with votes=0 and
-// priority="0" (draining policy for external members being transitioned).
-// Tags are preserved from the automation config.
+// buildMemberConfig sets votes=0 and priority="0" for all members (migration-safe defaults), preserving tags.
 func buildMemberConfig(members []om.ReplicaSetMember) []automationconfig.MemberOptions {
 	config := make([]automationconfig.MemberOptions, len(members))
 	for i, m := range members {
@@ -547,8 +382,7 @@ func buildMemberConfig(members []om.ReplicaSetMember) []automationconfig.MemberO
 	return config
 }
 
-// distributeMembers spreads memberCount as evenly as possible across the
-// given cluster names. Extra members go to the earlier clusters.
+// distributeMembers spreads memberCount evenly across clusterNames, extra members go to earlier clusters.
 func distributeMembers(memberCount int, clusterNames []string) mdbv1.ClusterSpecList {
 	n := len(clusterNames)
 	if n == 0 {
@@ -571,9 +405,7 @@ func distributeMembers(memberCount int, clusterNames []string) mdbv1.ClusterSpec
 	return list
 }
 
-// distributeMemberConfig builds per-cluster MemberOptions slices that mirror
-// the member distribution in distributeMembers. Each member gets votes=0 and
-// priority="0" (draining policy). Tags are preserved from the automation config.
+// distributeMemberConfig slices buildMemberConfig output to match the distributeMembers layout.
 func distributeMemberConfig(members []om.ReplicaSetMember, clusterNames []string) [][]automationconfig.MemberOptions {
 	n := len(clusterNames)
 	if n == 0 {

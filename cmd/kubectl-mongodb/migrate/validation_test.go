@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
 	for _, r := range results {
@@ -85,7 +86,6 @@ func TestValidation_MemberReferencesUnknownProcess(t *testing.T) {
 	assert.True(t, hasError, "expected error when member references unknown process")
 }
 
-
 func TestValidation_ReplicaSetWithNoMembers(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{},
@@ -109,7 +109,7 @@ func TestValidation_ReplicaSetWithNoMembers(t *testing.T) {
 }
 
 func TestValidation_NonDefaultKeyFile(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Auth.KeyFile = "/custom/path/keyfile"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
@@ -124,7 +124,7 @@ func TestValidation_NonDefaultKeyFile(t *testing.T) {
 }
 
 func TestValidation_NonDefaultAutoPEMKeyFilePath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.AgentSSL.AutoPEMKeyFilePath = "/etc/mongodb-mms/agent.pem"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
@@ -139,7 +139,7 @@ func TestValidation_NonDefaultAutoPEMKeyFilePath(t *testing.T) {
 }
 
 func TestValidation_NonDefaultCAFilePath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.AgentSSL.CAFilePath = "/etc/ssl/ca.pem"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
@@ -154,7 +154,7 @@ func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 }
 
 func TestValidation_NonDefaultDownloadBase(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	options := ac.Deployment["options"].(map[string]interface{})
 	options["downloadBase"] = "/opt/mongodb/automation"
 	ac.Deployment["options"] = options
@@ -171,7 +171,7 @@ func TestValidation_NonDefaultDownloadBase(t *testing.T) {
 }
 
 func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Auth.KeyFileWindows = "C:\\custom\\keyfile"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
@@ -185,7 +185,7 @@ func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
 }
 
 func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	processes := ac.Deployment.GetProcesses()
 	processes[0]["authSchemaVersion"] = 3
 
@@ -201,7 +201,7 @@ func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
 }
 
 func TestValidation_NonDefaultProtocolVersion(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	replicaSets := ac.Deployment.GetReplicaSets()
 	replicaSets[0]["protocolVersion"] = "0"
 
@@ -217,7 +217,7 @@ func TestValidation_NonDefaultProtocolVersion(t *testing.T) {
 }
 
 func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	monitoringConfig := &om.MonitoringAgentConfig{
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/monitoring.log"},
 	}
@@ -234,7 +234,7 @@ func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
 }
 
 func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	backupConfig := &om.BackupAgentConfig{
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/backup.log"},
 	}
@@ -251,7 +251,7 @@ func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
 }
 
 func TestValidation_ValidConfig_NoErrors(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
 	for _, r := range results {
@@ -260,7 +260,7 @@ func TestValidation_ValidConfig_NoErrors(t *testing.T) {
 }
 
 func TestValidation_LdapBindMethodSASL(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Ldap = &ldap.Ldap{
 		Servers:    "ldap.example.com:636",
 		BindMethod: "sasl",
@@ -279,7 +279,7 @@ func TestValidation_LdapBindMethodSASL(t *testing.T) {
 }
 
 func TestValidation_LdapBindMethodSimple_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Ldap = &ldap.Ldap{
 		Servers:    "ldap.example.com:636",
 		BindMethod: "simple",
@@ -294,7 +294,7 @@ func TestValidation_LdapBindMethodSimple_NoWarning(t *testing.T) {
 }
 
 func TestValidation_LdapCaFileContents(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Ldap = &ldap.Ldap{
 		Servers:        "ldap.example.com:636",
 		CaFileContents: "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
@@ -313,7 +313,7 @@ func TestValidation_LdapCaFileContents(t *testing.T) {
 }
 
 func TestValidation_LdapNoCaFileContents_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Ldap = &ldap.Ldap{
 		Servers: "ldap.example.com:636",
 	}
@@ -327,7 +327,7 @@ func TestValidation_LdapNoCaFileContents_NoWarning(t *testing.T) {
 }
 
 func TestValidation_NilLdap_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Ldap = nil
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
@@ -339,7 +339,7 @@ func TestValidation_NilLdap_NoWarning(t *testing.T) {
 }
 
 func TestValidation_NonDefaultDbPath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	proc := ac.Deployment.GetProcesses()[0]
 	args := proc.Args()
 	storage := args["storage"].(map[string]interface{})
@@ -390,47 +390,8 @@ func TestValidation_DefaultDbPath_NoWarning(t *testing.T) {
 	}
 }
 
-func TestValidation_AllowTLSMode(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
-	proc := ac.Deployment.GetProcesses()[0]
-	args := proc.Args()
-	args["net"] = map[string]interface{}{
-		"port": 27017,
-		"tls":  map[string]interface{}{"mode": "allowTLS"},
-	}
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
-	hasWarning := false
-	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "allowTLS") {
-			hasWarning = true
-			assert.Contains(t, r.Message, "requireTLS")
-		}
-	}
-	assert.True(t, hasWarning, "expected warning when TLS mode is allowTLS")
-}
-
-func TestValidation_AllowSSLMode(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
-	proc := ac.Deployment.GetProcesses()[0]
-	args := proc.Args()
-	args["net"] = map[string]interface{}{
-		"port": 27017,
-		"ssl":  map[string]interface{}{"mode": "allowSSL"},
-	}
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
-	hasWarning := false
-	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "allowSSL") {
-			hasWarning = true
-		}
-	}
-	assert.True(t, hasWarning, "expected warning when TLS mode is allowSSL")
-}
-
 func TestValidation_RequireTLS_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
 	for _, r := range results {
@@ -440,120 +401,83 @@ func TestValidation_RequireTLS_NoWarning(t *testing.T) {
 	}
 }
 
-func TestValidation_NoTLS_Warning(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
+func TestCheckTLS_NoTLSSection_Warning(t *testing.T) {
+	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name":        "host-0",
-				"hostname":    "host-0.example.com",
-				"processType": "mongod",
-				"version":     "6.0.5",
-				"args2_6": map[string]interface{}{
-					"net":     map[string]interface{}{"port": 27017},
-					"storage": map[string]interface{}{"dbPath": "/data"},
-				},
+				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
+				"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
 			},
 		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
-				"_id":             "my-rs",
-				"protocolVersion": "1",
-				"members": []interface{}{
-					map[string]interface{}{"host": "host-0", "tags": map[string]string{}},
-				},
-			},
-		},
-		"sharding": []interface{}{},
-	})
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
-	hasNoTLSWarning := false
-	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "net.tls.mode") {
-			hasNoTLSWarning = true
-		}
 	}
-	assert.True(t, hasNoTLSWarning, "expected warning about net.tls.mode for no-TLS deployment")
+	results := checkTLS(d)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityWarning, results[0].Severity)
+	assert.Contains(t, results[0].Message, "net.tls.mode")
+	assert.Contains(t, results[0].Message, "rs-0")
 }
 
-func TestValidation_TLSDisabled_Warning(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
+func TestCheckTLS_ModeDisabled_Warning(t *testing.T) {
+	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name":        "host-0",
-				"hostname":    "host-0.example.com",
-				"processType": "mongod",
-				"version":     "6.0.5",
+				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{
 						"port": 27017,
 						"tls":  map[string]interface{}{"mode": "disabled"},
 					},
-					"storage": map[string]interface{}{"dbPath": "/data"},
 				},
 			},
 		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
-				"_id":             "my-rs",
-				"protocolVersion": "1",
-				"members": []interface{}{
-					map[string]interface{}{"host": "host-0", "tags": map[string]string{}},
-				},
-			},
-		},
-		"sharding": []interface{}{},
-	})
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
-	hasNoTLSWarning := false
-	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "net.tls.mode") {
-			hasNoTLSWarning = true
-		}
 	}
-	assert.True(t, hasNoTLSWarning, "expected warning about TLS mode for disabled TLS")
+	results := checkTLS(d)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityWarning, results[0].Severity)
 }
 
-func TestValidation_TLSModeNull_Error(t *testing.T) {
-	// Process has net.tls section but mode is null/missing — not allowed in AC.
-	ac := om.NewAutomationConfig(om.Deployment{
+func TestCheckTLS_WarnOnceForMultipleNoTLSProcesses(t *testing.T) {
+	proc := map[string]interface{}{
+		"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
+		"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
+	}
+	proc2 := map[string]interface{}{
+		"name": "rs-1", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
+		"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
+	}
+	d := om.Deployment{"processes": []interface{}{proc, proc2}}
+	results := checkTLS(d)
+	warnings := 0
+	for _, r := range results {
+		if r.Severity == SeverityWarning {
+			warnings++
+		}
+	}
+	assert.Equal(t, 1, warnings, "expected exactly one no-TLS warning regardless of process count")
+}
+
+func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
+	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name": "host-0", "processType": "mongod", "version": "7.0.0",
+				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{
 						"port": 27017,
-						"tls":  map[string]interface{}{}, // mode missing
+						"tls":  map[string]interface{}{"mode": "requireTLS"},
 					},
-					"replication": map[string]interface{}{"replSetName": "my-rs"},
-					"storage":     map[string]interface{}{"dbPath": "/data"},
 				},
 			},
 		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
-				"_id": "my-rs", "protocolVersion": "1",
-				"members": []interface{}{
-					map[string]interface{}{"host": "host-0", "tags": map[string]string{}},
-				},
-			},
-		},
-		"sharding": []interface{}{},
-	})
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
-	var hasError bool
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "mode is null or missing") {
-			hasError = true
-			break
-		}
 	}
-	assert.True(t, hasError, "expected error when net.tls exists but mode is null or missing")
+	results := checkTLS(d)
+	for _, r := range results {
+		assert.NotEqual(t, SeverityWarning, r.Severity, "unexpected warning for TLS-enabled process")
+	}
 }
 
 func TestValidation_EmptyAutoUser(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Auth.AutoUser = ""
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
@@ -567,7 +491,7 @@ func TestValidation_EmptyAutoUser(t *testing.T) {
 }
 
 func TestValidation_AutoUserNotInUsersWanted(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Auth.AutoUser = "nonexistent-agent"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
@@ -581,7 +505,7 @@ func TestValidation_AutoUserNotInUsersWanted(t *testing.T) {
 }
 
 func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
 	for _, r := range results {
@@ -592,7 +516,7 @@ func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
 }
 
 func TestValidation_X509AutoUser_NotInUsersWanted_NoError(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
 	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
 	ac.Auth.Users = nil
@@ -646,7 +570,7 @@ func TestValidation_VersionConsistency_Warning(t *testing.T) {
 }
 
 func TestValidation_VersionConsistency_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/full/input.json")
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
 	for _, r := range results {
@@ -701,6 +625,3 @@ func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 	}
 	assert.True(t, hasWarning, "expected warning when per-process logRotate differs from project-level setting")
 }
-
-
-

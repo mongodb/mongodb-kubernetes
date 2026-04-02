@@ -153,15 +153,13 @@ func resolveProjectInOrg(conn om.Connection, projectName string, organization *o
 	return nil, nil
 }
 
-// ProjectAgentConfigs holds the project-level agent configuration read from
-// the OM API (monitoring and backup agent settings).
+// ProjectAgentConfigs holds monitoring and backup agent config read from the OM API.
 type ProjectAgentConfigs struct {
 	MonitoringConfig *om.MonitoringAgentConfig
 	BackupConfig     *om.BackupAgentConfig
 }
 
-// ProjectProcessConfigs holds the project-level process configuration read
-// from the OM API (log rotation settings applied uniformly to all processes).
+// ProjectProcessConfigs holds log rotation config read from the OM API.
 type ProjectProcessConfigs struct {
 	SystemLogRotate *automationconfig.AcLogRotate
 	AuditLogRotate  *automationconfig.AcLogRotate

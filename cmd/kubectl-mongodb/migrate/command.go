@@ -72,11 +72,6 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	}
 
 	processMap := ac.Deployment.ProcessMap()
-	var members []om.ReplicaSetMember
-	if rss := ac.Deployment.GetReplicaSets(); len(rss) > 0 {
-		members = rss[0].Members()
-	}
-
 	results, sourceProcess := ValidateMigration(ac, processMap, projectAgentConfigs, projectProcessConfigs)
 	if errorCount := printValidationResults(os.Stderr, results); errorCount > 0 {
 		return fmt.Errorf("validation failed: %d error(s) found. Resolve the issues above before generating Custom Resources.", errorCount)
@@ -86,10 +81,10 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 		ReplicaSetNameOverride: replicaSetNameOverride,
 		CredentialsSecretName:  secretName,
 		ConfigMapName:          configMapName,
-		AgentConfigs:           projectAgentConfigs,
-		ProcessConfigs:         projectProcessConfigs,
+		ProjectAgentConfigs:    projectAgentConfigs,
+		ProjectProcessConfigs:  projectProcessConfigs,
 		ProcessMap:             processMap,
-		Members:                members,
+		Members:                ac.Deployment.GetReplicaSets()[0].Members(), // safe: ValidateMigration returns an error above when there are no replica sets
 		SourceProcess:          sourceProcess,
 	}
 
@@ -155,7 +150,7 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// openOutput returns os.Stdout when path is empty, otherwise opens the named file for writing.
+// openOutput returns os.Stdout when path is empty, otherwise opens path for writing.
 func openOutput(path string) (io.Writer, error) {
 	if path == "" {
 		return os.Stdout, nil
@@ -222,8 +217,7 @@ func ensurePrometheus(ctx context.Context, ac *om.AutomationConfig, kubeClient k
 	return nil
 }
 
-// ensureUserSecrets prompts for each SCRAM user's password, validates it
-// against the OM credential hashes, and creates the corresponding Secret.
+// ensureUserSecrets prompts for each SCRAM user's password, validates it against OM, and creates the Kubernetes Secret.
 func ensureUserSecrets(ctx context.Context, ac *om.AutomationConfig, userCRs []UserCROutput, kubeClient kubernetesClient.Client, scanner *bufio.Scanner) error {
 	if len(userCRs) == 0 {
 		return nil
@@ -259,8 +253,7 @@ func ensureUserSecrets(ctx context.Context, ac *om.AutomationConfig, userCRs []U
 	return nil
 }
 
-// validatePasswordAgainstOM rejects passwords that don't match the existing
-// SCRAM credential hashes in the automation config.
+// validatePasswordAgainstOM errors when the password doesn't match the SCRAM hashes in OM.
 func validatePasswordAgainstOM(username, database, password string, ac *om.AutomationConfig) error {
 	_, acUser := ac.Auth.GetUser(username, database)
 	user := &om.MongoDBUser{Username: username, Database: database}

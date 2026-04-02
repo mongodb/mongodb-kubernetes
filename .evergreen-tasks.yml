@@ -304,12 +304,12 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_generate
+  - name: e2e_vm_migration_generate_scram_full
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_generate_tls
+  - name: e2e_vm_migration_generate_om_tls
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -324,7 +324,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_generate_heterogeneous
+  - name: e2e_vm_migration_generate_different_mongod_config
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

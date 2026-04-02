@@ -280,7 +280,10 @@ func TestBuildSecurity_TLSAndAuth(t *testing.T) {
 	assert.Equal(t, []mdbv1.AuthMode{"X509"}, result.Authentication.Modes)
 }
 
-func TestBuildSecurity_TLS_RequiresNonEmptyPrefix(t *testing.T) {
+// TestBuildSecurity_TLS_EmptyPrefix verifies that buildSecurity does not set TLS when certsSecretPrefix
+// is empty, regardless of the process config. The responsibility for ensuring the prefix is set when TLS
+// is detected lies with ensureTLS (which calls isTLSEnabled before buildSecurity is reached).
+func TestBuildSecurity_TLS_EmptyPrefix(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
@@ -292,9 +295,9 @@ func TestBuildSecurity_TLS_RequiresNonEmptyPrefix(t *testing.T) {
 	}
 	members := []om.ReplicaSetMember{{"host": "host-0"}}
 
-	_, err := buildSecurity(nil, processMap, members, nil, nil, "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "certsSecretPrefix is required when TLS is enabled")
+	result, err := buildSecurity(nil, processMap, members, nil, nil, "")
+	require.NoError(t, err)
+	assert.Nil(t, result, "expected no security config when certsSecretPrefix is empty")
 }
 
 func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
@@ -336,13 +339,12 @@ func TestExtractAdditionalMongodConfig_NonDefaultPort(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
 	netMap, ok := m["net"].(map[string]interface{})
 	require.True(t, ok)
-	assert.Equal(t, 27018, netMap["port"])
+	assert.EqualValues(t, 27018, netMap["port"])
 }
 
 func TestExtractAdditionalMongodConfig_DefaultPort(t *testing.T) {
@@ -359,8 +361,7 @@ func TestExtractAdditionalMongodConfig_DefaultPort(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	assert.Nil(t, config)
 }
 
@@ -385,8 +386,7 @@ func TestExtractAdditionalMongodConfig_WiredTigerCache(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
 	storage, ok := m["storage"].(map[string]interface{})
@@ -395,7 +395,71 @@ func TestExtractAdditionalMongodConfig_WiredTigerCache(t *testing.T) {
 	require.True(t, ok)
 	ec, ok := wt["engineConfig"].(map[string]interface{})
 	require.True(t, ok)
-	assert.Equal(t, 2.0, ec["cacheSizeGB"])
+	assert.EqualValues(t, 2.0, ec["cacheSizeGB"])
+}
+
+func TestExtractAdditionalMongodConfig_ZstdCompressionLevel(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {
+			"args2_6": map[string]interface{}{
+				"net": map[string]interface{}{"port": 27017},
+				"storage": map[string]interface{}{
+					"wiredTiger": map[string]interface{}{
+						"engineConfig": map[string]interface{}{
+							"zstdCompressionLevel": 6,
+						},
+					},
+				},
+			},
+		},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}}
+
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
+	require.NotNil(t, config)
+	m := config.ToMap()
+	storage, ok := m["storage"].(map[string]interface{})
+	require.True(t, ok)
+	wt, ok := storage["wiredTiger"].(map[string]interface{})
+	require.True(t, ok)
+	ec, ok := wt["engineConfig"].(map[string]interface{})
+	require.True(t, ok)
+	assert.EqualValues(t, 6, ec["zstdCompressionLevel"])
+}
+
+func TestExtractAdditionalMongodConfig_WiredTigerConfigString(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {
+			"args2_6": map[string]any{
+				"net": map[string]any{"port": 27017},
+				"storage": map[string]any{
+					"wiredTiger": map[string]any{
+						"engineConfig": map[string]any{
+							"configString": "builtin_extension_config=(zlib=(compression_level=2))",
+						},
+						"collectionConfig": map[string]any{
+							"configString": "block_compressor=zlib",
+						},
+					},
+				},
+			},
+		},
+	}
+	members := []om.ReplicaSetMember{{"host": "host-0"}}
+
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
+	require.NotNil(t, config)
+	m := config.ToMap()
+	storage, ok := m["storage"].(map[string]any)
+	require.True(t, ok)
+	wt, ok := storage["wiredTiger"].(map[string]any)
+	require.True(t, ok)
+	ec, ok := wt["engineConfig"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "builtin_extension_config=(zlib=(compression_level=2))", ec["configString"])
+	cc, ok := wt["collectionConfig"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "block_compressor=zlib", cc["configString"])
 }
 
 func TestExtractAdditionalMongodConfig_NoArgs(t *testing.T) {
@@ -406,21 +470,7 @@ func TestExtractAdditionalMongodConfig_NoArgs(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
-	assert.Nil(t, config)
-}
-
-func TestExtractAdditionalMongodConfig_NoMembers(t *testing.T) {
-	config, err := extractAdditionalMongodConfig(nil)
-	require.NoError(t, err)
-	assert.Nil(t, config)
-}
-
-func TestExtractAdditionalMongodConfig_MissingProcess(t *testing.T) {
-	// When the source process is nil (member not found in processMap), return nil.
-	config, err := extractAdditionalMongodConfig(nil)
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	assert.Nil(t, config)
 }
 
@@ -441,8 +491,7 @@ func TestExtractAdditionalMongodConfig_SetParameter(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
 	sp, ok := m["setParameter"].(map[string]interface{})
@@ -468,13 +517,12 @@ func TestExtractAdditionalMongodConfig_OplogSizeMB(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
 	repl, ok := m["replication"].(map[string]interface{})
 	require.True(t, ok)
-	assert.Equal(t, 2048, repl["oplogSizeMB"])
+	assert.EqualValues(t, 2048, repl["oplogSizeMB"])
 }
 
 func TestExtractAdditionalMongodConfig_AuditLog(t *testing.T) {
@@ -496,8 +544,7 @@ func TestExtractAdditionalMongodConfig_AuditLog(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
 	al, ok := m["auditLog"].(map[string]interface{})
@@ -697,8 +744,7 @@ func TestExtractAdditionalMongodConfig_DbPathNotExtracted(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	assert.Nil(t, config, "dbPath should not be extracted into additionalMongodConfig because the operator always overwrites it")
 }
 
@@ -715,8 +761,7 @@ func TestExtractAdditionalMongodConfig_DefaultDbPath(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	assert.Nil(t, config)
 }
 
@@ -736,8 +781,7 @@ func TestExtractAdditionalMongodConfig_SystemLogNotExtracted(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	assert.Nil(t, config, "systemLog should not be extracted into additionalMongodConfig because the operator always overwrites it; use spec.agent.mongod.systemLog instead")
 }
 
@@ -756,8 +800,7 @@ func TestExtractAdditionalMongodConfig_TLSModePrefer(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
 	net, ok := m["net"].(map[string]interface{})
@@ -782,8 +825,7 @@ func TestExtractAdditionalMongodConfig_TLSModeRequireNotIncluded(t *testing.T) {
 		{"host": "host-0"},
 	}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	assert.Nil(t, config)
 }
 
@@ -1008,12 +1050,6 @@ func TestExtractCustomRoles_Empty(t *testing.T) {
 	assert.Nil(t, roles)
 }
 
-// --- Multi-member intersection tests ---
-// These tests verify that extractAdditionalMongodConfig only includes fields
-// that are identical across all members. Each test covers a specific field
-// from the extraction functions (extractNetConfig, extractStorageConfig,
-// extractReplicationConfig, extractGenericSections, extractNonDefaultTLSMode).
-
 func TestExtractAdditionalMongodConfig_MultiMember_SamePort_Included(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
@@ -1021,8 +1057,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SamePort_Included(t *testing.
 	}
 	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
 
-	config, err := extractAdditionalMongodConfig(sourceProc(processMap, members))
-	require.NoError(t, err)
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	assert.Equal(t, 27018, maputil.ReadMapValueAsInt(config.ToMap(), "net", "port"))
 }
