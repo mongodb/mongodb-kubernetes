@@ -250,7 +250,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	agentCertHash, agentCertPath := reconciler.agentCertHashAndPath(ctx, log, rs.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertHash, defaultAgentCertPath := reconciler.agentCertHashAndPath(ctx, log, rs.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertPath := defaultAgentCertPath
 
 	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, reconciler.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), certs.Database, log)
 	if err != nil {
@@ -268,28 +269,12 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
 		}
 	}
-	// Resolve the agent cert path from the existing AC.
-	//
-	// During migration (externalMembers present), VM agents use a custom autoPEMKeyFilePath that
-	// differs from the operator default (AgentCertMountPath/<hash>). We preserve that path in both
-	// the auth config and the StatefulSet items-based mount so all agents share it seamlessly.
-	//
-	// On the reconcile where the last external member is removed, the AC still carries the custom
-	// path. We keep the items mount (agentCertExternalPath set) but let agentCertPath revert to
-	// the operator default so updateOmAuthentication updates the AC this reconcile. The next
-	// reconcile sees the AC path matching the operator default → agentCertExternalPath is empty →
-	// StatefulSet switches to the normal directory mount. This two-step transition avoids a window
-	// where pods have been rolled to the new mount before the AC has been updated.
+	// Reconcile OM’s autoPEMKeyFilePath (deployment API) with defaultAgentCertPath from the TLS secret.
 	var agentCertExternalPath string
 	if existing, err := conn.ReadDeployment(); err == nil {
 		if tls, ok := existing["tls"].(map[string]interface{}); ok {
-			if pemPath, ok := tls["autoPEMKeyFilePath"].(string); ok && pemPath != "" && pemPath != agentCertPath {
-				agentCertExternalPath = pemPath
-				if len(rs.Spec.GetExternalMembers()) > 0 {
-					// Full migration mode: preserve the custom path in the auth config too so
-					// updateOmAuthentication does not overwrite it with the operator default.
-					agentCertPath = pemPath
-				}
+			if omAutoPEMKeyFilePath, ok := tls["autoPEMKeyFilePath"].(string); ok {
+				agentCertPath, agentCertExternalPath = resolveReplicaSetAgentCertPaths(omAutoPEMKeyFilePath, defaultAgentCertPath, len(rs.Spec.GetExternalMembers()))
 			}
 		}
 	}
@@ -398,6 +383,7 @@ type deploymentOptionsRS struct {
 	// externalMembers are present. When non-empty, the operator preserves this path in the AC
 	// and mounts the cert at exactly this path on K8s pods (via items-based StatefulSet volume),
 	// so VM and K8s agents share the same cert path without a migration window.
+	// TODO: we might not rely on this and only use the import tool
 	agentCertExternalPath string
 }
 

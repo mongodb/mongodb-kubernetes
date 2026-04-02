@@ -115,15 +115,17 @@ type DatabaseStatefulSetOptions struct {
 	Labels      map[string]string
 	StsLabels   map[string]string
 
-	// ExternalAgentVersion pins non-static agent downloads when spec.externalMembers is non-empty:
-	// databaseEnvVars forwards it as MDB_AGENT_VERSION only for non-static pods.
+	// ExternalAgentVersion sets the agent version to download when spec.externalMembers is non-empty:
+	// databaseEnvVars forwards it as MDB_AGENT_VERSION.
 	ExternalAgentVersion string
 
-	// AgentCertExternalPath is the autoPEMKeyFilePath already configured in the AC when
+	// AgentCertExternalPath is the autoPEMKeyFilePath that is already configured in the AC when
 	// spec.externalMembers is non-empty. When set, the agent cert secret is mounted using
 	// an items mapping so the cert file appears at exactly this path on K8s pods — matching
 	// the path VM agents already have — instead of the default directory mount at AgentCertMountPath.
 	// After migration completes (externalMembers empty) this field is unset and the default applies.
+	// TODO: verify whether we want to have this automatically work here, or have that part of the import tool
+	// TODO: generated and then have the customer create it and reference it in the CR
 	AgentCertExternalPath string
 
 	// These fields are only relevant for multi-cluster

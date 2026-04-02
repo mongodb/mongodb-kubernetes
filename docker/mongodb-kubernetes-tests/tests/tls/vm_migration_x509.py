@@ -18,9 +18,6 @@ to the same tag as the pseudo-VM agent image (AGENT_IMAGE); static architecture 
 MDB_AGENT_VERSION (bundled agent in the image).
 """
 
-import base64
-import hashlib
-import json
 import yaml
 from cryptography import x509 as crypto_x509
 from cryptography.hazmat.backends import default_backend
@@ -48,31 +45,6 @@ CUSTOM_AGENT_CERT_FILENAME = "agent.pem"
 CUSTOM_AGENT_CERT_PATH = f"{CUSTOM_AGENT_CERT_DIR}/{CUSTOM_AGENT_CERT_FILENAME}"
 
 
-def _operator_pem_hash(cert_pem: str, key_pem: str) -> str:
-    """Compute the hash the operator uses for autoPEMKeyFilePath.
-
-    Replicates controllers/operator/pem/pem_collection.go ReadHashFromData() for a
-    kubernetes.io/tls secret with tls.crt and tls.key entries:
-
-      PemFiles = {
-        "tls.crt": {privateKey: "", certificate: cert_pem},
-        "tls.key": {privateKey: key_pem, certificate: ""},
-      }
-      hash = Base32(SHA256(json.Marshal(PemFiles)))
-
-    Go json.Marshal sorts map keys alphabetically and serializes struct fields in declaration
-    order (privateKey before certificate). Python 3.7+ dicts preserve insertion order so
-    json.dumps respects the order below.
-    """
-    payload = {
-        "tls.crt": {"privateKey": "", "certificate": cert_pem},
-        "tls.key": {"privateKey": key_pem, "certificate": ""},
-    }
-    json_bytes = json.dumps(payload, separators=(",", ":")).encode()
-    digest = hashlib.sha256(json_bytes).digest()
-    return base64.b32encode(digest).decode("ascii").rstrip("=")
-
-
 @fixture(scope="module")
 def om_tester(namespace: str, operator) -> OMTester:
     config_map = KubernetesTester.read_configmap(namespace, "my-project")
@@ -95,17 +67,16 @@ def vm_agent_certs(issuer: str, namespace: str) -> str:
 
 @fixture(scope="module")
 def vm_agent_combined_pem(namespace: str, vm_agent_certs: str) -> tuple:
-    """Pre-create the operator-format combined PEM secret (agent-certs-pem) for autoPEMKeyFilePath.
+    """Create a combined PEM secret for VM pod cert mount and extract the agent subject DN.
 
-    The operator creates this secret via VerifyAndEnsureClientCertificatesForAgentsAndTLSType when
-    it reconciles a MDB resource with clientCertificateSecretRef. We pre-create it here so that VM
-    pods can mount it before the MDB resource exists (VM RS setup happens first).
+    VM pods need the agent cert as a single cert+key file at CUSTOM_AGENT_CERT_PATH before the
+    MDB resource (and therefore the operator) exists. We create a simple secret keyed by the
+    filename and mount the whole secret as a directory — no hash computation needed.
 
-    The secret name and hash formula exactly match what the operator produces from the
-    kubernetes.io/tls secret, so when the operator reconciles it will update the secret with the
-    same content (adding a latest-hash annotation key, which is harmless).
+    The operator independently creates its own hash-keyed {vm_agent_certs}-pem secret for K8s pods
+    when it reconciles the MDB resource. The two secrets are separate; the cert content is the same.
 
-    Returns (secret_name, subject_dn, agent_hash).
+    Returns (secret_name, subject_dn).
     """
     data = read_secret(namespace, vm_agent_certs)
     cert_pem = data.get("tls.crt", b"")
@@ -115,21 +86,12 @@ def vm_agent_combined_pem(namespace: str, vm_agent_certs: str) -> tuple:
     if isinstance(key_pem, bytes):
         key_pem = key_pem.decode("utf-8")
 
-    # Extract subject DN from cert (MongoDB autoUser format: RFC4514, most-specific-first).
     cert_obj = crypto_x509.load_pem_x509_certificate(cert_pem.encode(), default_backend())
     subject_dn = cert_obj.subject.rfc4514_string()
 
-    agent_hash = _operator_pem_hash(cert_pem, key_pem)
-
-    # Combined PEM matches VerifyTLSSecretForStatefulSet: cert (with trailing \n) + key.
-    if not cert_pem.endswith("\n"):
-        cert_pem += "\n"
-    combined_pem = cert_pem + key_pem
-
-    # Secret name matches what the operator derives: <clientCertificateSecretRef>-pem.
-    pem_secret_name = f"{vm_agent_certs}-pem"
-    create_or_update_secret(namespace, pem_secret_name, {agent_hash: combined_pem})
-    return pem_secret_name, subject_dn, agent_hash
+    pem_secret_name = "vm-agent-cert-pem"
+    create_or_update_secret(namespace, pem_secret_name, {CUSTOM_AGENT_CERT_FILENAME: cert_pem + key_pem})
+    return pem_secret_name, subject_dn
 
 
 @fixture(scope="module")
@@ -148,7 +110,7 @@ def vm_server_combined_pem(namespace: str, vm_server_certs: str) -> str:
 
 @fixture(scope="module")
 def vm_sts(
-    namespace: str, om_tester: OMTester, vm_server_certs: str, vm_agent_combined_pem: tuple, vm_server_combined_pem: str
+    namespace: str, om_tester: OMTester, vm_server_certs: str, vm_agent_combined_pem: tuple[str, str], vm_server_combined_pem: str
 ):
     """Deploy VM StatefulSet with cert volumes (server combined PEM + CA + agent PEM)."""
     with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
@@ -184,20 +146,10 @@ def vm_sts(
     )
     # Mount the agent cert at CUSTOM_AGENT_CERT_PATH — a path intentionally different from the
     # operator's default AgentCertMountPath — to exercise the operator's AgentCertExternalPath
-    # code path. The items mapping places the pre-created cert (key=python_hash) at the fixed
-    # filename CUSTOM_AGENT_CERT_FILENAME inside CUSTOM_AGENT_CERT_DIR. The operator will read
-    # autoPEMKeyFilePath=CUSTOM_AGENT_CERT_PATH from the AC, preserve it, and mount the cert on
-    # K8s pods using items: [{key: GO_HASH, path: CUSTOM_AGENT_CERT_FILENAME}] at CUSTOM_AGENT_CERT_DIR.
-    agent_secret_name, _, agent_hash = vm_agent_combined_pem
-    volumes.append(
-        {
-            "name": "agent-cert",
-            "secret": {
-                "secretName": agent_secret_name,
-                "items": [{"key": agent_hash, "path": CUSTOM_AGENT_CERT_FILENAME}],
-            },
-        }
-    )
+    # code path. The secret has a single key named CUSTOM_AGENT_CERT_FILENAME so a plain directory
+    # mount exposes the file at CUSTOM_AGENT_CERT_DIR/CUSTOM_AGENT_CERT_FILENAME = CUSTOM_AGENT_CERT_PATH.
+    agent_secret_name, _ = vm_agent_combined_pem
+    volumes.append({"name": "agent-cert", "secret": {"secretName": agent_secret_name}})
     sts_body["spec"]["template"]["spec"]["volumes"] = volumes
 
     mounts = sts_body["spec"]["template"]["spec"]["containers"][0].get("volumeMounts") or []
@@ -404,7 +356,7 @@ def test_vm_ac_x509_auth(
     vm_service: dict,
     namespace: str,
     custom_mdb_version: str,
-    vm_agent_combined_pem: tuple,
+    vm_agent_combined_pem: tuple[str, str],
 ):
     """Step 3: enable X509 client auth (processes TLS config unchanged).
     Agent connects while TLS is on but auth is still disabled, creates the $external user for
@@ -415,7 +367,7 @@ def test_vm_ac_x509_auth(
     if ac.get("auth", {}).get("disabled", True) is False:
         return
 
-    _, agent_subject_dn, _ = vm_agent_combined_pem
+    _, agent_subject_dn = vm_agent_combined_pem
     ac["auth"] = {
         "disabled": False,
         "authoritativeSet": True,
