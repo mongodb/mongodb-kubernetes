@@ -67,7 +67,10 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 		}
 	}
 	members := ac.Deployment.GetReplicaSets()[0].Members()
-	sourceProcess := pickSourceProcess(members, processMap)
+	sourceProcess, err := pickSourceProcess(members, processMap)
+	if err != nil {
+		return append(results, ValidationResult{Severity: SeverityError, Message: err.Error()}), nil
+	}
 	fmt.Fprintf(os.Stderr, "[WARNING] spec.additionalMongodConfig and spec.agent.mongod.systemLog will be taken from process %q. Review all members and reconcile any differences before migration.\n", sourceProcess.Name())
 	results = append(results, checkDifferentMongodConfig(members, processMap, sourceProcess)...)
 	results = append(results, checkProcessConfigDrift(members, processMap, projectProcessConfigs)...)
@@ -75,17 +78,15 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 	return results, sourceProcess
 }
 
-// pickSourceProcess returns the first voting+priority member's process, falling back to members[0].
-func pickSourceProcess(members []om.ReplicaSetMember, processMap map[string]om.Process) *om.Process {
-	m := members[0]
+// pickSourceProcess returns the first voting+priority member's process, or an error if none qualify.
+func pickSourceProcess(members []om.ReplicaSetMember, processMap map[string]om.Process) (*om.Process, error) {
 	for _, candidate := range members {
 		if candidate.Votes() > 0 && candidate.Priority() > 0 {
-			m = candidate
-			break
+			proc := processMap[candidate.Name()]
+			return &proc, nil
 		}
 	}
-	proc := processMap[m.Name()]
-	return &proc
+	return nil, fmt.Errorf("no voting+priority member found in replica set; cannot determine source process")
 }
 
 // validateAuth checks autoUser, keyFile, and keyFileWindows against operator defaults.

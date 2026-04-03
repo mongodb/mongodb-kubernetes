@@ -36,7 +36,7 @@ func withDeploymentData(ac *om.AutomationConfig, opts GenerateOptions) GenerateO
 		opts.Members = rss[0].Members()
 	}
 	if len(opts.Members) > 0 {
-		opts.SourceProcess = pickSourceProcess(opts.Members, opts.ProcessMap)
+		opts.SourceProcess, _ = pickSourceProcess(opts.Members, opts.ProcessMap)
 	}
 	return opts
 }
