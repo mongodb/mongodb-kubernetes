@@ -1322,8 +1322,8 @@ def run_kube_config_creation_tool(
     member_clusters_str = ",".join(member_clusters)
     args = [
         os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
+            "KUBECTL_MONGODB_PATH",
+            "kubectl-mongodb",
         ),
         "multicluster",
         "setup",
@@ -1401,8 +1401,8 @@ def run_multi_cluster_recovery_tool(
     member_clusters_str = ",".join(member_clusters)
     args = [
         os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
+            "KUBECTL_MONGODB_PATH",
+            "kubectl-mongodb",
         ),
         "multicluster",
         "recover",
@@ -1672,9 +1672,6 @@ def configure_telemetry():
 # That's why we run our pytest last.
 @pytest.hookimpl(trylast=True)
 def pytest_configure(config):
-    # Suppress the OpenTelemetry SDK warnings caused by swapping these plugins
-    logging.getLogger("opentelemetry").setLevel(logging.ERROR)
-
     # Remove the default plugin if already registered
     for i, plugin_instance in enumerate(config.pluginmanager.get_plugins()):
         if isinstance(plugin_instance, OpenTelemetryPlugin):

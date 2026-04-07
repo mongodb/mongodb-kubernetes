@@ -55,7 +55,7 @@ class MongoDBUser(CustomObject, MongoDBCommon):
 
     def get_status_message(self) -> Optional[str]:
         try:
-            return self["status"]["msg"]
+            return self["status"]["message"]
         except KeyError:
             return None
 

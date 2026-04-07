@@ -230,11 +230,11 @@ func loadConfig() config {
 		omAPIKey:              os.Getenv("OM_API_KEY"),                      // nolint:forbidigo
 		omOrgID:               os.Getenv("OM_ORGID"),                        // nolint:forbidigo
 		multiClusterNoMesh:    noMesh,
-		multiClusterConfigDir: os.Getenv("MULTI_CLUSTER_CONFIG_DIR"),               // nolint:forbidigo
-		kubeconfigCreatorPath: os.Getenv("MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH"), // nolint:forbidigo
-		projectDir:            os.Getenv("PROJECT_DIR"),                            // nolint:forbidigo
-		testPodCluster:        os.Getenv("test_pod_cluster"),                       // nolint:forbidigo
-		localOperator:         os.Getenv("LOCAL_OPERATOR"),                         // nolint:forbidigo
+		multiClusterConfigDir: os.Getenv("MULTI_CLUSTER_CONFIG_DIR"), // nolint:forbidigo
+		kubeconfigCreatorPath: os.Getenv("KUBECTL_MONGODB_PATH"),     // nolint:forbidigo
+		projectDir:            os.Getenv("PROJECT_DIR"),              // nolint:forbidigo
+		testPodCluster:        os.Getenv("test_pod_cluster"),         // nolint:forbidigo
+		localOperator:         os.Getenv("LOCAL_OPERATOR"),           // nolint:forbidigo
 		local:                 localVal,
 		taskID:                os.Getenv("task_id"), // nolint:forbidigo
 		applyMTLS:             applyMTLS,
