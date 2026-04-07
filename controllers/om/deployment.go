@@ -191,6 +191,23 @@ func (d Deployment) DownloadBase() string {
 	return maputil.ReadMapValueAsString(d, "options", "downloadBase")
 }
 
+// GetPrometheus returns the Prometheus configuration from the deployment, or nil if absent.
+func (d Deployment) GetPrometheus() *automationconfig.Prometheus {
+	promMap := maputil.ReadMapValueAsMap(d, "prometheus")
+	if len(promMap) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(promMap)
+	if err != nil {
+		return nil
+	}
+	var p automationconfig.Prometheus
+	if err := json.Unmarshal(data, &p); err != nil {
+		return nil
+	}
+	return &p
+}
+
 // ConfigurePrometheus adds Prometheus configuration to `Deployment` resource.
 //
 // If basic auth is enabled, then `hash` and `salt` need to be calculated by caller and passed in.
@@ -886,6 +903,19 @@ func (d Deployment) GetAllProcessNames() (names []string) {
 }
 
 func (d Deployment) GetProcesses() []Process {
+	return d.getProcesses()
+}
+
+func (d Deployment) ProcessMap() map[string]Process {
+	processes := d.getProcesses()
+	m := make(map[string]Process, len(processes))
+	for _, p := range processes {
+		m[p.Name()] = p
+	}
+	return m
+}
+
+func (d Deployment) getProcesses() []Process {
 	if _, ok := d["processes"]; !ok {
 		return []Process{}
 	}

@@ -156,6 +156,16 @@ func newScramSha1Creds(username, password string) (*om.ScramShaCreds, error) {
 	return computeScramShaCreds(username, password, salt, MongoDBCR)
 }
 
+func populateMechanisms(user *om.MongoDBUser) {
+	user.Mechanisms = nil
+	if user.ScramSha256Creds != nil {
+		user.Mechanisms = append(user.Mechanisms, util.AutomationConfigScramSha256Option)
+	}
+	if user.ScramSha1Creds != nil {
+		user.Mechanisms = append(user.Mechanisms, util.SCRAMSHA1)
+	}
+}
+
 // The code in this file is largely adapted from the Automation Agent codebase.
 // https://github.com/10gen/mms-automation/blob/c108e0319cc05c0d8719ceea91a0424a016db583/go_planner/src/com.tengen/cm/crypto/scram.go
 

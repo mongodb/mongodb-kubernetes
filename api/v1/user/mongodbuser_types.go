@@ -85,6 +85,7 @@ type MongoDBResourceRef struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!(has(self.migratedFromVm) && self.migratedFromVm && (!has(oldSelf.migratedFromVm) || !oldSelf.migratedFromVm))",message="migratedFromVm cannot be set to true after initial creation"
 type MongoDBUserSpec struct {
 	Roles    []Role `json:"roles,omitempty"`
 	Username string `json:"username"`
@@ -95,6 +96,11 @@ type MongoDBUserSpec struct {
 	PasswordSecretKeyRef SecretKeyRef `json:"passwordSecretKeyRef"`
 	// +optional
 	ConnectionStringSecretName string `json:"connectionStringSecretName"`
+	// MigratedFromVM preserves only the original SCRAM mechanisms from the OM
+	// automation config across password rotations. Cannot be set to true after
+	// initial creation.
+	// +optional
+	MigratedFromVM *bool `json:"migratedFromVm,omitempty"`
 }
 
 type MongoDBUserStatus struct {
@@ -157,14 +163,12 @@ func (u MongoDBUser) GetConnectionStringSecretName() string {
 		database = strings.TrimPrefix(database, "$")
 	}
 
-	return normalizeName(fmt.Sprintf("%s%s-%s", resourceRef, u.Name, database))
+	return NormalizeName(fmt.Sprintf("%s%s-%s", resourceRef, u.Name, database))
 }
 
-// normalizeName returns a string that conforms to RFC-1123.
+// NormalizeName returns a string that conforms to RFC-1123.
 // This logic is duplicated in the community operator in https://github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/blob/master/api/v1/mongodbcommunity_types.go.
-// The logic should be reused if/when we unify the user types or observe that the logic needs to be changed for business logic reasons, to avoid modifying it
-// in separate places in the future.
-func normalizeName(name string) string {
+func NormalizeName(name string) string {
 	errors := validation.IsDNS1123Subdomain(name)
 	if len(errors) == 0 {
 		return name
