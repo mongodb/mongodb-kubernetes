@@ -102,15 +102,6 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
         # If there are already processes, it means the test is retried.
         return
 
-    # Pin the automation agent version to match the image in vm_statefulset.yaml.
-    # Without this, OM offers the latest available agent version; the running agent (older)
-    # downloads it, forks the new binary, then exits (PID 1 exits → container restarts).
-    # This creates an infinite upgrade loop that keeps the vm-mongodb pods in CrashLoopBackOff
-    # and makes the connectivity check fail with DNS/connection errors.
-    agent_image_tag = vm_sts["spec"]["template"]["spec"]["containers"][0]["image"].split(":")[-1]
-    if "agentVersion" in ac:
-        ac["agentVersion"]["name"] = agent_image_tag
-
     ac["processes"] = []
     ac["monitoringVersions"] = []
 
