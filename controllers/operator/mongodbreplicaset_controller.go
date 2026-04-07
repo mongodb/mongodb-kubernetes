@@ -304,13 +304,13 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// 5a. Connectivity dry-run: launch a validation Job without touching OM or StatefulSets.
 	// TODO: access cloud-qa project and create a new project for migration e2e tests with existing external members so we can access against
 	if isDryRun {
-		operatorImage := getOperatorImageForDryRun(ctx, r.reconciler.client, r.reconciler.imageUrls, rs.Namespace, log)
+		operatorImage := r.reconciler.imageUrls[util.OperatorImageEnv]
 		if operatorImage == "" {
 			return r.updateStatus(ctx,
-				workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set OPERATOR_IMAGE env or deploy operator from Helm chart)")),
+				workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)),
 				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
 					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
-					"Set OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
+					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
 				)),
 			)
 		}
@@ -807,29 +807,6 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	log.Info("Updated Ops Manager for replica set")
 	return workflow.OK()
-}
-
-// getOperatorImageForDryRun returns the operator image to use for migration dry-run Jobs.
-// It prefers OPERATOR_IMAGE env (set by Helm or locally); if unset, tries to read the
-// operator Deployment image in-cluster so that any deployment method works when running in a pod.
-func getOperatorImageForDryRun(ctx context.Context, c client.Client, imageUrls images.ImageUrls, resourceNamespace string, log *zap.SugaredLogger) string {
-	if img := imageUrls[util.OperatorImageEnv]; img != "" {
-		return img
-	}
-	depName := env.ReadOrDefault(util.OperatorNameEnv, "")
-	ns := env.ReadOrDefault(util.CurrentNamespace, resourceNamespace)
-	if depName == "" {
-		return ""
-	}
-	dep := &appsv1.Deployment{}
-	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: depName}, dep); err != nil {
-		log.Debugw("Could not get operator Deployment for dry-run image fallback", "namespace", ns, "name", depName, "error", err)
-		return ""
-	}
-	if len(dep.Spec.Template.Spec.Containers) == 0 {
-		return ""
-	}
-	return dep.Spec.Template.Spec.Containers[0].Image
 }
 
 // runConnectivityValidationDryRun launches (or polls) a connectivity-validator Kubernetes Job

@@ -194,10 +194,9 @@ const (
 	MemberListConfigMapName          = OperatorName + "-member-list"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
-	// OperatorImageEnv is the env variable that holds the full image reference for the running operator.
-	// The connectivity-validator binary is compiled into the same image, so this image is used for migration Jobs.
-	// includes the version
-	OperatorImageEnv              = "OPERATOR_IMAGE"
+	// OperatorImageEnv is the MDB-prefixed env var for the full operator image reference (registry/name:tag or digest).
+	// The connectivity-validator binary is compiled into the same image, so migration dry-run Jobs use this ref.
+	OperatorImageEnv              = "MDB_OPERATOR_IMAGE"
 	ManagedSecurityContextEnv     = "MANAGED_SECURITY_CONTEXT"
 	CurrentNamespace              = "NAMESPACE"
 	OperatorNameEnv               = "OPERATOR_NAME"

@@ -170,13 +170,9 @@ func main() {
 			// Ensures every controller gets the trace and signal-aware context
 			return ctx
 		},
-		// Jobs are not watched by any controller but are accessed via the cached client in the
-		// connectivity dry-run path. The cached client warms up an informer the first time a type
-		// is accessed and blocks on WaitForCacheSync before returning from Get. If the operator
-		// lacks batch/jobs RBAC, that sync never completes and the reconciler hangs silently.
-		// Disabling the cache for Jobs makes the client go directly to the API server, so a
-		// missing RBAC permission surfaces as an immediate 403 and a clear status condition.
-		// We are only using GET for jobs. In later places we might want to move to proper caching, in case we use jobs more than that.
+		// Exclude batch/v1.Job from the cache: connectivity dry-run uses Get/List on Jobs infrequently.
+		// A cluster-wide Job informer would be heavier than a few direct API reads per reconcile;
+		// skipping the cache also avoids hanging on WaitForCacheSync when batch RBAC is missing (403 instead).
 		Client: client.Options{
 			Cache: &client.CacheOptions{
 				DisableFor: []client.Object{&batchv1.Job{}},
