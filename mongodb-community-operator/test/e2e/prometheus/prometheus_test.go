@@ -28,7 +28,7 @@ func TestMain(m *testing.M) {
 func TestPrometheus(t *testing.T) {
 	ctx := context.Background()
 	resourceName := "mdb0"
-	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName)
+	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName, true, false)
 	defer testCtx.Teardown()
 
 	mdb, user := e2eutil.NewTestMongoDB(testCtx, resourceName, testConfig.Namespace)

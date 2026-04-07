@@ -1,0 +1,5 @@
+apiVersion: v2
+name: test-pki
+description: A Helm chart setting up testing TLS certificates for the community operator
+type: application
+version: 0.1.0

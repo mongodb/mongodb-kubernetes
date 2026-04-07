@@ -1250,6 +1250,14 @@ func (m *MongoDB) ShardRsName(i int) string {
 	return fmt.Sprintf("%s-%d", m.Name, i)
 }
 
+func (m *MongoDB) ShardRsNames() []string {
+	names := make([]string, m.Spec.ShardCount)
+	for i := range m.Spec.ShardCount {
+		names[i] = m.ShardRsName(i)
+	}
+	return names
+}
+
 func (m *MongoDB) MultiShardRsName(clusterIdx int, shardIdx int) string {
 	return fmt.Sprintf("%s-%d-%d", m.Name, shardIdx, clusterIdx)
 }
@@ -1668,6 +1676,14 @@ func (m *MongoDB) GetAuthenticationModes() []string {
 
 func (m *MongoDB) CalculateFeatureCompatibilityVersion() string {
 	return fcv.CalculateFeatureCompatibilityVersion(m.Spec.Version, m.Status.FeatureCompatibilityVersion, m.Spec.FeatureCompatibilityVersion)
+}
+
+func (m *MongoDB) ShardNames() []string {
+	shardNames := make([]string, m.Spec.ShardCount)
+	for shardIdx := 0; shardIdx < m.Spec.ShardCount; shardIdx++ {
+		shardNames[shardIdx] = m.ShardRsName(shardIdx)
+	}
+	return shardNames
 }
 
 func (m *MongoDbSpec) IsInChangeVersion(lastSpec *MongoDbSpec) bool {

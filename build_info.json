@@ -320,7 +320,6 @@
         "platforms": [
           "linux/arm64",
           "linux/amd64",
-          "linux/s390x",
           "linux/ppc64le"
         ]
       },
@@ -333,7 +332,6 @@
         "platforms": [
           "linux/arm64",
           "linux/amd64",
-          "linux/s390x",
           "linux/ppc64le"
         ]
       }

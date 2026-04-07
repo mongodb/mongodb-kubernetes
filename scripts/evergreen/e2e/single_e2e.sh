@@ -48,14 +48,12 @@ deploy_test_app() {
     BUILD_ID="${BUILD_ID:-default_build_id}"
     BUILD_VARIANT="${BUILD_VARIANT:-default_build_variant}"
 
-    if ! chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py --build-scenario "${BUILD_SCENARIO}" 2>&1); then
-        echo "${chart_info}"
-        exit 1
-    fi
-    helm_oci_registry=$(echo "${chart_info}" | jq -r '.registry' )
-    helm_oci_repository=$(echo "${chart_info}" | jq -r '.repository' )
-    helm_oci_registry_region=$(echo "${chart_info}" | jq -r '.region' )
-    helm_oci_version_prefix=$(echo "${chart_info}" | jq -r '.version_prefix // empty' )
+    chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py --build-scenario "${BUILD_SCENARIO}") || { echo "Failed to generate chart_info" ; exit 1; }
+
+    helm_oci_registry=$(echo "${chart_info}" | jq -r '.registry') || { echo "Failed to parse registry from chart_info"; exit 1; }
+    helm_oci_repository=$(echo "${chart_info}" | jq -r '.repository') || { echo "Failed to parse repository from chart_info"; exit 1; }
+    helm_oci_registry_region=$(echo "${chart_info}" | jq -r '.region') || { echo "Failed to parse region from chart_info"; exit 1; }
+    helm_oci_version_prefix=$(echo "${chart_info}" | jq -r '.version_prefix // empty') || { echo "Failed to parse version_prefix from chart_info"; exit 1; }
     helm_oci_version="${helm_oci_version_prefix:-}${OPERATOR_VERSION}"
 
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
@@ -249,6 +247,7 @@ run_tests() {
 
     # We need to make sure to access this file after the test has finished
     kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml
+    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/pytest-debug.log logs/pytest-debug.log 2>/dev/null || true
     kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/diagnostics logs
 
     status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
