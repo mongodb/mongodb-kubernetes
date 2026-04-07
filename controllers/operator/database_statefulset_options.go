@@ -29,13 +29,10 @@ func WithExternalAgentVersion(version string) func(options *construct.DatabaseSt
 	}
 }
 
-// WithAgentCertExternalPath sets the path at which the agent cert must be mounted on K8s pods
-// during VM migration (when spec.externalMembers is non-empty). When set, the StatefulSet mounts
-// the agent cert secret using an items mapping so the cert file appears at exactly this path —
-// matching where VM agents already have it — instead of the default directory mount at AgentCertMountPath.
-func WithAgentCertExternalPath(path string) func(options *construct.DatabaseStatefulSetOptions) {
+// WithAgentCertPath sets the absolute path to the agent PEM (Ops Manager autoPEMKeyFilePath and volume layout).
+func WithAgentCertPath(path string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
-		options.AgentCertExternalPath = path
+		options.AgentCertPath = path
 	}
 }
 

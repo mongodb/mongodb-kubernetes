@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 
@@ -119,14 +120,9 @@ type DatabaseStatefulSetOptions struct {
 	// databaseEnvVars forwards it as MDB_AGENT_VERSION.
 	ExternalAgentVersion string
 
-	// AgentCertExternalPath is the autoPEMKeyFilePath that is already configured in the AC when
-	// spec.externalMembers is non-empty. When set, the agent cert secret is mounted using
-	// an items mapping so the cert file appears at exactly this path on K8s pods — matching
-	// the path VM agents already have — instead of the default directory mount at AgentCertMountPath.
-	// After migration completes (externalMembers empty) this field is unset and the default applies.
-	// TODO: verify whether we want to have this automatically work here, or have that part of the import tool
-	// TODO: generated and then have the customer create it and reference it in the CR
-	AgentCertExternalPath string
+	// AgentCertPath is the absolute path to the agent PEM (Ops Manager tls.autoPEMKeyFilePath). When set and not
+	// equal to AgentCertMountPath/<AgentCertHash>, the StatefulSet uses an items-based secret mount at this path.
+	AgentCertPath string
 
 	// These fields are only relevant for multi-cluster
 	MultiClusterMode bool // should always be "false" in single-cluster
@@ -673,13 +669,11 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	volumeMounts = append(volumeMounts, prometheusVolumeMounts...)
 
 	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
-		if databaseOpts.AgentCertExternalPath != "" {
-			// Migration mode: VM agents already have their cert at AgentCertExternalPath.
-			// Mount the operator-created cert secret using an items mapping so the cert file
-			// appears at exactly the same path on K8s pods (key=GO_HASH → filename=basename(path),
-			// directory=dirname(path)). This handles any arbitrary customer cert path.
-			certFileName := path.Base(databaseOpts.AgentCertExternalPath)
-			certDir := path.Dir(databaseOpts.AgentCertExternalPath)
+		defaultAgentCertPath := filepath.Join(util.AgentCertMountPath, databaseOpts.AgentCertHash)
+		if databaseOpts.AgentCertPath != "" && databaseOpts.AgentCertPath != defaultAgentCertPath {
+			// Custom PEM path (e.g. spec.agents.autoPEMKeyFilePath): items mount (key=AgentCertHash, path=basename).
+			certFileName := filepath.Base(databaseOpts.AgentCertPath)
+			certDir := filepath.Dir(databaseOpts.AgentCertPath)
 			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName, func(v *corev1.Volume) {
 				v.VolumeSource.Secret.Items = []corev1.KeyToPath{
 					{Key: databaseOpts.AgentCertHash, Path: certFileName},

@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
@@ -251,7 +252,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
 	agentCertHash, defaultAgentCertPath := reconciler.agentCertHashAndPath(ctx, log, rs.Namespace, agentCertSecretName, databaseSecretPath)
-	agentCertPath := defaultAgentCertPath
 
 	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, reconciler.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), certs.Database, log)
 	if err != nil {
@@ -269,22 +269,17 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
 		}
 	}
-	// Reconcile OM’s autoPEMKeyFilePath (deployment API) with defaultAgentCertPath from the TLS secret.
-	var agentCertExternalPath string
-	if existing, err := conn.ReadDeployment(); err == nil {
-		if tls, ok := existing["tls"].(map[string]interface{}); ok {
-			if omAutoPEMKeyFilePath, ok := tls["autoPEMKeyFilePath"].(string); ok {
-				agentCertPath, agentCertExternalPath = resolveReplicaSetAgentCertPaths(omAutoPEMKeyFilePath, defaultAgentCertPath, len(rs.Spec.GetExternalMembers()))
-			}
-		}
+	customPathFromCR := strings.TrimSpace(rs.Spec.GetSecurity().GetAgentAutoPEMKeyFilePath())
+	agentCertPath := defaultAgentCertPath
+	if customPathFromCR != "" {
+		agentCertPath = customPathFromCR
 	}
 
 	deploymentOpts := &deploymentOptionsRS{
-		prometheusCertHash:    prometheusCertHash,
-		agentCertPath:         agentCertPath,
-		agentCertHash:         agentCertHash,
-		currentAgentAuthMode:  currentAgentAuthMode,
-		agentCertExternalPath: agentCertExternalPath,
+		prometheusCertHash:   prometheusCertHash,
+		agentCertPath:        agentCertPath,
+		agentCertHash:        agentCertHash,
+		currentAgentAuthMode: currentAgentAuthMode,
 	}
 
 	// 3. Search Overrides
@@ -379,12 +374,6 @@ type deploymentOptionsRS struct {
 	currentAgentAuthMode string
 	// externalAgentVersion is set during OM reconcile when len(spec.GetExternalMembers()) > 0.
 	externalAgentVersion string
-	// agentCertExternalPath is the autoPEMKeyFilePath already set in the AC when
-	// externalMembers are present. When non-empty, the operator preserves this path in the AC
-	// and mounts the cert at exactly this path on K8s pods (via items-based StatefulSet volume),
-	// so VM and K8s agents share the same cert path without a migration window.
-	// TODO: we might not rely on this and only use the import tool
-	agentCertExternalPath string
 }
 
 // Generic Kubernetes Resources
@@ -646,7 +635,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
 		WithExternalAgentVersion(externalAgentVersion),
-		WithAgentCertExternalPath(deploymentOptions.agentCertExternalPath),
+		WithAgentCertPath(deploymentOptions.agentCertPath),
 	)
 
 	return rsConfig, nil

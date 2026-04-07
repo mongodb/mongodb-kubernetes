@@ -6,10 +6,10 @@ auth between mongod processes continues to use keyFile (SCRAM-SHA-256 for __syst
 Flow: TLS → X509 client auth (fixtures bring VM agents to goal state), then migrate (MDB resource
 with externalMembers pointing at VM processes, promote K8s members and prune VM members).
 
-The MDB resource is created with X509 + clientCertificateSecretRef from the start, referencing
-the same agent cert the VM agents use. The operator mounts this cert on K8s pods and sets
-autoPEMKeyFilePath to the same hash-based path already mounted on VM pods, so all agents share
-the same cert without any auth-disable window.
+The MDB resource is created with X509 + clientCertificateSecretRef and
+spec.security.authentication.agents.autoPEMKeyFilePath set to CUSTOM_AGENT_CERT_PATH, matching
+the VM pod mount. The operator configures OM and K8s pods to use that path explicitly (no
+inference from the deployment document).
 
 Non-static database pods: when spec.externalMembers is non-empty, the operator forwards
 deployment.agentVersion.name from Ops Manager as MDB_AGENT_VERSION so downloaded agents match
@@ -144,10 +144,8 @@ def vm_sts(
             },
         }
     )
-    # Mount the agent cert at CUSTOM_AGENT_CERT_PATH — a path intentionally different from the
-    # operator's default AgentCertMountPath — to exercise the operator's AgentCertExternalPath
-    # code path. The secret has a single key named CUSTOM_AGENT_CERT_FILENAME so a plain directory
-    # mount exposes the file at CUSTOM_AGENT_CERT_DIR/CUSTOM_AGENT_CERT_FILENAME = CUSTOM_AGENT_CERT_PATH.
+    # Mount the agent cert at CUSTOM_AGENT_CERT_PATH (must match MDB agents.autoPEMKeyFilePath).
+    # Plain directory mount: secret key CUSTOM_AGENT_CERT_FILENAME -> file at CUSTOM_AGENT_CERT_PATH.
     agent_secret_name, _ = vm_agent_combined_pem
     volumes.append({"name": "agent-cert", "secret": {"secretName": agent_secret_name}})
     sts_body["spec"]["template"]["spec"]["volumes"] = volumes
@@ -177,14 +175,9 @@ def mdb_migration(
     vm_service,
     vm_agent_certs: str,
 ) -> MongoDB:
-    """MDB with TLS + X509 and externalMembers pointing at VM hostnames.
+    """MDB with TLS + X509, externalMembers, and agents.autoPEMKeyFilePath = CUSTOM_AGENT_CERT_PATH.
 
-    Uses clientCertificateSecretRef to reference the same agent cert the VM agents use.
-    The operator mounts this cert on K8s pods and sets autoPEMKeyFilePath to the same
-    hash-based path, so all agents (VM + K8s) share the cert without any auth-disable window.
-
-    Non-empty externalMembers triggers the operator to pin agent downloads to
-    automationConfig.agentVersion.name (must stay aligned with the VM agent image tag set in AC).
+    Non-empty externalMembers triggers the operator to pin non-static agent downloads (MDB_AGENT_VERSION).
     """
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
 
@@ -201,6 +194,7 @@ def mdb_migration(
             "agents": {
                 "mode": "X509",
                 "clientCertificateSecretRef": {"name": vm_agent_certs},
+                "autoPEMKeyFilePath": CUSTOM_AGENT_CERT_PATH,
             },
         },
     }
@@ -334,9 +328,7 @@ def test_vm_ac_tls(
     if tls_mode == "requireTLS":
         return
 
-    # Use CUSTOM_AGENT_CERT_PATH — the path VM agents have their cert mounted at.
-    # The operator will read this from the AC when reconciling the MDB resource with
-    # externalMembers and preserve it (AgentCertExternalPath), mounting K8s pods at the same path.
+    # VM agents use CUSTOM_AGENT_CERT_PATH; the MDB CR sets the same path via agents.autoPEMKeyFilePath.
     ac["tls"] = {
         "CAFilePath": CUSTOM_CA_PEM_PATH,
         "autoPEMKeyFilePath": CUSTOM_AGENT_CERT_PATH,
