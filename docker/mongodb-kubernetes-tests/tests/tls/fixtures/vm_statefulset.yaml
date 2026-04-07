@@ -20,7 +20,7 @@ spec:
         fsGroup: 0
       containers:
         - name: mongodb-agent
-          image: quay.io/mongodb/mongodb-agent:13.48.0.10348-1
+          image: quay.io/mongodb/mongodb-agent:13.49.1.10399-1
           ports:
             - containerPort: 27017
               name: mongodb
