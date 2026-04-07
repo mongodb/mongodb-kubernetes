@@ -465,4 +465,3 @@ func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
 	actual := unmarshalledSpec.AdditionalMongodConfig.ToMap()
 	assert.Equal(t, expected, actual)
 }
-
