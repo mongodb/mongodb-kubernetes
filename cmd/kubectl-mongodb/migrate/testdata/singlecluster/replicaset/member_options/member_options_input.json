@@ -1,0 +1,105 @@
+{
+  "auth": {
+    "usersWanted": [
+      {
+        "user": "mms-automation-agent",
+        "db": "admin",
+        "roles": [{"role": "root", "db": "admin"}],
+        "mechanisms": ["SCRAM-SHA-256"],
+        "scramSha256Creds": {"iterationCount": 15000, "salt": "abc", "serverKey": "skey", "storedKey": "stkey"},
+        "authenticationRestrictions": []
+      }
+    ],
+    "usersDeleted": [],
+    "disabled": false,
+    "authoritativeSet": false,
+    "deploymentAuthMechanisms": ["SCRAM-SHA-256"],
+    "autoAuthMechanisms": ["SCRAM-SHA-256"],
+    "autoAuthMechanism": "SCRAM-SHA-256",
+    "autoUser": "mms-automation-agent",
+    "autoAuthRestrictions": []
+  },
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation"
+  },
+  "processes": [
+    {
+      "args2_6": {
+        "net": {"port": 27017},
+        "replication": {"replSetName": "member-rs"},
+        "storage": {"dbPath": "/data"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "vm-0.example.com",
+      "name": "member-rs-0",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27017},
+        "replication": {"replSetName": "member-rs"},
+        "storage": {"dbPath": "/data"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "vm-1.example.com",
+      "name": "member-rs-1",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27017},
+        "replication": {"replSetName": "member-rs"},
+        "storage": {"dbPath": "/data"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "vm-2.example.com",
+      "name": "member-rs-2",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "member-rs",
+      "members": [
+        {
+          "_id": 0,
+          "host": "member-rs-0",
+          "priority": 2,
+          "votes": 1,
+          "hidden": false,
+          "tags": {"region": "us-east-1", "role": "primary"}
+        },
+        {
+          "_id": 1,
+          "host": "member-rs-1",
+          "priority": 0,
+          "votes": 1,
+          "hidden": true,
+          "slaveDelay": 3600,
+          "tags": {"region": "us-east-1", "role": "delayed"}
+        },
+        {
+          "_id": 2,
+          "host": "member-rs-2",
+          "priority": 1,
+          "votes": 1,
+          "hidden": false,
+          "tags": {"region": "us-west-2"}
+        }
+      ],
+      "protocolVersion": "1"
+    }
+  ],
+  "roles": [],
+  "sharding": [],
+  "version": 1
+}

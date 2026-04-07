@@ -570,11 +570,12 @@ func TestConvertACLdapToCR(t *testing.T) {
 		TimeoutMS:          10000,
 	}
 
-	cr := mdbv1.ConvertACLdapToCR(l)
+	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
 	require.NotNil(t, cr)
 	assert.Equal(t, []string{"ldap.example.com:636"}, cr.Servers)
 	assert.Equal(t, mdbv1.TransportSecurity("tls"), *cr.TransportSecurity)
 	assert.Equal(t, "cn=admin,dc=example,dc=com", cr.BindQueryUser)
+	assert.Equal(t, "ldap-bind-query-password", cr.BindQuerySecretRef.Name)
 	assert.Equal(t, "{USER}?memberOf?base", cr.AuthzQueryTemplate)
 	assert.Equal(t, 10000, cr.TimeoutMS)
 }
@@ -584,7 +585,7 @@ func TestConvertACLdapToCR_MultipleServers(t *testing.T) {
 		Servers: "ldap1.example.com:636, ldap2.example.com:636,ldap3.example.com:636",
 	}
 
-	cr := mdbv1.ConvertACLdapToCR(l)
+	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
 	require.NotNil(t, cr)
 	assert.Equal(t, []string{"ldap1.example.com:636", "ldap2.example.com:636", "ldap3.example.com:636"}, cr.Servers)
 }
@@ -594,7 +595,7 @@ func TestConvertACLdapToCR_NoBindUser(t *testing.T) {
 		Servers: "ldap.example.com:636",
 	}
 
-	cr := mdbv1.ConvertACLdapToCR(l)
+	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
 	require.NotNil(t, cr)
 	assert.Empty(t, cr.BindQuerySecretRef.Name)
 }
@@ -605,9 +606,11 @@ func TestConvertACLdapToCR_CaFileContents(t *testing.T) {
 		CaFileContents: "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
 	}
 
-	cr := mdbv1.ConvertACLdapToCR(l)
+	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
 	require.NotNil(t, cr)
-	assert.Nil(t, cr.CAConfigMapRef, "CAConfigMapRef is set by the caller, not by ConvertACLdapToCR")
+	require.NotNil(t, cr.CAConfigMapRef)
+	assert.Equal(t, "ldap-ca", cr.CAConfigMapRef.Name)
+	assert.Equal(t, "ca.pem", cr.CAConfigMapRef.Key)
 }
 
 func TestConvertACLdapToCR_NoCaFileContents(t *testing.T) {
@@ -615,7 +618,7 @@ func TestConvertACLdapToCR_NoCaFileContents(t *testing.T) {
 		Servers: "ldap.example.com:636",
 	}
 
-	cr := mdbv1.ConvertACLdapToCR(l)
+	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
 	require.NotNil(t, cr)
 	assert.Nil(t, cr.CAConfigMapRef)
 }
@@ -757,7 +760,7 @@ func TestExtractAdditionalMongodConfig_TLSModeRequireNotIncluded(t *testing.T) {
 }
 
 func TestExtractAgentConfig_LogRotateFromEndpoint(t *testing.T) {
-	projectProcessConfigs := &ProjectConfigs{
+	projectProcessConfigs := &ProjectProcessConfigs{
 		SystemLogRotate: &automationconfig.AcLogRotate{
 			LogRotate: automationconfig.LogRotate{
 				TimeThresholdHrs: 24,
@@ -775,7 +778,7 @@ func TestExtractAgentConfig_LogRotateFromEndpoint(t *testing.T) {
 }
 
 func TestExtractAgentConfig_AuditLogRotateFromEndpoint(t *testing.T) {
-	projectProcessConfigs := &ProjectConfigs{
+	projectProcessConfigs := &ProjectProcessConfigs{
 		AuditLogRotate: &automationconfig.AcLogRotate{
 			LogRotate: automationconfig.LogRotate{
 				TimeThresholdHrs: 48,
@@ -799,7 +802,7 @@ func TestExtractAgentConfig_NilProcessConfigs(t *testing.T) {
 }
 
 func TestExtractAgentConfig_EmptyEndpointData(t *testing.T) {
-	projectProcessConfigs := &ProjectConfigs{
+	projectProcessConfigs := &ProjectProcessConfigs{
 		SystemLogRotate: &automationconfig.AcLogRotate{},
 		AuditLogRotate:  &automationconfig.AcLogRotate{},
 	}
@@ -812,7 +815,7 @@ func TestExtractAgentConfig_EmptyEndpointData(t *testing.T) {
 }
 
 func TestExtractAgentConfig_AgentLogRotateMatchesMongod(t *testing.T) {
-	projectProcessConfigs := &ProjectConfigs{
+	projectProcessConfigs := &ProjectProcessConfigs{
 		SystemLogRotate: &automationconfig.AcLogRotate{
 			LogRotate:       automationconfig.LogRotate{TimeThresholdHrs: 24},
 			SizeThresholdMB: 1000,
@@ -959,7 +962,7 @@ func TestExtractCustomRoles(t *testing.T) {
 		},
 	}
 
-	roles := deployment.GetRoles()
+	roles := extractCustomRoles(deployment)
 	require.Len(t, roles, 1)
 	assert.Equal(t, "appReadOnly", roles[0].Role)
 	assert.Equal(t, "myapp", roles[0].Db)
@@ -973,8 +976,8 @@ func TestExtractCustomRoles_Empty(t *testing.T) {
 	deployment := om.Deployment{
 		"roles": []interface{}{},
 	}
-	roles := deployment.GetRoles()
-	assert.Empty(t, roles)
+	roles := extractCustomRoles(deployment)
+	assert.Nil(t, roles)
 }
 
 func TestExtractAdditionalMongodConfig_MultiMember_SamePort_Included(t *testing.T) {

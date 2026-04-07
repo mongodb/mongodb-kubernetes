@@ -1,0 +1,210 @@
+{
+  "agentVersion": {
+    "directoryUrl": "https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/automation-agent/qa/",
+    "name": "13.48.0.10348-1"
+  },
+  "atlasProxies": [],
+  "atlasUISes": [],
+  "auth": {
+    "usersWanted": [
+      {
+        "user": "custom-automation-agent",
+        "db": "admin",
+        "roles": [{"role": "root", "db": "admin"}],
+        "mechanisms": ["SCRAM-SHA-256"],
+        "scramSha256Creds": {"iterationCount": 15000, "salt": "abc", "serverKey": "skey", "storedKey": "stkey"},
+        "scramSha1Creds": null,
+        "authenticationRestrictions": []
+      },
+      {
+        "user": "svc-account",
+        "db": "admin",
+        "roles": [
+          {"role": "readWrite", "db": "inventory"}
+        ],
+        "mechanisms": ["SCRAM-SHA-256"],
+        "scramSha256Creds": {"iterationCount": 15000, "salt": "xyz", "serverKey": "sk3", "storedKey": "stk3"},
+        "scramSha1Creds": null,
+        "authenticationRestrictions": []
+      }
+    ],
+    "usersDeleted": [],
+    "disabled": false,
+    "authoritativeSet": true,
+    "deploymentAuthMechanisms": ["SCRAM-SHA-256", "SCRAM-SHA-1", "PLAIN"],
+    "autoAuthMechanisms": ["SCRAM-SHA-256"],
+    "autoAuthMechanism": "SCRAM-SHA-256",
+    "autoUser": "custom-automation-agent",
+    "autoAuthRestrictions": []
+  },
+  "backupVersions": [
+    {"hostname": "mongo-0.dc1.example.com", "name": "13.48.0.10348-1"},
+    {"hostname": "mongo-1.dc1.example.com", "name": "13.48.0.10348-1"},
+    {"hostname": "mongo-2.dc2.example.com", "name": "13.48.0.10348-1"},
+    {"hostname": "mongo-3.dc2.example.com", "name": "13.48.0.10348-1"},
+    {"hostname": "mongo-4.dc3.example.com", "name": "13.48.0.10348-1"}
+  ],
+  "balancer": {},
+  "clusterWideConfigurations": {},
+  "cpsModules": [],
+  "dbCheckModules": [],
+  "filebeat": {},
+  "indexConfigs": [],
+  "kerberos": {
+    "serviceName": "mongodb"
+  },
+  "ldap": {
+    "bindMethod": "simple",
+    "bindQueryUser": "cn=reader,dc=example,dc=com",
+    "bindQueryPassword": "reader-pass",
+    "servers": "ldap.example.com:389",
+    "transportSecurity": "none",
+    "validateLDAPServerConfig": false,
+    "authzQueryTemplate": "{USER}?memberOf?base",
+    "timeoutMS": 5000,
+    "userCacheInvalidationInterval": 0
+  },
+  "lifecycleManagementModules": [],
+  "maintainedEnvoys": [],
+  "maintainedMonarchComponents": [],
+  "maintainedMongotunes": [],
+  "maintainedRamis": [],
+  "mongoDbVersions": [
+    {
+      "builds": [
+        {
+          "architecture": "amd64",
+          "gitVersion": "def456",
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-rhel80-8.0.4.tgz"
+        }
+      ],
+      "name": "8.0.4-ent"
+    }
+  ],
+  "mongosqlds": [],
+  "mongots": [],
+  "monitoringVersions": [
+    {"hostname": "mongo-0.dc1.example.com", "name": "13.48.0.10348-1"},
+    {"hostname": "mongo-1.dc1.example.com", "name": "13.48.0.10348-1"},
+    {"hostname": "mongo-2.dc2.example.com", "name": "13.48.0.10348-1"},
+    {"hostname": "mongo-3.dc2.example.com", "name": "13.48.0.10348-1"},
+    {"hostname": "mongo-4.dc3.example.com", "name": "13.48.0.10348-1"}
+  ],
+  "prometheus": {
+    "enabled": true,
+    "username": "monitor",
+    "password": "mon-pass",
+    "listenAddress": "0.0.0.0:9216",
+    "metricsPath": "/metrics",
+    "scheme": "http"
+  },
+  "oidcProviderConfigs": [],
+  "onlineArchiveModules": [],
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation",
+    "downloadBaseWindows": "%SystemDrive%\\MMSAutomation\\versions"
+  },
+  "processes": [
+    {
+      "args2_6": {
+        "net": {"port": 27017, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "geo-rs"},
+        "storage": {"dbPath": "/data", "engine": "inMemory"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "auditLogRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "mongo-0.dc1.example.com",
+      "logRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "name": "geo-rs-0",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27017, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "geo-rs"},
+        "storage": {"dbPath": "/data", "engine": "inMemory"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "auditLogRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "mongo-1.dc1.example.com",
+      "logRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "name": "geo-rs-1",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27017, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "geo-rs"},
+        "storage": {"dbPath": "/data", "engine": "inMemory"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "auditLogRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "mongo-2.dc2.example.com",
+      "logRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "name": "geo-rs-2",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27017, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "geo-rs"},
+        "storage": {"dbPath": "/data", "engine": "inMemory"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "auditLogRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "mongo-3.dc2.example.com",
+      "logRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "name": "geo-rs-3",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27017, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "geo-rs"},
+        "storage": {"dbPath": "/data", "engine": "inMemory"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "auditLogRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "mongo-4.dc3.example.com",
+      "logRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "name": "geo-rs-4",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "geo-rs",
+      "members": [
+        {"_id": 0, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "geo-rs-0", "priority": 2, "secondaryDelaySecs": 0, "votes": 1, "tags": {"dc": "dc1"}},
+        {"_id": 1, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "geo-rs-1", "priority": 1, "secondaryDelaySecs": 0, "votes": 1, "tags": {"dc": "dc1"}},
+        {"_id": 2, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "geo-rs-2", "priority": 1, "secondaryDelaySecs": 0, "votes": 1, "tags": {"dc": "dc2"}},
+        {"_id": 3, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "geo-rs-3", "priority": 1, "secondaryDelaySecs": 0, "votes": 1, "tags": {"dc": "dc2"}},
+        {"_id": 4, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "geo-rs-4", "priority": 0, "secondaryDelaySecs": 0, "votes": 0, "tags": {"dc": "dc3", "role": "analytics"}}
+      ],
+      "protocolVersion": "1"
+    }
+  ],
+  "roles": [],
+  "serverlessStateCacheMaintainers": [],
+  "sharding": [],
+  "tls": {
+    "clientCertificateMode": "OPTIONAL"
+  },
+  "version": 8
+}
