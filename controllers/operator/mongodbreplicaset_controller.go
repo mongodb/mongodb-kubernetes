@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
@@ -40,6 +42,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
@@ -56,6 +59,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -286,7 +290,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
-	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
+	// Recovery is skipped when a migration dry-run is active.
+	isDryRun := rs.Annotations[opMigration.AnnotationDryRun] == "true"
+	if !isDryRun && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
@@ -296,6 +302,22 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		if !automationConfigStatus.IsOK() {
 			log.Errorf("Recovery failed because of Automation Config update errors, %v", automationConfigStatus)
 		}
+	}
+
+	// 5a. Connectivity dry-run: launch a validation Job without touching OM or StatefulSets.
+	// TODO: access cloud-qa project and create a new project for migration e2e tests with existing external members so we can access against
+	if isDryRun {
+		operatorImage := r.reconciler.imageUrls[util.OperatorImageEnv]
+		if operatorImage == "" {
+			return r.updateStatus(ctx,
+				workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)),
+				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
+					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
+				)),
+			)
+		}
+		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, internalClusterCertPath, log)
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
@@ -377,6 +399,7 @@ type deploymentOptionsRS struct {
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update,namespace=placeholder
 // +kubebuilder:rbac:groups=core,resources={secrets,configmaps},verbs=get;list;watch;create;delete;update,namespace=placeholder
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=create;get;list;watch;delete;update,namespace=placeholder
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;get;list;watch;delete,namespace=placeholder
 
 // MongoDB Resource
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodb,mongodb/status,mongodb/finalizers},verbs=*,namespace=placeholder
@@ -802,6 +825,80 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	log.Info("Updated Ops Manager for replica set")
 	return workflow.OK()
+}
+
+// runConnectivityValidationDryRun launches (or polls) a connectivity-validator Kubernetes Job
+// that checks whether all external MongoDB members in the current Ops Manager deployment are
+// reachable from within the cluster. No StatefulSets or Ops Manager config are modified.
+// The Job is built from the same StatefulSet spec (buildStatefulSetOptions + DatabaseStatefulSet)
+// so it uses the same credentials volumes and mounts as the STS.
+//
+// While the Job is still running the resource phase is set to Pending and reconciliation
+// is requeued after 30s. On success the resource phase is set to Running with a
+// ConnectivityCheckPassed migration status. On failure the phase is set to Failed with a
+// ConnectivityCheckFailed migration status and reconciliation is requeued after 5 minutes.
+// TODO: extract to common controllers
+func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, externalMemberProcessNames []mdbv1.ExternalMember, rs *mdbv1.MongoDB, deploymentOpts deploymentOptionsRS, operatorImage, internalClusterCertPath string, log *zap.SugaredLogger) (reconcile.Result, error) {
+	rsConfig, err := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)
+	if err != nil {
+		return r.updateStatus(ctx,
+			workflow.Failed(xerrors.Errorf("connectivity dry-run: building StatefulSet options: %w", err)),
+			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+				mdbstatus.MigrationPhaseConnectivityCheckFailed, "BuildStatefulSetOptions", err.Error(),
+			)),
+		)
+	}
+	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+	replicaSetName := rs.Spec.ReplicaSetNameOverride
+	if replicaSetName == "" {
+		replicaSetName = rs.Name
+	}
+	hostnamePorts := make([]string, 0, len(externalMemberProcessNames))
+	for _, name := range externalMemberProcessNames {
+		hostnamePorts = append(hostnamePorts, name.Hostname)
+	}
+	connectionString := fmt.Sprintf("mongodb://%s/?replicaSet=%s", strings.Join(hostnamePorts, ","), replicaSetName) // TODO: in later iterations of the project we should use the connection string from the secret, which also pertains user access
+	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, internalClusterCertPath)
+
+	result := opMigration.RunConnectivityJob(ctx, r.reconciler.client, job)
+	if result.Err != nil {
+		return r.updateStatus(ctx,
+			workflow.Failed(fmt.Errorf("connectivity dry run: %w", result.Err)),
+			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+				result.Phase, result.Reason, result.Message,
+			)),
+		)
+	}
+
+	log.Infow("[DRY-RUN CONNECTIVITY] Job status", "phase", result.Phase, "reason", result.Reason, "message", result.Message)
+
+	switch result.Phase {
+	case mdbstatus.MigrationPhaseConnectivityCheckRunning:
+		return r.updateStatus(ctx,
+			workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", opMigration.AnnotationDryRun).WithRetry(30),
+			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+				mdbstatus.MigrationPhaseConnectivityCheckRunning, "Running", "Connectivity validation Job is in progress",
+			)),
+		)
+	case mdbstatus.MigrationPhaseConnectivityCheckPassed:
+		return r.updateStatus(ctx,
+			workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", opMigration.AnnotationDryRun),
+			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+				mdbstatus.MigrationPhaseConnectivityCheckPassed, result.Reason, result.Message,
+			)),
+		)
+	default:
+		if updateResult, updateErr := r.updateStatus(ctx,
+			workflow.Failed(fmt.Errorf("%s: %s", result.Reason, result.Message)),
+			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+				mdbstatus.MigrationPhaseConnectivityCheckFailed, result.Reason, result.Message,
+			)),
+		); updateErr != nil {
+			return updateResult, updateErr
+		}
+		// Requeue after 5 minutes to retry once connectivity issues may be resolved.
+		return reconcile.Result{RequeueAfter: 5 * time.Minute}, nil
+	}
 }
 
 func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
