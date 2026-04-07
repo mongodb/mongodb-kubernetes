@@ -329,7 +329,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_generate_scram_x509
+  - name: e2e_vm_migration_x509
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1391,16 +1391,6 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_enterprise_x509_cluster_auth
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_vm_migration
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_vm_migration_x509
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
