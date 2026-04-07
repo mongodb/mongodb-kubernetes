@@ -81,6 +81,73 @@ func TestBuildJobFromStatefulSet_ExcludesPVCVolumes(t *testing.T) {
 	assert.Equal(t, util.ClusterFileName, job.Spec.Template.Spec.Containers[0].VolumeMounts[0].Name)
 }
 
+func TestVolumesAndMountsFromStatefulSet_DeduplicatesSameMountAcrossContainers(t *testing.T) {
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{{
+						Name: util.ClusterFileName,
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{SecretName: "my-rs-clusterfile"},
+						},
+					}},
+					Containers: []corev1.Container{
+						{VolumeMounts: []corev1.VolumeMount{{
+							Name:      util.ClusterFileName,
+							MountPath: "/var/run/credentials",
+							ReadOnly:  true,
+						}}},
+						{VolumeMounts: []corev1.VolumeMount{{
+							Name:      util.ClusterFileName,
+							MountPath: "/var/run/credentials",
+							ReadOnly:  true,
+						}}},
+					},
+				},
+			},
+		},
+	}
+	_, mounts := volumesAndMountsFromStatefulSet(sts)
+	assert.Len(t, mounts, 1)
+	assert.Equal(t, util.ClusterFileName, mounts[0].Name)
+}
+
+func TestVolumesAndMountsFromStatefulSet_UnionsDistinctMountsFromContainers(t *testing.T) {
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: util.ClusterFileName,
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{SecretName: "cluster"},
+							},
+						},
+						{
+							Name: util.AgentSecretName,
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{SecretName: "agent"},
+							},
+						},
+					},
+					Containers: []corev1.Container{
+						{VolumeMounts: []corev1.VolumeMount{{
+							Name: util.ClusterFileName, MountPath: "/cluster", ReadOnly: true,
+						}}},
+						{VolumeMounts: []corev1.VolumeMount{{
+							Name: util.AgentSecretName, MountPath: "/agent", ReadOnly: true,
+						}}},
+					},
+				},
+			},
+		},
+	}
+	_, mounts := volumesAndMountsFromStatefulSet(sts)
+	assert.Len(t, mounts, 2)
+}
+
 func TestBuildJobFromStatefulSet_AuthMechanism_SCRAMSHA1(t *testing.T) {
 	sts := &appsv1.StatefulSet{
 		Spec: appsv1.StatefulSetSpec{

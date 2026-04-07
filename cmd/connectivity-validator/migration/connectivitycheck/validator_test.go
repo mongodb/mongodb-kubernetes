@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"testing"
 
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 )
@@ -12,8 +13,8 @@ import (
 func TestClassifyConnectionError_TLS(t *testing.T) {
 	wrap := func(inner error) error { return topology.ConnectionError{Wrapped: inner} }
 
-	assert.Equal(t, ExitNetworkFailed, classifyConnectionError(wrap(x509.UnknownAuthorityError{})))
-	assert.Equal(t, ExitNetworkFailed, classifyConnectionError(wrap(x509.CertificateInvalidError{Reason: x509.Expired})))
+	assert.Equal(t, exitcode.ExitNetworkFailed, classifyConnectionError(wrap(x509.UnknownAuthorityError{})))
+	assert.Equal(t, exitcode.ExitNetworkFailed, classifyConnectionError(wrap(x509.CertificateInvalidError{Reason: x509.Expired})))
 }
 
 func TestIsKeyfileSCRAM(t *testing.T) {

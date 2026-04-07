@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
@@ -38,7 +39,7 @@ func testTemplate() *batchv1.Job {
 		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{Name: "connectivity-validator"}},
+					Containers: []corev1.Container{{Name: migration.ConnectivityValidatorContainerName}},
 				},
 			},
 		},
@@ -132,10 +133,10 @@ func TestRunConnectivityJob_StateMachine_JobFailedRecentReturnsFailedNoReplace(t
 		},
 		Status: corev1.PodStatus{
 			ContainerStatuses: []corev1.ContainerStatus{{
-				Name: "connectivity-validator",
+				Name: migration.ConnectivityValidatorContainerName,
 				State: corev1.ContainerState{
 					Terminated: &corev1.ContainerStateTerminated{
-						ExitCode:   migration.ExitNetworkFailed,
+						ExitCode:   exitcode.ExitNetworkFailed,
 						FinishedAt: metav1.NewTime(now.Add(-1 * time.Minute)),
 					},
 				},
@@ -233,10 +234,10 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles_Failure(t *testing.T
 		},
 		Status: corev1.PodStatus{
 			ContainerStatuses: []corev1.ContainerStatus{{
-				Name: "connectivity-validator",
+				Name: migration.ConnectivityValidatorContainerName,
 				State: corev1.ContainerState{
 					Terminated: &corev1.ContainerStateTerminated{
-						ExitCode:   migration.ExitNetworkFailed,
+						ExitCode:   exitcode.ExitNetworkFailed,
 						FinishedAt: metav1.NewTime(now.Add(-1 * time.Minute)),
 					},
 				},

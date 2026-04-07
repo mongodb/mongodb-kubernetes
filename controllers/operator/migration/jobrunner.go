@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
+	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -11,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectivityexit"
 	"github.com/mongodb/mongodb-kubernetes/pkg/migration"
 )
 
@@ -72,33 +75,34 @@ func RunConnectivityJob(ctx context.Context, kubeClient client.Client, template 
 	}
 
 	if job.Status.Succeeded > 0 {
-		_, r, m := migration.NetworkConditionFromExitCode(migration.ExitSuccess)
+		_, r, m := connectivityexit.NetworkConditionFromExitCode(exitcode.ExitSuccess)
 		return resultPassed(r, m)
 	}
 	if job.Status.Failed == 0 {
 		return resultRunning()
 	}
 
-	exitCode, _ := jobPodOutcome(ctx, kubeClient, &job)
-	_, r, m := migration.NetworkConditionFromExitCode(exitCode)
+	code, _ := jobPodOutcome(ctx, kubeClient, &job)
+	_, r, m := connectivityexit.NetworkConditionFromExitCode(code)
 	return resultFailed(r, m)
 }
 
 // jobPodOutcome lists the Job's pods once and returns the connectivity-validator container's exit code and finished time.
-func jobPodOutcome(ctx context.Context, kubeClient client.Client, job *batchv1.Job) (exitCode int32, finishedAt time.Time) {
+func jobPodOutcome(ctx context.Context, kubeClient client.Client, job *batchv1.Job) (int32, time.Time) {
 	var pods corev1.PodList
 	if err := kubeClient.List(ctx, &pods,
 		client.InNamespace(job.Namespace),
 		client.MatchingLabels{"job-name": job.Name},
 	); err != nil {
-		return migration.ExitUnknown, time.Time{}
+		zap.S().Errorf("listing pods for job %s/%s: %v", job.Namespace, job.Name, err)
+		return exitcode.ExitUnknown, time.Time{}
 	}
 	for i := range pods.Items {
 		for _, cs := range pods.Items[i].Status.ContainerStatuses {
-			if cs.Name == "connectivity-validator" && cs.State.Terminated != nil {
+			if cs.Name == migration.ConnectivityValidatorContainerName && cs.State.Terminated != nil {
 				return cs.State.Terminated.ExitCode, cs.State.Terminated.FinishedAt.Time
 			}
 		}
 	}
-	return migration.ExitUnknown, time.Time{}
+	return exitcode.ExitUnknown, time.Time{}
 }

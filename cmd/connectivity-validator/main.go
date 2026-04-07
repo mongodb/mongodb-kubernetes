@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/migration/connectivitycheck"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -39,10 +40,10 @@ func main() {
 	if cfg.ConnectionString == "" {
 		log.Error("CONNECTION_STRING is required")
 		_, _ = fmt.Fprintln(os.Stderr, "CONNECTION_STRING is required")
-		os.Exit(connectivitycheck.ExitUnknown)
+		os.Exit(exitcode.ExitUnknown)
 	}
 
 	exitCode := connectivitycheck.Validate(context.Background(), cfg)
-	log.Infow("Connectivity validation finished", "exitCode", exitCode, "exitCodeName", connectivitycheck.ExitCodeName(exitCode))
+	log.Infow("Connectivity validation finished", "exitCode", exitCode, "exitCodeName", exitcode.Name(exitCode))
 	os.Exit(exitCode)
 }

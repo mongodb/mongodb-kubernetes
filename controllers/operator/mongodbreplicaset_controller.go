@@ -274,7 +274,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, rs.Spec.GetSecurity())
 
-	deploymentOpts := &deploymentOptionsRS{
+	deploymentOpts := deploymentOptionsRS{
 		prometheusCertHash:   prometheusCertHash,
 		agentCertPath:        agentCertPath,
 		agentCertHash:        agentCertHash,
@@ -305,8 +305,13 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// 5a. Connectivity dry-run: launch a validation Job without touching OM or StatefulSets.
-	// TODO: access cloud-qa project and create a new project for migration e2e tests with existing external members so we can access against
 	if isDryRun {
+		// let's not block OM UI in case the customer needs to fix something to get their
+		// dry-run to pass.
+		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+			result.Log(log)
+			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
+		}
 		operatorImage := r.reconciler.imageUrls[util.OperatorImageEnv]
 		if operatorImage == "" {
 			return r.updateStatus(ctx,
@@ -317,7 +322,11 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 				)),
 			)
 		}
-		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, internalClusterCertPath, log)
+		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
+	}
+
+	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
+		return r.updateStatus(ctx, status)
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
@@ -522,7 +531,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx cont
 // reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
 // All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
 // should be reconciled in this method.
-func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions *deploymentOptionsRS, lastConfiguredRoles []string) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS, lastConfiguredRoles []string) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -540,7 +549,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	return r.reconcileStatefulSet(ctx, conn, projectConfig, deploymentOptions)
 }
 
-func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions *deploymentOptionsRS) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -600,7 +609,7 @@ func (r *ReplicaSetReconcilerHelper) handlePVCResize(ctx context.Context, sts *a
 }
 
 // buildStatefulSetOptions creates the options needed for constructing the StatefulSet
-func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions *deploymentOptionsRS) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, error) {
+func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, error) {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -740,7 +749,7 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions *deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool) workflow.Status {
 	rs := r.resource
 	log := r.log
 	reconciler := r.reconciler
@@ -833,12 +842,14 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 // The Job is built from the same StatefulSet spec (buildStatefulSetOptions + DatabaseStatefulSet)
 // so it uses the same credentials volumes and mounts as the STS.
 //
-// While the Job is still running the resource phase is set to Pending and reconciliation
-// is requeued after 30s. On success the resource phase is set to Running with a
-// ConnectivityCheckPassed migration status. On failure the phase is set to Failed with a
-// ConnectivityCheckFailed migration status and reconciliation is requeued after 5 minutes.
+// The MongoDB resource phase stays PhaseConnectivityValidation for both in-progress and passed
+// outcomes; the migration condition carries ConnectivityCheckRunning or ConnectivityCheckPassed.
+// While the Job runs, reconciliation is requeued after 30s. When the Job reports a connectivity
+// failure, the resource phase is Failed, it is requeued after 5 minutes. Earlier failures
+// in this function (e.g. building StatefulSet options, agent certificate, or RunConnectivityJob
+// returning Err) use workflow.Failed and requeue after 10s (failedStatus default).
 // TODO: extract to common controllers
-func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, externalMemberProcessNames []mdbv1.ExternalMember, rs *mdbv1.MongoDB, deploymentOpts deploymentOptionsRS, operatorImage, internalClusterCertPath string, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, externalMemberProcessNames []mdbv1.ExternalMember, rs *mdbv1.MongoDB, deploymentOpts deploymentOptionsRS, operatorImage string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	rsConfig, err := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)
 	if err != nil {
 		return r.updateStatus(ctx,
@@ -858,7 +869,27 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 		hostnamePorts = append(hostnamePorts, name.Hostname)
 	}
 	connectionString := fmt.Sprintf("mongodb://%s/?replicaSet=%s", strings.Join(hostnamePorts, ","), replicaSetName) // TODO: in later iterations of the project we should use the connection string from the secret, which also pertains user access
-	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, internalClusterCertPath)
+
+	subjectDN := ""
+	if sec := rs.GetSecurity(); sec != nil && sec.GetAgentMechanism(deploymentOpts.currentAgentAuthMode) == util.X509 {
+		agentCertSecretName := sec.AgentClientCertificateSecretName(rs.Name)
+		sel := corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+			Key:                  corev1.TLSCertKey,
+		}
+		userOpts, err := r.reconciler.readAgentSubjectsFromSecret(ctx, rs.Namespace, sel, log)
+		if err != nil {
+			return r.updateStatus(ctx,
+				workflow.Failed(xerrors.Errorf("connectivity dry-run: automation agent certificate subject: %w", err)),
+				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+					mdbstatus.MigrationPhaseConnectivityCheckFailed, "AgentCertSubject", err.Error(),
+				)),
+			)
+		}
+		subjectDN = userOpts.AutomationSubject
+	}
+
+	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, subjectDN)
 
 	result := opMigration.RunConnectivityJob(ctx, r.reconciler.client, job)
 	if result.Err != nil {
