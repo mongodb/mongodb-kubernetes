@@ -1,3 +1,10 @@
+"""VM migration E2E: pseudo-VM replica set, then MongoDB CR with externalMembers and promote/prune.
+
+Pseudo-VM pods run the automation agent from the same image tag as AGENT_IMAGE on the operator.
+Automation config sets agentVersion.name to that tag so it matches the VM agents.
+
+"""
+
 import yaml
 from kubetester import get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, fcv_from_version
