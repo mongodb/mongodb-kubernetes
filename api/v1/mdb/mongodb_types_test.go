@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
@@ -464,4 +465,61 @@ func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
 	expected := mdb.Spec.GetAdditionalMongodConfig().ToMap()
 	actual := unmarshalledSpec.AdditionalMongodConfig.ToMap()
 	assert.Equal(t, expected, actual)
+}
+
+func TestUpdateStatus_AppliesMigrationCondition_WithObservedGeneration(t *testing.T) {
+	m := &MongoDB{}
+	m.Generation = 5
+	m.UpdateStatus(status.PhasePending, status.NewMigrationConditionOption(status.MigrationCondition(
+		status.MigrationPhaseConnectivityCheckPassed, "NetworkValidationPassed", "All external members reachable",
+	)))
+	assert.Len(t, m.Status.Conditions, 1)
+	c := m.Status.Conditions[0]
+	assert.Equal(t, status.ConditionNetworkConnectivityVerification, c.Type)
+	assert.Equal(t, int64(5), c.ObservedGeneration)
+	assert.Equal(t, "NetworkValidationPassed", c.Reason)
+	assert.Equal(t, metav1.ConditionTrue, c.Status)
+}
+
+func TestUpdateStatus_MigrationConditionReplacesByType(t *testing.T) {
+	m := &MongoDB{}
+	m.Generation = 1
+	m.UpdateStatus(status.PhasePending, status.NewMigrationConditionOption(status.MigrationCondition(
+		status.MigrationPhaseConnectivityCheckRunning, "Running", "first",
+	)))
+	assert.Len(t, m.Status.Conditions, 1)
+	assert.Equal(t, "first", m.Status.Conditions[0].Message)
+
+	m.Generation = 2
+	m.UpdateStatus(status.PhasePending, status.NewMigrationConditionOption(status.MigrationCondition(
+		status.MigrationPhaseConnectivityCheckFailed, "NetworkFailed", "second",
+	)))
+	assert.Len(t, m.Status.Conditions, 1)
+	assert.Equal(t, "second", m.Status.Conditions[0].Message)
+	assert.Equal(t, int64(2), m.Status.Conditions[0].ObservedGeneration)
+}
+
+func TestUpdateStatus_MigrationCondition_LastTransitionTimeOnlyChangesOnStatusOrReasonChange(t *testing.T) {
+	m := &MongoDB{}
+	m.Generation = 1
+	m.UpdateStatus(status.PhasePending, status.NewMigrationConditionOption(status.MigrationCondition(
+		status.MigrationPhaseConnectivityCheckRunning, "Running", "in progress",
+	)))
+	assert.Len(t, m.Status.Conditions, 1)
+	firstTransition := m.Status.Conditions[0].LastTransitionTime
+
+	// Same status and reason, only message differs: LastTransitionTime should be preserved
+	m.Generation = 2
+	m.UpdateStatus(status.PhasePending, status.NewMigrationConditionOption(status.MigrationCondition(
+		status.MigrationPhaseConnectivityCheckRunning, "Running", "still in progress",
+	)))
+	assert.Len(t, m.Status.Conditions, 1)
+	assert.Equal(t, firstTransition, m.Status.Conditions[0].LastTransitionTime, "LastTransitionTime should not change when status and reason are unchanged")
+
+	// Status changes: LastTransitionTime should update
+	m.UpdateStatus(status.PhasePending, status.NewMigrationConditionOption(status.MigrationCondition(
+		status.MigrationPhaseConnectivityCheckPassed, "NetworkValidationPassed", "done",
+	)))
+	assert.Len(t, m.Status.Conditions, 1)
+	assert.False(t, m.Status.Conditions[0].LastTransitionTime.Equal(&firstTransition), "LastTransitionTime should change when status changes")
 }
