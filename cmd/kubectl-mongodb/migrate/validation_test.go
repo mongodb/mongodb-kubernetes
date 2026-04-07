@@ -529,7 +529,6 @@ func TestValidation_X509AutoUser_NotInUsersWanted_NoError(t *testing.T) {
 	}
 }
 
-
 func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"options": map[string]interface{}{"downloadBase": "/var/lib/mongodb-mms-automation"},
