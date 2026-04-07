@@ -44,6 +44,8 @@ type Connection interface {
 	// ReadUpdateDeployment reads Deployment from Ops Manager, applies the update function to it and pushes it back
 	ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error
 	ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error
+	ReadProcessLogRotation() (*automationconfig.AcLogRotate, error)
+	ReadAuditLogRotation() (*automationconfig.AcLogRotate, error)
 	ReadAutomationStatus() (*AutomationStatus, error)
 	ReadAutomationAgents(page int) (Paginated, error)
 	MarkProjectAsBackingDatabase(databaseType BackingDatabaseType) error
@@ -259,8 +261,32 @@ func (oc *HTTPOmConnection) UpdateProcessLogRotation(logRotateSetting automation
 	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/systemLogRotateConfig", oc.GroupID()), logRotateSetting)
 }
 
+func (oc *HTTPOmConnection) ReadProcessLogRotation() (*automationconfig.AcLogRotate, error) {
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/systemLogRotateConfig", oc.GroupID()))
+	if err != nil {
+		return nil, err
+	}
+	var result automationconfig.AcLogRotate
+	if err := json.Unmarshal(ans, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (oc *HTTPOmConnection) UpdateAuditLogRotation(logRotateSetting automationconfig.AcLogRotate) ([]byte, error) {
 	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/auditLogRotateConfig", oc.GroupID()), logRotateSetting)
+}
+
+func (oc *HTTPOmConnection) ReadAuditLogRotation() (*automationconfig.AcLogRotate, error) {
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/auditLogRotateConfig", oc.GroupID()))
+	if err != nil {
+		return nil, err
+	}
+	var result automationconfig.AcLogRotate
+	if err := json.Unmarshal(ans, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func (oc *HTTPOmConnection) GetAgentAuthMode() (string, error) {

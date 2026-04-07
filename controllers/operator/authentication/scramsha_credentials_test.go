@@ -32,7 +32,7 @@ var testAutomationConfig = &om.AutomationConfig{
 	},
 }
 
-func Test_isPasswordChanged(t *testing.T) {
+func Test_IsPasswordChanged(t *testing.T) {
 	userPassword := "secretpassword"
 	userNewPassword := "newsecretpassword"
 
@@ -42,7 +42,7 @@ func Test_isPasswordChanged(t *testing.T) {
 	}
 
 	// will generate scram creds for the user mongoUser and set it in its fields
-	ConfigureScramCredentials(&mongoUser, userPassword, testAutomationConfig)
+	_ = ConfigureScramCredentials(&mongoUser, userPassword, testAutomationConfig, false)
 
 	testAutomationConfig.Auth.Users = append(testAutomationConfig.Auth.Users, &om.MongoDBUser{
 		Username:         mongoUser.Username,
@@ -52,14 +52,14 @@ func Test_isPasswordChanged(t *testing.T) {
 	})
 
 	// now that the scram creds are set in the automation config, let's say the reconciliation happens again
-	// with the same user and same password, isPasswordChanged should return false
+	// with the same user and same password, IsPasswordChanged should return false
 	_, u := testAutomationConfig.Auth.GetUser(mongoUser.Username, mongoUser.Database)
-	op, err := isPasswordChanged(&mongoUser, userPassword, u)
+	op, err := IsPasswordChanged(&mongoUser, userPassword, u)
 	assert.Nil(t, err)
 	assert.False(t, op)
 
-	// if reconciliation happens again with diff password, isPasswordChanged should return true
-	op, err = isPasswordChanged(&mongoUser, userNewPassword, u)
+	// if reconciliation happens again with diff password, IsPasswordChanged should return true
+	op, err = IsPasswordChanged(&mongoUser, userNewPassword, u)
 	assert.Nil(t, err)
 	assert.True(t, op)
 }
