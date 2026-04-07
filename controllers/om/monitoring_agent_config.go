@@ -3,7 +3,10 @@ package om
 import (
 	"encoding/json"
 
+	"github.com/spf13/cast"
+
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -77,6 +80,42 @@ func (m *MonitoringAgentConfig) UnsetLdapGroupDN() {
 
 func (m *MonitoringAgentConfig) SetLogRotate(logRotateConfig mdbv1.LogRotateForBackupAndMonitoring) {
 	m.MonitoringAgentTemplate.LogRotate = logRotateConfig
+}
+
+// LogPath returns the logPath from the BackingMap, or empty if absent.
+func (m *MonitoringAgentConfig) LogPath() string {
+	logPath, _ := m.BackingMap["logPath"].(string)
+	return logPath
+}
+
+// ReadLogRotate extracts logRotate from the BackingMap and returns it as a
+// typed LogRotateForBackupAndMonitoring. Returns nil if not present or empty.
+func (m *MonitoringAgentConfig) ReadLogRotate() *mdbv1.LogRotateForBackupAndMonitoring {
+	lr, ok := m.BackingMap["logRotate"].(map[string]any)
+	if !ok || len(lr) == 0 {
+		return nil
+	}
+	result := mdbv1.LogRotateForBackupAndMonitoring{
+		SizeThresholdMB:  cast.ToInt(lr["sizeThresholdMB"]),
+		TimeThresholdHrs: cast.ToInt(lr["timeThresholdHrs"]),
+	}
+	if result.SizeThresholdMB == 0 && result.TimeThresholdHrs == 0 {
+		return nil
+	}
+	return &result
+}
+
+// LogRotateForAgentsFromAc converts an AcLogRotate (OM API representation) to
+// the simpler LogRotateForBackupAndMonitoring type used by monitoring and backup
+// agent specs. Returns nil when the input is nil or has no meaningful thresholds.
+func LogRotateForAgentsFromAc(ac *automationconfig.AcLogRotate) *mdbv1.LogRotateForBackupAndMonitoring {
+	if ac == nil || (ac.SizeThresholdMB == 0 && ac.TimeThresholdHrs == 0) {
+		return nil
+	}
+	return &mdbv1.LogRotateForBackupAndMonitoring{
+		SizeThresholdMB:  int(ac.SizeThresholdMB),
+		TimeThresholdHrs: ac.TimeThresholdHrs,
+	}
 }
 
 func BuildMonitoringAgentConfigFromBytes(jsonBytes []byte) (*MonitoringAgentConfig, error) {
