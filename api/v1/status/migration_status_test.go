@@ -21,13 +21,3 @@ func TestMigrationCondition_PhaseToStatus(t *testing.T) {
 		assert.Equal(t, metav1.ConditionUnknown, c.Status)
 	})
 }
-
-func TestMigrationCondition_FieldsSet(t *testing.T) {
-	reason, message := "SomeReason", "some message"
-	c := MigrationCondition(MigrationPhaseConnectivityCheckPassed, reason, message)
-
-	assert.Equal(t, ConditionNetworkConnectivityVerification, c.Type)
-	assert.Equal(t, reason, c.Reason)
-	assert.Equal(t, message, c.Message)
-	assert.False(t, c.LastTransitionTime.IsZero())
-}

@@ -1352,7 +1352,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	if option, exists := status.GetOption(statusOptions, status.MigrationConditionOption{}); exists {
 		c := option.(status.MigrationConditionOption).Condition
 		c.ObservedGeneration = m.GetGeneration()
-		setCondition(&m.Status.Conditions, c)
+		m.Status.Conditions = setCondition(m.Status.Conditions, c)
 	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
@@ -1384,24 +1384,23 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 }
 
-// setCondition sets or updates a condition by type (replaces existing with same type).
-// LastTransitionTime is only updated when Status or Reason changes.
-// Conditions are additive by nature per type so NetworkConditions is one.
-func setCondition(conditions *[]metav1.Condition, c metav1.Condition) {
-	if conditions == nil {
-		return
-	}
-	for i := range *conditions {
-		if (*conditions)[i].Type == c.Type {
-			existing := &(*conditions)[i]
-			if existing.Status == c.Status && existing.Reason == c.Reason {
-				c.LastTransitionTime = existing.LastTransitionTime
-			}
-			(*conditions)[i] = c
-			return
+// setCondition sets or updates a condition by type (replaces existing with the same type).
+// Conditions are additive by nature per type, so NetworkConditions is one.
+func setCondition(conditions []metav1.Condition, c metav1.Condition) []metav1.Condition {
+	for i := range conditions {
+		if conditions[i].Type != c.Type {
+			continue
 		}
+		existing := conditions[i]
+		// LastTransitionTime is only updated when Status or Reason changes,
+		// c.LastTransitionTime is always now, that's why we overwrite this to not trigger a change
+		if existing.Status == c.Status && existing.Reason == c.Reason {
+			c.LastTransitionTime = existing.LastTransitionTime
+		}
+		conditions[i] = c
+		return conditions
 	}
-	*conditions = append(*conditions, c)
+	return append(conditions, c)
 }
 
 func (m *MongoDB) SetWarnings(warnings []status.Warning, _ ...status.Option) {
