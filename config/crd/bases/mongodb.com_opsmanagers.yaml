@@ -730,7 +730,7 @@ spec:
                               autoPEMKeyFilePath:
                                 description: |-
                                   AutoPEMKeyFilePath is the absolute path to the automation agent’s combined PEM (cert+key) inside
-                                  database pods. When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
+                                  database pods (replica set, sharded cluster, standalone, and multi-cluster). When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
                                   and mounts the clientCertificateSecretRef PEM at this path (for example when migrating from VMs
                                   that already use a non-default path). When empty, the operator uses AgentCertMountPath with the
                                   hash derived from the TLS secret. Requires clientCertificateSecretRef when non-empty.

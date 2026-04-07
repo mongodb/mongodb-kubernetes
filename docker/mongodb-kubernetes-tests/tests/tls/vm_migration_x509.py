@@ -118,7 +118,11 @@ def vm_server_combined_pem(namespace: str, vm_server_certs: str) -> str:
 
 @fixture(scope="module")
 def vm_sts(
-    namespace: str, om_tester: OMTester, vm_server_certs: str, vm_agent_combined_pem: tuple[str, str], vm_server_combined_pem: str
+    namespace: str,
+    om_tester: OMTester,
+    vm_server_certs: str,
+    vm_agent_combined_pem: tuple[str, str],
+    vm_server_combined_pem: str,
 ):
     """Deploy VM StatefulSet with cert volumes (server combined PEM + CA + agent PEM)."""
     with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
