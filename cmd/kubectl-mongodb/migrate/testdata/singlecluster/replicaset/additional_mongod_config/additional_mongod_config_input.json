@@ -1,0 +1,194 @@
+{
+  "auth": {
+    "usersWanted": [
+      {
+        "user": "mms-automation-agent",
+        "db": "admin",
+        "roles": [{"role": "root", "db": "admin"}],
+        "mechanisms": ["SCRAM-SHA-256"],
+        "scramSha256Creds": {"iterationCount": 15000, "salt": "abc", "serverKey": "skey", "storedKey": "stkey"},
+        "authenticationRestrictions": []
+      }
+    ],
+    "usersDeleted": [],
+    "disabled": false,
+    "authoritativeSet": false,
+    "deploymentAuthMechanisms": ["SCRAM-SHA-256"],
+    "autoAuthMechanisms": ["SCRAM-SHA-256"],
+    "autoAuthMechanism": "SCRAM-SHA-256",
+    "autoUser": "mms-automation-agent",
+    "autoAuthRestrictions": []
+  },
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation"
+  },
+  "processes": [
+    {
+      "args2_6": {
+        "net": {
+          "port": 27018,
+          "compression": {"compressors": "zlib,zstd"},
+          "maxIncomingConnections": 512
+        },
+        "replication": {
+          "replSetName": "amc-rs",
+          "oplogSizeMB": 2048
+        },
+        "storage": {
+          "dbPath": "/data",
+          "indexBuildRetry": true,
+          "directoryPerDB": true,
+          "journal": {"enabled": true},
+          "wiredTiger": {
+            "engineConfig": {
+              "cacheSizeGB": 1.5,
+              "journalCompressor": "zlib",
+              "zstdCompressionLevel": 6,
+              "configString": "builtin_extension_config=(zlib=(compression_level=2))"
+            },
+            "collectionConfig": {
+              "blockCompressor": "snappy",
+              "configString": "block_compressor=zlib"
+            }
+          }
+        },
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log", "logAppend": true},
+        "auditLog": {
+          "destination": "file",
+          "format": "JSON",
+          "path": "/var/log/mongodb/audit.json"
+        },
+        "operationProfiling": {
+          "mode": "slowOp",
+          "slowOpThresholdMs": 200
+        },
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256",
+          "connPoolMaxConnsPerHost": 800
+        }
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "vm-0.example.com",
+      "name": "amc-rs-0",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {
+          "port": 27018,
+          "compression": {"compressors": "zlib,zstd"},
+          "maxIncomingConnections": 512
+        },
+        "replication": {
+          "replSetName": "amc-rs",
+          "oplogSizeMB": 2048
+        },
+        "storage": {
+          "dbPath": "/data",
+          "indexBuildRetry": true,
+          "directoryPerDB": true,
+          "journal": {"enabled": true},
+          "wiredTiger": {
+            "engineConfig": {
+              "cacheSizeGB": 1.5,
+              "journalCompressor": "zlib",
+              "zstdCompressionLevel": 6,
+              "configString": "builtin_extension_config=(zlib=(compression_level=2))"
+            },
+            "collectionConfig": {
+              "blockCompressor": "snappy",
+              "configString": "block_compressor=zlib"
+            }
+          }
+        },
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log", "logAppend": true},
+        "auditLog": {
+          "destination": "file",
+          "format": "JSON",
+          "path": "/var/log/mongodb/audit.json"
+        },
+        "operationProfiling": {
+          "mode": "slowOp",
+          "slowOpThresholdMs": 200
+        },
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256",
+          "connPoolMaxConnsPerHost": 800
+        }
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "vm-1.example.com",
+      "name": "amc-rs-1",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {
+          "port": 27018,
+          "compression": {"compressors": "zlib,zstd"},
+          "maxIncomingConnections": 512
+        },
+        "replication": {
+          "replSetName": "amc-rs",
+          "oplogSizeMB": 2048
+        },
+        "storage": {
+          "dbPath": "/data",
+          "indexBuildRetry": true,
+          "directoryPerDB": true,
+          "journal": {"enabled": true},
+          "wiredTiger": {
+            "engineConfig": {
+              "cacheSizeGB": 1.5,
+              "journalCompressor": "zlib",
+              "zstdCompressionLevel": 6,
+              "configString": "builtin_extension_config=(zlib=(compression_level=2))"
+            },
+            "collectionConfig": {
+              "blockCompressor": "snappy",
+              "configString": "block_compressor=zlib"
+            }
+          }
+        },
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log", "logAppend": true},
+        "auditLog": {
+          "destination": "file",
+          "format": "JSON",
+          "path": "/var/log/mongodb/audit.json"
+        },
+        "operationProfiling": {
+          "mode": "slowOp",
+          "slowOpThresholdMs": 200
+        },
+        "setParameter": {
+          "authenticationMechanisms": "SCRAM-SHA-256",
+          "connPoolMaxConnsPerHost": 800
+        }
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "vm-2.example.com",
+      "name": "amc-rs-2",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "amc-rs",
+      "members": [
+        {"_id": 0, "host": "amc-rs-0", "priority": 1, "votes": 1, "tags": {}},
+        {"_id": 1, "host": "amc-rs-1", "priority": 1, "votes": 1, "tags": {}},
+        {"_id": 2, "host": "amc-rs-2", "priority": 1, "votes": 1, "tags": {}}
+      ],
+      "protocolVersion": "1"
+    }
+  ],
+  "roles": [],
+  "sharding": [],
+  "version": 1
+}
