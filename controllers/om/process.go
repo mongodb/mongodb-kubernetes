@@ -299,9 +299,86 @@ func (p Process) ProcessType() MongoType {
 	}
 }
 
-// IsDisabled returns the "disabled" attribute.
+// IsDisabled returns the "disabled" attribute, defaulting to false if absent.
 func (p Process) IsDisabled() bool {
-	return p["disabled"].(bool)
+	disabled, _ := p["disabled"].(bool)
+	return disabled
+}
+
+// AuthSchemaVersion returns the authSchemaVersion for this process.
+func (p Process) AuthSchemaVersion() int {
+	return cast.ToInt(p["authSchemaVersion"])
+}
+
+// SystemLogMap returns the systemLog sub-map from args2_6, or nil if absent.
+func (p Process) SystemLogMap() map[string]interface{} {
+	return maputil.ReadMapValueAsMap(p.Args(), "systemLog")
+}
+
+// AdditionalMongodConfig is the inverse of WithAdditionalMongodConfig: it reads args2_6 back
+// into spec.additionalMongodConfig, stripping only the fields the operator always overwrites.
+// Returns nil when no user-relevant config remains.
+func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
+	if len(p.Args()) == 0 {
+		return nil
+	}
+	m, _ := util.MapDeepCopy(p.Args())
+
+	delete(m, "systemLog")
+	maputil.DeleteMapValue(m, "storage", "dbPath")
+	maputil.DeleteMapValue(m, "replication", "replSetName")
+	maputil.DeleteMapValue(m, "security", "clusterAuthMode")
+
+	if port := maputil.ReadMapValueAsInt(m, "net", "port"); port == 0 || port == util.MongoDbDefaultPort {
+		maputil.DeleteMapValue(m, "net", "port")
+	}
+	for _, tlsKey := range []string{"tls", "ssl"} {
+		for _, certKey := range []string{"certificateKeyFile", "PEMKeyFile", "clusterFile"} {
+			maputil.DeleteMapValue(m, "net", tlsKey, certKey)
+		}
+		if mode := maputil.ReadMapValueAsString(m, "net", tlsKey, "mode"); mode == string(tls.Require) || mode == "requireSSL" || mode == string(tls.Disabled) {
+			maputil.DeleteMapValue(m, "net", tlsKey, "mode")
+		}
+	}
+
+	// drop sections that became empty after stripping operator fields
+	for _, path := range [][]string{{"net", "tls"}, {"net", "ssl"}, {"net"}, {"storage"}, {"replication"}, {"security"}} {
+		if sub := maputil.ReadMapValueAsMap(m, path...); len(sub) == 0 && sub != nil {
+			maputil.DeleteMapValue(m, path...)
+		}
+	}
+
+	if len(m) == 0 {
+		return nil
+	}
+	cfg := mdbv1.NewEmptyAdditionalMongodConfig()
+	data, _ := json.Marshal(m)
+	_ = json.Unmarshal(data, cfg)
+	return cfg
+}
+
+// ShardingClusterRole returns the sharding.clusterRole from args2_6, or empty if absent.
+func (p Process) ShardingClusterRole() string {
+	return maputil.ReadMapValueAsString(p.Args(), "sharding", "clusterRole")
+}
+
+// NetTLSSections returns the TLS/SSL config maps from args2_6.net, keyed by
+// section name ("tls" or "ssl"). Only sections that are present are returned.
+func (p Process) NetTLSSections() map[string]map[string]interface{} {
+	net := maputil.ReadMapValueAsMap(p.Args(), "net")
+	if net == nil {
+		return nil
+	}
+	sections := make(map[string]map[string]interface{})
+	for _, key := range []string{"tls", "ssl"} {
+		if sec := maputil.ReadMapValueAsMap(net, key); sec != nil {
+			sections[key] = sec
+		}
+	}
+	if len(sections) == 0 {
+		return nil
+	}
+	return sections
 }
 
 // SetDisabled sets the "disabled" attribute to `disabled`.
@@ -523,7 +600,7 @@ func (p Process) setClusterAuthMode(authMode string) Process {
 }
 
 func (p Process) authSchemaVersion() int {
-	return p["authSchemaVersion"].(int)
+	return p.AuthSchemaVersion()
 }
 
 // These methods are ONLY FOR REPLICA SET members!

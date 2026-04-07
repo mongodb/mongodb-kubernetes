@@ -11,6 +11,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 /* This corresponds to:
@@ -98,7 +99,15 @@ func (r ReplicaSetMember) Priority() float32 {
 }
 
 func (r ReplicaSetMember) Tags() map[string]string {
-	return r["tags"].(map[string]string)
+	return cast.ToStringMapString(r["tags"])
+}
+
+func (r ReplicaSetMember) SlaveDelay() int {
+	return cast.ToInt(r["slaveDelay"])
+}
+
+func (r ReplicaSetMember) IsHidden() bool {
+	return cast.ToBool(r["hidden"])
 }
 
 /* Merges the other replica set to the current one. "otherRs" members have higher priority (as they are supposed
@@ -193,7 +202,7 @@ func (r ReplicaSet) addMember(process Process, id string, options automationconf
 
 // mergeFrom merges "operatorRs" into "OM" one
 func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet, externalMembers []string) []string {
-	initDefaultRs(r, operatorRs.Name(), operatorRs.protocolVersion())
+	initDefaultRs(r, operatorRs.Name(), operatorRs.ProtocolVersion())
 
 	// technically we use "operatorMap" as the target map which will be used to update the members
 	// for the 'r' object
@@ -284,9 +293,8 @@ func (r ReplicaSet) findMemberByName(name string) *ReplicaSetMember {
 	return nil
 }
 
-// mms uses string for this field to make it optional in json
-func (r ReplicaSet) protocolVersion() string {
-	return r["protocolVersion"].(string)
+func (r ReplicaSet) ProtocolVersion() string {
+	return cast.ToString(r["protocolVersion"])
 }
 
 func (r ReplicaSetMember) getHorizonConfig() mdbv1.MongoDBHorizonConfig {
@@ -336,6 +344,31 @@ func findDifference(leftMap map[string]ReplicaSetMember, rightMap map[string]Rep
 		}
 	}
 	return ans
+}
+
+// ExtractMemberInfo reads version, FCV, and per-member metadata from the
+// given replica set members and process map. Each member becomes an
+// mdbv1.ExternalMember suitable for the CR's spec.externalMembers.
+func ExtractMemberInfo(members []ReplicaSetMember, processMap map[string]Process) ([]mdbv1.ExternalMember, string, string) {
+	firstProc := processMap[members[0].Name()]
+	version := firstProc.Version()
+	fcv := firstProc.FeatureCompatibilityVersion()
+
+	var externalMembers []mdbv1.ExternalMember
+	for _, m := range members {
+		host := m.Name()
+		proc := processMap[host]
+		port := maputil.ReadMapValueAsInt(proc.Args(), "net", "port")
+
+		externalMembers = append(externalMembers, mdbv1.ExternalMember{
+			ProcessName:    host,
+			Hostname:       fmt.Sprintf("%s:%d", proc.HostName(), port),
+			Type:           "mongod",
+			ReplicaSetName: proc.replicaSetName(),
+		})
+	}
+
+	return externalMembers, version, fcv
 }
 
 // Builds the map[<process name>]<replica set member>. This makes intersection easier

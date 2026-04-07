@@ -111,6 +111,26 @@ func convertToMechanismOrPanic(mechanismModeInCR string, ac *om.AutomationConfig
 	return ConvertToMechanismOrPanic(mechanismModeInCR, ac.Auth.AutoAuthMechanism, ac.Auth.IsEnabled())
 }
 
+// MapMechanismToAuthMode converts an automation config mechanism string to
+// the corresponding CR AuthMode. This is the reverse of convertToMechanismOrPanic.
+func MapMechanismToAuthMode(mech string) (string, bool) {
+	switch mech {
+	case util.AutomationConfigScramSha256Option: // "SCRAM-SHA-256" → CR "SCRAM"
+		return util.SCRAM, true
+	case util.AutomationConfigScramSha1Option, // "MONGODB-CR"
+		util.SCRAMSHA1: // "SCRAM-SHA-1"
+		return mech, true
+	case util.AutomationConfigX509Option: // "MONGODB-X509" → CR "X509"
+		return util.X509, true
+	case util.AutomationConfigLDAPOption: // "PLAIN" → CR "LDAP"
+		return util.LDAP, true
+	case util.AutomationConfigOIDCOption: // "MONGODB-OIDC" → CR "OIDC"
+		return util.OIDC, true
+	default:
+		return "", false
+	}
+}
+
 func getMechanismByName(name MechanismName) Mechanism {
 	switch name {
 	case ScramSha1:

@@ -342,9 +342,9 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationCon
 		Mechanisms:                 []string{},
 	}
 
-	// only specify password if we're dealing with non-x509 users
 	if spec.Database != authentication.ExternalDB {
-		if err := authentication.ConfigureScramCredentials(&user, password, ac); err != nil {
+		err := authentication.ConfigureScramCredentials(&user, password, ac, spec.MigratedFromVM != nil && *spec.MigratedFromVM)
+		if err != nil {
 			return om.MongoDBUser{}, xerrors.Errorf("error generating SCRAM credentials: %w", err)
 		}
 	}

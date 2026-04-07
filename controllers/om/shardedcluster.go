@@ -139,6 +139,11 @@ func (s Shard) mergeFrom(operatorShard Shard) {
 	s.setRs(operatorShard.rs())
 }
 
+// Shards returns the shards in the sharded cluster.
+func (s ShardedCluster) Shards() []Shard {
+	return s.shards()
+}
+
 func (s ShardedCluster) shards() []Shard {
 	switch v := s["shards"].(type) {
 	case []Shard:
@@ -219,6 +224,11 @@ func (s ShardedCluster) getAllReplicaSets() []string {
 	}
 	ans = append(ans, s.ConfigServerRsName())
 	return ans
+}
+
+// Id returns the shard's _id.
+func (s Shard) Id() string {
+	return s.id()
 }
 
 func (s Shard) id() string {
