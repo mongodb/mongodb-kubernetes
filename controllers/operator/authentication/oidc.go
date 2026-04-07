@@ -114,6 +114,35 @@ func MapOIDCProviderConfigs(oidcProviderConfigs []mdbv1.OIDCProviderConfig) []oi
 	return result
 }
 
+// MapACOIDCToProviderConfigs converts AC OIDC provider configs to the CR's
+// OIDCProviderConfig representation. This is the reverse of MapOIDCProviderConfigs.
+func MapACOIDCToProviderConfigs(configs []oidc.ProviderConfig) []mdbv1.OIDCProviderConfig {
+	var out []mdbv1.OIDCProviderConfig
+	for _, c := range configs {
+		authzType := mdbv1.OIDCAuthorizationType(mdbv1.OIDCAuthorizationTypeUserID)
+		authzMethod := mdbv1.OIDCAuthorizationMethod(mdbv1.OIDCAuthorizationMethodWorkloadIdentityFederation)
+		if c.SupportsHumanFlows {
+			authzMethod = mdbv1.OIDCAuthorizationMethodWorkforceIdentityFederation
+		}
+		if c.UseAuthorizationClaim {
+			authzType = mdbv1.OIDCAuthorizationTypeGroupMembership
+		}
+
+		out = append(out, mdbv1.OIDCProviderConfig{
+			ConfigurationName:   c.AuthNamePrefix,
+			IssuerURI:           c.IssuerUri,
+			Audience:            c.Audience,
+			AuthorizationType:   authzType,
+			UserClaim:           c.UserClaim,
+			GroupsClaim:         c.GroupsClaim,
+			AuthorizationMethod: authzMethod,
+			ClientId:            c.ClientId,
+			RequestedScopes:     c.RequestedScopes,
+		})
+	}
+	return out
+}
+
 func mapToSupportHumanFlows(authMethod mdbv1.OIDCAuthorizationMethod) bool {
 	switch authMethod {
 	case mdbv1.OIDCAuthorizationMethodWorkforceIdentityFederation:

@@ -28,78 +28,134 @@ const (
 	rfc5802MandatedSaltSize = 4
 )
 
-func isPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDBUser) (bool, error) {
-	// if something unexpected happens return true to make sure that the scramShaCreds will be generated again.
-	if acUser == nil || acUser.ScramSha256Creds == nil || acUser.ScramSha1Creds == nil {
+func IsPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDBUser) (bool, error) {
+	if acUser == nil {
 		return true, nil
 	}
 
-	if acUser.ScramSha256Creds.Salt != "" && acUser.ScramSha1Creds.Salt != "" {
+	validated := false
+
+	if acUser.ScramSha256Creds != nil && acUser.ScramSha256Creds.Salt != "" {
 		sha256Salt, err := base64.StdEncoding.DecodeString(acUser.ScramSha256Creds.Salt)
 		if err != nil {
 			return true, err
 		}
-		sha1Salt, err := base64.StdEncoding.DecodeString(acUser.ScramSha1Creds.Salt)
+		newCreds, err := computeScramShaCreds(user.Username, password, sha256Salt, ScramSha256)
 		if err != nil {
+			return false, xerrors.Errorf("error generating scramSha256 creds for verification: %w", err)
+		}
+		if !newCreds.Equals(*acUser.ScramSha256Creds) {
 			return true, nil
 		}
-		// generate scramshacreds with (new) password but with old salt to verify if given password
-		// is actually changed
-		newScramSha256Creds, err := computeScramShaCreds(user.Username, password, sha256Salt, ScramSha256)
-		if err != nil {
-			return false, xerrors.Errorf("error generating scramSha256 creds to verify with already present user on automation config %w", err)
-		}
-
-		newScramSha1Creds, err := computeScramShaCreds(user.Username, password, sha1Salt, MongoDBCR)
-		if err != nil {
-			return false, xerrors.Errorf("error generating scramSha1 creds to verify with already present user on automation config %w", err)
-		}
-		return !newScramSha256Creds.Equals(*acUser.ScramSha256Creds) || !newScramSha1Creds.Equals(*acUser.ScramSha1Creds), nil
+		validated = true
 	}
 
-	return true, nil
+	if acUser.ScramSha1Creds != nil && acUser.ScramSha1Creds.Salt != "" {
+		sha1Salt, err := base64.StdEncoding.DecodeString(acUser.ScramSha1Creds.Salt)
+		if err != nil {
+			return true, err
+		}
+		newCreds, err := computeScramShaCreds(user.Username, password, sha1Salt, MongoDBCR)
+		if err != nil {
+			return false, xerrors.Errorf("error generating scramSha1 creds for verification: %w", err)
+		}
+		if !newCreds.Equals(*acUser.ScramSha1Creds) {
+			return true, nil
+		}
+		validated = true
+	}
+
+	if !validated {
+		return true, nil
+	}
+	return false, nil
 }
 
-// ConfigureScramCredentials creates both SCRAM-SHA-1 and SCRAM-SHA-256 credentials. This ensures
-// that changes to the authentication settings on the MongoDB resources won't leave MongoDBUsers without
-// the correct credentials.
-func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.AutomationConfig) error {
-	// there are chances that the reconciliation is happening again for this user resource and we wouldn't
-	// want to generate scram creds again if the password of the user has not changed.
+// ConfigureScramCredentials sets SCRAM credentials on the user. Migrated users
+// retain only their original mechanism(s); operator-created users get both.
+func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.AutomationConfig, migratedFromVM bool) error {
 	_, acUser := ac.Auth.GetUser(user.Username, user.Database)
-	changed, err := isPasswordChanged(user, password, acUser)
+	changed, err := IsPasswordChanged(user, password, acUser)
 	if err != nil {
 		return err
 	}
+
 	if !changed {
-		// since the scram creds generated using the old salt are same with the scram creds stored in automation config
-		// there is no need to generate new salt/creds.
-		user.ScramSha256Creds = acUser.ScramSha256Creds
-		user.ScramSha1Creds = acUser.ScramSha1Creds
+		if acUser.ScramSha256Creds != nil {
+			user.ScramSha256Creds = acUser.ScramSha256Creds
+		}
+		if acUser.ScramSha1Creds != nil {
+			user.ScramSha1Creds = acUser.ScramSha1Creds
+		}
+		if migratedFromVM || (user.ScramSha256Creds != nil && user.ScramSha1Creds != nil) {
+			if migratedFromVM {
+				populateMechanisms(user)
+			}
+			return nil
+		}
+	}
+
+	if migratedFromVM {
+		if acUser == nil {
+			return xerrors.Errorf("migratedFromVM is set but user %q (db %q) not found in automation config", user.Username, user.Database)
+		}
+		if acUser.ScramSha256Creds != nil {
+			user.ScramSha256Creds, err = newScramSha256Creds(user.Username, password)
+			if err != nil {
+				return err
+			}
+		}
+		if acUser.ScramSha1Creds != nil {
+			user.ScramSha1Creds, err = newScramSha1Creds(user.Username, password)
+			if err != nil {
+				return err
+			}
+		}
+		populateMechanisms(user)
 		return nil
 	}
 
-	scram256Salt, err := generateSalt(sha256.New)
-	if err != nil {
-		return xerrors.Errorf("error generating scramSha256 salt: %w", err)
+	if user.ScramSha256Creds == nil {
+		user.ScramSha256Creds, err = newScramSha256Creds(user.Username, password)
+		if err != nil {
+			return err
+		}
 	}
 
-	scram1Salt, err := generateSalt(sha1.New)
-	if err != nil {
-		return xerrors.Errorf("error generating scramSha1 salt: %w", err)
+	if user.ScramSha1Creds == nil {
+		user.ScramSha1Creds, err = newScramSha1Creds(user.Username, password)
+		if err != nil {
+			return err
+		}
 	}
 
-	scram256Creds, err := computeScramShaCreds(user.Username, password, scram256Salt, ScramSha256)
-	if err != nil {
-		return xerrors.Errorf("error generating scramSha256 creds: %w", err)
-	}
-	scram1Creds, err := computeScramShaCreds(user.Username, password, scram1Salt, MongoDBCR)
-	if err != nil {
-		return xerrors.Errorf("error generating scramSha1Creds: %w", err)
-	}
-	user.ScramSha256Creds = scram256Creds
-	user.ScramSha1Creds = scram1Creds
 	return nil
+}
+
+func newScramSha256Creds(username, password string) (*om.ScramShaCreds, error) {
+	salt, err := generateSalt(sha256.New)
+	if err != nil {
+		return nil, xerrors.Errorf("error generating scramSha256 salt: %w", err)
+	}
+	return computeScramShaCreds(username, password, salt, ScramSha256)
+}
+
+func newScramSha1Creds(username, password string) (*om.ScramShaCreds, error) {
+	salt, err := generateSalt(sha1.New)
+	if err != nil {
+		return nil, xerrors.Errorf("error generating scramSha1 salt: %w", err)
+	}
+	return computeScramShaCreds(username, password, salt, MongoDBCR)
+}
+
+func populateMechanisms(user *om.MongoDBUser) {
+	user.Mechanisms = nil
+	if user.ScramSha256Creds != nil {
+		user.Mechanisms = append(user.Mechanisms, util.AutomationConfigScramSha256Option)
+	}
+	if user.ScramSha1Creds != nil {
+		user.Mechanisms = append(user.Mechanisms, util.SCRAMSHA1)
+	}
 }
 
 // The code in this file is largely adapted from the Automation Agent codebase.
