@@ -3,25 +3,20 @@ package migratetomck
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
-
-// operatorVersion returns the operator version stamped at build time, or "latest" for development builds.
-func operatorVersion() string {
-	if util.OperatorVersion == "" {
-		return "latest"
-	}
-	return util.OperatorVersion
-}
 
 const (
 	PrometheusPasswordSecretName = "prometheus-password"
@@ -31,149 +26,231 @@ const (
 	LdapCAKey                    = "ca.pem"
 
 	migrateToolVersionAnnotation = "mongodb.com/migrate-tool-version"
-	MigrationDryRunAnnotation    = "mongodb.com/migration-dry-run"
 
 	externalDatabase = "$external" // MongoDB virtual database for X.509 and LDAP users.
-
-	// passwordSecretDataKey is the Secret data key used for all generated and referenced password Secrets.
-	passwordSecretDataKey = "password" //nolint:gosec // data key name, not a credential
 )
 
-// GenerateOptions holds CLI flags, OM-fetched configs, and validation outputs for CR generation.
-// It does not duplicate fields that are directly derivable from the automation config.
+// GenerateOptions holds CLI flags and pre-extracted deployment data for CR generation.
 type GenerateOptions struct {
-	// CLI flags
-	ResourceNameOverride  string
-	CredentialsSecretName string
-	ConfigMapName         string
-	Namespace             string
-	CertsSecretPrefix     string // spec.security.certsSecretPrefix, required when TLS is enabled
+	ReplicaSetNameOverride string
+	CredentialsSecretName  string
+	ConfigMapName          string
+	MultiClusterNames      []string
+	ProjectAgentConfigs    *ProjectAgentConfigs
+	ProjectProcessConfigs  *ProjectProcessConfigs
+	// CertsSecretPrefix is spec.security.certsSecretPrefix; required when TLS is enabled.
+	CertsSecretPrefix string
+	ProcessMap        map[string]om.Process
+	Members           []om.ReplicaSetMember
+	// SourceProcess is the OM process used as the template for spec fields (e.g. version, args).
+	SourceProcess      *om.Process
+	UserPasswords      map[string]string // maps "username:database" to plaintext passwords for SCRAM users.
+	PrometheusPassword string            // plaintext password for the Prometheus user secret.
+	DryRun             bool              // skips Kubernetes writes; cluster resources are appended to the output as YAML.
+}
 
-	// Fetched from OM
-	ProjectConfigs *ProjectConfigs
-
-	// Output of ValidateMigration — the process used as the template for spec fields (e.g. version, args).
-	SourceProcess *om.Process
-
-	// User credentials — maps "username:database" to a pre-created Secret name; no Secret YAML is written
-	ExistingUserSecrets map[string]string
-
-	// Prometheus credentials
-	PrometheusPassword   string // plaintext password; a Secret is generated when set
-	PrometheusSecretName string // name of a pre-created Secret; no Secret YAML is written when set
+// UserCROutput holds the generated YAML and metadata for a single MongoDBUser CR.
+type UserCROutput struct {
+	YAML           string
+	Username       string
+	Database       string
+	NeedsPassword  bool
+	PasswordSecret string
+	// MigratedFromVM mirrors spec.migratedFromVm; set when OM had an explicit mechanisms list.
+	MigratedFromVM bool
 }
 
 // GenerateMongoDBCR generates a MongoDB CR for the given topology.
-func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (client.Object, string, error) {
+func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
 	isSharded := len(ac.Deployment.GetShardedClusters()) > 0
 
 	if isSharded {
-		return nil, "", fmt.Errorf("sharded cluster migration is not yet supported")
+		if len(opts.MultiClusterNames) > 0 {
+			return "", "", fmt.Errorf("sharded cluster multi-cluster migration is not yet supported")
+		}
+		return "", "", fmt.Errorf("sharded cluster migration is not yet supported")
 	}
 	return generateReplicaSet(ac, opts)
 }
 
-// generateExtraResources returns the supporting Secrets/ConfigMaps for LDAP and Prometheus.
-func generateExtraResources(ac *om.AutomationConfig, opts GenerateOptions) []client.Object {
-	var resources []client.Object
-	if ldap := ac.Ldap; ldap != nil {
-		if ldap.BindQueryPassword != "" {
-			resources = append(resources, GeneratePasswordSecret(LdapBindQuerySecretName, opts.Namespace, ldap.BindQueryPassword))
-		}
-		if ldap.CaFileContents != "" {
-			resources = append(resources, buildLdapCAConfigMap(opts.Namespace, ldap.CaFileContents))
-		}
-	}
-	acProm := ac.Deployment.GetPrometheus()
-	if acProm != nil && acProm.Enabled && acProm.Username != "" {
-		if opts.PrometheusSecretName == "" && opts.PrometheusPassword != "" {
-			resources = append(resources, GeneratePasswordSecret(PrometheusPasswordSecretName, opts.Namespace, opts.PrometheusPassword))
-		}
-	}
-	return resources
+// isValidKubernetesName reports whether name is a valid DNS label (RFC 1123).
+func isValidKubernetesName(name string) bool {
+	return len(k8svalidation.IsDNS1123Label(name)) == 0
 }
 
-// marshalMultiDoc serializes each object to YAML, joined by YAML document separator markers.
-func marshalMultiDoc(objects []client.Object) (string, error) {
-	var sb strings.Builder
-	for i, obj := range objects {
-		if i > 0 {
-			sb.WriteString("---\n")
+func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
+	replicaSets := ac.Deployment.GetReplicaSets()
+	if len(replicaSets) == 0 {
+		return "", "", fmt.Errorf("no replica sets found in the automation config")
+	}
+	rs := replicaSets[0]
+
+	rsName := rs.Name()
+	externalMembers, version, fcv := om.ExtractMemberInfo(opts.Members, opts.ProcessMap)
+
+	resourceName := opts.ReplicaSetNameOverride
+	if resourceName == "" {
+		if !isValidKubernetesName(rsName) {
+			return "", "", fmt.Errorf("replica set name %q is not a valid Kubernetes resource name. Use --replicaset-name-override to provide a valid name (spec.replicaSetNameOverride will be set automatically)", rsName)
 		}
-		y, err := marshalCRToYAML(obj)
+		resourceName = rsName
+	}
+
+	if len(opts.MultiClusterNames) > 0 {
+		return generateReplicaSetMultiCluster(ac, opts, rsName, resourceName, version, fcv, externalMembers)
+	}
+	return generateReplicaSetSingleCluster(ac, opts, rsName, resourceName, version, fcv, externalMembers)
+}
+
+func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptions, rsName, resourceName, version, fcv string, externalMembers []mdbv1.ExternalMember) (string, string, error) {
+	spec, err := buildReplicaSetSpec(version, fcv, externalMembers, rsName, resourceName, opts, ac)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to build MongoDB spec: %w", err)
+	}
+	cr := mdbv1.MongoDB{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "mongodb.com/v1",
+			Kind:       "MongoDB",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: resourceName,
+			Annotations: map[string]string{
+				migrateToolVersionAnnotation: versionutil.StaticContainersOperatorVersion(),
+			},
+		},
+		Spec: spec,
+	}
+	out, err := marshalCRToYAML(cr)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal Custom Resource to YAML: %w", err)
+	}
+	return out, resourceName, nil
+}
+
+func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOptions, rsName, resourceName, version, fcv string, externalMembers []mdbv1.ExternalMember) (string, string, error) {
+	spec, err := buildReplicaSetMultiClusterSpec(version, fcv, externalMembers, rsName, resourceName, opts, ac)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to build multi-cluster spec: %w", err)
+	}
+	cr := mdbmulti.MongoDBMultiCluster{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "mongodb.com/v1",
+			Kind:       "MongoDBMultiCluster",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: resourceName,
+			Annotations: map[string]string{
+				migrateToolVersionAnnotation: versionutil.StaticContainersOperatorVersion(),
+			},
+		},
+		Spec: spec,
+	}
+	out, err := marshalCRToYAML(cr)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal Custom Resource to YAML: %w", err)
+	}
+	return out, resourceName, nil
+}
+
+// GenerateUserCRs creates MongoDBUser CRs for each user in auth.usersWanted, skipping the agent user.
+func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]UserCROutput, error) {
+	if ac.Auth == nil || len(ac.Auth.Users) == 0 {
+		return nil, nil
+	}
+
+	seenCRNames := map[string]string{}
+	var results []UserCROutput
+	for i, user := range ac.Auth.Users {
+		if user == nil {
+			return nil, fmt.Errorf("user at index %d is nil", i)
+		}
+		if user.Username == "" {
+			return nil, fmt.Errorf("user at index %d has an empty username", i)
+		}
+
+		if user.Username == ac.Auth.AutoUser && user.Database == util.DefaultUserDatabase {
+			continue
+		}
+
+		needsPassword := user.Database != externalDatabase
+		crName := userv1.NormalizeName(user.Username)
+		if crName == "" {
+			return nil, fmt.Errorf("username %q cannot be normalized to a valid Kubernetes name: no alphanumeric characters", user.Username)
+		}
+		if prev, exists := seenCRNames[crName]; exists {
+			return nil, fmt.Errorf("users %q and %q normalize to the same Kubernetes name %q; rename one before migration", prev, user.Username, crName)
+		}
+		seenCRNames[crName] = user.Username
+		passwordSecretName := crName + "-password"
+
+		roles, err := convertRoles(user.Roles)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal %T: %w", obj, err)
+			return nil, fmt.Errorf("failed to convert roles for user %q: %w", user.Username, err)
 		}
-		sb.WriteString(y)
-	}
-	return sb.String(), nil
-}
 
-// marshalCRToYAML marshals a resource to YAML, stripping status, creationTimestamp, and empty fields.
-func marshalCRToYAML(obj client.Object) (string, error) {
-	jsonBytes, err := json.Marshal(obj)
-	if err != nil {
-		return "", err
-	}
-	var m map[string]any
-	if err := json.Unmarshal(jsonBytes, &m); err != nil {
-		return "", err
-	}
-	delete(m, "status")
-	if meta, ok := m["metadata"].(map[string]any); ok {
-		delete(meta, "creationTimestamp")
-	}
-	stripZeroValues(m)
-	out, err := yaml.Marshal(m)
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
-}
-
-// stripZeroValues recursively removes nil, empty strings, maps, and slices.
-func stripZeroValues(m map[string]any) {
-	for k, v := range m {
-		switch val := v.(type) {
-		case nil:
-			delete(m, k)
-		case string:
-			if val == "" {
-				delete(m, k)
-			}
-		case map[string]any:
-			stripZeroValues(val)
-			if len(val) == 0 {
-				delete(m, k)
-			}
-		case []any:
-			if len(val) == 0 {
-				delete(m, k)
-			} else {
-				for i, item := range val {
-					if sub, ok := item.(map[string]any); ok {
-						stripZeroValues(sub)
-						val[i] = sub
-					}
-				}
+		spec := userv1.MongoDBUserSpec{
+			Username: user.Username,
+			Database: user.Database,
+			MongoDBResourceRef: userv1.MongoDBResourceRef{
+				Name: mongodbResourceName,
+			},
+			Roles: roles,
+		}
+		if needsPassword {
+			spec.PasswordSecretKeyRef = userv1.SecretKeyRef{
+				Name: passwordSecretName,
+				Key:  "password",
 			}
 		}
+		if len(user.Mechanisms) > 0 {
+			t := true
+			spec.MigratedFromVM = &t
+		}
+
+		userYAML, err := marshalCRToYAML(userv1.MongoDBUser{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "mongodb.com/v1",
+				Kind:       "MongoDBUser",
+			},
+			ObjectMeta: metav1.ObjectMeta{Name: crName},
+			Spec:       spec,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal MongoDBUser Custom Resource for %q: %w", user.Username, err)
+		}
+
+		results = append(results, UserCROutput{
+			YAML:           userYAML,
+			Username:       user.Username,
+			Database:       user.Database,
+			NeedsPassword:  needsPassword,
+			PasswordSecret: passwordSecretName,
+			MigratedFromVM: len(user.Mechanisms) > 0,
+		})
 	}
+
+	return results, nil
 }
 
-func buildCRObjectMeta(name, namespace string) metav1.ObjectMeta {
-	return metav1.ObjectMeta{
-		Name:      name,
-		Namespace: namespace,
-		Annotations: map[string]string{
-			migrateToolVersionAnnotation: operatorVersion(),
-			MigrationDryRunAnnotation:    "true",
+// GeneratePasswordSecret returns a Kubernetes Secret for a SCRAM user's password.
+func GeneratePasswordSecret(secretName, namespace, password string) corev1.Secret {
+	return corev1.Secret{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Secret",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: namespace,
+		},
+		StringData: map[string]string{
+			"password": password,
 		},
 	}
 }
 
-func buildLdapCAConfigMap(namespace, caFileContents string) *corev1.ConfigMap {
-	return &corev1.ConfigMap{
+func buildLdapCAConfigMap(namespace, caFileContents string) corev1.ConfigMap {
+	return corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "v1",
 			Kind:       "ConfigMap",
@@ -188,19 +265,90 @@ func buildLdapCAConfigMap(namespace, caFileContents string) *corev1.ConfigMap {
 	}
 }
 
-// GeneratePasswordSecret returns a Kubernetes Secret for a SCRAM user's password.
-func GeneratePasswordSecret(secretName, namespace, password string) *corev1.Secret {
-	return &corev1.Secret{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Secret",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: namespace,
-		},
-		StringData: map[string]string{
-			passwordSecretDataKey: password,
-		},
+// GenerateLdapCAConfigMap returns the LDAP CA ConfigMap as YAML, or empty when absent.
+func GenerateLdapCAConfigMap(ac *om.AutomationConfig, namespace string) (string, error) {
+	if ac.Ldap == nil || ac.Ldap.CaFileContents == "" {
+		return "", nil
 	}
+	out, err := marshalCRToYAML(buildLdapCAConfigMap(namespace, ac.Ldap.CaFileContents))
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal LDAP CA ConfigMap: %w", err)
+	}
+	return out, nil
+}
+
+// marshalCRToYAML marshals a resource to YAML, stripping status, creationTimestamp, and empty fields.
+func marshalCRToYAML(obj interface{}) (string, error) {
+	jsonBytes, err := json.Marshal(obj)
+	if err != nil {
+		return "", err
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &m); err != nil {
+		return "", err
+	}
+	delete(m, "status")
+	if meta, ok := m["metadata"].(map[string]interface{}); ok {
+		delete(meta, "creationTimestamp")
+	}
+	stripZeroValues(m)
+	out, err := yaml.Marshal(m)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// stripZeroValues recursively removes nil, empty strings, maps, and slices.
+func stripZeroValues(m map[string]interface{}) {
+	for k, v := range m {
+		if isZeroValue(v) {
+			delete(m, k)
+			continue
+		}
+		switch val := v.(type) {
+		case map[string]interface{}:
+			stripZeroValues(val)
+			if len(val) == 0 {
+				delete(m, k)
+			}
+		case []interface{}:
+			for i, item := range val {
+				if sub, ok := item.(map[string]interface{}); ok {
+					stripZeroValues(sub)
+					val[i] = sub
+				}
+			}
+		}
+	}
+}
+
+// isZeroValue reports whether v is nil, an empty string, map, or slice.
+func isZeroValue(v interface{}) bool {
+	if v == nil {
+		return true
+	}
+	switch val := v.(type) {
+	case string:
+		return val == ""
+	case map[string]interface{}:
+		return len(val) == 0
+	case []interface{}:
+		return len(val) == 0
+	}
+	return false
+}
+
+func convertRoles(roles []*om.Role) ([]userv1.Role, error) {
+	var out []userv1.Role
+	for i, r := range roles {
+		if r == nil {
+			return nil, fmt.Errorf("role at index %d is nil", i)
+		}
+		out = append(out, userv1.Role{
+			RoleName: r.Role,
+			Database: r.Database,
+		})
+	}
+	return out, nil
 }
