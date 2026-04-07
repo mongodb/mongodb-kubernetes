@@ -32,6 +32,10 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
+# Annotation that triggers migration dry-run (connectivity validation only, no OM/StatefulSet changes).
+MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
+CONDITION_NETWORK_CONNECTIVITY_VERIFIED = "NetworkConnectivityVerification"
+
 VM_STS_NAME = "vm-mongodb"
 VM_RS_NAME = "vm-mongodb-rs"
 MDB_RESOURCE_NAME = "my-replica-set"
@@ -392,6 +396,38 @@ def test_vm_ac_x509_auth(
     }
     om_tester.api_put_automation_config(ac)
     om_tester.wait_agents_ready(timeout=600)
+
+
+@mark.e2e_vm_migration_x509
+def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
+    """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
+    mdb_migration.load()
+    if "metadata" not in mdb_migration:
+        mdb_migration["metadata"] = {}
+    if "annotations" not in mdb_migration["metadata"]:
+        mdb_migration["metadata"]["annotations"] = {}
+    mdb_migration["metadata"]["annotations"][MIGRATION_DRY_RUN_ANNOTATION] = "true"
+    mdb_migration.update()
+
+    def migration_connectivity_passed(mdb: MongoDB) -> bool:
+        try:
+            status = mdb["status"]
+        except (KeyError, AttributeError, TypeError):
+            status = {}
+        conditions = status.get("conditions", []) if isinstance(status, dict) else []
+        for c in conditions:
+            if c.get("type") == CONDITION_NETWORK_CONNECTIVITY_VERIFIED and c.get("status") == "True":
+                return True
+        return False
+
+    mdb_migration.wait_for(migration_connectivity_passed, timeout=600)
+
+    # Remove dry-run annotation so later tests reconcile normally.
+    mdb_migration.load()
+    ann = mdb_migration.backing_obj.get("metadata").get("annotations")
+    if ann is not None and MIGRATION_DRY_RUN_ANNOTATION in ann:
+        ann[MIGRATION_DRY_RUN_ANNOTATION] = None
+        mdb_migration.update()
 
 
 @mark.e2e_vm_migration_x509
