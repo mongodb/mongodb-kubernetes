@@ -242,6 +242,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
 
+	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
+	agentCertHash, defaultAgentCertPath := r.agentCertHashAndPath(ctx, log, s.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, s.Spec.GetSecurity())
+
 	var automationAgentVersion string
 	if architectures.IsRunningStaticArchitecture(s.Annotations) {
 		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
@@ -267,6 +271,8 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 
 	standaloneOpts := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
+		AgentCertHash(agentCertHash),
+		WithAgentCertPath(agentCertPath),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
 		WithVaultConfig(vaultConfig),
@@ -291,9 +297,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	if err != nil {
 		lastSpec = &mdbv1.MongoDbSpec{}
 	}
-
-	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
-	_, agentCertPath := r.agentCertHashAndPath(ctx, log, s.Namespace, agentCertSecretName, databaseSecretPath)
 
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *s, lastSpec, standaloneOpts, log),
 		func() workflow.Status {

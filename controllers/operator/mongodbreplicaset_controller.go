@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
@@ -269,11 +268,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Replica Set for scaling down using Ops Manager: %w", err)))
 		}
 	}
-	customPathFromCR := strings.TrimSpace(rs.Spec.GetSecurity().GetAgentAutoPEMKeyFilePath())
-	agentCertPath := defaultAgentCertPath
-	if customPathFromCR != "" {
-		agentCertPath = customPathFromCR
-	}
+	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, rs.Spec.GetSecurity())
 
 	deploymentOpts := &deploymentOptionsRS{
 		prometheusCertHash:   prometheusCertHash,

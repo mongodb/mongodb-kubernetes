@@ -1069,7 +1069,8 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
-	agentCertHash, agentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertHash, defaultAgentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, sc.Spec.GetSecurity())
 
 	opts := deploymentOptions{
 		podEnvVars:           podEnvVars,
@@ -2322,6 +2323,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithExternalAgentVersion(opts.externalAgentVersion),
+		WithAgentCertPath(opts.agentCertPath),
 	)
 }
 
@@ -2354,6 +2356,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithExternalAgentVersion(opts.externalAgentVersion),
+		WithAgentCertPath(opts.agentCertPath),
 	)
 }
 
@@ -2388,6 +2391,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithExternalAgentVersion(opts.externalAgentVersion),
+		WithAgentCertPath(opts.agentCertPath),
 	)
 }
 

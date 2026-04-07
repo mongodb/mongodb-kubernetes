@@ -1058,8 +1058,7 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		zap.S().Debugf("using a custom agent version from operator env: %s", agentVersion)
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: agentVersion})
 	} else if opts.ExternalAgentVersion != "" {
-		// Non-static pods download the agent tarball; pin to deployment.agentVersion.name when OM has set it
-		// (e.g. mixed external + Kubernetes members) so new pods match existing agents.
+		// Non-static pods download the agent
 		zap.S().Debugf("using external agent version for: %s", opts.ExternalAgentVersion)
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: opts.ExternalAgentVersion})
 	}
