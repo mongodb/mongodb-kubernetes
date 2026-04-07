@@ -345,11 +345,11 @@ def test_additional_config_set_parameter(generated_cr: dict):
 
 
 @mark.e2e_vm_migration_generate_different_mongod_config
-def test_additional_config_excludes_differing(generated_cr: dict):
-    """oplogSizeMB is only on 2 of 3 members — must NOT be in the CR."""
+def test_additional_config_replication(generated_cr: dict):
+    """additionalMongodConfig is taken from the source process; oplogSizeMB present on the source process appears in the CR."""
     amc = generated_cr["spec"].get("additionalMongodConfig", {})
     repl = amc.get("replication", {})
-    assert "oplogSizeMB" not in repl, f"oplogSizeMB is not present on all members and should be excluded, got: {repl}"
+    assert repl.get("oplogSizeMB") == 2048, f"Expected oplogSizeMB=2048 from source process, got: {repl}"
 
 
 @mark.e2e_vm_migration_generate_different_mongod_config

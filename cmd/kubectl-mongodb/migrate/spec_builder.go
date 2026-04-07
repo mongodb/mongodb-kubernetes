@@ -277,7 +277,7 @@ func buildReplicaSetCommonSpec(version, fcv, rsName, resourceName string, extern
 	return common
 }
 
-// buildSharedSpecFields computes the fields shared by all topologies.
+// buildSharedSpecFields extracts the spec fields shared across all topologies: security, Prometheus, additionalMongodConfig (from source process), and agent config.
 func buildSharedSpecFields(ac *om.AutomationConfig, opts GenerateOptions) (sharedSpecFields, error) {
 	security, err := buildSecurity(ac.Auth, opts.ProcessMap, opts.Members, ac.Ldap, ac.OIDCProviderConfigs, opts.CertsSecretPrefix)
 	if err != nil {

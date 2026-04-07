@@ -613,7 +613,6 @@ func checkProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs *P
 	return results
 }
 
-
 func checkMemberPreservedFields(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, rs := range d.GetReplicaSets() {

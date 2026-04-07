@@ -195,5 +195,3 @@ func StructToMap(v interface{}) (map[string]interface{}, error) {
 
 	return result, nil
 }
-
-

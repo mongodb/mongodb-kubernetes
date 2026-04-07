@@ -130,7 +130,7 @@ func MapMechanismToAuthMode(mech string) (string, bool) {
 	case util.AutomationConfigScramSha256Option: // "SCRAM-SHA-256" → CR "SCRAM"
 		return util.SCRAM, true
 	case util.AutomationConfigScramSha1Option, // "MONGODB-CR"
-		util.SCRAMSHA1:                         // "SCRAM-SHA-1"
+		util.SCRAMSHA1: // "SCRAM-SHA-1"
 		return mech, true
 	case util.AutomationConfigX509Option: // "MONGODB-X509" → CR "X509"
 		return util.X509, true

@@ -20,10 +20,10 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -59,13 +59,13 @@ const (
 type MockedOmConnection struct {
 	context *OMContext
 
-	deployment             Deployment
-	automationConfig       *AutomationConfig
-	backupAgentConfig      *BackupAgentConfig
-	monitoringAgentConfig  *MonitoringAgentConfig
-	processLogRotation     *automationconfig.AcLogRotate
-	auditLogRotation       *automationconfig.AcLogRotate
-	controlledFeature      *controlledfeature.ControlledFeature
+	deployment            Deployment
+	automationConfig      *AutomationConfig
+	backupAgentConfig     *BackupAgentConfig
+	monitoringAgentConfig *MonitoringAgentConfig
+	processLogRotation    *automationconfig.AcLogRotate
+	auditLogRotation      *automationconfig.AcLogRotate
+	controlledFeature     *controlledfeature.ControlledFeature
 	// hosts are used for both automation agents and monitoring endpoints.
 	// They are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
 	hostResults      *host.Result
