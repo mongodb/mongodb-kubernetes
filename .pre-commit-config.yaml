@@ -139,6 +139,13 @@ repos:
         files: docker/mongodb-kubernetes-tests/tests/.*\.py$
         stages: [pre-commit]
 
+      - id: migrate-unit-tests
+        name: migrate unit tests
+        entry: go test ./cmd/kubectl-mongodb/migrate/...
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
   - repo: local
     hooks:
       - id: govulncheck
@@ -147,7 +154,6 @@ repos:
         language: system
         pass_filenames: false
         files: (\.go$|^go\.(mod|sum)$)
-        stages: [pre-commit]
 
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.0.2

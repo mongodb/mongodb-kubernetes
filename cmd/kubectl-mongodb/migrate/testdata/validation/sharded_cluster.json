@@ -1,0 +1,123 @@
+{
+  "agentVersion": {
+    "directoryUrl": "https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/automation-agent/qa/",
+    "name": "13.48.0.10348-1"
+  },
+  "atlasProxies": [],
+  "atlasUISes": [],
+  "auth": {
+    "usersWanted": [],
+    "usersDeleted": [],
+    "disabled": true,
+    "authoritativeSet": false,
+    "autoAuthMechanism": "MONGODB-CR",
+    "autoAuthMechanisms": [],
+    "autoAuthRestrictions": []
+  },
+  "backupVersions": [
+    {"hostname": "shard-a.example.com", "name": "13.48.0.10348-1"},
+    {"hostname": "shard-b.example.com", "name": "13.48.0.10348-1"}
+  ],
+  "balancer": {},
+  "clusterWideConfigurations": {},
+  "cpsModules": [],
+  "dbCheckModules": [],
+  "filebeat": {},
+  "indexConfigs": [],
+  "kerberos": {
+    "serviceName": "mongodb"
+  },
+  "ldap": {},
+  "lifecycleManagementModules": [],
+  "maintainedEnvoys": [],
+  "maintainedMonarchComponents": [],
+  "maintainedMongotunes": [],
+  "maintainedRamis": [],
+  "mongoDbVersions": [
+    {
+      "builds": [
+        {
+          "architecture": "amd64",
+          "gitVersion": "abc123",
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-rhel80-7.0.12.tgz"
+        }
+      ],
+      "name": "7.0.12-ent"
+    }
+  ],
+  "mongosqlds": [],
+  "mongots": [],
+  "monitoringVersions": [
+    {"hostname": "shard-a.example.com", "name": "13.48.0.10348-1"},
+    {"hostname": "shard-b.example.com", "name": "13.48.0.10348-1"}
+  ],
+  "oidcProviderConfigs": [],
+  "onlineArchiveModules": [],
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation",
+    "downloadBaseWindows": "%SystemDrive%\\MMSAutomation\\versions"
+  },
+  "processes": [
+    {
+      "args2_6": {
+        "net": {"port": 27017, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "shard-rs"},
+        "storage": {"dbPath": "/data"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "auditLogRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "shard-a.example.com",
+      "logRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "name": "shard-rs-0",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27017, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "shard-rs"},
+        "storage": {"dbPath": "/data"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb-mms-automation/mongodb.log"}
+      },
+      "auditLogRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "shard-b.example.com",
+      "logRotate": {"numTotal": 10, "numUncompressed": 2, "percentOfDiskspace": 0.4, "sizeThresholdMB": 100.0, "timeThresholdHrs": 1},
+      "name": "shard-rs-1",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "shard-rs",
+      "members": [
+        {"_id": 0, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "shard-rs-0", "priority": 1, "secondaryDelaySecs": 0, "votes": 1, "tags": {}},
+        {"_id": 1, "arbiterOnly": false, "buildIndexes": true, "hidden": false, "host": "shard-rs-1", "priority": 1, "secondaryDelaySecs": 0, "votes": 1, "tags": {}}
+      ],
+      "protocolVersion": "1"
+    }
+  ],
+  "roles": [],
+  "serverlessStateCacheMaintainers": [],
+  "sharding": [
+    {
+      "_id": "my-sharded-cluster",
+      "configServerReplica": "config-rs",
+      "shards": [
+        {
+          "_id": "shard-rs",
+          "rs": "shard-rs"
+        }
+      ]
+    }
+  ],
+  "tls": {
+    "clientCertificateMode": "OPTIONAL"
+  },
+  "version": 5
+}
