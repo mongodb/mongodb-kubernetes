@@ -1135,6 +1135,98 @@ func acSnapshotFilter(changelog diff.Changelog) diff.Changelog {
 	return filtered
 }
 
+// stripIgnoredDeploymentTopKeys returns a copy of dep without auto-managed top-level keys,
+// for persisting as _previous so the next reconcile stays under the ConfigMap size limit.
+func stripIgnoredDeploymentTopKeys(dep om.Deployment) om.Deployment {
+	stripped := make(om.Deployment, len(dep))
+	for k, v := range dep {
+		if _, ok := acSnapshotIgnoredFields[strings.ToLower(k)]; !ok {
+			stripped[k] = v
+		}
+	}
+	return stripped
+}
+
+// acSnapshotChangelog computes the filtered r3labs/diff changelog from previous to next deployment.
+func acSnapshotChangelog(previous, next om.Deployment) (diff.Changelog, error) {
+	from := previous
+	if from == nil {
+		from = om.Deployment{}
+	}
+	changelog, err := diff.Diff(from, next, diff.AllowTypeMismatch(true))
+	if err != nil {
+		return nil, err
+	}
+	return acSnapshotFilter(changelog), nil
+}
+
+// acSnapshotState is mutable hook state seeded from an existing ConfigMap so step numbering
+// and diff baseline carry across reconciles.
+type acSnapshotState struct {
+	// accumulated is the in-memory ConfigMap payload, it contains all the automation config steps
+	// with previous for diffing.
+	accumulated map[string]string
+	// previous is the automationConfig deployment after the last successful PUT,
+	// used as the diff "from" baseline for the next changelog.
+	previous om.Deployment
+	// lastWrittenStep is the highest step-NNN index already in accumulated after load; each PUT
+	// increments it before writing the next step-%03d entry.
+	lastWrittenStep int
+}
+
+func loadACSnapshotStateFromConfigMap(ctx context.Context, client kubernetesClient.Client, namespace, cmName string) acSnapshotState {
+	s := acSnapshotState{accumulated: make(map[string]string)}
+	existing := corev1.ConfigMap{}
+	if err := client.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, &existing); err != nil {
+		return s
+	}
+	for k, v := range existing.Data {
+		if k == "_previous" {
+			var dep om.Deployment
+			if json.Unmarshal([]byte(v), &dep) == nil {
+				s.previous = dep
+			}
+			continue
+		}
+		s.accumulated[k] = v
+	}
+	s.lastWrittenStep = len(s.accumulated)
+	return s
+}
+
+func (s *acSnapshotState) persistAutomationConfigSnapshot(ctx context.Context, client kubernetesClient.Client, namespace, cmName string, body []byte, log *zap.SugaredLogger) {
+	var dep om.Deployment
+	if err := json.Unmarshal(body, &dep); err != nil {
+		log.Warnw("AC snapshot: failed to unmarshal deployment", "error", err)
+		return
+	}
+	s.lastWrittenStep++
+	changelog, err := acSnapshotChangelog(s.previous, dep)
+	if err != nil {
+		log.Warnw("AC snapshot: failed to diff deployment", "lastWrittenStep", s.lastWrittenStep, "error", err)
+		return
+	}
+	data, err := json.Marshal(changelog)
+	if err != nil {
+		log.Warnw("AC snapshot: failed to marshal diff", "lastWrittenStep", s.lastWrittenStep, "error", err)
+		return
+	}
+	if copied, copyErr := util.MapDeepCopy(dep); copyErr == nil {
+		s.previous = copied
+	}
+	s.accumulated[fmt.Sprintf("step-%03d", s.lastWrittenStep)] = string(data)
+	if prevData, marshalErr := json.Marshal(stripIgnoredDeploymentTopKeys(dep)); marshalErr == nil {
+		s.accumulated["_previous"] = string(prevData)
+	}
+	cm := corev1.ConfigMap{}
+	cm.Name = cmName
+	cm.Namespace = namespace
+	cm.Data = s.accumulated
+	if err := configmap.CreateOrUpdate(ctx, client, cm); err != nil {
+		log.Warnw("AC snapshot: failed to write ConfigMap", "name", cmName, "error", err)
+	}
+}
+
 // attachACSnapshotHook sets a debug hook on the underlying HTTP client of conn that fires after every
 // successful PUT to the main automationConfig endpoint. Each entry in the ConfigMap named
 // <resourceName>-ac-snapshot is the r3labs/diff Changelog from the previous step, with
@@ -1146,73 +1238,14 @@ func attachACSnapshotHook(ctx context.Context, client kubernetesClient.Client, c
 		return
 	}
 	cmName := resourceName + "-ac-snapshot"
+	state := loadACSnapshotStateFromConfigMap(ctx, client, namespace, cmName)
 
-	// Seed from existing ConfigMap so steps and previous-state carry over across reconciles.
-	accumulated := make(map[string]string)
-	var previous om.Deployment
-	existing := corev1.ConfigMap{}
-	if err := client.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, &existing); err == nil {
-		for k, v := range existing.Data {
-			if k == "_previous" {
-				dep := om.Deployment{}
-				if jsonErr := json.Unmarshal([]byte(v), &dep); jsonErr == nil {
-					previous = dep
-				}
-			} else {
-				accumulated[k] = v
-			}
-		}
-	}
-
-	step := len(accumulated) // Continue numbering after existing steps.
 	hConn.SetPUTHook(func(path string, body []byte) {
 		// Only capture the main automationConfig endpoint, not sub-endpoints
 		// (backupAgentConfig, monitoringAgentConfig, etc.)
 		if !strings.HasSuffix(path, "/automationConfig") {
 			return
 		}
-		var dep om.Deployment
-		if err := json.Unmarshal(body, &dep); err != nil {
-			log.Warnw("AC snapshot: failed to unmarshal deployment", "error", err)
-			return
-		}
-		step++
-		from := previous
-		if from == nil {
-			from = om.Deployment{}
-		}
-		changelog, err := diff.Diff(from, dep, diff.AllowTypeMismatch(true))
-		if err != nil {
-			log.Warnw("AC snapshot: failed to diff deployment", "step", step, "error", err)
-			return
-		}
-		changelog = acSnapshotFilter(changelog)
-		data, err := json.Marshal(changelog)
-		if err != nil {
-			log.Warnw("AC snapshot: failed to marshal diff", "step", step, "error", err)
-			return
-		}
-		if copied, copyErr := util.MapDeepCopy(dep); copyErr == nil {
-			previous = copied
-		}
-		accumulated[fmt.Sprintf("step-%03d", step)] = string(data)
-		// Persist the last-seen deployment (with ignored fields stripped) so the next reconcile
-		// can diff against it without hitting the 1 MiB ConfigMap limit.
-		stripped := make(om.Deployment, len(dep))
-		for k, v := range dep {
-			if _, ok := acSnapshotIgnoredFields[strings.ToLower(k)]; !ok {
-				stripped[k] = v
-			}
-		}
-		if prevData, marshalErr := json.Marshal(stripped); marshalErr == nil {
-			accumulated["_previous"] = string(prevData)
-		}
-		cm := corev1.ConfigMap{}
-		cm.Name = cmName
-		cm.Namespace = namespace
-		cm.Data = accumulated
-		if err := configmap.CreateOrUpdate(ctx, client, cm); err != nil {
-			log.Warnw("AC snapshot: failed to write ConfigMap", "name", cmName, "error", err)
-		}
+		state.persistAutomationConfigSnapshot(ctx, client, namespace, cmName, body, log)
 	})
 }
