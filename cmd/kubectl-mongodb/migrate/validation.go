@@ -2,7 +2,6 @@ package migrate
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"slices"
 
@@ -59,7 +58,6 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 	results = append(results, validateProjectOptions(ac.Deployment)...)
 	results = append(results, validateProcessConfig(ac.Deployment, processMap)...)
 	results = append(results, checkReplicaSetProtocolVersion(ac.Deployment)...)
-	results = append(results, checkVersionConsistency(ac.Deployment, processMap)...)
 	results = append(results, checkMemberPreservedFields(ac.Deployment)...)
 	for _, r := range results {
 		if r.Severity == SeverityError {
@@ -72,7 +70,6 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 		return append(results, ValidationResult{Severity: SeverityError, Message: err.Error()}), nil
 	}
 	fmt.Fprintf(os.Stderr, "[WARNING] spec.additionalMongodConfig and spec.agent.mongod.systemLog will be taken from process %q. Review all members and reconcile any differences before migration.\n", sourceProcess.Name())
-	results = append(results, checkDifferentMongodConfig(members, processMap, sourceProcess)...)
 	results = append(results, checkProcessConfigDrift(sourceProcess, projectProcessConfigs)...)
 
 	return results, sourceProcess
@@ -482,100 +479,6 @@ func checkMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Pr
 				})
 			}
 		}
-	}
-	return results
-}
-
-// checkDifferentMongodConfig warns when members have additionalMongodConfig fields that differ from the source process.
-func checkDifferentMongodConfig(members []om.ReplicaSetMember, processMap map[string]om.Process, sourceProcess *om.Process) []ValidationResult {
-	if sourceProcess == nil || len(members) < 2 {
-		return nil
-	}
-
-	sourceCfg := sourceProcess.AdditionalMongodConfig()
-	var sourceFlat map[string]string
-	if sourceCfg != nil {
-		sourceFlat = maputil.ToFlatMap(sourceCfg.ToMap())
-	}
-
-	var results []ValidationResult
-	for _, m := range members {
-		proc, ok := processMap[m.Name()]
-		if !ok || proc.Name() == sourceProcess.Name() {
-			continue
-		}
-		var memberFlat map[string]string
-		if cfg := proc.AdditionalMongodConfig(); cfg != nil {
-			memberFlat = maputil.ToFlatMap(cfg.ToMap())
-		}
-		for _, key := range findInconsistentKeys([]map[string]string{sourceFlat, memberFlat}) {
-			results = append(results, ValidationResult{
-				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("Field %q on process %q differs from source process %q and will be excluded from the Custom Resource. Reconcile before migration.", key, proc.Name(), sourceProcess.Name()),
-			})
-		}
-	}
-	return results
-}
-
-// findInconsistentKeys returns keys whose values differ across the flat maps.
-func findInconsistentKeys(allFlat []map[string]string) []string {
-	seen := map[string]bool{}
-	for _, flat := range allFlat {
-		for k := range flat {
-			seen[k] = true
-		}
-	}
-	var inconsistent []string
-	for _, key := range slices.Sorted(maps.Keys(seen)) {
-		refVal, refExists := allFlat[0][key]
-		consistent := true
-		for _, flat := range allFlat[1:] {
-			val, exists := flat[key]
-			if exists != refExists || val != refVal {
-				consistent = false
-				break
-			}
-		}
-		if !consistent {
-			inconsistent = append(inconsistent, key)
-		}
-	}
-	return inconsistent
-}
-
-// checkVersionConsistency warns when members have different MongoDB versions or feature compatibility versions.
-func checkVersionConsistency(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
-	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 {
-		return nil
-	}
-
-	members := replicaSets[0].Members()
-	versions := map[string]bool{}
-	fcvs := map[string]bool{}
-
-	for _, m := range members {
-		proc, ok := processMap[m.Name()]
-		if !ok {
-			continue
-		}
-		versions[proc.Version()] = true
-		fcvs[proc.FeatureCompatibilityVersion()] = true
-	}
-
-	var results []ValidationResult
-	if len(versions) > 1 {
-		results = append(results, ValidationResult{
-			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("Members have different MongoDB versions %v. The Custom Resource will use the first member's version. Reconcile before migration.", slices.Sorted(maps.Keys(versions))),
-		})
-	}
-	if len(fcvs) > 1 {
-		results = append(results, ValidationResult{
-			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("Members have different feature compatibility versions %v. The Custom Resource will use the first member's FCV.", slices.Sorted(maps.Keys(fcvs))),
-		})
 	}
 	return results
 }

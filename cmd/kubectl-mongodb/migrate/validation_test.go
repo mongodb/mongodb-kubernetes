@@ -529,56 +529,6 @@ func TestValidation_X509AutoUser_NotInUsersWanted_NoError(t *testing.T) {
 	}
 }
 
-func TestValidation_VersionConsistency_Warning(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{
-			map[string]interface{}{
-				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
-				"args2_6": map[string]interface{}{
-					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
-					"replication": map[string]interface{}{"replSetName": "my-rs"},
-				},
-			},
-			map[string]interface{}{
-				"name": "rs-1", "processType": "mongod", "version": "8.0.0", "authSchemaVersion": 5,
-				"args2_6": map[string]interface{}{
-					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
-					"replication": map[string]interface{}{"replSetName": "my-rs"},
-				},
-			},
-		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
-				"_id": "my-rs", "protocolVersion": "1",
-				"members": []interface{}{
-					map[string]interface{}{"host": "rs-0", "tags": map[string]string{}},
-					map[string]interface{}{"host": "rs-1", "tags": map[string]string{}},
-				},
-			},
-		},
-		"sharding": []interface{}{},
-	})
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
-	hasWarning := false
-	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "different MongoDB versions") {
-			hasWarning = true
-		}
-	}
-	assert.True(t, hasWarning, "expected warning when members have different versions")
-}
-
-func TestValidation_VersionConsistency_NoWarning(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
-	for _, r := range results {
-		if strings.Contains(r.Message, "different MongoDB versions") {
-			t.Errorf("unexpected version consistency warning: %s", r.Message)
-		}
-	}
-}
 
 func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
