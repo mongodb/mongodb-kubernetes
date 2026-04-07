@@ -73,7 +73,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 	}
 	fmt.Fprintf(os.Stderr, "[WARNING] spec.additionalMongodConfig and spec.agent.mongod.systemLog will be taken from process %q. Review all members and reconcile any differences before migration.\n", sourceProcess.Name())
 	results = append(results, checkDifferentMongodConfig(members, processMap, sourceProcess)...)
-	results = append(results, checkProcessConfigDrift(members, processMap, projectProcessConfigs)...)
+	results = append(results, checkProcessConfigDrift(sourceProcess, projectProcessConfigs)...)
 
 	return results, sourceProcess
 }
@@ -580,8 +580,8 @@ func checkVersionConsistency(d om.Deployment, processMap map[string]om.Process) 
 	return results
 }
 
-// checkProcessConfigDrift warns when per-process logRotate/auditLogRotate differs from project-level config.
-func checkProcessConfigDrift(members []om.ReplicaSetMember, processMap map[string]om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
+// checkProcessConfigDrift warns when the source process logRotate/auditLogRotate differs from project-level config.
+func checkProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
 	if projectProcessConfigs == nil {
 		return nil
 	}
@@ -590,34 +590,29 @@ func checkProcessConfigDrift(members []om.ReplicaSetMember, processMap map[strin
 	projectAuditLogRotate, _ := maputil.StructToMap(projectProcessConfigs.AuditLogRotate)
 
 	var results []ValidationResult
-	for _, m := range members {
-		proc, ok := processMap[m.Name()]
-		if !ok {
-			continue
-		}
-
-		if len(projectLogRotate) > 0 {
-			processLR := proc.GetLogRotate()
-			if len(processLR) > 0 && !maputil.FlatMapsEqual(processLR, projectLogRotate) {
-				results = append(results, ValidationResult{
-					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("Process %q logRotate differs from project-level config. The Custom Resource will use the project-level value.", proc.Name()),
-				})
-			}
-		}
-
-		if len(projectAuditLogRotate) > 0 {
-			processALR := proc.GetAuditLogRotate()
-			if len(processALR) > 0 && !maputil.FlatMapsEqual(processALR, projectAuditLogRotate) {
-				results = append(results, ValidationResult{
-					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("Process %q auditLogRotate differs from project-level config. The Custom Resource will use the project-level value.", proc.Name()),
-				})
-			}
+	if len(projectLogRotate) > 0 {
+		processLR := sourceProcess.GetLogRotate()
+		if len(processLR) > 0 && !maputil.FlatMapsEqual(processLR, projectLogRotate) {
+			results = append(results, ValidationResult{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("Process %q logRotate differs from project-level config. The Custom Resource will use the project-level value.", sourceProcess.Name()),
+			})
 		}
 	}
+
+	if len(projectAuditLogRotate) > 0 {
+		processALR := sourceProcess.GetAuditLogRotate()
+		if len(processALR) > 0 && !maputil.FlatMapsEqual(processALR, projectAuditLogRotate) {
+			results = append(results, ValidationResult{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("Process %q auditLogRotate differs from project-level config. The Custom Resource will use the project-level value.", sourceProcess.Name()),
+			})
+		}
+	}
+
 	return results
 }
+
 
 func checkMemberPreservedFields(d om.Deployment) []ValidationResult {
 	var results []ValidationResult

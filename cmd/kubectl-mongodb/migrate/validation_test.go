@@ -597,7 +597,7 @@ func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 			map[string]interface{}{
 				"_id": "my-rs", "protocolVersion": "1",
 				"members": []interface{}{
-					map[string]interface{}{"host": "rs-0", "tags": map[string]string{}},
+					map[string]interface{}{"host": "rs-0", "votes": 1, "priority": 1, "tags": map[string]string{}},
 				},
 			},
 		},

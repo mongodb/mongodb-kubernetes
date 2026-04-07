@@ -116,8 +116,8 @@ def _configure_ac_heterogeneous(namespace: str, om_tester: OMTester, vm_sts: dic
                 "scramSha256Creds": {
                     "iterationCount": 15000,
                     "salt": "A0YIBVpnx7j8H2X4rSl0iU8whvg2u/odX49SGw==",
-                    "serverKey": "mS31vPPLADVrzwcutZ1w5Z79v6UTEk8PIO7ULzEpO+o=",
-                    "storedKey": "MW5DjEpsORIDhCPBy8XjKcl/Z1h8RSW/rHOSAwTZ4Zk=",
+                    "serverKey": "pjgCbQ+C3LBmb0q6x7RkIsvI9DlJnHWVBf6YU5cLeUo=",
+                    "storedKey": "nt65rpJuj/5TyaXGoJg+9BB4rhZPAXwDdHWJ+K8VtCs=",
                 },
                 "authenticationRestrictions": [],
             },

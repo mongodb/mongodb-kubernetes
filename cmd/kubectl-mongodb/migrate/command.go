@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
@@ -202,15 +203,21 @@ func applyClusterResources(ctx context.Context, ac *om.AutomationConfig, opts Ge
 		} else {
 			switch v := r.(type) {
 			case corev1.Secret:
-				if err := kubeClient.CreateSecret(ctx, v); err != nil {
+				if err := kubeClient.CreateSecret(ctx, v); k8serrors.IsAlreadyExists(err) {
+					fmt.Fprintf(os.Stderr, "Secret %q already exists in namespace %q, skipping\n", v.Name, namespace)
+				} else if err != nil {
 					return "", fmt.Errorf("failed to create secret %q: %w", v.Name, err)
+				} else {
+					fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", v.Name, namespace)
 				}
-				fmt.Fprintf(os.Stderr, "Created secret %q in namespace %q\n", v.Name, namespace)
 			case corev1.ConfigMap:
-				if err := kubeClient.CreateConfigMap(ctx, v); err != nil {
+				if err := kubeClient.CreateConfigMap(ctx, v); k8serrors.IsAlreadyExists(err) {
+					fmt.Fprintf(os.Stderr, "ConfigMap %q already exists in namespace %q, skipping\n", v.Name, namespace)
+				} else if err != nil {
 					return "", fmt.Errorf("failed to create configmap %q: %w", v.Name, err)
+				} else {
+					fmt.Fprintf(os.Stderr, "Created configmap %q in namespace %q\n", v.Name, namespace)
 				}
-				fmt.Fprintf(os.Stderr, "Created configmap %q in namespace %q\n", v.Name, namespace)
 			}
 		}
 	}
