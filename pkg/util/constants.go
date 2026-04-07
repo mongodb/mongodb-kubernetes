@@ -195,6 +195,7 @@ const (
 	MemberListConfigMapName          = OperatorName + "-member-list"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
+	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"
 	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"
 	CurrentNamespace                 = "NAMESPACE"
 	OperatorNameEnv                  = "OPERATOR_NAME"
@@ -207,6 +208,12 @@ const (
 	MdbWebhookNameEnv                  = "MDB_WEBHOOK_NAME"
 
 	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
+
+	// Search environment variables
+	SearchRepoURLEnv = "MDB_SEARCH_REPO_URL"
+	SearchNameEnv    = "MDB_SEARCH_NAME"
+	SearchVersionEnv = "MDB_SEARCH_VERSION"
+	EnvoyImageEnv    = "MDB_ENVOY_IMAGE"
 
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
@@ -222,6 +229,7 @@ const (
 	OpsManagerDefaultPortHTTPS         = 8443
 	DefaultBackupDisableWaitSeconds    = "3"
 	DefaultBackupDisableWaitRetries    = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
+	DefaultBackupStartDelaySeconds     = 60   // 60 seconds delay to avoid race condition between OM topology discovery and backup enablement
 	DefaultPodTerminationPeriodSeconds = 600  // 10 min. Keep this in sync with 'cleanup()' function in agent-launcher-lib.sh
 	DefaultK8sCacheRefreshTimeSeconds  = 2
 	OpsManagerMonitorAppDBDefault      = true

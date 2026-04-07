@@ -22,7 +22,7 @@ import (
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
 func UpdateStatus(ctx context.Context, kubeClient kubernetesClient.Client, reconciledResource v1.CustomResourceReadWriter, st workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
 	mergedOptions := append(statusOptions, st.StatusOptions()...)
-	log.Debugf("Updating status: phase=%v, options=%+v", st.Phase(), mergedOptions)
+	log.Infof("Updating status: phase=%v, options=%+v", st.Phase(), mergedOptions)
 	reconciledResource.UpdateStatus(st.Phase(), mergedOptions...)
 	if err := patchUpdateStatus(ctx, kubeClient, reconciledResource, statusOptions...); err != nil {
 		log.Errorf("Error updating status to %s: %s", st.Phase(), err)
