@@ -1,0 +1,76 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+  name: scram-rs
+spec:
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  credentials: my-credentials
+  externalMembers:
+  - hostname: vm-0.example.com:27017
+    processName: scram-rs-0
+    replicaSetName: scram-rs
+    type: mongod
+  - hostname: vm-1.example.com:27017
+    processName: scram-rs-1
+    replicaSetName: scram-rs
+    type: mongod
+  - hostname: vm-2.example.com:27017
+    processName: scram-rs-2
+    replicaSetName: scram-rs
+    type: mongod
+  featureCompatibilityVersion: "8.0"
+  memberConfig:
+  - priority: "0"
+    votes: 0
+  - priority: "0"
+    votes: 0
+  - priority: "0"
+    votes: 0
+  members: 3
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      ignoreUnknownUsers: true
+      modes:
+      - SCRAM
+  type: ReplicaSet
+  version: 8.0.4-ent
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: app-user
+spec:
+  db: admin
+  mongodbResourceRef:
+    name: scram-rs
+  passwordSecretKeyRef:
+    key: password
+    name: app-user-password
+  roles:
+  - db: myapp
+    name: readWrite
+  - db: reporting
+    name: read
+  username: app-user
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-user-password
+  namespace: mongodb
+stringData:
+  password: test-password

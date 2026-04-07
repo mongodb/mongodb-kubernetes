@@ -1,0 +1,68 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+  name: hetero-rs
+spec:
+  additionalMongodConfig:
+    auditLog:
+      destination: file
+      format: JSON
+      path: /var/log/mongodb/audit0.json
+    net:
+      compression:
+        compressors: zlib,zstd
+      maxIncomingConnections: 512
+      port: 27018
+    operationProfiling:
+      mode: slowOp
+      slowOpThresholdMs: 200
+    replication:
+      oplogSizeMB: 2048
+    setParameter:
+      authenticationMechanisms: SCRAM-SHA-256
+    storage:
+      directoryPerDB: true
+      engine: inMemory
+      wiredTiger:
+        collectionConfig:
+          blockCompressor: snappy
+        engineConfig:
+          cacheSizeGB: 2
+          journalCompressor: zlib
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod0.log
+  credentials: my-credentials
+  externalMembers:
+  - hostname: vm-0.example.com:27018
+    processName: hetero-rs-0
+    replicaSetName: hetero-rs
+    type: mongod
+  - hostname: vm-1.example.com:27018
+    processName: hetero-rs-1
+    replicaSetName: hetero-rs
+    type: mongod
+  - hostname: vm-2.example.com:27018
+    processName: hetero-rs-2
+    replicaSetName: hetero-rs
+    type: mongod
+  featureCompatibilityVersion: "8.0"
+  memberConfig:
+  - priority: "0"
+    votes: 0
+  - priority: "0"
+    votes: 0
+  - priority: "0"
+    votes: 0
+  members: 3
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  type: ReplicaSet
+  version: 8.0.4-ent
