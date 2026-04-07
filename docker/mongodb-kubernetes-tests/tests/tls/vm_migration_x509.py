@@ -1,21 +1,23 @@
 """
 VM migration E2E tests with X509 and TLS.
 MDB and pseudo-VM AC use TLS and X509 client auth (deploymentAuthMechanisms); internal cluster
-auth between mongod processes continues to use keyFile (SCRAM-SHA-256 for __system@local).
+auth between mongod processes continues to use keyFile.
 
 Flow: TLS → X509 client auth (fixtures bring VM agents to goal state), then migrate (MDB resource
 with externalMembers pointing at VM processes, promote K8s members and prune VM members).
 
 The MDB resource is created with X509 + clientCertificateSecretRef and
 spec.security.authentication.agents.autoPEMKeyFilePath set to CUSTOM_AGENT_CERT_PATH, matching
-the VM pod mount. The operator configures OM and K8s pods to use that path explicitly (no
-inference from the deployment document).
+the VM pod mount. The operator configures OM and K8s pods to use that path explicitly.
 
-Non-static database pods: when spec.externalMembers is non-empty, the operator forwards
-deployment.agentVersion.name from Ops Manager as MDB_AGENT_VERSION so downloaded agents match
-the version already pinned in the automation config. VM setup therefore sets agentVersion.name
-to the same tag as the pseudo-VM agent image (AGENT_IMAGE); static architecture ignores
-MDB_AGENT_VERSION (bundled agent in the image).
+Why different Secrets for the same agent cert+key?
+- clientCertificateSecretRef (TLS: tls.crt / tls.key): CRD and operator expect this shape to
+  verify, merge, and publish PEM material to Ops Manager.
+- vm-agent-cert-pem (single combined file): VM pods must exist and reach goal state *before* any
+  MDB exists, so the operator never created *-pem for them. OM also expects autoPEMKeyFilePath to
+  be *one file* (cert+key), not separate tls.crt/tls.key paths. The test therefore synthesizes a
+  minimal Secret + mount the VM StatefulSet can use without reimplementing operator hash-key layout.
+
 """
 
 import yaml
@@ -69,12 +71,18 @@ def vm_agent_certs(issuer: str, namespace: str) -> str:
 def vm_agent_combined_pem(namespace: str, vm_agent_certs: str) -> tuple:
     """Create a combined PEM secret for VM pod cert mount and extract the agent subject DN.
 
-    VM pods need the agent cert as a single cert+key file at CUSTOM_AGENT_CERT_PATH before the
-    MDB resource (and therefore the operator) exists. We create a simple secret keyed by the
-    filename and mount the whole secret as a directory — no hash computation needed.
+    Why not mount vm_agent_certs (tls.crt / tls.key) directly on VM pods?
+    Ops Manager's tls.autoPEMKeyFilePath points at a single PEM path; the agent reads one file.
+    Split TLS keys do not match that contract without extra init logic in the pod.
 
-    The operator independently creates its own hash-keyed {vm_agent_certs}-pem secret for K8s pods
-    when it reconciles the MDB resource. The two secrets are separate; the cert content is the same.
+    Why not reuse the operator's {vm_agent_certs}-pem Secret on VM pods?
+    That Secret is created when the MDB reconciles; VM agents must already be using X509 while
+    externalMembers still point at VM processes, often before the MDB CR exists or finishes
+    reconciling. This fixture is the bootstrap path for VM-only phases of the test.
+
+    Why a trivial Secret shape (one key = filename)?
+    VM StatefulSet is hand-built YAML; a directory mount of one key → one file avoids copying the
+    operator's hash-keyed layout in test code.
 
     Returns (secret_name, subject_dn).
     """
@@ -144,8 +152,9 @@ def vm_sts(
             },
         }
     )
-    # Mount the agent cert at CUSTOM_AGENT_CERT_PATH (must match MDB agents.autoPEMKeyFilePath).
-    # Plain directory mount: secret key CUSTOM_AGENT_CERT_FILENAME -> file at CUSTOM_AGENT_CERT_PATH.
+    # Why vm-agent-cert-pem instead of the TLS secret or *-pem here: see vm_agent_combined_pem.
+    # Why this mountPath: OM tls.autoPEMKeyFilePath and later MDB autoPEMKeyFilePath must name the
+    # same path so VM and K8s agents agree with the automation config during migration.
     agent_secret_name, _ = vm_agent_combined_pem
     volumes.append({"name": "agent-cert", "secret": {"secretName": agent_secret_name}})
     sts_body["spec"]["template"]["spec"]["volumes"] = volumes
@@ -193,7 +202,10 @@ def mdb_migration(
             "modes": ["X509"],
             "agents": {
                 "mode": "X509",
+                # Why: CRD requires a kubernetes.io/tls source; operator validates and derives *-pem.
                 "clientCertificateSecretRef": {"name": vm_agent_certs},
+                # Why: tells OM/agents where the combined PEM lives on every pod; must equal VM mount so
+                # externalMembers (VM) and in-cluster members use one automation config.
                 "autoPEMKeyFilePath": CUSTOM_AGENT_CERT_PATH,
             },
         },

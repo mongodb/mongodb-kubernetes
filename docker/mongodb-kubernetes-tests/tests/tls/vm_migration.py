@@ -3,9 +3,6 @@
 Pseudo-VM pods run the automation agent from the same image tag as AGENT_IMAGE on the operator.
 Automation config sets agentVersion.name to that tag so it matches the VM agents.
 
-When spec.externalMembers is non-empty, the Kubernetes operator (non-static architecture) copies
-deployment.agentVersion.name into MDB_AGENT_VERSION on database pods so the downloaded agent
-matches the mixed deployment; static architecture uses the bundled agent in the image instead.
 """
 
 import yaml
