@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -83,13 +85,21 @@ func buildAuthenticationConfig(
 	}
 
 	if acLdap != nil && (acLdap.Servers != "" || acLdap.BindQueryUser != "") {
-		authConfig.Ldap = mdbv1.ConvertACLdapToCR(acLdap, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
+		cr := mdbv1.ConvertACLdapToCR(acLdap)
+		if acLdap.BindQueryUser != "" {
+			cr.BindQuerySecretRef = mdbv1.SecretRef{Name: LdapBindQuerySecretName}
+		}
+		if acLdap.CaFileContents != "" {
+			cr.CAConfigMapRef = &corev1.ConfigMapKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: LdapCAConfigMapName},
+				Key:                  LdapCAKey,
+			}
+		}
+		authConfig.Ldap = cr
 	}
 
-	if len(oidcConfigs) > 0 {
-		if crOIDC := authn.MapACOIDCToProviderConfigs(oidcConfigs); len(crOIDC) > 0 {
-			authConfig.OIDCProviderConfigs = crOIDC
-		}
+	if crOIDC := authn.MapACOIDCToProviderConfigs(oidcConfigs); len(crOIDC) > 0 {
+		authConfig.OIDCProviderConfigs = crOIDC
 	}
 
 	if agentMode, ok := authn.MapMechanismToAuthMode(auth.AutoAuthMechanism); ok {
