@@ -885,7 +885,7 @@ func (d Deployment) GetProcesses() []Process {
 	return d.getProcesses()
 }
 
-// ProcessMap returns a map of process name → Process for O(1) lookups.
+// ProcessMap returns a map of process name → Process. Names are unique within a deployment.
 func (d Deployment) ProcessMap() map[string]Process {
 	processes := d.getProcesses()
 	m := make(map[string]Process, len(processes))

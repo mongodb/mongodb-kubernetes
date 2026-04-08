@@ -261,6 +261,9 @@ func (oc *HTTPOmConnection) UpdateProcessLogRotation(logRotateSetting automation
 	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/systemLogRotateConfig", oc.GroupID()), logRotateSetting)
 }
 
+// ReadProcessLogRotation reads process log rotation from the dedicated OM API endpoint.
+// Used during VM migration — the endpoint returns project-level config in a structured form
+// that maps directly to the CR's agent spec, unlike the per-process entries in the raw AC.
 func (oc *HTTPOmConnection) ReadProcessLogRotation() (*automationconfig.AcLogRotate, error) {
 	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/systemLogRotateConfig", oc.GroupID()))
 	if err != nil {

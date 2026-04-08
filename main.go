@@ -45,6 +45,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -397,7 +398,12 @@ func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberC
 }
 
 func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
-	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap)
+	if err := operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap); err != nil {
+		return err
+	}
+	return ctrl.NewWebhookManagedBy(mgr).For(&userv1.MongoDBUser{}).
+		WithValidator(&userv1.MongoDBUserValidator{}).
+		Complete()
 }
 
 func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {

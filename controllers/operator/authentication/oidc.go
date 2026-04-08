@@ -117,6 +117,9 @@ func MapOIDCProviderConfigs(oidcProviderConfigs []mdbv1.OIDCProviderConfig) []oi
 // MapACOIDCToProviderConfigs converts AC OIDC provider configs to the CR's
 // OIDCProviderConfig representation. This is the reverse of MapOIDCProviderConfigs.
 func MapACOIDCToProviderConfigs(configs []oidc.ProviderConfig) []mdbv1.OIDCProviderConfig {
+	if len(configs) == 0 {
+		return nil
+	}
 	var out []mdbv1.OIDCProviderConfig
 	for _, c := range configs {
 		authzType := mdbv1.OIDCAuthorizationType(mdbv1.OIDCAuthorizationTypeUserID)

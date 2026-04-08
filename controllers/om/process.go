@@ -315,9 +315,9 @@ func (p Process) SystemLogMap() map[string]interface{} {
 	return maputil.ReadMapValueAsMap(p.Args(), "systemLog")
 }
 
-// AdditionalMongodConfig is the inverse of WithAdditionalMongodConfig: it reads args2_6 back
-// into spec.additionalMongodConfig, stripping only the fields the operator always overwrites.
-// Returns nil when no user-relevant config remains.
+// AdditionalMongodConfig recovers user-supplied mongod config from args2_6 during VM migration.
+// Operator-owned fields (systemLog, storage.dbPath, replication.replSetName, default net.port,
+// TLS cert paths and default mode) are stripped. Returns nil when nothing user-relevant remains.
 func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 	if len(p.Args()) == 0 {
 		return nil

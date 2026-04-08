@@ -350,6 +350,9 @@ func findDifference(leftMap map[string]ReplicaSetMember, rightMap map[string]Rep
 // given replica set members and process map. Each member becomes an
 // mdbv1.ExternalMember suitable for the CR's spec.externalMembers.
 func ExtractMemberInfo(members []ReplicaSetMember, processMap map[string]Process) ([]mdbv1.ExternalMember, string, string) {
+	if len(members) == 0 {
+		return nil, "", ""
+	}
 	firstProc := processMap[members[0].Name()]
 	version := firstProc.Version()
 	fcv := firstProc.FeatureCompatibilityVersion()

@@ -1481,38 +1481,77 @@ func (m *MongoDB) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }
 
+// ldapFieldMapping holds both directions of a single field conversion so they stay co-located.
+type ldapFieldMapping struct {
+	toAC func(*Ldap, *ldap.Ldap)
+	toCR func(*ldap.Ldap, *Ldap)
+}
+
+var ldapFieldMappings = []ldapFieldMapping{
+	{func(c *Ldap, a *ldap.Ldap) { a.BindQueryUser = c.BindQueryUser }, func(a *ldap.Ldap, c *Ldap) { c.BindQueryUser = a.BindQueryUser }},
+	{func(c *Ldap, a *ldap.Ldap) { a.AuthzQueryTemplate = c.AuthzQueryTemplate }, func(a *ldap.Ldap, c *Ldap) { c.AuthzQueryTemplate = a.AuthzQueryTemplate }},
+	{func(c *Ldap, a *ldap.Ldap) { a.UserToDnMapping = c.UserToDNMapping }, func(a *ldap.Ldap, c *Ldap) { c.UserToDNMapping = a.UserToDnMapping }},
+	{func(c *Ldap, a *ldap.Ldap) { a.TimeoutMS = c.TimeoutMS }, func(a *ldap.Ldap, c *Ldap) { c.TimeoutMS = a.TimeoutMS }},
+	{func(c *Ldap, a *ldap.Ldap) { a.UserCacheInvalidationInterval = c.UserCacheInvalidationInterval }, func(a *ldap.Ldap, c *Ldap) { c.UserCacheInvalidationInterval = a.UserCacheInvalidationInterval }},
+	{
+		func(c *Ldap, a *ldap.Ldap) {
+			a.ValidateLDAPServerConfig = true
+			if c.ValidateLDAPServerConfig != nil {
+				a.ValidateLDAPServerConfig = *c.ValidateLDAPServerConfig
+			}
+		},
+		func(a *ldap.Ldap, c *Ldap) { c.ValidateLDAPServerConfig = &a.ValidateLDAPServerConfig },
+	},
+	{
+		func(c *Ldap, a *ldap.Ldap) { a.Servers = strings.Join(c.Servers, ",") },
+		func(a *ldap.Ldap, c *Ldap) {
+			if a.Servers == "" {
+				return
+			}
+			parts := strings.Split(a.Servers, ",")
+			for i := range parts {
+				parts[i] = strings.TrimSpace(parts[i])
+			}
+			c.Servers = parts
+		},
+	},
+	{
+		func(c *Ldap, a *ldap.Ldap) { a.TransportSecurity = string(GetTransportSecurity(c)) },
+		func(a *ldap.Ldap, c *Ldap) {
+			if a.TransportSecurity != "" {
+				ts := TransportSecurity(a.TransportSecurity)
+				c.TransportSecurity = &ts
+			}
+		},
+	},
+}
+
+// GetLDAP converts the CR LDAP spec to the AC representation. See ConvertACLdapToCR for the reverse.
 func (m *MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 	if !m.IsLDAPEnabled() {
 		return nil
 	}
-
 	mdbLdap := m.Spec.Security.Authentication.Ldap
-	transportSecurity := GetTransportSecurity(mdbLdap)
-
-	validateServerConfig := true
-	if mdbLdap.ValidateLDAPServerConfig != nil {
-		validateServerConfig = *mdbLdap.ValidateLDAPServerConfig
-	}
-
-	return &ldap.Ldap{
-		BindQueryUser:            mdbLdap.BindQueryUser,
-		BindQueryPassword:        password,
-		Servers:                  strings.Join(mdbLdap.Servers, ","),
-		TransportSecurity:        string(transportSecurity),
-		CaFileContents:           caContents,
-		ValidateLDAPServerConfig: validateServerConfig,
-
-		// Related to LDAP Authorization
-		AuthzQueryTemplate: mdbLdap.AuthzQueryTemplate,
-		UserToDnMapping:    mdbLdap.UserToDNMapping,
-
-		// TODO: Enable LDAP SASL bind method
-		BindMethod:         "simple",
+	ac := &ldap.Ldap{
+		BindQueryPassword:  password,
+		CaFileContents:     caContents,
+		BindMethod:         "simple", // TODO: Enable LDAP SASL bind method
 		BindSaslMechanisms: "",
-
-		TimeoutMS:                     mdbLdap.TimeoutMS,
-		UserCacheInvalidationInterval: mdbLdap.UserCacheInvalidationInterval,
 	}
+	for _, f := range ldapFieldMappings {
+		f.toAC(mdbLdap, ac)
+	}
+	return ac
+}
+
+// ConvertACLdapToCR converts an AC LDAP config to the CR representation. See GetLDAP for the reverse.
+// BindQuerySecretRef and CAConfigMapRef must be set by the caller — they reference K8s resources not present in the AC.
+func ConvertACLdapToCR(l *ldap.Ldap) *Ldap {
+	cr := &Ldap{}
+	for _, f := range ldapFieldMappings {
+		f.toCR(l, cr)
+	}
+	return cr
 }
 
 // ExternalAccessConfiguration holds the custom Service override that will be merged into the operator created one.
@@ -1544,46 +1583,6 @@ func GetTransportSecurity(mdbLdap *Ldap) TransportSecurity {
 		transportSecurity = TransportSecurityTLS
 	}
 	return transportSecurity
-}
-
-// ConvertACLdapToCR converts an AC LDAP config to the CR representation.
-// This is the reverse of MongoDB.GetLDAP. Callers must create the
-// BindQuerySecretRef and CAConfigMapRef resources separately.
-func ConvertACLdapToCR(l *ldap.Ldap, bindQuerySecretName, caConfigMapName, caKey string) *Ldap {
-	cr := &Ldap{
-		BindQueryUser:                 l.BindQueryUser,
-		AuthzQueryTemplate:            l.AuthzQueryTemplate,
-		UserToDNMapping:               l.UserToDnMapping,
-		TimeoutMS:                     l.TimeoutMS,
-		UserCacheInvalidationInterval: l.UserCacheInvalidationInterval,
-		ValidateLDAPServerConfig:      &l.ValidateLDAPServerConfig,
-	}
-
-	if l.Servers != "" {
-		servers := strings.Split(l.Servers, ",")
-		for i := range servers {
-			servers[i] = strings.TrimSpace(servers[i])
-		}
-		cr.Servers = servers
-	}
-
-	if l.TransportSecurity != "" {
-		ts := TransportSecurity(l.TransportSecurity)
-		cr.TransportSecurity = &ts
-	}
-
-	if l.BindQueryUser != "" {
-		cr.BindQuerySecretRef = SecretRef{Name: bindQuerySecretName}
-	}
-
-	if l.CaFileContents != "" {
-		cr.CAConfigMapRef = &corev1.ConfigMapKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: caConfigMapName},
-			Key:                  caKey,
-		}
-	}
-
-	return cr
 }
 
 type MongoDbPodSpec struct {

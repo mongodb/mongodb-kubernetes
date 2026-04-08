@@ -3,8 +3,6 @@ package om
 import (
 	"encoding/json"
 
-	"github.com/spf13/cast"
-
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -79,23 +77,6 @@ func (bac *BackupAgentConfig) SetLdapGroupDN(ldapGroupDn string) {
 
 func (bac *BackupAgentConfig) UnsetLdapGroupDN() {
 	bac.BackupAgentTemplate.LdapGroupDN = util.MergoDelete
-}
-
-// ReadLogRotate extracts logRotate from the BackingMap and returns it as a
-// typed LogRotateForBackupAndMonitoring. Returns nil if not present or empty.
-func (bac *BackupAgentConfig) ReadLogRotate() *mdbv1.LogRotateForBackupAndMonitoring {
-	lr, ok := bac.BackingMap["logRotate"].(map[string]any)
-	if !ok || len(lr) == 0 {
-		return nil
-	}
-	result := mdbv1.LogRotateForBackupAndMonitoring{
-		SizeThresholdMB:  cast.ToInt(lr["sizeThresholdMB"]),
-		TimeThresholdHrs: cast.ToInt(lr["timeThresholdHrs"]),
-	}
-	if result.SizeThresholdMB == 0 && result.TimeThresholdHrs == 0 {
-		return nil
-	}
-	return &result
 }
 
 // LogPath returns the logPath from the BackingMap, or empty if absent.
