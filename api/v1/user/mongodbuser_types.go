@@ -85,7 +85,6 @@ type MongoDBResourceRef struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!(has(self.migratedFromVm) && self.migratedFromVm && (!has(oldSelf.migratedFromVm) || !oldSelf.migratedFromVm))",message="migratedFromVm cannot be set to true after initial creation"
 type MongoDBUserSpec struct {
 	Roles    []Role `json:"roles,omitempty"`
 	Username string `json:"username"`
