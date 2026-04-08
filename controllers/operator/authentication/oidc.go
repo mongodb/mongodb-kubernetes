@@ -91,79 +91,86 @@ func oidcProviderConfigEqual(l, r oidc.ProviderConfig) bool {
 		l.UseAuthorizationClaim == r.UseAuthorizationClaim
 }
 
+// oidcFieldMapping holds both directions of a single field conversion so they stay co-located.
+// Asymmetric fields (AuthorizationMethod, AuthorizationType) are handled inline below.
+type oidcFieldMapping struct {
+	toAC func(*mdbv1.OIDCProviderConfig, *oidc.ProviderConfig)
+	toCR func(*oidc.ProviderConfig, *mdbv1.OIDCProviderConfig)
+}
+
+var oidcFieldMappings = []oidcFieldMapping{
+	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.AuthNamePrefix = c.ConfigurationName },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.ConfigurationName = a.AuthNamePrefix }},
+	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.Audience = c.Audience },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.Audience = a.Audience }},
+	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.IssuerUri = c.IssuerURI },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.IssuerURI = a.IssuerUri }},
+	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.ClientId = c.ClientId },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.ClientId = a.ClientId }},
+	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.RequestedScopes = c.RequestedScopes },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.RequestedScopes = a.RequestedScopes }},
+	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.UserClaim = c.UserClaim },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.UserClaim = a.UserClaim }},
+	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.GroupsClaim = c.GroupsClaim },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.GroupsClaim = a.GroupsClaim }},
+	{
+		func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) {
+			a.SupportsHumanFlows = c.AuthorizationMethod == mdbv1.OIDCAuthorizationMethodWorkforceIdentityFederation
+			if c.AuthorizationMethod != mdbv1.OIDCAuthorizationMethodWorkforceIdentityFederation &&
+				c.AuthorizationMethod != mdbv1.OIDCAuthorizationMethodWorkloadIdentityFederation {
+				panic(fmt.Sprintf("unsupported OIDC authorization method: %s", c.AuthorizationMethod))
+			}
+		},
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) {
+			if a.SupportsHumanFlows {
+				c.AuthorizationMethod = mdbv1.OIDCAuthorizationMethodWorkforceIdentityFederation
+			} else {
+				c.AuthorizationMethod = mdbv1.OIDCAuthorizationMethodWorkloadIdentityFederation
+			}
+		},
+	},
+	{
+		func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) {
+			a.UseAuthorizationClaim = c.AuthorizationType == mdbv1.OIDCAuthorizationTypeGroupMembership
+			if c.AuthorizationType != mdbv1.OIDCAuthorizationTypeGroupMembership &&
+				c.AuthorizationType != mdbv1.OIDCAuthorizationTypeUserID {
+				panic(fmt.Sprintf("unsupported OIDC authorization type: %s", c.AuthorizationType))
+			}
+		},
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) {
+			if a.UseAuthorizationClaim {
+				c.AuthorizationType = mdbv1.OIDCAuthorizationTypeGroupMembership
+			} else {
+				c.AuthorizationType = mdbv1.OIDCAuthorizationTypeUserID
+			}
+		},
+	},
+}
+
+// MapOIDCProviderConfigs converts CR OIDC provider configs to the AC representation. See MapACOIDCToProviderConfigs for the reverse.
 func MapOIDCProviderConfigs(oidcProviderConfigs []mdbv1.OIDCProviderConfig) []oidc.ProviderConfig {
 	if len(oidcProviderConfigs) == 0 {
 		return nil
 	}
-
 	result := make([]oidc.ProviderConfig, len(oidcProviderConfigs))
-	for i, providerConfig := range oidcProviderConfigs {
-		result[i] = oidc.ProviderConfig{
-			AuthNamePrefix:        providerConfig.ConfigurationName,
-			Audience:              providerConfig.Audience,
-			IssuerUri:             providerConfig.IssuerURI,
-			ClientId:              providerConfig.ClientId,
-			RequestedScopes:       providerConfig.RequestedScopes,
-			UserClaim:             providerConfig.UserClaim,
-			GroupsClaim:           providerConfig.GroupsClaim,
-			SupportsHumanFlows:    mapToSupportHumanFlows(providerConfig.AuthorizationMethod),
-			UseAuthorizationClaim: mapToUseAuthorizationClaim(providerConfig.AuthorizationType),
+	for i := range oidcProviderConfigs {
+		for _, f := range oidcFieldMappings {
+			f.toAC(&oidcProviderConfigs[i], &result[i])
 		}
 	}
-
 	return result
 }
 
-// MapACOIDCToProviderConfigs converts AC OIDC provider configs to the CR's
-// OIDCProviderConfig representation. This is the reverse of MapOIDCProviderConfigs.
+// MapACOIDCToProviderConfigs converts AC OIDC provider configs to the CR representation. See MapOIDCProviderConfigs for the reverse.
 func MapACOIDCToProviderConfigs(configs []oidc.ProviderConfig) []mdbv1.OIDCProviderConfig {
 	if len(configs) == 0 {
 		return nil
 	}
-	var out []mdbv1.OIDCProviderConfig
-	for _, c := range configs {
-		authzType := mdbv1.OIDCAuthorizationType(mdbv1.OIDCAuthorizationTypeUserID)
-		authzMethod := mdbv1.OIDCAuthorizationMethod(mdbv1.OIDCAuthorizationMethodWorkloadIdentityFederation)
-		if c.SupportsHumanFlows {
-			authzMethod = mdbv1.OIDCAuthorizationMethodWorkforceIdentityFederation
+	out := make([]mdbv1.OIDCProviderConfig, len(configs))
+	for i := range configs {
+		for _, f := range oidcFieldMappings {
+			f.toCR(&configs[i], &out[i])
 		}
-		if c.UseAuthorizationClaim {
-			authzType = mdbv1.OIDCAuthorizationTypeGroupMembership
-		}
-
-		out = append(out, mdbv1.OIDCProviderConfig{
-			ConfigurationName:   c.AuthNamePrefix,
-			IssuerURI:           c.IssuerUri,
-			Audience:            c.Audience,
-			AuthorizationType:   authzType,
-			UserClaim:           c.UserClaim,
-			GroupsClaim:         c.GroupsClaim,
-			AuthorizationMethod: authzMethod,
-			ClientId:            c.ClientId,
-			RequestedScopes:     c.RequestedScopes,
-		})
 	}
 	return out
-}
-
-func mapToSupportHumanFlows(authMethod mdbv1.OIDCAuthorizationMethod) bool {
-	switch authMethod {
-	case mdbv1.OIDCAuthorizationMethodWorkforceIdentityFederation:
-		return true
-	case mdbv1.OIDCAuthorizationMethodWorkloadIdentityFederation:
-		return false
-	}
-
-	panic(fmt.Sprintf("unsupported OIDC authorization method: %s", authMethod))
-}
-
-func mapToUseAuthorizationClaim(authType mdbv1.OIDCAuthorizationType) bool {
-	switch authType {
-	case mdbv1.OIDCAuthorizationTypeGroupMembership:
-		return true
-	case mdbv1.OIDCAuthorizationTypeUserID:
-		return false
-	}
-
-	panic(fmt.Sprintf("unsupported OIDC authorization type: %s", authType))
 }
