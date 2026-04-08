@@ -70,6 +70,29 @@ func (m MechanismList) Contains(mechanismName MechanismName) bool {
 // that can be configured by the Operator
 var supportedMechanisms = []MechanismName{ScramSha256, MongoDBCR, MongoDBX509, LDAPPlain, MongoDBOIDC}
 
+// crModeToMechanismName maps CR AuthMode strings to their AC MechanismName.
+// util.SCRAM is omitted because its target mechanism depends on existing config state.
+var crModeToMechanismName = map[string]MechanismName{
+	util.X509:        MongoDBX509,
+	util.LDAP:        LDAPPlain,
+	util.SCRAMSHA1:   ScramSha1,
+	util.MONGODBCR:   MongoDBCR,
+	util.SCRAMSHA256: ScramSha256,
+	util.OIDC:        MongoDBOIDC,
+}
+
+// acMechanismToCRMode maps AC mechanism strings to CR AuthMode strings.
+// This is the inverse of crModeToMechanismName, except that ScramSha256 maps to
+// util.SCRAM (the generic CR form) rather than util.SCRAMSHA256.
+var acMechanismToCRMode = map[string]string{
+	string(ScramSha256): util.SCRAM,
+	string(ScramSha1):   util.SCRAMSHA1,
+	string(MongoDBCR):   util.MONGODBCR,
+	string(MongoDBX509): util.X509,
+	string(LDAPPlain):   util.LDAP,
+	string(MongoDBOIDC): util.OIDC,
+}
+
 // mechanismsToDisable returns mechanisms which need to be disabled
 // based on the currently supported authentication mechanisms and the desiredMechanisms
 func mechanismsToDisable(desiredMechanisms MechanismList) MechanismList {
@@ -105,30 +128,30 @@ func ConvertToMechanismOrPanic(mechanismModeInCR string, autoAuthMechanism strin
 }
 
 func convertToMechanismOrPanic(mechanismModeInCR string, ac *om.AutomationConfig) Mechanism {
-	if ac == nil || ac.Auth == nil {
-		panic(xerrors.Errorf("automation config auth required for mechanism %s", mechanismModeInCR))
+	if name, ok := crModeToMechanismName[mechanismModeInCR]; ok {
+		return getMechanismByName(name)
 	}
-	return ConvertToMechanismOrPanic(mechanismModeInCR, ac.Auth.AutoAuthMechanism, ac.Auth.IsEnabled())
+	if mechanismModeInCR == util.SCRAM {
+		// if we have already configured authentication, and it has been set to MONGODB-CR/SCRAM-SHA-1
+		// we can not transition. This needs to be done in the UI
+
+		// if no authentication has been configured, the default value for "AutoAuthMechanism" is "MONGODB-CR"
+		// even if authentication is disabled, so we need to ensure that auth has been enabled.
+		if ac.Auth.AutoAuthMechanism == string(MongoDBCR) && ac.Auth.IsEnabled() {
+			return getMechanismByName(MongoDBCR)
+		}
+		return getMechanismByName(ScramSha256)
+	}
+
+	// this should never be reached as validation of this string happens at the CR level
+	panic(xerrors.Errorf("unknown mechanism name %s", mechanismModeInCR))
 }
 
 // MapMechanismToAuthMode converts an automation config mechanism string to
 // the corresponding CR AuthMode. This is the reverse of convertToMechanismOrPanic.
 func MapMechanismToAuthMode(mech string) (string, bool) {
-	switch mech {
-	case util.AutomationConfigScramSha256Option: // "SCRAM-SHA-256" → CR "SCRAM"
-		return util.SCRAM, true
-	case util.AutomationConfigScramSha1Option, // "MONGODB-CR"
-		util.SCRAMSHA1: // "SCRAM-SHA-1"
-		return mech, true
-	case util.AutomationConfigX509Option: // "MONGODB-X509" → CR "X509"
-		return util.X509, true
-	case util.AutomationConfigLDAPOption: // "PLAIN" → CR "LDAP"
-		return util.LDAP, true
-	case util.AutomationConfigOIDCOption: // "MONGODB-OIDC" → CR "OIDC"
-		return util.OIDC, true
-	default:
-		return "", false
-	}
+	mode, ok := acMechanismToCRMode[mech]
+	return mode, ok
 }
 
 func getMechanismByName(name MechanismName) Mechanism {
