@@ -21,10 +21,11 @@ limitations under the License.
 package mdb
 
 import (
-	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mongodbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -425,7 +426,7 @@ func (in *DbCommonSpec) DeepCopyInto(out *DbCommonSpec) {
 	}
 	if in.Prometheus != nil {
 		in, out := &in.Prometheus, &out.Prometheus
-		*out = new(v1.Prometheus)
+		*out = new(mongodbv1.Prometheus)
 		**out = **in
 	}
 	if in.StatefulSetConfiguration != nil {
@@ -863,7 +864,7 @@ func (in *MongoDbPodSpec) DeepCopyInto(out *MongoDbPodSpec) {
 	in.PodTemplateWrapper.DeepCopyInto(&out.PodTemplateWrapper)
 	if in.Persistence != nil {
 		in, out := &in.Persistence, &out.Persistence
-		*out = new(v1.Persistence)
+		*out = new(mongodbv1.Persistence)
 		(*in).DeepCopyInto(*out)
 	}
 }
@@ -927,6 +928,13 @@ func (in *MongoDbStatus) DeepCopyInto(out *MongoDbStatus) {
 		in, out := &in.Warnings, &out.Warnings
 		*out = make([]status.Warning, len(*in))
 		copy(*out, *in)
+	}
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]v1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 }
 
@@ -1039,7 +1047,7 @@ func (in *PersistenceConfigBuilder) DeepCopyInto(out *PersistenceConfigBuilder) 
 	*out = *in
 	if in.config != nil {
 		in, out := &in.config, &out.config
-		*out = new(v1.PersistenceConfig)
+		*out = new(mongodbv1.PersistenceConfig)
 		(*in).DeepCopyInto(*out)
 	}
 }

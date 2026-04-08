@@ -8,6 +8,7 @@ import (
 
 	"github.com/blang/semver"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -376,6 +377,9 @@ type MongoDbStatus struct {
 	ProjectId                              string                                     `json:"projectId,omitempty"`
 	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
 	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type BackupMode string
@@ -1366,6 +1370,12 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 	if option, exists := status.GetOption(statusOptions, status.ProjectIdOption{}); exists {
 		m.Status.ProjectId = option.(status.ProjectIdOption).ProjectId
+	}
+
+	if option, exists := status.GetOption(statusOptions, status.MigrationConditionOption{}); exists {
+		c := option.(status.MigrationConditionOption).Condition
+		c.ObservedGeneration = m.GetGeneration()
+		_ = meta.SetStatusCondition(&m.Status.Conditions, c)
 	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
