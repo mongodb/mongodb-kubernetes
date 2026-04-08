@@ -2,6 +2,8 @@ package status
 
 import (
 	"reflect"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type Option interface {
@@ -120,4 +122,19 @@ func (o PVCStatusOption) Value() interface{} {
 // Otherwise, that field will forever be in the status field.
 func NewPVCsStatusOptionEmptyStatus() PVCStatusOption {
 	return PVCStatusOption{PVC: nil}
+}
+
+// MigrationConditionOption carries a NetworkConnectivityVerification-style metav1.Condition through the
+// same status.Option mechanism as phase/PVC options. We use Options so updateStatus can merge several
+// writers in one call; the condition is also written to status.conditions by type (not duplicated as arbitrary option data).
+type MigrationConditionOption struct {
+	Condition metav1.Condition
+}
+
+func NewMigrationConditionOption(condition metav1.Condition) MigrationConditionOption {
+	return MigrationConditionOption{Condition: condition}
+}
+
+func (o MigrationConditionOption) Value() interface{} {
+	return o.Condition
 }
