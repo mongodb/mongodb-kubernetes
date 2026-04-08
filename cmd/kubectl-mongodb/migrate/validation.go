@@ -224,7 +224,7 @@ func validateLDAP(l *ldap.Ldap) []ValidationResult {
 	if l.BindMethod != "" && l.BindMethod != "simple" {
 		results = append(results, ValidationResult{
 			Severity: SeverityError,
-			Message:  fmt.Sprintf("LDAP bindMethod %q will be overwritten by the operator default \"simple\" after migration.", l.BindMethod),
+			Message:  fmt.Sprintf("LDAP bindMethod %q is not supported by the operator. Only \"simple\" is supported", l.BindMethod),
 		})
 	}
 	if l.CaFileContents != "" {
