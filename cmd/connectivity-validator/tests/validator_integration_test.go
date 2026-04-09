@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/migration/connectivitycheck"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -140,7 +141,7 @@ func TestValidate_SingleMongod(t *testing.T) {
 			AuthMechanism:    "SCRAM-SHA-256",
 			KeyfilePath:      keyOK,
 		}
-		assert.Equal(t, connectivitycheck.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
 	})
 
 	t.Run("WrongKeyfile", func(t *testing.T) {
@@ -149,7 +150,7 @@ func TestValidate_SingleMongod(t *testing.T) {
 			AuthMechanism:    "SCRAM-SHA-256",
 			KeyfilePath:      tempKeyfile(t, "wrongkey"),
 		}
-		assert.Equal(t, connectivitycheck.ExitAuthFailed, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitAuthFailed, connectivitycheck.Validate(ctx, cfg))
 	})
 
 	t.Run("OneUnreachable", func(t *testing.T) {
@@ -159,7 +160,7 @@ func TestValidate_SingleMongod(t *testing.T) {
 			AuthMechanism:    "SCRAM-SHA-256",
 			KeyfilePath:      keyOK,
 		}
-		assert.Equal(t, connectivitycheck.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg))
 	})
 
 	t.Run("DNSFailed_ExternalMember", func(t *testing.T) {
@@ -169,7 +170,7 @@ func TestValidate_SingleMongod(t *testing.T) {
 			AuthMechanism:    "SCRAM-SHA-256",
 			KeyfilePath:      keyOK,
 		}
-		assert.Equal(t, connectivitycheck.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg))
 	})
 }
 
@@ -188,7 +189,7 @@ func TestValidate_TLS(t *testing.T) {
 			AuthMechanism:    "SCRAM-SHA-256",
 			KeyfilePath:      tempKeyfile(t, keyfileBody),
 		}
-		assert.Equal(t, connectivitycheck.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
 	})
 
 	t.Run("WrongKeyfile", func(t *testing.T) {
@@ -197,7 +198,7 @@ func TestValidate_TLS(t *testing.T) {
 			AuthMechanism:    "SCRAM-SHA-256",
 			KeyfilePath:      tempKeyfile(t, "wrongkey"),
 		}
-		assert.Equal(t, connectivitycheck.ExitAuthFailed, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitAuthFailed, connectivitycheck.Validate(ctx, cfg))
 	})
 }
 
@@ -245,7 +246,7 @@ func TestValidate_X509Auth(t *testing.T) {
 			CAPath:        filepath.Join(certsDir, "ca.crt"),
 			CertPath:      filepath.Join(certsDir, "client.pem"),
 		}
-		assert.Equal(t, connectivitycheck.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
 	})
 }
 
@@ -349,5 +350,5 @@ func TestValidate_TwoMembers_BothReachable(t *testing.T) {
 		AuthMechanism:    "SCRAM-SHA-256",
 		KeyfilePath:      tempKeyfile(t, keyfileBody),
 	}
-	assert.Equal(t, connectivitycheck.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
+	assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
 }
