@@ -4,6 +4,7 @@ metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
   name: tls-rs
+  namespace: mongodb
 spec:
   agent:
     maxLogFileDurationHours: 0

@@ -4,6 +4,7 @@ metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
   name: allow-rs
+  namespace: mongodb
 spec:
   additionalMongodConfig:
     net:

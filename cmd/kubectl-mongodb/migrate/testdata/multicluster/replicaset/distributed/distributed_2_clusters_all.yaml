@@ -4,6 +4,7 @@ metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
   name: geo-rs
+  namespace: mongodb
 spec:
   additionalMongodConfig:
     storage:
@@ -123,6 +124,7 @@ apiVersion: mongodb.com/v1
 kind: MongoDBUser
 metadata:
   name: svc-account
+  namespace: mongodb
 spec:
   db: admin
   mongodbResourceRef:
@@ -139,6 +141,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: svc-account-password
+  namespace: mongodb
 stringData:
   password: test-password
 ---
