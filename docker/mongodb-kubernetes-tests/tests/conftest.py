@@ -14,6 +14,9 @@ if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "false":
     # Exclude it from collection when OTel is disabled so pytest doesn't try to import it.
     # More info on collect_ignore pytest configuration https://docs.pytest.org/en/7.1.x/reference/reference.html#globalvar-collect_ignore
     collect_ignore = ["otel_plugin.py"]
+else:
+    # Importing otel_plugin.pytest_configure and otel_plugin.pytest_sessionstart hook is enough to configure OTEL plugin
+    from tests.otel_plugin import pytest_configure, pytest_sessionstart  # noqa: F401
 
 
 def _load_env_from_local_file_for_development():
@@ -1781,7 +1784,3 @@ def read_deployment_state(
     )
     state = json.loads(deployment_state_cm["state"])
     return state
-
-
-if os.environ.get("PYTEST_OTEL_ENABLED", "true") != "false":
-    from otel_plugin import pytest_configure, pytest_sessionstart  # noqa: F401
