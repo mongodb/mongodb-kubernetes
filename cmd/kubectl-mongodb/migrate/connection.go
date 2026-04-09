@@ -25,23 +25,23 @@ import (
 
 var omConnectionFactory om.ConnectionFactory = om.NewOpsManagerConnection
 
-func prepareConnection(ctx context.Context) (om.Connection, kubernetesClient.Client, error) {
+func prepareConnection(ctx context.Context) (om.Connection, error) {
 	kubeClient, err := newKubeClient()
 	if err != nil {
-		return nil, nil, fmt.Errorf("error creating Kubernetes client: %w", err)
+		return nil, fmt.Errorf("error creating Kubernetes client: %w", err)
 	}
 
 	log := zap.S()
 	config, credentials, err := readConfigAndCredentials(ctx, kubeClient, log)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	conn, err := resolveProjectReadOnly(config, credentials, log)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error resolving Ops Manager project: %w", err)
+		return nil, fmt.Errorf("error resolving Ops Manager project: %w", err)
 	}
-	return conn, kubeClient, nil
+	return conn, nil
 }
 
 func readConfigAndCredentials(ctx context.Context, kubeClient kubernetesClient.Client, log *zap.SugaredLogger) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
