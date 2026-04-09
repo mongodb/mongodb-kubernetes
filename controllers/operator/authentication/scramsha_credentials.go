@@ -71,62 +71,62 @@ func IsPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDB
 	return false, nil
 }
 
-// ConfigureScramCredentials sets SCRAM credentials on the user. Migrated users
-// retain only their original mechanism(s); operator-created users get both.
-func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.AutomationConfig, migratedFromVM bool) error {
+// ConfigureScramCredentials sets SCRAM credentials based on the user's presence in the AC:
+//   - Not in AC: generate both SHA-256 and SHA-1; leave mechanisms [].
+//   - In AC with mechanisms set: mirror those mechanisms; regenerate only matching creds on password change.
+//   - In AC with no mechanisms: copy/regenerate existing creds; leave mechanisms [].
+func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.AutomationConfig) error {
 	_, acUser := ac.Auth.GetUser(user.Username, user.Database)
+
+	if acUser == nil {
+		// Not in AC — generate both algorithms; caller initialises mechanisms to [].
+		var err error
+		user.ScramSha256Creds, err = newScramSha256Creds(user.Username, password)
+		if err != nil {
+			return err
+		}
+		user.ScramSha1Creds, err = newScramSha1Creds(user.Username, password)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
 	changed, err := IsPasswordChanged(user, password, acUser)
 	if err != nil {
 		return err
 	}
 
+	hasSha256 := acUser.ScramSha256Creds != nil
+	hasSha1 := acUser.ScramSha1Creds != nil
+
 	if !changed {
-		if acUser.ScramSha256Creds != nil {
+		if hasSha256 {
 			user.ScramSha256Creds = acUser.ScramSha256Creds
 		}
-		if acUser.ScramSha1Creds != nil {
+		if hasSha1 {
 			user.ScramSha1Creds = acUser.ScramSha1Creds
 		}
-		if migratedFromVM || (user.ScramSha256Creds != nil && user.ScramSha1Creds != nil) {
-			if migratedFromVM {
-				populateMechanisms(user)
-			}
-			return nil
-		}
-	}
-
-	if migratedFromVM {
-		if acUser == nil {
-			return xerrors.Errorf("migratedFromVM is set but user %q (db %q) not found in automation config", user.Username, user.Database)
-		}
-		if acUser.ScramSha256Creds != nil {
+	} else {
+		// Password changed — regenerate only the mechanisms that were present in AC.
+		if hasSha256 {
 			user.ScramSha256Creds, err = newScramSha256Creds(user.Username, password)
 			if err != nil {
 				return err
 			}
 		}
-		if acUser.ScramSha1Creds != nil {
+		if hasSha1 {
 			user.ScramSha1Creds, err = newScramSha1Creds(user.Username, password)
 			if err != nil {
 				return err
 			}
 		}
+	}
+
+	// Populate mechanisms only when the AC user had them explicitly set; otherwise
+	// leave the mechanisms array empty (it was initialised to [] by the caller).
+	if len(acUser.Mechanisms) > 0 {
 		populateMechanisms(user)
-		return nil
-	}
-
-	if user.ScramSha256Creds == nil {
-		user.ScramSha256Creds, err = newScramSha256Creds(user.Username, password)
-		if err != nil {
-			return err
-		}
-	}
-
-	if user.ScramSha1Creds == nil {
-		user.ScramSha1Creds, err = newScramSha1Creds(user.Username, password)
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil

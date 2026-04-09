@@ -402,7 +402,6 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&userv1.MongoDBUser{}).
-		WithValidator(&userv1.MongoDBUserValidator{}).
 		Complete()
 }
 

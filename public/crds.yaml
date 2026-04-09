@@ -4621,12 +4621,6 @@ spec:
                 type: string
               db:
                 type: string
-              migratedFromVm:
-                description: |-
-                  MigratedFromVM preserves only the original SCRAM mechanisms from the OM
-                  automation config across password rotations. Cannot be set to true after
-                  initial creation.
-                type: boolean
               mongodbResourceRef:
                 properties:
                   name:
@@ -4667,10 +4661,6 @@ spec:
             - db
             - username
             type: object
-            x-kubernetes-validations:
-            - message: migratedFromVm cannot be set to true after initial creation
-              rule: '!(has(self.migratedFromVm) && self.migratedFromVm && (!has(oldSelf.migratedFromVm)
-                || !oldSelf.migratedFromVm))'
           status:
             properties:
               db:
