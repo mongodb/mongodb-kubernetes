@@ -110,7 +110,8 @@ func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptio
 			Kind:       "MongoDB",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: resourceName,
+			Name:      resourceName,
+			Namespace: namespace,
 			Annotations: map[string]string{
 				migrateToolVersionAnnotation: versionutil.StaticContainersOperatorVersion(),
 			},
@@ -135,7 +136,8 @@ func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOption
 			Kind:       "MongoDBMultiCluster",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: resourceName,
+			Name:      resourceName,
+			Namespace: namespace,
 			Annotations: map[string]string{
 				migrateToolVersionAnnotation: versionutil.StaticContainersOperatorVersion(),
 			},
@@ -202,7 +204,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string, passwo
 				Key:  "password",
 			}
 			if password, ok := passwords[userKey(user.Username, user.Database)]; ok {
-				secretYAML, err = marshalCRToYAML(GeneratePasswordSecret(passwordSecretName, "", password))
+				secretYAML, err = marshalCRToYAML(GeneratePasswordSecret(passwordSecretName, namespace, password))
 				if err != nil {
 					return nil, fmt.Errorf("failed to marshal password Secret for user %q: %w", user.Username, err)
 				}
@@ -214,7 +216,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string, passwo
 				APIVersion: "mongodb.com/v1",
 				Kind:       "MongoDBUser",
 			},
-			ObjectMeta: metav1.ObjectMeta{Name: crName},
+			ObjectMeta: metav1.ObjectMeta{Name: crName, Namespace: namespace},
 			Spec:       spec,
 		})
 		if err != nil {
