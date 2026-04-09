@@ -570,12 +570,11 @@ func TestConvertACLdapToCR(t *testing.T) {
 		TimeoutMS:          10000,
 	}
 
-	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
+	cr := mdbv1.ConvertACLdapToCR(l)
 	require.NotNil(t, cr)
 	assert.Equal(t, []string{"ldap.example.com:636"}, cr.Servers)
 	assert.Equal(t, mdbv1.TransportSecurity("tls"), *cr.TransportSecurity)
 	assert.Equal(t, "cn=admin,dc=example,dc=com", cr.BindQueryUser)
-	assert.Equal(t, "ldap-bind-query-password", cr.BindQuerySecretRef.Name)
 	assert.Equal(t, "{USER}?memberOf?base", cr.AuthzQueryTemplate)
 	assert.Equal(t, 10000, cr.TimeoutMS)
 }
@@ -585,7 +584,7 @@ func TestConvertACLdapToCR_MultipleServers(t *testing.T) {
 		Servers: "ldap1.example.com:636, ldap2.example.com:636,ldap3.example.com:636",
 	}
 
-	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
+	cr := mdbv1.ConvertACLdapToCR(l)
 	require.NotNil(t, cr)
 	assert.Equal(t, []string{"ldap1.example.com:636", "ldap2.example.com:636", "ldap3.example.com:636"}, cr.Servers)
 }
@@ -595,7 +594,7 @@ func TestConvertACLdapToCR_NoBindUser(t *testing.T) {
 		Servers: "ldap.example.com:636",
 	}
 
-	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
+	cr := mdbv1.ConvertACLdapToCR(l)
 	require.NotNil(t, cr)
 	assert.Empty(t, cr.BindQuerySecretRef.Name)
 }
@@ -606,11 +605,9 @@ func TestConvertACLdapToCR_CaFileContents(t *testing.T) {
 		CaFileContents: "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
 	}
 
-	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
+	cr := mdbv1.ConvertACLdapToCR(l)
 	require.NotNil(t, cr)
-	require.NotNil(t, cr.CAConfigMapRef)
-	assert.Equal(t, "ldap-ca", cr.CAConfigMapRef.Name)
-	assert.Equal(t, "ca.pem", cr.CAConfigMapRef.Key)
+	assert.Nil(t, cr.CAConfigMapRef, "CAConfigMapRef is set by the caller, not by ConvertACLdapToCR")
 }
 
 func TestConvertACLdapToCR_NoCaFileContents(t *testing.T) {
@@ -618,7 +615,7 @@ func TestConvertACLdapToCR_NoCaFileContents(t *testing.T) {
 		Servers: "ldap.example.com:636",
 	}
 
-	cr := mdbv1.ConvertACLdapToCR(l, LdapBindQuerySecretName, LdapCAConfigMapName, LdapCAKey)
+	cr := mdbv1.ConvertACLdapToCR(l)
 	require.NotNil(t, cr)
 	assert.Nil(t, cr.CAConfigMapRef)
 }
