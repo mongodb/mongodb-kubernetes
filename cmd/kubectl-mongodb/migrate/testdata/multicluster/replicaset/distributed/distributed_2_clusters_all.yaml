@@ -125,7 +125,6 @@ metadata:
   name: svc-account
 spec:
   db: admin
-  migratedFromVm: true
   mongodbResourceRef:
     name: geo-rs
   passwordSecretKeyRef:
@@ -139,15 +138,14 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: ldap-bind-query-password
-  namespace: mongodb
+  name: svc-account-password
 stringData:
-  password: reader-pass
+  password: test-password
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: svc-account-password
+  name: ldap-bind-query-password
   namespace: mongodb
 stringData:
-  password: test-password
+  password: reader-pass
