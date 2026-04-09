@@ -46,18 +46,15 @@ type GenerateOptions struct {
 	SourceProcess      *om.Process
 	UserPasswords      map[string]string // maps "username:database" to plaintext passwords for SCRAM users.
 	PrometheusPassword string            // plaintext password for the Prometheus user secret.
-	DryRun             bool              // skips Kubernetes writes; cluster resources are appended to the output as YAML.
 }
 
-// UserCROutput holds the generated YAML and metadata for a single MongoDBUser CR.
+// UserCROutput holds the generated YAML for a single MongoDBUser CR and its password Secret (if any).
 type UserCROutput struct {
-	YAML           string
+	MongoDBUserYAML    string
+	PasswordSecretYAML string // empty for external (X.509/LDAP) users that have no password
 	Username       string
 	Database       string
-	NeedsPassword  bool
 	PasswordSecret string
-	// MigratedFromVM mirrors spec.migratedFromVm; set when OM had an explicit mechanisms list.
-	MigratedFromVM bool
 }
 
 // GenerateMongoDBCR generates a MongoDB CR for the given topology.
@@ -153,7 +150,9 @@ func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOption
 }
 
 // GenerateUserCRs creates MongoDBUser CRs for each user in auth.usersWanted, skipping the agent user.
-func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]UserCROutput, error) {
+// passwords maps "username:database" to plaintext password; entries are used to generate the
+// accompanying Secret for each SCRAM user. External (X.509/LDAP) users produce no Secret.
+func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string, passwords map[string]string) ([]UserCROutput, error) {
 	if ac.Auth == nil || len(ac.Auth.Users) == 0 {
 		return nil, nil
 	}
@@ -172,7 +171,6 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 			continue
 		}
 
-		needsPassword := user.Database != externalDatabase
 		crName := userv1.NormalizeName(user.Username)
 		if crName == "" {
 			return nil, fmt.Errorf("username %q cannot be normalized to a valid Kubernetes name: no alphanumeric characters", user.Username)
@@ -181,7 +179,6 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 			return nil, fmt.Errorf("users %q and %q normalize to the same Kubernetes name %q; rename one before migration", prev, user.Username, crName)
 		}
 		seenCRNames[crName] = user.Username
-		passwordSecretName := crName + "-password"
 
 		roles, err := convertRoles(user.Roles)
 		if err != nil {
@@ -196,15 +193,20 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 			},
 			Roles: roles,
 		}
-		if needsPassword {
+
+		var secretYAML string
+		passwordSecretName := crName + "-password"
+		if user.Database != externalDatabase {
 			spec.PasswordSecretKeyRef = userv1.SecretKeyRef{
 				Name: passwordSecretName,
 				Key:  "password",
 			}
-		}
-		if len(user.Mechanisms) > 0 {
-			t := true
-			spec.MigratedFromVM = &t
+			if password, ok := passwords[userKey(user.Username, user.Database)]; ok {
+				secretYAML, err = marshalCRToYAML(GeneratePasswordSecret(passwordSecretName, "", password))
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal password Secret for user %q: %w", user.Username, err)
+				}
+			}
 		}
 
 		userYAML, err := marshalCRToYAML(userv1.MongoDBUser{
@@ -220,12 +222,11 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string) ([]Use
 		}
 
 		results = append(results, UserCROutput{
-			YAML:           userYAML,
+			MongoDBUserYAML:    userYAML,
+			PasswordSecretYAML: secretYAML,
 			Username:       user.Username,
 			Database:       user.Database,
-			NeedsPassword:  needsPassword,
 			PasswordSecret: passwordSecretName,
-			MigratedFromVM: len(user.Mechanisms) > 0,
 		})
 	}
 
