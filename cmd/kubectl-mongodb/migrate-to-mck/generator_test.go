@@ -117,7 +117,7 @@ func TestGenerateMongoDBCR_NoReplicaSet(t *testing.T) {
 	assert.Contains(t, err.Error(), "no replica sets found")
 }
 
-// TestGenerateUserCRs_EmptyMechanisms verifies users with empty mechanisms are not flagged as VM-migrated.
+// TestGenerateUserCRs_EmptyMechanisms verifies users with empty mechanisms generate successfully.
 func TestGenerateUserCRs_EmptyMechanisms(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes":   []any{},
@@ -250,7 +250,7 @@ func TestGenerateUserCRs_DuplicateNormalizedNames(t *testing.T) {
 		&om.MongoDBUser{Username: "app.user", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
 	)
 
-	_, err := GenerateUserCRs(ac, "my-rs")
+	_, err := GenerateUserCRs(ac, "my-rs", nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "normalize to the same Kubernetes name")
 }
