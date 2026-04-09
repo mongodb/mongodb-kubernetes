@@ -15,9 +15,11 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
+from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+
 
 @fixture(scope="module")
-def om_tester(namespace: str) -> OMTester:
+def om_tester(namespace: str, operator) -> OMTester:
     config_map = KubernetesTester.read_configmap(namespace, "my-project")
     secret = KubernetesTester.read_secret(namespace, "my-credentials")
     tester = OMTester(OMContext.build_from_config_map_and_secret(config_map, secret))
@@ -155,6 +157,13 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
         )
 
     om_tester.api_put_automation_config(ac)
+    om_tester.wait_agents_ready(timeout=600)
+
+
+@mark.e2e_vm_migration
+def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
+    """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
+    run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
 @mark.e2e_vm_migration

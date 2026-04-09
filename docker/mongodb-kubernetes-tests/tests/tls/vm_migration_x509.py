@@ -32,6 +32,8 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
+from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+
 VM_STS_NAME = "vm-mongodb"
 VM_RS_NAME = "vm-mongodb-rs"
 MDB_RESOURCE_NAME = "my-replica-set"
@@ -392,6 +394,12 @@ def test_vm_ac_x509_auth(
     }
     om_tester.api_put_automation_config(ac)
     om_tester.wait_agents_ready(timeout=600)
+
+
+@mark.e2e_vm_migration_x509
+def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
+    """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
+    run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
 @mark.e2e_vm_migration_x509
