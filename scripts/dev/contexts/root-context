@@ -165,9 +165,9 @@ export KUBECTL_VERSION="v1.35.0"
 # PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: s390x requires pure Python protobuf implementation
 #   https://github.com/protocolbuffers/protobuf/issues/24103
 # SODIUM_INSTALL: pynacl must link against system libsodium (RHEL9 ships 1.0.18; bundled build broken on s390x+Python 3.13)
-# PYTEST_OTEL_DISABLED: grpcio segfaults at exit on s390x+Python 3.13; pytest-opentelemetry excluded from requirements
+# PYTEST_OTEL_ENABLED: grpcio segfaults at exit on s390x+Python 3.13; pytest-opentelemetry excluded from requirements
 if [[ "$(uname -m)" == "s390x" ]]; then
   export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION:-python}"
   export SODIUM_INSTALL="${SODIUM_INSTALL:-system}"
-  export PYTEST_OTEL_DISABLED="${PYTEST_OTEL_DISABLED:-true}"
+  export PYTEST_OTEL_ENABLED="${PYTEST_OTEL_ENABLED:-false}"
 fi

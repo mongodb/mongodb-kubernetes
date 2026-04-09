@@ -9,9 +9,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 from dotenv import load_dotenv
 
-# otel_plugin.py requires pytest-opentelemetry which is disabled via PYTEST_OTEL_DISABLED=true on s390x.
+# otel_plugin.py requires pytest-opentelemetry which is disabled via PYTEST_OTEL_ENABLED=false on s390x.
 # Exclude it from collection when OTel is disabled so pytest doesn't try to import it.
-collect_ignore = ["otel_plugin.py"] if os.environ.get("PYTEST_OTEL_DISABLED", "false") == "true" else []
+collect_ignore = ["otel_plugin.py"] if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "false" else []
 
 
 def _load_env_from_local_file_for_development():
@@ -1592,7 +1592,7 @@ def coredns_config(tld: str, mappings: str, additional_rules: str = None):
 
 import pytest
 
-if os.environ.get("PYTEST_OTEL_DISABLED", "false") != "true":
+if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "true":
     from otel_plugin import pytest_configure, pytest_sessionstart  # noqa: F401
 
 
