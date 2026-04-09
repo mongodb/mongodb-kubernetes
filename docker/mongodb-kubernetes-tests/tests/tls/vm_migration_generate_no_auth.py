@@ -1,5 +1,5 @@
 """
-VM migration test using kubectl-mongodb migrate generate WITHOUT authentication.
+VM migration test using kubectl-mongodb migrate WITHOUT authentication.
 
 Covers the auth-disabled code path in the migration tool, which none of the
 other generate-based tests exercise.  Verifies:
@@ -122,7 +122,7 @@ def _configure_ac_no_auth(namespace: str, om_tester: OMTester, vm_sts: dict, vm_
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
-    """Raw stdout from migrate generate (no passwords needed)."""
+    """Raw stdout from migrate (no passwords needed)."""
     return run_migrate_generate(namespace, passwords=None)
 
 
@@ -196,7 +196,7 @@ def test_no_security_in_cr(generated_cr: dict):
 
 @mark.e2e_vm_migration_generate_no_auth
 def test_no_user_crs_emitted(generated_cr_yaml: str):
-    """Without auth, migrate generate must not emit any MongoDBUser documents."""
+    """Without auth, migrate must not emit any MongoDBUser documents."""
     docs = list(yaml.safe_load_all(generated_cr_yaml))
     user_docs = [d for d in docs if d and d.get("kind") == "MongoDBUser"]
     assert len(user_docs) == 0, f"Expected 0 user CRs, got {len(user_docs)}"

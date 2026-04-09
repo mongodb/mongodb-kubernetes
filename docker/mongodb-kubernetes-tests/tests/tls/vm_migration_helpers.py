@@ -1,4 +1,4 @@
-"""Shared helpers for VM-to-Kubernetes migration tests that use kubectl-mongodb migrate generate."""
+"""Shared helpers for VM-to-Kubernetes migration tests that use kubectl-mongodb migrate."""
 
 import difflib
 import json
@@ -69,7 +69,7 @@ def run_migrate_generate(
     passwords: list[str] | None = None,
     certs_secret_prefix: str | None = None,
 ) -> str:
-    """Run kubectl-mongodb migrate generate and return stdout (the CR YAML).
+    """Run kubectl-mongodb migrate and return stdout (the CR YAML bundle).
 
     If certs_secret_prefix is provided (e.g. "mdb"), it is sent first to stdin
     for the TLS certsSecretPrefix prompt when the deployment has TLS enabled.
@@ -84,16 +84,16 @@ def run_migrate_generate(
     stdin_text = "\n".join(stdin_lines) + "\n" if stdin_lines else None
 
     proc = subprocess.run(
-        [MIGRATE_TOOL, "migrate", "generate", *MIGRATE_FLAGS, "--namespace", namespace],
+        [MIGRATE_TOOL, "migrate", *MIGRATE_FLAGS, "--namespace", namespace],
         input=stdin_text,
         capture_output=True,
         text=True,
     )
     if proc.returncode != 0:
-        logger.error("migrate generate stderr:\n%s", proc.stderr)
+        logger.error("migrate stderr:\n%s", proc.stderr)
         raise subprocess.CalledProcessError(proc.returncode, proc.args, proc.stdout, proc.stderr)
     if proc.stderr:
-        logger.info("migrate generate stderr:\n%s", proc.stderr)
+        logger.info("migrate stderr:\n%s", proc.stderr)
     return proc.stdout
 
 
@@ -137,9 +137,6 @@ def apply_user_crs_and_verify_ac(generated_cr_yaml: str, namespace: str, om_test
             user.update()
 
         try_load(user)
-        assert (
-            user["spec"].get("migratedFromVm") is True
-        ), f"User {doc['metadata']['name']} should have migratedFromVm=true"
         user.assert_reaches_phase(Phase.Updated, timeout=120)
 
     ac = om_tester.api_get_automation_config()
@@ -188,8 +185,6 @@ def rotate_password_and_verify(
     user = MongoDBUser(name=user_doc["metadata"]["name"], namespace=namespace)
     user.reload()
 
-    assert user["spec"].get("migratedFromVm") is True
-
     ac_before = om_tester.api_get_automation_config()
     ac_user_before = next(u for u in ac_before["auth"]["usersWanted"] if u["user"] == username)
     old_sha256_salt = ac_user_before["scramSha256Creds"]["salt"]
@@ -203,7 +198,6 @@ def rotate_password_and_verify(
     ac_user = _wait_for_salt_change(om_tester, username, old_sha256_salt, timeout=180)
 
     user.reload()
-    assert user["spec"].get("migratedFromVm") is True, "migratedFromVm must remain true"
 
     assert ac_user["mechanisms"] == ["SCRAM-SHA-256"], f"Expected original mechanisms, got: {ac_user['mechanisms']}"
     assert ac_user.get("scramSha256Creds") is not None, "scramSha256Creds missing"

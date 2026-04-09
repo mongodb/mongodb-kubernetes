@@ -1,5 +1,5 @@
 """
-VM migration test using kubectl-mongodb migrate generate.
+VM migration test using kubectl-mongodb migrate.
 
 Configures a realistic automation config with:
   - SCRAM-SHA-256 auth with automation agent user + two app users
