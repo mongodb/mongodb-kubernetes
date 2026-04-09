@@ -297,7 +297,7 @@ def test_load_build_info_staging():
             ),
             "agent": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent",
-                platforms=["linux/arm64", "linux/amd64", "linux/ppc64le"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-agent/Dockerfile",
                 sign=True,
                 skip_if_exists=True,
@@ -419,7 +419,7 @@ def test_load_build_info_release():
             "agent": ImageInfo(
                 repository="quay.io/mongodb/mongodb-agent",
                 secondary_repositories=["quay.io/mongodb/mongodb-agent-ubi"],
-                platforms=["linux/arm64", "linux/amd64", "linux/ppc64le"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 dockerfile_path="docker/mongodb-agent/Dockerfile",
                 skip_if_exists=True,
                 olm_tag=True,
