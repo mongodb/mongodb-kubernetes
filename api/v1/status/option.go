@@ -124,9 +124,7 @@ func NewPVCsStatusOptionEmptyStatus() PVCStatusOption {
 	return PVCStatusOption{PVC: nil}
 }
 
-// MigrationConditionOption carries a NetworkConnectivityVerification-style metav1.Condition through the
-// same status.Option mechanism as phase/PVC options. We use Options so updateStatus can merge several
-// writers in one call; the condition is also written to status.conditions by type (not duplicated as arbitrary option data).
+// MigrationConditionOption carries a NetworkConnectivityVerification metav1.Condition.
 type MigrationConditionOption struct {
 	Condition metav1.Condition
 }

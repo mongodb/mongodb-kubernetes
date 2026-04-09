@@ -16,14 +16,8 @@ import (
 	driver "go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"go.uber.org/zap"
-)
 
-// Exit codes returned by Validate. Mirrored in pkg/migration/exitcodes.go for operator use.
-const (
-	ExitSuccess       = 0
-	ExitUnknown       = 1
-	ExitAuthFailed    = 2 // credentials rejected or __system@local role missing
-	ExitNetworkFailed = 3 // DNS, TLS, timeouts, unreachable members
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 )
 
 // mongodbErrAuthenticationFailed is MongoDB server error code AuthenticationFailed.
@@ -48,22 +42,6 @@ type Config struct {
 	SubjectDN string
 }
 
-// ExitCodeName returns a short name for the exit code for logging.
-func ExitCodeName(code int) string {
-	switch code {
-	case ExitSuccess:
-		return "Success"
-	case ExitUnknown:
-		return "Unknown"
-	case ExitAuthFailed:
-		return "AuthFailed"
-	case ExitNetworkFailed:
-		return "NetworkFailed"
-	default:
-		return fmt.Sprintf("Exit%d", code)
-	}
-}
-
 func isKeyfileSCRAM(authMechanism string) bool {
 	switch authMechanism {
 	case "SCRAM-SHA-256", "SCRAM-SHA-1":
@@ -76,7 +54,7 @@ func isKeyfileSCRAM(authMechanism string) bool {
 // Validate runs the full connectivity check and returns an exit code.
 func Validate(ctx context.Context, cfg Config) int {
 	log := zap.S()
-	log.Infow("Connectivity validation started",
+	log.Debugw("Connectivity validation started",
 		"authMechanism", cfg.AuthMechanism,
 		"connectionString", cfg.ConnectionString,
 		"externalMembersCount", len(cfg.ExternalMembers),
@@ -90,7 +68,7 @@ func Validate(ctx context.Context, cfg Config) int {
 	clientOpts, err := buildClientOptions(cfg, cfg.ConnectionString)
 	if err != nil {
 		code := classifyError(err)
-		log.Warnw("Failed to build client options", "error", err, "exitCode", code, "exitCodeName", ExitCodeName(code))
+		log.Warnw("Failed to build client options", "error", err, "exitCode", code, "exitCodeName", exitcode.Name(code))
 		return code
 	}
 	log.Debugw("Client options built successfully")
@@ -98,7 +76,7 @@ func Validate(ctx context.Context, cfg Config) int {
 	client, err := mongo.Connect(ctx, clientOpts)
 	if err != nil {
 		code := classifyError(err)
-		log.Warnw("Failed to connect to MongoDB", "error", err, "exitCode", code, "exitCodeName", ExitCodeName(code))
+		log.Warnw("Failed to connect to MongoDB", "error", err, "exitCode", code, "exitCodeName", exitcode.Name(code))
 		return code
 	}
 	defer func(client *mongo.Client, ctx context.Context) {
@@ -111,7 +89,7 @@ func Validate(ctx context.Context, cfg Config) int {
 
 	if err := client.Ping(ctx, nil); err != nil {
 		code := classifyError(err)
-		log.Warnw("MongoDB ping failed", "error", err, "exitCode", code, "exitCodeName", ExitCodeName(code))
+		log.Warnw("MongoDB ping failed", "error", err, "exitCode", code, "exitCodeName", exitcode.Name(code))
 		return code
 	}
 	log.Debugw("MongoDB ping succeeded")
@@ -121,23 +99,23 @@ func Validate(ctx context.Context, cfg Config) int {
 	// When auth is disabled skip this check so local/dev runs can validate reachability.
 	if isKeyfileSCRAM(cfg.AuthMechanism) {
 		if !hasSystemRole(ctx, client) {
-			log.Warnw("__system@local role not found", "exitCode", ExitAuthFailed, "exitCodeName", ExitCodeName(ExitAuthFailed))
-			return ExitAuthFailed
+			log.Warnw("__system@local role not found", "exitCode", exitcode.ExitAuthFailed, "exitCodeName", exitcode.Name(exitcode.ExitAuthFailed))
+			return exitcode.ExitAuthFailed
 		}
 		log.Debugw("__system@local role verified")
 	}
 
 	for i, member := range cfg.ExternalMembers {
-		log.Infow("Pinging external member", "member", member, "index", i+1, "total", len(cfg.ExternalMembers))
-		if code := pingMemberDirect(ctx, member, cfg); code != ExitSuccess {
-			log.Warnw("External member ping failed", "member", member, "exitCode", code, "exitCodeName", ExitCodeName(code))
+		log.Debugw("Pinging external member", "member", member, "index", i+1, "total", len(cfg.ExternalMembers))
+		if code := pingMemberDirect(ctx, member, cfg); code != exitcode.ExitSuccess {
+			log.Warnw("External member ping failed", "member", member, "exitCode", code, "exitCodeName", exitcode.Name(code))
 			return code
 		}
 		log.Debugw("External member reachable", "member", member)
 	}
 
-	log.Infow("Connectivity validation passed", "exitCode", ExitSuccess)
-	return ExitSuccess
+	log.Debugw("Connectivity validation passed", "exitCode", exitcode.ExitSuccess)
+	return exitcode.ExitSuccess
 }
 
 func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) {
@@ -289,12 +267,12 @@ func pingMemberDirect(ctx context.Context, hostPort string, cfg Config) int {
 		log.Warnw("Ping failed for direct connection", "hostPort", hostPort, "error", err, "exitCode", code)
 		return code
 	}
-	return ExitSuccess
+	return exitcode.ExitSuccess
 }
 
 func classifyError(err error) int {
 	if err == nil {
-		return ExitSuccess
+		return exitcode.ExitSuccess
 	}
 	log := zap.S()
 	// ServerSelectionError.Wrapped is just "server selection timeout" — the actual
@@ -306,12 +284,12 @@ func classifyError(err error) int {
 			if srv.LastError != nil {
 				code := classifyConnectionError(srv.LastError)
 				log.Debugw("Server last error", "serverIndex", i, "addr", srv.Addr.String(), "error", srv.LastError, "classifiedCode", code)
-				if code != ExitUnknown {
+				if code != exitcode.ExitUnknown {
 					return code
 				}
 			}
 		}
-		return ExitNetworkFailed
+		return exitcode.ExitNetworkFailed
 	}
 	code := classifyConnectionError(err)
 	log.Debugw("Classified error", "error", err, "errorType", fmt.Sprintf("%T", err), "exitCode", code)
@@ -321,40 +299,40 @@ func classifyError(err error) int {
 // classifyConnectionError maps the error tree to an exit code.
 func classifyConnectionError(err error) int {
 	if err == nil {
-		return ExitSuccess
+		return exitcode.ExitSuccess
 	}
 	log := zap.S()
 	// DNS implements net.Error; check DNS before net.Error.
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		log.Debugw("Classified as DNS error", "err", dnsErr)
-		return ExitNetworkFailed
+		return exitcode.ExitNetworkFailed
 	}
 	var certInvalid x509.CertificateInvalidError
 	if errors.As(err, &certInvalid) {
 		log.Debugw("Classified as cert invalid", "reason", certInvalid.Reason)
-		return ExitNetworkFailed
+		return exitcode.ExitNetworkFailed
 	}
 	var unknownAuthority x509.UnknownAuthorityError
 	if errors.As(err, &unknownAuthority) {
 		log.Debugw("Classified as unknown authority")
-		return ExitNetworkFailed
+		return exitcode.ExitNetworkFailed
 	}
 	var drvErr driver.Error
 	if errors.As(err, &drvErr) && drvErr.Code == mongodbErrAuthenticationFailed {
 		log.Debugw("Classified as auth failed (driver)", "code", drvErr.Code)
-		return ExitAuthFailed
+		return exitcode.ExitAuthFailed
 	}
 	var cmdErr mongo.CommandError
 	if errors.As(err, &cmdErr) && cmdErr.Code == mongodbErrAuthenticationFailed {
 		log.Debugw("Classified as auth failed (command)", "code", cmdErr.Code)
-		return ExitAuthFailed
+		return exitcode.ExitAuthFailed
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		log.Debugw("Classified as network error", "timeout", netErr.Timeout(), "temporary", netErr.Temporary())
-		return ExitNetworkFailed
+		return exitcode.ExitNetworkFailed
 	}
 	log.Debugw("Unclassified error", "error", err, "type", fmt.Sprintf("%T", err))
-	return ExitUnknown
+	return exitcode.ExitUnknown
 }

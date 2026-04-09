@@ -21,6 +21,9 @@ const (
 	OperatorManagedByLabel           = "app.kubernetes.io/managed-by"
 	OperatorManagedByValue           = "mongodb-kubernetes-operator"
 
+	// ConnectivityValidatorContainerName is the Job pod container name and basename of the binary under /usr/local/bin/.
+	ConnectivityValidatorContainerName = "connectivity-validator"
+
 	// DefaultTTLSecondsAfterFinished is how long after completion (success or failure)
 	// Kubernetes will keep the Job and its Pods before auto-deleting them.
 	DefaultTTLSecondsAfterFinished = 600 // 10 minutes
@@ -40,10 +43,9 @@ type JobConfig struct {
 	KeyfileSecretRef string
 }
 
-// volumesAndMountsFromStatefulSet returns volumes and volume mounts from the StatefulSet pod
-// template, excluding any volume that uses a PersistentVolumeClaim (e.g. data, logs). The Job
-// cannot use PVCs, so we only copy volumes that are backed by Secret, ConfigMap, etc.
-func volumesAndMountsFromStatefulSet(sts *appsv1.StatefulSet) ([]corev1.Volume, []corev1.VolumeMount) {
+// nonPVCVolumes returns pod-template volumes that are not backed by a PersistentVolumeClaim,
+// and a set of their names for filtering mounts. Jobs cannot use PVCs.
+func nonPVCVolumes(sts *appsv1.StatefulSet) ([]corev1.Volume, map[string]struct{}) {
 	var vols []corev1.Volume
 	for _, v := range sts.Spec.Template.Spec.Volumes {
 		if v.PersistentVolumeClaim != nil {
@@ -51,18 +53,51 @@ func volumesAndMountsFromStatefulSet(sts *appsv1.StatefulSet) ([]corev1.Volume, 
 		}
 		vols = append(vols, v)
 	}
-	volumeNames := make(map[string]struct{})
+	names := make(map[string]struct{}, len(vols))
 	for i := range vols {
-		volumeNames[vols[i].Name] = struct{}{}
+		names[vols[i].Name] = struct{}{}
 	}
+	return vols, names
+}
+
+// volumeMountIdentity holds the fields that identify a mount for deduplication.
+// corev1.VolumeMount cannot be a map key because it contains pointer fields.
+type volumeMountIdentity struct {
+	name, mountPath, subPath string
+}
+
+func identityOfVolumeMount(m corev1.VolumeMount) volumeMountIdentity {
+	return volumeMountIdentity{name: m.Name, mountPath: m.MountPath, subPath: m.SubPath}
+}
+
+// dedupedVolumeMounts collects volume mounts from every container that reference an allowed
+// volume name, deduplicated by (name, mountPath, subPath) so static multi-container pods do
+// not produce duplicate mounts on the Job's single container.
+func dedupedVolumeMounts(containers []corev1.Container, allowedVolumeNames map[string]struct{}) []corev1.VolumeMount {
+	seen := make(map[volumeMountIdentity]struct{})
 	var mounts []corev1.VolumeMount
-	if len(sts.Spec.Template.Spec.Containers) > 0 {
-		for _, m := range sts.Spec.Template.Spec.Containers[0].VolumeMounts {
-			if _, ok := volumeNames[m.Name]; ok {
-				mounts = append(mounts, m)
+	for i := range containers {
+		for _, m := range containers[i].VolumeMounts {
+			if _, ok := allowedVolumeNames[m.Name]; !ok {
+				continue
 			}
+			id := identityOfVolumeMount(m)
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			mounts = append(mounts, m)
 		}
 	}
+	return mounts
+}
+
+// volumesAndMountsFromStatefulSet returns volumes and volume mounts from the StatefulSet pod
+// template, excluding any volume that uses a PersistentVolumeClaim (e.g. data, logs). Mounts
+// are taken from all app containers, deduplicated; init containers are ignored.
+func volumesAndMountsFromStatefulSet(sts *appsv1.StatefulSet) ([]corev1.Volume, []corev1.VolumeMount) {
+	vols, allowed := nonPVCVolumes(sts)
+	mounts := dedupedVolumeMounts(sts.Spec.Template.Spec.Containers, allowed)
 	return vols, mounts
 }
 
@@ -117,10 +152,10 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{{
-						Name:            "connectivity-validator",
+						Name:            ConnectivityValidatorContainerName,
 						Image:           operatorImage,
 						ImagePullPolicy: corev1.PullAlways,
-						Command:         []string{"/usr/local/bin/connectivity-validator"},
+						Command:         []string{"/usr/local/bin/" + ConnectivityValidatorContainerName},
 						Env:             envVars,
 						VolumeMounts:    volumeMounts,
 					}},
