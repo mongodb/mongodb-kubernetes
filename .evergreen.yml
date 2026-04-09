@@ -1660,9 +1660,6 @@ buildvariants:
       - rhel9-zseries-small
       - rhel9-zseries-large
     allowed_requesters: [ "patch", "commit" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1680,9 +1677,6 @@ buildvariants:
   - name: e2e_static_smoke_ibm_z
     display_name: e2e_static_smoke_ibm_z
     tags: [ "staging", "e2e_smoke_test_suite", "static" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -1951,9 +1945,6 @@ buildvariants:
     display_name: init_test_run_ibm_z
     max_hosts: -1
     tags: [ "staging" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large

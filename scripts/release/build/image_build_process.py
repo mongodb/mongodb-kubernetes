@@ -108,11 +108,12 @@ class DockerImageBuilder(ImageBuilder):
         try:
             docker_cmd.buildx.imagetools.inspect(image_tag)
         except DockerException as e:
-            decoded_stderr = e.stderr.lower()
+            decoded_stderr = e.stderr.lower() if e.stderr else ""
             if any(str(error) in decoded_stderr for error in ["no such image", "image not known", "not found"]):
                 return False
-            else:
-                raise e
+            raise RuntimeError(
+                f"Failed to check if image '{image_tag}' exists: {e.stderr.strip() if e.stderr else str(e)}"
+            )
         else:
             return True
 
