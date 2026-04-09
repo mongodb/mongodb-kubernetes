@@ -1,5 +1,5 @@
 """
-VM migration test using kubectl-mongodb migrate generate with CA bundle.
+VM migration test using kubectl-mongodb migrate with CA bundle.
 
 VM agents validate Ops Manager TLS via a CA ConfigMap (no disabled
 verification). Use when the environment trusts the OM server cert
