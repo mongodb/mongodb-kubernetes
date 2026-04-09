@@ -95,11 +95,6 @@ type MongoDBUserSpec struct {
 	PasswordSecretKeyRef SecretKeyRef `json:"passwordSecretKeyRef"`
 	// +optional
 	ConnectionStringSecretName string `json:"connectionStringSecretName"`
-	// MigratedFromVM preserves only the original SCRAM mechanisms from the OM
-	// automation config across password rotations. Cannot be set to true after
-	// initial creation.
-	// +optional
-	MigratedFromVM *bool `json:"migratedFromVm,omitempty"`
 }
 
 type MongoDBUserStatus struct {
