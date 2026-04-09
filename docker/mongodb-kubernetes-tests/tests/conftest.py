@@ -9,9 +9,14 @@ from typing import Any, Callable, Dict, List, Optional
 
 from dotenv import load_dotenv
 
-# otel_plugin.py requires pytest-opentelemetry which is disabled via PYTEST_OTEL_ENABLED=false on s390x.
-# Exclude it from collection when OTel is disabled so pytest doesn't try to import it.
-collect_ignore = ["otel_plugin.py"] if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "false" else []
+if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "false":
+    # otel_plugin.py requires pytest-opentelemetry which is disabled via PYTEST_OTEL_ENABLED=false on s390x.
+    # Exclude it from collection when OTel is disabled so pytest doesn't try to import it.
+    # More info on collect_ignore pytest configuration https://docs.pytest.org/en/7.1.x/reference/reference.html#globalvar-collect_ignore
+    collect_ignore = ["otel_plugin.py"]
+else:
+    # Importing otel_plugin.pytest_configure and otel_plugin.pytest_sessionstart hook is enough to configure OTEL plugin
+    from otel_plugin import pytest_configure, pytest_sessionstart  # noqa: F401
 
 
 def _load_env_from_local_file_for_development():
@@ -56,9 +61,8 @@ from kubetester.kubetester import running_locally
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
-from opentelemetry.trace import NonRecordingSpan
 from pymongo.errors import ServerSelectionTimeoutError
-from pytest import fixture
+from pytest import fixture, hookimpl
 from tests import test_logger
 from tests.constants import (
     CLUSTER_HOST_MAPPING,
@@ -1590,13 +1594,7 @@ def coredns_config(tld: str, mappings: str, additional_rules: str = None):
 """
 
 
-import pytest
-
-if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "true":
-    from otel_plugin import pytest_configure, pytest_sessionstart  # noqa: F401
-
-
-@pytest.hookimpl(tryfirst=True)
+@hookimpl(tryfirst=True)
 def pytest_sessionfinish(session, exitstatus):
     project_id = os.environ.get("OM_PROJECT_ID", "")
     if project_id:
