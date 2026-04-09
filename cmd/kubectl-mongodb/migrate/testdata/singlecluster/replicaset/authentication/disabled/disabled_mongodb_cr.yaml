@@ -4,6 +4,7 @@ metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
   name: minimal-rs
+  namespace: mongodb
 spec:
   agent:
     maxLogFileDurationHours: 0
