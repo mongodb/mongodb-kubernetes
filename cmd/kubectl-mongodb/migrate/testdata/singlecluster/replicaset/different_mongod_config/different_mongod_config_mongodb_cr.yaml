@@ -4,6 +4,7 @@ metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
   name: hetero-rs
+  namespace: mongodb
 spec:
   additionalMongodConfig:
     auditLog:

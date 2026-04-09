@@ -4,6 +4,7 @@ metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
   name: x509-rs
+  namespace: mongodb
 spec:
   agent:
     maxLogFileDurationHours: 0
@@ -56,6 +57,7 @@ apiVersion: mongodb.com/v1
 kind: MongoDBUser
 metadata:
   name: cn-x509-client-o-mongodb
+  namespace: mongodb
 spec:
   db: $external
   mongodbResourceRef:
@@ -69,6 +71,7 @@ apiVersion: mongodb.com/v1
 kind: MongoDBUser
 metadata:
   name: cn-x509-admin-ou-devops-o-mongodb
+  namespace: mongodb
 spec:
   db: $external
   mongodbResourceRef:
