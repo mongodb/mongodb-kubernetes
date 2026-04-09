@@ -117,7 +117,11 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 	}
 
 	keyfilePath := util.InternalClusterAuthMountPath + "keyfile"
-	certPath := util.AgentCertMountPath + "/" + agentCertHash
+	// Use autoPEMKeyFilePath from spec if set (custom mount path for migration), else default path.
+	certPath := security.GetAgentAutoPEMKeyFilePath()
+	if certPath == "" {
+		certPath = util.AgentCertMountPath + "/" + agentCertHash
+	}
 
 	var caPath string
 	switch authMechanism {
