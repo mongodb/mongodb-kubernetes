@@ -20,7 +20,6 @@ var (
 	multiClusterNames      string
 	outputFile             string
 	replicaSetNameOverride string
-	dryRun                 bool
 )
 
 var MigrateCmd = &cobra.Command{
@@ -47,14 +46,13 @@ func init() {
 	MigrateCmd.Flags().StringVar(&multiClusterNames, "multi-cluster-names", "", "Comma-separated list of target cluster names (e.g., east1,west1); generates a MongoDBMultiCluster CR")
 	MigrateCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
 	MigrateCmd.Flags().StringVar(&replicaSetNameOverride, "replicaset-name-override", "", "Kubernetes resource name for the generated CR; required when the replica set name is not a valid Kubernetes name (sets spec.replicaSetNameOverride automatically)")
-	MigrateCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print supportive resources (secrets, configmaps) to output instead of applying them to the cluster")
 	_ = MigrateCmd.MarkFlagRequired("config-map-name")
 	_ = MigrateCmd.MarkFlagRequired("secret-name")
 }
 
 func runGenerate(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
-	conn, kubeClient, err := prepareConnection(ctx)
+	conn, err := prepareConnection(ctx)
 	if err != nil {
 		return err
 	}
@@ -75,7 +73,6 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Generation logic is implemented in the next stack.
-	_ = kubeClient
 	return fmt.Errorf("not yet implemented")
 }
 
@@ -106,7 +103,11 @@ func openOutput(path string) (io.Writer, error) {
 	if path == "" {
 		return os.Stdout, nil
 	}
-	return os.Create(path) //nolint:gosec
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open output file %q: %w", path, err)
+	}
+	return f, nil
 }
 
 // userKey returns a unique key for a username+database pair.
