@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac as _hmac
 import logging
 import os
 import re
@@ -26,6 +29,41 @@ from tests.common.ops_manager.cloud_manager import is_cloud_qa
 skip_if_cloud_manager = pytest.mark.skipif(is_cloud_qa(), reason="Do not run in Cloud Manager")
 
 logger = test_logger.get_test_logger(__name__)
+
+_SCRAM_SHA256_ITERATIONS = 15000
+_SCRAM_SHA1_ITERATIONS = 10000
+
+
+def _scram_sha256_creds(username: str, password: str) -> Dict:
+    """Generate SCRAM-SHA-256 credentials matching the operator's Go implementation."""
+    salt = os.urandom(28)  # sha256 digest size (32) minus RFC-5802 mandatory 4
+    salted_pw = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _SCRAM_SHA256_ITERATIONS)
+    client_key = _hmac.new(salted_pw, b"Client Key", hashlib.sha256).digest()
+    stored_key = hashlib.sha256(client_key).digest()
+    server_key = _hmac.new(salted_pw, b"Server Key", hashlib.sha256).digest()
+    return {
+        "iterationCount": _SCRAM_SHA256_ITERATIONS,
+        "salt": base64.b64encode(salt).decode(),
+        "storedKey": base64.b64encode(stored_key).decode(),
+        "serverKey": base64.b64encode(server_key).decode(),
+    }
+
+
+def _scram_sha1_creds(username: str, password: str) -> Dict:
+    """Generate SCRAM-SHA-1 (MONGODB-CR) credentials matching the operator's Go implementation."""
+    salt = os.urandom(16)  # sha1 digest size (20) minus RFC-5802 mandatory 4
+    # MONGODB-CR pre-hashes the password as MD5("user:mongo:pass")
+    md5_pw = hashlib.md5(f"{username}:mongo:{password}".encode()).hexdigest()
+    salted_pw = hashlib.pbkdf2_hmac("sha1", md5_pw.encode(), salt, _SCRAM_SHA1_ITERATIONS)
+    client_key = _hmac.new(salted_pw, b"Client Key", hashlib.sha1).digest()
+    stored_key = hashlib.sha1(client_key).digest()
+    server_key = _hmac.new(salted_pw, b"Server Key", hashlib.sha1).digest()
+    return {
+        "iterationCount": _SCRAM_SHA1_ITERATIONS,
+        "salt": base64.b64encode(salt).decode(),
+        "storedKey": base64.b64encode(stored_key).decode(),
+        "serverKey": base64.b64encode(server_key).decode(),
+    }
 
 
 class BackupStatus(str, Enum):
@@ -735,6 +773,42 @@ class OMTester(object):
 
     def api_put_automation_config(self, config: dict):
         self.om_request("put", f"/groups/{self.context.project_id}/automationConfig", json_object=config)
+
+    def add_user(
+        self,
+        username: str,
+        database: str,
+        password: str,
+        mechanisms: List[str],
+        roles: List[Dict[str, str]],
+    ) -> None:
+        """Injects a user directly into OM's automation config with the given mechanisms.
+
+        This simulates an OM-originated user (i.e. one that exists in the AC before a
+        MongoDBUser CR is created), which is needed to test mechanism-preservation logic.
+        """
+        config = self.api_get_automation_config()
+
+        user_entry: Dict = {
+            "user": username,
+            "db": database,
+            "mechanisms": mechanisms,
+            "roles": roles,
+        }
+
+        if "SCRAM-SHA-256" in mechanisms:
+            user_entry["scramSha256Creds"] = _scram_sha256_creds(username, password)
+        if "MONGODB-CR" in mechanisms or "SCRAM-SHA-1" in mechanisms:
+            user_entry["scramSha1Creds"] = _scram_sha1_creds(username, password)
+
+        # Replace any existing entry for this user/db pair.
+        config["auth"]["usersWanted"] = [
+            u for u in config["auth"]["usersWanted"] if not (u["user"] == username and u["db"] == database)
+        ]
+        config["auth"]["usersWanted"].append(user_entry)
+
+        self.api_put_automation_config(config)
+        self.wait_agents_ready()
 
     def wait_agents_ready(self, timeout: Optional[int] = 600):
         """Waits until all the agents reached the goal automation config version."""

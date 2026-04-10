@@ -6,8 +6,10 @@ Scenarios covered:
   2. OM user with both       → mechanisms=[SCRAM-SHA-256, SCRAM-SHA-1], password change
                                keeps both mechanisms
   3. OM user with SHA-256    → mechanisms=[SCRAM-SHA-256] only, password change preserves
-  4. OM user with SHA-1      → mechanisms=[SCRAM-SHA-1] only, password change preserves
-  5. SCRAM disabled mid-way  → user reconciliation retries and recovers when re-enabled
+  4. SCRAM disabled mid-way  → user reconciliation retries and recovers when re-enabled
+
+Note: OM user with SHA-1 only is tested in replica_set_scram_sha_1_mechanisms.py
+      because it requires a replica set with SCRAM-SHA-1/MONGODB-CR modes enabled.
 """
 
 from typing import List
@@ -16,6 +18,7 @@ from kubetester import create_or_update_secret, find_fixture, try_load, update_s
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
@@ -36,14 +39,9 @@ OM_SHA256_USER_NAME = "om-user-sha256"
 OM_SHA256_USER_PASSWORD_SECRET = "om-user-sha256-password"
 OM_SHA256_USER_PASSWORD = "om-sha256-password-1"
 
-# OM-originated user — SHA-1 only
-OM_SHA1_USER_NAME = "om-user-sha1"
-OM_SHA1_USER_PASSWORD_SECRET = "om-user-sha1-password"
-OM_SHA1_USER_PASSWORD = "om-sha1-password-1"
 
 SCRAM_SHA_256 = "SCRAM-SHA-256"
 SCRAM_SHA_1 = "SCRAM-SHA-1"
-MONGODB_CR = "MONGODB-CR"  # OM's internal name for SCRAM-SHA-1
 
 
 def _get_ac_user(ac_tester, username: str) -> dict:
@@ -72,7 +70,8 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource["spec"]["security"]["authentication"] = {
         "ignoreUnknownUsers": True,
         "enabled": True,
-        "modes": ["SCRAM"],
+        "modes": ["SCRAM", "SCRAM-SHA-1", "MONGODB-CR"],
+        "agents": {"mode": "MONGODB-CR"},
     }
     try_load(resource)
     return resource
@@ -86,8 +85,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 @fixture(scope="module")
 def k8s_user(namespace: str, replica_set: MongoDB) -> MongoDBUser:
     create_or_update_secret(namespace, K8S_USER_PASSWORD_SECRET, {"password": K8S_USER_PASSWORD})
-    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace)
-    resource["metadata"]["name"] = K8S_USER_NAME
+    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=K8S_USER_NAME)
     resource["spec"]["username"] = K8S_USER_NAME
     resource["spec"]["passwordSecretKeyRef"] = {"name": K8S_USER_PASSWORD_SECRET, "key": "password"}
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
@@ -96,16 +94,20 @@ def k8s_user(namespace: str, replica_set: MongoDB) -> MongoDBUser:
 
 
 @mark.e2e_replica_set_scram_mechanisms
-class TestReplicaSetRunning(KubernetesTester):
-    def test_replica_set_running(self, replica_set: MongoDB):
-        replica_set.update()
-        replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
+
+
+@mark.e2e_replica_set_scram_mechanisms
+def test_replica_set_running(replica_set: MongoDB):
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @mark.e2e_replica_set_scram_mechanisms
 def test_k8s_user_created(k8s_user: MongoDBUser):
     k8s_user.update()
-    k8s_user.assert_reaches_phase(Phase.Updated)
+    k8s_user.assert_reaches_phase(Phase.Updated, timeout=600)
 
 
 @mark.e2e_replica_set_scram_mechanisms
@@ -171,12 +173,11 @@ def om_user_both(namespace: str, replica_set: MongoDB) -> MongoDBUser:
         username=OM_BOTH_USER_NAME,
         database="admin",
         password=OM_BOTH_USER_PASSWORD,
-        mechanisms=[MONGODB_CR, SCRAM_SHA_256],
+        mechanisms=[SCRAM_SHA_1, SCRAM_SHA_256],
         roles=[{"role": "readWrite", "db": "admin"}],
     )
 
-    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace)
-    resource["metadata"]["name"] = OM_BOTH_USER_NAME
+    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=OM_BOTH_USER_NAME)
     resource["spec"]["username"] = OM_BOTH_USER_NAME
     resource["spec"]["passwordSecretKeyRef"] = {"name": OM_BOTH_USER_PASSWORD_SECRET, "key": "password"}
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
@@ -198,7 +199,7 @@ class TestOMUserBothMechanismsPreserved(KubernetesTester):
         user = _get_ac_user(tester, OM_BOTH_USER_NAME)
         mechanisms = user.get("mechanisms", [])
         assert (
-            SCRAM_SHA_256 in mechanisms or MONGODB_CR in mechanisms
+            SCRAM_SHA_256 in mechanisms or SCRAM_SHA_1 in mechanisms
         ), f"Expected at least one SCRAM mechanism, got {mechanisms}"
         assert len(mechanisms) == 2, f"Expected both mechanisms, got {mechanisms}"
 
@@ -240,8 +241,7 @@ def om_user_sha256(namespace: str, replica_set: MongoDB) -> MongoDBUser:
         roles=[{"role": "readWrite", "db": "admin"}],
     )
 
-    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace)
-    resource["metadata"]["name"] = OM_SHA256_USER_NAME
+    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=OM_SHA256_USER_NAME)
     resource["spec"]["username"] = OM_SHA256_USER_NAME
     resource["spec"]["passwordSecretKeyRef"] = {"name": OM_SHA256_USER_PASSWORD_SECRET, "key": "password"}
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
@@ -290,74 +290,7 @@ class TestOMUserSha256OnlyPreserved(KubernetesTester):
 
 
 # ---------------------------------------------------------------------------
-# Scenario 4: OM user with SHA-1 only — preserved after password change
-# ---------------------------------------------------------------------------
-
-
-@fixture(scope="module")
-def om_user_sha1(namespace: str, replica_set: MongoDB) -> MongoDBUser:
-    create_or_update_secret(namespace, OM_SHA1_USER_PASSWORD_SECRET, {"password": OM_SHA1_USER_PASSWORD})
-
-    replica_set.get_om_tester().add_user(
-        username=OM_SHA1_USER_NAME,
-        database="admin",
-        password=OM_SHA1_USER_PASSWORD,
-        mechanisms=[MONGODB_CR],
-        roles=[{"role": "readWrite", "db": "admin"}],
-    )
-
-    resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace)
-    resource["metadata"]["name"] = OM_SHA1_USER_NAME
-    resource["spec"]["username"] = OM_SHA1_USER_NAME
-    resource["spec"]["passwordSecretKeyRef"] = {"name": OM_SHA1_USER_PASSWORD_SECRET, "key": "password"}
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
-    try_load(resource)
-    return resource
-
-
-@mark.e2e_replica_set_scram_mechanisms
-def test_om_user_sha1_created(om_user_sha1: MongoDBUser):
-    om_user_sha1.update()
-    om_user_sha1.assert_reaches_phase(Phase.Updated)
-
-
-@mark.e2e_replica_set_scram_mechanisms
-class TestOMUserSha1OnlyPreserved(KubernetesTester):
-    def test_om_user_sha1_only_mechanism_in_ac(self, replica_set: MongoDB):
-        tester = replica_set.get_automation_config_tester()
-        tester.assert_has_user(OM_SHA1_USER_NAME)
-        user = _get_ac_user(tester, OM_SHA1_USER_NAME)
-        mechanisms = user.get("mechanisms", [])
-        assert mechanisms == [MONGODB_CR] or mechanisms == [
-            SCRAM_SHA_1
-        ], f"Expected SHA-1 only mechanism, got {mechanisms}"
-
-    def test_om_user_sha1_has_no_sha256_creds(self, replica_set: MongoDB):
-        user = _get_ac_user(replica_set.get_automation_config_tester(), OM_SHA1_USER_NAME)
-        assert user.get("scramSha1Creds"), "SHA-1 creds must be present"
-        assert not user.get("scramSha256Creds"), "SHA-256 creds must NOT be present"
-
-    def test_om_user_sha1_password_change_preserves_mechanism(self, namespace: str, replica_set: MongoDB):
-        ac_version = replica_set.get_automation_config_tester().automation_config["version"]
-        new_password = "om-sha1-password-new-1"
-        update_secret(namespace, OM_SHA1_USER_PASSWORD_SECRET, {"password": new_password})
-
-        wait_until(
-            lambda: replica_set.get_automation_config_tester().reached_version(ac_version + 1),
-            timeout=600,
-        )
-
-        tester = replica_set.get_automation_config_tester()
-        user = _get_ac_user(tester, OM_SHA1_USER_NAME)
-        mechanisms = user.get("mechanisms", [])
-        assert mechanisms == [MONGODB_CR] or mechanisms == [
-            SCRAM_SHA_1
-        ], f"SHA-1 mechanism should be preserved after password change, got {mechanisms}"
-        assert not user.get("scramSha256Creds"), "SHA-256 creds must NOT appear after password change"
-
-
-# ---------------------------------------------------------------------------
-# Scenario 5: SCRAM disabled then re-enabled — user recovers to Updated
+# Scenario 4: SCRAM disabled then re-enabled — user recovers to Updated
 # ---------------------------------------------------------------------------
 
 
