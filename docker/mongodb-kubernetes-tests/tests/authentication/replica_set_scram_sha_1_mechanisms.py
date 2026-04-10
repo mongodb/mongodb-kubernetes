@@ -117,5 +117,7 @@ class TestOMUserSha1OnlyPreserved(KubernetesTester):
         tester = replica_set.get_automation_config_tester()
         user = _get_ac_user(tester, OM_SHA1_USER_NAME)
         mechanisms = user.get("mechanisms", [])
-        assert mechanisms == [SCRAM_SHA_1], f"SHA-1 mechanism should be preserved after password change, got {mechanisms}"
+        assert mechanisms == [
+            SCRAM_SHA_1
+        ], f"SHA-1 mechanism should be preserved after password change, got {mechanisms}"
         assert not user.get("scramSha256Creds"), "SHA-256 creds must NOT appear after password change"
