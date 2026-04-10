@@ -127,8 +127,21 @@ def get_user_docs(generated_cr_yaml: str) -> List[dict]:
     return [d for d in docs if d and d.get("kind") == "MongoDBUser"]
 
 
+def _apply_secrets(generated_cr_yaml: str, namespace: str):
+    """Apply any Secrets from the generated YAML output to the cluster."""
+    docs = list(yaml.safe_load_all(generated_cr_yaml))
+    for doc in docs:
+        if not doc or doc.get("kind") != "Secret":
+            continue
+        secret_name = doc["metadata"]["name"]
+        string_data = doc.get("stringData", {})
+        if string_data:
+            create_or_update_secret(namespace, secret_name, string_data)
+
+
 def apply_user_crs_and_verify_ac(generated_cr_yaml: str, namespace: str, om_tester: OMTester):
-    """Apply every MongoDBUser CR and assert it reaches Updated with correct AC state."""
+    """Apply every password Secret and MongoDBUser CR, then assert correct AC state."""
+    _apply_secrets(generated_cr_yaml, namespace)
     user_docs = get_user_docs(generated_cr_yaml)
     for doc in user_docs:
         user = MongoDBUser(name=doc["metadata"]["name"], namespace=namespace)
