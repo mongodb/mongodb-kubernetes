@@ -30,22 +30,26 @@ const (
 	externalDatabase = "$external" // MongoDB virtual database for X.509 and LDAP users.
 )
 
-// GenerateOptions holds CLI flags and pre-extracted deployment data for CR generation.
+// GenerateOptions holds CLI flags, OM-fetched configs, and validation outputs for CR generation.
+// It does not duplicate fields that are directly derivable from the automation config.
 type GenerateOptions struct {
+	// CLI flags
 	ReplicaSetNameOverride string
 	CredentialsSecretName  string
 	ConfigMapName          string
+	Namespace              string
 	MultiClusterNames      []string
-	ProjectAgentConfigs    *ProjectAgentConfigs
-	ProjectProcessConfigs  *ProjectProcessConfigs
-	// CertsSecretPrefix is spec.security.certsSecretPrefix; required when TLS is enabled.
-	CertsSecretPrefix string
-	ProcessMap        map[string]om.Process
-	Members           []om.ReplicaSetMember
-	// SourceProcess is the OM process used as the template for spec fields (e.g. version, args).
-	SourceProcess      *om.Process
-	UserPasswords      map[string]string // maps "username:database" to plaintext passwords for SCRAM users.
-	PrometheusPassword string            // plaintext password for the Prometheus user secret.
+	CertsSecretPrefix      string // spec.security.certsSecretPrefix; required when TLS is enabled
+
+	// Fetched from OM
+	ProjectConfigs *ProjectConfigs
+
+	// Output of ValidateMigration — the process used as the template for spec fields (e.g. version, args).
+	SourceProcess *om.Process
+
+	// Collected interactively
+	UserPasswords      map[string]string // maps "username:database" to plaintext passwords for SCRAM users
+	PrometheusPassword string
 }
 
 // UserCROutput holds the generated YAML for a single MongoDBUser CR and its password Secret (if any).
@@ -80,7 +84,7 @@ func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (string, 
 	rs := replicaSets[0]
 
 	rsName := rs.Name()
-	externalMembers, version, fcv := om.ExtractMemberInfo(opts.Members, opts.ProcessMap)
+	externalMembers, version, fcv := om.ExtractMemberInfo(rs.Members(), ac.Deployment.ProcessMap())
 
 	resourceName := opts.ReplicaSetNameOverride
 	if resourceName == "" {
@@ -108,7 +112,7 @@ func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptio
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      resourceName,
-			Namespace: namespace,
+			Namespace: opts.Namespace,
 			Annotations: map[string]string{
 				migrateToolVersionAnnotation: versionutil.StaticContainersOperatorVersion(),
 			},
@@ -134,7 +138,7 @@ func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOption
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      resourceName,
-			Namespace: namespace,
+			Namespace: opts.Namespace,
 			Annotations: map[string]string{
 				migrateToolVersionAnnotation: versionutil.StaticContainersOperatorVersion(),
 			},
@@ -151,7 +155,7 @@ func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOption
 // GenerateUserCRs creates MongoDBUser CRs for each user in auth.usersWanted, skipping the agent user.
 // passwords maps "username:database" to plaintext password; entries are used to generate the
 // accompanying Secret for each SCRAM user. External (X.509/LDAP) users produce no Secret.
-func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string, passwords map[string]string) ([]UserCROutput, error) {
+func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName, namespace string, passwords map[string]string) ([]UserCROutput, error) {
 	if ac.Auth == nil || len(ac.Auth.Users) == 0 {
 		return nil, nil
 	}
