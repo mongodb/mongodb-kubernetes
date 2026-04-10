@@ -90,42 +90,37 @@ func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Creden
 	return conn, nil
 }
 
-// ProjectAgentConfigs holds monitoring and backup agent config read from the OM API.
-type ProjectAgentConfigs struct {
+// ProjectConfigs holds project-level agent and log rotation config read from the OM API.
+type ProjectConfigs struct {
 	MonitoringConfig *om.MonitoringAgentConfig
 	BackupConfig     *om.BackupAgentConfig
+	SystemLogRotate  *automationconfig.AcLogRotate
+	AuditLogRotate   *automationconfig.AcLogRotate
 }
 
-// ProjectProcessConfigs holds log rotation config read from the OM API.
-type ProjectProcessConfigs struct {
-	SystemLogRotate *automationconfig.AcLogRotate
-	AuditLogRotate  *automationconfig.AcLogRotate
-}
-
-func readProjectConfigs(conn om.Connection) (*ProjectAgentConfigs, *ProjectProcessConfigs, error) {
+func readProjectConfigs(conn om.Connection) (*ProjectConfigs, error) {
 	monitoringConfig, err := conn.ReadMonitoringAgentConfig()
 	if err != nil {
-		return nil, nil, fmt.Errorf("error reading monitoring agent config: %w", err)
+		return nil, fmt.Errorf("error reading monitoring agent config: %w", err)
 	}
 	backupConfig, err := conn.ReadBackupAgentConfig()
 	if err != nil {
-		return nil, nil, fmt.Errorf("error reading backup agent config: %w", err)
+		return nil, fmt.Errorf("error reading backup agent config: %w", err)
 	}
 	systemLogRotate, err := conn.ReadProcessLogRotation()
 	if err != nil {
-		return nil, nil, fmt.Errorf("error reading system log rotate config: %w", err)
+		return nil, fmt.Errorf("error reading system log rotate config: %w", err)
 	}
 	auditLogRotate, err := conn.ReadAuditLogRotation()
 	if err != nil {
-		return nil, nil, fmt.Errorf("error reading audit log rotate config: %w", err)
+		return nil, fmt.Errorf("error reading audit log rotate config: %w", err)
 	}
-	return &ProjectAgentConfigs{
-			MonitoringConfig: monitoringConfig,
-			BackupConfig:     backupConfig,
-		}, &ProjectProcessConfigs{
-			SystemLogRotate: systemLogRotate,
-			AuditLogRotate:  auditLogRotate,
-		}, nil
+	return &ProjectConfigs{
+		MonitoringConfig: monitoringConfig,
+		BackupConfig:     backupConfig,
+		SystemLogRotate:  systemLogRotate,
+		AuditLogRotate:   auditLogRotate,
+	}, nil
 }
 
 func newKubeClient() (kubernetesClient.Client, error) {

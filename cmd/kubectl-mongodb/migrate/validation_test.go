@@ -222,7 +222,7 @@ func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/monitoring.log"},
 	}
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), &ProjectAgentConfigs{MonitoringConfig: monitoringConfig}, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), &ProjectConfigs{MonitoringConfig: monitoringConfig})
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "monitoringAgentConfig.logPath") {
@@ -239,7 +239,7 @@ func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
 		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/backup.log"},
 	}
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), &ProjectAgentConfigs{BackupConfig: backupConfig}, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), &ProjectConfigs{BackupConfig: backupConfig})
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "backupAgentConfig.logPath") {
@@ -542,7 +542,7 @@ func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 		"sharding": []interface{}{},
 	})
 
-	projectProcessConfigs := &ProjectProcessConfigs{
+	projectProcessConfigs := &ProjectConfigs{
 		SystemLogRotate: &automationconfig.AcLogRotate{
 			LogRotate: automationconfig.LogRotate{
 				TimeThresholdHrs: 24,
@@ -554,7 +554,7 @@ func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 		},
 	}
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, projectProcessConfigs)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), projectProcessConfigs)
 	hasWarning := false
 	for _, r := range results {
 		if r.Severity == SeverityWarning && strings.Contains(r.Message, "logRotate") && strings.Contains(r.Message, "differs from project-level") {
