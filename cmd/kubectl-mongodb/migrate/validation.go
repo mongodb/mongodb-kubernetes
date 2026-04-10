@@ -39,9 +39,9 @@ var (
 func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process, projectAgentConfigs *ProjectAgentConfigs, projectProcessConfigs *ProjectProcessConfigs) ([]ValidationResult, *om.Process) {
 	var results []ValidationResult
 
-	results = append(results, checkOneDeploymentPerProject(ac.Deployment)...)
-	results = append(results, checkReplicaSetsExist(ac.Deployment)...)
-	results = append(results, checkMembersReferenceProcesses(ac.Deployment, processMap)...)
+	results = append(results, validateOneDeploymentPerProject(ac.Deployment)...)
+	results = append(results, validateReplicaSetsExist(ac.Deployment)...)
+	results = append(results, validateMembersReferenceProcesses(ac.Deployment, processMap)...)
 	for _, r := range results {
 		if r.Severity == SeverityError {
 			return results, nil
@@ -51,13 +51,12 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 	results = append(results, validateAuth(ac.Auth)...)
 	results = append(results, validateScram(ac.Auth)...)
 	results = append(results, validateX509(ac.Auth)...)
-	results = append(results, validateTLS(ac.AgentSSL)...)
+	results = append(results, validateAgentTLS(ac.AgentSSL)...)
 	results = append(results, validateAgentConfig(projectAgentConfigs)...)
 	results = append(results, validateLDAP(ac.Ldap)...)
 	results = append(results, validateProjectOptions(ac.Deployment)...)
-	results = append(results, validateProcessConfig(ac.Deployment, processMap)...)
-	results = append(results, checkReplicaSetProtocolVersion(ac.Deployment)...)
-	results = append(results, checkMemberPreservedFields(ac.Deployment)...)
+	results = append(results, validateReplicaSetProtocolVersion(ac.Deployment)...)
+	results = append(results, validateMemberPreservedFields(ac.Deployment)...)
 	for _, r := range results {
 		if r.Severity == SeverityError {
 			return results, nil
@@ -76,7 +75,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 		Severity: SeverityWarning,
 		Message:  fmt.Sprintf("spec.additionalMongodConfig and spec.agent.mongod.systemLog will be taken from process %q. Review all members and reconcile any differences before migration.", sourceProcess.Name()),
 	})
-	results = append(results, checkProcessConfigDrift(sourceProcess, projectProcessConfigs)...)
+	results = append(results, validateProcessConfig(ac.Deployment, processMap, sourceProcess, projectProcessConfigs)...)
 
 	return results, sourceProcess
 }
@@ -148,7 +147,7 @@ func validateScram(auth *om.Auth) []ValidationResult {
 }
 
 // validateTLS checks project-level TLS paths against operator defaults.
-func validateTLS(agentSSL *om.AgentSSL) []ValidationResult {
+func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL == nil {
 		return nil
 	}
@@ -258,21 +257,22 @@ func validateProjectOptions(d om.Deployment) []ValidationResult {
 	return nil
 }
 
-// validateProcessConfig runs per-process checks.
-func validateProcessConfig(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+// validateProcessConfig runs per-process checks against the deployment and source process.
+func validateProcessConfig(d om.Deployment, processMap map[string]om.Process, sourceProcess *om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
 	var results []ValidationResult
 
-	results = append(results, checkProcessesAreValid(d)...)
-	results = append(results, checkAuthSchemaVersion(d)...)
-	results = append(results, checkNonDefaultDbPath(d, processMap)...)
-	results = append(results, checkTLS(d)...)
-	results = append(results, checkTLSPaths(d)...)
-	results = append(results, checkShardingClusterRole(d)...)
+	results = append(results, validateProcessesAreValid(d)...)
+	results = append(results, validateAuthSchemaVersion(d)...)
+	results = append(results, validateNonDefaultDbPath(d, processMap)...)
+	results = append(results, validateTLS(sourceProcess)...)
+	results = append(results, validateTLSPaths(d)...)
+	results = append(results, validateShardingClusterRole(d)...)
+	results = append(results, validateProcessConfigDrift(sourceProcess, projectProcessConfigs)...)
 
 	return results
 }
 
-func checkAuthSchemaVersion(d om.Deployment) []ValidationResult {
+func validateAuthSchemaVersion(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, proc := range d.GetProcesses() {
 		asv := proc.AuthSchemaVersion()
@@ -286,7 +286,7 @@ func checkAuthSchemaVersion(d om.Deployment) []ValidationResult {
 	return results
 }
 
-func checkProcessesAreValid(d om.Deployment) []ValidationResult {
+func validateProcessesAreValid(d om.Deployment) []ValidationResult {
 	processes := d.GetProcesses()
 	if len(processes) == 0 {
 		return []ValidationResult{{
@@ -316,7 +316,7 @@ func checkProcessesAreValid(d om.Deployment) []ValidationResult {
 	return results
 }
 
-func checkNonDefaultDbPath(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+func validateNonDefaultDbPath(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
 	replicaSets := d.GetReplicaSets()
 	if len(replicaSets) == 0 {
 		return nil
@@ -339,30 +339,19 @@ func checkNonDefaultDbPath(d om.Deployment, processMap map[string]om.Process) []
 	return nil
 }
 
-// checkTLS warns once when no process has TLS configured, so the user knows to set
+// validateTLS warns when the source process has no TLS configured, so the user knows to set
 // spec.additionalMongodConfig.net.tls.mode to "disabled" to match the operator default.
-func checkTLS(d om.Deployment) []ValidationResult {
-	var results []ValidationResult
-	noTLSReported := false
-
-	for _, proc := range d.GetProcesses() {
-		args := proc.Args()
-
-		if !noTLSReported {
-			mode := pkgtls.GetTLSModeFromMongodConfig(args)
-			if len(proc.NetTLSSections()) == 0 || mode == pkgtls.Disabled {
-				results = append(results, ValidationResult{
-					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("Process %q has no TLS. Set spec.additionalMongodConfig.net.tls.mode to \"disabled\" to match the operator and avoid a deployment change.", proc.Name()),
-				})
-				noTLSReported = true
-			}
-		}
+func validateTLS(proc *om.Process) []ValidationResult {
+	if len(proc.NetTLSSections()) == 0 || pkgtls.GetTLSModeFromMongodConfig(proc.Args()) == pkgtls.Disabled {
+		return []ValidationResult{{
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("Process %q has no TLS. Set spec.additionalMongodConfig.net.tls.mode to \"disabled\" to match the operator and avoid a deployment change.", proc.Name()),
+		}}
 	}
-	return results
+	return nil
 }
 
-func checkTLSPaths(d om.Deployment) []ValidationResult {
+func validateTLSPaths(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, proc := range d.GetProcesses() {
 		name := proc.Name()
@@ -397,7 +386,7 @@ func checkTLSPaths(d om.Deployment) []ValidationResult {
 	return results
 }
 
-func checkShardingClusterRole(d om.Deployment) []ValidationResult {
+func validateShardingClusterRole(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, proc := range d.GetProcesses() {
 		role := proc.ShardingClusterRole()
@@ -411,7 +400,7 @@ func checkShardingClusterRole(d om.Deployment) []ValidationResult {
 	return results
 }
 
-func checkOneDeploymentPerProject(d om.Deployment) []ValidationResult {
+func validateOneDeploymentPerProject(d om.Deployment) []ValidationResult {
 	shardedClusters := d.GetShardedClusters()
 	shardRSNames := map[string]bool{}
 	for _, sc := range shardedClusters {
@@ -435,7 +424,7 @@ func checkOneDeploymentPerProject(d om.Deployment) []ValidationResult {
 	}}
 }
 
-func checkReplicaSetProtocolVersion(d om.Deployment) []ValidationResult {
+func validateReplicaSetProtocolVersion(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, rs := range d.GetReplicaSets() {
 		rsID := rs.Name()
@@ -450,7 +439,7 @@ func checkReplicaSetProtocolVersion(d om.Deployment) []ValidationResult {
 	return results
 }
 
-func checkReplicaSetsExist(d om.Deployment) []ValidationResult {
+func validateReplicaSetsExist(d om.Deployment) []ValidationResult {
 	if len(d.GetReplicaSets()) == 0 {
 		return []ValidationResult{{
 			Severity: SeverityError,
@@ -460,7 +449,7 @@ func checkReplicaSetsExist(d om.Deployment) []ValidationResult {
 	return nil
 }
 
-func checkMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+func validateMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
 	replicaSets := d.GetReplicaSets()
 	if len(replicaSets) == 0 {
 		return nil
@@ -492,8 +481,8 @@ func checkMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Pr
 	return results
 }
 
-// checkProcessConfigDrift warns when the source process logRotate/auditLogRotate differs from project-level config.
-func checkProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
+// validateProcessConfigDrift warns when the source process logRotate/auditLogRotate differs from project-level config.
+func validateProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
 	if projectProcessConfigs == nil {
 		return nil
 	}
@@ -525,7 +514,7 @@ func checkProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs *P
 	return results
 }
 
-func checkMemberPreservedFields(d om.Deployment) []ValidationResult {
+func validateMemberPreservedFields(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, rs := range d.GetReplicaSets() {
 		rsID := rs.Name()
