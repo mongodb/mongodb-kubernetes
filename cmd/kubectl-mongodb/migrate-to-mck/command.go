@@ -220,7 +220,10 @@ func ensureTLS(opts *GenerateOptions, scanner *bufio.Scanner) error {
 func promptCertsSecretPrefix(scanner *bufio.Scanner) (string, error) {
 	fmt.Fprintf(os.Stderr, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
 	if !scanner.Scan() {
-		return "", fmt.Errorf("failed to read certsSecretPrefix")
+		if err := scanner.Err(); err != nil {
+			return "", fmt.Errorf("failed to read certsSecretPrefix: %w", err)
+		}
+		return "", fmt.Errorf("input cancelled")
 	}
 	s := strings.TrimSpace(scanner.Text())
 	if s == "" {
@@ -237,7 +240,10 @@ func collectPrometheusPassword(ac *om.AutomationConfig, opts *GenerateOptions, s
 	}
 	fmt.Fprintf(os.Stderr, "Enter password for Prometheus user: ")
 	if !scanner.Scan() {
-		return fmt.Errorf("failed to read Prometheus password")
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("failed to read Prometheus password: %w", err)
+		}
+		return fmt.Errorf("input cancelled")
 	}
 	promPassword := strings.TrimSpace(scanner.Text())
 	if promPassword == "" {
@@ -264,7 +270,10 @@ func collectUserPasswords(ac *om.AutomationConfig, opts *GenerateOptions, scanne
 		}
 		fmt.Fprintf(os.Stderr, "Enter password for SCRAM user %q (db: %s): ", user.Username, user.Database)
 		if !scanner.Scan() {
-			return fmt.Errorf("failed to read password for user %q", user.Username)
+			if err := scanner.Err(); err != nil {
+				return fmt.Errorf("failed to read password for user %q: %w", user.Username, err)
+			}
+			return fmt.Errorf("input cancelled for user %q", user.Username)
 		}
 		password := strings.TrimSpace(scanner.Text())
 		if password == "" {
@@ -317,5 +326,3 @@ func printValidationResults(w io.Writer, results []ValidationResult) int {
 	return errorCount
 }
 
-// omUserKey mirrors userKey for automation config users.
-func omUserKey(u om.MongoDBUser) string { return userKey(u.Username, u.Database) }
