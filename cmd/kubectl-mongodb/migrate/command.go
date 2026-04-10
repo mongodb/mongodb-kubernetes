@@ -61,13 +61,13 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to read automation config: %w", err)
 	}
 
-	projectAgentConfigs, projectProcessConfigs, err := readProjectConfigs(conn)
+	projectConfigs, err := readProjectConfigs(conn)
 	if err != nil {
 		return err
 	}
 
 	processMap := ac.Deployment.ProcessMap()
-	results, _ := ValidateMigration(ac, processMap, projectAgentConfigs, projectProcessConfigs)
+	results, _ := ValidateMigration(ac, processMap, projectConfigs)
 	if errorCount := printValidationResults(os.Stderr, results); errorCount > 0 {
 		return fmt.Errorf("validation failed: %d error(s) found. Resolve the issues above before generating Custom Resources", errorCount)
 	}
