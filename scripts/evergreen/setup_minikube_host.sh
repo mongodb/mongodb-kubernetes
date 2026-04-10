@@ -44,7 +44,7 @@ if [[ "$(uname -m)" == "s390x" ]]; then
     echo ">>> Running: libsodium installation (s390x only)"
     LIBSODIUM_VERSION="1.0.20"
     if pkg-config --exists libsodium 2>/dev/null && [[ "$(pkg-config --modversion libsodium)" == "${LIBSODIUM_VERSION}" ]]; then
-        echo "✅ libsodium ${LIBSODIUM_VERSION} already installed, skipping"
+        echo "✅ libsodium ${LIBSODIUM_VERSION} already installed, skipping installation"
     else
         echo ">>> Building libsodium ${LIBSODIUM_VERSION} from source..."
         tmp_dir=$(mktemp -d)

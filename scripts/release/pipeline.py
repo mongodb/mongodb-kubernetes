@@ -172,7 +172,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
 def _setup_tracing():
     if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "false":
-        logger.info("tracing disabled (PYTEST_OTEL_ENABLED=false)")
+        logger.info("PYTEST_OTEL_ENABLED is false, not setting up tracing")
         return
 
     trace_id = os.environ.get("otel_trace_id")
