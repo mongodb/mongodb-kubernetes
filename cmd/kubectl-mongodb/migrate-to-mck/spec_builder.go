@@ -218,9 +218,9 @@ func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 		if i := strings.LastIndex(acProm.ListenAddress, ":"); i >= 0 {
 			s = acProm.ListenAddress[i+1:]
 		}
-		port, _ := strconv.Atoi(s)
-		if port <= 0 {
-			return nil, fmt.Errorf("prometheus listenAddress %q does not contain a valid port", acProm.ListenAddress)
+		port, err := strconv.Atoi(s)
+		if err != nil || port <= 0 {
+			return nil, fmt.Errorf("prometheus listenAddress %q does not contain a valid port: %v", acProm.ListenAddress, err)
 		}
 		prom.Port = port
 	}
@@ -361,7 +361,10 @@ func buildReplicaSetMultiClusterSpec(
 		return mdbmulti.MongoDBMultiSpec{}, err
 	}
 
-	clusterSpecList := distributeMembers(len(externalMembers), opts.MultiClusterNames)
+	clusterSpecList, err := distributeMembers(len(externalMembers), opts.MultiClusterNames)
+	if err != nil {
+		return mdbmulti.MongoDBMultiSpec{}, err
+	}
 	clusterMemberConfig := distributeMemberConfig(opts.Members, opts.MultiClusterNames)
 	for i := range clusterSpecList {
 		clusterSpecList[i].MemberConfig = clusterMemberConfig[i]
@@ -392,10 +395,13 @@ func buildMemberConfig(members []om.ReplicaSetMember) []automationconfig.MemberO
 }
 
 // distributeMembers spreads memberCount evenly across clusterNames, extra members go to earlier clusters.
-func distributeMembers(memberCount int, clusterNames []string) mdbv1.ClusterSpecList {
+func distributeMembers(memberCount int, clusterNames []string) (mdbv1.ClusterSpecList, error) {
 	n := len(clusterNames)
 	if n == 0 {
-		return nil
+		return nil, nil
+	}
+	if memberCount < n {
+		return nil, fmt.Errorf("cannot distribute %d members across %d clusters: need at least one member per cluster", memberCount, n)
 	}
 	base := memberCount / n
 	remainder := memberCount % n
@@ -411,7 +417,7 @@ func distributeMembers(memberCount int, clusterNames []string) mdbv1.ClusterSpec
 			Members:     count,
 		}
 	}
-	return list
+	return list, nil
 }
 
 // distributeMemberConfig slices buildMemberConfig output to match the distributeMembers layout.

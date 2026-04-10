@@ -52,9 +52,6 @@ type GenerateOptions struct {
 type UserCROutput struct {
 	MongoDBUserYAML    string
 	PasswordSecretYAML string // empty for external (X.509/LDAP) users that have no password
-	Username       string
-	Database       string
-	PasswordSecret string
 }
 
 // GenerateMongoDBCR generates a MongoDB CR for the given topology.
@@ -159,7 +156,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string, passwo
 		return nil, nil
 	}
 
-	seenCRNames := map[string]string{}
+	crNameToUsername := map[string]string{}
 	var results []UserCROutput
 	for i, user := range ac.Auth.Users {
 		if user == nil {
@@ -177,10 +174,10 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string, passwo
 		if crName == "" {
 			return nil, fmt.Errorf("username %q cannot be normalized to a valid Kubernetes name: no alphanumeric characters", user.Username)
 		}
-		if prev, exists := seenCRNames[crName]; exists {
+		if prev, exists := crNameToUsername[crName]; exists {
 			return nil, fmt.Errorf("users %q and %q normalize to the same Kubernetes name %q; rename one before migration", prev, user.Username, crName)
 		}
-		seenCRNames[crName] = user.Username
+		crNameToUsername[crName] = user.Username
 
 		roles, err := convertRoles(user.Roles)
 		if err != nil {
@@ -226,9 +223,6 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName string, passwo
 		results = append(results, UserCROutput{
 			MongoDBUserYAML:    userYAML,
 			PasswordSecretYAML: secretYAML,
-			Username:       user.Username,
-			Database:       user.Database,
-			PasswordSecret: passwordSecretName,
 		})
 	}
 
@@ -266,18 +260,6 @@ func buildLdapCAConfigMap(namespace, caFileContents string) corev1.ConfigMap {
 			LdapCAKey: caFileContents,
 		},
 	}
-}
-
-// GenerateLdapCAConfigMap returns the LDAP CA ConfigMap as YAML, or empty when absent.
-func GenerateLdapCAConfigMap(ac *om.AutomationConfig, namespace string) (string, error) {
-	if ac.Ldap == nil || ac.Ldap.CaFileContents == "" {
-		return "", nil
-	}
-	out, err := marshalCRToYAML(buildLdapCAConfigMap(namespace, ac.Ldap.CaFileContents))
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal LDAP CA ConfigMap: %w", err)
-	}
-	return out, nil
 }
 
 // marshalCRToYAML marshals a resource to YAML, stripping status, creationTimestamp, and empty fields.
