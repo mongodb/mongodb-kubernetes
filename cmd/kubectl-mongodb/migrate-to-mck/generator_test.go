@@ -11,6 +11,16 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 )
 
+// withDeploymentData mirrors what runGenerate does before calling generateAll.
+func withDeploymentData(ac *om.AutomationConfig, opts GenerateOptions) GenerateOptions {
+	if rss := ac.Deployment.GetReplicaSets(); len(rss) > 0 {
+		members := rss[0].Members()
+		processMap := ac.Deployment.ProcessMap()
+		opts.SourceProcess, _ = pickSourceProcess(members, processMap)
+	}
+	return opts
+}
+
 func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 
@@ -65,22 +75,33 @@ func TestGenerateMongoDBCR_NoReplicaSet(t *testing.T) {
 
 // TestGenerateUserCRs_EmptyMechanisms verifies users with empty mechanisms generate successfully.
 func TestGenerateUserCRs_EmptyMechanisms(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/authentication/scram_empty_mechanisms/scram_empty_mechanisms_input.json")
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []interface{}{},
+		"replicaSets": []interface{}{},
+	})
+	ac.Auth.AutoUser = "mms-automation"
+	ac.Auth.Users = []*om.MongoDBUser{
+		{Username: "app-user", Database: "admin", Mechanisms: []string{}, Roles: []*om.Role{{Role: "readWrite", Database: "myapp"}}},
+	}
+
 	users, err := GenerateUserCRs(ac, "scram-rs", "mongodb", nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, users)
 }
 
 func TestGenerateUserCRs_DuplicateNormalizedNames(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
-	ac.Auth.Users = append(ac.Auth.Users,
-		&om.MongoDBUser{Username: "App_User", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
-		&om.MongoDBUser{Username: "app.user", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
-	)
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []interface{}{},
+		"replicaSets": []interface{}{},
+	})
+	ac.Auth.AutoUser = "mms-automation"
+	ac.Auth.Users = []*om.MongoDBUser{
+		{Username: "App_User", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
+		{Username: "app-user", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
+	}
 
 	_, err := GenerateUserCRs(ac, "my-rs", "mongodb", nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "normalize to the same Kubernetes name")
+	assert.ErrorContains(t, err, "normalize to the same Kubernetes name")
 }
 
 func TestDistributeMembers(t *testing.T) {
