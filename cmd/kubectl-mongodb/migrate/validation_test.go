@@ -15,7 +15,7 @@ import (
 func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
 		assert.NotEqual(t, SeverityError, r.Severity, "single-RS config should not produce errors: %s", r.Message)
 	}
@@ -24,7 +24,7 @@ func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
 func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "validation/multi_replicaset.json")
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasMultipleDeploymentsError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "deployments") {
@@ -38,7 +38,7 @@ func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
 func TestValidation_OneDeploymentPerProject_SingleSharded(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "validation/sharded_cluster.json")
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
 		assert.NotEqual(t, SeverityError, r.Severity, "single-sharded config should not produce errors: %s", r.Message)
 	}
@@ -51,7 +51,7 @@ func TestValidation_NoReplicaSets(t *testing.T) {
 		"sharding":    []interface{}{},
 	})
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "No replica sets found") {
@@ -75,7 +75,7 @@ func TestValidation_MemberReferencesUnknownProcess(t *testing.T) {
 		"sharding": []interface{}{},
 	})
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "not found") {
@@ -98,7 +98,7 @@ func TestValidation_ReplicaSetWithNoMembers(t *testing.T) {
 		"sharding": []interface{}{},
 	})
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "no members") {
@@ -112,7 +112,7 @@ func TestValidation_NonDefaultKeyFile(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Auth.KeyFile = "/custom/path/keyfile"
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "keyFile") {
@@ -127,7 +127,7 @@ func TestValidation_NonDefaultAutoPEMKeyFilePath(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.AgentSSL.AutoPEMKeyFilePath = "/etc/mongodb-mms/agent.pem"
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasWarning := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "autoPEMKeyFilePath") {
@@ -142,7 +142,7 @@ func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.AgentSSL.CAFilePath = "/etc/ssl/ca.pem"
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasWarning := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "CAFilePath") {
@@ -159,7 +159,7 @@ func TestValidation_NonDefaultDownloadBase(t *testing.T) {
 	options["downloadBase"] = "/opt/mongodb/automation"
 	ac.Deployment["options"] = options
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "downloadBase") {
@@ -174,7 +174,7 @@ func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Auth.KeyFileWindows = "C:\\custom\\keyfile"
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "keyFileWindows") {
@@ -189,7 +189,7 @@ func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
 	processes := ac.Deployment.GetProcesses()
 	processes[0]["authSchemaVersion"] = 3
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "authSchemaVersion") {
@@ -205,7 +205,7 @@ func TestValidation_NonDefaultProtocolVersion(t *testing.T) {
 	replicaSets := ac.Deployment.GetReplicaSets()
 	replicaSets[0]["protocolVersion"] = "0"
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "protocolVersion") {
@@ -253,7 +253,7 @@ func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
 func TestValidation_ValidConfig_NoErrors(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
 		assert.NotEqual(t, SeverityError, r.Severity, "valid config should not produce errors: %s", r.Message)
 	}
@@ -266,7 +266,7 @@ func TestValidation_LdapBindMethodSASL(t *testing.T) {
 		BindMethod: "sasl",
 	}
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasWarning := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "bindMethod") {
@@ -285,7 +285,7 @@ func TestValidation_LdapBindMethodSimple_NoWarning(t *testing.T) {
 		BindMethod: "simple",
 	}
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
 		if strings.Contains(r.Message, "bindMethod") {
 			t.Errorf("unexpected warning/error about bindMethod: %s", r.Message)
@@ -300,7 +300,7 @@ func TestValidation_LdapCaFileContents(t *testing.T) {
 		CaFileContents: "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
 	}
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasWarning := false
 	for _, r := range results {
 		if r.Severity == SeverityWarning && strings.Contains(r.Message, "LDAP CA") {
@@ -318,7 +318,7 @@ func TestValidation_LdapNoCaFileContents_NoWarning(t *testing.T) {
 		Servers: "ldap.example.com:636",
 	}
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
 		if strings.Contains(r.Message, "LDAP CA") {
 			t.Errorf("unexpected warning about LDAP CA: %s", r.Message)
@@ -330,7 +330,7 @@ func TestValidation_NilLdap_NoWarning(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Ldap = nil
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
 		if strings.Contains(r.Message, "LDAP") {
 			t.Errorf("unexpected LDAP warning/error when LDAP is nil: %s", r.Message)
@@ -345,7 +345,7 @@ func TestValidation_NonDefaultDbPath(t *testing.T) {
 	storage := args["storage"].(map[string]interface{})
 	storage["dbPath"] = "/data/custom"
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasWarning := false
 	for _, r := range results {
 		if r.Severity == SeverityWarning && strings.Contains(r.Message, "dbPath") {
@@ -382,7 +382,7 @@ func TestValidation_DefaultDbPath_NoWarning(t *testing.T) {
 		"sharding": []interface{}{},
 	})
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
 		if strings.Contains(r.Message, "dbPath") {
 			t.Errorf("unexpected warning about dbPath: %s", r.Message)
@@ -393,7 +393,7 @@ func TestValidation_DefaultDbPath_NoWarning(t *testing.T) {
 func TestValidation_RequireTLS_NoWarning(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
 		if strings.Contains(r.Message, "allowTLS") || strings.Contains(r.Message, "allowSSL") {
 			t.Errorf("unexpected warning about allow TLS mode: %s", r.Message)
@@ -469,7 +469,7 @@ func TestValidation_EmptyAutoUser(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Auth.AutoUser = ""
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "autoUser") && strings.Contains(r.Message, "empty") {
@@ -483,7 +483,7 @@ func TestValidation_AutoUserNotInUsersWanted(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 	ac.Auth.AutoUser = "nonexistent-agent"
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "nonexistent-agent") && strings.Contains(r.Message, "usersWanted") {
@@ -496,7 +496,7 @@ func TestValidation_AutoUserNotInUsersWanted(t *testing.T) {
 func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "autoUser") {
 			t.Errorf("valid autoUser should not produce errors: %s", r.Message)
@@ -510,7 +510,7 @@ func TestValidation_X509AutoUser_NotInUsersWanted_NoError(t *testing.T) {
 	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
 	ac.Auth.Users = nil
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil, nil)
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "autoUser") && strings.Contains(r.Message, "usersWanted") {
 			t.Errorf("X509 autoUser should not require a matching usersWanted entry: %s", r.Message)
