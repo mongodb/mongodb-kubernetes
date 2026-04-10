@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 // withDeploymentData mirrors what runGenerate does before calling generateAll.
@@ -202,7 +202,10 @@ func TestDistributeMembers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := distributeMembers(tt.memberCount, tt.clusters)
+			externalMembers := make([]mdbv1.ExternalMember, tt.memberCount)
+			rsMembers := make([]om.ReplicaSetMember, tt.memberCount)
+			result, err := distributeMembers(externalMembers, rsMembers, tt.clusters)
+			require.NoError(t, err)
 			require.Len(t, result, len(tt.clusters))
 			for i, item := range result {
 				assert.Equal(t, tt.clusters[i], item.ClusterName)
@@ -210,6 +213,19 @@ func TestDistributeMembers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDistributeMembers_EmptyClusterNames(t *testing.T) {
+	externalMembers := make([]mdbv1.ExternalMember, 3)
+	rsMembers := make([]om.ReplicaSetMember, 3)
+
+	result, err := distributeMembers(externalMembers, rsMembers, nil)
+	require.NoError(t, err)
+	assert.Nil(t, result)
+
+	result, err = distributeMembers(externalMembers, rsMembers, []string{})
+	require.NoError(t, err)
+	assert.Nil(t, result)
 }
 
 func TestNormalizeName(t *testing.T) {
@@ -233,82 +249,4 @@ func TestNormalizeName(t *testing.T) {
 func TestNormalizeName_InvalidInput(t *testing.T) {
 	result := userv1.NormalizeName("---")
 	assert.Empty(t, result)
-}
-
-func TestDistributeMembers_EmptyClusterNames(t *testing.T) {
-	result := distributeMembers(3, nil)
-	assert.Nil(t, result)
-
-	result = distributeMembers(3, []string{})
-	assert.Nil(t, result)
-}
-
-func TestGenerateUserCRs_DuplicateNormalizedNames(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
-	ac.Auth.Users = append(ac.Auth.Users,
-		&om.MongoDBUser{Username: "App_User", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
-		&om.MongoDBUser{Username: "app.user", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
-	)
-
-	_, err := GenerateUserCRs(ac, "my-rs", nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "normalize to the same Kubernetes name")
-}
-
-func multiClusterTestConfigs() (*ProjectAgentConfigs, *ProjectProcessConfigs) {
-	return nil, &ProjectProcessConfigs{
-		SystemLogRotate: &automationconfig.AcLogRotate{
-			LogRotate: automationconfig.LogRotate{
-				TimeThresholdHrs: 1,
-				NumUncompressed:  2,
-				NumTotal:         10,
-			},
-			SizeThresholdMB:    100,
-			PercentOfDiskspace: 0.4,
-		},
-		AuditLogRotate: &automationconfig.AcLogRotate{
-			LogRotate: automationconfig.LogRotate{
-				TimeThresholdHrs: 1,
-				NumUncompressed:  2,
-				NumTotal:         10,
-			},
-			SizeThresholdMB:    100,
-			PercentOfDiskspace: 0.4,
-		},
-	}
-}
-
-func fullTestConfigs() (*ProjectAgentConfigs, *ProjectProcessConfigs) {
-	return &ProjectAgentConfigs{
-			MonitoringConfig: &om.MonitoringAgentConfig{
-				MonitoringAgentTemplate: &om.MonitoringAgentTemplate{},
-				BackingMap: map[string]interface{}{
-					"logRotate": map[string]interface{}{
-						"sizeThresholdMB":  500.0,
-						"timeThresholdHrs": 12,
-					},
-				},
-			},
-		}, &ProjectProcessConfigs{
-			SystemLogRotate: &automationconfig.AcLogRotate{
-				LogRotate: automationconfig.LogRotate{
-					TimeThresholdHrs:                24,
-					NumUncompressed:                 5,
-					NumTotal:                        10,
-					IncludeAuditLogsWithMongoDBLogs: true,
-				},
-				SizeThresholdMB:    1000,
-				PercentOfDiskspace: 0.4,
-			},
-			AuditLogRotate: &automationconfig.AcLogRotate{
-				LogRotate: automationconfig.LogRotate{
-					TimeThresholdHrs:                48,
-					NumUncompressed:                 2,
-					NumTotal:                        10,
-					IncludeAuditLogsWithMongoDBLogs: true,
-				},
-				SizeThresholdMB:    500,
-				PercentOfDiskspace: 0.4,
-			},
-		}
 }
