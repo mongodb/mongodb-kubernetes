@@ -135,9 +135,7 @@ class TestOMUserBothMechanismsPreserved(KubernetesTester):
         tester.assert_has_user(OM_BOTH_USER_NAME)
         user = _get_ac_user(tester, OM_BOTH_USER_NAME)
         mechanisms = user.get("mechanisms", [])
-        assert (
-            SCRAM_SHA_256 in mechanisms and SCRAM_SHA_1 in mechanisms
-        ), f"Expected both mechanisms, got {mechanisms}"
+        assert SCRAM_SHA_256 in mechanisms and SCRAM_SHA_1 in mechanisms, f"Expected both mechanisms, got {mechanisms}"
 
     def test_om_user_both_password_change_preserves_mechanisms(self, namespace: str, replica_set: MongoDB):
         ac_version = replica_set.get_automation_config_tester().automation_config["version"]
