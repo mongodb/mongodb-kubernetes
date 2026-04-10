@@ -9,11 +9,11 @@
       "tools_suffixes": ["rhel93-aarch64-{TOOLS_VERSION}.tgz", "rhel90-aarch64-{TOOLS_VERSION}.tgz"]
     },
     "linux/s390x": {
-      "agent_suffixes": ["rhel7_s390x.tar.gz", "rhel8_s390x.tar.gz", "rhel9_s390x.tar.gz"],
+      "agent_suffixes": ["rhel8_s390x.tar.gz", "rhel9_s390x.tar.gz"],
       "tools_suffixes": ["rhel9-s390x-{TOOLS_VERSION}.tgz", "rhel83-s390x-{TOOLS_VERSION}.tgz"]
     },
     "linux/ppc64le": {
-      "agent_suffixes": ["rhel8_ppc64le.tar.gz", "rhel7_ppc64le.tar.gz", "rhel9_ppc64le.tar.gz"],
+      "agent_suffixes": ["rhel8_ppc64le.tar.gz", "rhel9_ppc64le.tar.gz"],
       "tools_suffixes": ["rhel9-ppc64le-{TOOLS_VERSION}.tgz", "rhel81-ppc64le-{TOOLS_VERSION}.tgz"]
     }
   },
