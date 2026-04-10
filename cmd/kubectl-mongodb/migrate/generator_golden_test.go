@@ -14,25 +14,6 @@ import (
 
 var updateGolden = flag.Bool("update-golden", false, "overwrite golden fixture files with current output")
 
-func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfig {
-	t.Helper()
-	data, err := os.ReadFile("testdata/" + filename)
-	require.NoError(t, err)
-	ac, err := om.BuildAutomationConfigFromBytes(data)
-	require.NoError(t, err)
-	return ac
-}
-
-// withDeploymentData mirrors what runGenerate does before calling generateAll.
-func withDeploymentData(ac *om.AutomationConfig, opts GenerateOptions) GenerateOptions {
-	if rss := ac.Deployment.GetReplicaSets(); len(rss) > 0 {
-		members := rss[0].Members()
-		processMap := ac.Deployment.ProcessMap()
-		opts.SourceProcess, _ = pickSourceProcess(members, processMap)
-	}
-	return opts
-}
-
 // runAll exercises the full pipeline and returns the complete YAML output.
 func runAll(t *testing.T, ac *om.AutomationConfig, opts GenerateOptions) string {
 	t.Helper()
@@ -76,11 +57,11 @@ func TestFixtureMatch(t *testing.T) {
 		goldenYAML string
 		opts       GenerateOptions
 	}{
-		// --- scram_tls_ldap_prometheus: MongoDB CR + user CRs + LDAP resources + Prometheus secret + user password secrets ---
+		// --- complex_replicaset: MongoDB CR + user CRs + LDAP resources + Prometheus secret + user password secrets ---
 		{
 			name:       "single-cluster replica set — SCRAM, TLS, LDAP, Prometheus, log rotation",
-			inputJSON:  "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json",
-			goldenYAML: "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_all.yaml",
+			inputJSON:  "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json",
+			goldenYAML: "singlecluster/replicaset/complex_replicaset/complex_replicaset_all.yaml",
 			opts: GenerateOptions{
 				CredentialsSecretName: "my-credentials",
 				ConfigMapName:         "my-om-config",
