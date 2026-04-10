@@ -1,6 +1,7 @@
 package migratetomck
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,28 @@ func withDeploymentData(ac *om.AutomationConfig, opts GenerateOptions) GenerateO
 }
 
 func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name":                        "my-rs-0",
+				"hostname":                    "vm-0.example.com",
+				"version":                     "8.0.4-ent",
+				"featureCompatibilityVersion": "8.0",
+				"processType":                 "mongod",
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27017},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id":     "my-rs",
+				"members": []interface{}{map[string]interface{}{"_id": 0, "host": "my-rs-0", "priority": 1, "votes": 1}},
+			},
+		},
+		"sharding": []interface{}{},
+	})
 
 	opts := withDeploymentData(ac, GenerateOptions{
 		ReplicaSetNameOverride: "custom-name",
@@ -39,7 +61,28 @@ func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 }
 
 func TestGenerateMongoDBCR_MultiCluster_CustomResourceName(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "multicluster/replicaset/distributed/distributed_input.json")
+	members := make([]interface{}, 5)
+	processes := make([]interface{}, 5)
+	for i := 0; i < 5; i++ {
+		name := fmt.Sprintf("geo-rs-%d", i)
+		members[i] = map[string]interface{}{"_id": i, "host": name, "priority": 1, "votes": 1}
+		processes[i] = map[string]interface{}{
+			"name":                        name,
+			"hostname":                    fmt.Sprintf("mongo-%d.example.com", i),
+			"version":                     "8.0.4-ent",
+			"featureCompatibilityVersion": "8.0",
+			"processType":                 "mongod",
+			"args2_6": map[string]interface{}{
+				"net":         map[string]interface{}{"port": 27017},
+				"replication": map[string]interface{}{"replSetName": "geo-rs"},
+			},
+		}
+	}
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   processes,
+		"replicaSets": []interface{}{map[string]interface{}{"_id": "geo-rs", "members": members}},
+		"sharding":    []interface{}{},
+	})
 
 	opts := withDeploymentData(ac, GenerateOptions{
 		ReplicaSetNameOverride: "custom-mc-name",
@@ -51,7 +94,6 @@ func TestGenerateMongoDBCR_MultiCluster_CustomResourceName(t *testing.T) {
 	yamlOutput, resourceName, err := GenerateMongoDBCR(ac, opts)
 	require.NoError(t, err)
 	assert.Equal(t, "custom-mc-name", resourceName)
-
 	assert.Contains(t, yamlOutput, "name: custom-mc-name")
 	assert.Contains(t, yamlOutput, "replicaSetNameOverride: geo-rs")
 }
