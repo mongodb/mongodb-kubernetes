@@ -1,6 +1,7 @@
 package migrate
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -11,6 +12,15 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
+
+func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfig {
+	t.Helper()
+	data, err := os.ReadFile("testdata/" + filename)
+	require.NoError(t, err)
+	ac, err := om.BuildAutomationConfigFromBytes(data)
+	require.NoError(t, err)
+	return ac
+}
 
 func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/scram_tls_ldap_prometheus/scram_tls_ldap_prometheus_input.json")
