@@ -3,7 +3,6 @@ package migrate
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"go.uber.org/zap"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -14,7 +13,6 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
@@ -72,7 +70,7 @@ func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Creden
 	}
 	conn := omConnectionFactory(&omContext)
 
-	org, err := resolveOrganization(conn, config.OrgID, config.ProjectName, log)
+	org, err := project.FindOrganization(config.OrgID, config.ProjectName, conn, log)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +78,7 @@ func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Creden
 		return nil, fmt.Errorf("organization not found for project name %q", config.ProjectName)
 	}
 
-	proj, err := resolveProjectInOrg(conn, config.ProjectName, org)
+	proj, err := project.FindProjectInsideOrganization(conn, config.ProjectName, org, log)
 	if err != nil {
 		return nil, err
 	}
@@ -90,66 +88,6 @@ func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Creden
 
 	conn.ConfigureProject(proj)
 	return conn, nil
-}
-
-func resolveOrgIDByName(conn om.Connection, name string) (string, error) {
-	organizations, err := conn.ReadOrganizationsByName(name)
-	if err != nil {
-		if v, ok := err.(*apierror.Error); ok && v.ErrorCode == apierror.OrganizationNotFound {
-			return "", nil
-		}
-		return "", fmt.Errorf("could not find organization %s: %w", name, err)
-	}
-	for _, org := range organizations {
-		if org.Name == name {
-			return org.ID, nil
-		}
-	}
-	return "", nil
-}
-
-func resolveOrganization(conn om.Connection, orgID string, projectName string, log *zap.SugaredLogger) (*om.Organization, error) {
-	if orgID == "" {
-		log.Debugf("Organization id is not specified - trying to find the organization with name %q", projectName)
-		var err error
-		if orgID, err = resolveOrgIDByName(conn, projectName); err != nil {
-			return nil, err
-		}
-		if orgID == "" {
-			return nil, nil
-		}
-	}
-
-	organization, err := conn.ReadOrganization(orgID)
-	if err != nil {
-		return nil, fmt.Errorf("organization with id %s not found: %w", orgID, err)
-	}
-	return organization, nil
-}
-
-func resolveProjectInOrg(conn om.Connection, projectName string, organization *om.Organization) (*om.Project, error) {
-	projects, err := conn.ReadProjectsInOrganizationByName(organization.ID, projectName)
-	if err != nil {
-		if v, ok := err.(*apierror.Error); ok && v.ErrorCode == apierror.ProjectNotFound {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("error looking up project %s in organization %s: %w", projectName, organization.ID, err)
-	}
-	var found *om.Project
-	var names []string
-	for _, p := range projects {
-		if p.Name == projectName {
-			found = p
-			names = append(names, fmt.Sprintf("%s (%s)", p.Name, p.ID))
-		}
-	}
-	if len(names) == 1 {
-		return found, nil
-	}
-	if len(names) > 1 {
-		return nil, fmt.Errorf("found more than one project with name %s in organization %s (%s): %s", projectName, organization.ID, organization.Name, strings.Join(names, ", "))
-	}
-	return nil, nil
 }
 
 // ProjectAgentConfigs holds monitoring and backup agent config read from the OM API.

@@ -99,7 +99,8 @@ func printValidationResults(w io.Writer, results []ValidationResult) int {
 }
 
 // openOutput returns os.Stdout when path is empty, otherwise opens path for writing.
-func openOutput(path string) (io.Writer, error) {
+// The caller must close the returned file when it is not os.Stdout.
+func openOutput(path string) (*os.File, error) {
 	if path == "" {
 		return os.Stdout, nil
 	}

@@ -85,7 +85,7 @@ func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentia
 
 	conn := connectionFactory(&omContext)
 
-	org, err := findOrganization(config.OrgID, projectName, conn, log)
+	org, err := FindOrganization(config.OrgID, projectName, conn, log)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -110,7 +110,7 @@ func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentia
 	return project, conn, nil
 }
 
-func findOrganization(orgID string, projectName string, conn om.Connection, log *zap.SugaredLogger) (*om.Organization, error) {
+func FindOrganization(orgID string, projectName string, conn om.Connection, log *zap.SugaredLogger) (*om.Organization, error) {
 	if orgID == "" {
 		// Note: this org_id = "" has to be explicitly set by the customer.
 		// If org id is not specified - then the contract is that the organization for the project must have the same
@@ -135,7 +135,7 @@ func findOrganization(orgID string, projectName string, conn om.Connection, log 
 
 // findProject tries to find if the group already exists.
 func findProject(projectName string, organization *om.Organization, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
-	project, err := findProjectInsideOrganization(conn, projectName, organization, log)
+	project, err := FindProjectInsideOrganization(conn, projectName, organization, log)
 	if err != nil {
 		return nil, xerrors.Errorf("error finding project %s in organization with id %s: %w", projectName, organization, err)
 	}
@@ -146,10 +146,10 @@ func findProject(projectName string, organization *om.Organization, conn om.Conn
 	return nil, nil
 }
 
-// findProjectInsideOrganization looks up a project by name inside an organization and returns the project if it was the only one found by that name.
+// FindProjectInsideOrganization looks up a project by name inside an organization and returns the project if it was the only one found by that name.
 // If no project was found, the function returns a nil project to indicate that no such project exists.
 // In all other cases, a non nil error is returned.
-func findProjectInsideOrganization(conn om.Connection, projectName string, organization *om.Organization, log *zap.SugaredLogger) (*om.Project, error) {
+func FindProjectInsideOrganization(conn om.Connection, projectName string, organization *om.Organization, log *zap.SugaredLogger) (*om.Project, error) {
 	projects, err := conn.ReadProjectsInOrganizationByName(organization.ID, projectName)
 	if err != nil {
 		if v, ok := err.(*apierror.Error); ok {
