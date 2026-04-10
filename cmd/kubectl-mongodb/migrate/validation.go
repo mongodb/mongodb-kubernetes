@@ -36,7 +36,7 @@ var (
 
 // ValidateMigration checks the automation config for operator compatibility.
 // Structural errors gate further checks.
-func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process, projectAgentConfigs *ProjectAgentConfigs, projectProcessConfigs *ProjectProcessConfigs) ([]ValidationResult, *om.Process) {
+func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process, projectConfigs *ProjectConfigs) ([]ValidationResult, *om.Process) {
 	var results []ValidationResult
 
 	results = append(results, validateOneDeploymentPerProject(ac.Deployment)...)
@@ -52,7 +52,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 	results = append(results, validateScram(ac.Auth)...)
 	results = append(results, validateX509(ac.Auth)...)
 	results = append(results, validateAgentTLS(ac.AgentSSL)...)
-	results = append(results, validateAgentConfig(projectAgentConfigs)...)
+	results = append(results, validateAgentConfig(projectConfigs)...)
 	results = append(results, validateLDAP(ac.Ldap)...)
 	results = append(results, validateProjectOptions(ac.Deployment)...)
 	results = append(results, validateReplicaSetProtocolVersion(ac.Deployment)...)
@@ -75,7 +75,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 		Severity: SeverityWarning,
 		Message:  fmt.Sprintf("spec.additionalMongodConfig and spec.agent.mongod.systemLog will be taken from process %q. Review all members and reconcile any differences before migration.", sourceProcess.Name()),
 	})
-	results = append(results, validateProcessConfig(ac.Deployment, processMap, sourceProcess, projectProcessConfigs)...)
+	results = append(results, validateProcessConfig(ac.Deployment, processMap, sourceProcess, projectConfigs)...)
 
 	return results, sourceProcess
 }
@@ -191,7 +191,7 @@ func validateX509(auth *om.Auth) []ValidationResult {
 }
 
 // validateAgentConfig checks agent log paths against operator defaults.
-func validateAgentConfig(configs *ProjectAgentConfigs) []ValidationResult {
+func validateAgentConfig(configs *ProjectConfigs) []ValidationResult {
 	if configs == nil {
 		return nil
 	}
@@ -258,7 +258,7 @@ func validateProjectOptions(d om.Deployment) []ValidationResult {
 }
 
 // validateProcessConfig runs per-process checks against the deployment and source process.
-func validateProcessConfig(d om.Deployment, processMap map[string]om.Process, sourceProcess *om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
+func validateProcessConfig(d om.Deployment, processMap map[string]om.Process, sourceProcess *om.Process, projectProcessConfigs *ProjectConfigs) []ValidationResult {
 	var results []ValidationResult
 
 	results = append(results, validateProcessesAreValid(d)...)
@@ -482,7 +482,7 @@ func validateMembersReferenceProcesses(d om.Deployment, processMap map[string]om
 }
 
 // validateProcessConfigDrift warns when the source process logRotate/auditLogRotate differs from project-level config.
-func validateProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs *ProjectProcessConfigs) []ValidationResult {
+func validateProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs *ProjectConfigs) []ValidationResult {
 	if projectProcessConfigs == nil {
 		return nil
 	}
