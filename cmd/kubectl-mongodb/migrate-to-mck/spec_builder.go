@@ -185,15 +185,6 @@ func isTLSEnabled(processMap map[string]om.Process, members []om.ReplicaSetMembe
 	return false, nil
 }
 
-// extractCustomRoles returns custom roles from the deployment, or nil if none.
-func extractCustomRoles(d om.Deployment) []mdbv1.MongoDBRole {
-	roles := d.GetRoles()
-	if len(roles) == 0 {
-		return nil
-	}
-	return roles
-}
-
 // extractPrometheusConfig builds spec.prometheus from the deployment's Prometheus section.
 func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 	acProm := d.GetPrometheus()
@@ -237,17 +228,17 @@ func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 }
 
 // extractAgentConfig builds spec.agent from project-level log rotation and the source process systemLog.
-func extractAgentConfig(sourceProcess *om.Process, projectProcessConfigs *ProjectProcessConfigs) mdbv1.AgentConfig {
+func extractAgentConfig(sourceProcess *om.Process, projectConfigs *ProjectConfigs) mdbv1.AgentConfig {
 	var agentConfig mdbv1.AgentConfig
-	if projectProcessConfigs != nil {
-		if lr := projectProcessConfigs.SystemLogRotate; lr != nil && (lr.SizeThresholdMB != 0 || lr.TimeThresholdHrs != 0) {
+	if projectConfigs != nil {
+		if lr := projectConfigs.SystemLogRotate; lr != nil && (lr.SizeThresholdMB != 0 || lr.TimeThresholdHrs != 0) {
 			agentConfig.Mongod.LogRotate = automationconfig.ConvertACLogRotateToCrd(lr)
 		}
-		if alr := projectProcessConfigs.AuditLogRotate; alr != nil && (alr.SizeThresholdMB != 0 || alr.TimeThresholdHrs != 0) {
+		if alr := projectConfigs.AuditLogRotate; alr != nil && (alr.SizeThresholdMB != 0 || alr.TimeThresholdHrs != 0) {
 			agentConfig.Mongod.AuditLogRotate = automationconfig.ConvertACLogRotateToCrd(alr)
 		}
-		agentConfig.MonitoringAgent.LogRotate = om.LogRotateForAgentsFromAc(projectProcessConfigs.SystemLogRotate)
-		agentConfig.BackupAgent.LogRotate = om.LogRotateForAgentsFromAc(projectProcessConfigs.SystemLogRotate)
+		agentConfig.MonitoringAgent.LogRotate = om.LogRotateForAgentsFromAc(projectConfigs.SystemLogRotate)
+		agentConfig.BackupAgent.LogRotate = om.LogRotateForAgentsFromAc(projectConfigs.SystemLogRotate)
 	}
 	if sourceProcess != nil {
 		agentConfig.Mongod.SystemLog = automationconfig.SystemLogFromMap(sourceProcess.SystemLogMap())
@@ -255,43 +246,12 @@ func extractAgentConfig(sourceProcess *om.Process, projectProcessConfigs *Projec
 	return agentConfig
 }
 
-// sharedSpecFields holds fields common to single-cluster and multi-cluster specs.
-type sharedSpecFields struct {
-	security               *mdbv1.Security
-	prometheus             *mdbcv1.Prometheus
-	agentConfig            mdbv1.AgentConfig
-	additionalMongodConfig *mdbv1.AdditionalMongodConfig
-}
-
-// buildReplicaSetCommonSpec constructs the DbCommonSpec shared across topologies.
-func buildReplicaSetCommonSpec(version, fcv, rsName, resourceName string, externalMembers []mdbv1.ExternalMember, opts GenerateOptions) mdbv1.DbCommonSpec {
-	common := mdbv1.DbCommonSpec{
-		Version:                     version,
-		ResourceType:                mdbv1.ReplicaSet,
-		FeatureCompatibilityVersion: &fcv,
-		ConnectionSpec: mdbv1.ConnectionSpec{
-			SharedConnectionSpec: mdbv1.SharedConnectionSpec{
-				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-					ConfigMapRef: mdbv1.ConfigMapRef{
-						Name: opts.ConfigMapName,
-					},
-				},
-			},
-			Credentials: opts.CredentialsSecretName,
-		},
-		ExternalMembers: externalMembers,
-	}
-	if resourceName != rsName {
-		common.ReplicaSetNameOverride = rsName
-	}
-	return common
-}
-
-// buildSharedSpecFields extracts the spec fields shared across all topologies: security, Prometheus, additionalMongodConfig (from source process), and agent config.
-func buildSharedSpecFields(ac *om.AutomationConfig, opts GenerateOptions) (sharedSpecFields, error) {
-	security, err := buildSecurity(ac.Auth, opts.ProcessMap, opts.Members, ac.Ldap, ac.OIDCProviderConfigs, opts.CertsSecretPrefix)
+// buildCommonSpec constructs the fully-populated DbCommonSpec shared across all topologies.
+func buildCommonSpec(ac *om.AutomationConfig, version, fcv, rsName, resourceName string, externalMembers []mdbv1.ExternalMember, opts GenerateOptions) (mdbv1.DbCommonSpec, error) {
+	rs := ac.Deployment.GetReplicaSets()[0]
+	security, err := buildSecurity(ac.Auth, ac.Deployment.ProcessMap(), rs.Members(), ac.Ldap, ac.OIDCProviderConfigs, opts.CertsSecretPrefix)
 	if err != nil {
-		return sharedSpecFields{}, fmt.Errorf("failed to build security config: %w", err)
+		return mdbv1.DbCommonSpec{}, fmt.Errorf("failed to build security config: %w", err)
 	}
 	if roles := ac.Deployment.GetRoles(); len(roles) > 0 {
 		if security == nil {
@@ -302,7 +262,7 @@ func buildSharedSpecFields(ac *om.AutomationConfig, opts GenerateOptions) (share
 
 	prom, err := extractPrometheusConfig(ac.Deployment)
 	if err != nil {
-		return sharedSpecFields{}, fmt.Errorf("failed to extract Prometheus config: %w", err)
+		return mdbv1.DbCommonSpec{}, fmt.Errorf("failed to extract Prometheus config: %w", err)
 	}
 
 	var additionalConfig *mdbv1.AdditionalMongodConfig
@@ -310,72 +270,57 @@ func buildSharedSpecFields(ac *om.AutomationConfig, opts GenerateOptions) (share
 		additionalConfig = opts.SourceProcess.AdditionalMongodConfig()
 	}
 
-	agentConfig := extractAgentConfig(opts.SourceProcess, opts.ProjectProcessConfigs)
-	return sharedSpecFields{
-		security:               security,
-		prometheus:             prom,
-		agentConfig:            agentConfig,
-		additionalMongodConfig: additionalConfig,
-	}, nil
-}
-
-// applySharedFields copies sharedSpecFields into a DbCommonSpec.
-func applySharedFields(common *mdbv1.DbCommonSpec, shared sharedSpecFields) {
-	common.Security = shared.security
-	common.Prometheus = shared.prometheus
-	common.AdditionalMongodConfig = shared.additionalMongodConfig
-	common.Agent = shared.agentConfig
+	common := mdbv1.DbCommonSpec{
+		Version:                     version,
+		ResourceType:                mdbv1.ReplicaSet,
+		FeatureCompatibilityVersion: &fcv,
+		ConnectionSpec: mdbv1.ConnectionSpec{
+			SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+					ConfigMapRef: mdbv1.ConfigMapRef{Name: opts.ConfigMapName},
+				},
+			},
+			Credentials: opts.CredentialsSecretName,
+		},
+		ExternalMembers:        externalMembers,
+		Security:               security,
+		Prometheus:             prom,
+		AdditionalMongodConfig: additionalConfig,
+		Agent:                  extractAgentConfig(opts.SourceProcess, opts.ProjectConfigs),
+	}
+	if resourceName != rsName {
+		common.ReplicaSetNameOverride = rsName
+	}
+	return common, nil
 }
 
 // buildReplicaSetSpec assembles the MongoDbSpec for a single-cluster replica set.
-func buildReplicaSetSpec(
-	version, fcv string,
-	externalMembers []mdbv1.ExternalMember,
-	rsName, resourceName string,
-	opts GenerateOptions,
-	ac *om.AutomationConfig,
-) (mdbv1.MongoDbSpec, error) {
-	shared, err := buildSharedSpecFields(ac, opts)
+func buildReplicaSetSpec(version, fcv string, externalMembers []mdbv1.ExternalMember, rsName, resourceName string, opts GenerateOptions, ac *om.AutomationConfig) (mdbv1.MongoDbSpec, error) {
+	common, err := buildCommonSpec(ac, version, fcv, rsName, resourceName, externalMembers, opts)
 	if err != nil {
 		return mdbv1.MongoDbSpec{}, err
 	}
-	spec := mdbv1.MongoDbSpec{
-		DbCommonSpec: buildReplicaSetCommonSpec(version, fcv, rsName, resourceName, externalMembers, opts),
+	return mdbv1.MongoDbSpec{
+		DbCommonSpec: common,
 		Members:      len(externalMembers),
-		MemberConfig: buildMemberConfig(opts.Members),
-	}
-	applySharedFields(&spec.DbCommonSpec, shared)
-	return spec, nil
+		MemberConfig: buildMemberConfig(ac.Deployment.GetReplicaSets()[0].Members()),
+	}, nil
 }
 
 // buildReplicaSetMultiClusterSpec assembles a MongoDBMultiSpec, distributing members across target clusters.
-func buildReplicaSetMultiClusterSpec(
-	version, fcv string,
-	externalMembers []mdbv1.ExternalMember,
-	rsName, resourceName string,
-	opts GenerateOptions,
-	ac *om.AutomationConfig,
-) (mdbmulti.MongoDBMultiSpec, error) {
-	shared, err := buildSharedSpecFields(ac, opts)
+func buildReplicaSetMultiClusterSpec(version, fcv string, externalMembers []mdbv1.ExternalMember, rsName, resourceName string, opts GenerateOptions, ac *om.AutomationConfig) (mdbmulti.MongoDBMultiSpec, error) {
+	common, err := buildCommonSpec(ac, version, fcv, rsName, resourceName, externalMembers, opts)
 	if err != nil {
 		return mdbmulti.MongoDBMultiSpec{}, err
 	}
-
-	clusterSpecList, err := distributeMembers(len(externalMembers), opts.MultiClusterNames)
+	clusterSpecList, err := distributeMembers(externalMembers, ac.Deployment.GetReplicaSets()[0].Members(), opts.MultiClusterNames)
 	if err != nil {
 		return mdbmulti.MongoDBMultiSpec{}, err
 	}
-	clusterMemberConfig := distributeMemberConfig(opts.Members, opts.MultiClusterNames)
-	for i := range clusterSpecList {
-		clusterSpecList[i].MemberConfig = clusterMemberConfig[i]
-	}
-
-	spec := mdbmulti.MongoDBMultiSpec{
-		DbCommonSpec:    buildReplicaSetCommonSpec(version, fcv, rsName, resourceName, externalMembers, opts),
+	return mdbmulti.MongoDBMultiSpec{
+		DbCommonSpec:    common,
 		ClusterSpecList: clusterSpecList,
-	}
-	applySharedFields(&spec.DbCommonSpec, shared)
-	return spec, nil
+	}, nil
 }
 
 // buildMemberConfig sets votes=0 and priority="0" for all members (migration-safe defaults), preserving tags.
@@ -394,51 +339,34 @@ func buildMemberConfig(members []om.ReplicaSetMember) []automationconfig.MemberO
 	return config
 }
 
-// distributeMembers spreads memberCount evenly across clusterNames, extra members go to earlier clusters.
-func distributeMembers(memberCount int, clusterNames []string) (mdbv1.ClusterSpecList, error) {
+// distributeMembers spreads members evenly across clusterNames (extra go to earlier clusters),
+// and attaches the corresponding MemberConfig slice to each ClusterSpecItem.
+func distributeMembers(externalMembers []mdbv1.ExternalMember, rsMembers []om.ReplicaSetMember, clusterNames []string) (mdbv1.ClusterSpecList, error) {
 	n := len(clusterNames)
 	if n == 0 {
 		return nil, nil
 	}
-	if memberCount < n {
-		return nil, fmt.Errorf("cannot distribute %d members across %d clusters: need at least one member per cluster", memberCount, n)
+	total := len(externalMembers)
+	if total < n {
+		return nil, fmt.Errorf("cannot distribute %d members across %d clusters: need at least one member per cluster", total, n)
 	}
-	base := memberCount / n
-	remainder := memberCount % n
+	base := total / n
+	remainder := total % n
+	allConfig := buildMemberConfig(rsMembers)
 
 	list := make(mdbv1.ClusterSpecList, n)
+	offset := 0
 	for i, name := range clusterNames {
 		count := base
 		if i < remainder {
 			count++
 		}
 		list[i] = mdbv1.ClusterSpecItem{
-			ClusterName: name,
-			Members:     count,
+			ClusterName:  name,
+			Members:      count,
+			MemberConfig: allConfig[offset : offset+count],
 		}
-	}
-	return list, nil
-}
-
-// distributeMemberConfig slices buildMemberConfig output to match the distributeMembers layout.
-func distributeMemberConfig(members []om.ReplicaSetMember, clusterNames []string) [][]automationconfig.MemberOptions {
-	n := len(clusterNames)
-	if n == 0 {
-		return nil
-	}
-	allConfig := buildMemberConfig(members)
-	base := len(allConfig) / n
-	remainder := len(allConfig) % n
-
-	result := make([][]automationconfig.MemberOptions, n)
-	offset := 0
-	for i := 0; i < n; i++ {
-		count := base
-		if i < remainder {
-			count++
-		}
-		result[i] = allConfig[offset : offset+count]
 		offset += count
 	}
-	return result
+	return list, nil
 }

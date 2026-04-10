@@ -45,14 +45,17 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-
-	_, _, _, err = fetchAndValidate(conn)
+	ac, err := conn.ReadAutomationConfig()
+	if err != nil {
+		return fmt.Errorf("failed to read automation config: %w", err)
+	}
+	projectConfigs, err := readProjectConfigs(conn)
 	if err != nil {
 		return err
 	}
 
 	processMap := ac.Deployment.ProcessMap()
-	results, sourceProcess := ValidateMigration(ac, processMap, projectAgentConfigs, projectProcessConfigs)
+	results, sourceProcess := ValidateMigration(ac, processMap, projectConfigs)
 	if errorCount := printValidationResults(os.Stderr, results); errorCount > 0 {
 		return fmt.Errorf("validation failed: %d error(s) found. Resolve the issues above before generating Custom Resources", errorCount)
 	}
@@ -61,10 +64,8 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 		ReplicaSetNameOverride: replicaSetNameOverride,
 		CredentialsSecretName:  secretName,
 		ConfigMapName:          configMapName,
-		ProjectAgentConfigs:    projectAgentConfigs,
-		ProjectProcessConfigs:  projectProcessConfigs,
-		ProcessMap:             processMap,
-		Members:                ac.Deployment.GetReplicaSets()[0].Members(), // safe: ValidateMigration returns an error above when there are no replica sets
+		Namespace:              namespace,
+		ProjectConfigs:         projectConfigs,
 		SourceProcess:          sourceProcess,
 	}
 
@@ -77,7 +78,7 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 
 	stdinScanner := bufio.NewScanner(os.Stdin)
 
-	if err := ensureTLS(&opts, stdinScanner); err != nil {
+	if err := ensureTLS(ac, &opts, stdinScanner); err != nil {
 		return err
 	}
 	if err := collectPrometheusPassword(ac, &opts, stdinScanner); err != nil {
@@ -115,7 +116,7 @@ func generateMigrationResources(ac *om.AutomationConfig, opts GenerateOptions) (
 		return "", fmt.Errorf("failed to generate Custom Resource: %w", err)
 	}
 
-	userCRs, err := GenerateUserCRs(ac, crName, opts.UserPasswords)
+	userCRs, err := GenerateUserCRs(ac, crName, opts.Namespace, opts.UserPasswords)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate user Custom Resources: %w", err)
 	}
@@ -132,55 +133,46 @@ func generateMigrationResources(ac *om.AutomationConfig, opts GenerateOptions) (
 		}
 	}
 
-	ldapResources, err := generateLdapResources(ac)
-	if err != nil {
+	extra := append(generateLdapResources(ac, opts), generatePrometheusResources(ac, opts)...)
+	if err := appendMarshaledResources(&sb, extra); err != nil {
 		return "", err
-	}
-	for _, r := range ldapResources {
-		y, err := marshalCRToYAML(r)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal %T: %w", r, err)
-		}
-		sb.WriteString("---\n")
-		sb.WriteString(y)
-	}
-
-	prometheusResources, err := generatePrometheusResources(ac, opts)
-	if err != nil {
-		return "", err
-	}
-	for _, r := range prometheusResources {
-		y, err := marshalCRToYAML(r)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal %T: %w", r, err)
-		}
-		sb.WriteString("---\n")
-		sb.WriteString(y)
 	}
 
 	return sb.String(), nil
 }
 
-func generateLdapResources(ac *om.AutomationConfig) ([]any, error) {
+func appendMarshaledResources(sb *strings.Builder, resources []any) error {
+	for _, r := range resources {
+		y, err := marshalCRToYAML(r)
+		if err != nil {
+			return fmt.Errorf("failed to marshal %T: %w", r, err)
+		}
+		sb.WriteString("---\n")
+		sb.WriteString(y)
+	}
+	return nil
+}
+
+func generateLdapResources(ac *om.AutomationConfig, opts GenerateOptions) []any {
 	if ac.Ldap == nil {
-		return nil, nil
+		return nil
 	}
 	var resources []any
 	if ac.Ldap.BindQueryPassword != "" {
-		resources = append(resources, GeneratePasswordSecret(LdapBindQuerySecretName, namespace, ac.Ldap.BindQueryPassword))
+		resources = append(resources, GeneratePasswordSecret(LdapBindQuerySecretName, opts.Namespace, ac.Ldap.BindQueryPassword))
 	}
 	if ac.Ldap.CaFileContents != "" {
-		resources = append(resources, buildLdapCAConfigMap(namespace, ac.Ldap.CaFileContents))
+		resources = append(resources, buildLdapCAConfigMap(opts.Namespace, ac.Ldap.CaFileContents))
 	}
-	return resources, nil
+	return resources
 }
 
-func generatePrometheusResources(ac *om.AutomationConfig, opts GenerateOptions) ([]any, error) {
+func generatePrometheusResources(ac *om.AutomationConfig, opts GenerateOptions) []any {
 	acProm := ac.Deployment.GetPrometheus()
 	if opts.PrometheusPassword == "" || acProm == nil || !acProm.Enabled || acProm.Username == "" {
-		return nil, nil
+		return nil
 	}
-	return []any{GeneratePasswordSecret(PrometheusPasswordSecretName, namespace, opts.PrometheusPassword)}, nil
+	return []any{GeneratePasswordSecret(PrometheusPasswordSecretName, opts.Namespace, opts.PrometheusPassword)}
 }
 
 // userKey returns the map key used to associate a user with their password.
@@ -198,54 +190,50 @@ func openOutput(path string) (io.Writer, error) {
 	return f, nil
 }
 
-func ensureTLS(opts *GenerateOptions, scanner *bufio.Scanner) error {
-	if len(opts.Members) == 0 {
+// promptLine prints prompt to stderr and returns the trimmed input line, or an error on EOF/scan failure.
+func promptLine(scanner *bufio.Scanner, prompt string) (string, error) {
+	fmt.Fprint(os.Stderr, prompt)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("input cancelled")
+	}
+	return strings.TrimSpace(scanner.Text()), nil
+}
+
+func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner) error {
+	rss := ac.Deployment.GetReplicaSets()
+	if len(rss) == 0 {
 		return nil
 	}
-	tlsEnabled, err := isTLSEnabled(opts.ProcessMap, opts.Members)
+	tlsEnabled, err := isTLSEnabled(ac.Deployment.ProcessMap(), rss[0].Members())
 	if err != nil {
 		return fmt.Errorf("failed to detect TLS in automation config: %w", err)
 	}
 	if !tlsEnabled {
 		return nil
 	}
-	prefix, err := promptCertsSecretPrefix(scanner)
+	prefix, err := promptLine(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read certsSecretPrefix: %w", err)
+	}
+	if prefix == "" {
+		return fmt.Errorf("security.certsSecretPrefix is required when TLS is enabled")
 	}
 	opts.CertsSecretPrefix = prefix
 	return nil
 }
 
-func promptCertsSecretPrefix(scanner *bufio.Scanner) (string, error) {
-	fmt.Fprintf(os.Stderr, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return "", fmt.Errorf("failed to read certsSecretPrefix: %w", err)
-		}
-		return "", fmt.Errorf("input cancelled")
-	}
-	s := strings.TrimSpace(scanner.Text())
-	if s == "" {
-		return "", fmt.Errorf("security.certsSecretPrefix is required when TLS is enabled")
-	}
-	return s, nil
-}
-
-// collectPrometheusPassword prompts for the Prometheus user password and stores it in opts.
 func collectPrometheusPassword(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner) error {
 	acProm := ac.Deployment.GetPrometheus()
 	if acProm == nil || !acProm.Enabled || acProm.Username == "" {
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "Enter password for Prometheus user: ")
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return fmt.Errorf("failed to read Prometheus password: %w", err)
-		}
-		return fmt.Errorf("input cancelled")
+	promPassword, err := promptLine(scanner, "Enter password for Prometheus user: ")
+	if err != nil {
+		return fmt.Errorf("failed to read Prometheus password: %w", err)
 	}
-	promPassword := strings.TrimSpace(scanner.Text())
 	if promPassword == "" {
 		return fmt.Errorf("prometheus password cannot be empty")
 	}
@@ -253,11 +241,11 @@ func collectPrometheusPassword(ac *om.AutomationConfig, opts *GenerateOptions, s
 	return nil
 }
 
-// collectUserPasswords prompts for each SCRAM user's password, validates it against OM, and stores it in opts.
 func collectUserPasswords(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner) error {
 	if ac.Auth == nil || len(ac.Auth.Users) == 0 {
 		return nil
 	}
+	opts.UserPasswords = make(map[string]string)
 	for _, user := range ac.Auth.Users {
 		if user == nil || user.Username == "" {
 			continue
@@ -268,22 +256,15 @@ func collectUserPasswords(ac *om.AutomationConfig, opts *GenerateOptions, scanne
 		if user.Database == externalDatabase {
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "Enter password for SCRAM user %q (db: %s): ", user.Username, user.Database)
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				return fmt.Errorf("failed to read password for user %q: %w", user.Username, err)
-			}
-			return fmt.Errorf("input cancelled for user %q", user.Username)
+		password, err := promptLine(scanner, fmt.Sprintf("Enter password for SCRAM user %q (db: %s): ", user.Username, user.Database))
+		if err != nil {
+			return fmt.Errorf("failed to read password for user %q: %w", user.Username, err)
 		}
-		password := strings.TrimSpace(scanner.Text())
 		if password == "" {
 			return fmt.Errorf("password for user %q cannot be empty", user.Username)
 		}
 		if err := validatePasswordAgainstOM(user.Username, user.Database, password, ac); err != nil {
 			return err
-		}
-		if opts.UserPasswords == nil {
-			opts.UserPasswords = map[string]string{}
 		}
 		opts.UserPasswords[userKey(user.Username, user.Database)] = password
 	}
@@ -325,4 +306,3 @@ func printValidationResults(w io.Writer, results []ValidationResult) int {
 	}
 	return errorCount
 }
-
