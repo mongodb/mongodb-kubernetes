@@ -207,8 +207,8 @@ patch_aliases:
   - alias: "periodic_teardowns"
     variant_tags: [ "periodic_teardown" ]
     task: ".*"
-  - alias: "release_agent"
-    variant_tags: [ "release_agent" ]
+  - alias: "release_specific_agent_manually"
+    variant_tags: [ "release_specific_agent_manually" ]
     task: ".*"
   - alias: "release_all_agents_manually"
     variant_tags: [ "release_all_agents_manually" ]
@@ -378,6 +378,22 @@ tasks:
           agent_version: current
           image_name: agent
           flags: "--parallel --skip-if-exists=false"
+
+  - name: rebuild_specific_agent
+    # this enables us to run this manually (patch) and rebuild specific agent versions to verify
+    # Dockerfile, script changes etc.
+    allowed_requesters: [ "patch" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        include_expansions_in_env:
+          - agent_version # You need to specify agent version for this task via --param flag!
+          - tools_version # You need to specify tool version for this task --param flag!
+        vars:
+          image_name: agent
+          flags: "--skip-if-exists=false"
 
   - name: build_kubectl_mongodb_plugin
     commands:
@@ -2062,6 +2078,18 @@ buildvariants:
       - ubuntu2404-large
     tasks:
       - name: rebuild_currently_used_agents
+
+    # Only called manually. It's used for releasing or rebuilding specific agent image version.
+    # Example command:
+    # evergreen patch -p mongodb-kubernetes -a release_specific_agent_manually -d "Rebuild 13.49.0.10397-1 CM agent" -u --path .evergreen.yml --param agent_version=13.49.0.10397-1 --param tools_version=100.14.0
+    # To target staging or release repositories specify correct e.g. --param BUILD_SCENARIO=staging or --param BUILD_SCENARIO=release
+  - name: manual_release_specific_agent
+    display_name: manual_release_specific_agent
+    tags: [ "manual_patch", "release_specific_agent_manually" ]
+    run_on:
+      - ubuntu2404-large
+    tasks:
+      - name: rebuild_specific_agent
 
   ### Build variants for manual patch only
 
