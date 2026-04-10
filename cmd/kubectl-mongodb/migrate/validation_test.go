@@ -401,6 +401,15 @@ func TestValidation_RequireTLS_NoWarning(t *testing.T) {
 	}
 }
 
+func sourceProcessFromDeployment(d om.Deployment) *om.Process {
+	procs := d.GetProcesses()
+	if len(procs) == 0 {
+		return nil
+	}
+	p := procs[0]
+	return &p
+}
+
 func TestCheckTLS_NoTLSSection_Warning(t *testing.T) {
 	d := om.Deployment{
 		"processes": []interface{}{
@@ -410,7 +419,7 @@ func TestCheckTLS_NoTLSSection_Warning(t *testing.T) {
 			},
 		},
 	}
-	results := checkTLS(d)
+	results := validateTLS(sourceProcessFromDeployment(d))
 	require.Len(t, results, 1)
 	assert.Equal(t, SeverityWarning, results[0].Severity)
 	assert.Contains(t, results[0].Message, "net.tls.mode")
@@ -431,29 +440,9 @@ func TestCheckTLS_ModeDisabled_Warning(t *testing.T) {
 			},
 		},
 	}
-	results := checkTLS(d)
+	results := validateTLS(sourceProcessFromDeployment(d))
 	require.Len(t, results, 1)
 	assert.Equal(t, SeverityWarning, results[0].Severity)
-}
-
-func TestCheckTLS_WarnOnceForMultipleNoTLSProcesses(t *testing.T) {
-	proc := map[string]interface{}{
-		"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
-		"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
-	}
-	proc2 := map[string]interface{}{
-		"name": "rs-1", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
-		"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
-	}
-	d := om.Deployment{"processes": []interface{}{proc, proc2}}
-	results := checkTLS(d)
-	warnings := 0
-	for _, r := range results {
-		if r.Severity == SeverityWarning {
-			warnings++
-		}
-	}
-	assert.Equal(t, 1, warnings, "expected exactly one no-TLS warning regardless of process count")
 }
 
 func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
@@ -470,7 +459,7 @@ func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
 			},
 		},
 	}
-	results := checkTLS(d)
+	results := validateTLS(sourceProcessFromDeployment(d))
 	for _, r := range results {
 		assert.NotEqual(t, SeverityWarning, r.Severity, "unexpected warning for TLS-enabled process")
 	}
