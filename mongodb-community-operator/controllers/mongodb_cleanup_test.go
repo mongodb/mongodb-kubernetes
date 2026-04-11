@@ -2,12 +2,17 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubeClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -166,9 +171,9 @@ func TestReplicaSetReconcilerCleanupConnectionStringSecrets(t *testing.T) {
 	})
 
 	t.Run("no change same resource", func(t *testing.T) {
-		actual := getConnectionStringSecretsToDelete(lastApplied.Spec, lastApplied.Spec, "my-rs")
+		actual := getConnectionStringSecretsToDelete(lastApplied.Spec, lastApplied.Spec, "my-ns", "my-rs")
 
-		assert.Equal(t, []string(nil), actual)
+		assert.Equal(t, []types.NamespacedName(nil), actual)
 	})
 
 	t.Run("new user does not require existing user cleanup", func(t *testing.T) {
@@ -189,9 +194,9 @@ func TestReplicaSetReconcilerCleanupConnectionStringSecrets(t *testing.T) {
 			},
 		)
 
-		actual := getConnectionStringSecretsToDelete(current.Spec, lastApplied.Spec, "my-rs")
+		actual := getConnectionStringSecretsToDelete(current.Spec, lastApplied.Spec, "my-ns", "my-rs")
 
-		assert.Equal(t, []string(nil), actual)
+		assert.Equal(t, []types.NamespacedName(nil), actual)
 	})
 
 	t.Run("old user new secret", func(t *testing.T) {
@@ -203,8 +208,8 @@ func TestReplicaSetReconcilerCleanupConnectionStringSecrets(t *testing.T) {
 			ConnectionStringSecretName: "connection-string-secret-2",
 		})
 
-		expected := []string{"connection-string-secret"}
-		actual := getConnectionStringSecretsToDelete(current.Spec, lastApplied.Spec, "my-rs")
+		expected := []types.NamespacedName{{Name: "connection-string-secret", Namespace: "my-ns"}}
+		actual := getConnectionStringSecretsToDelete(current.Spec, lastApplied.Spec, "my-ns", "my-rs")
 
 		assert.Equal(t, expected, actual)
 	})
@@ -235,9 +240,106 @@ func TestReplicaSetReconcilerCleanupConnectionStringSecrets(t *testing.T) {
 			ConnectionStringSecretName: "connection-string-secret-1",
 		})
 
-		expected := []string{"connection-string-secret", "connection-string-secret-2"}
-		actual := getConnectionStringSecretsToDelete(current.Spec, lastApplied.Spec, "my-rs")
+		expected := []types.NamespacedName{
+			{Name: "connection-string-secret", Namespace: "my-ns"},
+			{Name: "connection-string-secret-2", Namespace: "my-ns"},
+		}
+		actual := getConnectionStringSecretsToDelete(current.Spec, lastApplied.Spec, "my-ns", "my-rs")
 
 		assert.Equal(t, expected, actual)
 	})
+
+	t.Run("namespace changed for existing user", func(t *testing.T) {
+		lastApplied := newScramReplicaSet(mdbv1.MongoDBUser{
+			Name: "testUser",
+			PasswordSecretRef: mdbv1.SecretKeyReference{
+				Name: "password-secret-name",
+			},
+			ConnectionStringSecretName:      "connection-string-secret",
+			ConnectionStringSecretNamespace: "old-ns",
+		})
+
+		current := newScramReplicaSet(mdbv1.MongoDBUser{
+			Name: "testUser",
+			PasswordSecretRef: mdbv1.SecretKeyReference{
+				Name: "password-secret-name",
+			},
+			ConnectionStringSecretName:      "connection-string-secret",
+			ConnectionStringSecretNamespace: "new-ns",
+		})
+
+		expected := []types.NamespacedName{{Name: "connection-string-secret", Namespace: "old-ns"}}
+		actual := getConnectionStringSecretsToDelete(current.Spec, lastApplied.Spec, "my-ns", "my-rs")
+
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("namespace removed for existing user falls back to resource namespace", func(t *testing.T) {
+		lastApplied := newScramReplicaSet(mdbv1.MongoDBUser{
+			Name: "testUser",
+			PasswordSecretRef: mdbv1.SecretKeyReference{
+				Name: "password-secret-name",
+			},
+			ConnectionStringSecretName:      "connection-string-secret",
+			ConnectionStringSecretNamespace: "old-ns",
+		})
+
+		current := newScramReplicaSet(mdbv1.MongoDBUser{
+			Name: "testUser",
+			PasswordSecretRef: mdbv1.SecretKeyReference{
+				Name: "password-secret-name",
+			},
+			ConnectionStringSecretName: "connection-string-secret",
+		})
+
+		expected := []types.NamespacedName{{Name: "connection-string-secret", Namespace: "old-ns"}}
+		actual := getConnectionStringSecretsToDelete(current.Spec, lastApplied.Spec, "my-ns", "my-rs")
+
+		assert.Equal(t, expected, actual)
+	})
+}
+
+func TestReplicaSetReconcilerDeleteCleansUpCrossNamespaceConnectionStringSecrets(t *testing.T) {
+	ctx := context.Background()
+	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
+		Name: "testUser",
+		PasswordSecretRef: mdbv1.SecretKeyReference{
+			Name: "password-secret-name",
+		},
+		ConnectionStringSecretName:      "connection-string-secret",
+		ConnectionStringSecretNamespace: "other-ns",
+	})
+
+	lastSuccessfulConfigurationBytes, err := json.Marshal(mdb.Spec)
+	require.NoError(t, err)
+
+	now := metav1.NewTime(time.Now())
+	mdb.Finalizers = []string{mongoDBCommunityFinalizer}
+	mdb.DeletionTimestamp = &now
+	mdb.Annotations[lastSuccessfulConfiguration] = string(lastSuccessfulConfigurationBytes)
+
+	mgr := kubeClient.NewManager(ctx, &mdb)
+	reconciler := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+
+	err = mgr.Client.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "other-ns"}})
+	require.NoError(t, err)
+
+	crossNamespaceSecret := corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "connection-string-secret", Namespace: "other-ns"}}
+	err = mgr.Client.Create(ctx, &crossNamespaceSecret)
+	require.NoError(t, err)
+
+	persisted := mdbv1.MongoDBCommunity{}
+	err = mgr.Client.Get(ctx, types.NamespacedName{Name: mdb.Name, Namespace: mdb.Namespace}, &persisted)
+	require.NoError(t, err)
+
+	_, err = reconciler.reconcileDelete(ctx, &persisted)
+	require.NoError(t, err)
+
+	_, err = reconciler.client.GetSecret(ctx, types.NamespacedName{Name: "connection-string-secret", Namespace: "other-ns"})
+	assert.Error(t, err)
+	assert.True(t, apiErrors.IsNotFound(err))
+
+	err = mgr.Client.Get(ctx, types.NamespacedName{Name: mdb.Name, Namespace: mdb.Namespace}, &persisted)
+	require.NoError(t, err)
+	assert.NotContains(t, persisted.Finalizers, mongoDBCommunityFinalizer)
 }

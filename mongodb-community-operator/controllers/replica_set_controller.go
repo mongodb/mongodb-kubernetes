@@ -54,6 +54,7 @@ import (
 const (
 	lastSuccessfulConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
 	lastAppliedMongoDBVersion   = "mongodb.com/v1.lastAppliedMongoDBVersion"
+	mongoDBCommunityFinalizer   = "mongodbcommunity.mongodb.com/v1.mongodbCommunityFinalizer"
 )
 
 func init() {
@@ -155,11 +156,26 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 	r.log = zap.S().With("ReplicaSet", request.NamespacedName)
 	r.log.Infof("Reconciling MongoDB")
 
+	if !mdb.DeletionTimestamp.IsZero() {
+		r.log.Debug("Deleting MongoDB")
+		if controllerutil.ContainsFinalizer(&mdb, mongoDBCommunityFinalizer) {
+			return r.reconcileDelete(ctx, &mdb)
+		}
+		return result.OK()
+	}
+
 	r.log.Debug("Validating MongoDB.Spec")
 	lastAppliedSpec, err := r.validateSpec(mdb)
 	if err != nil {
 		return status.Update(ctx, r.client.Status(), &mdb, statusOptions().
 			withMessage(Error, fmt.Sprintf("error validating new Spec: %s", err)).
+			withFailedPhase())
+	}
+
+	r.log.Debug("Adding finalizer")
+	if err := r.ensureFinalizer(ctx, &mdb); err != nil {
+		return status.Update(ctx, r.client.Status(), &mdb, statusOptions().
+			withMessage(Error, fmt.Sprintf("Error adding finalizer: %s", err)).
 			withFailedPhase())
 	}
 
@@ -267,6 +283,50 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 
 	r.log.Infof("Successfully finished reconciliation, MongoDBCommunity.Spec: %+v, MongoDBCommunity.Status: %+v", mdb.Spec, mdb.Status)
 	return res, err
+}
+
+func (r *ReplicaSetReconciler) ensureFinalizer(ctx context.Context, mdb *mdbv1.MongoDBCommunity) error {
+	if finalizerAdded := controllerutil.AddFinalizer(mdb, mongoDBCommunityFinalizer); finalizerAdded {
+		return r.client.Update(ctx, mdb)
+	}
+	return nil
+}
+
+func (r *ReplicaSetReconciler) reconcileDelete(ctx context.Context, mdb *mdbv1.MongoDBCommunity) (reconcile.Result, error) {
+	lastSuccessfulSpec, err := r.lastSuccessfulSpec(*mdb)
+	if err != nil {
+		r.log.Warnf("Could not parse last successful configuration while cleaning up deleted MongoDBCommunity: %s", err)
+	}
+
+	if lastSuccessfulSpec != nil {
+		r.cleanupConnectionStringSecrets(ctx, mdbv1.MongoDBCommunitySpec{}, *lastSuccessfulSpec, mdb.Namespace, mdb.Name)
+	}
+
+	if finalizerRemoved := controllerutil.RemoveFinalizer(mdb, mongoDBCommunityFinalizer); !finalizerRemoved {
+		return result.OK()
+	}
+
+	if err := r.client.Update(ctx, mdb); err != nil {
+		r.log.Errorf("Error removing finalizer: %s", err)
+		return result.Failed()
+	}
+
+	return result.OK()
+}
+
+func (r ReplicaSetReconciler) lastSuccessfulSpec(mdb mdbv1.MongoDBCommunity) (*mdbv1.MongoDBCommunitySpec, error) {
+	lastSuccessfulConfigurationSaved, ok := mdb.Annotations[lastSuccessfulConfiguration]
+	if !ok {
+		return nil, nil
+	}
+
+	lastSpec := mdbv1.MongoDBCommunitySpec{}
+	err := json.Unmarshal([]byte(lastSuccessfulConfigurationSaved), &lastSpec)
+	if err != nil {
+		return &lastSpec, err
+	}
+
+	return &lastSpec, nil
 }
 
 // updateLastSuccessfulConfiguration annotates the MongoDBCommunity resource with the latest configuration
@@ -629,19 +689,16 @@ func (r *ReplicaSetReconciler) buildService(mdb mdbv1.MongoDBCommunity, portMana
 // it checks that the attempted Spec is valid in relation to the Spec that resulted from that last successful configuration.
 // The validation also returns the lastSuccessFulConfiguration Spec as mdbv1.MongoDBCommunitySpec.
 func (r ReplicaSetReconciler) validateSpec(mdb mdbv1.MongoDBCommunity) (*mdbv1.MongoDBCommunitySpec, error) {
-	lastSuccessfulConfigurationSaved, ok := mdb.Annotations[lastSuccessfulConfiguration]
-	if !ok {
+	lastSpec, err := r.lastSuccessfulSpec(mdb)
+	if err != nil {
+		return lastSpec, err
+	}
+	if lastSpec == nil {
 		// First version of Spec
 		return nil, validation.ValidateInitialSpec(mdb, r.log)
 	}
 
-	lastSpec := mdbv1.MongoDBCommunitySpec{}
-	err := json.Unmarshal([]byte(lastSuccessfulConfigurationSaved), &lastSpec)
-	if err != nil {
-		return &lastSpec, err
-	}
-
-	return &lastSpec, validation.ValidateUpdate(mdb, lastSpec, r.log)
+	return lastSpec, validation.ValidateUpdate(mdb, *lastSpec, r.log)
 }
 
 func getCustomRolesModification(mdb mdbv1.MongoDBCommunity) (automationconfig.Modification, error) {

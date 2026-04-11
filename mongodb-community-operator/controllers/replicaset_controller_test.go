@@ -724,6 +724,46 @@ func assertConnectionStringSecretAnnotations(ctx context.Context, t *testing.T, 
 	assert.Subset(t, connectionStringSecret.Annotations, expectedAnnotations)
 }
 
+func TestService_connectionStringSecretNamespaceAcrossNamespaces(t *testing.T) {
+	ctx := context.Background()
+	secretAnnotations := map[string]string{
+		"tests.annotation": "value",
+	}
+
+	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
+		Name: "testuser",
+		PasswordSecretRef: mdbv1.SecretKeyReference{
+			Name: "password-secret-name",
+		},
+		ScramCredentialsSecretName:        "scram-credentials",
+		ConnectionStringSecretNamespace:   "other-namespace",
+		ConnectionStringSecretAnnotations: secretAnnotations,
+	})
+
+	mgr := client.NewManager(ctx, &mdb)
+	err := mgr.Client.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "other-namespace"}})
+	require.NoError(t, err)
+
+	err = createUserPasswordSecret(ctx, mgr.Client, mdb, "password-secret-name", "pass")
+	require.NoError(t, err)
+
+	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: mdb.Namespace, Name: mdb.Name}})
+	assertReconciliationSuccessful(t, res, err)
+
+	connectionStringSecret := corev1.Secret{}
+	scramUsers := mdb.GetAuthUsers()
+	require.Len(t, scramUsers, 1)
+	secretNamespacedName := types.NamespacedName{Name: scramUsers[0].ConnectionStringSecretName, Namespace: scramUsers[0].ConnectionStringSecretNamespace}
+	err = mgr.Client.Get(ctx, secretNamespacedName, &connectionStringSecret)
+	require.NoError(t, err)
+	assert.Empty(t, connectionStringSecret.OwnerReferences)
+	assert.Equal(t, mdb.Namespace, connectionStringSecret.Annotations[connectionStringSecretOwnerNamespaceAnnotation])
+	assert.Equal(t, mdb.Name, connectionStringSecret.Annotations[connectionStringSecretOwnerNameAnnotation])
+	assert.Equal(t, string(mdb.UID), connectionStringSecret.Annotations[connectionStringSecretOwnerUIDAnnotation])
+	assert.Subset(t, connectionStringSecret.Annotations, secretAnnotations)
+}
+
 func TestService_configuresPrometheusCustomPorts(t *testing.T) {
 	ctx := context.Background()
 	mdb := newTestReplicaSet()
