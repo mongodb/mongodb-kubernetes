@@ -2,6 +2,7 @@ package maputil
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -157,7 +158,14 @@ func flattenToMap(m map[string]interface{}, prefix string) map[string]string {
 				result[sk] = sv
 			}
 		} else {
-			b, _ := json.Marshal(v)
+			b, err := json.Marshal(v)
+			if err != nil {
+				// Values originating from JSON-parsed data cannot fail to marshal;
+				// fall back to Go's default representation so comparisons remain
+				// consistent rather than silently producing an empty string.
+				result[key] = fmt.Sprintf("%v", v)
+				continue
+			}
 			result[key] = string(b)
 		}
 	}

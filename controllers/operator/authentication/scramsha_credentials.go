@@ -28,6 +28,40 @@ const (
 	rfc5802MandatedSaltSize = 4
 )
 
+// checkSHA256Changed reports whether the SHA-256 password has changed relative to acUser.
+// Returns (changed, checked, err): checked is false when acUser has no SHA-256 creds to compare against.
+func checkSHA256Changed(username, password string, acUser *om.MongoDBUser) (changed, checked bool, err error) {
+	if acUser.ScramSha256Creds == nil || acUser.ScramSha256Creds.Salt == "" {
+		return false, false, nil
+	}
+	salt, err := base64.StdEncoding.DecodeString(acUser.ScramSha256Creds.Salt)
+	if err != nil {
+		return true, false, err
+	}
+	newCreds, err := computeScramShaCreds(username, password, salt, ScramSha256)
+	if err != nil {
+		return false, false, xerrors.Errorf("error generating scramSha256 creds for verification: %w", err)
+	}
+	return !newCreds.Equals(*acUser.ScramSha256Creds), true, nil
+}
+
+// checkSHA1Changed reports whether the SHA-1 password has changed relative to acUser.
+// Returns (changed, checked, err): checked is false when acUser has no SHA-1 creds to compare against.
+func checkSHA1Changed(username, password string, acUser *om.MongoDBUser) (changed, checked bool, err error) {
+	if acUser.ScramSha1Creds == nil || acUser.ScramSha1Creds.Salt == "" {
+		return false, false, nil
+	}
+	salt, err := base64.StdEncoding.DecodeString(acUser.ScramSha1Creds.Salt)
+	if err != nil {
+		return true, false, err
+	}
+	newCreds, err := computeScramShaCreds(username, password, salt, MongoDBCR)
+	if err != nil {
+		return false, false, xerrors.Errorf("error generating scramSha1 creds for verification: %w", err)
+	}
+	return !newCreds.Equals(*acUser.ScramSha1Creds), true, nil
+}
+
 func IsPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDBUser) (bool, error) {
 	if acUser == nil {
 		return true, nil
@@ -35,40 +69,29 @@ func IsPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDB
 
 	validated := false
 
-	if acUser.ScramSha256Creds != nil && acUser.ScramSha256Creds.Salt != "" {
-		sha256Salt, err := base64.StdEncoding.DecodeString(acUser.ScramSha256Creds.Salt)
-		if err != nil {
-			return true, err
-		}
-		newCreds, err := computeScramShaCreds(user.Username, password, sha256Salt, ScramSha256)
-		if err != nil {
-			return false, xerrors.Errorf("error generating scramSha256 creds for verification: %w", err)
-		}
-		if !newCreds.Equals(*acUser.ScramSha256Creds) {
+	sha256Changed, sha256Checked, err := checkSHA256Changed(user.Username, password, acUser)
+	if err != nil {
+		return true, err
+	}
+	if sha256Checked {
+		if sha256Changed {
 			return true, nil
 		}
 		validated = true
 	}
 
-	if acUser.ScramSha1Creds != nil && acUser.ScramSha1Creds.Salt != "" {
-		sha1Salt, err := base64.StdEncoding.DecodeString(acUser.ScramSha1Creds.Salt)
-		if err != nil {
-			return true, err
-		}
-		newCreds, err := computeScramShaCreds(user.Username, password, sha1Salt, MongoDBCR)
-		if err != nil {
-			return false, xerrors.Errorf("error generating scramSha1 creds for verification: %w", err)
-		}
-		if !newCreds.Equals(*acUser.ScramSha1Creds) {
+	sha1Changed, sha1Checked, err := checkSHA1Changed(user.Username, password, acUser)
+	if err != nil {
+		return true, err
+	}
+	if sha1Checked {
+		if sha1Changed {
 			return true, nil
 		}
 		validated = true
 	}
 
-	if !validated {
-		return true, nil
-	}
-	return false, nil
+	return !validated, nil
 }
 
 // ConfigureScramCredentials sets SCRAM credentials based on the user's presence in the AC:
