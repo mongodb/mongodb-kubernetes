@@ -139,7 +139,7 @@ func RemoveFieldsBasedOnDesiredAndPrevious(currentMap, desiredMap, previousMap m
 	return currentMap
 }
 
-// StructToMap converts a struct to map[string]interface{} using JSON tags.
+// StructToMap is a function to convert struct to map using JSON tags
 func StructToMap(v interface{}) (map[string]interface{}, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
