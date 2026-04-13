@@ -2,7 +2,6 @@ package maputil
 
 import (
 	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -138,54 +137,6 @@ func RemoveFieldsBasedOnDesiredAndPrevious(currentMap, desiredMap, previousMap m
 	}
 
 	return currentMap
-}
-
-// ToFlatMap recursively walks a nested map and produces a flat map of dotted
-// keys to JSON-serialized leaf values (e.g. "storage.engine" → "\"inMemory\"").
-func ToFlatMap(m map[string]interface{}) map[string]string {
-	return flattenToMap(m, "")
-}
-
-func flattenToMap(m map[string]interface{}, prefix string) map[string]string {
-	result := make(map[string]string)
-	for k, v := range m {
-		key := k
-		if prefix != "" {
-			key = prefix + "." + k
-		}
-		if sub, ok := v.(map[string]interface{}); ok {
-			for sk, sv := range flattenToMap(sub, key) {
-				result[sk] = sv
-			}
-		} else {
-			b, err := json.Marshal(v)
-			if err != nil {
-				// Values originating from JSON-parsed data cannot fail to marshal;
-				// fall back to Go's default representation so comparisons remain
-				// consistent rather than silently producing an empty string.
-				result[key] = fmt.Sprintf("%v", v)
-				continue
-			}
-			result[key] = string(b)
-		}
-	}
-	return result
-}
-
-// FlatMapsEqual compares two nested maps by flattening them to dotted-key
-// string maps and checking equality.
-func FlatMapsEqual(a, b map[string]interface{}) bool {
-	flatA := ToFlatMap(a)
-	flatB := ToFlatMap(b)
-	if len(flatA) != len(flatB) {
-		return false
-	}
-	for k, v := range flatA {
-		if flatB[k] != v {
-			return false
-		}
-	}
-	return true
 }
 
 // StructToMap converts a struct to map[string]interface{} using JSON tags.
