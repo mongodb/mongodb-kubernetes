@@ -18,10 +18,7 @@ var updateGolden = flag.Bool("update-golden", false, "overwrite golden fixture f
 func runAll(t *testing.T, ac *om.AutomationConfig, opts GenerateOptions) string {
 	t.Helper()
 
-	origNamespace := namespace
-	namespace = "mongodb"
-	defer func() { namespace = origNamespace }()
-	opts.Namespace = namespace
+	opts.Namespace = "mongodb"
 
 	// Auto-populate test passwords for SCRAM users when not explicitly provided.
 	if opts.UserPasswords == nil {
