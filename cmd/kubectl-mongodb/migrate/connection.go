@@ -23,26 +23,26 @@ import (
 
 var omConnectionFactory om.ConnectionFactory = om.NewOpsManagerConnection
 
-func prepareConnection(ctx context.Context) (om.Connection, error) {
+func prepareConnection(ctx context.Context, namespace, configMapName, secretName string) (om.Connection, kubernetesClient.Client, error) {
 	kubeClient, err := newKubeClient()
 	if err != nil {
-		return nil, fmt.Errorf("error creating Kubernetes client: %w", err)
+		return nil, nil, fmt.Errorf("error creating Kubernetes client: %w", err)
 	}
 
 	log := zap.S()
-	config, credentials, err := readConfigAndCredentials(ctx, kubeClient, log)
+	config, credentials, err := readConfigAndCredentials(ctx, kubeClient, log, namespace, configMapName, secretName)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	conn, err := resolveProjectReadOnly(config, credentials, log)
 	if err != nil {
-		return nil, fmt.Errorf("error resolving Ops Manager project: %w", err)
+		return nil, nil, fmt.Errorf("error resolving Ops Manager project: %w", err)
 	}
-	return conn, nil
+	return conn, kubeClient, nil
 }
 
-func readConfigAndCredentials(ctx context.Context, kubeClient kubernetesClient.Client, log *zap.SugaredLogger) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
+func readConfigAndCredentials(ctx context.Context, kubeClient kubernetesClient.Client, log *zap.SugaredLogger, namespace, configMapName, secretName string) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
 	config, err := project.ReadProjectConfig(ctx, kubeClient, kube.ObjectKey(namespace, configMapName), "")
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading project config: %w", err)

@@ -52,7 +52,7 @@ func init() {
 
 func runGenerate(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
-	conn, err := prepareConnection(ctx)
+	conn, _, err := prepareConnection(ctx, namespace, configMapName, secretName)
 	if err != nil {
 		return err
 	}
