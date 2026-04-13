@@ -71,11 +71,6 @@ func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (string, s
 	return generateReplicaSet(ac, opts)
 }
 
-// isValidKubernetesName reports whether name is a valid DNS label (RFC 1123).
-func isValidKubernetesName(name string) bool {
-	return len(k8svalidation.IsDNS1123Label(name)) == 0
-}
-
 func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (string, string, error) {
 	replicaSets := ac.Deployment.GetReplicaSets()
 	if len(replicaSets) == 0 {
@@ -88,10 +83,12 @@ func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (string, 
 
 	resourceName := opts.ReplicaSetNameOverride
 	if resourceName == "" {
-		if !isValidKubernetesName(rsName) {
+		if userv1.NormalizeName(rsName) != rsName {
 			return "", "", fmt.Errorf("replica set name %q is not a valid Kubernetes resource name. Use --replicaset-name-override to provide a valid name (spec.replicaSetNameOverride will be set automatically)", rsName)
 		}
 		resourceName = rsName
+	} else if userv1.NormalizeName(resourceName) != resourceName {
+		return "", "", fmt.Errorf("--replicaset-name-override value %q is not a valid Kubernetes resource name", resourceName)
 	}
 
 	if len(opts.MultiClusterNames) > 0 {
@@ -199,16 +196,21 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName, namespace str
 
 		var secretYAML string
 		passwordSecretName := crName + "-password"
+		if errs := k8svalidation.IsDNS1123Subdomain(passwordSecretName); len(errs) > 0 {
+			return nil, fmt.Errorf("generated password Secret name %q is not a valid Kubernetes name; rename user %q before migration: %s", passwordSecretName, user.Username, errs[0])
+		}
 		if user.Database != externalDatabase {
 			spec.PasswordSecretKeyRef = userv1.SecretKeyRef{
 				Name: passwordSecretName,
 				Key:  "password",
 			}
-			if password, ok := passwords[userKey(user.Username, user.Database)]; ok {
-				secretYAML, err = marshalCRToYAML(GeneratePasswordSecret(passwordSecretName, namespace, password))
-				if err != nil {
-					return nil, fmt.Errorf("failed to marshal password Secret for user %q: %w", user.Username, err)
-				}
+			password, ok := passwords[userKey(user.Username, user.Database)]
+			if !ok {
+				return nil, fmt.Errorf("missing password for non-external user %q in database %q", user.Username, user.Database)
+			}
+			secretYAML, err = marshalCRToYAML(GeneratePasswordSecret(passwordSecretName, namespace, password))
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal password Secret for user %q: %w", user.Username, err)
 			}
 		}
 
