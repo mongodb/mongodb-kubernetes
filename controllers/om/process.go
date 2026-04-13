@@ -327,7 +327,10 @@ func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 	if len(p.Args()) == 0 {
 		return nil
 	}
-	m, _ := util.MapDeepCopy(p.Args())
+	m, err := util.MapDeepCopy(p.Args())
+	if err != nil {
+		return nil
+	}
 
 	delete(m, "systemLog")
 	maputil.DeleteMapValue(m, "storage", "dbPath")
@@ -357,8 +360,13 @@ func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 		return nil
 	}
 	cfg := mdbv1.NewEmptyAdditionalMongodConfig()
-	data, _ := json.Marshal(m)
-	_ = json.Unmarshal(data, cfg)
+	data, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	if err := json.Unmarshal(data, cfg); err != nil {
+		return nil
+	}
 	return cfg
 }
 
