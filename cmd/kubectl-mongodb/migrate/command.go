@@ -7,20 +7,20 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-
-	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 )
 
 const defaultNamespace = "default"
 
-var (
+type cliFlags struct {
 	configMapName          string
 	secretName             string
 	namespace              string
 	multiClusterNames      string
 	outputFile             string
 	replicaSetNameOverride string
-)
+}
+
+var flags cliFlags
 
 var MigrateCmd = &cobra.Command{
 	Use:   "migrate",
@@ -40,19 +40,19 @@ kubectl mongodb migrate --config-map-name my-project --secret-name my-credential
 }
 
 func init() {
-	MigrateCmd.Flags().StringVar(&configMapName, "config-map-name", "", "Name of the ConfigMap containing the OM connection details (baseUrl, orgId, projectName) (required)")
-	MigrateCmd.Flags().StringVar(&secretName, "secret-name", "", "Name of the Secret containing the OM API credentials (publicKey, privateKey) (required)")
-	MigrateCmd.Flags().StringVar(&namespace, "namespace", defaultNamespace, "Namespace of the ConfigMap and Secret")
-	MigrateCmd.Flags().StringVar(&multiClusterNames, "multi-cluster-names", "", "Comma-separated list of target cluster names (e.g., east1,west1); generates a MongoDBMultiCluster CR")
-	MigrateCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
-	MigrateCmd.Flags().StringVar(&replicaSetNameOverride, "replicaset-name-override", "", "Kubernetes resource name for the generated CR; required when the replica set name is not a valid Kubernetes name (sets spec.replicaSetNameOverride automatically)")
+	MigrateCmd.Flags().StringVar(&flags.configMapName, "config-map-name", "", "Name of the ConfigMap containing the OM connection details (baseUrl, orgId, projectName) (required)")
+	MigrateCmd.Flags().StringVar(&flags.secretName, "secret-name", "", "Name of the Secret containing the OM API credentials (publicKey, privateKey) (required)")
+	MigrateCmd.Flags().StringVar(&flags.namespace, "namespace", defaultNamespace, "Namespace of the ConfigMap and Secret")
+	MigrateCmd.Flags().StringVar(&flags.multiClusterNames, "multi-cluster-names", "", "Comma-separated list of target cluster names (e.g., east1,west1); generates a MongoDBMultiCluster CR")
+	MigrateCmd.Flags().StringVarP(&flags.outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
+	MigrateCmd.Flags().StringVar(&flags.replicaSetNameOverride, "replicaset-name-override", "", "Kubernetes resource name for the generated CR; required when the replica set name is not a valid Kubernetes name (sets spec.replicaSetNameOverride automatically)")
 	_ = MigrateCmd.MarkFlagRequired("config-map-name")
 	_ = MigrateCmd.MarkFlagRequired("secret-name")
 }
 
 func runGenerate(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
-	conn, _, err := prepareConnection(ctx, namespace, configMapName, secretName)
+	conn, _, err := prepareConnection(ctx, flags.namespace, flags.configMapName, flags.secretName)
 	if err != nil {
 		return err
 	}
@@ -98,21 +98,5 @@ func printValidationResults(w io.Writer, results []ValidationResult) int {
 	return errorCount
 }
 
-// openOutput returns os.Stdout when path is empty, otherwise opens path for writing.
-// The caller must close the returned file when it is not os.Stdout.
-func openOutput(path string) (*os.File, error) {
-	if path == "" {
-		return os.Stdout, nil
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open output file %q: %w", path, err)
-	}
-	return f, nil
-}
-
 // userKey returns a unique key for a username+database pair.
 func userKey(username, database string) string { return username + ":" + database }
-
-// omUserKey mirrors userKey for automation config users.
-func omUserKey(u om.MongoDBUser) string { return userKey(u.Username, u.Database) }
