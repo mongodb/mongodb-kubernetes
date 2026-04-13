@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -76,17 +75,6 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 	return fmt.Errorf("not yet implemented")
 }
 
-func parseMultiClusterNames(raw string) []string {
-	var names []string
-	for s := range strings.SplitSeq(raw, ",") {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			names = append(names, s)
-		}
-	}
-	return names
-}
-
 func printValidationResults(w io.Writer, results []ValidationResult) int {
 	errorCount := 0
 	for _, r := range results {
@@ -97,6 +85,3 @@ func printValidationResults(w io.Writer, results []ValidationResult) int {
 	}
 	return errorCount
 }
-
-// userKey returns a unique key for a username+database pair.
-func userKey(username, database string) string { return username + ":" + database }
