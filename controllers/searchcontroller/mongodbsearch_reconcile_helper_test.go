@@ -279,11 +279,37 @@ func TestGetMongodConfigParameters_NoLB(t *testing.T) {
 	assert.Equal(t, expectedEndpoint, setParams["searchIndexManagementHostAndPort"])
 }
 
+// newTestRSUnit builds a reconcileUnit for a ReplicaSet topology.
+func newTestRSUnit(search *searchv1.MongoDBSearch) reconcileUnit {
+	svcName := search.SearchServiceNamespacedName().Name
+	return reconcileUnit{
+		stsName:       search.StatefulSetNamespacedName(),
+		headlessSvc:   search.SearchServiceNamespacedName(),
+		proxySvc:      search.ProxyServiceNamespacedName(),
+		configMapName: search.MongotConfigConfigMapNamespacedName(),
+		podLabels:     map[string]string{"app": svcName},
+	}
+}
+
+// newTestShardUnit builds a reconcileUnit for a specific shard.
+func newTestShardUnit(search *searchv1.MongoDBSearch, shardName string) reconcileUnit {
+	stsName := search.MongotStatefulSetForShard(shardName)
+	return reconcileUnit{
+		shardName:     shardName,
+		stsName:       stsName,
+		headlessSvc:   search.MongotServiceForShard(shardName),
+		proxySvc:      search.ProxyServiceNameForShard(shardName),
+		configMapName: search.MongotConfigMapForShard(shardName),
+		podLabels:     map[string]string{"app": stsName.Name, "shard": shardName},
+	}
+}
+
 func TestBuildProxyService_NoLB(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 	}
-	svc := buildProxyService(search)
+	unit := newTestRSUnit(search)
+	svc := buildProxyService(search, unit)
 
 	assert.Equal(t, "test-search-0-proxy-svc", svc.Name)
 	assert.Equal(t, map[string]string{"app": "test-search-svc"}, svc.Spec.Selector)
@@ -299,7 +325,8 @@ func TestBuildProxyService_ManagedLB_NotReady(t *testing.T) {
 		},
 		// No status.loadBalancer → IsLoadBalancerReady() = false
 	}
-	svc := buildProxyService(search)
+	unit := newTestRSUnit(search)
+	svc := buildProxyService(search, unit)
 
 	// Selector stays on mongot pods while Envoy is not ready
 	assert.Equal(t, map[string]string{"app": "test-search-svc"}, svc.Spec.Selector)
@@ -316,7 +343,8 @@ func TestBuildProxyService_ManagedLB_Ready(t *testing.T) {
 			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
 		},
 	}
-	svc := buildProxyService(search)
+	unit := newTestRSUnit(search)
+	svc := buildProxyService(search, unit)
 
 	// Selector flips to Envoy pods when LB is ready
 	assert.Equal(t, map[string]string{"app": "test-search-lb-0"}, svc.Spec.Selector)
@@ -330,7 +358,8 @@ func TestBuildProxyServiceForShard_ManagedLB_NotReady(t *testing.T) {
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
 		},
 	}
-	svc := buildProxyServiceForShard(search, "shard-0")
+	unit := newTestShardUnit(search, "shard-0")
+	svc := buildProxyService(search, unit)
 
 	stsName := search.MongotStatefulSetForShard("shard-0").Name
 	assert.Equal(t, map[string]string{"app": stsName}, svc.Spec.Selector)
@@ -346,7 +375,8 @@ func TestBuildProxyServiceForShard_ManagedLB_Ready(t *testing.T) {
 			LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning},
 		},
 	}
-	svc := buildProxyServiceForShard(search, "shard-0")
+	unit := newTestShardUnit(search, "shard-0")
+	svc := buildProxyService(search, unit)
 
 	assert.Equal(t, map[string]string{"app": "test-search-lb-0"}, svc.Spec.Selector)
 }
@@ -1126,7 +1156,8 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test")
 	shardName := "my-cluster-0"
 
-	svc := buildSearchHeadlessServiceForShard(search, shardName)
+	unit := newTestShardUnit(search, shardName)
+	svc := buildHeadlessService(search, unit)
 
 	assert.Equal(t, "test-search-search-0-my-cluster-0-svc", svc.Name)
 	assert.Equal(t, "test", svc.Namespace)
@@ -1152,6 +1183,22 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 
 	require.NotNil(t, healthPort, "healthcheck port should exist")
 	assert.Equal(t, int32(8080), healthPort.Port)
+}
+
+func TestBuildHeadlessService_RS(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test")
+	unit := newTestRSUnit(search)
+	svc := buildHeadlessService(search, unit)
+
+	svcName := search.SearchServiceNamespacedName()
+	assert.Equal(t, svcName.Name, svc.Name)
+	assert.Equal(t, svcName.Namespace, svc.Namespace)
+	assert.Equal(t, corev1.ClusterIPNone, svc.Spec.ClusterIP)
+	assert.Equal(t, corev1.ServiceTypeClusterIP, svc.Spec.Type)
+	assert.False(t, svc.Spec.PublishNotReadyAddresses)
+	assert.Equal(t, svcName.Name, svc.Spec.Selector["app"])
+	assert.Equal(t, svcName.Name, svc.Labels["app"])
+	assert.Empty(t, svc.Labels["shard"])
 }
 
 func TestValidateMultipleReplicasConfig(t *testing.T) {
@@ -1904,7 +1951,7 @@ func TestReconcileSharded_CertificateKeySecretRefRejected(t *testing.T) {
 		newTestOperatorSearchConfig(),
 	)
 
-	result := helper.reconcileSharded(t.Context(), zap.S(), shardedSource, "8.0.0")
+	result := helper.reconcile(t.Context(), zap.S())
 
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
@@ -2335,17 +2382,17 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 	)
 
 	// Pass 1: creates shard-0 resources, returns Pending (StatefulSet not ready)
-	result := helper.reconcileSharded(t.Context(), zap.S(), shardedSource, "8.0.0")
+	result := helper.reconcile(t.Context(), zap.S())
 	assert.False(t, result.IsOK())
 	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
 
 	// Pass 2: shard-0 ready, creates shard-1 resources, returns Pending
-	result = helper.reconcileSharded(t.Context(), zap.S(), shardedSource, "8.0.0")
+	result = helper.reconcile(t.Context(), zap.S())
 	assert.False(t, result.IsOK())
 	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
 
 	// Pass 3: all shards ready, returns OK
-	result = helper.reconcileSharded(t.Context(), zap.S(), shardedSource, "8.0.0")
+	result = helper.reconcile(t.Context(), zap.S())
 	assert.True(t, result.IsOK())
 
 	// Verify per-shard Services
@@ -2429,4 +2476,61 @@ func TestCleanupStaleShardResources(t *testing.T) {
 	assert.Error(t, err, "stale shard deleted")
 	_, err = fakeClient.GetService(t.Context(), search.ProxyServiceNameForShard("shard-x"))
 	assert.NoError(t, err, "different owner untouched")
+}
+
+func TestBuildReconcileUnits_ReplicaSet(t *testing.T) {
+	search := newTestMongoDBSearch("my-rs", "test")
+	mdbc := newTestMongoDBCommunity("test-mongodb", "test")
+	source := NewCommunityResourceSearchSource(mdbc)
+	helper := NewMongoDBSearchReconcileHelper(
+		kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build()),
+		search, source, newTestOperatorSearchConfig(),
+	)
+
+	units, err := helper.buildReconcileUnits()
+	require.NoError(t, err)
+	require.Len(t, units, 1)
+
+	unit := units[0]
+	assert.Empty(t, unit.shardName, "RS unit should have no shard name")
+	assert.Equal(t, "my-rs-search", unit.stsName.Name, "backward-compatible RS STS name")
+	assert.Equal(t, "my-rs-search-svc", unit.headlessSvc.Name)
+	assert.Equal(t, "my-rs-search-0-proxy-svc", unit.proxySvc.Name)
+	assert.Equal(t, "my-rs-search-config", unit.configMapName.Name)
+	assert.Equal(t, map[string]string{"app": "my-rs-search-svc"}, unit.podLabels)
+	assert.NotNil(t, unit.mongotConfigFn)
+	assert.NotNil(t, unit.tlsResource)
+}
+
+func TestBuildReconcileUnits_Sharded(t *testing.T) {
+	search := newTestMongoDBSearch("my-sh", "test")
+	shardedSource := &mockShardedSource{
+		shardNames: []string{"shard-0", "shard-1", "shard-2"},
+		hostSeeds: map[int][]string{
+			0: {"shard-0-0.svc:27017"},
+			1: {"shard-1-0.svc:27017"},
+			2: {"shard-2-0.svc:27017"},
+		},
+	}
+	helper := NewMongoDBSearchReconcileHelper(
+		kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build()),
+		search, shardedSource, newTestOperatorSearchConfig(),
+	)
+
+	units, err := helper.buildReconcileUnits()
+	require.NoError(t, err)
+	require.Len(t, units, 3)
+
+	for i, unit := range units {
+		shardName := shardedSource.shardNames[i]
+		assert.Equal(t, shardName, unit.shardName)
+		assert.Equal(t, search.MongotStatefulSetForShard(shardName).Name, unit.stsName.Name)
+		assert.Equal(t, search.MongotServiceForShard(shardName).Name, unit.headlessSvc.Name)
+		assert.Equal(t, search.ProxyServiceNameForShard(shardName).Name, unit.proxySvc.Name)
+		assert.Equal(t, search.MongotConfigMapForShard(shardName).Name, unit.configMapName.Name)
+		assert.Equal(t, unit.stsName.Name, unit.podLabels["app"])
+		assert.Equal(t, shardName, unit.podLabels["shard"])
+		assert.NotNil(t, unit.mongotConfigFn)
+		assert.NotNil(t, unit.tlsResource)
+	}
 }
