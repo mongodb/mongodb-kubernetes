@@ -370,6 +370,11 @@ type MongoDbStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// Migration holds the VM-to-K8s migration status. Nil when no migration is active.
+	// NOTE: This field is only used for MongoDB CR resources. It is unused (always nil)
+	// when MongoDbStatus is embedded in OpsManager's AppDbStatus, but appears in the CRD schema
+	// due to Go struct embedding. This is accepted technical debt.
+	Migration *status.MigrationStatus `json:"migration,omitempty"`
 }
 
 type BackupMode string
@@ -1334,7 +1339,34 @@ func (m *MongoDB) IsOIDCEnabled() bool {
 	return m.Spec.Security.Authentication.IsOIDCEnabled()
 }
 
+func (m *MongoDB) applyComputedReplicaSetMigrationStatus(priorStatusMembers int) {
+	extCount := len(m.Spec.GetExternalMembers())
+
+	if extCount == 0 {
+		m.Status.Migration = nil
+		return
+	}
+
+	isDryRun := m.GetAnnotations()[status.MigrationDryRunAnnotationKey] == "true"
+	desiredK8sMembers := m.Spec.Members
+
+	var prevExt int
+	if m.Status.Migration != nil {
+		prevExt = m.Status.Migration.ObservedExternalMembersCount
+	}
+
+	phase := status.ComputeMigrationLifecyclePhase(isDryRun, extCount, prevExt, desiredK8sMembers, priorStatusMembers)
+
+	if m.Status.Migration == nil {
+		m.Status.Migration = &status.MigrationStatus{}
+	}
+	m.Status.Migration.Phase = phase
+	m.Status.Migration.ObservedExternalMembersCount = extCount
+}
+
 func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
+	priorMembers := m.Status.Members
+
 	m.Status.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.BackupStatusOption{}); exists {
@@ -1350,16 +1382,12 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
 		m.Status.Link = option.(status.BaseUrlOption).BaseUrl
 	}
-	if option, exists := status.GetOption(statusOptions, status.MigrationConditionOption{}); exists {
-		c := option.(status.MigrationConditionOption).Condition
-		c.ObservedGeneration = m.GetGeneration()
-		_ = meta.SetStatusCondition(&m.Status.Conditions, c)
-	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
 		if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
 			m.Status.Members = option.(status.ReplicaSetMembersOption).Members
 		}
+		m.applyComputedReplicaSetMigrationStatus(priorMembers)
 	case ShardedCluster:
 		if option, exists := status.GetOption(statusOptions, status.ShardedClusterSizeConfigOption{}); exists {
 			if sizeConfig := option.(status.ShardedClusterSizeConfigOption).SizeConfig; sizeConfig != nil {
@@ -1371,6 +1399,17 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 				m.Status.SizeStatusInClusters = sizeConfigInClusters
 			}
 		}
+	}
+
+	if option, exists := status.GetOption(statusOptions, status.MigrationStatusOption{}); exists {
+		if m.Status.Migration != nil {
+			c := option.(status.MigrationStatusOption).Condition
+			c.ObservedGeneration = m.GetGeneration()
+			_ = meta.SetStatusCondition(&m.Status.Migration.Conditions, c)
+		}
+		// TODO(CLOUDP-TBD): Support MigrationStatusOption for ShardedCluster. Currently only ReplicaSet
+		// calls applyComputedReplicaSetMigrationStatus which initializes m.Status.Migration.
+		// For other resource types, the condition is silently dropped if Migration is nil.
 	}
 
 	if phase == status.PhaseRunning {

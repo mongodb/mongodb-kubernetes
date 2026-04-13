@@ -1,5 +1,8 @@
 """VM migration E2E: pseudo-VM replica set, then MongoDB CR with externalMembers and promote/prune.
 
+Starts with ``spec.members: 0`` and VM-only ``externalMembers`` (K8s StatefulSet scale 0), then scales
+K8s members up while pruning VM members.
+
 Pseudo-VM pods run the automation agent from the same image tag as AGENT_IMAGE on the operator.
 Automation config sets agentVersion.name to that tag so it matches the VM agents.
 
@@ -14,8 +17,8 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-
 from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+from tests.tls.vm_migration_promote_prune import promote_and_prune_members
 
 
 @fixture(scope="module")
@@ -51,7 +54,7 @@ def vm_service(namespace: str):
 
 
 @fixture(scope="module")
-def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -> MongoDB:
+def mdb_k8s(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
 
     if try_load(resource):
@@ -59,7 +62,8 @@ def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -
 
     resource.set_version(custom_mdb_version)
     resource["spec"]["replicaSetNameOverride"] = f"{vm_sts['metadata']['name']}-rs"
-
+    # No in-cluster mongods yet; replica set is VM-only until promote_and_prune scales members up.
+    resource["spec"]["members"] = 0
     resource["spec"]["externalMembers"] = []
     for i in range(vm_sts["spec"]["replicas"]):
         resource["spec"]["externalMembers"].append(
@@ -72,13 +76,6 @@ def mdb_migration(namespace: str, custom_mdb_version: str, vm_sts, vm_service) -
         )
 
     resource["spec"]["memberConfig"] = []
-    for i in range(resource.get_members()):
-        resource["spec"]["memberConfig"].append(
-            {
-                "votes": 0,
-                "priority": "0",
-            }
-        )
     resource.create()
     return resource
 
@@ -161,32 +158,21 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
 
 
 @mark.e2e_vm_migration
-def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
-    """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
-    run_migration_dry_run_connectivity_passes(mdb_migration)
-
-
-@mark.e2e_vm_migration
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
 @mark.e2e_vm_migration
-def test_mdb_reaches_running(mdb_migration: MongoDB):
-    mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
+def test_k8s_mdb_reaches_running(mdb_k8s: MongoDB):
+    mdb_k8s.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_vm_migration
+def test_migration_dry_run_connectivity_passes(mdb_k8s: MongoDB):
+    run_migration_dry_run_connectivity_passes(mdb_k8s)
 
 
 # TODO insert sample data, assert it is still there after migration
 @mark.e2e_vm_migration
-def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
-    try_load(mdb_migration)
-    for i in range(vm_sts["spec"]["replicas"]):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
-        mdb_migration.update()
-
-        mdb_migration.assert_reaches_phase(Phase.Running)
-
-        mdb_migration["spec"]["externalMembers"].pop()
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
+def test_promote_and_prune(mdb_k8s: MongoDB, vm_sts):
+    promote_and_prune_members(mdb_k8s, vm_sts)
