@@ -1185,22 +1185,6 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 	assert.Equal(t, int32(8080), healthPort.Port)
 }
 
-func TestBuildHeadlessService_RS(t *testing.T) {
-	search := newTestMongoDBSearch("test-search", "test")
-	unit := newTestRSUnit(search)
-	svc := buildHeadlessService(search, unit)
-
-	svcName := search.SearchServiceNamespacedName()
-	assert.Equal(t, svcName.Name, svc.Name)
-	assert.Equal(t, svcName.Namespace, svc.Namespace)
-	assert.Equal(t, corev1.ClusterIPNone, svc.Spec.ClusterIP)
-	assert.Equal(t, corev1.ServiceTypeClusterIP, svc.Spec.Type)
-	assert.False(t, svc.Spec.PublishNotReadyAddresses)
-	assert.Equal(t, svcName.Name, svc.Spec.Selector["app"])
-	assert.Equal(t, svcName.Name, svc.Labels["app"])
-	assert.Empty(t, svc.Labels["shard"])
-}
-
 func TestValidateMultipleReplicasConfig(t *testing.T) {
 	mdbSearchSpec := searchv1.MongoDBSearchSpec{
 		Source: &searchv1.MongoDBSource{
@@ -2478,59 +2462,62 @@ func TestCleanupStaleShardResources(t *testing.T) {
 	assert.NoError(t, err, "different owner untouched")
 }
 
-func TestBuildReconcileUnits_ReplicaSet(t *testing.T) {
-	search := newTestMongoDBSearch("my-rs", "test")
-	mdbc := newTestMongoDBCommunity("test-mongodb", "test")
-	source := NewCommunityResourceSearchSource(mdbc)
+func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns")
+	mdbc := newTestMongoDBCommunity("test-mongodb", "test-ns")
+	fakeClient := newTestFakeClient(search, mdbc)
+
 	helper := NewMongoDBSearchReconcileHelper(
-		kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build()),
-		search, source, newTestOperatorSearchConfig(),
+		fakeClient,
+		search,
+		NewCommunityResourceSearchSource(mdbc),
+		newTestOperatorSearchConfig(),
 	)
 
-	units, err := helper.buildReconcileUnits()
+	// Pass 1: creates resources, returns Pending (StatefulSet not ready)
+	result := helper.reconcile(t.Context(), zap.S())
+	assert.False(t, result.IsOK())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
+
+	// Pass 2: StatefulSet ready, returns OK
+	result = helper.reconcile(t.Context(), zap.S())
+	assert.True(t, result.IsOK())
+
+	// Verify headless Service
+	svcNsName := search.SearchServiceNamespacedName()
+	svc, err := fakeClient.GetService(t.Context(), svcNsName)
 	require.NoError(t, err)
-	require.Len(t, units, 1)
 
-	unit := units[0]
-	assert.Empty(t, unit.shardName, "RS unit should have no shard name")
-	assert.Equal(t, "my-rs-search", unit.stsName.Name, "backward-compatible RS STS name")
-	assert.Equal(t, "my-rs-search-svc", unit.headlessSvc.Name)
-	assert.Equal(t, "my-rs-search-0-proxy-svc", unit.proxySvc.Name)
-	assert.Equal(t, "my-rs-search-config", unit.configMapName.Name)
-	assert.Equal(t, map[string]string{"app": "my-rs-search-svc"}, unit.podLabels)
-	assert.NotNil(t, unit.mongotConfigFn)
-	assert.NotNil(t, unit.tlsResource)
-}
+	assert.Equal(t, "test-search-search-svc", svc.Name)
+	assert.Equal(t, "test-ns", svc.Namespace)
+	assert.Equal(t, corev1.ClusterIPNone, svc.Spec.ClusterIP)
+	assert.False(t, svc.Spec.PublishNotReadyAddresses)
+	assert.Equal(t, "test-search-search-svc", svc.Spec.Selector["app"])
+	assert.Equal(t, "test-search-search-svc", svc.Labels["app"])
+	assert.Empty(t, svc.Labels["shard"])
 
-func TestBuildReconcileUnits_Sharded(t *testing.T) {
-	search := newTestMongoDBSearch("my-sh", "test")
-	shardedSource := &mockShardedSource{
-		shardNames: []string{"shard-0", "shard-1", "shard-2"},
-		hostSeeds: map[int][]string{
-			0: {"shard-0-0.svc:27017"},
-			1: {"shard-1-0.svc:27017"},
-			2: {"shard-2-0.svc:27017"},
-		},
+	portMap := make(map[string]int32)
+	for _, p := range svc.Spec.Ports {
+		portMap[p.Name] = p.Port
 	}
-	helper := NewMongoDBSearchReconcileHelper(
-		kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build()),
-		search, shardedSource, newTestOperatorSearchConfig(),
-	)
+	assert.Equal(t, int32(27028), portMap["mongot-grpc"])
+	assert.Equal(t, int32(8080), portMap["healthcheck"])
 
-	units, err := helper.buildReconcileUnits()
+	// Verify StatefulSet
+	stsNsName := search.StatefulSetNamespacedName()
+	sts, err := fakeClient.GetStatefulSet(t.Context(), stsNsName)
 	require.NoError(t, err)
-	require.Len(t, units, 3)
 
-	for i, unit := range units {
-		shardName := shardedSource.shardNames[i]
-		assert.Equal(t, shardName, unit.shardName)
-		assert.Equal(t, search.MongotStatefulSetForShard(shardName).Name, unit.stsName.Name)
-		assert.Equal(t, search.MongotServiceForShard(shardName).Name, unit.headlessSvc.Name)
-		assert.Equal(t, search.ProxyServiceNameForShard(shardName).Name, unit.proxySvc.Name)
-		assert.Equal(t, search.MongotConfigMapForShard(shardName).Name, unit.configMapName.Name)
-		assert.Equal(t, unit.stsName.Name, unit.podLabels["app"])
-		assert.Equal(t, shardName, unit.podLabels["shard"])
-		assert.NotNil(t, unit.mongotConfigFn)
-		assert.NotNil(t, unit.tlsResource)
-	}
+	assert.Equal(t, "test-search-search", sts.Name)
+	assert.Equal(t, "test-ns", sts.Namespace)
+	assert.Equal(t, "test-search-search-svc", sts.Labels["app"])
+	assert.Empty(t, sts.Labels["shard"])
+
+	// Verify ConfigMap
+	cmNsName := search.MongotConfigConfigMapNamespacedName()
+	cm, err := fakeClient.GetConfigMap(t.Context(), cmNsName)
+	require.NoError(t, err)
+
+	assert.Equal(t, "test-search-search-config", cm.Name)
+	assert.Contains(t, cm.Data, MongotConfigFilename)
 }
