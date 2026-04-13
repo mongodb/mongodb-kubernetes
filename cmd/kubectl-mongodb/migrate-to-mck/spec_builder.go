@@ -270,10 +270,14 @@ func buildCommonSpec(ac *om.AutomationConfig, version, fcv, rsName, resourceName
 		additionalConfig = opts.SourceProcess.AdditionalMongodConfig()
 	}
 
+	var featureCompatibilityVersion *string
+	if fcv != "" {
+		featureCompatibilityVersion = &fcv
+	}
 	common := mdbv1.DbCommonSpec{
 		Version:                     version,
 		ResourceType:                mdbv1.ReplicaSet,
-		FeatureCompatibilityVersion: &fcv,
+		FeatureCompatibilityVersion: featureCompatibilityVersion,
 		ConnectionSpec: mdbv1.ConnectionSpec{
 			SharedConnectionSpec: mdbv1.SharedConnectionSpec{
 				OpsManagerConfig: &mdbv1.PrivateCloudConfig{

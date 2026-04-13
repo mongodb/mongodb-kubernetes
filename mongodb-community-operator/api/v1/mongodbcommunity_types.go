@@ -484,7 +484,7 @@ func (m MongoDBUser) GetConnectionStringSecretName(resourceName string) string {
 		return m.ConnectionStringSecretName
 	}
 
-	return normalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.DB, m.Name))
+	return NormalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.DB, m.Name))
 }
 
 // GetConnectionStringSecretNamespace gets the connection string secret namespace provided by the user or generated
@@ -497,8 +497,8 @@ func (m MongoDBUser) GetConnectionStringSecretNamespace(resourceNamespace string
 	return resourceNamespace
 }
 
-// normalizeName returns a string that conforms to RFC-1123
-func normalizeName(name string) string {
+// NormalizeName returns a string that conforms to RFC-1123.
+func NormalizeName(name string) string {
 	errors := validation.IsDNS1123Subdomain(name)
 	if len(errors) == 0 {
 		return name
