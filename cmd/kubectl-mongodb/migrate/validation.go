@@ -2,6 +2,7 @@ package migrate
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -493,7 +494,7 @@ func validateProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs
 	var results []ValidationResult
 	if len(projectLogRotate) > 0 {
 		processLR := sourceProcess.GetLogRotate()
-		if len(processLR) > 0 && !maputil.FlatMapsEqual(processLR, projectLogRotate) {
+		if len(processLR) > 0 && !reflect.DeepEqual(processLR, projectLogRotate) {
 			results = append(results, ValidationResult{
 				Severity: SeverityWarning,
 				Message:  fmt.Sprintf("Process %q logRotate differs from project-level config. The Custom Resource will use the project-level value.", sourceProcess.Name()),
@@ -503,7 +504,7 @@ func validateProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs
 
 	if len(projectAuditLogRotate) > 0 {
 		processALR := sourceProcess.GetAuditLogRotate()
-		if len(processALR) > 0 && !maputil.FlatMapsEqual(processALR, projectAuditLogRotate) {
+		if len(processALR) > 0 && !reflect.DeepEqual(processALR, projectAuditLogRotate) {
 			results = append(results, ValidationResult{
 				Severity: SeverityWarning,
 				Message:  fmt.Sprintf("Process %q auditLogRotate differs from project-level config. The Custom Resource will use the project-level value.", sourceProcess.Name()),
