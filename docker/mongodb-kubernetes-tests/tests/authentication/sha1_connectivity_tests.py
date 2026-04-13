@@ -21,6 +21,20 @@ from kubetester.scram import (
 from pytest import fixture
 
 
+def _get_ac_user(ac_tester, username: str) -> dict:
+    users = ac_tester.automation_config["auth"]["usersWanted"]
+    matches = [u for u in users if u["user"] == username]
+    assert matches, f"User {username!r} not found in usersWanted"
+    return matches[0]
+
+
+def _assert_user_mechanisms(ac_tester, username: str, expected: list) -> None:
+    user = _get_ac_user(ac_tester, username)
+    assert user.get("mechanisms", []) == expected, (
+        f"User {username!r} mechanisms: expected {expected}, got {user.get('mechanisms', [])}"
+    )
+
+
 class SHA1ConnectivityTests:
     # K8s-originated user (operator manages all creds).
     USER_NAME = "mms-user-1"

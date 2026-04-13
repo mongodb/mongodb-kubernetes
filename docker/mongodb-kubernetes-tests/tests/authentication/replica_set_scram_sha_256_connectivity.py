@@ -41,6 +41,24 @@ NON_ADMIN_PASSWORD_SECRET_NAME = "mms-user-2-password"
 NON_ADMIN_USER_PASSWORD = "my-password-2"
 NON_ADMIN_USER_DATABASE = "testdb"
 
+OM_SHA256_USER_NAME = "om-user-sha256"
+OM_SHA256_USER_PASSWORD_SECRET = "om-user-sha256-password"
+OM_SHA256_USER_PASSWORD = "om-sha256-password-1"
+
+
+def _get_ac_user(ac_tester, username: str) -> dict:
+    users = ac_tester.automation_config["auth"]["usersWanted"]
+    matches = [u for u in users if u["user"] == username]
+    assert matches, f"User {username!r} not found in usersWanted"
+    return matches[0]
+
+
+def _assert_user_mechanisms(ac_tester, username: str, expected: List[str]) -> None:
+    user = _get_ac_user(ac_tester, username)
+    assert user.get("mechanisms", []) == expected, (
+        f"User {username!r} mechanisms: expected {expected}, got {user.get('mechanisms', [])}"
+    )
+
 
 def create_password_secret(namespace: str) -> str:
     create_or_update_secret(
