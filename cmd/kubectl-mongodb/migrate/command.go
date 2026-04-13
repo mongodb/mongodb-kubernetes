@@ -71,8 +71,9 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("validation failed: %d error(s) found. Resolve the issues above before generating Custom Resources", errorCount)
 	}
 
-	// Generation logic is implemented in the next stack.
-	return fmt.Errorf("not yet implemented")
+	// CR generation is implemented in the next PR in the stack.
+	_, _ = fmt.Fprintln(os.Stderr, "Validation passed. CR generation is not yet available in this build.")
+	return nil
 }
 
 func printValidationResults(w io.Writer, results []ValidationResult) int {
