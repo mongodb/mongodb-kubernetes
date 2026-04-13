@@ -49,9 +49,13 @@ func TestValidation_OneDeploymentPerProject_SingleSharded(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "validation/sharded_cluster.json")
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasError := false
 	for _, r := range results {
-		assert.NotEqual(t, SeverityError, r.Severity, "single-sharded config should not produce errors: %s", r.Message)
+		if r.Severity == SeverityError && strings.Contains(r.Message, "Sharded") {
+			hasError = true
+		}
 	}
+	assert.True(t, hasError, "expected error for sharded cluster config")
 }
 
 func TestValidation_NoReplicaSets(t *testing.T) {

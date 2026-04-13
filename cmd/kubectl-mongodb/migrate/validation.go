@@ -147,7 +147,7 @@ func validateScram(auth *om.Auth) []ValidationResult {
 	return nil
 }
 
-// validateTLS checks project-level TLS paths against operator defaults.
+// validateAgentTLS checks project-level TLS paths against operator defaults.
 func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL == nil {
 		return nil
@@ -249,13 +249,13 @@ func validateLDAP(l *ldap.Ldap) []ValidationResult {
 // validateProjectOptions checks options.downloadBase against the operator default.
 func validateProjectOptions(d om.Deployment) []ValidationResult {
 	downloadBase := d.DownloadBase()
-	if downloadBase != defaultDownloadBase {
-		return []ValidationResult{{
-			Severity: SeverityError,
-			Message:  fmt.Sprintf("options.downloadBase %q differs from the operator default %q. This value is not configurable via the Custom Resource.", downloadBase, defaultDownloadBase),
-		}}
+	if downloadBase == "" || downloadBase == defaultDownloadBase {
+		return nil
 	}
-	return nil
+	return []ValidationResult{{
+		Severity: SeverityError,
+		Message:  fmt.Sprintf("options.downloadBase %q differs from the operator default %q. This value is not configurable via the Custom Resource.", downloadBase, defaultDownloadBase),
+	}}
 }
 
 // validateProcessConfig runs per-process checks against the deployment and source process.
@@ -402,20 +402,13 @@ func validateShardingClusterRole(d om.Deployment) []ValidationResult {
 }
 
 func validateOneDeploymentPerProject(d om.Deployment) []ValidationResult {
-	shardedClusters := d.GetShardedClusters()
-	shardRSNames := map[string]bool{}
-	for _, sc := range shardedClusters {
-		for _, sh := range sc.Shards() {
-			shardRSNames[sh.Id()] = true
-		}
+	if len(d.GetShardedClusters()) > 0 {
+		return []ValidationResult{{
+			Severity: SeverityError,
+			Message:  "Sharded clusters are not supported. Only standalone replica sets are supported.",
+		}}
 	}
-	independentRSCount := 0
-	for _, rs := range d.GetReplicaSets() {
-		if !shardRSNames[rs.Name()] {
-			independentRSCount++
-		}
-	}
-	count := len(shardedClusters) + independentRSCount
+	count := len(d.GetReplicaSets())
 	if count <= 1 {
 		return nil
 	}
