@@ -1547,6 +1547,9 @@ func (m *MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 // ConvertACLdapToCR converts an AC LDAP config to the CR representation. See GetLDAP for the reverse.
 // BindQuerySecretRef and CAConfigMapRef must be set by the caller — they reference K8s resources not present in the AC.
 func ConvertACLdapToCR(l *ldap.Ldap) *Ldap {
+	if l == nil {
+		return nil
+	}
 	cr := &Ldap{}
 	for _, f := range ldapFieldMappings {
 		f.toCR(l, cr)

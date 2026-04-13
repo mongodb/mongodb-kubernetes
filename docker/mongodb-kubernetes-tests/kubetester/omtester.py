@@ -35,7 +35,12 @@ _SCRAM_SHA1_ITERATIONS = 10000
 
 
 def _scram_sha256_creds(username: str, password: str) -> Dict:
-    """Generate SCRAM-SHA-256 credentials matching the operator's Go implementation."""
+    """Generate SCRAM-SHA-256 credentials matching the operator's Go implementation.
+
+    Note: the Go operator applies SASLprep normalisation to the password before PBKDF2.
+    This function does not implement SASLprep and therefore only produces matching
+    credentials for ASCII-only passwords (SASLprep is a no-op for pure ASCII input).
+    """
     salt = os.urandom(28)  # sha256 digest size (32) minus RFC-5802 mandatory 4
     salted_pw = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _SCRAM_SHA256_ITERATIONS)
     client_key = _hmac.new(salted_pw, b"Client Key", hashlib.sha256).digest()
