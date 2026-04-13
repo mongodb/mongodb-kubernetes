@@ -244,9 +244,6 @@ buildvariants:
     display_name: init_smoke_tests_ibm_z
     max_hosts: -1
     tags: [ "release", "e2e_smoke_release_test_suite" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - release-rhel9-zseries-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
       - release-rhel9-zseries-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -335,9 +332,6 @@ buildvariants:
   - name: e2e_smoke_ibm_z_release
     display_name: e2e_smoke_ibm_z
     tags: [ "release", "e2e_smoke_release_test_suite" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -353,9 +347,6 @@ buildvariants:
   - name: e2e_static_smoke_ibm_z_release
     display_name: e2e_static_smoke_ibm_z
     tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large

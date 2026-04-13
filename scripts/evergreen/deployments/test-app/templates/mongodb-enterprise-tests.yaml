@@ -80,6 +80,8 @@ spec:
     - name: OTEL_RESOURCE_ATTRIBUTES
       value: "{{ .Values.otel_resource_attributes }}"
     {{ end }}
+    - name: PYTEST_OTEL_ENABLED
+      value: "{{ .Values.pytestOtelEnabled }}"
     # Set service name to identify this component in the trace
     - name: OTEL_SERVICE_NAME
       value: mongodb-e2e-tests
@@ -205,7 +207,7 @@ spec:
     image: "{{ .Values.mekoTestsRegistry }}/mongodb-kubernetes-tests:{{ .Values.mekoTestsVersion }}"
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
-    {{ if .Values.otel_endpoint }}
+    {{ if and .Values.otel_endpoint .Values.pytestOtelEnabled }}
     # Use trace-parent to create the root span with specified trace ID and parent ID
     # Note: we create the root span here, and the operator will create child spans that connect to it
     args: ["-vv", "-m", "{{ .Values.taskName }}", "--trace-parent", "00-{{ .Values.otel_trace_id }}-{{ .Values.otel_parent_id }}-01", "--export-traces"]
