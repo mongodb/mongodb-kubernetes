@@ -2,20 +2,39 @@ package migratetomck
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 const defaultNamespace = "default"
+
+type cliFlags struct {
+	configMapName          string
+	secretName             string
+	namespace              string
+	multiClusterNames      string
+	outputFile             string
+	replicaSetNameOverride string
+	usersSecretsFile       string
+	certsSecretPrefix      string
+	prometheusSecretName   string
+}
+
+var flags cliFlags
 
 var MigrateCmd = &cobra.Command{
 	Use:   "migrate-to-mck",
@@ -34,7 +53,10 @@ func init() {
 	MigrateCmd.Flags().StringVar(&flags.namespace, "namespace", defaultNamespace, "Namespace of the ConfigMap and Secret")
 	MigrateCmd.Flags().StringVar(&flags.multiClusterNames, "multi-cluster-names", "", "Comma-separated list of target cluster names (e.g., east1,west1). Generates a MongoDBMultiCluster CR")
 	MigrateCmd.Flags().StringVarP(&flags.outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
-	MigrateCmd.Flags().StringVar(&flags.resourceNameOverride, "resource-name-override", "", "Kubernetes resource name (metadata.name) for the generated CR. When the replica set name is not a valid Kubernetes name it is auto-normalized, but this flag lets you choose a custom name. spec.replicaSetNameOverride is set automatically")
+	MigrateCmd.Flags().StringVar(&flags.replicaSetNameOverride, "replicaset-name-override", "", "Kubernetes resource name for the generated CR; required when the replica set name is not a valid Kubernetes name (sets spec.replicaSetNameOverride automatically)")
+	MigrateCmd.Flags().StringVar(&flags.usersSecretsFile, "users-secrets-file", "", "CSV file mapping 'username:database,secret-name' for SCRAM users; when provided, customer-owned Secrets are referenced instead of generated and interactive prompts for user passwords are suppressed")
+	MigrateCmd.Flags().StringVar(&flags.certsSecretPrefix, "certs-secret-prefix", "", "Value for spec.security.certsSecretPrefix; required when TLS is enabled and suppresses the interactive prompt")
+	MigrateCmd.Flags().StringVar(&flags.prometheusSecretName, "prometheus-secret-name", "", "Name of a pre-created Kubernetes Secret containing the Prometheus password (key: \"password\"); suppresses the interactive prompt")
 	_ = MigrateCmd.MarkFlagRequired("config-map-name")
 	_ = MigrateCmd.MarkFlagRequired("secret-name")
 }
@@ -42,50 +64,18 @@ func init() {
 func runGenerate(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 
-	conn, _, err := prepareConnection(ctx, flags.namespace, flags.configMapName, flags.secretName)
-	if err != nil {
-		return err
-	}
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		return fmt.Errorf("failed to read automation config: %w", err)
-	}
-	projectConfigs, err := readProjectConfigs(conn)
+	conn, kubeClient, err := prepareConnection(ctx, flags.namespace, flags.configMapName, flags.secretName)
 	if err != nil {
 		return err
 	}
 
-	processMap := ac.Deployment.ProcessMap()
-	results, sourceProcess := ValidateMigration(ac, processMap, projectConfigs)
-	if errorCount := printValidationResults(os.Stderr, results); errorCount > 0 {
-		return fmt.Errorf("validation failed: %d error(s) found. Resolve the issues above before generating Custom Resources", errorCount)
-	}
-
-	opts := GenerateOptions{
-		ReplicaSetNameOverride: replicaSetNameOverride,
-		CredentialsSecretName:  secretName,
-		ConfigMapName:          configMapName,
-		Namespace:              namespace,
-		ProjectConfigs:         projectConfigs,
-		SourceProcess:          sourceProcess,
-	}
-
-	if multiClusterNames != "" {
-		opts.MultiClusterNames = parseMultiClusterNames(multiClusterNames)
-		if len(opts.MultiClusterNames) == 0 {
-			return fmt.Errorf("--multi-cluster-names was provided but contains no valid cluster names after trimming")
-		}
-	}
-
-	stdinScanner := bufio.NewScanner(os.Stdin)
-
-	if err := ensureTLS(ac, &opts, stdinScanner); err != nil {
+	ac, projectConfigs, sourceProcess, err := fetchAndValidate(conn)
+	if err != nil {
 		return err
 	}
-	if err := collectPrometheusPassword(ac, &opts, stdinScanner); err != nil {
-		return err
-	}
-	if err := collectUserPasswords(ac, &opts, stdinScanner); err != nil {
+
+	opts, err := buildOptions(ctx, kubeClient, ac, projectConfigs, sourceProcess, os.Stdin, flags)
+	if err != nil {
 		return err
 	}
 
@@ -94,106 +84,137 @@ func runGenerate(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	out, err := openOutput(outputFile)
+	return writeOutput(resources, flags.outputFile)
+}
+
+// fetchAndValidate reads the automation config and project configs from OM, runs validation,
+// and returns the source process to use as the spec template.
+func fetchAndValidate(conn om.Connection) (*om.AutomationConfig, *ProjectConfigs, *om.Process, error) {
+	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
-		return err
+		return nil, nil, nil, fmt.Errorf("failed to read automation config: %w", err)
 	}
-	if f, ok := out.(*os.File); ok && f != os.Stdout {
-		defer func() { _ = f.Close() }()
+	projectConfigs, err := readProjectConfigs(conn)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	results, sourceProcess := ValidateMigration(ac, ac.Deployment.ProcessMap(), projectConfigs)
+	if errorCount := printValidationResults(os.Stderr, results); errorCount > 0 {
+		return nil, nil, nil, fmt.Errorf("validation failed: %d error(s) found. Resolve the issues above before generating Custom Resources", errorCount)
+	}
+	return ac, projectConfigs, sourceProcess, nil
+}
+
+// buildOptions converts CLI flags to a GenerateOptions, prompting for any values not supplied
+// as flags (certsSecretPrefix when TLS is enabled, Prometheus password, user passwords).
+func buildOptions(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, projectConfigs *ProjectConfigs, sourceProcess *om.Process, stdin io.Reader, flags cliFlags) (GenerateOptions, error) {
+	opts := GenerateOptions{
+		ReplicaSetNameOverride: flags.replicaSetNameOverride,
+		CredentialsSecretName:  flags.secretName,
+		ConfigMapName:          flags.configMapName,
+		Namespace:              flags.namespace,
+		ProjectConfigs:         projectConfigs,
+		SourceProcess:          sourceProcess,
 	}
 
-	if _, err := fmt.Fprint(out, resources); err != nil {
+	if flags.multiClusterNames != "" {
+		opts.MultiClusterNames = parseMultiClusterNames(flags.multiClusterNames)
+		if len(opts.MultiClusterNames) == 0 {
+			return GenerateOptions{}, fmt.Errorf("--multi-cluster-names was provided but contains no valid cluster names after trimming")
+		}
+	}
+
+	scanner := bufio.NewScanner(stdin)
+
+	if err := ensureTLS(ac, &opts, scanner, flags.certsSecretPrefix); err != nil {
+		return GenerateOptions{}, err
+	}
+	if err := collectPrometheusCreds(ctx, kubeClient, ac, &opts, scanner, flags.prometheusSecretName); err != nil {
+		return GenerateOptions{}, err
+	}
+	if err := collectUserCreds(ctx, kubeClient, ac, &opts, scanner, flags.usersSecretsFile); err != nil {
+		return GenerateOptions{}, err
+	}
+	return opts, nil
+}
+
+func writeOutput(resources, outputFile string) error {
+	if outputFile == "" {
+		_, err := fmt.Fprint(os.Stdout, resources)
+		return err
+	}
+	f, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("failed to open output file %q: %w", outputFile, err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := fmt.Fprint(f, resources); err != nil {
 		return fmt.Errorf("failed to write output: %w", err)
 	}
-	if outputFile != "" {
-		fmt.Fprintf(os.Stderr, "CRs written to %s\n", outputFile)
-	}
+	fmt.Fprintf(os.Stderr, "CRs written to %s\n", outputFile)
 	return nil
 }
 
 // generateMigrationResources generates all CRs and supporting Secrets/ConfigMaps as a single YAML output.
 // Nothing is applied to the cluster — the customer owns the apply step.
 func generateMigrationResources(ac *om.AutomationConfig, opts GenerateOptions) (string, error) {
-	mongodbYAML, crName, err := GenerateMongoDBCR(ac, opts)
+	mongodbCR, crName, err := GenerateMongoDBCR(ac, opts)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate Custom Resource: %w", err)
 	}
 
-	userCRs, err := GenerateUserCRs(ac, crName, opts.Namespace, opts.UserPasswords)
+	userObjects, err := GenerateUserCRs(ac, crName, opts.Namespace, opts)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate user Custom Resources: %w", err)
 	}
 
+	extra := generateExtraResources(ac, opts)
+	objects := make([]client.Object, 0, 1+len(userObjects)+len(extra))
+	objects = append(objects, mongodbCR)
+	objects = append(objects, userObjects...)
+	objects = append(objects, extra...)
+
+	return marshalMultiDoc(objects)
+}
+
+// marshalMultiDoc serializes each object to YAML, joined by "---" document separators.
+func marshalMultiDoc(objects []client.Object) (string, error) {
 	var sb strings.Builder
-	sb.WriteString(mongodbYAML)
-
-	for _, u := range userCRs {
-		sb.WriteString("---\n")
-		sb.WriteString(u.MongoDBUserYAML)
-		if u.PasswordSecretYAML != "" {
+	for i, obj := range objects {
+		if i > 0 {
 			sb.WriteString("---\n")
-			sb.WriteString(u.PasswordSecretYAML)
 		}
+		y, err := marshalCRToYAML(obj)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal %T: %w", obj, err)
+		}
+		sb.WriteString(y)
 	}
-
-	extra := append(generateLdapResources(ac, opts), generatePrometheusResources(ac, opts)...)
-	if err := appendMarshaledResources(&sb, extra); err != nil {
-		return "", err
-	}
-
 	return sb.String(), nil
 }
 
-func appendMarshaledResources(sb *strings.Builder, resources []any) error {
-	for _, r := range resources {
-		y, err := marshalCRToYAML(r)
-		if err != nil {
-			return fmt.Errorf("failed to marshal %T: %w", r, err)
+// generateExtraResources returns the supporting Secrets/ConfigMaps for LDAP and Prometheus.
+func generateExtraResources(ac *om.AutomationConfig, opts GenerateOptions) []client.Object {
+	var resources []client.Object
+	if ldap := ac.Ldap; ldap != nil {
+		if ldap.BindQueryPassword != "" {
+			resources = append(resources, GeneratePasswordSecret(LdapBindQuerySecretName, opts.Namespace, ldap.BindQueryPassword))
 		}
-		sb.WriteString("---\n")
-		sb.WriteString(y)
+		if ldap.CaFileContents != "" {
+			resources = append(resources, buildLdapCAConfigMap(opts.Namespace, ldap.CaFileContents))
+		}
 	}
-	return nil
-}
-
-func generateLdapResources(ac *om.AutomationConfig, opts GenerateOptions) []any {
-	if ac.Ldap == nil {
-		return nil
-	}
-	var resources []any
-	if ac.Ldap.BindQueryPassword != "" {
-		resources = append(resources, GeneratePasswordSecret(LdapBindQuerySecretName, opts.Namespace, ac.Ldap.BindQueryPassword))
-	}
-	if ac.Ldap.CaFileContents != "" {
-		resources = append(resources, buildLdapCAConfigMap(opts.Namespace, ac.Ldap.CaFileContents))
+	acProm := ac.Deployment.GetPrometheus()
+	if acProm != nil && acProm.Enabled && acProm.Username != "" {
+		if opts.PrometheusSecretName == "" && opts.PrometheusPassword != "" {
+			resources = append(resources, GeneratePasswordSecret(PrometheusPasswordSecretName, opts.Namespace, opts.PrometheusPassword))
+		}
 	}
 	return resources
 }
 
-func generatePrometheusResources(ac *om.AutomationConfig, opts GenerateOptions) []any {
-	acProm := ac.Deployment.GetPrometheus()
-	if opts.PrometheusPassword == "" || acProm == nil || !acProm.Enabled || acProm.Username == "" {
-		return nil
-	}
-	return []any{GeneratePasswordSecret(PrometheusPasswordSecretName, opts.Namespace, opts.PrometheusPassword)}
-}
-
-// userKey returns the map key used to associate a user with their password.
 func userKey(username, database string) string { return username + ":" + database }
 
-// openOutput returns os.Stdout when path is empty, otherwise opens path for writing.
-func openOutput(path string) (io.Writer, error) {
-	if path == "" {
-		return os.Stdout, nil
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open output file %q: %w", path, err)
-	}
-	return f, nil
-}
-
-// promptLine prints prompt to stderr and returns the trimmed input line, or an error on EOF/scan failure.
 func promptLine(scanner *bufio.Scanner, prompt string) (string, error) {
 	fmt.Fprint(os.Stderr, prompt)
 	if !scanner.Scan() {
@@ -205,7 +226,7 @@ func promptLine(scanner *bufio.Scanner, prompt string) (string, error) {
 	return strings.TrimSpace(scanner.Text()), nil
 }
 
-func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner) error {
+func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner, certsSecretPrefix string) error {
 	rss := ac.Deployment.GetReplicaSets()
 	if len(rss) == 0 {
 		return nil
@@ -217,12 +238,16 @@ func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Sc
 	if !tlsEnabled {
 		return nil
 	}
-	prefix, err := promptLine(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
-	if err != nil {
-		return fmt.Errorf("failed to read certsSecretPrefix: %w", err)
+	prefix := certsSecretPrefix
+	if prefix == "" {
+		p, err := promptLine(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
+		if err != nil {
+			return fmt.Errorf("failed to read certsSecretPrefix: %w", err)
+		}
+		prefix = p
 	}
 	if prefix == "" {
-		return fmt.Errorf("security.certsSecretPrefix is required when TLS is enabled")
+		return fmt.Errorf("security.certsSecretPrefix is required when TLS is enabled; use --certs-secret-prefix or enter it interactively")
 	}
 	if len(k8svalidation.IsDNS1123Subdomain(prefix)) > 0 {
 		return fmt.Errorf("security.certsSecretPrefix %q is not a valid Kubernetes resource name", prefix)
@@ -231,43 +256,73 @@ func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Sc
 	return nil
 }
 
-func collectPrometheusPassword(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner) error {
+// collectPrometheusCreds handles the Prometheus password independently of the user-secrets mode.
+// If --prometheus-secret-name is provided the Secret is validated in Kubernetes and referenced
+// in the CR (no YAML generated). Otherwise the password is collected interactively.
+func collectPrometheusCreds(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner, prometheusSecretName string) error {
 	acProm := ac.Deployment.GetPrometheus()
 	if acProm == nil || !acProm.Enabled || acProm.Username == "" {
 		return nil
 	}
-	promPassword, err := promptLine(scanner, "Enter password for Prometheus user: ")
+	if prometheusSecretName != "" {
+		secret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(opts.Namespace, prometheusSecretName))
+		if err != nil {
+			return fmt.Errorf("--prometheus-secret-name: secret %q not found in namespace %q: %w", prometheusSecretName, opts.Namespace, err)
+		}
+		if _, ok := secret.Data[passwordSecretDataKey]; !ok {
+			return fmt.Errorf("--prometheus-secret-name: secret %q does not contain key \"password\"", prometheusSecretName)
+		}
+		opts.PrometheusSecretName = prometheusSecretName
+		return nil
+	}
+	password, err := promptLine(scanner, "Enter password for Prometheus user: ")
 	if err != nil {
 		return fmt.Errorf("failed to read Prometheus password: %w", err)
 	}
-	if promPassword == "" {
+	if password == "" {
 		return fmt.Errorf("prometheus password cannot be empty")
 	}
-	opts.PrometheusPassword = promPassword
+	opts.PrometheusPassword = password
 	return nil
 }
 
-func collectUserPasswords(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner) error {
-	if ac.Auth == nil || len(ac.Auth.Users) == 0 {
+// scramUsers returns the non-agent, non-external SCRAM users from the automation config.
+func scramUsers(ac *om.AutomationConfig) []*om.MongoDBUser {
+	if ac.Auth == nil {
 		return nil
 	}
+	var users []*om.MongoDBUser
+	for _, u := range ac.Auth.Users {
+		if u == nil || u.Username == "" ||
+			(u.Username == ac.Auth.AutoUser && u.Database == util.DefaultUserDatabase) ||
+			u.Database == externalDatabase {
+			continue
+		}
+		users = append(users, u)
+	}
+	return users
+}
+
+func collectUserCreds(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner, usersSecretsFile string) error {
+	if usersSecretsFile != "" {
+		fileMapping, err := parseUsersSecretsFile(usersSecretsFile)
+		if err != nil {
+			return fmt.Errorf("failed to parse --users-secrets-file: %w", err)
+		}
+		return collectExistingUserSecrets(ctx, kubeClient, ac, opts, fileMapping)
+	}
+	return collectUserPasswords(ac, opts, scanner)
+}
+
+func collectUserPasswords(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner) error {
 	opts.UserPasswords = make(map[string]string)
-	for _, user := range ac.Auth.Users {
-		if user == nil || user.Username == "" {
-			continue
-		}
-		if user.Username == ac.Auth.AutoUser && user.Database == util.DefaultUserDatabase {
-			continue
-		}
-		if user.Database == externalDatabase {
-			continue
-		}
-		password, err := promptLine(scanner, fmt.Sprintf("Enter password for SCRAM user %q (db: %s): ", user.Username, user.Database))
+	for _, user := range scramUsers(ac) {
+		password, err := promptLine(scanner, fmt.Sprintf("Enter password for SCRAM user %q (db: %s) [Enter to skip]: ", user.Username, user.Database))
 		if err != nil {
 			return fmt.Errorf("failed to read password for user %q: %w", user.Username, err)
 		}
 		if password == "" {
-			return fmt.Errorf("password for user %q cannot be empty", user.Username)
+			continue
 		}
 		if err := validatePasswordAgainstOM(user.Username, user.Database, password, ac); err != nil {
 			return err
@@ -289,6 +344,74 @@ func validatePasswordAgainstOM(username, database, password string, ac *om.Autom
 		return fmt.Errorf("password for user %q does not match the existing credentials in Ops Manager", username)
 	}
 	return nil
+}
+
+// collectExistingUserSecrets populates opts.ExistingUserSecrets for each non-external SCRAM user.
+// Users absent from fileMapping are skipped with a warning; present users are validated against
+// the Kubernetes Secret and their SCRAM hashes in the automation config.
+func collectExistingUserSecrets(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, opts *GenerateOptions, fileMapping map[string]string) error {
+	opts.ExistingUserSecrets = make(map[string]string)
+	for _, user := range scramUsers(ac) {
+		key := userKey(user.Username, user.Database)
+		secretName, ok := fileMapping[key]
+		if !ok {
+			continue
+		}
+		if err := validateUserSecret(ctx, kubeClient, user, secretName, ac, opts.Namespace); err != nil {
+			return err
+		}
+		opts.ExistingUserSecrets[key] = secretName
+	}
+	return nil
+}
+
+// validateUserSecret reads the named Secret from Kubernetes and validates its password against
+// the SCRAM hashes stored in the automation config for the given user.
+func validateUserSecret(ctx context.Context, kubeClient kubernetesClient.Client, user *om.MongoDBUser, secretName string, ac *om.AutomationConfig, namespace string) error {
+	secret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(namespace, secretName))
+	if err != nil {
+		return fmt.Errorf("secret %q not found in namespace %q (user %q): %w", secretName, namespace, user.Username, err)
+	}
+	passwordBytes, ok := secret.Data[passwordSecretDataKey]
+	if !ok {
+		return fmt.Errorf("secret %q does not contain key \"password\" (required for user %q)", secretName, user.Username)
+	}
+	return validatePasswordAgainstOM(user.Username, user.Database, string(passwordBytes), ac)
+}
+
+// parseUsersSecretsFile reads a CSV file mapping "username:database,secret-name" lines to a map.
+// Blank lines and lines beginning with '#' are ignored.
+func parseUsersSecretsFile(path string) (map[string]string, error) {
+	if path == "" {
+		return nil, nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	result := make(map[string]string)
+	sc := bufio.NewScanner(f)
+	for lineNum := 1; sc.Scan(); lineNum++ {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		userDB, sName, ok := strings.Cut(line, ",")
+		userDB, sName = strings.TrimSpace(userDB), strings.TrimSpace(sName)
+		if !ok || userDB == "" || sName == "" {
+			return nil, fmt.Errorf("line %d: expected \"username:database,secret-name\", got %q", lineNum, line)
+		}
+		if !strings.Contains(userDB, ":") {
+			return nil, fmt.Errorf("line %d: first field %q is missing the database part; expected \"username:database\"", lineNum, userDB)
+		}
+		if errs := k8svalidation.IsDNS1123Subdomain(sName); len(errs) > 0 {
+			return nil, fmt.Errorf("line %d: secret name %q is not a valid Kubernetes name: %s", lineNum, sName, errs[0])
+		}
+		result[userDB] = sName
+	}
+	return result, sc.Err()
 }
 
 func parseMultiClusterNames(raw string) []string {

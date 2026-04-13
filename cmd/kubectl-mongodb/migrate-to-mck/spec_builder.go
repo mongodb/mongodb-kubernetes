@@ -200,7 +200,7 @@ func extractPrometheusConfig(d om.Deployment) (*mdbcv1.Prometheus, error) {
 		Username: acProm.Username,
 		PasswordSecretRef: mdbcv1.SecretKeyReference{
 			Name: PrometheusPasswordSecretName,
-			Key:  "password",
+			Key:  passwordSecretDataKey,
 		},
 	}
 
@@ -263,6 +263,9 @@ func buildCommonSpec(ac *om.AutomationConfig, version, fcv, rsName, resourceName
 	prom, err := extractPrometheusConfig(ac.Deployment)
 	if err != nil {
 		return mdbv1.DbCommonSpec{}, fmt.Errorf("failed to extract Prometheus config: %w", err)
+	}
+	if prom != nil && opts.PrometheusSecretName != "" {
+		prom.PasswordSecretRef.Name = opts.PrometheusSecretName
 	}
 
 	var additionalConfig *mdbv1.AdditionalMongodConfig
