@@ -52,9 +52,7 @@ You must pass versions for tags that **already exist on Quay** (typically match 
 evergreen patch -p mongodb-kubernetes -a preflight_release_test \
   -d "Test release preflight only" -f -y -u --path .evergreen.yml \
   --param BUILD_SCENARIO=release \
-  --param OPERATOR_VERSION=1.8.0 \
-  --param READINESS_PROBE_VERSION=1.0.24 \
-  --param VERSION_UPGRADE_HOOK_VERSION=1.0.10
+  --param OPERATOR_VERSION=1.8.0
 ```
 
 Adjust probe/hook params to match **`release.json`** if your project does not set them by default on patches. **`mongodb-enterprise-server`** preflight still enumerates Quay tags (same as release).
