@@ -17,12 +17,6 @@ case "${PREFLIGHT_IMAGE}" in
   mongodb-kubernetes | init-database | init-ops-manager | database)
     IMAGE_VERSION="${OPERATOR_VERSION}"
     ;;
-  readiness-probe)
-    IMAGE_VERSION="${READINESS_PROBE_VERSION}"
-    ;;
-  upgrade-hook)
-    IMAGE_VERSION="${VERSION_UPGRADE_HOOK_VERSION}"
-    ;;
   *)
     echo "unsupported preflight image: ${PREFLIGHT_IMAGE}" >&2
     exit 1

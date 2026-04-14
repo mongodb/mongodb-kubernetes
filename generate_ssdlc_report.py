@@ -21,9 +21,9 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from queue import Queue
+from typing import Dict, List
 
 import boto3
-from typing import Dict, List
 
 from lib.base_logger import logger
 from scripts.evergreen.release.agent_matrix import get_supported_version_for_image

@@ -498,6 +498,23 @@ functions:
         env:
           PREFLIGHT_SUBMIT: ${preflight_submit}
 
+  # Preflight all mongodb-enterprise-server tags from Quay (no fixed version - scans dynamically).
+  preflight_enterprise_server:
+    - command: subprocess.exec
+      params:
+        shell: bash
+        <<: *e2e_include_expansions_in_env
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        binary: scripts/dev/run_python.sh
+        args:
+          - scripts/preflight_images.py
+          - --image
+          - mongodb-enterprise-server
+          - --submit
+          - ${preflight_submit}
+
   # publish_helm_chart packages and publishes the MCK helm chart to the OCI container registry
   publish_helm_chart:
     - command: subprocess.exec
