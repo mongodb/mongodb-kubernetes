@@ -87,6 +87,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def backup_status(self) -> MongoDBOpsManager.BackupStatus:
         return self.BackupStatus(self)
 
+    @TRACER.start_as_current_span("assert_reaches")
     def assert_reaches(self, fn: Callable[[MongoDBOpsManager], bool], timeout=None):
         return self.wait_for(fn, timeout=timeout, should_raise=True)
 
@@ -99,6 +100,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         tester = self.get_om_tester(self.app_db_name())
         return tester.api_get_preferred_hostnames()
 
+    @TRACER.start_as_current_span("assert_appdb_preferred_hostnames_are_added")
     def assert_appdb_preferred_hostnames_are_added(self):
         def appdb_preferred_hostnames_are_added():
             expected_hostnames = self.get_appdb_hostnames_for_monitoring()
@@ -114,6 +116,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         KubernetesTester.wait_until(appdb_preferred_hostnames_are_added, timeout=120, sleep_time=5)
 
+    @TRACER.start_as_current_span("assert_appdb_hostnames_are_correct")
     def assert_appdb_hostnames_are_correct(self):
         def appdb_hostnames_are_correct():
             expected_hostnames = self.get_appdb_hostnames_for_monitoring()
@@ -129,6 +132,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         KubernetesTester.wait_until(appdb_hostnames_are_correct, timeout=300, sleep_time=10)
 
+    @TRACER.start_as_current_span("assert_appdb_monitoring_group_was_created")
     def assert_appdb_monitoring_group_was_created(self):
         tester = self.get_om_tester(self.app_db_name())
         tester.assert_group_exists()
@@ -163,8 +167,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         KubernetesTester.wait_until(no_automation_agents_have_registered, timeout=600, sleep_time=5)
 
-    TRACER.start_as_current_span("assert_monitoring_data_exists")
-
+    @TRACER.start_as_current_span("assert_monitoring_data_exists")
     def assert_monitoring_data_exists(
         self,
         database_name: Optional[str] = None,
@@ -585,8 +588,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     ) -> kubernetes.client.V1ContainerStatus:
         return next(filter(lambda c: c.name == "mongodb-backup-daemon", backup_daemon_pod.status.container_statuses))
 
-    TRACER.start_as_current_span("wait_until_backup_pods_become_ready")
-
+    @TRACER.start_as_current_span("wait_until_backup_pods_become_ready")
     def wait_until_backup_pods_become_ready(self, timeout=300):
         def backup_daemons_are_ready():
             try:
