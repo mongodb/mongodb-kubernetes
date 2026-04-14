@@ -1,11 +1,14 @@
 task_groups:
-  - name: preflight_images_task_group
+  - name: preflight_release_operator_images_task_group
     max_hosts: -1
     tasks:
       - preflight_images
-      - preflight_official_database_image
-      - preflight_mongodb_agent_image
-      - preflight_ops_manager
+
+  # Master merge: same OM + agent tags as release_om_and_agents.py (depends_on that Evergreen task).
+  - name: preflight_om_and_agents_task_group
+    max_hosts: -1
+    tasks:
+      - preflight_om_and_agents
 
 tasks:
   - name: preflight_images
@@ -26,28 +29,26 @@ tasks:
       - func: preflight_image
         vars:
           image_name: database
-
-  - name: preflight_ops_manager
-    tags: [ "image_preflight" ]
-    commands:
-      - func: clone
-      - func: python_venv
-      - func: setup_preflight
       - func: preflight_image
         vars:
-          image_name: ops-manager
-
-  - name: preflight_official_database_image
-    tags: [ "image_preflight" ]
-    commands:
-      - func: clone
-      - func: python_venv
-      - func: setup_preflight
+          image_name: readiness-probe
+      - func: preflight_image
+        vars:
+          image_name: upgrade-hook
       - func: preflight_image
         vars:
           image_name: mongodb-enterprise-server
 
-  - name: preflight_mongodb_agent_image
+  - name: preflight_om_and_agents
+    tags: [ "image_preflight" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_preflight
+      - func: run_preflight_om_and_agents
+
+  # One check-only preflight per commit: validates openshift-preflight + Quay + scripts still work.
+  - name: preflight_check_smoke
     tags: [ "image_preflight" ]
     commands:
       - func: clone
@@ -55,7 +56,7 @@ tasks:
       - func: setup_preflight
       - func: preflight_image
         vars:
-          image_name: mongodb-agent
+          image_name: mongodb-kubernetes
 
 # Code snippets tasks
 # Each task is selected by convention by running scripts/code_snippets/${task_name}_test.sh

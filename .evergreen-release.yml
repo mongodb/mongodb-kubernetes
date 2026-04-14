@@ -156,6 +156,7 @@ buildvariants:
     tasks:
       - name: add_releaseinfo_to_github_assets
 
+  # Preflight on git tag: images built in release_images (+ enterprise server on Quay). OM/agent preflight runs on master (see preflight_om_and_agents variant).
   - name: preflight_release_images
     display_name: preflight_release_images
     tags: [ "release" ]
@@ -168,7 +169,7 @@ buildvariants:
     expansions:
       preflight_submit: true
     tasks:
-      - name: preflight_images_task_group
+      - name: preflight_release_operator_images_task_group
 
   - name: prepare_openshift_bundles
     display_name: prepare_openshift_bundles

@@ -2015,6 +2015,7 @@ buildvariants:
 
   ### Variants that run on each commit
 
+  # Toolchain smoke: one check-only preflight (operator image) every staging build so preflight regressions surface before release.
   - name: preflight_release_images_check_only
     display_name: preflight_release_images_check_only
     tags: [ "staging" ]
@@ -2023,7 +2024,23 @@ buildvariants:
     expansions:
       preflight_submit: false
     tasks:
-      - name: preflight_images_task_group
+      - name: preflight_check_smoke
+
+  # Preflight OM + agent images after release_om_and_agents (same version set as that script). Check-only on master.
+  - name: preflight_om_and_agents
+    display_name: preflight_om_and_agents
+    tags: [ "staging" ]
+    run_on:
+      - rhel90-large
+    allowed_requesters: [ "commit" ]
+    patchable: false
+    depends_on:
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+    expansions:
+      preflight_submit: false
+    tasks:
+      - name: preflight_om_and_agents_task_group
 
   # OM60 images build - kept for on-demand testing only
   - name: build_om60_images
