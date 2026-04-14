@@ -1005,6 +1005,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return self["spec"].get("topology", "") == "MultiCluster"
 
     class StatusCommon:
+        @TRACER.start_as_current_span("assert_reaches_phase")
         def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
             intermediate_events = (
                 # This can be an intermediate error, right before we check for this secret we create it.
@@ -1039,6 +1040,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
             )
 
+        @TRACER.start_as_current_span("assert_persist_phase")
         def assert_persist_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False, persist_for=3):
             intermediate_events = (
                 # This can be an intermediate error, right before we check for this secret we create it.
@@ -1074,8 +1076,16 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 f"Persist phase {phase.name} ({persist_for} retries) for resource {self.__class__.__name__} took {end_time - start_time}s"
             )
 
+        @TRACER.start_as_current_span("assert_abandons_phase")
         def assert_abandons_phase(self, phase: Phase, timeout=None):
-            return self.ops_manager.wait_for(lambda s: self.get_phase() != phase, timeout, should_raise=True)
+            start_time = time.time()
+            self.ops_manager.wait_for(lambda s: self.get_phase() != phase, timeout, should_raise=True)
+            end_time = time.time()
+            span = trace.get_current_span()
+            span.set_attribute("mck.resource", self.__class__.__name__)
+            span.set_attribute("mck.action", "assert_abandons_phase")
+            span.set_attribute("mck.abandoned_phase", phase.name)
+            span.set_attribute("mck.time_needed", end_time - start_time)
 
         def assert_status_resource_not_ready(self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0):
             """Checks the element in 'resources_not_ready' field by index 'idx'"""
