@@ -54,7 +54,6 @@ variables:
       - AI_MONGODB_EMBEDDING_INDEXING_KEY
       - AI_MONGODB_EMBEDDING_QUERY_KEY
 
-
 functions:
 
   ### Setup Functions ###
