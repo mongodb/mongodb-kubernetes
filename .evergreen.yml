@@ -228,6 +228,10 @@ patch_aliases:
   - alias: "release"
     variant_tags: [ "release" ]
     task: ".*"
+  - alias: "preflight_release_test"
+    description: "Release-style preflight only (no image release, no Pyxis submit); patch-only. See EVERGREEN.md."
+    variant_tags: [ "preflight_release_test" ]
+    task: ".*"
   - alias: "staging"
     variant_tags: [ "staging" ]
     task: ".*"

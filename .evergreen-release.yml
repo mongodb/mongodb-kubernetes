@@ -171,6 +171,18 @@ buildvariants:
     tasks:
       - name: preflight_release_operator_images_task_group
 
+  # Patch-only: same preflight tasks as preflight_release_images, but no depends_on release_images (no build/push) and preflight_submit false (no Pyxis). Use an OPERATOR_VERSION (and probe/hook versions if needed) that already exist on Quay.
+  - name: preflight_release_images_patch_test
+    display_name: preflight_release_images_patch_test
+    tags: [ "preflight_release_test" ]
+    run_on:
+      - rhel90-large
+    allowed_requesters: [ "patch" ]
+    expansions:
+      preflight_submit: false
+    tasks:
+      - name: preflight_release_operator_images_task_group
+
   - name: prepare_openshift_bundles
     display_name: prepare_openshift_bundles
     tags: [ "release" ]

@@ -42,6 +42,23 @@ evergreen patch -p mongodb-kubernetes -a staging -d "Test staging build" -f -y -
 evergreen patch -p mongodb-kubernetes -a release -d "Test release build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
 ```
 
+### Release-style preflight only (no image push, no Pyxis submit)
+
+Runs the same **`preflight_release_operator_images_task_group`** as a real tag release, but **does not** run **`release_images`** (nothing is built/pushed) and sets **`preflight_submit: false`** (check only).
+
+You must pass versions for tags that **already exist on Quay** (typically match **`release.json`** on your branch: **`mongodbOperator`**, readiness hook versions, etc.).
+
+```shell
+evergreen patch -p mongodb-kubernetes -a preflight_release_test \
+  -d "Test release preflight only" -f -y -u --path .evergreen.yml \
+  --param BUILD_SCENARIO=release \
+  --param OPERATOR_VERSION=1.8.0 \
+  --param READINESS_PROBE_VERSION=1.0.24 \
+  --param VERSION_UPGRADE_HOOK_VERSION=1.0.10
+```
+
+Adjust probe/hook params to match **`release.json`** if your project does not set them by default on patches. **`mongodb-enterprise-server`** preflight still enumerates Quay tags (same as release).
+
 ## Manual Variant Aliases
 
 Some CI variants are excluded from automatic PR runs to save compute time. These variants only run automatically on master commits but can be triggered manually when needed.
