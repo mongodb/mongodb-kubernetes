@@ -1,6 +1,13 @@
 from kubetester.mongotester import ReplicaSetTester
 from pytest import fixture, mark
+<<<<<<< HEAD
 from tests.authentication.sha1_connectivity_tests import SHA1ConnectivityTests
+=======
+from tests.authentication.sha1_connectivity_tests import (
+    SHA1ConnectivityTests,
+    run_authentication_disabled_after_resource_deleted,
+)
+>>>>>>> 75aca20a3 (lint)
 
 
 @mark.e2e_replica_set_scram_sha_1_user_connectivity
