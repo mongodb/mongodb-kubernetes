@@ -3,7 +3,7 @@
 **`kubernetes-versions.json`** at the repo root is the engineering source of truth for declared support:
 
 - **`kubernetes.min`** / **`kubernetes.max`**: version range we support the current version as it was tested with such version range.
-- **`openshift`**: OpenShift **minor** i sthe version we expect for our shared test cluster to be at. This is **not** the same as **`release.json`**’s OLM minimum, as explained later.
+- **`openshift`**: OpenShift **minor** is the version we expect for our shared test cluster to be at. This is **not** the same as **`release.json`**’s OLM minimum, as explained later.
 
 ```json
 {
