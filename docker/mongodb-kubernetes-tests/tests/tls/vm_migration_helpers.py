@@ -158,6 +158,18 @@ def assert_migration_dry_run_annotation(generated_cr_yaml: str) -> None:
     ), f"Expected annotation {MIGRATION_DRY_RUN_ANNOTATION}=true in generated CR, got: {annotations}"
 
 
+def vm_replica_set_tester(namespace: str, use_ssl: bool = False, ca_path: Optional[str] = None) -> MongoTester:
+    """Return a MongoTester pointed at the VM StatefulSet replica set (vm-mongodb service)."""
+    cnx_string = build_mongodb_connection_uri(
+        mdb_resource="vm-mongodb",
+        namespace=namespace,
+        members=3,
+        port="27017",
+        servicename="vm-mongodb",
+    )
+    return MongoTester(cnx_string, use_ssl, ca_path)
+
+
 def get_user_docs(generated_cr_yaml: str) -> List[dict]:
     docs = list(yaml.safe_load_all(generated_cr_yaml))
     return [d for d in docs if d and d.get("kind") == "MongoDBUser"]
