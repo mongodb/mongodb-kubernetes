@@ -30,6 +30,7 @@ from tests.tls.vm_migration_helpers import (
     log_automation_config_diff,
     rotate_password_and_verify,
     run_migrate_generate,
+    vm_replica_set_tester,
 )
 
 RS_NAME = "vm-mongodb-rs"
@@ -146,6 +147,16 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
         {"region": "us-west-2", "role": "secondary"},
     ]
 
+    # Member 2 intentionally diverges on logRotate, systemLog.logAppend, and oplogSizeMB
+    # to exercise the generator's first-process-wins behaviour for additionalMongodConfig.
+    log_rotate_per_member = [
+        {"sizeThresholdMB": 1000, "timeThresholdHrs": 24, "numUncompressed": 5, "numTotal": 10, "percentOfDiskspace": 0.4},
+        {"sizeThresholdMB": 1000, "timeThresholdHrs": 24, "numUncompressed": 5, "numTotal": 10, "percentOfDiskspace": 0.4},
+        {"sizeThresholdMB": 2000, "timeThresholdHrs": 24, "numUncompressed": 3, "numTotal": 10, "percentOfDiskspace": 0.4},
+    ]
+    log_append_per_member = [True, True, False]
+    oplog_size_per_member = [2048, 2048, None]
+
     ac["processes"] = []
     ac["monitoringVersions"] = []
     ac["replicaSets"] = [{"_id": rs_name, "members": [], "protocolVersion": "1"}]
@@ -161,18 +172,16 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
             }
         )
 
+        replication = {"replSetName": rs_name}
+        if oplog_size_per_member[i] is not None:
+            replication["oplogSizeMB"] = oplog_size_per_member[i]
+
         ac["processes"].append(
             {
                 "version": mdb_version,
                 "name": f"{sts_name}-{i}",
                 "hostname": hostname,
-                "logRotate": {
-                    "sizeThresholdMB": 1000,
-                    "timeThresholdHrs": 24,
-                    "numUncompressed": 5,
-                    "numTotal": 10,
-                    "percentOfDiskspace": 0.4,
-                },
+                "logRotate": log_rotate_per_member[i],
                 "auditLogRotate": {
                     "sizeThresholdMB": 500,
                     "timeThresholdHrs": 48,
@@ -196,12 +205,9 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
                     "systemLog": {
                         "path": "/data/mongodb.log",
                         "destination": "file",
-                        "logAppend": True,
+                        "logAppend": log_append_per_member[i],
                     },
-                    "replication": {
-                        "replSetName": rs_name,
-                        "oplogSizeMB": 2048,
-                    },
+                    "replication": replication,
                     "setParameter": {
                         "authenticationMechanisms": "SCRAM-SHA-256",
                     },
@@ -280,6 +286,14 @@ def test_log_ac_after_vm_setup(om_tester: OMTester):
 
 
 @mark.e2e_vm_migration_generate_scram_full
+def test_user_connectivity_before_migration(namespace: str):
+    """Users can authenticate against the VM replica set before migration."""
+    vm_replica_set_tester(namespace).assert_scram_sha_authentication(
+        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+    )
+
+
+@mark.e2e_vm_migration_generate_scram_full
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
@@ -293,6 +307,18 @@ def test_user_crs_emitted(generated_cr_yaml: str):
 
 
 @mark.e2e_vm_migration_generate_scram_full
+def test_settings_sourced_from_source_process(generated_cr_yaml: str):
+    """When per-member config diverges, settings are taken from the source process (member 0).
+    Member 2 has logAppend=False and no oplogSizeMB — neither should affect the generated CR."""
+    cr = next(yaml.safe_load_all(generated_cr_yaml))
+    sl = cr["spec"].get("agent", {}).get("mongod", {}).get("systemLog", {})
+    assert sl.get("destination") == "file", f"Expected destination=file, got: {sl}"
+    assert sl.get("path") == "/data/mongodb.log", f"Expected path=/data/mongodb.log, got: {sl}"
+    repl = cr["spec"].get("additionalMongodConfig", {}).get("replication", {})
+    assert repl.get("oplogSizeMB") == 2048, f"Expected oplogSizeMB=2048 from source process, got: {repl}"
+
+
+@mark.e2e_vm_migration_generate_scram_full
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB, ac_before_migration: dict):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
 
@@ -300,6 +326,14 @@ def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB, ac_before_migration: d
 @mark.e2e_vm_migration_generate_scram_full
 def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migration: MongoDB, om_tester: OMTester):
     apply_user_crs_and_verify_ac(generated_cr_yaml, namespace, om_tester)
+
+
+@mark.e2e_vm_migration_generate_scram_full
+def test_user_connectivity_after_migration(mdb_migration: MongoDB):
+    """Users can still authenticate after the operator takes over the replica set."""
+    mdb_migration.tester(use_ssl=False).assert_scram_sha_authentication(
+        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+    )
 
 
 @mark.e2e_vm_migration_generate_scram_full
@@ -329,6 +363,14 @@ def test_log_ac_after_promote(om_tester: OMTester, ac_before_promote: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="after-promote")
     log_automation_config_diff(ac_before_promote, ac_after)
+
+
+@mark.e2e_vm_migration_generate_scram_full
+def test_user_connectivity_after_promote(mdb_migration: MongoDB):
+    """Users can still authenticate after promote-and-prune completes."""
+    mdb_migration.tester(use_ssl=False).assert_scram_sha_authentication(
+        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+    )
 
 
 @mark.e2e_vm_migration_generate_scram_full

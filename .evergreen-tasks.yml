@@ -309,22 +309,12 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_generate_om_tls
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_vm_migration_generate_mongod_tls
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_vm_migration_generate_no_auth
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_vm_migration_generate_different_mongod_config
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

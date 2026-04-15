@@ -25,6 +25,7 @@ from tests.tls.vm_migration_helpers import (
     log_automation_config,
     log_automation_config_diff,
     run_migrate_generate,
+    vm_replica_set_tester,
 )
 
 RS_NAME = "vm-mongodb-rs"
@@ -181,6 +182,12 @@ def test_log_ac_after_vm_setup(om_tester: OMTester):
 
 
 @mark.e2e_vm_migration_generate_no_auth
+def test_connectivity_before_migration(namespace: str):
+    """Replica set is reachable without authentication before migration."""
+    vm_replica_set_tester(namespace).assert_connectivity()
+
+
+@mark.e2e_vm_migration_generate_no_auth
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
@@ -259,6 +266,12 @@ def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB, ac_before_migration: d
 
 
 @mark.e2e_vm_migration_generate_no_auth
+def test_connectivity_after_migration(mdb_migration: MongoDB):
+    """Replica set remains reachable without authentication after migration."""
+    mdb_migration.tester(use_ssl=False).assert_connectivity()
+
+
+@mark.e2e_vm_migration_generate_no_auth
 def test_log_ac_after_migration(om_tester: OMTester, ac_before_migration: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="after-migration")
@@ -284,6 +297,12 @@ def test_log_ac_after_promote(om_tester: OMTester, ac_before_promote: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="after-promote")
     log_automation_config_diff(ac_before_promote, ac_after)
+
+
+@mark.e2e_vm_migration_generate_no_auth
+def test_connectivity_after_promote(mdb_migration: MongoDB):
+    """Replica set remains reachable without authentication after promote-and-prune."""
+    mdb_migration.tester(use_ssl=False).assert_connectivity()
 
 
 @mark.e2e_vm_migration_generate_no_auth

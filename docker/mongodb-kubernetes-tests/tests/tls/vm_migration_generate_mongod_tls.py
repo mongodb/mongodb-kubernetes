@@ -1,19 +1,19 @@
 """
-VM migration test with MongoDB-level TLS (requireSSL) on mongod processes.
-
-Unlike vm_migration_generate_tls.py (which only tests agent → OM TLS via CA
-bundle), this test configures the actual mongod processes with
-net.tls.mode: requireSSL and real certificates.
+VM migration test with MongoDB-level TLS (requireSSL) on mongod processes,
+combined with agent → Ops Manager TLS validation via a CA bundle.
 
 Verifies:
   - The generated CR has spec.security.certsSecretPrefix set (TLS enabled; tls.enabled is deprecated)
   - No manual net.tls.mode override is needed (the tool handles it)
   - SCRAM auth and users are generated alongside TLS
+  - VM agents can validate Ops Manager TLS via a CA ConfigMap
   - Full promote-and-prune lifecycle with TLS-enabled deployment
 """
 
+import ssl
+
 import yaml
-from kubetester import create_or_update_secret, get_statefulset, read_secret, try_load
+from kubetester import create_or_update_configmap, create_or_update_secret, get_statefulset, read_secret, try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, fcv_from_version
 from kubetester.mongodb import MongoDB
@@ -29,6 +29,7 @@ from tests.tls.vm_migration_helpers import (
     log_automation_config_diff,
     rotate_password_and_verify,
     run_migrate_generate,
+    vm_replica_set_tester,
 )
 
 RS_NAME = "vm-mongodb-rs"
@@ -41,6 +42,18 @@ CERT_SECRET_PREFIX = "mdb"
 OPERATOR_CERT_SECRET = f"{CERT_SECRET_PREFIX}-{RS_NAME}-cert"
 TLS_CERT_MOUNT = "/etc/mongodb/certs"
 APP_USER_PASSWORD = "tlsAppUser123!"
+VM_AGENT_OM_CA_PATH = "/etc/mongodb-mms-ca/ca.pem"
+VM_OM_CA_CONFIGMAP_NAME = "vm-mongodb-om-ca"
+
+
+def _get_ca_bundle_content() -> str:
+    """Return PEM content of the system CA bundle."""
+    paths = ssl.get_default_verify_paths()
+    path = paths.cafile or paths.openssl_cafile or "/etc/ssl/certs/ca-certificates.crt"
+    if not path:
+        raise FileNotFoundError("No system CA bundle found; set SSL_CERT_FILE or install ca-certificates")
+    with open(path, "r") as f:
+        return f.read()
 
 
 @fixture(scope="module")
@@ -93,13 +106,23 @@ def operator_server_certs(issuer: str, namespace: str):
 
 
 @fixture(scope="module")
-def vm_sts(namespace: str, om_tester: OMTester, vm_tls_pem_secret: str):
-    """Deploy VM StatefulSet with TLS cert volumes mounted."""
+def vm_om_ca_configmap(namespace: str):
+    """ConfigMap with CA bundle so VM agents can validate Ops Manager TLS."""
+    content = _get_ca_bundle_content()
+    create_or_update_configmap(namespace, VM_OM_CA_CONFIGMAP_NAME, {"ca.pem": content})
+    return VM_OM_CA_CONFIGMAP_NAME
+
+
+@fixture(scope="module")
+def vm_sts(namespace: str, om_tester: OMTester, vm_tls_pem_secret: str, vm_om_ca_configmap: str):
+    """Deploy VM StatefulSet with mongod TLS cert volumes and OM CA bundle mounted."""
     return deploy_vm_statefulset(
         namespace,
         om_tester,
+        extra_command_args=f"-httpsCAFile={VM_AGENT_OM_CA_PATH}",
         extra_volumes=[
             {"name": "mongodb-certs", "secret": {"secretName": vm_tls_pem_secret}},
+            {"name": "om-ca", "configMap": {"name": vm_om_ca_configmap}},
         ],
         extra_volume_mounts=[
             {
@@ -114,6 +137,7 @@ def vm_sts(namespace: str, om_tester: OMTester, vm_tls_pem_secret: str):
                 "subPath": "ca.pem",
                 "readOnly": True,
             },
+            {"name": "om-ca", "mountPath": "/etc/mongodb-mms-ca", "readOnly": True},
         ],
     )
 
@@ -312,6 +336,20 @@ def test_log_ac_after_vm_setup(om_tester: OMTester):
 
 
 @mark.e2e_vm_migration_generate_mongod_tls
+def test_user_connectivity_before_migration(namespace: str, ca_path: str):
+    """Users can authenticate against the VM replica set (with TLS) before migration."""
+    vm_replica_set_tester(namespace, use_ssl=True, ca_path=ca_path).assert_scram_sha_authentication(
+        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+    )
+
+
+@mark.e2e_vm_migration_generate_mongod_tls
+def test_non_tls_connection_rejected_before_migration(namespace: str):
+    """TLS is enforced on the VM replica set — plain connections must be rejected."""
+    vm_replica_set_tester(namespace, use_ssl=False).assert_no_connection()
+
+
+@mark.e2e_vm_migration_generate_mongod_tls
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
@@ -369,6 +407,20 @@ def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migr
 
 
 @mark.e2e_vm_migration_generate_mongod_tls
+def test_user_connectivity_after_migration(mdb_migration: MongoDB, ca_path: str):
+    """Users can still authenticate (with TLS) after the operator takes over the replica set."""
+    mdb_migration.tester(use_ssl=True, ca_path=ca_path).assert_scram_sha_authentication(
+        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+    )
+
+
+@mark.e2e_vm_migration_generate_mongod_tls
+def test_non_tls_connection_rejected_after_migration(mdb_migration: MongoDB):
+    """TLS remains enforced after migration — plain connections must still be rejected."""
+    mdb_migration.tester(use_ssl=False).assert_no_connection()
+
+
+@mark.e2e_vm_migration_generate_mongod_tls
 def test_log_ac_after_migration(om_tester: OMTester, ac_before_migration: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="after-migration")
@@ -394,6 +446,20 @@ def test_log_ac_after_promote(om_tester: OMTester, ac_before_promote: dict):
     ac_after = om_tester.api_get_automation_config()
     log_automation_config(ac_after, label="after-promote")
     log_automation_config_diff(ac_before_promote, ac_after)
+
+
+@mark.e2e_vm_migration_generate_mongod_tls
+def test_user_connectivity_after_promote(mdb_migration: MongoDB, ca_path: str):
+    """Users can still authenticate (with TLS) after promote-and-prune completes."""
+    mdb_migration.tester(use_ssl=True, ca_path=ca_path).assert_scram_sha_authentication(
+        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+    )
+
+
+@mark.e2e_vm_migration_generate_mongod_tls
+def test_non_tls_connection_rejected_after_promote(mdb_migration: MongoDB):
+    """TLS remains enforced after promote-and-prune."""
+    mdb_migration.tester(use_ssl=False).assert_no_connection()
 
 
 @mark.e2e_vm_migration_generate_mongod_tls

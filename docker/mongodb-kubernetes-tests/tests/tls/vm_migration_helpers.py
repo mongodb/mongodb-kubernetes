@@ -12,6 +12,7 @@ from kubetester import create_or_update_secret, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.mongotester import MongoTester, build_mongodb_connection_uri
 from kubetester.omtester import OMTester
 from kubetester.phase import Phase
 from tests import test_logger
@@ -120,6 +121,18 @@ def log_automation_config_diff(ac_before: dict, ac_after: dict):
         logger.info("Automation config diff:\n%s", "".join(diff))
     else:
         logger.info("No changes in automation config.")
+
+
+def vm_replica_set_tester(namespace: str, use_ssl: bool = False, ca_path: Optional[str] = None) -> MongoTester:
+    """Return a MongoTester pointed at the VM StatefulSet replica set (vm-mongodb service)."""
+    cnx_string = build_mongodb_connection_uri(
+        mdb_resource="vm-mongodb",
+        namespace=namespace,
+        members=3,
+        port="27017",
+        servicename="vm-mongodb",
+    )
+    return MongoTester(cnx_string, use_ssl, ca_path)
 
 
 def get_user_docs(generated_cr_yaml: str) -> List[dict]:
