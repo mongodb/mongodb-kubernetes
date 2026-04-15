@@ -22,9 +22,9 @@ def _get_ac_user(ac_tester, username: str) -> dict:
 
 def _assert_user_mechanisms(ac_tester, username: str, expected: list) -> None:
     user = _get_ac_user(ac_tester, username)
-    assert user.get("mechanisms", []) == expected, (
-        f"User {username!r} mechanisms: expected {expected}, got {user.get('mechanisms', [])}"
-    )
+    assert (
+        user.get("mechanisms", []) == expected
+    ), f"User {username!r} mechanisms: expected {expected}, got {user.get('mechanisms', [])}"
 
 
 class SHA1ConnectivityTests:
@@ -230,7 +230,9 @@ class SHA1ConnectivityTests:
             mechanisms=["SCRAM-SHA-1", "SCRAM-SHA-256"],
             roles=[{"role": "readWrite", "db": "admin"}],
         )
-        resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_BOTH_USER_NAME)
+        resource = MongoDBUser.from_yaml(
+            find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_BOTH_USER_NAME
+        )
         resource["spec"]["username"] = self.OM_BOTH_USER_NAME
         resource["spec"]["passwordSecretKeyRef"] = {"name": self.OM_BOTH_USER_PASSWORD_SECRET, "key": "password"}
         resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
@@ -247,7 +249,9 @@ class SHA1ConnectivityTests:
             mechanisms=["SCRAM-SHA-1"],
             roles=[{"role": "readWrite", "db": "admin"}],
         )
-        resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_SHA1_USER_NAME)
+        resource = MongoDBUser.from_yaml(
+            find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_SHA1_USER_NAME
+        )
         resource["spec"]["username"] = self.OM_SHA1_USER_NAME
         resource["spec"]["passwordSecretKeyRef"] = {"name": self.OM_SHA1_USER_PASSWORD_SECRET, "key": "password"}
         resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
@@ -263,9 +267,9 @@ class SHA1ConnectivityTests:
         tester.assert_has_user(self.OM_BOTH_USER_NAME)
         user = _get_ac_user(tester, self.OM_BOTH_USER_NAME)
         mechanisms = user.get("mechanisms", [])
-        assert "SCRAM-SHA-256" in mechanisms and "SCRAM-SHA-1" in mechanisms, (
-            f"Expected both mechanisms, got {mechanisms}"
-        )
+        assert (
+            "SCRAM-SHA-256" in mechanisms and "SCRAM-SHA-1" in mechanisms
+        ), f"Expected both mechanisms, got {mechanisms}"
 
     def test_om_user_both_password_change_preserves_mechanisms(self, namespace: str, mdb: MongoDB):
         ac_version = mdb.get_automation_config_tester().automation_config["version"]
@@ -307,9 +311,9 @@ class SHA1ConnectivityTests:
         )
         tester = mdb.get_automation_config_tester()
         _assert_user_mechanisms(tester, self.OM_SHA1_USER_NAME, ["SCRAM-SHA-1"])
-        assert not _get_ac_user(tester, self.OM_SHA1_USER_NAME).get("scramSha256Creds"), (
-            "SHA-256 creds must NOT appear after password change"
-        )
+        assert not _get_ac_user(tester, self.OM_SHA1_USER_NAME).get(
+            "scramSha256Creds"
+        ), "SHA-256 creds must NOT appear after password change"
 
     def test_authentication_is_disabled_once_resource_is_deleted(self, mdb: MongoDB):
         mdb.delete()
