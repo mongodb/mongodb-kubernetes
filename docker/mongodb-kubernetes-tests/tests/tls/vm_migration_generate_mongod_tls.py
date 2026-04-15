@@ -10,6 +10,7 @@ Verifies:
   - Full promote-and-prune lifecycle with TLS-enabled deployment
 """
 
+import os
 import ssl
 
 import yaml
@@ -48,10 +49,11 @@ VM_OM_CA_CONFIGMAP_NAME = "vm-mongodb-om-ca"
 
 def _get_ca_bundle_content() -> str:
     """Return PEM content of the system CA bundle."""
+
     paths = ssl.get_default_verify_paths()
     path = paths.cafile or paths.openssl_cafile or "/etc/ssl/certs/ca-certificates.crt"
-    if not path:
-        raise FileNotFoundError("No system CA bundle found; set SSL_CERT_FILE or install ca-certificates")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"No system CA bundle found at {path}; set SSL_CERT_FILE or install ca-certificates")
     with open(path, "r") as f:
         return f.read()
 
