@@ -49,9 +49,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 GO_MOD="${ROOT_DIR}/go.mod"
 BUMP_SCRIPT="${ROOT_DIR}/scripts/bump-go.sh"
+PR_SCRIPT="${ROOT_DIR}/scripts/create-go-bump-pr.sh"
 
 [[ -f "${BUMP_SCRIPT}" ]] || {
   echo "check-go-bump-policy: error: missing ${BUMP_SCRIPT}" >&2
+  exit 1
+}
+[[ -f "${PR_SCRIPT}" ]] || {
+  echo "check-go-bump-policy: error: missing ${PR_SCRIPT}" >&2
   exit 1
 }
 [[ -f "${GO_MOD}" ]] || {
@@ -251,7 +256,10 @@ else
 fi
 
 case "${_rc}" in
-  0) exec "${BUMP_SCRIPT}" "${latest}" ;;
+  0)
+    "${BUMP_SCRIPT}" "${latest}"
+    "${PR_SCRIPT}" "${latest}"
+    ;;
 10) exit 0 ;;
   *) exit 1 ;;
 esac
