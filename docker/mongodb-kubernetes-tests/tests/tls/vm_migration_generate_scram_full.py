@@ -150,9 +150,27 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
     # Member 2 intentionally diverges on logRotate, systemLog.logAppend, and oplogSizeMB
     # to exercise the generator's first-process-wins behaviour for additionalMongodConfig.
     log_rotate_per_member = [
-        {"sizeThresholdMB": 1000, "timeThresholdHrs": 24, "numUncompressed": 5, "numTotal": 10, "percentOfDiskspace": 0.4},
-        {"sizeThresholdMB": 1000, "timeThresholdHrs": 24, "numUncompressed": 5, "numTotal": 10, "percentOfDiskspace": 0.4},
-        {"sizeThresholdMB": 2000, "timeThresholdHrs": 24, "numUncompressed": 3, "numTotal": 10, "percentOfDiskspace": 0.4},
+        {
+            "sizeThresholdMB": 1000,
+            "timeThresholdHrs": 24,
+            "numUncompressed": 5,
+            "numTotal": 10,
+            "percentOfDiskspace": 0.4,
+        },
+        {
+            "sizeThresholdMB": 1000,
+            "timeThresholdHrs": 24,
+            "numUncompressed": 5,
+            "numTotal": 10,
+            "percentOfDiskspace": 0.4,
+        },
+        {
+            "sizeThresholdMB": 2000,
+            "timeThresholdHrs": 24,
+            "numUncompressed": 3,
+            "numTotal": 10,
+            "percentOfDiskspace": 0.4,
+        },
     ]
     log_append_per_member = [True, True, False]
     oplog_size_per_member = [2048, 2048, None]
