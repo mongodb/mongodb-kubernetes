@@ -37,9 +37,9 @@ def _get_ac_user(ac_tester, username: str) -> dict:
 
 def _assert_user_mechanisms(ac_tester, username: str, expected: List[str]) -> None:
     user = _get_ac_user(ac_tester, username)
-    assert user.get("mechanisms", []) == expected, (
-        f"User {username!r} mechanisms: expected {expected}, got {user.get('mechanisms', [])}"
-    )
+    assert (
+        user.get("mechanisms", []) == expected
+    ), f"User {username!r} mechanisms: expected {expected}, got {user.get('mechanisms', [])}"
 
 
 def create_password_secret(namespace: str) -> str:
@@ -299,9 +299,9 @@ class TestOMUserSha256OnlyPreserved(KubernetesTester):
         )
         tester = replica_set.get_automation_config_tester()
         _assert_user_mechanisms(tester, OM_SHA256_USER_NAME, ["SCRAM-SHA-256"])
-        assert not _get_ac_user(tester, OM_SHA256_USER_NAME).get("scramSha1Creds"), (
-            "SHA-1 creds must NOT appear after password change"
-        )
+        assert not _get_ac_user(tester, OM_SHA256_USER_NAME).get(
+            "scramSha1Creds"
+        ), "SHA-1 creds must NOT appear after password change"
         replica_set.tester().assert_scram_sha_authentication(
             password=new_password,
             username=OM_SHA256_USER_NAME,
