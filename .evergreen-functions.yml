@@ -470,7 +470,6 @@ functions:
       params:
         files: [ "src/github.com/mongodb/mongodb-kubernetes/logs/*.suite" ]
 
-  # Same version env vars as func: pipeline (scripts/release/pipeline.sh); see scripts/evergreen/preflight_image.sh.
   preflight_image:
     - command: subprocess.exec
       params:
@@ -479,10 +478,15 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
-        binary: scripts/evergreen/preflight_image.sh
-        env:
-          PREFLIGHT_IMAGE: ${image_name}
-          PREFLIGHT_SUBMIT: ${preflight_submit}
+        binary: scripts/dev/run_python.sh
+        args:
+          - scripts/preflight_images.py
+          - --image
+          - ${image_name}
+          - --version
+          - ${OPERATOR_VERSION}
+          - --submit
+          - ${preflight_submit}
 
   # Same OM/agent versions as scripts/release/release_om_and_agents.py (after that task on master).
   run_preflight_om_and_agents:
