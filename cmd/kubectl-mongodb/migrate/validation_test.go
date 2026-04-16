@@ -51,7 +51,7 @@ func TestValidation_OneDeploymentPerProject_SingleSharded(t *testing.T) {
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasError := false
 	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "Sharded") {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "not yet supported") {
 			hasError = true
 		}
 	}

@@ -63,6 +63,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 			return results, nil
 		}
 	}
+
 	replicaSets := ac.Deployment.GetReplicaSets()
 	if len(replicaSets) == 0 {
 		return results, nil
@@ -93,6 +94,67 @@ func pickSourceProcess(members []om.ReplicaSetMember, processMap map[string]om.P
 		}
 	}
 	return nil, fmt.Errorf("no voting+priority member found in replica set; cannot determine source process")
+}
+
+// validateOneDeploymentPerProject ensures the project has exactly one replica set.
+// Sharded cluster support will be added in a follow-up PR.
+func validateOneDeploymentPerProject(d om.Deployment) []ValidationResult {
+	if len(d.GetShardedClusters()) > 0 {
+		return []ValidationResult{{
+			Severity: SeverityError,
+			Message:  "Sharded cluster migration is not yet supported. Only replica set deployments can be migrated.",
+		}}
+	}
+	count := len(d.GetReplicaSets())
+	if count <= 1 {
+		return nil
+	}
+	return []ValidationResult{{
+		Severity: SeverityError,
+		Message:  fmt.Sprintf("The project contains %d deployments. The operator requires exactly one deployment per project. Split the project before migrating.", count),
+	}}
+}
+
+func validateReplicaSetsExist(d om.Deployment) []ValidationResult {
+	if len(d.GetReplicaSets()) == 0 {
+		return []ValidationResult{{
+			Severity: SeverityError,
+			Message:  "No replica sets found. Only replica set and sharded cluster deployments can be migrated.",
+		}}
+	}
+	return nil
+}
+
+func validateMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+	replicaSets := d.GetReplicaSets()
+	if len(replicaSets) == 0 {
+		return nil
+	}
+
+	var results []ValidationResult
+	for _, rs := range replicaSets {
+		rsID := rs.Name()
+		members := rs.Members()
+
+		if len(members) == 0 {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("Replica set %q has no members. An empty replica set cannot be migrated.", rsID),
+			})
+			continue
+		}
+
+		for _, m := range members {
+			host := m.Name()
+			if _, ok := processMap[host]; !ok {
+				results = append(results, ValidationResult{
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("Member %q (replica set %q) references a process that was not found in the automation config.", host, rsID),
+				})
+			}
+		}
+	}
+	return results
 }
 
 // validateAuth checks autoUser, keyFile, and keyFileWindows against operator defaults.
@@ -147,6 +209,20 @@ func validateScram(auth *om.Auth) []ValidationResult {
 	return nil
 }
 
+// validateX509 warns when MONGODB-X509 agent auth is configured.
+func validateX509(auth *om.Auth) []ValidationResult {
+	if auth == nil || auth.Disabled {
+		return nil
+	}
+	if auth.AutoAuthMechanism != "MONGODB-X509" {
+		return nil
+	}
+	return []ValidationResult{{
+		Severity: SeverityWarning,
+		Message:  "MONGODB-X509 agent authentication is configured. Create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-agent-certs\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource.",
+	}}
+}
+
 // validateAgentTLS checks project-level TLS paths against operator defaults.
 func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL == nil {
@@ -175,20 +251,6 @@ func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	}
 
 	return results
-}
-
-// validateX509 warns when MONGODB-X509 agent auth is configured.
-func validateX509(auth *om.Auth) []ValidationResult {
-	if auth == nil || auth.Disabled {
-		return nil
-	}
-	if auth.AutoAuthMechanism != "MONGODB-X509" {
-		return nil
-	}
-	return []ValidationResult{{
-		Severity: SeverityWarning,
-		Message:  "MONGODB-X509 agent authentication is configured. Create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-agent-certs\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource.",
-	}}
 }
 
 // validateAgentConfig checks agent log paths against operator defaults.
@@ -258,6 +320,47 @@ func validateProjectOptions(d om.Deployment) []ValidationResult {
 	}}
 }
 
+func validateReplicaSetProtocolVersion(d om.Deployment) []ValidationResult {
+	var results []ValidationResult
+	for _, rs := range d.GetReplicaSets() {
+		rsID := rs.Name()
+		pv := rs.ProtocolVersion()
+		if pv != "" && pv != defaultProtocolVersion {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("Replica set %q has protocolVersion %q. Only %q is supported.", rsID, pv, defaultProtocolVersion),
+			})
+		}
+	}
+	return results
+}
+
+func validateMemberPreservedFields(d om.Deployment) []ValidationResult {
+	var results []ValidationResult
+	for _, rs := range d.GetReplicaSets() {
+		rsID := rs.Name()
+
+		for _, m := range rs.Members() {
+			host := m.Name()
+
+			if delay := m.SlaveDelay(); delay > 0 {
+				results = append(results, ValidationResult{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("Member %q (replica set %q) has slaveDelay %d. This is preserved while the member is external and is lost when operator-managed.", host, rsID, delay),
+				})
+			}
+
+			if m.IsHidden() {
+				results = append(results, ValidationResult{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("Member %q (replica set %q) is hidden. This is preserved while the member is external and is lost when operator-managed.", host, rsID),
+				})
+			}
+		}
+	}
+	return results
+}
+
 // validateProcessConfig runs per-process checks against the deployment and source process.
 func validateProcessConfig(d om.Deployment, processMap map[string]om.Process, sourceProcess *om.Process, projectProcessConfigs *ProjectConfigs) []ValidationResult {
 	var results []ValidationResult
@@ -267,26 +370,12 @@ func validateProcessConfig(d om.Deployment, processMap map[string]om.Process, so
 	results = append(results, validateNonDefaultDbPath(d, processMap)...)
 	results = append(results, validateTLS(sourceProcess)...)
 	results = append(results, validateTLSPaths(d)...)
-	results = append(results, validateShardingClusterRole(d)...)
 	results = append(results, validateProcessConfigDrift(sourceProcess, projectProcessConfigs)...)
 
 	return results
 }
 
-func validateAuthSchemaVersion(d om.Deployment) []ValidationResult {
-	var results []ValidationResult
-	for _, proc := range d.GetProcesses() {
-		asv := proc.AuthSchemaVersion()
-		if asv != defaultAuthSchemaVersion {
-			results = append(results, ValidationResult{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("Process %q has authSchemaVersion %d. The operator default is %d.", proc.Name(), asv, defaultAuthSchemaVersion),
-			})
-		}
-	}
-	return results
-}
-
+// validateProcessesAreValid checks that all processes are mongod or mongos and not disabled.
 func validateProcessesAreValid(d om.Deployment) []ValidationResult {
 	processes := d.GetProcesses()
 	if len(processes) == 0 {
@@ -299,11 +388,12 @@ func validateProcessesAreValid(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, proc := range processes {
 		name := proc.Name()
+		pt := proc.ProcessType()
 
-		if proc.ProcessType() != om.ProcessTypeMongod {
+		if pt != om.ProcessTypeMongod && pt != om.ProcessTypeMongos {
 			results = append(results, ValidationResult{
 				Severity: SeverityError,
-				Message:  fmt.Sprintf("Process %q has processType %q. Only mongod replica set processes are supported.", name, string(proc.ProcessType())),
+				Message:  fmt.Sprintf("Process %q has processType %q. Only mongod and mongos processes are supported.", name, string(pt)),
 			})
 		}
 
@@ -311,6 +401,24 @@ func validateProcessesAreValid(d om.Deployment) []ValidationResult {
 			results = append(results, ValidationResult{
 				Severity: SeverityWarning,
 				Message:  fmt.Sprintf("Process %q is disabled and will be skipped.", name),
+			})
+		}
+	}
+	return results
+}
+
+// validateAuthSchemaVersion checks each mongod process has the expected authSchemaVersion.
+func validateAuthSchemaVersion(d om.Deployment) []ValidationResult {
+	var results []ValidationResult
+	for _, proc := range d.GetProcesses() {
+		if proc.ProcessType() == om.ProcessTypeMongos {
+			continue
+		}
+		asv := proc.AuthSchemaVersion()
+		if asv != defaultAuthSchemaVersion {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("Process %q has authSchemaVersion %d. The operator default is %d.", proc.Name(), asv, defaultAuthSchemaVersion),
 			})
 		}
 	}
@@ -340,8 +448,7 @@ func validateNonDefaultDbPath(d om.Deployment, processMap map[string]om.Process)
 	return nil
 }
 
-// validateTLS warns when the source process has no TLS configured, so the user knows to set
-// spec.additionalMongodConfig.net.tls.mode to "disabled" to match the operator default.
+// validateTLS warns when TLS is absent so the user knows to set net.tls.mode to "disabled".
 func validateTLS(proc *om.Process) []ValidationResult {
 	if len(proc.NetTLSSections()) == 0 || pkgtls.GetTLSModeFromMongodConfig(proc.Args()) == pkgtls.Disabled {
 		return []ValidationResult{{
@@ -387,94 +494,6 @@ func validateTLSPaths(d om.Deployment) []ValidationResult {
 	return results
 }
 
-func validateShardingClusterRole(d om.Deployment) []ValidationResult {
-	var results []ValidationResult
-	for _, proc := range d.GetProcesses() {
-		role := proc.ShardingClusterRole()
-		if role != "" {
-			results = append(results, ValidationResult{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("Process %q has sharding.clusterRole %q. Only standalone replica sets are supported.", proc.Name(), role),
-			})
-		}
-	}
-	return results
-}
-
-func validateOneDeploymentPerProject(d om.Deployment) []ValidationResult {
-	if len(d.GetShardedClusters()) > 0 {
-		return []ValidationResult{{
-			Severity: SeverityError,
-			Message:  "Sharded clusters are not supported. Only standalone replica sets are supported.",
-		}}
-	}
-	count := len(d.GetReplicaSets())
-	if count <= 1 {
-		return nil
-	}
-	return []ValidationResult{{
-		Severity: SeverityError,
-		Message:  fmt.Sprintf("The project contains %d deployments. The operator requires exactly one deployment per project. Split the project before migrating.", count),
-	}}
-}
-
-func validateReplicaSetProtocolVersion(d om.Deployment) []ValidationResult {
-	var results []ValidationResult
-	for _, rs := range d.GetReplicaSets() {
-		rsID := rs.Name()
-		pv := rs.ProtocolVersion()
-		if pv != "" && pv != defaultProtocolVersion {
-			results = append(results, ValidationResult{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("Replica set %q has protocolVersion %q. Only %q is supported.", rsID, pv, defaultProtocolVersion),
-			})
-		}
-	}
-	return results
-}
-
-func validateReplicaSetsExist(d om.Deployment) []ValidationResult {
-	if len(d.GetReplicaSets()) == 0 {
-		return []ValidationResult{{
-			Severity: SeverityError,
-			Message:  "No replica sets found. Only replica set deployments can be migrated.",
-		}}
-	}
-	return nil
-}
-
-func validateMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
-	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 {
-		return nil
-	}
-
-	var results []ValidationResult
-	for _, rs := range replicaSets {
-		rsID := rs.Name()
-		members := rs.Members()
-
-		if len(members) == 0 {
-			results = append(results, ValidationResult{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("Replica set %q has no members. An empty replica set cannot be migrated.", rsID),
-			})
-			continue
-		}
-
-		for _, m := range members {
-			host := m.Name()
-			if _, ok := processMap[host]; !ok {
-				results = append(results, ValidationResult{
-					Severity: SeverityError,
-					Message:  fmt.Sprintf("Member %q (replica set %q) references a process that was not found in the automation config.", host, rsID),
-				})
-			}
-		}
-	}
-	return results
-}
-
 // validateProcessConfigDrift warns when the source process logRotate/auditLogRotate differs from project-level config.
 func validateProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs *ProjectConfigs) []ValidationResult {
 	if projectProcessConfigs == nil {
@@ -505,32 +524,5 @@ func validateProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs
 		}
 	}
 
-	return results
-}
-
-func validateMemberPreservedFields(d om.Deployment) []ValidationResult {
-	var results []ValidationResult
-	for _, rs := range d.GetReplicaSets() {
-		rsID := rs.Name()
-
-		for _, m := range rs.Members() {
-			host := m.Name()
-
-			if delay := m.SlaveDelay(); delay > 0 {
-				results = append(results, ValidationResult{
-					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("Member %q (replica set %q) has slaveDelay %d. This is preserved while the member is external and is lost when operator-managed.", host, rsID, delay),
-				})
-			}
-
-			if m.IsHidden() {
-				results = append(results, ValidationResult{
-					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("Member %q (replica set %q) is hidden. This is preserved while the member is external and is lost when operator-managed.", host, rsID),
-				})
-			}
-
-		}
-	}
 	return results
 }
