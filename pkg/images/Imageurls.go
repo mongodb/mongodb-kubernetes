@@ -68,6 +68,7 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		util.NonStaticDatabaseEnterpriseImage: "",
 		construct.AgentImageEnv:               "",
 		architectures.MdbAgentImageRepo:       architectures.MdbAgentImageRepoDefault,
+		architectures.MdbAgentImage:           "",
 	} {
 		imageUrls[imageName] = env.ReadOrDefault(imageName, defaultValue) // nolint:forbidigo
 	}
@@ -92,7 +93,15 @@ func LoadImageUrlsFromEnv() ImageUrls {
 // are referenced by sha256 digest instead of tags.
 // It works by convention by looking up RELATED_IMAGE_{imageName}_{versionUnderscored}.
 // In case there is no RELATED_IMAGE_ defined it replaces digest or tag to version.
+// For agent images, MDB_AGENT_IMAGE takes precedence if set (used for dev/testing).
 func ContainerImage(imageUrls ImageUrls, imageName string, version string) string {
+	// Check for full agent image override (for dev/testing workflows)
+	if imageName == architectures.MdbAgentImageRepo {
+		if fullImage := imageUrls[architectures.MdbAgentImage]; fullImage != "" {
+			return fullImage
+		}
+	}
+
 	versionUnderscored := strings.ReplaceAll(version, ".", "_")
 	versionUnderscored = strings.ReplaceAll(versionUnderscored, "-", "_")
 	relatedImageKey := fmt.Sprintf("RELATED_IMAGE_%s_%s", imageName, versionUnderscored)
