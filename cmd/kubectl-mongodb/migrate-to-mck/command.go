@@ -92,7 +92,7 @@ func writeOutput(resources, outputFile string) error {
 }
 
 func promptLine(scanner *bufio.Scanner, prompt string) (string, error) {
-	fmt.Fprint(promptOutput, prompt)
+	_, _ = fmt.Fprint(promptOutput, prompt)
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			return "", err
