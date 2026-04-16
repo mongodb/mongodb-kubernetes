@@ -1067,3 +1067,70 @@ func sourceProc(processMap map[string]om.Process, members []om.ReplicaSetMember)
 	p := processMap[members[0].Name()]
 	return &p
 }
+
+func TestDistributeMembers(t *testing.T) {
+	tests := []struct {
+		name        string
+		memberCount int
+		clusters    []string
+		expected    []int
+	}{
+		{
+			name:        "even split",
+			memberCount: 4,
+			clusters:    []string{"a", "b"},
+			expected:    []int{2, 2},
+		},
+		{
+			name:        "uneven split remainder to early clusters",
+			memberCount: 5,
+			clusters:    []string{"a", "b"},
+			expected:    []int{3, 2},
+		},
+		{
+			name:        "three clusters even",
+			memberCount: 3,
+			clusters:    []string{"a", "b", "c"},
+			expected:    []int{1, 1, 1},
+		},
+		{
+			name:        "three clusters remainder",
+			memberCount: 5,
+			clusters:    []string{"a", "b", "c"},
+			expected:    []int{2, 2, 1},
+		},
+		{
+			name:        "single cluster",
+			memberCount: 3,
+			clusters:    []string{"only"},
+			expected:    []int{3},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			externalMembers := make([]mdbv1.ExternalMember, tt.memberCount)
+			rsMembers := make([]om.ReplicaSetMember, tt.memberCount)
+			result, err := distributeMembers(externalMembers, rsMembers, tt.clusters)
+			require.NoError(t, err)
+			require.Len(t, result, len(tt.clusters))
+			for i, item := range result {
+				assert.Equal(t, tt.clusters[i], item.ClusterName)
+				assert.Equal(t, tt.expected[i], item.Members, "cluster %s member count", tt.clusters[i])
+			}
+		})
+	}
+}
+
+func TestDistributeMembers_EmptyClusterNames(t *testing.T) {
+	externalMembers := make([]mdbv1.ExternalMember, 3)
+	rsMembers := make([]om.ReplicaSetMember, 3)
+
+	result, err := distributeMembers(externalMembers, rsMembers, nil)
+	require.NoError(t, err)
+	assert.Nil(t, result)
+
+	result, err = distributeMembers(externalMembers, rsMembers, []string{})
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}

@@ -8,7 +8,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
@@ -246,108 +245,9 @@ func extractAgentConfig(sourceProcess *om.Process, projectConfigs *ProjectConfig
 	return agentConfig
 }
 
-// buildCommonSpec constructs the fully-populated DbCommonSpec shared across all topologies.
-func buildCommonSpec(ac *om.AutomationConfig, version, fcv, rsName, resourceName string, externalMembers []mdbv1.ExternalMember, opts GenerateOptions) (mdbv1.DbCommonSpec, error) {
-	rs := ac.Deployment.GetReplicaSets()[0]
-	security, err := buildSecurity(ac.Auth, ac.Deployment.ProcessMap(), rs.Members(), ac.Ldap, ac.OIDCProviderConfigs, opts.CertsSecretPrefix)
-	if err != nil {
-		return mdbv1.DbCommonSpec{}, fmt.Errorf("failed to build security config: %w", err)
-	}
-	if roles := ac.Deployment.GetRoles(); len(roles) > 0 {
-		if security == nil {
-			security = &mdbv1.Security{}
-		}
-		security.Roles = roles
-	}
-
-	prom, err := extractPrometheusConfig(ac.Deployment)
-	if err != nil {
-		return mdbv1.DbCommonSpec{}, fmt.Errorf("failed to extract Prometheus config: %w", err)
-	}
-	if prom != nil && opts.PrometheusSecretName != "" {
-		prom.PasswordSecretRef.Name = opts.PrometheusSecretName
-	}
-
-	var additionalConfig *mdbv1.AdditionalMongodConfig
-	if opts.SourceProcess != nil {
-		additionalConfig = opts.SourceProcess.AdditionalMongodConfig()
-	}
-
-	var featureCompatibilityVersion *string
-	if fcv != "" {
-		featureCompatibilityVersion = &fcv
-	}
-	common := mdbv1.DbCommonSpec{
-		Version:                     version,
-		ResourceType:                mdbv1.ReplicaSet,
-		FeatureCompatibilityVersion: featureCompatibilityVersion,
-		ConnectionSpec: mdbv1.ConnectionSpec{
-			SharedConnectionSpec: mdbv1.SharedConnectionSpec{
-				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-					ConfigMapRef: mdbv1.ConfigMapRef{Name: opts.ConfigMapName},
-				},
-			},
-			Credentials: opts.CredentialsSecretName,
-		},
-		ExternalMembers:        externalMembers,
-		Security:               security,
-		Prometheus:             prom,
-		AdditionalMongodConfig: additionalConfig,
-		Agent:                  extractAgentConfig(opts.SourceProcess, opts.ProjectConfigs),
-	}
-	if resourceName != rsName {
-		common.ReplicaSetNameOverride = rsName
-	}
-	return common, nil
-}
-
-// buildReplicaSetSpec assembles the MongoDbSpec for a single-cluster replica set.
-func buildReplicaSetSpec(version, fcv string, externalMembers []mdbv1.ExternalMember, rsName, resourceName string, opts GenerateOptions, ac *om.AutomationConfig) (mdbv1.MongoDbSpec, error) {
-	common, err := buildCommonSpec(ac, version, fcv, rsName, resourceName, externalMembers, opts)
-	if err != nil {
-		return mdbv1.MongoDbSpec{}, err
-	}
-	return mdbv1.MongoDbSpec{
-		DbCommonSpec: common,
-		Members:      len(externalMembers),
-		MemberConfig: buildMemberConfig(ac.Deployment.GetReplicaSets()[0].Members()),
-	}, nil
-}
-
-// buildReplicaSetMultiClusterSpec assembles a MongoDBMultiSpec, distributing members across target clusters.
-func buildReplicaSetMultiClusterSpec(version, fcv string, externalMembers []mdbv1.ExternalMember, rsName, resourceName string, opts GenerateOptions, ac *om.AutomationConfig) (mdbmulti.MongoDBMultiSpec, error) {
-	common, err := buildCommonSpec(ac, version, fcv, rsName, resourceName, externalMembers, opts)
-	if err != nil {
-		return mdbmulti.MongoDBMultiSpec{}, err
-	}
-	clusterSpecList, err := distributeMembers(externalMembers, ac.Deployment.GetReplicaSets()[0].Members(), opts.MultiClusterNames)
-	if err != nil {
-		return mdbmulti.MongoDBMultiSpec{}, err
-	}
-	return mdbmulti.MongoDBMultiSpec{
-		DbCommonSpec:    common,
-		ClusterSpecList: clusterSpecList,
-	}, nil
-}
-
-// buildMemberConfig sets votes=0 and priority="0" for all members (migration-safe defaults), preserving tags.
-func buildMemberConfig(members []om.ReplicaSetMember) []automationconfig.MemberOptions {
-	config := make([]automationconfig.MemberOptions, len(members))
-	for i, m := range members {
-		v, p := 0, "0"
-		config[i] = automationconfig.MemberOptions{
-			Votes:    &v,
-			Priority: &p,
-		}
-		if tags := m.Tags(); len(tags) > 0 {
-			config[i].Tags = tags
-		}
-	}
-	return config
-}
-
-// distributeMembers spreads members evenly across clusterNames (extra go to earlier clusters),
-// and attaches the corresponding MemberConfig slice to each ClusterSpecItem.
+// distributeMembers distributes externalMembers (by count) evenly across clusterNames, extra members
+// going to earlier clusters. MemberConfig from rsMembers is assigned per slot; when rsMembers is nil
+// or empty no MemberConfig is set, which is correct for processes without replica-set membership (mongos).
 func distributeMembers(externalMembers []mdbv1.ExternalMember, rsMembers []om.ReplicaSetMember, clusterNames []string) (mdbv1.ClusterSpecList, error) {
 	n := len(clusterNames)
 	if n == 0 {
@@ -368,12 +268,31 @@ func distributeMembers(externalMembers []mdbv1.ExternalMember, rsMembers []om.Re
 		if i < remainder {
 			count++
 		}
-		list[i] = mdbv1.ClusterSpecItem{
-			ClusterName:  name,
-			Members:      count,
-			MemberConfig: allConfig[offset : offset+count],
+		item := mdbv1.ClusterSpecItem{
+			ClusterName: name,
+			Members:     count,
 		}
+		if len(allConfig) > 0 {
+			item.MemberConfig = allConfig[offset : offset+count]
+		}
+		list[i] = item
 		offset += count
 	}
 	return list, nil
+}
+
+// buildMemberConfig sets votes=0 and priority="0" for all members (migration-safe defaults), preserving tags.
+func buildMemberConfig(members []om.ReplicaSetMember) []automationconfig.MemberOptions {
+	config := make([]automationconfig.MemberOptions, len(members))
+	for i, m := range members {
+		v, p := 0, "0"
+		config[i] = automationconfig.MemberOptions{
+			Votes:    &v,
+			Priority: &p,
+		}
+		if tags := m.Tags(); len(tags) > 0 {
+			config[i].Tags = tags
+		}
+	}
+	return config
 }
