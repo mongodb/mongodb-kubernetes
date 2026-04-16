@@ -679,6 +679,15 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: scripts/evergreen/unit-tests-sbom.sh
 
+  govulncheck:
+    - command: subprocess.exec
+      type: test
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        binary: scripts/evergreen/govulncheck.sh
+
   generate_perf_tests_tasks:
     - command: shell.exec
       type: setup
