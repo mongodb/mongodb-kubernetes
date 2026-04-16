@@ -14,6 +14,9 @@ ENV GOTOOLCHAIN=local
 RUN apt-get update && apt-get install -y gcc libc-dev && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Cache buster - pass --build-arg CACHE_BUST=$(date +%s) to invalidate
+ARG CACHE_BUST=0
 COPY go_planner/ ./go_planner/
 
 WORKDIR /app/go_planner/src/com.tengen/cm

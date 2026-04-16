@@ -63,6 +63,7 @@ echo ""
 echo "Building image for $DOCKER_PLATFORM..."
 docker build \
     --platform "$DOCKER_PLATFORM" \
+    --build-arg CACHE_BUST="$(date +%s)" \
     --secret id=github_token,env=GITHUB_TOKEN \
     -f "$DOCKERFILE" \
     -t "$FULL_IMAGE" \
