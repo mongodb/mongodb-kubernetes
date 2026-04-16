@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
@@ -21,6 +20,9 @@ import (
 )
 
 const defaultNamespace = "default"
+
+// promptOutput is the writer used for interactive prompts. Override in tests to suppress stderr noise.
+var promptOutput io.Writer = os.Stderr
 
 type cliFlags struct {
 	configMapName          string
@@ -155,68 +157,10 @@ func writeOutput(resources, outputFile string) error {
 	return nil
 }
 
-// generateMigrationResources generates all CRs and supporting Secrets/ConfigMaps as a single YAML output.
-// Nothing is applied to the cluster — the customer owns the apply step.
-func generateMigrationResources(ac *om.AutomationConfig, opts GenerateOptions) (string, error) {
-	mongodbCR, crName, err := GenerateMongoDBCR(ac, opts)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate Custom Resource: %w", err)
-	}
-
-	userObjects, err := GenerateUserCRs(ac, crName, opts.Namespace, opts)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate user Custom Resources: %w", err)
-	}
-
-	extra := generateExtraResources(ac, opts)
-	objects := make([]client.Object, 0, 1+len(userObjects)+len(extra))
-	objects = append(objects, mongodbCR)
-	objects = append(objects, userObjects...)
-	objects = append(objects, extra...)
-
-	return marshalMultiDoc(objects)
-}
-
-// marshalMultiDoc serializes each object to YAML, joined by "---" document separators.
-func marshalMultiDoc(objects []client.Object) (string, error) {
-	var sb strings.Builder
-	for i, obj := range objects {
-		if i > 0 {
-			sb.WriteString("---\n")
-		}
-		y, err := marshalCRToYAML(obj)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal %T: %w", obj, err)
-		}
-		sb.WriteString(y)
-	}
-	return sb.String(), nil
-}
-
-// generateExtraResources returns the supporting Secrets/ConfigMaps for LDAP and Prometheus.
-func generateExtraResources(ac *om.AutomationConfig, opts GenerateOptions) []client.Object {
-	var resources []client.Object
-	if ldap := ac.Ldap; ldap != nil {
-		if ldap.BindQueryPassword != "" {
-			resources = append(resources, GeneratePasswordSecret(LdapBindQuerySecretName, opts.Namespace, ldap.BindQueryPassword))
-		}
-		if ldap.CaFileContents != "" {
-			resources = append(resources, buildLdapCAConfigMap(opts.Namespace, ldap.CaFileContents))
-		}
-	}
-	acProm := ac.Deployment.GetPrometheus()
-	if acProm != nil && acProm.Enabled && acProm.Username != "" {
-		if opts.PrometheusSecretName == "" && opts.PrometheusPassword != "" {
-			resources = append(resources, GeneratePasswordSecret(PrometheusPasswordSecretName, opts.Namespace, opts.PrometheusPassword))
-		}
-	}
-	return resources
-}
-
 func userKey(username, database string) string { return username + ":" + database }
 
 func promptLine(scanner *bufio.Scanner, prompt string) (string, error) {
-	fmt.Fprint(os.Stderr, prompt)
+	_, _ = fmt.Fprint(promptOutput, prompt)
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			return "", err
