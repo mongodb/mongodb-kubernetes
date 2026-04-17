@@ -287,18 +287,38 @@ def generated_cr(generated_cr_yaml: str) -> dict:
 
 
 @fixture(scope="module")
+def migrate_tool_ca_configmap(namespace: str, issuer_ca_filepath: str, generated_cr: dict) -> str:
+    """Create the CA ConfigMap with the name the migrate tool outputs in security.tls.ca.
+
+    The generated CR sets security.tls.ca to '<resourceName>-ca' by default.
+    This fixture creates a ConfigMap with that exact name so the link between
+    the tool output and the actual resource is explicit.
+    """
+    ca_name = generated_cr["spec"]["security"]["tls"]["ca"]
+    ca_pem = open(issuer_ca_filepath).read()
+    create_or_update_configmap(namespace, ca_name, {"ca-pem": ca_pem})
+    return ca_name
+
+
+@fixture(scope="module")
 def mdb_migration(
     namespace: str,
     generated_cr: dict,
     operator_server_certs: str,
-    issuer_ca_configmap: str,
+    migrate_tool_ca_configmap: str,
 ) -> MongoDB:
     resource = MongoDB(RS_NAME, namespace)
     if try_load(resource):
         return resource
 
     resource.backing_obj = generated_cr
-    resource.backing_obj["spec"].setdefault("security", {}).setdefault("tls", {})["ca"] = issuer_ca_configmap
+    # The generated CR already has security.tls.ca set to the migrate_tool_ca_configmap name.
+    # No override needed, the link between the generated CR and the ConfigMap is explicit.
+    # The generated CR starts with members=0 and no memberConfig.
+    # Set members to match the VM replica count and add draining memberConfig.
+    num_members = len(generated_cr["spec"].get("externalMembers", []))
+    resource.backing_obj["spec"]["members"] = num_members
+    resource.backing_obj["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(num_members)]
     resource.update()
     return resource
 

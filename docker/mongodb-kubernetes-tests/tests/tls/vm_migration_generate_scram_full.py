@@ -271,6 +271,11 @@ def mdb_migration(namespace: str, generated_cr_yaml: str) -> MongoDB:
     resource.backing_obj.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault(
         "net", {}
     ).setdefault("tls", {})["mode"] = "disabled"
+    # The generated CR starts with members=0 and no memberConfig.
+    # Set members to match the VM replica count and add draining memberConfig.
+    num_members = len(resource.backing_obj["spec"].get("externalMembers", []))
+    resource.backing_obj["spec"]["members"] = num_members
+    resource.backing_obj["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(num_members)]
     resource.update()
     return resource
 

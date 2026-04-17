@@ -143,6 +143,11 @@ def mdb_migration(namespace: str, generated_cr: dict) -> MongoDB:
     resource.backing_obj.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault(
         "net", {}
     ).setdefault("tls", {})["mode"] = "disabled"
+    # The generated CR starts with members=0 and no memberConfig.
+    # Set members to match the VM replica count and add draining memberConfig.
+    num_members = len(generated_cr["spec"].get("externalMembers", []))
+    resource.backing_obj["spec"]["members"] = num_members
+    resource.backing_obj["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(num_members)]
     resource.update()
     return resource
 
@@ -222,13 +227,14 @@ def test_external_members_structure(generated_cr: dict):
 
 
 @mark.e2e_vm_migration_generate_no_auth
-def test_member_config_draining(generated_cr: dict):
-    """All memberConfig entries must start with votes=0, priority="0" (draining)."""
-    mc = generated_cr["spec"]["memberConfig"]
-    assert len(mc) == 3, f"Expected 3 memberConfig entries, got {len(mc)}"
-    for i, entry in enumerate(mc):
-        assert entry["votes"] == 0, f"memberConfig[{i}].votes should be 0, got {entry['votes']}"
-        assert str(entry["priority"]) == "0", f"memberConfig[{i}].priority should be '0', got {entry['priority']}"
+def test_members_zero(generated_cr: dict):
+    """Generated CR must start with members=0. Customers expand incrementally with non-voting K8s members."""
+    assert generated_cr["spec"].get("members", -1) == 0, (
+        f"Expected members=0, got {generated_cr['spec'].get('members')}"
+    )
+    assert "memberConfig" not in generated_cr["spec"], (
+        "Generated CR should not contain memberConfig. Customers set it when expanding."
+    )
 
 
 @mark.e2e_vm_migration_generate_no_auth
