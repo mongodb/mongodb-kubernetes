@@ -90,7 +90,7 @@ func pickSourceProcess(members []om.ReplicaSetMember, processMap map[string]om.P
 			return &proc, nil
 		}
 	}
-	return nil, fmt.Errorf("no voting+priority member found in replica set; cannot determine source process")
+	return nil, fmt.Errorf("no voting+priority member found in replica set. Cannot determine source process")
 }
 
 // validateOneDeploymentPerProject ensures the project has exactly one replica set.
@@ -211,7 +211,7 @@ func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL.CAFilePath != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  "TLS is enabled. Create a ConfigMap named \"<resourceName>-ca\" with key \"ca-pem\" containing the CA certificate, and a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource.",
+			Message:  "TLS is enabled. Create a ConfigMap with key \"ca-pem\" containing the CA certificate, and a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. The generated CR sets security.tls.ca to \"<resourceName>-ca\" by default. Change it if your ConfigMap has a different name.",
 		})
 	}
 
@@ -391,7 +391,7 @@ func validateNonDefaultDbPath(d om.Deployment, processMap map[string]om.Process)
 		if dbPath != "" && dbPath != util.PvcMountPathData {
 			return []ValidationResult{{
 				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("Process %q has dbPath %q. The operator uses %q; the path will change when the member becomes operator-managed.", host, dbPath, util.PvcMountPathData),
+				Message:  fmt.Sprintf("Process %q has dbPath %q. The operator uses %q. The path will change when the member becomes operator-managed.", host, dbPath, util.PvcMountPathData),
 			}}
 		}
 	}
@@ -424,7 +424,7 @@ func validateTLSPaths(d om.Deployment) []ValidationResult {
 			if certKey != "" && certKey != util.PEMKeyFilePathInContainer {
 				results = append(results, ValidationResult{
 					Severity: SeverityError,
-					Message:  fmt.Sprintf("Process %q has net.%s.certificateKeyFile %q; the operator defaults to %q. The certificate path will change after migration.", name, tlsKey, certKey, util.PEMKeyFilePathInContainer),
+					Message:  fmt.Sprintf("Process %q has net.%s.certificateKeyFile %q. The operator defaults to %q. The certificate path will change after migration.", name, tlsKey, certKey, util.PEMKeyFilePathInContainer),
 				})
 			}
 			if pemKey != "" && pemKey != util.PEMKeyFilePathInContainer {
