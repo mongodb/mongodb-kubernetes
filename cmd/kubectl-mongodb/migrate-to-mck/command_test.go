@@ -117,9 +117,9 @@ func TestBuildOptions_FlagTranslation(t *testing.T) {
 	})
 
 	f := cliFlags{
-		configMapName:          "my-cm",
-		secretName:             "my-secret",
-		namespace:              "mongodb",
+		configMapName:        "my-cm",
+		secretName:           "my-secret",
+		namespace:            "mongodb",
 		resourceNameOverride: "my-rs",
 	}
 	opts, err := buildOptions(context.Background(), nil, ac, &ProjectConfigs{}, nil, strings.NewReader(""), f)
