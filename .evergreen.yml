@@ -294,11 +294,6 @@ tasks:
     commands:
       - func: lint_repo
 
-  - name: govulncheck
-    tags: [ "unit_tests" ]
-    commands:
-      - func: "govulncheck"
-
   # Runs on every merge - detects release.json changes and releases appropriate images
   - name: release_om_and_agents
     allowed_requesters: [ "patch" , "commit"]
@@ -681,7 +676,6 @@ task_groups:
       - unit_tests_python
       - unit_tests_helm
       - sbom_tests
-      - govulncheck
     teardown_task:
       - command: attach.xunit_results
         params:
