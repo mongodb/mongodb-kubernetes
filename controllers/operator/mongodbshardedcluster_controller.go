@@ -864,10 +864,6 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
-	if !architectures.IsRunningStaticArchitecture(sc.Annotations) {
-		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.commonController.client, SecretClient: r.commonController.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
-	}
-
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
@@ -876,6 +872,10 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+
+	if !architectures.IsRunningStaticArchitecture(sc.Annotations) {
+		agents.UpgradeIfNeeded(sc, conn)
 	}
 
 	if err := r.replicateAgentKeySecret(ctx, conn, agentAPIKey, log); err != nil {

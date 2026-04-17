@@ -157,10 +157,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return reconcileResult, err
 	}
 
-	if !architectures.IsRunningStaticArchitecture(s.Annotations) {
-		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
-	}
-
 	if err := s.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, s, workflow.Invalid("%s", err.Error()), log)
 	}
@@ -181,6 +177,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
 		return r.updateStatus(ctx, s, status, log)
+	}
+
+	if !architectures.IsRunningStaticArchitecture(s.Annotations) {
+		agents.UpgradeIfNeeded(s, conn)
 	}
 
 	r.SetupCommonWatchers(s, nil, nil, s.Name)
