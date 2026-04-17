@@ -11,16 +11,16 @@ import (
 )
 
 func TestFetchAndValidate_ValidDeployment(t *testing.T) {
-	d := om.Deployment(map[string]interface{}{
-		"processes": []interface{}{
-			map[string]interface{}{
+	d := om.Deployment(map[string]any{
+		"processes": []any{
+			map[string]any{
 				"name":        "host-0",
 				"processType": "mongod",
 				"hostname":    "host-0.example.com",
-				"args2_6": map[string]interface{}{
-					"net":         map[string]interface{}{"port": 27017},
-					"replication": map[string]interface{}{"replSetName": "my-rs"},
-					"systemLog": map[string]interface{}{
+				"args2_6": map[string]any{
+					"net":         map[string]any{"port": 27017},
+					"replication": map[string]any{"replSetName": "my-rs"},
+					"systemLog": map[string]any{
 						"destination": "file",
 						"path":        "/var/log/mongodb-mms-automation/mongodb.log",
 					},
@@ -28,15 +28,15 @@ func TestFetchAndValidate_ValidDeployment(t *testing.T) {
 				"authSchemaVersion": om.CalculateAuthSchemaVersion(),
 			},
 		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
+		"replicaSets": []any{
+			map[string]any{
 				"_id": "my-rs",
-				"members": []interface{}{
-					map[string]interface{}{"_id": 0, "host": "host-0", "votes": 1, "priority": 1},
+				"members": []any{
+					map[string]any{"_id": 0, "host": "host-0", "votes": 1, "priority": 1},
 				},
 			},
 		},
-		"sharding": []interface{}{},
+		"sharding": []any{},
 	})
 	conn := om.NewMockedOmConnection(d)
 	ac, projectConfigs, sourceProcess, err := fetchAndValidate(conn)
@@ -49,10 +49,10 @@ func TestFetchAndValidate_ValidDeployment(t *testing.T) {
 
 func TestFetchAndValidate_ValidationError(t *testing.T) {
 	// No processes, no replica sets -> validation will fail with "No replica sets found"
-	d := om.Deployment(map[string]interface{}{
-		"processes":   []interface{}{},
-		"replicaSets": []interface{}{},
-		"sharding":    []interface{}{},
+	d := om.Deployment(map[string]any{
+		"processes":   []any{},
+		"replicaSets": []any{},
+		"sharding":    []any{},
 	})
 	conn := om.NewMockedOmConnection(d)
 	_, _, _, err := fetchAndValidate(conn)
