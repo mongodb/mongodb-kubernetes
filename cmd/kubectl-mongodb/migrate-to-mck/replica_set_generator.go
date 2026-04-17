@@ -6,11 +6,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (client.Object, string, error) {
@@ -23,14 +24,15 @@ func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (client.O
 	rsName := rs.Name()
 	externalMembers, version, fcv := om.ExtractMemberInfo(rs.Members(), ac.Deployment.ProcessMap())
 
-	resourceName := opts.ReplicaSetNameOverride
+	resourceName := opts.ResourceNameOverride
 	if resourceName == "" {
-		if userv1.NormalizeName(rsName) != rsName {
-			return nil, "", fmt.Errorf("replica set name %q is not a valid Kubernetes resource name. Use --replicaset-name-override to provide a valid name (spec.replicaSetNameOverride will be set automatically)", rsName)
+		resourceName = util.NormalizeName(rsName)
+		if resourceName == "" {
+			return nil, "", fmt.Errorf("replica set name %q cannot be normalized to a valid Kubernetes resource name; use --resource-name-override to provide one", rsName)
 		}
-		resourceName = rsName
-	} else if userv1.NormalizeName(resourceName) != resourceName {
-		return nil, "", fmt.Errorf("--replicaset-name-override value %q is not a valid Kubernetes resource name", resourceName)
+	}
+	if errs := k8svalidation.IsDNS1123Subdomain(resourceName); len(errs) > 0 {
+		return nil, "", fmt.Errorf("resource name %q is not a valid Kubernetes resource name: %s", resourceName, errs[0])
 	}
 
 	if len(opts.MultiClusterNames) > 0 {
@@ -66,8 +68,7 @@ func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOption
 // buildReplicaSetDbCommonSpec constructs the DbCommonSpec for a replica set deployment,
 // including security, Prometheus, TLS, and connection settings.
 func buildReplicaSetDbCommonSpec(ac *om.AutomationConfig, opts GenerateOptions, version, fcv, rsName, resourceName string, externalMembers []mdbv1.ExternalMember) (mdbv1.DbCommonSpec, error) {
-	rs := ac.Deployment.GetReplicaSets()[0]
-	security, err := buildSecurity(ac.Auth, ac.Deployment.ProcessMap(), rs.Members(), ac.Ldap, ac.OIDCProviderConfigs, opts.CertsSecretPrefix)
+	security, err := buildSecurity(ac, opts.CertsSecretPrefix, resourceName)
 	if err != nil {
 		return mdbv1.DbCommonSpec{}, fmt.Errorf("failed to build security config: %w", err)
 	}
@@ -126,8 +127,7 @@ func buildReplicaSetSpec(ac *om.AutomationConfig, opts GenerateOptions, version,
 	}
 	return mdbv1.MongoDbSpec{
 		DbCommonSpec: common,
-		Members:      len(externalMembers),
-		MemberConfig: buildMemberConfig(ac.Deployment.GetReplicaSets()[0].Members()),
+		Members:      0,
 	}, nil
 }
 
@@ -137,10 +137,7 @@ func buildReplicaSetMultiClusterSpec(ac *om.AutomationConfig, opts GenerateOptio
 	if err != nil {
 		return mdbmulti.MongoDBMultiSpec{}, err
 	}
-	clusterSpecList, err := distributeMembers(externalMembers, ac.Deployment.GetReplicaSets()[0].Members(), opts.MultiClusterNames)
-	if err != nil {
-		return mdbmulti.MongoDBMultiSpec{}, err
-	}
+	clusterSpecList := distributeMembers(opts.MultiClusterNames)
 	return mdbmulti.MongoDBMultiSpec{
 		DbCommonSpec:    common,
 		ClusterSpecList: clusterSpecList,

@@ -3,14 +3,12 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/stretchr/objx"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/validation"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -23,6 +21,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 type Type string
@@ -484,7 +483,7 @@ func (m MongoDBUser) GetConnectionStringSecretName(resourceName string) string {
 		return m.ConnectionStringSecretName
 	}
 
-	return NormalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.DB, m.Name))
+	return util.NormalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.DB, m.Name))
 }
 
 // GetConnectionStringSecretNamespace gets the connection string secret namespace provided by the user or generated
@@ -495,30 +494,6 @@ func (m MongoDBUser) GetConnectionStringSecretNamespace(resourceNamespace string
 	}
 
 	return resourceNamespace
-}
-
-// NormalizeName returns a string that conforms to RFC-1123.
-func NormalizeName(name string) string {
-	errors := validation.IsDNS1123Subdomain(name)
-	if len(errors) == 0 {
-		return name
-	}
-
-	// convert name to lowercase and replace invalid characters with '-'
-	name = strings.ToLower(name)
-	re := regexp.MustCompile("[^a-z0-9-]+")
-	name = re.ReplaceAllString(name, "-")
-
-	// Remove duplicate `-` resulting from contiguous non-allowed chars.
-	re = regexp.MustCompile(`\-+`)
-	name = re.ReplaceAllString(name, "-")
-
-	name = strings.Trim(name, "-")
-
-	if len(name) > validation.DNS1123SubdomainMaxLength {
-		name = name[0:validation.DNS1123SubdomainMaxLength]
-	}
-	return name
 }
 
 // SecretKeyReference is a reference to the secret containing the user's password
