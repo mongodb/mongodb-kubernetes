@@ -341,7 +341,7 @@ def test_log_ac_after_vm_setup(om_tester: OMTester):
 def test_user_connectivity_before_migration(namespace: str, ca_path: str):
     """Users can authenticate against the VM replica set (with TLS) before migration."""
     vm_replica_set_tester(namespace, use_ssl=True, ca_path=ca_path).assert_scram_sha_authentication(
-        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256", ssl=True
     )
 
 
@@ -412,7 +412,7 @@ def test_user_crs_reach_updated(generated_cr_yaml: str, namespace: str, mdb_migr
 def test_user_connectivity_after_migration(mdb_migration: MongoDB, ca_path: str):
     """Users can still authenticate (with TLS) after the operator takes over the replica set."""
     mdb_migration.tester(use_ssl=True, ca_path=ca_path).assert_scram_sha_authentication(
-        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256", ssl=True
     )
 
 
@@ -454,7 +454,7 @@ def test_log_ac_after_promote(om_tester: OMTester, ac_before_promote: dict):
 def test_user_connectivity_after_promote(mdb_migration: MongoDB, ca_path: str):
     """Users can still authenticate (with TLS) after promote-and-prune completes."""
     mdb_migration.tester(use_ssl=True, ca_path=ca_path).assert_scram_sha_authentication(
-        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+        username="app-user", password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256", ssl=True
     )
 
 

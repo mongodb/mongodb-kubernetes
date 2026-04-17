@@ -16,11 +16,13 @@ from kubetester.mongotester import MongoTester, build_mongodb_connection_uri
 from kubetester.omtester import OMTester
 from kubetester.phase import Phase
 from tests import test_logger
+from tests.constants import KUBECONFIG_FILEPATH
 
 logger = test_logger.get_test_logger(__name__)
 
 MIGRATE_TOOL = os.getenv("KUBECTL_MONGODB_PATH", "kubectl-mongodb")
 MIGRATE_FLAGS = ["--config-map-name", "my-project", "--secret-name", "my-credentials"]
+_MIGRATE_ENV = {**os.environ, "KUBECONFIG": os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH)}
 
 
 def deploy_vm_statefulset(
@@ -89,6 +91,7 @@ def run_migrate_generate(
         input=stdin_text,
         capture_output=True,
         text=True,
+        env=_MIGRATE_ENV,
     )
     if proc.returncode != 0:
         logger.error("migrate stderr:\n%s", proc.stderr)
