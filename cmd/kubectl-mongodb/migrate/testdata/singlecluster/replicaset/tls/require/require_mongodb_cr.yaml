@@ -28,14 +28,6 @@ spec:
     replicaSetName: tls-rs
     type: mongod
   featureCompatibilityVersion: "7.0"
-  memberConfig:
-  - priority: "0"
-    votes: 0
-  - priority: "0"
-    votes: 0
-  - priority: "0"
-    votes: 0
-  members: 3
   opsManager:
     configMapRef:
       name: my-om-config
@@ -49,5 +41,7 @@ spec:
       modes:
       - SCRAM
     certsSecretPrefix: mdb
+    tls:
+      ca: tls-rs-ca
   type: ReplicaSet
   version: 7.0.12-ent

@@ -28,12 +28,6 @@ spec:
     replicaSetName: allow-rs
     type: mongod
   featureCompatibilityVersion: "8.0"
-  memberConfig:
-  - priority: "0"
-    votes: 0
-  - priority: "0"
-    votes: 0
-  members: 2
   opsManager:
     configMapRef:
       name: my-om-config
@@ -46,5 +40,7 @@ spec:
       modes:
       - SCRAM
     certsSecretPrefix: mdb
+    tls:
+      ca: allow-rs-ca
   type: ReplicaSet
   version: 8.0.4-ent
