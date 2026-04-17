@@ -2,13 +2,11 @@ package process
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 

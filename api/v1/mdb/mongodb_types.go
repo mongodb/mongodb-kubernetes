@@ -473,11 +473,6 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
-
-	// +optional
-	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
-
-	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -497,6 +492,11 @@ type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+
+	// +optional
+	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
+
+	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 func (m *MongoDbSpec) GetExternalDomain() *string {
@@ -512,6 +512,18 @@ func (m *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
 
 func (m *MongoDbSpec) GetMemberOptions() []automationconfig.MemberOptions {
 	return m.MemberConfig
+}
+
+func (d *MongoDbSpec) GetExternalMembers() []ExternalMember {
+	return d.ExternalMembers
+}
+
+func (d *MongoDbSpec) GetExternalMemberProcessNames() []string {
+	var processNames []string
+	for _, m := range d.ExternalMembers {
+		processNames = append(processNames, m.ProcessName)
+	}
+	return processNames
 }
 
 type SnapshotSchedule struct {
@@ -856,18 +868,6 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
-}
-
-func (d *DbCommonSpec) GetExternalMembers() []ExternalMember {
-	return d.ExternalMembers
-}
-
-func (d *DbCommonSpec) GetExternalMemberProcessNames() []string {
-	var processNames []string
-	for _, m := range d.ExternalMembers {
-		processNames = append(processNames, m.ProcessName)
-	}
-	return processNames
 }
 
 func (s *Security) IsTLSEnabled() bool {

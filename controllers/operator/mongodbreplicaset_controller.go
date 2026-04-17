@@ -816,7 +816,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
 		},
 		log,
 	)

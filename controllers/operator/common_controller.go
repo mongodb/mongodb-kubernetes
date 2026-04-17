@@ -1150,21 +1150,19 @@ func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om
 	return processIds
 }
 
-func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
+func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, externalProcessNames []string, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
 	// it is not possible to disable internal cluster authentication once enabled
 	if d.ExistingProcessesHaveInternalClusterAuthentication(rs.Processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 	}
 
-	externalMembersProcesses := spec.GetExternalMemberProcessNames()
-
 	// TODO: we're already checking this in the main reconcile loop. Should it be removed?
-	excessProcesses := d.GetNumberOfExcessProcesses(resourceName, externalMembersProcesses)
+	excessProcesses := d.GetNumberOfExcessProcesses(resourceName, externalProcessNames)
 	if excessProcesses > 0 {
 		return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes/current/tutorial/migrate-to-single-resource )")
 	}
 
-	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, externalMembersProcesses, log)
+	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, externalProcessNames, log)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)

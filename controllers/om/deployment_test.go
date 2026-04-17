@@ -64,12 +64,12 @@ func TestMergeReplicaSet(t *testing.T) {
 	// by merge
 	newProcess := NewMongodProcess("foo", "bar", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, &mdbv1.NewStandaloneBuilder().Build().Spec, "", nil, "")
 
-	d.GetProcesses()[0]["processType"] = ProcessTypeMongos                            // this will be overriden
-	d.GetProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20              // this will be left as-is
-	d.GetReplicaSets()[0]["protocolVersion"] = 10                                     // this field will be overriden by Operator
-	d.GetReplicaSets()[0].setMembers(d.GetReplicaSets()[0].Members()[0:2])            // "removing" the last node in replicaset
-	d.GetReplicaSets()[0].addMember(newProcess, "", automationconfig.MemberOptions{}) // "adding" some new node
-	d.GetReplicaSets()[0].Members()[0]["arbiterOnly"] = true                          // changing data for first node
+	d.GetProcesses()[0]["processType"] = ProcessTypeMongos                             // this will be overriden
+	d.GetProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20               // this will be left as-is
+	d.GetReplicaSets()[0]["protocolVersion"] = 10                                      // this field will be overriden by Operator
+	d.GetReplicaSets()[0].setMembers(d.GetReplicaSets()[0].Members()[0:2])             // "removing" the last node in replicaset
+	d.GetReplicaSets()[0].addMember(newProcess, nil, automationconfig.MemberOptions{}) // "adding" some new node
+	d.GetReplicaSets()[0].Members()[0]["arbiterOnly"] = true                           // changing data for first node
 
 	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
 
