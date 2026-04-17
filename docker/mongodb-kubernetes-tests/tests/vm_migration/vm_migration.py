@@ -1,3 +1,10 @@
+"""VM migration E2E: pseudo-VM replica set, then MongoDB CR with externalMembers and promote/prune.
+
+Pseudo-VM pods run the automation agent from the same image tag as AGENT_IMAGE on the operator.
+Automation config sets agentVersion.name to that tag so it matches the VM agents.
+
+"""
+
 import yaml
 from kubetester import get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, fcv_from_version
@@ -12,9 +19,11 @@ from pytest import fixture, mark
 from tests.common.search import movies_search_helper
 from tests.common.search.search_tester import SearchTester
 
+from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+
 
 @fixture(scope="module")
-def om_tester(namespace: str) -> OMTester:
+def om_tester(namespace: str, operator) -> OMTester:
     config_map = KubernetesTester.read_configmap(namespace, "my-project")
     secret = KubernetesTester.read_secret(namespace, "my-credentials")
     tester = OMTester(OMContext.build_from_config_map_and_secret(config_map, secret))
@@ -175,6 +184,13 @@ def test_update_vm_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
         )
 
     om_tester.api_put_automation_config(ac)
+    om_tester.wait_agents_ready(timeout=600)
+
+
+@mark.e2e_vm_migration
+def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
+    """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
+    run_migration_dry_run_connectivity_passes(mdb_migration)
 
 
 @mark.e2e_vm_migration

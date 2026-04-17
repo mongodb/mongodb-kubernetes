@@ -94,6 +94,12 @@ type dbCommonWithNamespace struct {
 func doUpgrade(ctx context.Context, cmGetter configmap.Getter, secretGetter secrets.SecretClient, factory om.ConnectionFactory, mdbs []dbCommonWithNamespace) error {
 	for _, mdb := range mdbs {
 		log := zap.S().With(string(mdb.ResourceType), mdb.objectKey)
+		if len(mdb.GetExternalMembers()) > 0 { // TODO: for now lets skip this, later we should revisit, since normal deployment won't need them
+			// Skip automatic agent upgrades when external (VM) members are present.
+			log.Debugf("Skipping agent upgrade for %s: resource has external members", mdb.objectKey)
+			continue
+		}
+
 		conn, err := connectToMongoDB(ctx, cmGetter, secretGetter, factory, mdb, log)
 		if err != nil {
 			log.Warnf("Failed to establish connection to Ops Manager to perform Agent upgrade: %s", err)
