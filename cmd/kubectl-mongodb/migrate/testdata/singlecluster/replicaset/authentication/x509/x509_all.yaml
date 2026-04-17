@@ -28,14 +28,6 @@ spec:
     replicaSetName: x509-rs
     type: mongod
   featureCompatibilityVersion: "8.0"
-  memberConfig:
-  - priority: "0"
-    votes: 0
-  - priority: "0"
-    votes: 0
-  - priority: "0"
-    votes: 0
-  members: 3
   opsManager:
     configMapRef:
       name: my-om-config
@@ -50,6 +42,8 @@ spec:
       - SCRAM
       - X509
     certsSecretPrefix: mdb
+    tls:
+      ca: x509-rs-ca
   type: ReplicaSet
   version: 8.0.4-ent
 ---
