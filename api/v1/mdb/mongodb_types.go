@@ -1487,12 +1487,23 @@ type ldapFieldMapping struct {
 	toCR func(*ldap.Ldap, *Ldap)
 }
 
+// ldapField creates a bidirectional mapping for fields that copy directly between CR and AC.
+func ldapField[T any](getCR func(*Ldap) *T, getAC func(*ldap.Ldap) *T) ldapFieldMapping {
+	return ldapFieldMapping{
+		toAC: func(c *Ldap, a *ldap.Ldap) { *getAC(a) = *getCR(c) },
+		toCR: func(a *ldap.Ldap, c *Ldap) { *getCR(c) = *getAC(a) },
+	}
+}
+
 var ldapFieldMappings = []ldapFieldMapping{
-	{func(c *Ldap, a *ldap.Ldap) { a.BindQueryUser = c.BindQueryUser }, func(a *ldap.Ldap, c *Ldap) { c.BindQueryUser = a.BindQueryUser }},
-	{func(c *Ldap, a *ldap.Ldap) { a.AuthzQueryTemplate = c.AuthzQueryTemplate }, func(a *ldap.Ldap, c *Ldap) { c.AuthzQueryTemplate = a.AuthzQueryTemplate }},
-	{func(c *Ldap, a *ldap.Ldap) { a.UserToDnMapping = c.UserToDNMapping }, func(a *ldap.Ldap, c *Ldap) { c.UserToDNMapping = a.UserToDnMapping }},
-	{func(c *Ldap, a *ldap.Ldap) { a.TimeoutMS = c.TimeoutMS }, func(a *ldap.Ldap, c *Ldap) { c.TimeoutMS = a.TimeoutMS }},
-	{func(c *Ldap, a *ldap.Ldap) { a.UserCacheInvalidationInterval = c.UserCacheInvalidationInterval }, func(a *ldap.Ldap, c *Ldap) { c.UserCacheInvalidationInterval = a.UserCacheInvalidationInterval }},
+	// Simple fields: same type, direct copy.
+	ldapField(func(c *Ldap) *string { return &c.BindQueryUser }, func(a *ldap.Ldap) *string { return &a.BindQueryUser }),
+	ldapField(func(c *Ldap) *string { return &c.AuthzQueryTemplate }, func(a *ldap.Ldap) *string { return &a.AuthzQueryTemplate }),
+	ldapField(func(c *Ldap) *string { return &c.UserToDNMapping }, func(a *ldap.Ldap) *string { return &a.UserToDnMapping }),
+	ldapField(func(c *Ldap) *int { return &c.TimeoutMS }, func(a *ldap.Ldap) *int { return &a.TimeoutMS }),
+	ldapField(func(c *Ldap) *int { return &c.UserCacheInvalidationInterval }, func(a *ldap.Ldap) *int { return &a.UserCacheInvalidationInterval }),
+
+	// Fields requiring custom conversion logic.
 	{
 		func(c *Ldap, a *ldap.Ldap) {
 			a.ValidateLDAPServerConfig = true
