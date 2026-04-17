@@ -56,10 +56,10 @@ func init() {
 	MigrateCmd.Flags().StringVar(&flags.namespace, "namespace", defaultNamespace, "Namespace of the ConfigMap and Secret")
 	MigrateCmd.Flags().StringVar(&flags.multiClusterNames, "multi-cluster-names", "", "Comma-separated list of target cluster names (e.g., east1,west1). Generates a MongoDBMultiCluster CR")
 	MigrateCmd.Flags().StringVarP(&flags.outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
-	MigrateCmd.Flags().StringVar(&flags.resourceNameOverride, "resource-name-override", "", "Kubernetes resource name (metadata.name) for the generated CR; when the replica set name is not a valid Kubernetes name it is auto-normalized, but this flag lets you choose a custom name (spec.replicaSetNameOverride is set automatically)")
-	MigrateCmd.Flags().StringVar(&flags.usersSecretsFile, "users-secrets-file", "", "CSV file mapping 'username:database,secret-name' for SCRAM users; when provided, customer-owned Secrets are referenced instead of generated and interactive prompts for user passwords are suppressed")
-	MigrateCmd.Flags().StringVar(&flags.certsSecretPrefix, "certs-secret-prefix", "", "Value for spec.security.certsSecretPrefix; required when TLS is enabled and suppresses the interactive prompt")
-	MigrateCmd.Flags().StringVar(&flags.prometheusSecretName, "prometheus-secret-name", "", "Name of a pre-created Kubernetes Secret containing the Prometheus password (key: \"password\"); suppresses the interactive prompt")
+	MigrateCmd.Flags().StringVar(&flags.resourceNameOverride, "resource-name-override", "", "Kubernetes resource name (metadata.name) for the generated CR. When the replica set name is not a valid Kubernetes name it is auto-normalized, but this flag lets you choose a custom name. spec.replicaSetNameOverride is set automatically")
+	MigrateCmd.Flags().StringVar(&flags.usersSecretsFile, "users-secrets-file", "", "CSV file mapping 'username:database,secret-name' for SCRAM users. When provided, customer-owned Secrets are referenced instead of generated and interactive prompts for user passwords are suppressed")
+	MigrateCmd.Flags().StringVar(&flags.certsSecretPrefix, "certs-secret-prefix", "", "Value for spec.security.certsSecretPrefix. Required when TLS is enabled and suppresses the interactive prompt")
+	MigrateCmd.Flags().StringVar(&flags.prometheusSecretName, "prometheus-secret-name", "", "Name of a pre-created Kubernetes Secret containing the Prometheus password (key: \"password\"). Suppresses the interactive prompt")
 	_ = MigrateCmd.MarkFlagRequired("config-map-name")
 	_ = MigrateCmd.MarkFlagRequired("secret-name")
 }
@@ -358,7 +358,7 @@ func parseUsersSecretsFile(path string) (map[string]string, error) {
 			return nil, fmt.Errorf("line %d: expected \"username:database,secret-name\", got %q", lineNum, line)
 		}
 		if !strings.Contains(userDB, ":") {
-			return nil, fmt.Errorf("line %d: first field %q is missing the database part; expected \"username:database\"", lineNum, userDB)
+			return nil, fmt.Errorf("line %d: first field %q is missing the database part. Expected \"username:database\"", lineNum, userDB)
 		}
 		if errs := k8svalidation.IsDNS1123Subdomain(sName); len(errs) > 0 {
 			return nil, fmt.Errorf("line %d: secret name %q is not a valid Kubernetes name: %s", lineNum, sName, errs[0])
