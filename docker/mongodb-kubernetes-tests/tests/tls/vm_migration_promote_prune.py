@@ -6,13 +6,13 @@ Mirrors the flow in ``vm_migration.test_promote_and_prune``: for each VM replica
 
 After every spec change the helper polls for the expected migration state:
 
-    Extend  → Running + Extending  (new k8s member, running count increased)
+    Extend  → Extending            (StatefulSet may be Pending while extending proceeds)
     Prune   → Pruning              (StatefulSet may be Pending while pruning proceeds)
     Reprio  → Running + InProgress (stable counts, nothing actively changing)
 
-Note: During Prune we only wait for migration.phase, not status.phase. The StatefulSet
-may still be Pending (e.g., agent reconciling X509 certs) while the prune operation
-completes in Ops Manager. Requiring Running + Pruning simultaneously is a race condition.
+Note: During Extend and Prune we only wait for migration.phase, not status.phase. The
+StatefulSet may still be Pending (e.g., agent reconciling X509 certs) while the operation
+completes in Ops Manager. Requiring Running + Extending/Pruning simultaneously is a race.
 """
 
 from __future__ import annotations
@@ -39,8 +39,8 @@ def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
     """Run the full VM → K8s cutover: extend, prune, and re-prioritize one member at a time.
 
     After every spec change, polls for the expected ``status.migration`` state.
-    For Prune, we only wait for migration.phase (not status.phase) to avoid a race
-    where the StatefulSet remains Pending while the prune completes.
+    For Extend and Prune, we only wait for migration.phase (not status.phase) to avoid
+    a race where the StatefulSet remains Pending while the operation completes.
     """
     try_load(mdb)
     spec = mdb["spec"]
@@ -58,7 +58,8 @@ def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
         else:
             mdb["spec"]["memberConfig"][i] = {"priority": "0", "votes": 0}
         mdb.update()
-        wait_until_phase_and_migration_phase(mdb, PHASE_RUNNING, MIGRATION_PHASE_EXTENDING)
+        # Don't require Running - StatefulSet may still be Pending while extending proceeds
+        wait_until_migration_phase(mdb, MIGRATION_PHASE_EXTENDING)
 
         # --- Prune: remove one VM member ---
         logger.info(f"Removing one VM member {i + 1} of {total_vms}")
