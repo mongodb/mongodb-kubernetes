@@ -16,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -25,15 +26,15 @@ const defaultNamespace = "default"
 var promptOutput io.Writer = os.Stderr
 
 type cliFlags struct {
-	configMapName          string
-	secretName             string
-	namespace              string
-	multiClusterNames      string
-	outputFile             string
-	replicaSetNameOverride string
-	usersSecretsFile       string
-	certsSecretPrefix      string
-	prometheusSecretName   string
+	configMapName        string
+	secretName           string
+	namespace            string
+	multiClusterNames    string
+	outputFile           string
+	resourceNameOverride string
+	usersSecretsFile     string
+	certsSecretPrefix    string
+	prometheusSecretName string
 }
 
 var flags cliFlags
@@ -55,7 +56,7 @@ func init() {
 	MigrateCmd.Flags().StringVar(&flags.namespace, "namespace", defaultNamespace, "Namespace of the ConfigMap and Secret")
 	MigrateCmd.Flags().StringVar(&flags.multiClusterNames, "multi-cluster-names", "", "Comma-separated list of target cluster names (e.g., east1,west1). Generates a MongoDBMultiCluster CR")
 	MigrateCmd.Flags().StringVarP(&flags.outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
-	MigrateCmd.Flags().StringVar(&flags.replicaSetNameOverride, "replicaset-name-override", "", "Kubernetes resource name for the generated CR; required when the replica set name is not a valid Kubernetes name (sets spec.replicaSetNameOverride automatically)")
+	MigrateCmd.Flags().StringVar(&flags.resourceNameOverride, "resource-name-override", "", "Kubernetes resource name (metadata.name) for the generated CR; when the replica set name is not a valid Kubernetes name it is auto-normalized, but this flag lets you choose a custom name (spec.replicaSetNameOverride is set automatically)")
 	MigrateCmd.Flags().StringVar(&flags.usersSecretsFile, "users-secrets-file", "", "CSV file mapping 'username:database,secret-name' for SCRAM users; when provided, customer-owned Secrets are referenced instead of generated and interactive prompts for user passwords are suppressed")
 	MigrateCmd.Flags().StringVar(&flags.certsSecretPrefix, "certs-secret-prefix", "", "Value for spec.security.certsSecretPrefix; required when TLS is enabled and suppresses the interactive prompt")
 	MigrateCmd.Flags().StringVar(&flags.prometheusSecretName, "prometheus-secret-name", "", "Name of a pre-created Kubernetes Secret containing the Prometheus password (key: \"password\"); suppresses the interactive prompt")
@@ -111,12 +112,12 @@ func fetchAndValidate(conn om.Connection) (*om.AutomationConfig, *ProjectConfigs
 // as flags (certsSecretPrefix when TLS is enabled, Prometheus password, user passwords).
 func buildOptions(ctx context.Context, kubeClient kubernetesClient.Client, ac *om.AutomationConfig, projectConfigs *ProjectConfigs, sourceProcess *om.Process, stdin io.Reader, flags cliFlags) (GenerateOptions, error) {
 	opts := GenerateOptions{
-		ReplicaSetNameOverride: flags.replicaSetNameOverride,
-		CredentialsSecretName:  flags.secretName,
-		ConfigMapName:          flags.configMapName,
-		Namespace:              flags.namespace,
-		ProjectConfigs:         projectConfigs,
-		SourceProcess:          sourceProcess,
+		ResourceNameOverride:  flags.resourceNameOverride,
+		CredentialsSecretName: flags.secretName,
+		ConfigMapName:         flags.configMapName,
+		Namespace:             flags.namespace,
+		ProjectConfigs:        projectConfigs,
+		SourceProcess:         sourceProcess,
 	}
 
 	if flags.multiClusterNames != "" {
@@ -170,31 +171,40 @@ func promptLine(scanner *bufio.Scanner, prompt string) (string, error) {
 	return strings.TrimSpace(scanner.Text()), nil
 }
 
+// isTLSEnabled returns true if any process has an explicit TLS section with a non-disabled mode.
+func isTLSEnabled(processMap map[string]om.Process) bool {
+	for _, proc := range processMap {
+		if len(proc.NetTLSSections()) > 0 && pkgtls.GetTLSModeFromMongodConfig(proc.Args()) != pkgtls.Disabled {
+			return true
+		}
+	}
+	return false
+}
+
 func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner, certsSecretPrefix string) error {
-	rss := ac.Deployment.GetReplicaSets()
-	if len(rss) == 0 {
-		return nil
-	}
-	tlsEnabled, err := isTLSEnabled(ac.Deployment.ProcessMap(), rss[0].Members())
-	if err != nil {
-		return fmt.Errorf("failed to detect TLS in automation config: %w", err)
-	}
-	if !tlsEnabled {
+	if !isTLSEnabled(ac.Deployment.ProcessMap()) {
 		return nil
 	}
 	prefix := certsSecretPrefix
 	if prefix == "" {
-		p, err := promptLine(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
-		if err != nil {
-			return fmt.Errorf("failed to read certsSecretPrefix: %w", err)
+		for {
+			p, err := promptLine(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
+			if err != nil {
+				return fmt.Errorf("failed to read certsSecretPrefix: %w", err)
+			}
+			if p == "" {
+				_, _ = fmt.Fprintln(promptOutput, "certsSecretPrefix cannot be empty, please try again.")
+				continue
+			}
+			if errs := k8svalidation.IsDNS1123Subdomain(p); len(errs) > 0 {
+				_, _ = fmt.Fprintf(promptOutput, "%q is not a valid Kubernetes name: %s. Please try again.\n", p, errs[0])
+				continue
+			}
+			prefix = p
+			break
 		}
-		prefix = p
-	}
-	if prefix == "" {
-		return fmt.Errorf("security.certsSecretPrefix is required when TLS is enabled; use --certs-secret-prefix or enter it interactively")
-	}
-	if len(k8svalidation.IsDNS1123Subdomain(prefix)) > 0 {
-		return fmt.Errorf("security.certsSecretPrefix %q is not a valid Kubernetes resource name", prefix)
+	} else if errs := k8svalidation.IsDNS1123Subdomain(prefix); len(errs) > 0 {
+		return fmt.Errorf("--certs-secret-prefix value %q is not a valid Kubernetes resource name: %s", prefix, errs[0])
 	}
 	opts.CertsSecretPrefix = prefix
 	return nil

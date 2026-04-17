@@ -10,35 +10,27 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // buildSecurity assembles spec.security. certsSecretPrefix non-empty means TLS is enabled
 // (set by ensureTLS, mirrors the operator's IsSecurityTLSConfigEnabled).
-func buildSecurity(
-	auth *om.Auth,
-	processMap map[string]om.Process,
-	members []om.ReplicaSetMember,
-	acLdap *ldap.Ldap,
-	oidcConfigs []oidc.ProviderConfig,
-	certsSecretPrefix string,
-) (*mdbv1.Security, error) {
+func buildSecurity(ac *om.AutomationConfig, certsSecretPrefix, resourceName string) (*mdbv1.Security, error) {
 	security := &mdbv1.Security{}
 	hasSettings := false
 
 	if certsSecretPrefix != "" {
 		// certsSecretPrefix enables TLS (tls.enabled is deprecated, see RELEASE_NOTES_MEKO.md 1.15).
 		security.CertificatesSecretsPrefix = certsSecretPrefix
+		// Explicitly set the CA ConfigMap to the operator default "<resourceName>-ca" (see database_volumes.go).
+		security.TLSConfig = &mdbv1.TLSConfig{CA: fmt.Sprintf("%s-ca", resourceName)}
 		hasSettings = true
 	}
 
-	if auth != nil && auth.IsEnabled() {
-		authConfig, err := buildAuthenticationConfig(auth, processMap, members, acLdap, oidcConfigs)
+	if ac.Auth != nil && ac.Auth.IsEnabled() {
+		authConfig, err := buildAuthenticationConfig(ac)
 		if err != nil {
 			return nil, err
 		}
@@ -54,13 +46,10 @@ func buildSecurity(
 	return security, nil
 }
 
-func buildAuthenticationConfig(
-	auth *om.Auth,
-	processMap map[string]om.Process,
-	members []om.ReplicaSetMember,
-	acLdap *ldap.Ldap,
-	oidcConfigs []oidc.ProviderConfig,
-) (*mdbv1.Authentication, error) {
+func buildAuthenticationConfig(ac *om.AutomationConfig) (*mdbv1.Authentication, error) {
+	auth := ac.Auth
+	processMap := ac.Deployment.ProcessMap()
+	members := ac.Deployment.GetReplicaSets()[0].Members()
 	modes, err := buildAuthModes(auth)
 	if err != nil {
 		return nil, err
@@ -75,6 +64,7 @@ func buildAuthenticationConfig(
 		IgnoreUnknownUsers: !auth.AuthoritativeSet,
 	}
 
+	// Empty result means keyFile (the implicit default); only set when explicitly x509.
 	internalCluster, err := extractInternalClusterAuthMode(processMap, members)
 	if err != nil {
 		return nil, err
@@ -83,12 +73,12 @@ func buildAuthenticationConfig(
 		authConfig.InternalCluster = internalCluster
 	}
 
-	if acLdap != nil && (acLdap.Servers != "" || acLdap.BindQueryUser != "") {
-		cr := mdbv1.ConvertACLdapToCR(acLdap)
-		if acLdap.BindQueryUser != "" {
+	if ac.Ldap != nil && (ac.Ldap.Servers != "" || ac.Ldap.BindQueryUser != "") {
+		cr := mdbv1.ConvertACLdapToCR(ac.Ldap)
+		if ac.Ldap.BindQueryUser != "" {
 			cr.BindQuerySecretRef = mdbv1.SecretRef{Name: LdapBindQuerySecretName}
 		}
-		if acLdap.CaFileContents != "" {
+		if ac.Ldap.CaFileContents != "" {
 			cr.CAConfigMapRef = &corev1.ConfigMapKeySelector{
 				LocalObjectReference: corev1.LocalObjectReference{Name: LdapCAConfigMapName},
 				Key:                  LdapCAKey,
@@ -97,7 +87,7 @@ func buildAuthenticationConfig(
 		authConfig.Ldap = cr
 	}
 
-	if crOIDC := authn.MapACOIDCToProviderConfigs(oidcConfigs); len(crOIDC) > 0 {
+	if crOIDC := authn.MapACOIDCToProviderConfigs(ac.OIDCProviderConfigs); len(crOIDC) > 0 {
 		authConfig.OIDCProviderConfigs = crOIDC
 	}
 
@@ -162,26 +152,12 @@ func mapClusterAuthMode(mode string) (string, error) {
 	case "x509":
 		return util.X509, nil
 	case "keyFile":
-		return "", fmt.Errorf("clusterAuthMode %q is not supported by the operator (only x509 is supported). Migrate the deployment to x509 internal cluster authentication before using the operator", mode)
+		// keyFile is the default internal cluster auth when auth is enabled;
+		// the operator uses it implicitly, so no explicit CR field is needed.
+		return "", nil
 	default:
-		return "", fmt.Errorf("unsupported clusterAuthMode %q in automation config. Only x509 is supported by the operator", mode)
+		return "", fmt.Errorf("unsupported clusterAuthMode %q in automation config", mode)
 	}
-}
-
-// isTLSEnabled returns true if any member has an explicit TLS section with a non-disabled mode.
-func isTLSEnabled(processMap map[string]om.Process, members []om.ReplicaSetMember) (bool, error) {
-	for i, m := range members {
-		host := m.Name()
-		proc, ok := processMap[host]
-		if !ok {
-			return false, fmt.Errorf("process %q referenced by member at index %d was not found", host, i)
-		}
-		// Require explicit section: GetTLSModeFromMongodConfig defaults to Require when absent.
-		if len(proc.NetTLSSections()) > 0 && pkgtls.GetTLSModeFromMongodConfig(proc.Args()) != pkgtls.Disabled {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // extractPrometheusConfig builds spec.prometheus from the deployment's Prometheus section.
@@ -245,54 +221,18 @@ func extractAgentConfig(sourceProcess *om.Process, projectConfigs *ProjectConfig
 	return agentConfig
 }
 
-// distributeMembers distributes externalMembers (by count) evenly across clusterNames, extra members
-// going to earlier clusters. MemberConfig from rsMembers is assigned per slot; when rsMembers is nil
-// or empty no MemberConfig is set, which is correct for processes without replica-set membership (mongos).
-func distributeMembers(externalMembers []mdbv1.ExternalMember, rsMembers []om.ReplicaSetMember, clusterNames []string) (mdbv1.ClusterSpecList, error) {
-	n := len(clusterNames)
-	if n == 0 {
-		return nil, nil
+// distributeMembers creates a ClusterSpecList with Members=0 for each cluster.
+// The customer is expected to expand the replica set incrementally with non-voting Kubernetes members.
+func distributeMembers(clusterNames []string) mdbv1.ClusterSpecList {
+	if len(clusterNames) == 0 {
+		return nil
 	}
-	total := len(externalMembers)
-	if total < n {
-		return nil, fmt.Errorf("cannot distribute %d members across %d clusters: need at least one member per cluster", total, n)
-	}
-	base := total / n
-	remainder := total % n
-	allConfig := buildMemberConfig(rsMembers)
-
-	list := make(mdbv1.ClusterSpecList, n)
-	offset := 0
+	list := make(mdbv1.ClusterSpecList, len(clusterNames))
 	for i, name := range clusterNames {
-		count := base
-		if i < remainder {
-			count++
-		}
-		item := mdbv1.ClusterSpecItem{
+		list[i] = mdbv1.ClusterSpecItem{
 			ClusterName: name,
-			Members:     count,
-		}
-		if len(allConfig) > 0 {
-			item.MemberConfig = allConfig[offset : offset+count]
-		}
-		list[i] = item
-		offset += count
-	}
-	return list, nil
-}
-
-// buildMemberConfig sets votes=0 and priority="0" for all members (migration-safe defaults), preserving tags.
-func buildMemberConfig(members []om.ReplicaSetMember) []automationconfig.MemberOptions {
-	config := make([]automationconfig.MemberOptions, len(members))
-	for i, m := range members {
-		v, p := 0, "0"
-		config[i] = automationconfig.MemberOptions{
-			Votes:    &v,
-			Priority: &p,
-		}
-		if tags := m.Tags(); len(tags) > 0 {
-			config[i].Tags = tags
+			Members:     0,
 		}
 	}
-	return config
+	return list
 }
