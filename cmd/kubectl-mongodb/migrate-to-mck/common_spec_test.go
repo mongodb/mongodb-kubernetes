@@ -710,7 +710,7 @@ func TestExtractAdditionalMongodConfig_SystemLogNotExtracted(t *testing.T) {
 	}
 
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
-	assert.Nil(t, config, "systemLog should not be extracted into additionalMongodConfig because the operator always overwrites it; use spec.agent.mongod.systemLog instead")
+	assert.Nil(t, config, "systemLog should not be extracted into additionalMongodConfig because the operator always overwrites it. Use spec.agent.mongod.systemLog instead")
 }
 
 func TestExtractAdditionalMongodConfig_TLSModePrefer(t *testing.T) {

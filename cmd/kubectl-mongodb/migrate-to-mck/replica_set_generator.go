@@ -28,7 +28,7 @@ func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (client.O
 	if resourceName == "" {
 		resourceName = util.NormalizeName(rsName)
 		if resourceName == "" {
-			return nil, "", fmt.Errorf("replica set name %q cannot be normalized to a valid Kubernetes resource name; use --resource-name-override to provide one", rsName)
+			return nil, "", fmt.Errorf("replica set name %q cannot be normalized to a valid Kubernetes resource name. Use --resource-name-override to provide one", rsName)
 		}
 	}
 	if errs := k8svalidation.IsDNS1123Subdomain(resourceName); len(errs) > 0 {

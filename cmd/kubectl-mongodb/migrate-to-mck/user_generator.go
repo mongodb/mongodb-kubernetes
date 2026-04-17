@@ -43,7 +43,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName, namespace str
 			return nil, fmt.Errorf("username %q cannot be normalized to a valid Kubernetes name: no alphanumeric characters", user.Username)
 		}
 		if prev, exists := crNameToUsername[crName]; exists {
-			return nil, fmt.Errorf("users %q and %q normalize to the same Kubernetes name %q; rename one before migration", prev, user.Username, crName)
+			return nil, fmt.Errorf("users %q and %q normalize to the same Kubernetes name %q. Rename one before migration", prev, user.Username, crName)
 		}
 		crNameToUsername[crName] = user.Username
 
@@ -73,7 +73,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName, namespace str
 			} else {
 				passwordSecretName := crName + "-password"
 				if errs := k8svalidation.IsDNS1123Subdomain(passwordSecretName); len(errs) > 0 {
-					return nil, fmt.Errorf("generated password Secret name %q is not a valid Kubernetes name; rename user %q before migration: %s", passwordSecretName, user.Username, errs[0])
+					return nil, fmt.Errorf("generated password Secret name %q is not a valid Kubernetes name. Rename user %q before migration: %s", passwordSecretName, user.Username, errs[0])
 				}
 				password, ok := opts.UserPasswords[userKey(user.Username, user.Database)]
 				if !ok {
