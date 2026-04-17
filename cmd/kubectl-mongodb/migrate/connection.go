@@ -9,6 +9,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
@@ -17,11 +18,20 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
 )
 
 var omConnectionFactory om.ConnectionFactory = om.NewOpsManagerConnection
+
+type configReader struct {
+	metav1.ObjectMeta
+	configMapName, secretName, namespace string
+}
+
+func (r *configReader) GetProjectConfigMapName() string       { return r.configMapName }
+func (r *configReader) GetProjectConfigMapNamespace() string  { return r.namespace }
+func (r *configReader) GetCredentialsSecretName() string      { return r.secretName }
+func (r *configReader) GetCredentialsSecretNamespace() string { return r.namespace }
 
 func prepareConnection(ctx context.Context, namespace, configMapName, secretName string) (om.Connection, kubernetesClient.Client, error) {
 	kubeClient, err := newKubeClient()
@@ -30,7 +40,9 @@ func prepareConnection(ctx context.Context, namespace, configMapName, secretName
 	}
 
 	log := zap.S()
-	config, credentials, err := readConfigAndCredentials(ctx, kubeClient, log, namespace, configMapName, secretName)
+	reader := &configReader{configMapName: configMapName, secretName: secretName, namespace: namespace}
+	secretClient := secrets.SecretClient{KubeClient: kubeClient}
+	config, credentials, err := project.ReadConfigAndCredentials(ctx, kubeClient, secretClient, reader, log)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -40,22 +52,6 @@ func prepareConnection(ctx context.Context, namespace, configMapName, secretName
 		return nil, nil, fmt.Errorf("error resolving Ops Manager project: %w", err)
 	}
 	return conn, kubeClient, nil
-}
-
-func readConfigAndCredentials(ctx context.Context, kubeClient kubernetesClient.Client, log *zap.SugaredLogger, namespace, configMapName, secretName string) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
-	config, err := project.ReadProjectConfig(ctx, kubeClient, kube.ObjectKey(namespace, configMapName), "")
-	if err != nil {
-		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading project config: %w", err)
-	}
-	if config.ProjectName == "" {
-		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("ConfigMap %s/%s does not contain a projectName", namespace, configMapName)
-	}
-	secretClient := secrets.SecretClient{KubeClient: kubeClient}
-	credentials, err := project.ReadCredentials(ctx, secretClient, kube.ObjectKey(namespace, secretName), log)
-	if err != nil {
-		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading credentials secret: %w", err)
-	}
-	return config, credentials, nil
 }
 
 func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Credentials, log *zap.SugaredLogger) (om.Connection, error) {

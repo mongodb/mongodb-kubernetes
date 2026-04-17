@@ -32,7 +32,6 @@ var (
 	defaultMonitoringAgentLogPath = fmt.Sprintf("%s/monitoring-agent.log", util.PvcMountPathLogs)
 	defaultBackupAgentLogPath     = fmt.Sprintf("%s/backup-agent.log", util.PvcMountPathLogs)
 	defaultAuthSchemaVersion      = om.CalculateAuthSchemaVersion()
-	defaultProtocolVersion        = "1"
 )
 
 // ValidateMigration checks the automation config for operator compatibility.
@@ -42,7 +41,6 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 
 	results = append(results, validateOneDeploymentPerProject(ac.Deployment)...)
 	results = append(results, validateReplicaSetsExist(ac.Deployment)...)
-	results = append(results, validateMembersReferenceProcesses(ac.Deployment, processMap)...)
 	for _, r := range results {
 		if r.Severity == SeverityError {
 			return results, nil
@@ -56,7 +54,6 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 	results = append(results, validateAgentConfig(projectConfigs)...)
 	results = append(results, validateLDAP(ac.Ldap)...)
 	results = append(results, validateProjectOptions(ac.Deployment)...)
-	results = append(results, validateReplicaSetProtocolVersion(ac.Deployment)...)
 	results = append(results, validateMemberPreservedFields(ac.Deployment)...)
 	for _, r := range results {
 		if r.Severity == SeverityError {
@@ -125,38 +122,6 @@ func validateReplicaSetsExist(d om.Deployment) []ValidationResult {
 	return nil
 }
 
-func validateMembersReferenceProcesses(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
-	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 {
-		return nil
-	}
-
-	var results []ValidationResult
-	for _, rs := range replicaSets {
-		rsID := rs.Name()
-		members := rs.Members()
-
-		if len(members) == 0 {
-			results = append(results, ValidationResult{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("Replica set %q has no members. An empty replica set cannot be migrated.", rsID),
-			})
-			continue
-		}
-
-		for _, m := range members {
-			host := m.Name()
-			if _, ok := processMap[host]; !ok {
-				results = append(results, ValidationResult{
-					Severity: SeverityError,
-					Message:  fmt.Sprintf("Member %q (replica set %q) references a process that was not found in the automation config.", host, rsID),
-				})
-			}
-		}
-	}
-	return results
-}
-
 // validateAuth checks autoUser, keyFile, and keyFileWindows against operator defaults.
 func validateAuth(auth *om.Auth) []ValidationResult {
 	if auth == nil || auth.Disabled {
@@ -223,7 +188,7 @@ func validateX509(auth *om.Auth) []ValidationResult {
 	}}
 }
 
-// validateAgentTLS checks project-level TLS paths against operator defaults.
+// validateAgentTLS checks project-level agent TLS paths against operator defaults.
 func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL == nil {
 		return nil
@@ -246,7 +211,7 @@ func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL.CAFilePath != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  "TLS is enabled. Create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource.",
+			Message:  "TLS is enabled. Create a ConfigMap named \"<resourceName>-ca\" with key \"ca-pem\" containing the CA certificate, and a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource.",
 		})
 	}
 
@@ -301,7 +266,7 @@ func validateLDAP(l *ldap.Ldap) []ValidationResult {
 	if l.CaFileContents != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  "LDAP CA certificate is present. The tool will create ConfigMap \"ldap-ca\" with key \"ca.pem\" automatically (or include it in the output when --dry-run is set).",
+			Message:  "LDAP CA certificate is present. The tool will create ConfigMap \"ldap-ca\" with key \"ca.pem\" automatically.",
 		})
 	}
 
@@ -318,21 +283,6 @@ func validateProjectOptions(d om.Deployment) []ValidationResult {
 		Severity: SeverityError,
 		Message:  fmt.Sprintf("options.downloadBase %q differs from the operator default %q. This value is not configurable via the Custom Resource.", downloadBase, defaultDownloadBase),
 	}}
-}
-
-func validateReplicaSetProtocolVersion(d om.Deployment) []ValidationResult {
-	var results []ValidationResult
-	for _, rs := range d.GetReplicaSets() {
-		rsID := rs.Name()
-		pv := rs.ProtocolVersion()
-		if pv != "" && pv != defaultProtocolVersion {
-			results = append(results, ValidationResult{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("Replica set %q has protocolVersion %q. Only %q is supported.", rsID, pv, defaultProtocolVersion),
-			})
-		}
-	}
-	return results
 }
 
 func validateMemberPreservedFields(d om.Deployment) []ValidationResult {
@@ -467,6 +417,8 @@ func validateTLSPaths(d om.Deployment) []ValidationResult {
 
 		for tlsKey, tlsSection := range sections {
 			certKey, _ := tlsSection["certificateKeyFile"].(string)
+			// PEMKeyFile is the legacy field under net.ssl (deprecated since MongoDB 4.2).
+			// NetTLSSections() returns both "tls" and "ssl" sections when present.
 			pemKey, _ := tlsSection["PEMKeyFile"].(string)
 
 			if certKey != "" && certKey != util.PEMKeyFilePathInContainer {
