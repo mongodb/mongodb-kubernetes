@@ -16,6 +16,39 @@ source scripts/funcs/operator_deployment
 check_env_var "TEST_NAME" "The 'TEST_NAME' must be specified to run the Operator single e2e test"
 
 
+# Create a kubeconfig secret so the test pod can use kubectl / kubectl-mongodb.
+# Multi-cluster tests already do this in configure_multi_cluster_environment;
+# this covers single-cluster tests (e.g. VM migration) that also need it.
+create_test_pod_kubeconfig_secret() {
+    local context="${1}"
+
+    local secret_kubeconfig
+    secret_kubeconfig=$(mktemp)
+    kubectl config view --raw > "${secret_kubeconfig}"
+
+    # Kind clusters expose the API server on 127.0.0.1 which is unreachable
+    # from inside a pod.  Replace it with the kubernetes service cluster IP.
+    local current_ctx
+    current_ctx=$(kubectl config current-context)
+    local cluster_name
+    cluster_name=$(kubectl config view -o jsonpath="{.contexts[?(@.name==\"${current_ctx}\")].context.cluster}")
+    local server
+    server=$(kubectl config view -o jsonpath="{.clusters[?(@.name==\"${cluster_name}\")].cluster.server}")
+
+    if echo "${server}" | grep -qE '(127\.0\.0\.1|localhost)'; then
+        local api_server_url
+        api_server_url="https://$(kubectl get svc -n default kubernetes -o=jsonpath='{.spec.clusterIP}')"
+        echo "Overriding api_server for ${cluster_name} from ${server} to ${api_server_url}"
+        kubectl config --kubeconfig "${secret_kubeconfig}" set "clusters.${cluster_name}.server" "${api_server_url}"
+    fi
+
+    kubectl --context "${context}" delete secret test-pod-kubeconfig -n "${NAMESPACE}" --ignore-not-found
+    kubectl --context "${context}" create secret generic test-pod-kubeconfig \
+        --from-file=kubeconfig="${secret_kubeconfig}" --namespace "${NAMESPACE}" || true
+
+    rm -f "${secret_kubeconfig}"
+}
+
 deploy_test_app() {
     printenv
     title "Deploying test application"
@@ -99,6 +132,7 @@ deploy_test_app() {
         helm_params+=("--set" "multiCluster.centralCluster=${CENTRAL_CLUSTER}")
         helm_params+=("--set" "multiCluster.testPodCluster=${test_pod_cluster}")
     fi
+
 
     if [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
         # The test needs to create an OM resource with specific version
@@ -216,6 +250,8 @@ run_tests() {
 
     if [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" ]]; then
         configure_multi_cluster_environment
+    else
+        create_test_pod_kubeconfig_secret "${test_pod_context}"
     fi
 
     prepare_operator_config_map "${operator_context}"

@@ -183,7 +183,7 @@ def _configure_ac_with_tls(namespace: str, om_tester: OMTester, vm_sts: dict, vm
             {
                 "user": "app-user",
                 "db": "admin",
-                "roles": [{"role": "readWrite", "db": "myapp"}],
+                "roles": [{"role": "readWriteAnyDatabase", "db": "admin"}],
                 "mechanisms": ["SCRAM-SHA-256"],
                 "scramSha256Creds": {
                     "iterationCount": 15000,
