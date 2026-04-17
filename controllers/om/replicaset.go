@@ -11,7 +11,6 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 /* This corresponds to:
@@ -344,34 +343,6 @@ func findDifference(leftMap map[string]ReplicaSetMember, rightMap map[string]Rep
 		}
 	}
 	return ans
-}
-
-// ExtractMemberInfo reads version, FCV, and per-member metadata from the
-// given replica set members and process map. Each member becomes an
-// mdbv1.ExternalMember suitable for the CR's spec.externalMembers.
-func ExtractMemberInfo(members []ReplicaSetMember, processMap map[string]Process) ([]mdbv1.ExternalMember, string, string) {
-	if len(members) == 0 {
-		return nil, "", ""
-	}
-	firstProc := processMap[members[0].Name()]
-	version := firstProc.Version()
-	fcv := firstProc.FeatureCompatibilityVersion()
-
-	var externalMembers []mdbv1.ExternalMember
-	for _, m := range members {
-		host := m.Name()
-		proc := processMap[host]
-		port := maputil.ReadMapValueAsInt(proc.Args(), "net", "port")
-
-		externalMembers = append(externalMembers, mdbv1.ExternalMember{
-			ProcessName:    host,
-			Hostname:       fmt.Sprintf("%s:%d", proc.HostName(), port),
-			Type:           "mongod",
-			ReplicaSetName: proc.replicaSetName(),
-		})
-	}
-
-	return externalMembers, version, fcv
 }
 
 // Builds the map[<process name>]<replica set member>. This makes intersection easier
