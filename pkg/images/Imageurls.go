@@ -64,6 +64,7 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		construct.MongodbImageEnv:             "",
 		util.InitOpsManagerImageUrl:           "",
 		util.OpsManagerImageUrl:               "",
+		util.MdbOmImage:                       "",
 		util.InitDatabaseImageUrlEnv:          "",
 		util.NonStaticDatabaseEnterpriseImage: "",
 		construct.AgentImageEnv:               "",
@@ -94,10 +95,18 @@ func LoadImageUrlsFromEnv() ImageUrls {
 // It works by convention by looking up RELATED_IMAGE_{imageName}_{versionUnderscored}.
 // In case there is no RELATED_IMAGE_ defined it replaces digest or tag to version.
 // For agent images, MDB_AGENT_IMAGE takes precedence if set (used for dev/testing).
+// For Ops Manager images, MDB_OM_IMAGE takes precedence if set (used for dev/testing).
 func ContainerImage(imageUrls ImageUrls, imageName string, version string) string {
 	// Check for full agent image override (for dev/testing workflows)
 	if imageName == architectures.MdbAgentImageRepo {
 		if fullImage := imageUrls[architectures.MdbAgentImage]; fullImage != "" {
+			return fullImage
+		}
+	}
+
+	// Check for full Ops Manager image override (for dev/testing workflows)
+	if imageName == util.OpsManagerImageUrl {
+		if fullImage := imageUrls[util.MdbOmImage]; fullImage != "" {
 			return fullImage
 		}
 	}

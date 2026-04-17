@@ -6,7 +6,6 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 DOCKERFILE="${SCRIPT_DIR}/Dockerfile"
-OVERRIDE_FILE="${SCRIPT_DIR}/.override"
 
 MMS_AUTOMATION_PATH="${MMS_AUTOMATION_PATH:-${HOME}/projects/mms-automation}"
 AGENT_TAG="${USER}-monarch"
@@ -75,11 +74,13 @@ echo "Pushing image..."
 docker push "$FULL_IMAGE"
 
 # Write temp override, switch context, then remove override
+# Uses existing additional_override mechanism in switch_context.sh
 echo ""
 echo "Switching context..."
+OVERRIDE_FILE="${PROJECT_DIR}/scripts/dev/contexts/private-context-agent"
 echo "export MDB_AGENT_IMAGE=\"$FULL_IMAGE\"" > "$OVERRIDE_FILE"
 trap "rm -f '$OVERRIDE_FILE'" EXIT
-make -C "$PROJECT_DIR" switch context="$CURRENT_CONTEXT"
+make -C "$PROJECT_DIR" switch context="$CURRENT_CONTEXT" additional_override=private-context-agent
 
 echo ""
 echo "============================================"

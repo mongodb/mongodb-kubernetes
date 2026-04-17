@@ -103,6 +103,14 @@ OPERATOR_NAME=\"${OPERATOR_NAME}\"
     echo "MDB_AGENT_IMAGE=${MDB_AGENT_IMAGE}"
   fi
 
+  if [[ "${MDB_OM_IMAGE:-""}" != "" ]]; then
+    echo "MDB_OM_IMAGE=${MDB_OM_IMAGE}"
+  fi
+
+  if [[ "${MDB_OM_VERSION:-""}" != "" ]]; then
+    echo "MDB_OM_VERSION=${MDB_OM_VERSION}"
+  fi
+
   if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-""}" != "" ]]; then
     echo "MDB_MAX_CONCURRENT_RECONCILES=${MDB_MAX_CONCURRENT_RECONCILES}"
   fi

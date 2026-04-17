@@ -84,12 +84,6 @@ export VERSION_UPGRADE_HOOK_REGISTRY=${VERSION_UPGRADE_HOOK_REGISTRY:-${REGISTRY
 
 export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
 
-# Source agent override if exists (used by scripts/dev/agent/build-agent-from-source.sh)
-AGENT_OVERRIDE_FILE="${PROJECT_DIR}/scripts/dev/agent/.override"
-if [[ -f "$AGENT_OVERRIDE_FILE" ]]; then
-    source "$AGENT_OVERRIDE_FILE"
-fi
-
 export READINESS_PROBE_IMAGE="${READINESS_PROBE_REGISTRY}/mongodb-kubernetes-readinessprobe:${READINESS_PROBE_VERSION}"
 export VERSION_UPGRADE_HOOK_IMAGE="${VERSION_UPGRADE_HOOK_REGISTRY}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${VERSION_UPGRADE_HOOK_VERSION}"
 
