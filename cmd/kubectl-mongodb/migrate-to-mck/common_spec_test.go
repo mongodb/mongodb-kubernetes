@@ -142,7 +142,6 @@ func TestMapMechanismToAuthMode(t *testing.T) {
 	}
 }
 
-
 // testAC builds a minimal AutomationConfig for buildSecurity tests.
 func testAC(auth *om.Auth, processMap map[string]om.Process, members []om.ReplicaSetMember) *om.AutomationConfig {
 	processes := make([]interface{}, 0, len(processMap))
