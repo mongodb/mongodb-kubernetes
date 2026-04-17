@@ -1365,11 +1365,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_vm_migration_multicluster_rs
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_vm_migration_x509
     tags: [ "patch-run" ]
     commands:
