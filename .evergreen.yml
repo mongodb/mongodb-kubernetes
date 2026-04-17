@@ -667,6 +667,14 @@ tasks:
             - SLACK_WEBHOOK_URL
 
 task_groups:
+  - name: check_ocp_version_drift_task_group
+    setup_group:
+      - func: clone
+      - func: setup_openshift_client
+      - func: setup_gh
+    tasks:
+      - check_ocp_version_drift_task
+
   - name: unit_task_group
     max_hosts: -1
     setup_group_can_fail_task: true
@@ -1387,6 +1395,17 @@ task_groups:
     <<: *teardown_group
 
 buildvariants:
+  ## OCP version drift check — opens a PR if the cluster version has changed
+  ## and kubernetes-versions.json is out of date.
+
+  - name: check_ocp_version_drift
+    display_name: check_ocp_version_drift
+    tags: [ "pr_patch", "staging" ]
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: check_ocp_version_drift_task_group
+
   ## Unit tests + lint build variant
 
   - name: unit_tests

@@ -356,6 +356,47 @@ functions:
     # After setting up KUBE, we need to update the KUBECONFIG and other env vars.
     - *switch_context
 
+  setup_gh: &setup_gh
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+        - workdir
+      binary: scripts/evergreen/setup_gh.sh
+
+  # Downloads the oc binary and logs into the OpenShift cluster.
+  setup_openshift_client:
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+        - workdir
+      env:
+        OPENSHIFT_TOKEN: ${openshift_token}
+        OPENSHIFT_URL: ${openshift_url}
+      binary: scripts/evergreen/setup_openshift_client.sh
+
+  # Checks whether the live OpenShift cluster version matches kubernetes-versions.json.
+  # On mismatch, opens a PR to update the file (if one doesn't already exist).
+  check_ocp_version_drift:
+    command: subprocess.exec
+    type: test
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      env:
+        GH_TOKEN: ${GH_TOKEN}
+      binary: scripts/check-ocp-version-drift.sh
+
   # cleanup_exec_environment is a very generic name when the only thing this function
   # does is to clean the logs directory. In the future, more "commands" can be
   # added to it with more clearing features, when needed.

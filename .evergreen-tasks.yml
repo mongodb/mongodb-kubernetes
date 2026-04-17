@@ -12,6 +12,10 @@ task_groups:
       - preflight_om_and_agents
 
 tasks:
+  - name: check_ocp_version_drift_task
+    commands:
+      - func: check_ocp_version_drift
+
   - name: preflight_images
     tags: [ "image_preflight" ]
     commands:
