@@ -79,19 +79,6 @@ spec:
     replicaSetName: my-rs
     type: mongod
   featureCompatibilityVersion: "7.0"
-  memberConfig:
-  - priority: "0"
-    tags:
-      region: us-east-1
-      use: analytics
-    votes: 0
-  - priority: "0"
-    tags:
-      region: us-west-2
-    votes: 0
-  - priority: "0"
-    votes: 0
-  members: 3
   opsManager:
     configMapRef:
       name: my-om-config
@@ -164,6 +151,8 @@ spec:
       roles:
       - db: myapp
         role: read
+    tls:
+      ca: my-rs-ca
   type: ReplicaSet
   version: 7.0.12-ent
 ---

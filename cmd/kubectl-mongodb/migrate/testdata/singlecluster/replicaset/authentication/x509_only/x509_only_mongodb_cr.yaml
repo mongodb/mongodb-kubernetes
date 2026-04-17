@@ -28,14 +28,6 @@ spec:
     replicaSetName: x509only-rs
     type: mongod
   featureCompatibilityVersion: "7.0"
-  memberConfig:
-  - priority: "0"
-    votes: 0
-  - priority: "0"
-    votes: 0
-  - priority: "0"
-    votes: 0
-  members: 3
   opsManager:
     configMapRef:
       name: my-om-config
@@ -48,5 +40,7 @@ spec:
       modes:
       - X509
     certsSecretPrefix: mdb
+    tls:
+      ca: x509only-rs-ca
   type: ReplicaSet
   version: 7.0.12

@@ -28,22 +28,6 @@ spec:
     replicaSetName: member-rs
     type: mongod
   featureCompatibilityVersion: "8.0"
-  memberConfig:
-  - priority: "0"
-    tags:
-      region: us-east-1
-      role: primary
-    votes: 0
-  - priority: "0"
-    tags:
-      region: us-east-1
-      role: delayed
-    votes: 0
-  - priority: "0"
-    tags:
-      region: us-west-2
-    votes: 0
-  members: 3
   opsManager:
     configMapRef:
       name: my-om-config
