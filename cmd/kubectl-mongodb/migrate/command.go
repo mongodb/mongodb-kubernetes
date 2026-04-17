@@ -13,12 +13,12 @@ import (
 const defaultNamespace = "default"
 
 type cliFlags struct {
-	configMapName          string
-	secretName             string
-	namespace              string
-	multiClusterNames      string
-	outputFile             string
-	resourceNameOverride   string
+	configMapName        string
+	secretName           string
+	namespace            string
+	multiClusterNames    string
+	outputFile           string
+	resourceNameOverride string
 }
 
 var flags cliFlags
