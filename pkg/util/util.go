@@ -14,11 +14,33 @@ import (
 
 	"github.com/blang/semver"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 // ************** This is a file containing any general "algorithmic" or "util" functions used by other packages
+
+// NormalizeName returns a string that conforms to RFC-1123.
+func NormalizeName(name string) string {
+	if errs := validation.IsDNS1123Subdomain(name); len(errs) == 0 {
+		return name
+	}
+
+	name = strings.ToLower(name)
+	re := regexp.MustCompile("[^a-z0-9-]+")
+	name = re.ReplaceAllString(name, "-")
+
+	re = regexp.MustCompile(`\-+`)
+	name = re.ReplaceAllString(name, "-")
+
+	name = strings.Trim(name, "-")
+
+	if len(name) > validation.DNS1123SubdomainMaxLength {
+		name = name[0:validation.DNS1123SubdomainMaxLength]
+	}
+	return name
+}
 
 // FindLeftDifference finds the difference between arrays of string - the elements that are present in "left" but absent
 // in "right" array

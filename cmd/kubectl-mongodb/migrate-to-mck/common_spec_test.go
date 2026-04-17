@@ -142,110 +142,50 @@ func TestMapMechanismToAuthMode(t *testing.T) {
 	}
 }
 
-func TestIsTLSEnabled_TLSMode(t *testing.T) {
-	tests := []struct {
-		name    string
-		mode    string
-		enabled bool
-	}{
-		{"requireSSL", "requireSSL", true},
-		{"requireTLS", "requireTLS", true},
-		{"preferSSL", "preferSSL", true},
-		{"preferTLS", "preferTLS", true},
-		{"allowSSL", "allowSSL", true},
-		{"allowTLS", "allowTLS", true},
-		{"disabled", "disabled", false},
-		{"empty defaults to require", "", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			processMap := map[string]om.Process{
-				"host-0": {
-					"args2_6": map[string]interface{}{
-						"net": map[string]interface{}{
-							"tls": map[string]interface{}{
-								"mode": tt.mode,
-							},
-						},
-					},
-				},
-			}
-			members := []om.ReplicaSetMember{{"host": "host-0"}}
-			enabled, err := isTLSEnabled(processMap, members)
-			require.NoError(t, err)
-			assert.Equal(t, tt.enabled, enabled)
-		})
-	}
-}
 
-func TestIsTLSEnabled_SSLMode(t *testing.T) {
-	processMap := map[string]om.Process{
-		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
-					"ssl": map[string]interface{}{
-						"mode": "requireSSL",
-					},
-				},
-			},
-		},
+// testAC builds a minimal AutomationConfig for buildSecurity tests.
+func testAC(auth *om.Auth, processMap map[string]om.Process, members []om.ReplicaSetMember) *om.AutomationConfig {
+	processes := make([]interface{}, 0, len(processMap))
+	for name, proc := range processMap {
+		proc["name"] = name
+		processes = append(processes, map[string]interface{}(proc))
 	}
-	members := []om.ReplicaSetMember{{"host": "host-0"}}
-	enabled, err := isTLSEnabled(processMap, members)
-	require.NoError(t, err)
-	assert.True(t, enabled)
-}
-
-func TestIsTLSEnabled_NoArgs(t *testing.T) {
-	processMap := map[string]om.Process{
-		"host-0": {},
+	memberSlice := make([]interface{}, len(members))
+	for i, m := range members {
+		memberSlice[i] = map[string]interface{}(m)
 	}
-	members := []om.ReplicaSetMember{{"host": "host-0"}}
-	enabled, err := isTLSEnabled(processMap, members)
-	require.NoError(t, err)
-	assert.False(t, enabled)
-}
-
-func TestIsTLSEnabled_NoNet(t *testing.T) {
-	processMap := map[string]om.Process{
-		"host-0": {
-			"args2_6": map[string]interface{}{},
-		},
+	var replicaSets []interface{}
+	if len(members) > 0 {
+		replicaSets = []interface{}{map[string]interface{}{"_id": "test-rs", "members": memberSlice}}
 	}
-	members := []om.ReplicaSetMember{{"host": "host-0"}}
-	enabled, err := isTLSEnabled(processMap, members)
-	require.NoError(t, err)
-	assert.False(t, enabled)
+	d := om.Deployment(map[string]interface{}{
+		"processes":   processes,
+		"replicaSets": replicaSets,
+	})
+	return &om.AutomationConfig{Auth: auth, Deployment: d}
 }
 
 func TestBuildSecurity_NilAuth(t *testing.T) {
-	processMap := map[string]om.Process{}
-	members := []om.ReplicaSetMember{}
-
-	result, err := buildSecurity(nil, processMap, members, nil, nil, "")
+	ac := testAC(nil, nil, nil)
+	result, err := buildSecurity(ac, "", "")
 	require.NoError(t, err)
 	assert.Nil(t, result)
 }
 
 func TestBuildSecurity_AuthDisabled(t *testing.T) {
-	auth := &om.Auth{Disabled: true}
-	processMap := map[string]om.Process{}
-	members := []om.ReplicaSetMember{}
-
-	result, err := buildSecurity(auth, processMap, members, nil, nil, "")
+	ac := testAC(&om.Auth{Disabled: true}, nil, nil)
+	result, err := buildSecurity(ac, "", "")
 	require.NoError(t, err)
 	assert.Nil(t, result)
 }
 
 func TestBuildSecurity_AuthEnabled(t *testing.T) {
-	auth := &om.Auth{
-		Disabled:                 false,
-		DeploymentAuthMechanisms: []string{"SCRAM-SHA-256"},
-	}
-	processMap := map[string]om.Process{}
-	members := []om.ReplicaSetMember{}
-
-	result, err := buildSecurity(auth, processMap, members, nil, nil, "")
+	ac := testAC(
+		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{"SCRAM-SHA-256"}},
+		map[string]om.Process{"host-0": {}},
+		[]om.ReplicaSetMember{{"host": "host-0"}},
+	)
+	result, err := buildSecurity(ac, "", "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Authentication)
@@ -254,28 +194,26 @@ func TestBuildSecurity_AuthEnabled(t *testing.T) {
 }
 
 func TestBuildSecurity_TLSAndAuth(t *testing.T) {
-	auth := &om.Auth{
-		Disabled:                 false,
-		DeploymentAuthMechanisms: []string{"MONGODB-X509"},
-	}
-	processMap := map[string]om.Process{
-		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
-					"tls": map[string]interface{}{"mode": "requireTLS"},
+	ac := testAC(
+		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{"MONGODB-X509"}},
+		map[string]om.Process{
+			"host-0": {
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{
+						"tls": map[string]interface{}{"mode": "requireTLS"},
+					},
 				},
 			},
 		},
-	}
-	members := []om.ReplicaSetMember{
-		{"host": "host-0"},
-	}
-
-	result, err := buildSecurity(auth, processMap, members, nil, nil, "mdb")
+		[]om.ReplicaSetMember{{"host": "host-0"}},
+	)
+	result, err := buildSecurity(ac, "mdb", "my-rs")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "mdb", result.CertificatesSecretsPrefix, "TLS should be enabled via certsSecretPrefix (deprecated tls.enabled)")
 	assert.True(t, result.IsTLSEnabled())
+	require.NotNil(t, result.TLSConfig)
+	assert.Equal(t, "my-rs-ca", result.TLSConfig.CA, "TLS CA ConfigMap should default to <resourceName>-ca")
 	require.NotNil(t, result.Authentication)
 	assert.Equal(t, []mdbv1.AuthMode{"X509"}, result.Authentication.Modes)
 }
@@ -284,7 +222,7 @@ func TestBuildSecurity_TLSAndAuth(t *testing.T) {
 // is empty, regardless of the process config. The responsibility for ensuring the prefix is set when TLS
 // is detected lies with ensureTLS (which calls isTLSEnabled before buildSecurity is reached).
 func TestBuildSecurity_TLS_EmptyPrefix(t *testing.T) {
-	processMap := map[string]om.Process{
+	ac := testAC(nil, map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
 				"net": map[string]interface{}{
@@ -292,33 +230,27 @@ func TestBuildSecurity_TLS_EmptyPrefix(t *testing.T) {
 				},
 			},
 		},
-	}
-	members := []om.ReplicaSetMember{{"host": "host-0"}}
-
-	result, err := buildSecurity(nil, processMap, members, nil, nil, "")
+	}, []om.ReplicaSetMember{{"host": "host-0"}})
+	result, err := buildSecurity(ac, "", "")
 	require.NoError(t, err)
 	assert.Nil(t, result, "expected no security config when certsSecretPrefix is empty")
 }
 
 func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
-	auth := &om.Auth{
-		Disabled:                 false,
-		DeploymentAuthMechanisms: []string{"SCRAM-SHA-256"},
-	}
-	processMap := map[string]om.Process{
-		"host-0": {
-			"args2_6": map[string]interface{}{
-				"security": map[string]interface{}{
-					"clusterAuthMode": "x509",
+	ac := testAC(
+		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{"SCRAM-SHA-256"}},
+		map[string]om.Process{
+			"host-0": {
+				"args2_6": map[string]interface{}{
+					"security": map[string]interface{}{
+						"clusterAuthMode": "x509",
+					},
 				},
 			},
 		},
-	}
-	members := []om.ReplicaSetMember{
-		{"host": "host-0"},
-	}
-
-	result, err := buildSecurity(auth, processMap, members, nil, nil, "")
+		[]om.ReplicaSetMember{{"host": "host-0"}},
+	)
+	result, err := buildSecurity(ac, "", "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Authentication)
@@ -583,7 +515,7 @@ func TestExtractInternalClusterAuthMode(t *testing.T) {
 	}
 }
 
-func TestExtractInternalClusterAuthMode_KeyFileNotSupported(t *testing.T) {
+func TestExtractInternalClusterAuthMode_KeyFileImplicit(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
@@ -596,10 +528,9 @@ func TestExtractInternalClusterAuthMode_KeyFileNotSupported(t *testing.T) {
 	members := []om.ReplicaSetMember{
 		{"host": "host-0"},
 	}
-	_, err := extractInternalClusterAuthMode(processMap, members)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not supported by the operator")
-	assert.Contains(t, err.Error(), "keyFile")
+	result, err := extractInternalClusterAuthMode(processMap, members)
+	require.NoError(t, err)
+	assert.Equal(t, "", result, "keyFile is the default, so no explicit CR field is needed")
 }
 
 func TestExtractInternalClusterAuthMode_UnsupportedMode(t *testing.T) {
@@ -1069,68 +1000,23 @@ func sourceProc(processMap map[string]om.Process, members []om.ReplicaSetMember)
 }
 
 func TestDistributeMembers(t *testing.T) {
-	tests := []struct {
-		name        string
-		memberCount int
-		clusters    []string
-		expected    []int
-	}{
-		{
-			name:        "even split",
-			memberCount: 4,
-			clusters:    []string{"a", "b"},
-			expected:    []int{2, 2},
-		},
-		{
-			name:        "uneven split remainder to early clusters",
-			memberCount: 5,
-			clusters:    []string{"a", "b"},
-			expected:    []int{3, 2},
-		},
-		{
-			name:        "three clusters even",
-			memberCount: 3,
-			clusters:    []string{"a", "b", "c"},
-			expected:    []int{1, 1, 1},
-		},
-		{
-			name:        "three clusters remainder",
-			memberCount: 5,
-			clusters:    []string{"a", "b", "c"},
-			expected:    []int{2, 2, 1},
-		},
-		{
-			name:        "single cluster",
-			memberCount: 3,
-			clusters:    []string{"only"},
-			expected:    []int{3},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			externalMembers := make([]mdbv1.ExternalMember, tt.memberCount)
-			rsMembers := make([]om.ReplicaSetMember, tt.memberCount)
-			result, err := distributeMembers(externalMembers, rsMembers, tt.clusters)
-			require.NoError(t, err)
-			require.Len(t, result, len(tt.clusters))
-			for i, item := range result {
-				assert.Equal(t, tt.clusters[i], item.ClusterName)
-				assert.Equal(t, tt.expected[i], item.Members, "cluster %s member count", tt.clusters[i])
-			}
-		})
+	clusters := []string{"east1", "west1", "central1"}
+	result := distributeMembers(clusters)
+	require.Len(t, result, 3)
+	for i, item := range result {
+		assert.Equal(t, clusters[i], item.ClusterName)
+		assert.Equal(t, 0, item.Members, "cluster %s should have 0 initial members", clusters[i])
 	}
 }
 
+func TestDistributeMembers_SingleCluster(t *testing.T) {
+	result := distributeMembers([]string{"only"})
+	require.Len(t, result, 1)
+	assert.Equal(t, "only", result[0].ClusterName)
+	assert.Equal(t, 0, result[0].Members)
+}
+
 func TestDistributeMembers_EmptyClusterNames(t *testing.T) {
-	externalMembers := make([]mdbv1.ExternalMember, 3)
-	rsMembers := make([]om.ReplicaSetMember, 3)
-
-	result, err := distributeMembers(externalMembers, rsMembers, nil)
-	require.NoError(t, err)
-	assert.Nil(t, result)
-
-	result, err = distributeMembers(externalMembers, rsMembers, []string{})
-	require.NoError(t, err)
-	assert.Nil(t, result)
+	assert.Nil(t, distributeMembers(nil))
+	assert.Nil(t, distributeMembers([]string{}))
 }

@@ -45,10 +45,10 @@ func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 	})
 
 	opts := withDeploymentData(ac, GenerateOptions{
-		ReplicaSetNameOverride: "custom-name",
-		CredentialsSecretName:  "my-credentials",
-		ConfigMapName:          "my-om-config",
-		CertsSecretPrefix:      "mdb",
+		ResourceNameOverride:  "custom-name",
+		CredentialsSecretName: "my-credentials",
+		ConfigMapName:         "my-om-config",
+		CertsSecretPrefix:     "mdb",
 	})
 
 	obj, _, err := GenerateMongoDBCR(ac, opts)
@@ -85,10 +85,10 @@ func TestGenerateMongoDBCR_MultiCluster_CustomResourceName(t *testing.T) {
 	})
 
 	opts := withDeploymentData(ac, GenerateOptions{
-		ReplicaSetNameOverride: "custom-mc-name",
-		CredentialsSecretName:  "mc-credentials",
-		ConfigMapName:          "mc-om-config",
-		MultiClusterNames:      []string{"east1", "west1"},
+		ResourceNameOverride:  "custom-mc-name",
+		CredentialsSecretName: "mc-credentials",
+		ConfigMapName:         "mc-om-config",
+		MultiClusterNames:     []string{"east1", "west1"},
 	})
 
 	obj, resourceName, err := GenerateMongoDBCR(ac, opts)

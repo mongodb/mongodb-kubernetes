@@ -34,12 +34,12 @@ const (
 // It does not duplicate fields that are directly derivable from the automation config.
 type GenerateOptions struct {
 	// CLI flags
-	ReplicaSetNameOverride string
-	CredentialsSecretName  string
-	ConfigMapName          string
-	Namespace              string
-	MultiClusterNames      []string
-	CertsSecretPrefix      string // spec.security.certsSecretPrefix, required when TLS is enabled
+	ResourceNameOverride  string
+	CredentialsSecretName string
+	ConfigMapName         string
+	Namespace             string
+	MultiClusterNames     []string
+	CertsSecretPrefix     string // spec.security.certsSecretPrefix, required when TLS is enabled
 
 	// Fetched from OM
 	ProjectConfigs *ProjectConfigs

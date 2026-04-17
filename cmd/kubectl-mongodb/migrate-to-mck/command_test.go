@@ -119,14 +119,14 @@ func TestBuildOptions_FlagTranslation(t *testing.T) {
 		configMapName:          "my-cm",
 		secretName:             "my-secret",
 		namespace:              "mongodb",
-		replicaSetNameOverride: "my-rs",
+		resourceNameOverride: "my-rs",
 	}
 	opts, err := buildOptions(context.Background(), nil, ac, &ProjectConfigs{}, nil, strings.NewReader(""), f)
 	require.NoError(t, err)
 	assert.Equal(t, "my-cm", opts.ConfigMapName)
 	assert.Equal(t, "my-secret", opts.CredentialsSecretName)
 	assert.Equal(t, "mongodb", opts.Namespace)
-	assert.Equal(t, "my-rs", opts.ReplicaSetNameOverride)
+	assert.Equal(t, "my-rs", opts.ResourceNameOverride)
 }
 
 func TestBuildOptions_InvalidMultiClusterNames(t *testing.T) {
@@ -201,4 +201,68 @@ func writeTempFile(t *testing.T, content string) string {
 	path := filepath.Join(t.TempDir(), "secrets.csv")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	return path
+}
+
+func TestIsTLSEnabled_TLSMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		enabled bool
+	}{
+		{"requireSSL", "requireSSL", true},
+		{"requireTLS", "requireTLS", true},
+		{"preferSSL", "preferSSL", true},
+		{"preferTLS", "preferTLS", true},
+		{"allowSSL", "allowSSL", true},
+		{"allowTLS", "allowTLS", true},
+		{"disabled", "disabled", false},
+		{"empty defaults to require", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processMap := map[string]om.Process{
+				"host-0": {
+					"args2_6": map[string]interface{}{
+						"net": map[string]interface{}{
+							"tls": map[string]interface{}{
+								"mode": tt.mode,
+							},
+						},
+					},
+				},
+			}
+			assert.Equal(t, tt.enabled, isTLSEnabled(processMap))
+		})
+	}
+}
+
+func TestIsTLSEnabled_SSLMode(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {
+			"args2_6": map[string]interface{}{
+				"net": map[string]interface{}{
+					"ssl": map[string]interface{}{
+						"mode": "requireSSL",
+					},
+				},
+			},
+		},
+	}
+	assert.True(t, isTLSEnabled(processMap))
+}
+
+func TestIsTLSEnabled_NoArgs(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {},
+	}
+	assert.False(t, isTLSEnabled(processMap))
+}
+
+func TestIsTLSEnabled_NoNet(t *testing.T) {
+	processMap := map[string]om.Process{
+		"host-0": {
+			"args2_6": map[string]interface{}{},
+		},
+	}
+	assert.False(t, isTLSEnabled(processMap))
 }

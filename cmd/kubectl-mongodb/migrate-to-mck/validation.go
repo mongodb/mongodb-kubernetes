@@ -218,7 +218,7 @@ func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL.CAFilePath != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  "TLS is enabled. Create a ConfigMap with key \"ca-pem\" containing the CA certificate, and a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. The generated CR sets security.tls.ca to \"<resourceName>-ca\" by default. Change it if your ConfigMap has a different name.",
+			Message:  "TLS is enabled. Create a ConfigMap with key \"ca-pem\" containing the CA certificate, and a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. The generated CR sets security.tls.ca to \"<resourceName>-ca\" by default; change it if your ConfigMap has a different name.",
 		})
 	}
 
