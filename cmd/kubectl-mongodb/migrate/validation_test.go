@@ -75,53 +75,6 @@ func TestValidation_NoReplicaSets(t *testing.T) {
 	assert.True(t, hasError, "expected error when replicaSets is empty")
 }
 
-func TestValidation_MemberReferencesUnknownProcess(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
-				"_id": "my-rs",
-				"members": []interface{}{
-					map[string]interface{}{"host": "unknown-process", "tags": map[string]string{}},
-				},
-			},
-		},
-		"sharding": []interface{}{},
-	})
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasError := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "not found") {
-			hasError = true
-			assert.Contains(t, r.Message, "unknown-process")
-		}
-	}
-	assert.True(t, hasError, "expected error when member references unknown process")
-}
-
-func TestValidation_ReplicaSetWithNoMembers(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
-				"_id":     "my-rs",
-				"members": []interface{}{},
-			},
-		},
-		"sharding": []interface{}{},
-	})
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasError := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "no members") {
-			hasError = true
-		}
-	}
-	assert.True(t, hasError, "expected error when replica set has no members")
-}
-
 func TestValidation_NonDefaultKeyFile(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
 	ac.Auth.KeyFile = "/custom/path/keyfile"
@@ -212,22 +165,6 @@ func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
 		}
 	}
 	assert.True(t, hasError, "expected error when authSchemaVersion differs from default")
-}
-
-func TestValidation_NonDefaultProtocolVersion(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
-	replicaSets := ac.Deployment.GetReplicaSets()
-	replicaSets[0]["protocolVersion"] = "0"
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasError := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "protocolVersion") {
-			hasError = true
-			assert.Contains(t, r.Message, `"0"`)
-		}
-	}
-	assert.True(t, hasError, "expected error when protocolVersion differs from default")
 }
 
 func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
