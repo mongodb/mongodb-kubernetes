@@ -4,13 +4,15 @@ Mirrors the flow in ``vm_migration.test_promote_and_prune``: for each VM replica
 ``spec.members`` by one with the new member pinned to priority/votes 0, prune one
 ``externalMembers`` entry, then restore full priority/votes for that in-cluster member.
 
-After every spec change the helper polls for Running **and** the expected migration state
-in a single check, avoiding a race where a second reconcile flips an ephemeral phase
-before we observe it:
+After every spec change the helper polls for the expected migration state:
 
     Extend  → Running + Extending  (new k8s member, running count increased)
-    Prune   → Running + Pruning    … except on last prune → Running + migration absent
+    Prune   → Pruning              (StatefulSet may be Pending while pruning proceeds)
     Reprio  → Running + InProgress (stable counts, nothing actively changing)
+
+Note: During Prune we only wait for migration.phase, not status.phase. The StatefulSet
+may still be Pending (e.g., agent reconciling X509 certs) while the prune operation
+completes in Ops Manager. Requiring Running + Pruning simultaneously is a race condition.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from tests.tls.vm_migration_dry_run import (
     MIGRATION_PHASE_IN_PROGRESS,
     MIGRATION_PHASE_PRUNING,
     assert_migration_absent,
+    wait_until_migration_phase,
     wait_until_phase_and_migration_phase,
     wait_until_running_and_migration_absent,
 )
@@ -35,8 +38,9 @@ PHASE_RUNNING = "Running"
 def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
     """Run the full VM → K8s cutover: extend, prune, and re-prioritize one member at a time.
 
-    After every spec change, polls for ``status.phase == Running`` and the expected
-    ``status.migration`` state.
+    After every spec change, polls for the expected ``status.migration`` state.
+    For Prune, we only wait for migration.phase (not status.phase) to avoid a race
+    where the StatefulSet remains Pending while the prune completes.
     """
     try_load(mdb)
     spec = mdb["spec"]
@@ -64,7 +68,8 @@ def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
         if is_last_prune:
             wait_until_running_and_migration_absent(mdb)
         else:
-            wait_until_phase_and_migration_phase(mdb, PHASE_RUNNING, MIGRATION_PHASE_PRUNING)
+            # Don't require Running - StatefulSet may still be Pending while pruning proceeds
+            wait_until_migration_phase(mdb, MIGRATION_PHASE_PRUNING)
 
         # --- Re-prioritize: restore full votes/priority ---
         logger.info(f"Restoring full priority/votes for member {i + 1} of {total_vms}")
