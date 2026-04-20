@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -13,61 +14,80 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 )
 
-// TestMigrationLifecycleStatusTransitions is a component-level test that drives the
-// reconciler through a full VM-to-K8s migration lifecycle and asserts that the
-// Migrating=True condition reason transitions correctly at each step,
-// and that status.migrationObservedExternalMembersCount matches len(spec.externalMembers) while migrating.
+// TestMigrationLifecycleStatusTransitions drives the reconciler through the full VM-to-K8s
+// migration lifecycle one member at a time, mirroring the E2E promote-and-prune loop.
 //
-// It exercises the full reconciler stack (spec → UpdateStatus → fake-client persistence → next
-// reconcile reads prevCount/currentPhase) without requiring a real cluster or Ops Manager.
-// The dry-run (Validating) path is covered by TestComputeMigratingConditionReason in
-// api/v1/status/migration_lifecycle_test.go and migration/jobrunner_test.go; this test focuses on
-// post-annotation Migrating condition reasons.
+// The fake OM is pre-populated with an RS containing the 3 external VM processes, matching
+// the real OM state where VM agents are already registered before any k8s members are added.
 func TestMigrationLifecycleStatusTransitions(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("target size three then prune down", func(t *testing.T) {
-		// 3-member k8s replica set alongside 3 VM external members (no dry-run condition).
-		// Prune twice (3→2→1) so migrationObservedExternalMembersCount tracks each count, then clear.
-		// DefaultReplicaSetBuilder sets spec.members=3; status.members is 0 until first reconcile,
-		// so first reconcile: spec.members(3) > lastReconciled(0) → Migrating reason Extending.
-		rs := DefaultReplicaSetBuilder().Build()
-		rs.Spec.ReplicaSetNameOverride = "vm-rs"
-		rs.Spec.ExternalMembers = []mdbv1.ExternalMember{
-			{ProcessName: "vm-0", Hostname: "vm-0.vm-svc.ns.svc.cluster.local", Type: "mongod", ReplicaSetName: "vm-rs"},
-			{ProcessName: "vm-1", Hostname: "vm-1.vm-svc.ns.svc.cluster.local", Type: "mongod", ReplicaSetName: "vm-rs"},
-			{ProcessName: "vm-2", Hostname: "vm-2.vm-svc.ns.svc.cluster.local", Type: "mongod", ReplicaSetName: "vm-rs"},
+	const totalVMs = 3
+	extMembers := []mdbv1.ExternalMember{
+		{ProcessName: "vm-0", Hostname: "vm-0.vm-svc.ns.svc.cluster.local", Type: "mongod", ReplicaSetName: "vm-rs"},
+		{ProcessName: "vm-1", Hostname: "vm-1.vm-svc.ns.svc.cluster.local", Type: "mongod", ReplicaSetName: "vm-rs"},
+		{ProcessName: "vm-2", Hostname: "vm-2.vm-svc.ns.svc.cluster.local", Type: "mongod", ReplicaSetName: "vm-rs"},
+	}
+
+	// Start with 1 k8s member (the initial extend step).
+	rs := DefaultReplicaSetBuilder().SetMembers(1).Build()
+	rs.Spec.ReplicaSetNameOverride = "vm-rs"
+	rs.Spec.ExternalMembers = extMembers
+
+	reconciler, kubeClient, _ := defaultReplicaSetReconcilerWithPreloadedMembersFromVMs(ctx, rs)
+
+	// One loop per VM: extend (add k8s member) → prune (remove external) → promote (stable).
+	for i := 1; i <= totalVMs; i++ {
+		isLast := i == totalVMs
+
+		// Extend: add one k8s member (spec.members: 1→2→3).
+		rs.Spec.Members = i
+		extCount := len(rs.Spec.ExternalMembers)
+		reconcileAndCheckMigratingCondition(ctx, t, reconciler, rs, kubeClient, mdbstatus.MigratingReasonExtending, extCount)
+
+		// Prune: remove the corresponding external VM member.
+		rs.Spec.ExternalMembers = rs.Spec.ExternalMembers[:len(rs.Spec.ExternalMembers)-1]
+		if !isLast {
+			newExtCount := len(rs.Spec.ExternalMembers)
+			reconcileAndCheckMigratingCondition(ctx, t, reconciler, rs, kubeClient, mdbstatus.MigratingReasonPruning, newExtCount)
+
+			// Promote: restore votes/priority for the new k8s member (memberConfig change only).
+			// In the unit test this is represented by the stable InProgress reconcile.
+			reconcileAndCheckMigratingCondition(ctx, t, reconciler, rs, kubeClient, mdbstatus.MigratingReasonInProgress, newExtCount)
 		}
+	}
 
-		reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+	// Last prune: all external members gone → migration complete.
+	reconcileAndCheckMigrationAbsent(ctx, t, reconciler, rs, kubeClient)
+}
 
-		// Step 1: k8s=3, prevK8s=0 (initial) → Extending.
-		// TODO CLOUDP-362800: This will need 3 reconciles to get to stable. We need to scale up one-by-one even if it's a new deployment.
-		// This is something what Lucian fixed
-		reconcileAndCheckMigratingCondition(ctx, t, reconciler, rs, kubeClient, mdbstatus.MigratingReasonExtending, 3)
-
-		// Step 2: counts stable → InProgress.
-		reconcileAndCheckMigratingCondition(ctx, t, reconciler, rs, kubeClient, mdbstatus.MigratingReasonInProgress, 3)
-
-		// Step 3: Remove first VM member (external count 3→2, prevExt=3) → Pruning.
-		rs.Spec.ExternalMembers = rs.Spec.ExternalMembers[1:]
-		reconcileAndCheckMigratingCondition(ctx, t, reconciler, rs, kubeClient, mdbstatus.MigratingReasonPruning, 2)
-
-		// Step 4: Prune stabilizes (prevExt now 2 = ext 2) → InProgress.
-		reconcileAndCheckMigratingCondition(ctx, t, reconciler, rs, kubeClient, mdbstatus.MigratingReasonInProgress, 2)
-
-		// Step 5: Remove second VM member (external count 2→1) → Pruning, then InProgress.
-		rs.Spec.ExternalMembers = rs.Spec.ExternalMembers[1:]
-		reconcileAndCheckMigratingCondition(ctx, t, reconciler, rs, kubeClient, mdbstatus.MigratingReasonPruning, 1)
-		reconcileAndCheckMigratingCondition(ctx, t, reconciler, rs, kubeClient, mdbstatus.MigratingReasonInProgress, 1)
-
-		// Step 6: Remove last VM member (external count 1→0) → migration cleared.
-		rs.Spec.ExternalMembers = nil
-		reconcileAndCheckMigrationAbsent(ctx, t, reconciler, rs, kubeClient)
+// defaultReplicaSetReconcilerWithPreloadedMembersFromVMs creates a reconciler whose fake OM already
+// contains an RS with the external members from rs.Spec.ExternalMembers. This mirrors the
+// real OM state where VM agents are pre-registered before the operator adds k8s members.
+func defaultReplicaSetReconcilerWithPreloadedMembersFromVMs(ctx context.Context, rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		mc := connection.(*om.MockedOmConnection)
+		// Pre-populate the OM RS with external members, mirroring real OM where VM agents are
+		// already RS members before any k8s members are added.
+		rsName := rs.Spec.ReplicaSetNameOverride
+		processes := make([]om.Process, len(rs.Spec.ExternalMembers))
+		for i, m := range rs.Spec.ExternalMembers {
+			processes[i] = om.Process{"name": m.ProcessName, "hostname": m.Hostname, "processType": "mongod"}
+		}
+		omRS := om.NewReplicaSet(rsName, rsName, rs.Spec.Version)
+		rsWithProcesses := om.NewReplicaSetWithProcesses(omRS, processes, nil)
+		_ = mc.ReadUpdateDeployment(func(d om.Deployment) error {
+			d["replicaSets"] = append(d.GetReplicaSets(), rsWithProcesses.Rs)
+			return nil
+		}, zap.S())
 	})
+	return newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // reconcileAndCheckMigratingCondition pushes the current rs spec to the fake client, runs one

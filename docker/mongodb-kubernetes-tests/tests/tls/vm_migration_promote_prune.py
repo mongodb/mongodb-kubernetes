@@ -36,7 +36,7 @@ def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
     After extend: ``Migrating`` ``Extending`` then ``Running``. After prune (non-final):
     ``Running`` + ``Pruning`` in one poll. After re-prioritize (non-final): ``Running`` +
     ``InProgress`` in one poll.
-"""
+    """
     try_load(mdb)
     spec = mdb["spec"]
     if not isinstance(spec.get("memberConfig"), list):
