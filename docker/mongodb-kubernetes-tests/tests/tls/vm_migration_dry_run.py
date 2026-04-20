@@ -18,6 +18,7 @@ MIGRATING_CONDITION_REASON_VALIDATING = "Validating"
 MIGRATING_CONDITION_REASON_EXTENDING = "Extending"
 MIGRATING_CONDITION_REASON_PRUNING = "Pruning"
 MIGRATING_CONDITION_REASON_IN_PROGRESS = "InProgress"
+MIGRATING_CONDITION_REASON_COMPLETE = "MigrationComplete"
 
 
 def _migration_observed_external_count(s: dict) -> int:
@@ -53,7 +54,6 @@ def _get_condition(conditions, condition_type: str) -> dict | None:
         if c.get("type") == condition_type:
             return c
     return None
-
 
 
 def _migration_connectivity_passed(mdb: MongoDB) -> bool:
@@ -190,11 +190,11 @@ def wait_until_running_and_migration_in_progress(mdb: MongoDB, *, timeout: int =
     KubernetesTester.wait_until(_ok, timeout=timeout)
 
 
-def wait_until_running_and_migration_absent(mdb: MongoDB, *, timeout: int = 600) -> None:
-    """Poll until status.phase is Running, migration helper conditions are cleared, and Migrating=False.
+def wait_until_running_and_migration_complete(mdb: MongoDB, *, timeout: int = 600) -> None:
+    """Poll until status.phase is Running and migration is complete (Migrating=False).
 
     When all externalMembers are removed the operator unsets ``migrationObservedExternalMembersCount``,
-    removes ``NetworkConnectivityVerified``, and sets ``Migrating`` to False.
+    removes ``NetworkConnectivityVerified``, and sets ``Migrating=False, reason=MigrationComplete``.
     """
 
     def _ok() -> bool:
@@ -206,21 +206,8 @@ def wait_until_running_and_migration_absent(mdb: MongoDB, *, timeout: int = 600)
             return False
         conditions = s.get("conditions", [])
         cond = _get_condition(conditions, CONDITION_MIGRATING)
-        return cond is not None and cond.get("status") == "False"
+        if cond is None:
+            return False
+        return cond.get("status") == "False" and cond.get("reason") == MIGRATING_CONDITION_REASON_COMPLETE
 
     KubernetesTester.wait_until(_ok, timeout=timeout)
-
-
-def assert_migration_absent(mdb: MongoDB, timeout: int = 120) -> None:
-    """Wait for migration-complete status: migrationObservedExternalMembersCount absent, Migrating=False."""
-
-    def _migration_complete() -> bool:
-        mdb.load()
-        s = _status_dict(mdb)
-        if _migration_observed_external_count(s) != 0:
-            return False
-        conditions = s.get("conditions", [])
-        cond = _get_condition(conditions, CONDITION_MIGRATING)
-        return cond is not None and cond.get("status") == "False"
-
-    KubernetesTester.wait_until(_migration_complete, timeout=timeout)

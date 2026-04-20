@@ -21,10 +21,9 @@ from tests.tls.vm_migration_dry_run import (
     MIGRATING_CONDITION_REASON_EXTENDING,
     MIGRATING_CONDITION_REASON_IN_PROGRESS,
     MIGRATING_CONDITION_REASON_PRUNING,
-    assert_migration_absent,
     wait_until_migrating_condition_reason,
     wait_until_phase_and_migrating_condition_reason,
-    wait_until_running_and_migration_absent,
+    wait_until_running_and_migration_complete,
 )
 
 logger = test_logger.get_test_logger(__name__)
@@ -62,24 +61,19 @@ def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
         mdb["spec"]["externalMembers"].pop()
         mdb.update()
         is_last_prune = i == total_vms - 1
-        if is_last_prune:
-            wait_until_running_and_migration_absent(mdb)
-        else:
+        if not is_last_prune:
             _wait_migrating_lifecycle_reason_then_running(mdb, MIGRATING_CONDITION_REASON_PRUNING)
 
         # --- Re-prioritize: restore full votes/priority ---
         logger.info(f"Restoring full priority/votes for member {i + 1} of {total_vms}")
         mdb["spec"]["memberConfig"][i] = {"priority": "1", "votes": 1}
         mdb.update()
-        if is_last_prune:
-            # After the last prune, migration is complete (Migrating=False, helper conditions cleared)
-            wait_until_running_and_migration_absent(mdb)
-        else:
+        if not is_last_prune:
             wait_until_phase_and_migrating_condition_reason(
                 mdb, PHASE_RUNNING, MIGRATING_CONDITION_REASON_IN_PROGRESS, timeout=600
             )
 
-    assert_migration_absent(mdb)
+        wait_until_running_and_migration_complete(mdb)
 
 
 def _wait_migrating_lifecycle_reason_then_running(mdb: MongoDB, migrating_reason: str) -> None:

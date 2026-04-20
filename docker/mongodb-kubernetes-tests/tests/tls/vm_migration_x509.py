@@ -410,7 +410,7 @@ def test_install_operator(operator: Operator):
     operator.assert_is_running()
 
 
-@mark.e2e_vm_migration
+@mark.e2e_vm_migration_x509
 def test_k8s_mdb_reaches_running(mdb_k8s: MongoDB):
     mdb_k8s.assert_reaches_phase(Phase.Running, timeout=600)
 

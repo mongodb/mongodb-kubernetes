@@ -373,6 +373,9 @@ type MongoDbStatus struct {
 	// MigrationObservedExternalMembersCount is how many spec.externalMembers were observed on the last
 	// reconcile while migration is active. The next reconcile compares this to the current external count
 	// to detect Pruning. Unset when no externalMembers remain (omitted from serialized status).
+	// NOTE: This field is only used for MongoDB CR resources. It is always nil when MongoDbStatus is
+	// embedded in OpsManager's AppDbStatus, but appears in the CRD schema due to Go struct embedding.
+	// This is accepted technical debt until AppDbStatus is decoupled from MongoDbStatus.
 	// +optional
 	MigrationObservedExternalMembersCount *int `json:"migrationObservedExternalMembersCount,omitempty"`
 }
