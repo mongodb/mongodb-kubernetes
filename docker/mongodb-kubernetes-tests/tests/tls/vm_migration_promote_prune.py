@@ -4,11 +4,10 @@ Mirrors the flow in ``vm_migration.test_promote_and_prune``: for each VM replica
 ``spec.members`` by one with the new member pinned to priority/votes 0, prune one
 ``externalMembers`` entry, then restore full priority/votes for that in-cluster member.
 
-After extend (resp. each non-final prune), the helper first waits for ``Migrating`` reason
-``Extending`` (resp. ``Pruning``), then for ``status.phase == Running``. After re-prioritize
-(non-final), it waits for ``Running`` and ``Migrating`` reason ``InProgress`` in one poll.
-``Running`` follows successful Ops Manager reconciliation on that reconcile path, which avoids
-the next spec change racing an in-flight membership update (OM 400).
+After extend: waits for ``Migrating`` reason ``Extending`` then ``status.phase == Running``.
+After prune (non-final): checks ``Running`` + ``Pruning`` in a single poll to avoid the race
+where sequential checks miss the transient ``Pruning`` state before it flips to ``InProgress``.
+After re-prioritize (non-final): checks ``Running`` + ``InProgress`` in one poll.
 """
 
 from __future__ import annotations
@@ -34,10 +33,10 @@ PHASE_RUNNING = "Running"
 def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
     """Run the full VM → K8s cutover: extend, prune, and re-prioritize one member at a time.
 
-    After extend: ``Migrating`` ``Extending`` then ``Running``. After each non-final prune:
-    ``Migrating`` ``Pruning`` then ``Running``. After re-prioritize (non-final): ``Running`` and
-    ``Migrating`` ``InProgress`` in one poll.
-    """
+    After extend: ``Migrating`` ``Extending`` then ``Running``. After prune (non-final):
+    ``Running`` + ``Pruning`` in one poll. After re-prioritize (non-final): ``Running`` +
+    ``InProgress`` in one poll.
+"""
     try_load(mdb)
     spec = mdb["spec"]
     if not isinstance(spec.get("memberConfig"), list):
@@ -62,7 +61,12 @@ def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
         mdb.update()
         is_last_prune = i == total_vms - 1
         if not is_last_prune:
-            _wait_migrating_lifecycle_reason_then_running(mdb, MIGRATING_CONDITION_REASON_PRUNING)
+            # Check Running + Pruning atomically in one poll. Pruning is a single-reconcile
+            # transient state — sequential checks race with the next reconcile flipping it
+            # to InProgress before we observe it.
+            wait_until_phase_and_migrating_condition_reason(
+                mdb, PHASE_RUNNING, MIGRATING_CONDITION_REASON_PRUNING, timeout=600
+            )
 
         # --- Re-prioritize: restore full votes/priority ---
         logger.info(f"Restoring full priority/votes for member {i + 1} of {total_vms}")
