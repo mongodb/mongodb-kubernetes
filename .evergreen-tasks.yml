@@ -54,6 +54,7 @@ tasks:
     commands:
       - func: clone
       - func: python_venv
+      - func: update_evergreen_expansions
       - func: setup_preflight
       - func: preflight_image
         vars:
