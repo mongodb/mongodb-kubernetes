@@ -100,3 +100,5 @@ logs
 mongodb-kubernetes-*.tgz
 
 scripts/code_snippets/tests/outputs/*
+tools/mdbdebug/bin/*
+tools/mdbdebug/bin_linux/*
