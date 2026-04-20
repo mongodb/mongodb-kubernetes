@@ -124,13 +124,13 @@ func NewPVCsStatusOptionEmptyStatus() PVCStatusOption {
 	return PVCStatusOption{PVC: nil}
 }
 
-// MigrationStatusOption writes a connectivity (or other) condition into status.migration.conditions.
-// Phase and observed counts are computed automatically in UpdateStatus via applyComputedReplicaSetMigrationStatus.
+// MigrationStatusOption writes a connectivity (or other) condition into status.conditions.
+// Phase and observed external-member counts are computed automatically in UpdateStatus via applyComputedReplicaSetMigrationStatus.
 type MigrationStatusOption struct {
 	Condition metav1.Condition
 }
 
-// NewMigrationStatusOptionWithCondition returns an option that writes condition into status.migration.conditions.
+// NewMigrationStatusOptionWithCondition returns an option that merges condition into status.conditions.
 func NewMigrationStatusOptionWithCondition(condition metav1.Condition) MigrationStatusOption {
 	return MigrationStatusOption{Condition: condition}
 }

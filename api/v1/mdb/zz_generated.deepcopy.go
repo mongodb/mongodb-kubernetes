@@ -937,10 +937,10 @@ func (in *MongoDbStatus) DeepCopyInto(out *MongoDbStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.Migration != nil {
-		in, out := &in.Migration, &out.Migration
-		*out = new(status.MigrationStatus)
-		(*in).DeepCopyInto(*out)
+	if in.MigrationObservedExternalMembersCount != nil {
+		in, out := &in.MigrationObservedExternalMembersCount, &out.MigrationObservedExternalMembersCount
+		*out = new(int)
+		**out = **in
 	}
 }
 

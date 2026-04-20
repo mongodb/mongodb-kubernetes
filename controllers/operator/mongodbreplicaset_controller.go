@@ -844,8 +844,8 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 // so it uses the same credentials volumes and mounts as the STS.
 //
 // The MongoDB resource phase stays PhaseConnectivityValidation for both in-progress and passed
-// outcomes. status.migration.phase is Validating while the dry-run annotation is set;
-// the migration condition carries ConnectivityCheckRunning or ConnectivityCheckPassed.
+// outcomes. The Migrating condition Reason is Validating while the dry-run annotation is set;
+// NetworkConnectivityVerification on status.conditions carries ConnectivityCheckRunning or ConnectivityCheckPassed.
 // While the Job runs, reconciliation is requeued after 30s. When the Job reports a connectivity
 // failure, the resource phase is Failed, it is requeued after 5 minutes. Earlier failures
 // in this function (e.g. building StatefulSet options, agent certificate, or RunConnectivityJob

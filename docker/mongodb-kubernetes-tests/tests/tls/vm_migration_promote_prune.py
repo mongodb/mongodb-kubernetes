@@ -4,29 +4,26 @@ Mirrors the flow in ``vm_migration.test_promote_and_prune``: for each VM replica
 ``spec.members`` by one with the new member pinned to priority/votes 0, prune one
 ``externalMembers`` entry, then restore full priority/votes for that in-cluster member.
 
-After every spec change the helper polls for the expected migration state:
-
-    Extend  → Extending            (StatefulSet may be Pending while extending proceeds)
-    Prune   → Pruning              (StatefulSet may be Pending while pruning proceeds)
-    Reprio  → Running + InProgress (stable counts, nothing actively changing)
-
-Note: During Extend and Prune we only wait for migration.phase, not status.phase. The
-StatefulSet may still be Pending (e.g., agent reconciling X509 certs) while the operation
-completes in Ops Manager. Requiring Running + Extending/Pruning simultaneously is a race.
+After extend (resp. each non-final prune), the helper first waits for ``Migrating`` reason
+``Extending`` (resp. ``Pruning``), then for ``status.phase == Running``. After re-prioritize
+(non-final), it waits for ``Running`` and ``Migrating`` reason ``InProgress`` in one poll.
+``Running`` follows successful Ops Manager reconciliation on that reconcile path, which avoids
+the next spec change racing an in-flight membership update (OM 400).
 """
 
 from __future__ import annotations
 
 from kubetester import try_load
 from kubetester.mongodb import MongoDB
+from kubetester.phase import Phase
 from tests import test_logger
 from tests.tls.vm_migration_dry_run import (
-    MIGRATION_PHASE_EXTENDING,
-    MIGRATION_PHASE_IN_PROGRESS,
-    MIGRATION_PHASE_PRUNING,
+    MIGRATING_CONDITION_REASON_EXTENDING,
+    MIGRATING_CONDITION_REASON_IN_PROGRESS,
+    MIGRATING_CONDITION_REASON_PRUNING,
     assert_migration_absent,
-    wait_until_migration_phase,
-    wait_until_phase_and_migration_phase,
+    wait_until_migrating_condition_reason,
+    wait_until_phase_and_migrating_condition_reason,
     wait_until_running_and_migration_absent,
 )
 
@@ -38,9 +35,9 @@ PHASE_RUNNING = "Running"
 def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
     """Run the full VM → K8s cutover: extend, prune, and re-prioritize one member at a time.
 
-    After every spec change, polls for the expected ``status.migration`` state.
-    For Extend and Prune, we only wait for migration.phase (not status.phase) to avoid
-    a race where the StatefulSet remains Pending while the operation completes.
+    After extend: ``Migrating`` ``Extending`` then ``Running``. After each non-final prune:
+    ``Migrating`` ``Pruning`` then ``Running``. After re-prioritize (non-final): ``Running`` and
+    ``Migrating`` ``InProgress`` in one poll.
     """
     try_load(mdb)
     spec = mdb["spec"]
@@ -58,8 +55,7 @@ def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
         else:
             mdb["spec"]["memberConfig"][i] = {"priority": "0", "votes": 0}
         mdb.update()
-        # Don't require Running - StatefulSet may still be Pending while extending proceeds
-        wait_until_migration_phase(mdb, MIGRATION_PHASE_EXTENDING)
+        _wait_migrating_lifecycle_reason_then_running(mdb, MIGRATING_CONDITION_REASON_EXTENDING)
 
         # --- Prune: remove one VM member ---
         logger.info(f"Removing one VM member {i + 1} of {total_vms}")
@@ -69,17 +65,24 @@ def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
         if is_last_prune:
             wait_until_running_and_migration_absent(mdb)
         else:
-            # Don't require Running - StatefulSet may still be Pending while pruning proceeds
-            wait_until_migration_phase(mdb, MIGRATION_PHASE_PRUNING)
+            _wait_migrating_lifecycle_reason_then_running(mdb, MIGRATING_CONDITION_REASON_PRUNING)
 
         # --- Re-prioritize: restore full votes/priority ---
         logger.info(f"Restoring full priority/votes for member {i + 1} of {total_vms}")
         mdb["spec"]["memberConfig"][i] = {"priority": "1", "votes": 1}
         mdb.update()
         if is_last_prune:
-            # After the last prune, migration is complete and absent from status
+            # After the last prune, migration is complete (Migrating=False, helper conditions cleared)
             wait_until_running_and_migration_absent(mdb)
         else:
-            wait_until_phase_and_migration_phase(mdb, PHASE_RUNNING, MIGRATION_PHASE_IN_PROGRESS)
+            wait_until_phase_and_migrating_condition_reason(
+                mdb, PHASE_RUNNING, MIGRATING_CONDITION_REASON_IN_PROGRESS, timeout=600
+            )
 
     assert_migration_absent(mdb)
+
+
+def _wait_migrating_lifecycle_reason_then_running(mdb: MongoDB, migrating_reason: str) -> None:
+    """Wait for Migrating=migrating_reason (Extending or Pruning), then status.phase Running."""
+    wait_until_migrating_condition_reason(mdb, migrating_reason, timeout=600)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)

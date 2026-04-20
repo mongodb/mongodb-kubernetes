@@ -417,7 +417,7 @@ def test_k8s_mdb_reaches_running(mdb_k8s: MongoDB):
 
 @mark.e2e_vm_migration_x509
 def test_migration_dry_run_connectivity_passes(mdb_k8s: MongoDB):
-    """Dry-run under TLS+X509; operator records result on ``status.migration`` before annotation is cleared."""
+    """Dry-run under TLS+X509; operator records result on ``status.conditions`` before annotation is cleared."""
     run_migration_dry_run_connectivity_passes(mdb_k8s)
 
 

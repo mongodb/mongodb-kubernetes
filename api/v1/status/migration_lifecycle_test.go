@@ -6,85 +6,85 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestComputeMigrationLifecyclePhase(t *testing.T) {
+func TestComputeMigratingConditionReason(t *testing.T) {
 	tests := []struct {
-		name                    string
-		isDryRun                bool
-		externalCount           int
-		prevObservedExternal    int
-		desiredK8sMembers       int
+		name                     string
+		isDryRun                 bool
+		externalCount            int
+		prevObservedExternal     int
+		desiredK8sMembers        int
 		lastReconciledK8sMembers int
-		expected                MigrationLifecyclePhase
+		expected                 MigratingConditionReason
 	}{
 		{
-			name:                    "dry-run forces Validating regardless of counts",
-			isDryRun:                true,
-			externalCount:           1,
-			prevObservedExternal:    1,
-			desiredK8sMembers:       3,
+			name:                     "dry-run forces Validating regardless of counts",
+			isDryRun:                 true,
+			externalCount:            1,
+			prevObservedExternal:     1,
+			desiredK8sMembers:        3,
 			lastReconciledK8sMembers: 1,
-			expected:                MigrationPhaseValidating,
+			expected:                 MigratingReasonValidating,
 		},
 		{
-			name:                    "external count decreased → Pruning",
-			externalCount:           1,
-			prevObservedExternal:    2,
-			desiredK8sMembers:       3,
+			name:                     "external count decreased → Pruning",
+			externalCount:            1,
+			prevObservedExternal:     2,
+			desiredK8sMembers:        3,
 			lastReconciledK8sMembers: 3,
-			expected:                MigrationPhasePruning,
+			expected:                 MigratingReasonPruning,
 		},
 		{
-			name:                    "desired k8s exceeds last reconciled → Extending",
-			externalCount:           1,
-			prevObservedExternal:    1,
-			desiredK8sMembers:       3,
+			name:                     "desired k8s exceeds last reconciled → Extending",
+			externalCount:            1,
+			prevObservedExternal:     1,
+			desiredK8sMembers:        3,
 			lastReconciledK8sMembers: 1,
-			expected:                MigrationPhaseExtending,
+			expected:                 MigratingReasonExtending,
 		},
 		{
-			name:                    "stable counts → InProgress",
-			externalCount:           1,
-			prevObservedExternal:    1,
-			desiredK8sMembers:       3,
+			name:                     "stable counts → InProgress",
+			externalCount:            1,
+			prevObservedExternal:     1,
+			desiredK8sMembers:        3,
 			lastReconciledK8sMembers: 3,
-			expected:                MigrationPhaseInProgress,
+			expected:                 MigratingReasonInProgress,
 		},
 		{
-			name:                    "first observation of externals, stable k8s → InProgress",
-			externalCount:           1,
-			prevObservedExternal:    0,
-			desiredK8sMembers:       1,
+			name:                     "first observation of externals, stable k8s → InProgress",
+			externalCount:            1,
+			prevObservedExternal:     0,
+			desiredK8sMembers:        1,
 			lastReconciledK8sMembers: 1,
-			expected:                MigrationPhaseInProgress,
+			expected:                 MigratingReasonInProgress,
 		},
 		{
-			name:                    "desired k8s exceeds last reconciled by 1 → Extending",
-			externalCount:           1,
-			prevObservedExternal:    1,
-			desiredK8sMembers:       4,
+			name:                     "desired k8s exceeds last reconciled by 1 → Extending",
+			externalCount:            1,
+			prevObservedExternal:     1,
+			desiredK8sMembers:        4,
 			lastReconciledK8sMembers: 3,
-			expected:                MigrationPhaseExtending,
+			expected:                 MigratingReasonExtending,
 		},
 		{
-			name:                    "pruning takes precedence over extending",
-			externalCount:           2,
-			prevObservedExternal:    3,
-			desiredK8sMembers:       4,
+			name:                     "pruning takes precedence over extending",
+			externalCount:            2,
+			prevObservedExternal:     3,
+			desiredK8sMembers:        4,
 			lastReconciledK8sMembers: 3,
-			expected:                MigrationPhasePruning,
+			expected:                 MigratingReasonPruning,
 		},
 		{
-			name:                    "member being provisioned (status not yet updated) → Extending",
-			externalCount:           3,
-			prevObservedExternal:    3,
-			desiredK8sMembers:       1,
+			name:                     "member being provisioned (status not yet updated) → Extending",
+			externalCount:            3,
+			prevObservedExternal:     3,
+			desiredK8sMembers:        1,
 			lastReconciledK8sMembers: 0,
-			expected:                MigrationPhaseExtending,
+			expected:                 MigratingReasonExtending,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := ComputeMigrationLifecyclePhase(
+			result := ComputeMigratingConditionReason(
 				tc.isDryRun,
 				tc.externalCount,
 				tc.prevObservedExternal,
