@@ -1749,7 +1749,7 @@ def assert_data_got_restored(test_data, collection1, collection2=None, timeout=3
             # We ignore Exception as there is usually a blip in connection (backup restore
             # results in reelection or whatever)
             # "Connection reset by peer" or "not master and slaveOk=false"
-            logger.error("Exception happened while waiting for db data restore: ", e)
+            logger.error("Exception happened while waiting for db data restore: %s", e)
             # this is definitely the sign of a problem - no need continuing as each connection times out
             # after many minutes
             if "Connection refused" in str(e):
