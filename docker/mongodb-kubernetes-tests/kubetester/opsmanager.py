@@ -87,6 +87,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def backup_status(self) -> MongoDBOpsManager.BackupStatus:
         return self.BackupStatus(self)
 
+    @TRACER.start_as_current_span("assert_reaches")
     def assert_reaches(self, fn: Callable[[MongoDBOpsManager], bool], timeout=None):
         return self.wait_for(fn, timeout=timeout, should_raise=True)
 
@@ -99,6 +100,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         tester = self.get_om_tester(self.app_db_name())
         return tester.api_get_preferred_hostnames()
 
+    @TRACER.start_as_current_span("assert_appdb_preferred_hostnames_are_added")
     def assert_appdb_preferred_hostnames_are_added(self):
         def appdb_preferred_hostnames_are_added():
             expected_hostnames = self.get_appdb_hostnames_for_monitoring()
@@ -114,6 +116,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         KubernetesTester.wait_until(appdb_preferred_hostnames_are_added, timeout=120, sleep_time=5)
 
+    @TRACER.start_as_current_span("assert_appdb_hostnames_are_correct")
     def assert_appdb_hostnames_are_correct(self):
         def appdb_hostnames_are_correct():
             expected_hostnames = self.get_appdb_hostnames_for_monitoring()
@@ -129,6 +132,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         KubernetesTester.wait_until(appdb_hostnames_are_correct, timeout=300, sleep_time=10)
 
+    @TRACER.start_as_current_span("assert_appdb_monitoring_group_was_created")
     def assert_appdb_monitoring_group_was_created(self):
         tester = self.get_om_tester(self.app_db_name())
         tester.assert_group_exists()
@@ -163,8 +167,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         KubernetesTester.wait_until(no_automation_agents_have_registered, timeout=600, sleep_time=5)
 
-    TRACER.start_as_current_span("assert_monitoring_data_exists")
-
+    @TRACER.start_as_current_span("assert_monitoring_data_exists")
     def assert_monitoring_data_exists(
         self,
         database_name: Optional[str] = None,
@@ -585,8 +588,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     ) -> kubernetes.client.V1ContainerStatus:
         return next(filter(lambda c: c.name == "mongodb-backup-daemon", backup_daemon_pod.status.container_statuses))
 
-    TRACER.start_as_current_span("wait_until_backup_pods_become_ready")
-
+    @TRACER.start_as_current_span("wait_until_backup_pods_become_ready")
     def wait_until_backup_pods_become_ready(self, timeout=300):
         def backup_daemons_are_ready():
             try:
@@ -1005,6 +1007,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return self["spec"].get("topology", "") == "MultiCluster"
 
     class StatusCommon:
+        @TRACER.start_as_current_span("assert_reaches_phase")
         def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
             intermediate_events = (
                 # This can be an intermediate error, right before we check for this secret we create it.
@@ -1039,6 +1042,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
             )
 
+        @TRACER.start_as_current_span("assert_persist_phase")
         def assert_persist_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False, persist_for=3):
             intermediate_events = (
                 # This can be an intermediate error, right before we check for this secret we create it.
@@ -1074,8 +1078,16 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 f"Persist phase {phase.name} ({persist_for} retries) for resource {self.__class__.__name__} took {end_time - start_time}s"
             )
 
+        @TRACER.start_as_current_span("assert_abandons_phase")
         def assert_abandons_phase(self, phase: Phase, timeout=None):
-            return self.ops_manager.wait_for(lambda s: self.get_phase() != phase, timeout, should_raise=True)
+            start_time = time.time()
+            self.ops_manager.wait_for(lambda s: self.get_phase() != phase, timeout, should_raise=True)
+            end_time = time.time()
+            span = trace.get_current_span()
+            span.set_attribute("mck.resource", self.__class__.__name__)
+            span.set_attribute("mck.action", "assert_abandons_phase")
+            span.set_attribute("mck.abandoned_phase", phase.name)
+            span.set_attribute("mck.time_needed", end_time - start_time)
 
         def assert_status_resource_not_ready(self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0):
             """Checks the element in 'resources_not_ready' field by index 'idx'"""
