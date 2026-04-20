@@ -1,7 +1,7 @@
 """Shared VM migration dry-run (connectivity-only) flow for plain-TLS and X509 E2E tests.
 
 The operator records migration lifecycle on ``status.conditions`` (``Migrating``,
-``NetworkConnectivityVerification``) and persists the last observed external-member count on
+``NetworkConnectivityVerified``) and persists the last observed external-member count on
 ``status.migrationObservedExternalMembersCount``.
 """
 
@@ -10,7 +10,7 @@ from kubetester.mongodb import MongoDB
 
 # Annotation that triggers migration dry-run (connectivity validation only, no OM/StatefulSet changes).
 MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
-CONDITION_NETWORK_CONNECTIVITY_VERIFIED = "NetworkConnectivityVerification"
+CONDITION_NETWORK_CONNECTIVITY_VERIFIED = "NetworkConnectivityVerified"
 # Top-level condition indicating whether VM-to-K8s migration is active.
 CONDITION_MIGRATING = "Migrating"
 # Literal status.conditions[Migrating].reason values while Migrating=True (api/v1/status MigratingReason*).
@@ -82,7 +82,7 @@ def _assert_migration_status_after_dry_run_pass(mdb: MongoDB) -> None:
     )
     assert _network_connectivity_true_in_conditions(
         conditions
-    ), "expected NetworkConnectivityVerification status True on status.conditions"
+    ), "expected NetworkConnectivityVerified status True on status.conditions"
     assert "migration" not in status or status.get("migration") in (
         None,
         {},
@@ -93,7 +93,7 @@ def run_migration_dry_run_connectivity_passes(mdb: MongoDB, *, timeout: int = 60
     """Dry-run annotation → wait for connectivity → assert ``Validating`` → clear annotation.
 
     While the annotation is present, ``Migrating`` is True with ``reason: Validating``; connectivity
-    progress is in ``NetworkConnectivityVerification`` on ``status.conditions``. After the annotation
+    progress is in ``NetworkConnectivityVerified`` on ``status.conditions``. After the annotation
     is removed, the operator transitions to ``InProgress`` on the next reconcile.
     """
     mdb.load()
@@ -194,7 +194,7 @@ def wait_until_running_and_migration_absent(mdb: MongoDB, *, timeout: int = 600)
     """Poll until status.phase is Running, migration helper conditions are cleared, and Migrating=False.
 
     When all externalMembers are removed the operator unsets ``migrationObservedExternalMembersCount``,
-    removes ``NetworkConnectivityVerification``, and sets ``Migrating`` to False.
+    removes ``NetworkConnectivityVerified``, and sets ``Migrating`` to False.
     """
 
     def _ok() -> bool:

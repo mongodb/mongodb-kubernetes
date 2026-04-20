@@ -845,7 +845,8 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 //
 // The MongoDB resource phase stays PhaseConnectivityValidation for both in-progress and passed
 // outcomes. The Migrating condition Reason is Validating while the dry-run annotation is set;
-// NetworkConnectivityVerification on status.conditions carries ConnectivityCheckRunning or ConnectivityCheckPassed.
+// NetworkConnectivityVerified on status.conditions carries ConnectivityCheckRunning or ConnectivityCheckPassed;
+// while the Job runs, reason is NetworkConnectivityVerifiedReasonRunning ("Running").
 // While the Job runs, reconciliation is requeued after 30s. When the Job reports a connectivity
 // failure, the resource phase is Failed, it is requeued after 5 minutes. Earlier failures
 // in this function (e.g. building StatefulSet options, agent certificate, or RunConnectivityJob
@@ -910,7 +911,7 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 		return r.updateStatus(ctx,
 			workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", mdbstatus.MigrationDryRunAnnotationKey).WithRetry(30),
 			mdbstatus.NewMigrationStatusOptionWithCondition(
-				mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckRunning, "Running", "Connectivity validation Job is in progress"),
+				mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckRunning, string(mdbstatus.NetworkConnectivityVerifiedReasonRunning), "Connectivity validation Job is in progress"),
 			),
 		)
 	case mdbstatus.MigrationPhaseConnectivityCheckPassed:

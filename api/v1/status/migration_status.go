@@ -23,8 +23,19 @@ const (
 	MigratingReasonComplete MigratingConditionReason = "MigrationComplete"
 )
 
-// ConditionNetworkConnectivityVerification Condition type for migration (connectivity validation) dry run.
-const ConditionNetworkConnectivityVerification = "NetworkConnectivityVerification"
+// ConditionNetworkConnectivityVerified is the condition type for migration (connectivity validation) dry run.
+const ConditionNetworkConnectivityVerified = "NetworkConnectivityVerified"
+
+// LegacyNetworkConnectivityVerificationConditionType is the former condition type before rename to NetworkConnectivityVerified.
+const LegacyNetworkConnectivityVerificationConditionType = "NetworkConnectivityVerification"
+
+// NetworkConnectivityVerifiedConditionReason is written to status.conditions[NetworkConnectivityVerified].reason.
+type NetworkConnectivityVerifiedConditionReason string
+
+const (
+	// NetworkConnectivityVerifiedReasonRunning is used while the connectivity validation Job is in progress.
+	NetworkConnectivityVerifiedReasonRunning NetworkConnectivityVerifiedConditionReason = "Running"
+)
 
 // LegacyMigrationObservedExternalMembersConditionType is the former condition type for the observed
 // external-member count. Stripped on reconcile for CRs upgraded from older operators.
@@ -59,7 +70,7 @@ func MigrationCondition(phase MigrationPhase, reason, message string) metav1.Con
 		status = metav1.ConditionFalse
 	}
 	return metav1.Condition{
-		Type:               ConditionNetworkConnectivityVerification,
+		Type:               ConditionNetworkConnectivityVerified,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,

@@ -1344,7 +1344,8 @@ func (m *MongoDB) applyComputedReplicaSetMigrationStatus(priorStatusMembers int)
 
 	if extCount == 0 {
 		meta.RemoveStatusCondition(&m.Status.Conditions, status.LegacyMigrationObservedExternalMembersConditionType)
-		meta.RemoveStatusCondition(&m.Status.Conditions, status.ConditionNetworkConnectivityVerification)
+		meta.RemoveStatusCondition(&m.Status.Conditions, status.LegacyNetworkConnectivityVerificationConditionType)
+		meta.RemoveStatusCondition(&m.Status.Conditions, status.ConditionNetworkConnectivityVerified)
 		m.Status.MigrationObservedExternalMembersCount = nil
 		// Only flip Migrating to False if migration was previously active.
 		if cond := meta.FindStatusCondition(m.Status.Conditions, status.ConditionMigrating); cond != nil && cond.Status == metav1.ConditionTrue {
@@ -1352,6 +1353,8 @@ func (m *MongoDB) applyComputedReplicaSetMigrationStatus(priorStatusMembers int)
 		}
 		return
 	}
+
+	meta.RemoveStatusCondition(&m.Status.Conditions, status.LegacyNetworkConnectivityVerificationConditionType)
 
 	isDryRun := m.GetAnnotations()[status.MigrationDryRunAnnotationKey] == "true"
 	desiredK8sMembers := m.Spec.Members
