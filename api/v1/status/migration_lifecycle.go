@@ -8,22 +8,27 @@ const MigrationDryRunAnnotationKey = "mongodb.com/migration-dry-run"
 // The caller is responsible for clearing migration-related status (conditions and
 // migrationObservedExternalMembersCount) when externalCount == 0.
 //
-// Reasons (in priority order) match status.conditions[Migrating].reason while migrating:
+// Reasons match status.conditions[Migrating].reason while migrating:
 //   - Validating  — migration-dry-run annotation is present
-//   - Pruning     — external member count decreased since last reconcile (takes precedence over Extending)
 //   - Extending   — spec.members exceeds the last-reconciled K8s member count (members being provisioned)
+//   - Pruning     — external member count has decreased since last reconcile
 //   - InProgress  — stable (counts unchanged, no dry-run)
-func ComputeMigratingConditionReason(isDryRun bool, externalCount int, prevObservedExternalCount int, desiredK8sMembers int, lastReconciledK8sMembers int) MigratingConditionReason {
+func ComputeMigratingConditionReason(isDryRun bool, externalCount int, prevObservedExternalCount *int, desiredK8sMembers int, lastReconciledK8sMembers int) MigratingConditionReason {
 	if isDryRun {
 		return MigratingReasonValidating
 	}
 
-	if externalCount < prevObservedExternalCount {
-		return MigratingReasonPruning
-	}
-
 	if desiredK8sMembers > lastReconciledK8sMembers {
 		return MigratingReasonExtending
+	}
+
+	// This means it's the first iteration
+	if prevObservedExternalCount == nil {
+		return MigratingReasonInProgress
+	}
+
+	if externalCount < *prevObservedExternalCount {
+		return MigratingReasonPruning
 	}
 
 	return MigratingReasonInProgress

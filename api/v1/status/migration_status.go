@@ -9,7 +9,7 @@ import (
 type MigratingConditionReason string
 
 const (
-	// MigratingReasonValidating is used while the migration-dry-run annotation is present.
+	// MigratingReasonValidating is used while the MigrationDryRunAnnotationKey annotation is present.
 	MigratingReasonValidating MigratingConditionReason = "Validating"
 	// MigratingReasonExtending is used when spec.members exceeds the last-reconciled in-cluster member count
 	// (status.members from the prior reconcile). The replica set is being extended with new k8s members.
@@ -17,7 +17,7 @@ const (
 	// MigratingReasonPruning is used when spec.externalMembers count decreases — VM members are being removed.
 	MigratingReasonPruning MigratingConditionReason = "Pruning"
 	// MigratingReasonInProgress is the stable state: externalMembers exist, counts are unchanged,
-	// no dry-run active. Migration is active but nothing is changing right now.
+	// no dry-run active. Migration is active, but nothing is changing right now.
 	MigratingReasonInProgress MigratingConditionReason = "InProgress"
 	// MigratingReasonComplete is set on the Migrating=False condition after all external members are removed.
 	MigratingReasonComplete MigratingConditionReason = "MigrationComplete"
@@ -25,9 +25,6 @@ const (
 
 // ConditionNetworkConnectivityVerified is the condition type for migration (connectivity validation) dry run.
 const ConditionNetworkConnectivityVerified = "NetworkConnectivityVerified"
-
-// LegacyNetworkConnectivityVerificationConditionType is the former condition type before rename to NetworkConnectivityVerified.
-const LegacyNetworkConnectivityVerificationConditionType = "NetworkConnectivityVerification"
 
 // NetworkConnectivityVerifiedConditionReason is written to status.conditions[NetworkConnectivityVerified].reason.
 type NetworkConnectivityVerifiedConditionReason string
@@ -37,9 +34,9 @@ const (
 	NetworkConnectivityVerifiedReasonRunning NetworkConnectivityVerifiedConditionReason = "Running"
 )
 
-// LegacyMigrationObservedExternalMembersConditionType is the former condition type for the observed
-// external-member count. Stripped on reconcile for CRs upgraded from older operators.
-const LegacyMigrationObservedExternalMembersConditionType = "MigrationObservedExternalMembers"
+// MigrationObservedExternalMembersConditionType is the condition type for the observed
+// external-member count.
+const MigrationObservedExternalMembersConditionType = "MigrationObservedExternalMembers"
 
 // ConditionMigrating is the top-level condition type indicating whether VM-to-K8s migration is active.
 // True = migration in progress (externalMembers exist), False = migration complete or not started.

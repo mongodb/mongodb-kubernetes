@@ -100,7 +100,7 @@ func reconcileAndCheckMigratingCondition(
 		"migrationObservedExternalMembersCount should match len(spec.externalMembers) after reconcile")
 	assert.Equal(t, expectedExternalCount, len(rs.Spec.GetExternalMembers()),
 		"caller expectedExternalCount should match spec.externalMembers length")
-	assert.Nil(t, meta.FindStatusCondition(rs.Status.Conditions, mdbstatus.LegacyMigrationObservedExternalMembersConditionType))
+	assert.Nil(t, meta.FindStatusCondition(rs.Status.Conditions, mdbstatus.MigrationObservedExternalMembersConditionType))
 }
 
 // reconcileAndCheckMigrationAbsent runs one reconcile and asserts migration-specific status is cleared.
@@ -117,9 +117,8 @@ func reconcileAndCheckMigrationAbsent(
 	require.NoError(t, err)
 	require.NoError(t, kubeClient.Get(ctx, rs.ObjectKey(), rs))
 	assert.Nil(t, rs.Status.MigrationObservedExternalMembersCount)
-	assert.Nil(t, meta.FindStatusCondition(rs.Status.Conditions, mdbstatus.LegacyMigrationObservedExternalMembersConditionType))
+	assert.Nil(t, meta.FindStatusCondition(rs.Status.Conditions, mdbstatus.MigrationObservedExternalMembersConditionType))
 	assert.Nil(t, meta.FindStatusCondition(rs.Status.Conditions, mdbstatus.ConditionNetworkConnectivityVerified))
-	assert.Nil(t, meta.FindStatusCondition(rs.Status.Conditions, mdbstatus.LegacyNetworkConnectivityVerificationConditionType))
 	mig := meta.FindStatusCondition(rs.Status.Conditions, mdbstatus.ConditionMigrating)
 	require.NotNil(t, mig, "expected Migrating=False after migration completes")
 	assert.Equal(t, metav1.ConditionFalse, mig.Status, "expected Migrating=False when no externalMembers remain")

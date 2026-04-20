@@ -73,7 +73,7 @@ def promote_and_prune_members(mdb: MongoDB, vm_sts: dict) -> None:
                 mdb, PHASE_RUNNING, MIGRATING_CONDITION_REASON_IN_PROGRESS, timeout=600
             )
 
-        wait_until_running_and_migration_complete(mdb)
+    wait_until_running_and_migration_complete(mdb)
 
 
 def _wait_migrating_lifecycle_reason_then_running(mdb: MongoDB, migrating_reason: str) -> None:
