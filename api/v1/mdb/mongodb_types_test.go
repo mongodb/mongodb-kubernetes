@@ -465,3 +465,50 @@ func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
 	actual := unmarshalledSpec.AdditionalMongodConfig.ToMap()
 	assert.Equal(t, expected, actual)
 }
+
+func TestGetReplicaSetName_NoOverride(t *testing.T) {
+	mdb := NewReplicaSetBuilder().SetName("my-rs").Build()
+	assert.Equal(t, "my-rs", mdb.GetReplicaSetName())
+}
+
+func TestGetReplicaSetName_WithOverride(t *testing.T) {
+	mdb := NewReplicaSetBuilder().SetName("my-rs").Build()
+	mdb.Spec.ReplicaSetNameOverride = "custom-rs-name"
+	assert.Equal(t, "custom-rs-name", mdb.GetReplicaSetName())
+}
+
+func TestGetReplicaSetName_PanicsForNonReplicaSet(t *testing.T) {
+	mdb := NewStandaloneBuilder().SetName("my-standalone").Build()
+	assert.Panics(t, func() { mdb.GetReplicaSetName() })
+}
+
+func TestGetAgentConfig_ReturnsAgent(t *testing.T) {
+	spec := DbCommonSpec{
+		Agent: AgentConfig{
+			StartupParameters: StartupParameters{"maxLogFileDurationHrs": "24"},
+		},
+	}
+	cfg := spec.GetAgentConfig()
+	assert.Equal(t, "24", cfg.StartupParameters["maxLogFileDurationHrs"])
+}
+
+func TestGetAgentConfig_Empty(t *testing.T) {
+	spec := DbCommonSpec{}
+	assert.Equal(t, AgentConfig{}, spec.GetAgentConfig())
+}
+
+func TestGetExternalMembers_Nil(t *testing.T) {
+	spec := MongoDbSpec{}
+	assert.Nil(t, spec.GetExternalMembers())
+}
+
+func TestGetExternalMembers_ReturnsList(t *testing.T) {
+	spec := MongoDbSpec{
+		ExternalMembers: []ExternalMember{
+			{ProcessName: "ext-0", Hostname: "ext-0.host:27017", Type: "mongod"},
+		},
+	}
+	members := spec.GetExternalMembers()
+	assert.Len(t, members, 1)
+	assert.Equal(t, "ext-0", members[0].ProcessName)
+}
