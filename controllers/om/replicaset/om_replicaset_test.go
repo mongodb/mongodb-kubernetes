@@ -101,3 +101,38 @@ func TestBuildFromMongoDBWithReplicas(t *testing.T) {
 			"Member host should match process name at index %d", i)
 	}
 }
+
+func TestIsLegacyDeployment_EmptyExistingIds(t *testing.T) {
+	assert.False(t, IsLegacyDeployment(nil, nil))
+	assert.False(t, IsLegacyDeployment(map[string]int{}, nil))
+}
+
+func TestIsLegacyDeployment_HasExternalMembers(t *testing.T) {
+	existingIds := map[string]int{"old-name-0": 0, "old-name-1": 1}
+	assert.False(t, IsLegacyDeployment(existingIds, []string{"external-host:27017"}))
+}
+
+func TestIsLegacyDeployment_AllNewNaming(t *testing.T) {
+	existingIds := map[string]int{
+		"k8s/test-ns/my-rs-0": 0,
+		"k8s/test-ns/my-rs-1": 1,
+	}
+	assert.False(t, IsLegacyDeployment(existingIds, nil))
+}
+
+func TestIsLegacyDeployment_MixedNaming(t *testing.T) {
+	existingIds := map[string]int{
+		"old-name-0":          0,
+		"k8s/test-ns/my-rs-1": 1,
+	}
+	assert.False(t, IsLegacyDeployment(existingIds, nil))
+}
+
+func TestIsLegacyDeployment_AllLegacyNaming(t *testing.T) {
+	existingIds := map[string]int{
+		"my-rs-0": 0,
+		"my-rs-1": 1,
+		"my-rs-2": 2,
+	}
+	assert.True(t, IsLegacyDeployment(existingIds, nil))
+}
