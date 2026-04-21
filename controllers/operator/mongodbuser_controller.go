@@ -330,10 +330,10 @@ func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberCl
 	return nil
 }
 
-// toOmUser converts a MongoDBUser specification and optional password into an
-// automation config MongoDB user. If the user has no password then a blank
-// password should be provided.
-func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationConfig) (om.MongoDBUser, error) {
+// toOmUser converts a MongoDBUser spec into an AC user. Pass an empty password for
+// external-auth users. needsFollowUp is true when the imported-user path was taken
+// and the caller must requeue for OM to finalise creds from initPwd.
+func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationConfig) (om.MongoDBUser, bool, error) {
 	user := om.MongoDBUser{
 		Database:                   spec.Database,
 		Username:                   spec.Username,
@@ -342,17 +342,19 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationCon
 		Mechanisms:                 []string{},
 	}
 
+	needsFollowUp := false
 	if spec.Database != authentication.ExternalDB {
-		err := authentication.ConfigureScramCredentials(&user, password, ac)
+		followUp, err := authentication.ConfigureScramCredentials(&user, password, ac)
 		if err != nil {
-			return om.MongoDBUser{}, xerrors.Errorf("error generating SCRAM credentials: %w", err)
+			return om.MongoDBUser{}, false, xerrors.Errorf("error generating SCRAM credentials: %w", err)
 		}
+		needsFollowUp = followUp
 	}
 
 	for _, r := range spec.Roles {
 		user.AddRole(&om.Role{Role: r.RoleName, Database: r.Database})
 	}
-	return user, nil
+	return user, needsFollowUp, nil
 }
 
 func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
@@ -368,6 +370,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	}
 
 	shouldRetry := false
+	needsFollowUp := false
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if ac.Auth.Disabled ||
 			(!stringutil.ContainsAny(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigScramSha256Option, util.AutomationConfigScramSha1Option)) {
@@ -385,10 +388,11 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 			auth.RemoveUser(user.Status.Username, user.Status.Database)
 		}
 
-		desiredUser, err := toOmUser(user.Spec, password, ac)
+		desiredUser, followUp, err := toOmUser(user.Spec, password, ac)
 		if err != nil {
 			return err
 		}
+		needsFollowUp = followUp
 
 		auth.EnsureUser(desiredUser)
 		return nil
@@ -398,6 +402,13 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()).WithRetry(10), log)
 		}
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
+	}
+
+	// initPwd was written; requeue so the next reconcile picks up the creds
+	// OM derives from it. Stays Pending until OM processes initPwd.
+	if needsFollowUp {
+		log.Info("initPwd synced for imported user, requeuing to finalize mechanisms and credentials")
+		return r.updateStatus(ctx, user, workflow.Pending("finalizing mechanisms after initPwd sync").WithRetry(3), log)
 	}
 
 	// Before we update the MongoDBUser's status to Updated,
@@ -428,9 +439,9 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 			return xerrors.Errorf("no external authentication mechanisms (LDAP or x509) have been configured")
 		}
 
-		desiredUser, err := toOmUser(user.Spec, "", ac)
+		desiredUser, _, err := toOmUser(user.Spec, "", ac)
 		if err != nil {
-			return xerrors.Errorf("errorr updating user %w", err)
+			return xerrors.Errorf("error updating user %w", err)
 		}
 
 		auth := ac.Auth

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac as _hmac
 import logging
 import os
 import re
@@ -30,45 +27,7 @@ skip_if_cloud_manager = pytest.mark.skipif(is_cloud_qa(), reason="Do not run in 
 
 logger = test_logger.get_test_logger(__name__)
 
-_SCRAM_SHA256_ITERATIONS = 15000
-_SCRAM_SHA1_ITERATIONS = 10000
-
-
-def _scram_sha256_creds(username: str, password: str) -> Dict:
-    """Generate SCRAM-SHA-256 credentials matching the operator's Go implementation.
-
-    Note: the Go operator applies SASLprep normalisation to the password before PBKDF2.
-    This function does not implement SASLprep and therefore only produces matching
-    credentials for ASCII-only passwords (SASLprep is a no-op for pure ASCII input).
-    """
-    salt = os.urandom(28)  # sha256 digest size (32) minus RFC-5802 mandatory 4
-    salted_pw = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _SCRAM_SHA256_ITERATIONS)
-    client_key = _hmac.new(salted_pw, b"Client Key", hashlib.sha256).digest()
-    stored_key = hashlib.sha256(client_key).digest()
-    server_key = _hmac.new(salted_pw, b"Server Key", hashlib.sha256).digest()
-    return {
-        "iterationCount": _SCRAM_SHA256_ITERATIONS,
-        "salt": base64.b64encode(salt).decode(),
-        "storedKey": base64.b64encode(stored_key).decode(),
-        "serverKey": base64.b64encode(server_key).decode(),
-    }
-
-
-def _scram_sha1_creds(username: str, password: str) -> Dict:
-    """Generate SCRAM-SHA-1 (MONGODB-CR) credentials matching the operator's Go implementation."""
-    salt = os.urandom(16)  # sha1 digest size (20) minus RFC-5802 mandatory 4
-    # MONGODB-CR pre-hashes the password as MD5("user:mongo:pass")
-    md5_pw = hashlib.md5(f"{username}:mongo:{password}".encode()).hexdigest()
-    salted_pw = hashlib.pbkdf2_hmac("sha1", md5_pw.encode(), salt, _SCRAM_SHA1_ITERATIONS)
-    client_key = _hmac.new(salted_pw, b"Client Key", hashlib.sha1).digest()
-    stored_key = hashlib.sha1(client_key).digest()
-    server_key = _hmac.new(salted_pw, b"Server Key", hashlib.sha1).digest()
-    return {
-        "iterationCount": _SCRAM_SHA1_ITERATIONS,
-        "salt": base64.b64encode(salt).decode(),
-        "storedKey": base64.b64encode(stored_key).decode(),
-        "serverKey": base64.b64encode(server_key).decode(),
-    }
+from kubetester.scram import build_sha1_creds, build_sha256_creds
 
 
 class BackupStatus(str, Enum):
@@ -802,9 +761,9 @@ class OMTester(object):
         }
 
         if "SCRAM-SHA-256" in mechanisms:
-            user_entry["scramSha256Creds"] = _scram_sha256_creds(username, password)
+            user_entry["scramSha256Creds"] = build_sha256_creds(password)
         if "MONGODB-CR" in mechanisms or "SCRAM-SHA-1" in mechanisms:
-            user_entry["scramSha1Creds"] = _scram_sha1_creds(username, password)
+            user_entry["scramSha1Creds"] = build_sha1_creds(username, password)
 
         # Replace any existing entry for this user/db pair.
         config["auth"]["usersWanted"] = [
