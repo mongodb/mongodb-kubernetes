@@ -67,38 +67,45 @@ def deploy_vm_service(namespace: str):
     return service_body
 
 
-def run_migrate_generate(
-    namespace: str,
-    passwords: list[str] | None = None,
-    certs_secret_prefix: str | None = None,
+def _run_migrate_subcommand(
+    subcommand: str,
+    extra_flags: list[str],
+    stdin_text: str | None,
 ) -> str:
-    """Run kubectl-mongodb migrate and return stdout (the CR YAML bundle).
-
-    If certs_secret_prefix is provided (e.g. "mdb"), it is sent first to stdin
-    for the TLS certsSecretPrefix prompt when the deployment has TLS enabled.
-    If passwords is provided, they are fed to stdin (after the cert prefix when
-    present) one per line for SCRAM user prompts.
-    """
-    stdin_lines = []
-    if certs_secret_prefix is not None:
-        stdin_lines.append(certs_secret_prefix)
-    if passwords:
-        stdin_lines.extend(passwords)
-    stdin_text = "\n".join(stdin_lines) + "\n" if stdin_lines else None
-
+    """Run a kubectl-mongodb migrate subcommand and return stdout."""
     proc = subprocess.run(
-        [MIGRATE_TOOL, "migrate", *MIGRATE_FLAGS, "--namespace", namespace],
+        [MIGRATE_TOOL, "migrate", subcommand, *MIGRATE_FLAGS, *extra_flags],
         input=stdin_text,
         capture_output=True,
         text=True,
         env=_MIGRATE_ENV,
     )
     if proc.returncode != 0:
-        logger.error("migrate stderr:\n%s", proc.stderr)
+        logger.error("migrate %s stderr:\n%s", subcommand, proc.stderr)
         raise subprocess.CalledProcessError(proc.returncode, proc.args, proc.stdout, proc.stderr)
     if proc.stderr:
-        logger.info("migrate stderr:\n%s", proc.stderr)
+        logger.info("migrate %s stderr:\n%s", subcommand, proc.stderr)
     return proc.stdout
+
+
+def run_migrate_generate(
+    namespace: str,
+    passwords: list[str] | None = None,
+    certs_secret_prefix: str | None = None,
+) -> str:
+    """Run migrate mongodb + migrate users and return the combined CR YAML bundle.
+
+    certs_secret_prefix is fed to stdin for the migrate mongodb TLS prompt.
+    passwords are fed to stdin for migrate users SCRAM prompts.
+    """
+    mongodb_stdin = (certs_secret_prefix + "\n") if certs_secret_prefix is not None else None
+    mongodb_yaml = _run_migrate_subcommand("mongodb", ["--namespace", namespace], stdin_text=mongodb_stdin)
+
+    users_stdin = "\n".join(passwords) + "\n" if passwords else None
+    users_yaml = _run_migrate_subcommand("users", ["--namespace", namespace], stdin_text=users_stdin)
+
+    parts = [p for p in (mongodb_yaml.strip(), users_yaml.strip()) if p]
+    return "\n---\n".join(parts) + "\n" if parts else ""
 
 
 NOISY_AC_KEYS = ("mongoDbVersions",)
