@@ -219,8 +219,12 @@ def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoD
     # mongod connects via Route hostnames instead.
     if _route_hostnames:
         resource["spec"]["loadBalancer"]["managed"]["externalHostname"] = derive_lb_endpoint_template(_route_hostnames)
+    # Shared OpenShift cluster: only 2 schedulable workers (other nodes are tainted master/infra), and this
+    # test runs 4 mongot pods. CPU requests must stay low enough that 4 pods fit alongside other concurrent
+    # tasks, otherwise pods go Pending with FailedScheduling. Memory drives mongot's JVM heap: -Xmx is set
+    # to half the memory request in search_construction.go (jvmFlags), so lowering memory shrinks the heap.
     resource["spec"]["resourceRequirements"] = {
-        "requests": {"cpu": "1", "memory": "2Gi"},
+        "requests": {"cpu": "250m", "memory": "2Gi"},
     }
     return resource
 
