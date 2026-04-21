@@ -14,6 +14,8 @@ type mongodbFlags struct {
 	multiClusterNames    string
 	outputFile           string
 	resourceNameOverride string
+	certsSecretPrefix    string
+	prometheusSecretName string
 }
 
 var mFlags mongodbFlags
@@ -41,6 +43,8 @@ func init() {
 	MongodbCmd.Flags().StringVar(&mFlags.multiClusterNames, "multi-cluster-names", "", "Comma-separated list of target cluster names (e.g., east1,west1). Generates a MongoDBMultiCluster CR")
 	MongodbCmd.Flags().StringVarP(&mFlags.outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
 	MongodbCmd.Flags().StringVar(&mFlags.resourceNameOverride, "resource-name-override", "", "Kubernetes resource name (metadata.name) for the generated CR. When the replica set name is not a valid Kubernetes name it is auto-normalized, but this flag lets you choose a custom name. spec.replicaSetNameOverride is set automatically")
+	MongodbCmd.Flags().StringVar(&mFlags.certsSecretPrefix, "certs-secret-prefix", "", "Value for spec.security.certsSecretPrefix. Required when TLS is enabled and suppresses the interactive prompt")
+	MongodbCmd.Flags().StringVar(&mFlags.prometheusSecretName, "prometheus-secret-name", "", "Name of a pre-created Kubernetes Secret containing the Prometheus password (key: \"password\"). Suppresses the interactive prompt")
 	_ = MongodbCmd.MarkFlagRequired("config-map-name")
 	_ = MongodbCmd.MarkFlagRequired("secret-name")
 }
