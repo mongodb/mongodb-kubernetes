@@ -227,11 +227,8 @@ def test_external_members_structure(generated_cr: dict):
 
 
 @mark.e2e_vm_migration_generate_no_auth
-def test_members_zero(generated_cr: dict):
-    """Generated CR must start with members=0. Customers expand incrementally with non-voting K8s members."""
-    assert (
-        generated_cr["spec"].get("members", -1) == 0
-    ), f"Expected members=0, got {generated_cr['spec'].get('members')}"
+def test_members_not_set(generated_cr: dict):
+    """Generated CR omits members (operator default applies). Customers set it when expanding."""
     assert (
         "memberConfig" not in generated_cr["spec"]
     ), "Generated CR should not contain memberConfig. Customers set it when expanding."

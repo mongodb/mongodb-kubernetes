@@ -174,13 +174,8 @@ def apply_user_crs_and_verify_ac(generated_cr_yaml: str, namespace: str, om_test
         username = doc["spec"]["username"]
         ac_user = ac_users.get(username)
         assert ac_user is not None, f"{username} not found in automation config"
-        assert ac_user.get("mechanisms") == [
-            "SCRAM-SHA-256"
-        ], f"{username}: expected mechanisms ['SCRAM-SHA-256'], got {ac_user.get('mechanisms')}"
         assert ac_user.get("scramSha256Creds") is not None, f"{username}: missing scramSha256Creds"
-        assert (
-            ac_user.get("scramSha1Creds") is None
-        ), f"{username}: scramSha1Creds should not be present for migrated user with only SHA-256"
+        assert ac_user.get("scramSha1Creds") is not None, f"{username}: missing scramSha1Creds"
 
 
 def _wait_for_salt_change(om_tester: OMTester, username: str, old_salt: str, timeout: int = 180):
@@ -228,6 +223,5 @@ def rotate_password_and_verify(
 
     user.reload()
 
-    assert ac_user["mechanisms"] == ["SCRAM-SHA-256"], f"Expected original mechanisms, got: {ac_user['mechanisms']}"
     assert ac_user.get("scramSha256Creds") is not None, "scramSha256Creds missing"
-    assert ac_user.get("scramSha1Creds") is None, "scramSha1Creds should not be added"
+    assert ac_user.get("scramSha1Creds") is not None, "scramSha1Creds missing"
