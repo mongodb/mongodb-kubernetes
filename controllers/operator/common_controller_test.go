@@ -34,6 +34,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -1059,4 +1060,192 @@ func testFCVsCases(t *testing.T, verifyFCV func(version string, expectedFCV stri
 			verifyFCV(tc.version, tc.expectedFCV, tc.fcvOverride, t)
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Package-level helpers shared by Tasks 8–11
+// ---------------------------------------------------------------------------
+
+func buildRsByProcessesHelper(rsName string, processes []om.Process) om.ReplicaSetWithProcesses {
+	options := make([]automationconfig.MemberOptions, len(processes))
+	return om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet(rsName, "6.0.0"),
+		processes,
+		options,
+		nil,
+	)
+}
+
+func createRSProcessesHelper(rsName string, count int) []om.Process {
+	ps := make([]om.Process, count)
+	for i := 0; i < count; i++ {
+		spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}}
+		ps[i] = om.NewMongodProcess(
+			fmt.Sprintf("%s-%d", rsName, i),
+			fmt.Sprintf("%s-%d.some.host", rsName, i),
+			"fake-image", false,
+			&mdbv1.AdditionalMongodConfig{},
+			spec, "", nil, "",
+		)
+	}
+	return ps
+}
+
+type failingOMConn struct {
+	om.Connection
+}
+
+func (f failingOMConn) ReadDeployment() (om.Deployment, error) {
+	return om.NewDeployment(), fmt.Errorf("forced error")
+}
+
+// ---------------------------------------------------------------------------
+// Task 8: checkExternalMembersDrift
+// ---------------------------------------------------------------------------
+
+func TestCheckExternalMembersDrift_EmptyList(t *testing.T) {
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	status := checkExternalMembersDrift(conn, nil)
+	assert.True(t, status.IsOK())
+}
+
+func TestCheckExternalMembersDrift_MissingProcessInAC(t *testing.T) {
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "not-in-ac", Hostname: "not-in-ac:27017", Type: "mongod"},
+	}
+	status := checkExternalMembersDrift(conn, externalMembers)
+	assert.False(t, status.IsOK())
+}
+
+func TestCheckExternalMembersDrift_MatchingProcess(t *testing.T) {
+	d := om.NewDeployment()
+	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
+	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
+
+	conn := om.NewMockedOmConnection(d)
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "my-rs-0", Hostname: "my-rs-0.some.host:27017", Type: "mongod", ReplicaSetName: "my-rs"},
+	}
+	status := checkExternalMembersDrift(conn, externalMembers)
+	assert.True(t, status.IsOK())
+}
+
+func TestCheckExternalMembersDrift_HostnameMismatch(t *testing.T) {
+	d := om.NewDeployment()
+	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
+	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
+
+	conn := om.NewMockedOmConnection(d)
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "my-rs-0", Hostname: "wrong-host:27017", Type: "mongod", ReplicaSetName: "my-rs"},
+	}
+	status := checkExternalMembersDrift(conn, externalMembers)
+	assert.False(t, status.IsOK())
+}
+
+// ---------------------------------------------------------------------------
+// Task 9: validateACForMigration
+// ---------------------------------------------------------------------------
+
+func TestValidateACForMigration_EmptyList(t *testing.T) {
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	status := validateACForMigration(conn, nil)
+	assert.True(t, status.IsOK())
+}
+
+func TestValidateACForMigration_TLSModeSet(t *testing.T) {
+	d := om.NewDeployment()
+	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
+	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
+	d.GetProcesses()[0].EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "requireTLS"}
+
+	conn := om.NewMockedOmConnection(d)
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "my-rs-0", Hostname: "my-rs-0.some.host:27017", Type: "mongod"},
+	}
+	status := validateACForMigration(conn, externalMembers)
+	assert.True(t, status.IsOK())
+}
+
+func TestValidateACForMigration_TLSModeNotSet(t *testing.T) {
+	d := om.NewDeployment()
+	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
+	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
+	// Remove the tls key entirely so net.tls.mode is absent
+	delete(d.GetProcesses()[0].EnsureNetConfig(), "tls")
+
+	conn := om.NewMockedOmConnection(d)
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "my-rs-0", Hostname: "my-rs-0.some.host:27017", Type: "mongod"},
+	}
+	status := validateACForMigration(conn, externalMembers)
+	assert.False(t, status.IsOK())
+}
+
+func TestValidateACForMigration_ReadDeploymentError(t *testing.T) {
+	conn := failingOMConn{om.NewMockedOmConnection(om.NewDeployment())}
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "some-proc", Hostname: "some-proc:27017", Type: "mongod"},
+	}
+	status := validateACForMigration(conn, externalMembers)
+	assert.False(t, status.IsOK())
+}
+
+// ---------------------------------------------------------------------------
+// Task 10: checkIfHasExcessProcesses
+// ---------------------------------------------------------------------------
+
+func TestCheckIfHasExcessProcesses_ReadDeploymentError(t *testing.T) {
+	conn := failingOMConn{om.NewMockedOmConnection(om.NewDeployment())}
+	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
+	assert.False(t, status.IsOK())
+}
+
+func TestCheckIfHasExcessProcesses_SingleResource(t *testing.T) {
+	d := om.NewDeployment()
+	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 2))
+	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
+
+	conn := om.NewMockedOmConnection(d)
+	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
+	assert.True(t, status.IsOK())
+}
+
+func TestCheckIfHasExcessProcesses_MultipleResources(t *testing.T) {
+	d := om.NewDeployment()
+	rs1 := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
+	rs2 := buildRsByProcessesHelper("other-rs", createRSProcessesHelper("other-rs", 1))
+	d.MergeReplicaSet(rs1, nil, nil, nil, zap.S())
+	d.MergeReplicaSet(rs2, nil, nil, nil, zap.S())
+
+	conn := om.NewMockedOmConnection(d)
+	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
+	assert.False(t, status.IsOK())
+}
+
+// ---------------------------------------------------------------------------
+// Task 11: getReplicaSetProcessIdsFromReplicaSets
+// ---------------------------------------------------------------------------
+
+func TestGetReplicaSetProcessIdsFromReplicaSets_NotFound(t *testing.T) {
+	d := om.NewDeployment()
+	result := getReplicaSetProcessIdsFromReplicaSets("nonexistent-rs", d)
+	assert.Empty(t, result)
+}
+
+func TestGetReplicaSetProcessIdsFromReplicaSets_Found(t *testing.T) {
+	d := om.NewDeployment()
+	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 3))
+	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
+
+	result := getReplicaSetProcessIdsFromReplicaSets("my-rs", d)
+
+	assert.Len(t, result, 3)
+	assert.Contains(t, result, "my-rs-0")
+	assert.Contains(t, result, "my-rs-1")
+	assert.Contains(t, result, "my-rs-2")
+	assert.Equal(t, 0, result["my-rs-0"])
+	assert.Equal(t, 1, result["my-rs-1"])
+	assert.Equal(t, 2, result["my-rs-2"])
 }
