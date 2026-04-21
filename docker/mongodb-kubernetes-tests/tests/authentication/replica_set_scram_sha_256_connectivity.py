@@ -14,13 +14,7 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
-from kubetester.scram import (
-    assert_creds_preserved,
-    assert_user_mechanisms,
-    build_sha256_creds,
-    get_ac_user,
-    seed_user_in_ac,
-)
+from kubetester.scram import assert_creds_preserved, assert_user_mechanisms, build_sha256_creds, get_ac_user, seed_user_in_ac
 from pytest import fixture, mark
 
 MDB_RESOURCE = "my-replica-set"
@@ -29,12 +23,6 @@ PASSWORD_SECRET_NAME = "mms-user-1-password"
 CONNECTION_STRING_SECRET_NAME = "my-replica-set-connection-string"
 USER_PASSWORD = "my-password"
 USER_DATABASE = "admin"
-
-OM_SHA256_USER_NAME = "om-user-sha256"
-OM_SHA256_USER_PASSWORD_SECRET = "om-user-sha256-password"
-OM_SHA256_USER_PASSWORD = "om-sha256-password-1"
-
-SEEDED_OM_SHA256_CREDS = build_sha256_creds(OM_SHA256_USER_PASSWORD)
 
 NON_ADMIN_USER_NAME = "mms-user-2"
 NON_ADMIN_PASSWORD_SECRET_NAME = "mms-user-2-password"
@@ -45,19 +33,7 @@ OM_SHA256_USER_NAME = "om-user-sha256"
 OM_SHA256_USER_PASSWORD_SECRET = "om-user-sha256-password"
 OM_SHA256_USER_PASSWORD = "om-sha256-password-1"
 
-
-def _get_ac_user(ac_tester, username: str) -> dict:
-    users = ac_tester.automation_config["auth"]["usersWanted"]
-    matches = [u for u in users if u["user"] == username]
-    assert matches, f"User {username!r} not found in usersWanted"
-    return matches[0]
-
-
-def _assert_user_mechanisms(ac_tester, username: str, expected: List[str]) -> None:
-    user = _get_ac_user(ac_tester, username)
-    assert (
-        user.get("mechanisms", []) == expected
-    ), f"User {username!r} mechanisms: expected {expected}, got {user.get('mechanisms', [])}"
+SEEDED_OM_SHA256_CREDS = build_sha256_creds(OM_SHA256_USER_PASSWORD)
 
 
 def create_password_secret(namespace: str) -> str:
@@ -370,23 +346,7 @@ class TestOMUserSha256OnlyPreserved(KubernetesTester):
         assert user.get("scramSha256Creds"), "SHA-256 creds must be present"
         assert user.get("scramSha1Creds"), "SHA-1 creds must be present after the follow-up reconcile"
 
-<<<<<<< HEAD
     def test_om_user_sha256_can_authenticate_after_transition(self, replica_set: MongoDB):
-=======
-    def test_om_user_sha256_password_change_preserves_mechanism(self, namespace: str, replica_set: MongoDB):
-        ac_version = replica_set.get_automation_config_tester().automation_config["version"]
-        new_password = "om-sha256-password-new-1"
-        update_secret(namespace, OM_SHA256_USER_PASSWORD_SECRET, {"password": new_password})
-        wait_until(
-            lambda: replica_set.get_automation_config_tester().reached_version(ac_version + 1),
-            timeout=600,
-        )
-        tester = replica_set.get_automation_config_tester()
-        _assert_user_mechanisms(tester, OM_SHA256_USER_NAME, ["SCRAM-SHA-256"])
-        assert not _get_ac_user(tester, OM_SHA256_USER_NAME).get(
-            "scramSha1Creds"
-        ), "SHA-1 creds must NOT appear after password change"
->>>>>>> 75aca20a3 (lint)
         replica_set.tester().assert_scram_sha_authentication(
             password=OM_SHA256_USER_PASSWORD,
             username=OM_SHA256_USER_NAME,
