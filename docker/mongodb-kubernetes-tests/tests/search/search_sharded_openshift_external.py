@@ -224,8 +224,6 @@ def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoD
     # The operator default of 2 CPU per pod would ask for 8 CPU total, which doesn't fit, and the pods stay Pending.
     # Real mongot CPU usage is well under 1 CPU, so we just ask for less. Other search tests run on Kind where
     # scheduling isn't tight, so they keep the default.
-    # Memory stays at 2 Gi because mongot's JVM heap size (-Xmx) is derived from it in
-    # search_construction.go (jvmFlags), lowering it would shrink the heap.
     resource["spec"]["resourceRequirements"] = {
         "requests": {"cpu": "250m", "memory": "2Gi"},
     }
