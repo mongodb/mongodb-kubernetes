@@ -1,0 +1,54 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: app-user
+  namespace: mongodb
+spec:
+  db: admin
+  mongodbResourceRef:
+    name: my-rs
+  passwordSecretKeyRef:
+    key: password
+    name: app-user-password
+  roles:
+  - db: myapp
+    name: readWrite
+  - db: reporting
+    name: read
+  username: app-user
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-user-password
+  namespace: mongodb
+stringData:
+  password: test-password
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: cn-x509-client-o-mongodb
+  namespace: mongodb
+spec:
+  db: $external
+  mongodbResourceRef:
+    name: my-rs
+  roles:
+  - db: secure-db
+    name: readWrite
+  username: CN=x509-client,O=MongoDB
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: ldap-reader
+  namespace: mongodb
+spec:
+  db: $external
+  mongodbResourceRef:
+    name: my-rs
+  roles:
+  - db: reporting
+    name: read
+  username: ldap-reader
