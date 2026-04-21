@@ -70,7 +70,15 @@ RUN microdnf install --disableplugin=subscription-manager -y \
 COPY --from=base /data/licenses /licenses/
 COPY --from=base /data/scripts /opt/scripts
 
-RUN curl --fail -L -o ops_manager.tar.gz ${om_download_url} \
+# Copy local tarball if present (glob is no-op if file missing)
+COPY package.tar.g[z] /tmp/
+
+RUN if [ "${om_download_url}" = "local" ]; then \
+      echo "Using local tarball from build context"; \
+      mv /tmp/package.tar.gz ops_manager.tar.gz; \
+    else \
+      curl --fail -L -o ops_manager.tar.gz ${om_download_url}; \
+    fi \
   && tar -xzf ops_manager.tar.gz \
   && rm ops_manager.tar.gz \
   && mv mongodb-mms* "${MMS_HOME}"

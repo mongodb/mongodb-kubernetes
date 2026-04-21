@@ -50,6 +50,24 @@ func TestContainerImage(t *testing.T) {
 	t.Setenv(util.OpsManagerImageUrl, "mongodb")
 	imageUrls = LoadImageUrlsFromEnv()
 	assert.Equal(t, "mongodb:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
+
+	// Test MDB_AGENT_IMAGE override for agent images
+	t.Setenv(architectures.MdbAgentImage, "custom-registry.io/dev/mongodb-agent:test-tag")
+	imageUrls = LoadImageUrlsFromEnv()
+	// When MDB_AGENT_IMAGE is set, it should be returned directly regardless of version
+	assert.Equal(t, "custom-registry.io/dev/mongodb-agent:test-tag", ContainerImage(imageUrls, architectures.MdbAgentImageRepo, "107.0.0.8502-1"))
+	assert.Equal(t, "custom-registry.io/dev/mongodb-agent:test-tag", ContainerImage(imageUrls, architectures.MdbAgentImageRepo, "any-version"))
+	// Other images should not be affected
+	assert.Equal(t, "mongodb:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
+
+	// Test MDB_OM_IMAGE override for Ops Manager images
+	t.Setenv(util.MdbOmImage, "custom-registry.io/dev/mongodb-ops-manager:test-tag")
+	imageUrls = LoadImageUrlsFromEnv()
+	// When MDB_OM_IMAGE is set, it should be returned directly regardless of version
+	assert.Equal(t, "custom-registry.io/dev/mongodb-ops-manager:test-tag", ContainerImage(imageUrls, util.OpsManagerImageUrl, "7.0.0"))
+	assert.Equal(t, "custom-registry.io/dev/mongodb-ops-manager:test-tag", ContainerImage(imageUrls, util.OpsManagerImageUrl, "any-version"))
+	// Other images should not be affected
+	assert.Equal(t, "custom-registry.io/dev/mongodb-agent:test-tag", ContainerImage(imageUrls, architectures.MdbAgentImageRepo, "107.0.0.8502-1"))
 }
 
 func TestGetAppDBImage(t *testing.T) {

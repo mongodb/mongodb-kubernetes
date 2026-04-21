@@ -183,6 +183,9 @@ const (
 	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
 	// new variable to be printed at operator start.
 	OpsManagerImageUrl               = "OPS_MANAGER_IMAGE_REPOSITORY"
+	// MdbOmImage is a full Ops Manager image override (repo:tag) for dev/testing.
+	// When set, ContainerImage() returns this value directly without version replacement.
+	MdbOmImage                       = "MDB_OM_IMAGE"
 	InitOpsManagerImageUrl           = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerVersion            = "INIT_OPS_MANAGER_VERSION"
 	InitDatabaseImageUrlEnv          = "INIT_DATABASE_IMAGE_REPOSITORY"

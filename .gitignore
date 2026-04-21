@@ -82,6 +82,9 @@ downloadIstioCandidate.sh
 .operator-dev
 tmp
 
+# agent build override (temp file, deleted after use)
+scripts/dev/agent/.override
+
 licenses_full.csv
 licenses_stderr
 docker/mongodb-kubernetes-tests/.test_identifiers*
@@ -100,3 +103,5 @@ logs
 mongodb-kubernetes-*.tgz
 
 scripts/code_snippets/tests/outputs/*
+
+package.tar.gz

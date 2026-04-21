@@ -42,6 +42,9 @@ const (
 	// MdbAgentImageRepo contains the repository containing the agent image for the database
 	MdbAgentImageRepo        = "MDB_AGENT_IMAGE_REPOSITORY"
 	MdbAgentImageRepoDefault = "quay.io/mongodb/mongodb-agent"
+	// MdbAgentImage is a full agent image override (repo:tag) for MongoDB resources.
+	// When set, ContainerImage() returns this value directly without version replacement.
+	MdbAgentImage = "MDB_AGENT_IMAGE"
 )
 
 // IsRunningStaticArchitecture checks whether the operator is running in static or non-static mode.
