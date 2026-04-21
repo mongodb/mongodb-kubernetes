@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,54 +34,16 @@ var mFlags mongodbFlags
 var MongodbCmd = &cobra.Command{
 	Use:   "mongodb",
 	Short: "Generate a MongoDB Kubernetes CR",
-	Long: `Generate a MongoDB CR from an Ops Manager or Cloud Manager automation config.
+	Long: `Generates a MongoDB Kubernetes CR from an Ops Manager/Cloud Manager
+automation config. The automation config is validated before generation. If any blockers are
+found, the command fails without producing output.
 
-The automation config is validated before output is produced. The command exits
-with an error if any blockers are found.
+Requires a ConfigMap (baseUrl, orgId, projectName) and a Secret (publicKey,
+privateKey) in the same format used by the operator.
 
-PREREQUISITES
+Example:
 
-  A ConfigMap and a Secret must exist in the target namespace before running this
-  command:
-
-    kubectl create configmap my-project \
-      --from-literal=baseUrl=<url> \
-      --from-literal=orgId=<id> \
-      --from-literal=projectName=<name>
-
-    kubectl create secret generic my-credentials \
-      --from-literal=publicKey=<key> \
-      --from-literal=privateKey=<key>
-
-  If Prometheus is enabled, create a Secret containing the Prometheus password:
-
-    kubectl create secret generic <secret-name> \
-      --from-literal=password=<password> \
-      -n <namespace>
-
-USAGE
-
-  When TLS is enabled, the command prompts for spec.security.certsSecretPrefix.
-  Pass --certs-secret-prefix to skip the prompt.
-
-  When Prometheus is enabled, the command prompts for the name of the password
-  Secret. Pass --prometheus-secret-name to skip the prompt.
-
-EXAMPLES
-
-  Interactive:
-    kubectl mongodb migrate mongodb \
-      --config-map-name my-project \
-      --secret-name my-credentials \
-      --namespace mongodb
-
-  Non-interactive:
-    kubectl mongodb migrate mongodb \
-      --config-map-name my-project \
-      --secret-name my-credentials \
-      --namespace mongodb \
-      --certs-secret-prefix mdb \
-      --prometheus-secret-name prom-secret`,
+kubectl mongodb migrate mongodb --config-map-name my-project --secret-name my-credentials --namespace mongodb`,
 	RunE: runGenerateMongodb,
 }
 
@@ -141,6 +104,13 @@ func buildMongodbOptions(ctx context.Context, kubeClient kubernetesClient.Client
 		SourceProcess:         sourceProcess,
 	}
 
+	if flags.multiClusterNames != "" {
+		opts.MultiClusterNames = parseMultiClusterNames(flags.multiClusterNames)
+		if len(opts.MultiClusterNames) == 0 {
+			return GenerateOptions{}, fmt.Errorf("--multi-cluster-names was provided but contains no valid cluster names after trimming")
+		}
+	}
+
 	scanner := bufio.NewScanner(stdin)
 
 	if err := ensureTLS(ac, &opts, scanner, flags.certsSecretPrefix); err != nil {
@@ -166,13 +136,6 @@ func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Sc
 		return nil
 	}
 	prefix := certsSecretPrefix
-	if prefix != "" {
-		if errs := k8svalidation.IsDNS1123Subdomain(prefix); len(errs) > 0 {
-			return fmt.Errorf("--certs-secret-prefix value %q is not a valid Kubernetes resource name: %s", prefix, errs[0])
-		}
-		opts.CertsSecretPrefix = prefix
-		return nil
-	}
 	if prefix == "" {
 		for {
 			p, err := promptLine(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
@@ -190,6 +153,8 @@ func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Sc
 			prefix = p
 			break
 		}
+	} else if errs := k8svalidation.IsDNS1123Subdomain(prefix); len(errs) > 0 {
+		return fmt.Errorf("--certs-secret-prefix value %q is not a valid Kubernetes resource name: %s", prefix, errs[0])
 	}
 	opts.CertsSecretPrefix = prefix
 	return nil
@@ -211,17 +176,24 @@ func collectPrometheusCreds(ctx context.Context, kubeClient kubernetesClient.Cli
 		opts.PrometheusSecretName = prometheusSecretName
 		return nil
 	}
-	for {
-		password, err := promptLine(scanner, "Enter password for Prometheus user: ")
-		if err != nil {
-			return fmt.Errorf("failed to read Prometheus password: %w", err)
-		}
-		if password == "" {
-			_, _ = fmt.Fprintln(promptOutput, "Prometheus password cannot be empty, please try again.")
-			continue
-		}
-		opts.PrometheusPassword = password
-		return nil
+	password, err := promptLine(scanner, "Enter password for Prometheus user: ")
+	if err != nil {
+		return fmt.Errorf("failed to read Prometheus password: %w", err)
 	}
+	if password == "" {
+		return fmt.Errorf("prometheus password cannot be empty")
+	}
+	opts.PrometheusPassword = password
+	return nil
 }
 
+func parseMultiClusterNames(raw string) []string {
+	var names []string
+	for s := range strings.SplitSeq(raw, ",") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			names = append(names, s)
+		}
+	}
+	return names
+}
