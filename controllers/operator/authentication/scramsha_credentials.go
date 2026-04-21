@@ -28,131 +28,116 @@ const (
 	rfc5802MandatedSaltSize = 4
 )
 
-// checkSHA256Changed reports whether the SHA-256 password has changed relative to acUser.
-// Returns (changed, checked, err): checked is false when acUser has no SHA-256 creds to compare against.
-func checkSHA256Changed(username, password string, acUser *om.MongoDBUser) (changed, checked bool, err error) {
-	if acUser.ScramSha256Creds == nil || acUser.ScramSha256Creds.Salt == "" {
-		return false, false, nil
+// isCredChanged returns true when the password does not reproduce the stored creds,
+// or when creds are nil/empty (treated as missing).
+func isCredChanged(username, password string, creds *om.ScramShaCreds, mechanism MechanismName) (bool, error) {
+	if creds == nil || creds.Salt == "" {
+		return true, nil
 	}
-	salt, err := base64.StdEncoding.DecodeString(acUser.ScramSha256Creds.Salt)
+	salt, err := base64.StdEncoding.DecodeString(creds.Salt)
 	if err != nil {
-		return true, false, err
+		return true, xerrors.Errorf("error decoding salt for user %s: %w", username, err)
 	}
-	newCreds, err := computeScramShaCreds(username, password, salt, ScramSha256)
+	derived, err := computeScramShaCreds(username, password, salt, mechanism)
 	if err != nil {
-		return false, false, xerrors.Errorf("error generating scramSha256 creds for verification: %w", err)
+		return false, xerrors.Errorf("error deriving creds to compare for user %s: %w", username, err)
 	}
-	return !newCreds.Equals(*acUser.ScramSha256Creds), true, nil
-}
-
-// checkSHA1Changed reports whether the SHA-1 password has changed relative to acUser.
-// Returns (changed, checked, err): checked is false when acUser has no SHA-1 creds to compare against.
-func checkSHA1Changed(username, password string, acUser *om.MongoDBUser) (changed, checked bool, err error) {
-	if acUser.ScramSha1Creds == nil || acUser.ScramSha1Creds.Salt == "" {
-		return false, false, nil
-	}
-	salt, err := base64.StdEncoding.DecodeString(acUser.ScramSha1Creds.Salt)
-	if err != nil {
-		return true, false, err
-	}
-	newCreds, err := computeScramShaCreds(username, password, salt, MongoDBCR)
-	if err != nil {
-		return false, false, xerrors.Errorf("error generating scramSha1 creds for verification: %w", err)
-	}
-	return !newCreds.Equals(*acUser.ScramSha1Creds), true, nil
+	return !derived.Equals(*creds), nil
 }
 
 func IsPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDBUser) (bool, error) {
 	if acUser == nil {
 		return true, nil
 	}
-
-	validated := false
-
-	sha256Changed, sha256Checked, err := checkSHA256Changed(user.Username, password, acUser)
-	if err != nil {
-		return true, err
-	}
-	if sha256Checked {
-		if sha256Changed {
-			return true, nil
+	if acUser.ScramSha256Creds != nil {
+		changed, err := isCredChanged(user.Username, password, acUser.ScramSha256Creds, ScramSha256)
+		if err != nil {
+			return true, err
 		}
-		validated = true
+		return changed, nil
 	}
-
-	sha1Changed, sha1Checked, err := checkSHA1Changed(user.Username, password, acUser)
-	if err != nil {
-		return true, err
-	}
-	if sha1Checked {
-		if sha1Changed {
-			return true, nil
+	if acUser.ScramSha1Creds != nil {
+		changed, err := isCredChanged(user.Username, password, acUser.ScramSha1Creds, MongoDBCR)
+		if err != nil {
+			return true, err
 		}
-		validated = true
+		return changed, nil
 	}
-
-	return !validated, nil
+	return true, nil
 }
 
-// ConfigureScramCredentials sets SCRAM credentials based on the user's presence in the AC:
-//   - Not in AC: generate both SHA-256 and SHA-1; leave mechanisms [].
-//   - In AC with mechanisms set: mirror those mechanisms; regenerate only matching creds on password change.
-//   - In AC with no mechanisms: copy/regenerate existing creds; leave mechanisms [].
-func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.AutomationConfig) error {
+// ConfigureScramCredentials sets SCRAM credentials for the user.
+// needsFollowUp is true for imported users (mechanisms set in AC). InitPassword is written
+// and the caller must requeue for OM to finalise creds on the next pass.
+// Not in AC: generate both algorithms.
+// Imported: preserve matching creds, error on mismatch, null mechanisms.
+// K8s-managed (no mechanisms): preserve or regenerate on password change.
+func ConfigureScramCredentials(user *om.MongoDBUser, password string, ac *om.AutomationConfig) (bool, error) {
 	_, acUser := ac.Auth.GetUser(user.Username, user.Database)
 
 	if acUser == nil {
-		// Not in AC — generate both algorithms; caller initialises mechanisms to [].
 		var err error
 		user.ScramSha256Creds, err = newScramSha256Creds(user.Username, password)
 		if err != nil {
-			return err
+			return false, err
 		}
 		user.ScramSha1Creds, err = newScramSha1Creds(user.Username, password)
 		if err != nil {
-			return err
+			return false, err
 		}
-		return nil
+		return false, nil
 	}
 
-	changed, err := IsPasswordChanged(user, password, acUser)
+	sha256Changed, err := isCredChanged(user.Username, password, acUser.ScramSha256Creds, ScramSha256)
 	if err != nil {
-		return err
+		return false, err
+	}
+	sha1Changed, err := isCredChanged(user.Username, password, acUser.ScramSha1Creds, MongoDBCR)
+	if err != nil {
+		return false, err
 	}
 
-	hasSha256 := acUser.ScramSha256Creds != nil
-	hasSha1 := acUser.ScramSha1Creds != nil
-
-	if !changed {
-		if hasSha256 {
+	if len(acUser.Mechanisms) > 0 {
+		// Imported user: reject any password that does not match existing creds.
+		if sha256Changed && acUser.ScramSha256Creds != nil {
+			return false, xerrors.Errorf("supplied password does not match existing scramSha256 credentials for user %s", user.Username)
+		}
+		if sha1Changed && acUser.ScramSha1Creds != nil {
+			return false, xerrors.Errorf("supplied password does not match existing scramSha1 credentials for user %s", user.Username)
+		}
+		// Preserve only the algorithms already present.
+		if !sha256Changed {
 			user.ScramSha256Creds = acUser.ScramSha256Creds
 		}
-		if hasSha1 {
+		if !sha1Changed {
 			user.ScramSha1Creds = acUser.ScramSha1Creds
 		}
+		// Null mechanisms lets OM manage them. InitPassword lets OM generate
+		// any algorithm not yet present on the next automation pass.
+		user.Mechanisms = nil
+		user.InitPassword = password
+		return true, nil
+	}
+
+	// K8s-managed user: preserve each algorithm independently; only regenerate the one that is
+	// missing or whose stored creds no longer match the current password.
+	if !sha256Changed {
+		user.ScramSha256Creds = acUser.ScramSha256Creds
 	} else {
-		// Password changed — regenerate only the mechanisms that were present in AC.
-		if hasSha256 {
-			user.ScramSha256Creds, err = newScramSha256Creds(user.Username, password)
-			if err != nil {
-				return err
-			}
-		}
-		if hasSha1 {
-			user.ScramSha1Creds, err = newScramSha1Creds(user.Username, password)
-			if err != nil {
-				return err
-			}
+		user.ScramSha256Creds, err = newScramSha256Creds(user.Username, password)
+		if err != nil {
+			return false, err
 		}
 	}
-
-	// Populate mechanisms only when the AC user had them explicitly set; otherwise
-	// leave the mechanisms array empty (it was initialised to [] by the caller).
-	if len(acUser.Mechanisms) > 0 {
-		populateMechanisms(user)
+	if !sha1Changed {
+		user.ScramSha1Creds = acUser.ScramSha1Creds
+	} else {
+		user.ScramSha1Creds, err = newScramSha1Creds(user.Username, password)
+		if err != nil {
+			return false, err
+		}
 	}
-
-	return nil
+	return false, nil
 }
 
 func newScramSha256Creds(username, password string) (*om.ScramShaCreds, error) {
@@ -171,16 +156,6 @@ func newScramSha1Creds(username, password string) (*om.ScramShaCreds, error) {
 	return computeScramShaCreds(username, password, salt, MongoDBCR)
 }
 
-func populateMechanisms(user *om.MongoDBUser) {
-	user.Mechanisms = nil
-	if user.ScramSha256Creds != nil {
-		user.Mechanisms = append(user.Mechanisms, util.AutomationConfigScramSha256Option)
-	}
-	if user.ScramSha1Creds != nil {
-		user.Mechanisms = append(user.Mechanisms, util.SCRAMSHA1)
-	}
-}
-
 // The code in this file is largely adapted from the Automation Agent codebase.
 // https://github.com/10gen/mms-automation/blob/c108e0319cc05c0d8719ceea91a0424a016db583/go_planner/src/com.tengen/cm/crypto/scram.go
 
@@ -189,10 +164,11 @@ func populateMechanisms(user *om.MongoDBUser) {
 func computeScramShaCreds(username, password string, salt []byte, name MechanismName) (*om.ScramShaCreds, error) {
 	var hashConstructor func() hash.Hash
 	iterations := 0
-	if name == ScramSha256 {
+	switch name {
+	case ScramSha256:
 		hashConstructor = sha256.New
 		iterations = scramSha256Iterations
-	} else if name == MongoDBCR {
+	case MongoDBCR:
 		hashConstructor = sha1.New
 		iterations = scramSha1Iterations
 
@@ -200,7 +176,7 @@ func computeScramShaCreds(username, password string, salt []byte, name Mechanism
 		// instead of the plain text password. Generated the same was that Ops Manager does.
 		// See: https://github.com/10gen/mms/blob/a941f11a81fba4f85a9890eaf27605bd344af2a8/server/src/main/com/xgen/svc/mms/deployment/auth/AuthUser.java#L290
 		password = util.MD5Hex(username + ":mongo:" + password)
-	} else {
+	default:
 		return nil, xerrors.Errorf("unrecognized SCRAM-SHA format %s", name)
 	}
 	base64EncodedSalt := base64.StdEncoding.EncodeToString(salt)
