@@ -4,11 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scripts.evergreen.notify_flaky_tests import (
-    FlakyTask,
-    format_slack_message,
-    get_honeycomb_headers,
-)
+from scripts.evergreen.notify_flaky_tests import FlakyTask, format_slack_message, get_honeycomb_headers
 
 
 def make_flaky_task(

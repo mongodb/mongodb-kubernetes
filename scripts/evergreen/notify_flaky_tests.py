@@ -116,9 +116,7 @@ def get_flaky_tasks(headers: dict) -> list[FlakyTask]:
             {"column": "evergreen.version.requester", "op": "=", "value": "gitter_request"},
             {"column": "evergreen.project.id", "op": "=", "value": PROJECT_ID},
         ],
-        "havings": [
-            {"calculate_op": "AVG", "column": "mck.retry_flakiness_percent", "op": ">", "value": 0}
-        ],
+        "havings": [{"calculate_op": "AVG", "column": "mck.retry_flakiness_percent", "op": ">", "value": 0}],
         "orders": [{"column": "mck.retry_flakiness_percent", "op": "AVG", "order": "descending"}],
         "limit": 50,
     }
