@@ -26,8 +26,6 @@ Why different Secrets for the same agent cert+key?
 import yaml
 from cryptography import x509 as crypto_x509
 from cryptography.hazmat.backends import default_backend
-from pytest import fixture, mark
-
 from kubetester import create_or_update_secret, get_statefulset, read_secret, try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, create_x509_agent_tls_certs
 from kubetester.kubetester import KubernetesTester, fcv_from_version
@@ -36,9 +34,8 @@ from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.tls.vm_migration_dry_run import (
-    run_migration_dry_run_connectivity_passes,
-)
+from pytest import fixture, mark
+from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 from tests.tls.vm_migration_promote_prune import promote_and_prune_members
 
 VM_STS_NAME = "vm-mongodb"
