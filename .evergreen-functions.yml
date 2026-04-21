@@ -484,7 +484,7 @@ functions:
           - --image
           - ${image_name}
           - --version
-          - ${OPERATOR_VERSION}
+          - ${mongodbOperator}
           - --submit
           - ${preflight_submit}
 
