@@ -847,3 +847,92 @@ func defaultMongoDBVersioned(version string) mdbv1.DbSpec {
 	spec := mdbv1.NewReplicaSetBuilder().SetVersion(version).Build().Spec
 	return &spec
 }
+
+func TestGetNumberOfExcessProcesses_ExternalMembersNotCountedAsExcess(t *testing.T) {
+	d := NewDeployment()
+	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
+
+	extProcess := NewMongodProcess(
+		"ext-0", "ext-0.external.host",
+		"fake-image", false,
+		&mdbv1.AdditionalMongodConfig{},
+		defaultMongoDBVersioned("6.0.0"),
+		"", nil, "",
+	)
+	d["processes"] = append(d.GetProcesses(), extProcess)
+
+	// Without declaring ext-0 as external: it is excess
+	assert.Equal(t, 1, d.GetNumberOfExcessProcesses("my-rs", nil))
+
+	// Declaring ext-0 as external by process name: no longer excess
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("my-rs", []string{"ext-0"}))
+}
+
+func TestCheckProcessFields_ProcessNotFound(t *testing.T) {
+	d := NewDeployment()
+	assert.False(t, d.CheckProcessFields("nonexistent", "host:27017", "mongod", "my-rs"))
+}
+
+func TestCheckProcessFields_HostnameMismatch(t *testing.T) {
+	d := NewDeployment()
+	mergeReplicaSet(d, "my-rs", createReplicaSetProcessesCount(1, "my-rs"))
+	assert.False(t, d.CheckProcessFields("my-rs-0", "wrong-host:27017", "mongod", "my-rs"))
+}
+
+func TestCheckProcessFields_TypeMismatch(t *testing.T) {
+	d := NewDeployment()
+	mergeReplicaSet(d, "my-rs", createReplicaSetProcessesCount(1, "my-rs"))
+	assert.False(t, d.CheckProcessFields("my-rs-0", "my-rs-0.some.host:27017", "mongos", "my-rs"))
+}
+
+func TestCheckProcessFields_MongodInCorrectRS(t *testing.T) {
+	d := NewDeployment()
+	mergeReplicaSet(d, "my-rs", createReplicaSetProcessesCount(1, "my-rs"))
+	assert.True(t, d.CheckProcessFields("my-rs-0", "my-rs-0.some.host:27017", "mongod", "my-rs"))
+}
+
+func TestCheckProcessFields_MongodInWrongRS(t *testing.T) {
+	d := NewDeployment()
+	mergeReplicaSet(d, "my-rs", createReplicaSetProcessesCount(1, "my-rs"))
+	assert.False(t, d.CheckProcessFields("my-rs-0", "my-rs-0.some.host:27017", "mongod", "other-rs"))
+}
+
+func TestCheckProcessFields_MongosNoRSCheck(t *testing.T) {
+	d := NewDeployment()
+	mongosProcesses := createMongosProcesses(1, "mongos", "")
+	d["processes"] = append(d.GetProcesses(), mongosProcesses[0])
+
+	p := mongosProcesses[0]
+	expectedHostname := fmt.Sprintf("%s:%s", p.HostName(), p.Port())
+	assert.True(t, d.CheckProcessFields(p.Name(), expectedHostname, "mongos", ""))
+}
+
+func TestMergeReplicaSet_ExternalMembersPreservedInDeployment(t *testing.T) {
+	d := NewDeployment()
+
+	omRs := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	d.MergeReplicaSet(omRs, nil, nil, nil, zap.S())
+
+	// Simulate OM having an external member in the RS members list
+	extMember := ReplicaSetMember{}
+	extMember["host"] = "ext-0.external.host:27017"
+	extMember["_id"] = 3
+	extMember["votes"] = 1
+	extMember["priority"] = float32(1)
+	extMember["tags"] = map[string]string{}
+	rs := d.GetReplicaSets()[0]
+	rs.setMembers(append(rs.Members(), extMember))
+
+	// Second merge: operator still only knows 3 members; ext member declared by host
+	operatorRs := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	externalMembers := []string{"ext-0.external.host:27017"}
+	d.MergeReplicaSet(operatorRs, nil, nil, externalMembers, zap.S())
+
+	memberHosts := make([]string, 0)
+	for _, m := range d.GetReplicaSets()[0].Members() {
+		memberHosts = append(memberHosts, m.Name())
+	}
+	assert.Contains(t, memberHosts, "ext-0.external.host:27017")
+	assert.Len(t, d.GetReplicaSets()[0].Members(), 4)
+}
