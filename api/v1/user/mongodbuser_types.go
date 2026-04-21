@@ -157,12 +157,12 @@ func (u MongoDBUser) GetConnectionStringSecretName() string {
 		database = strings.TrimPrefix(database, "$")
 	}
 
-	return NormalizeName(fmt.Sprintf("%s%s-%s", resourceRef, u.Name, database))
+	return normalizeName(fmt.Sprintf("%s%s-%s", resourceRef, u.Name, database))
 }
 
-// NormalizeName returns a string that conforms to RFC-1123.
+// normalizeName returns a string that conforms to RFC-1123.
 // This logic is duplicated in the community operator in https://github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/blob/master/api/v1/mongodbcommunity_types.go.
-func NormalizeName(name string) string {
+func normalizeName(name string) string {
 	errors := validation.IsDNS1123Subdomain(name)
 	if len(errors) == 0 {
 		return name
