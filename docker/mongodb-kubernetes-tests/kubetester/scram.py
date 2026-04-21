@@ -69,9 +69,9 @@ def get_ac_user(ac_tester, username: str) -> dict:
 
 def assert_user_mechanisms(ac_tester, username: str, expected: List[str]) -> None:
     user = get_ac_user(ac_tester, username)
-    assert user.get("mechanisms", []) == expected, (
-        f"User {username!r} mechanisms: expected {expected}, got {user.get('mechanisms', [])}"
-    )
+    assert (
+        user.get("mechanisms", []) == expected
+    ), f"User {username!r} mechanisms: expected {expected}, got {user.get('mechanisms', [])}"
 
 
 def assert_creds_preserved(
