@@ -1,7 +1,5 @@
 """Shared helpers for VM-to-Kubernetes migration tests that use kubectl-mongodb migrate."""
 
-import difflib
-import json
 import os
 import subprocess
 import time
@@ -108,29 +106,18 @@ def run_migrate_generate(
     return "\n---\n".join(parts) + "\n" if parts else ""
 
 
-NOISY_AC_KEYS = ("mongoDbVersions",)
+def promote_and_prune(mdb_migration, vm_sts):
+    """Promote each VM member and prune it from externalMembers one at a time."""
+    try_load(mdb_migration)
+    for i in range(vm_sts["spec"]["replicas"]):
+        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
+        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
+        mdb_migration.update()
+        mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
 
-
-def _strip_noisy_fields(ac: dict) -> dict:
-    """Return a shallow copy of the AC with large, low-value keys removed for logging."""
-    return {k: v for k, v in ac.items() if k not in NOISY_AC_KEYS}
-
-
-def log_automation_config(ac: dict, label: str = "current"):
-    """Log the automation config as pretty-printed JSON, omitting mongoDbVersions."""
-    cleaned = _strip_noisy_fields(ac)
-    logger.info("Automation config [%s]:\n%s", label, json.dumps(cleaned, indent=2, sort_keys=True))
-
-
-def log_automation_config_diff(ac_before: dict, ac_after: dict):
-    """Log a unified diff of two automation config snapshots, omitting mongoDbVersions."""
-    before_lines = json.dumps(_strip_noisy_fields(ac_before), indent=2, sort_keys=True).splitlines(keepends=True)
-    after_lines = json.dumps(_strip_noisy_fields(ac_after), indent=2, sort_keys=True).splitlines(keepends=True)
-    diff = list(difflib.unified_diff(before_lines, after_lines, fromfile="ac_before", tofile="ac_after"))
-    if diff:
-        logger.info("Automation config diff:\n%s", "".join(diff))
-    else:
-        logger.info("No changes in automation config.")
+        mdb_migration["spec"]["externalMembers"].pop()
+        mdb_migration.update()
+        mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
 def vm_replica_set_tester(namespace: str, use_ssl: bool = False, ca_path: Optional[str] = None) -> MongoTester:

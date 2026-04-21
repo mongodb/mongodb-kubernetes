@@ -175,7 +175,6 @@ def test_mdb_reaches_running(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
 
 
-# TODO insert sample data, assert it is still there after migration
 @mark.e2e_vm_migration
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     try_load(mdb_migration)
