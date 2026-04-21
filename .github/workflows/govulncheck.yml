@@ -1,0 +1,30 @@
+name: govulncheck
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+      - release-*
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+
+jobs:
+  govulncheck:
+    name: Check for Go vulnerabilities
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
