@@ -83,3 +83,43 @@ func TestMergeHorizonsOverride(t *testing.T) {
 		assert.Equal(t, horizonsNew[i], member.getHorizonConfig())
 	}
 }
+
+func TestMergeFrom_ExternalMemberPreserved(t *testing.T) {
+	omRsWithProcesses := makeMinimalRsWithProcesses()
+	extMember := ReplicaSetMember{}
+	extMember["host"] = "external-host:27017"
+	extMember["_id"] = 3
+	extMember["votes"] = 1
+	extMember["priority"] = float32(1)
+	extMember["tags"] = map[string]string{}
+	omRsWithProcesses.Rs.setMembers(append(omRsWithProcesses.Rs.Members(), extMember))
+
+	operatorRsWithProcesses := makeMinimalRsWithProcesses()
+
+	externalMembers := []string{"external-host:27017"}
+	removedMembers := omRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs, externalMembers)
+
+	assert.NotContains(t, removedMembers, "external-host:27017")
+
+	memberHosts := make([]string, len(omRsWithProcesses.Rs.Members()))
+	for i, m := range omRsWithProcesses.Rs.Members() {
+		memberHosts[i] = m.Name()
+	}
+	assert.Contains(t, memberHosts, "external-host:27017")
+}
+
+func TestMergeFrom_NonExternalExtraMemberRemoved(t *testing.T) {
+	omRsWithProcesses := makeMinimalRsWithProcesses()
+	staleMember := ReplicaSetMember{}
+	staleMember["host"] = "stale-host:27017"
+	staleMember["_id"] = 3
+	staleMember["votes"] = 1
+	staleMember["priority"] = float32(1)
+	staleMember["tags"] = map[string]string{}
+	omRsWithProcesses.Rs.setMembers(append(omRsWithProcesses.Rs.Members(), staleMember))
+
+	operatorRsWithProcesses := makeMinimalRsWithProcesses()
+	removedMembers := omRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs, nil)
+
+	assert.Contains(t, removedMembers, "stale-host:27017")
+}
