@@ -14,7 +14,13 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
-from kubetester.scram import assert_creds_preserved, assert_user_mechanisms, build_sha256_creds, get_ac_user, seed_user_in_ac
+from kubetester.scram import (
+    assert_creds_preserved,
+    assert_user_mechanisms,
+    build_sha256_creds,
+    get_ac_user,
+    seed_user_in_ac,
+)
 from pytest import fixture, mark
 
 MDB_RESOURCE = "my-replica-set"

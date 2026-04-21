@@ -10,7 +10,14 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import MongoTester
 from kubetester.phase import Phase
-from kubetester.scram import assert_creds_preserved, assert_user_mechanisms, build_sha1_creds, build_sha256_creds, get_ac_user, seed_user_in_ac
+from kubetester.scram import (
+    assert_creds_preserved,
+    assert_user_mechanisms,
+    build_sha1_creds,
+    build_sha256_creds,
+    get_ac_user,
+    seed_user_in_ac,
+)
 from pytest import fixture
 
 
@@ -224,7 +231,9 @@ class SHA1ConnectivityTests:
 
     def _build_both_user_in_k8s(self, namespace: str, mdb_resource_name: str) -> MongoDBUser:
         create_or_update_secret(namespace, self.OM_BOTH_USER_PASSWORD_SECRET, {"password": self.OM_BOTH_USER_PASSWORD})
-        resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_BOTH_USER_NAME)
+        resource = MongoDBUser.from_yaml(
+            find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_BOTH_USER_NAME
+        )
         resource["spec"]["username"] = self.OM_BOTH_USER_NAME
         resource["spec"]["passwordSecretKeyRef"] = {"name": self.OM_BOTH_USER_PASSWORD_SECRET, "key": "password"}
         resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
@@ -243,7 +252,9 @@ class SHA1ConnectivityTests:
 
     def _build_sha1_user_in_k8s(self, namespace: str, mdb_resource_name: str) -> MongoDBUser:
         create_or_update_secret(namespace, self.OM_SHA1_USER_PASSWORD_SECRET, {"password": self.OM_SHA1_USER_PASSWORD})
-        resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_SHA1_USER_NAME)
+        resource = MongoDBUser.from_yaml(
+            find_fixture("scram-sha-user.yaml"), namespace=namespace, name=self.OM_SHA1_USER_NAME
+        )
         resource["spec"]["username"] = self.OM_SHA1_USER_NAME
         resource["spec"]["passwordSecretKeyRef"] = {"name": self.OM_SHA1_USER_PASSWORD_SECRET, "key": "password"}
         resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
@@ -265,7 +276,8 @@ class SHA1ConnectivityTests:
 
     def test_om_user_sha1_creds_preserved_byte_for_byte(self, mdb: MongoDB):
         assert_creds_preserved(
-            mdb.get_automation_config_tester(), self.OM_SHA1_USER_NAME,
+            mdb.get_automation_config_tester(),
+            self.OM_SHA1_USER_NAME,
             sha1_creds=self.SEEDED_SHA1_CREDS,
         )
 
@@ -297,7 +309,8 @@ class SHA1ConnectivityTests:
         # change. SHA-1 is compared against the seeded value and SHA-256 against the
         # value captured right after the operator generated it.
         assert_creds_preserved(
-            mdb.get_automation_config_tester(), self.OM_SHA1_USER_NAME,
+            mdb.get_automation_config_tester(),
+            self.OM_SHA1_USER_NAME,
             sha1_creds=self.SEEDED_SHA1_CREDS,
             sha256_creds=self.generated_sha1_user_sha256_creds,
         )
@@ -329,7 +342,8 @@ class SHA1ConnectivityTests:
         # Both SHA-256 and SHA-1 were seeded so OM has nothing to generate via
         # initPwd and leaves both sets of creds untouched.
         assert_creds_preserved(
-            mdb.get_automation_config_tester(), self.OM_BOTH_USER_NAME,
+            mdb.get_automation_config_tester(),
+            self.OM_BOTH_USER_NAME,
             sha256_creds=self.SEEDED_BOTH_SHA256_CREDS,
             sha1_creds=self.SEEDED_BOTH_SHA1_CREDS,
         )
