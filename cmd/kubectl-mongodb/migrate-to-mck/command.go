@@ -17,20 +17,6 @@ const defaultNamespace = "default"
 // promptOutput is the writer used for interactive prompts. Override in tests to suppress stderr noise.
 var promptOutput io.Writer = os.Stderr
 
-type cliFlags struct {
-	configMapName        string
-	secretName           string
-	namespace            string
-	multiClusterNames    string
-	outputFile           string
-	resourceNameOverride string
-	usersSecretsFile     string
-	certsSecretPrefix    string
-	prometheusSecretName string
-}
-
-var flags cliFlags
-
 var MigrateCmd = &cobra.Command{
 	Use:   "migrate-to-mck",
 	Short: "Migrate MongoDB deployments to Kubernetes",

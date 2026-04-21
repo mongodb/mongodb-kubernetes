@@ -3,7 +3,7 @@ kind: MongoDB
 metadata:
   annotations:
     mongodb.com/migrate-tool-version: latest
-  name: scram-rs
+  name: x509-rs
   namespace: mongodb
 spec:
   agent:
@@ -16,16 +16,16 @@ spec:
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27017
-    processName: scram-rs-0
-    replicaSetName: scram-rs
+    processName: x509-rs-0
+    replicaSetName: x509-rs
     type: mongod
   - hostname: vm-1.example.com:27017
-    processName: scram-rs-1
-    replicaSetName: scram-rs
+    processName: x509-rs-1
+    replicaSetName: x509-rs
     type: mongod
   - hostname: vm-2.example.com:27017
-    processName: scram-rs-2
-    replicaSetName: scram-rs
+    processName: x509-rs-2
+    replicaSetName: x509-rs
     type: mongod
   featureCompatibilityVersion: "8.0"
   opsManager:
@@ -37,34 +37,12 @@ spec:
         mode: SCRAM
       enabled: true
       ignoreUnknownUsers: true
+      internalCluster: X509
       modes:
       - SCRAM
+      - X509
+    certsSecretPrefix: mdb
+    tls:
+      ca: x509-rs-ca
   type: ReplicaSet
   version: 8.0.4-ent
----
-apiVersion: mongodb.com/v1
-kind: MongoDBUser
-metadata:
-  name: app-user
-  namespace: mongodb
-spec:
-  db: admin
-  mongodbResourceRef:
-    name: scram-rs
-  passwordSecretKeyRef:
-    key: password
-    name: app-user-password
-  roles:
-  - db: myapp
-    name: readWrite
-  - db: reporting
-    name: read
-  username: app-user
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: app-user-password
-  namespace: mongodb
-stringData:
-  password: test-password

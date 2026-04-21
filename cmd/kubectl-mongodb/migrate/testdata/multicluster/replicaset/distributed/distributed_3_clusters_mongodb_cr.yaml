@@ -37,9 +37,11 @@ spec:
         sizeThresholdMB: 100
         timeThresholdHrs: 1
   clusterSpecList:
-  - clusterName: east1
+  - clusterName: cluster-a
     members: 0
-  - clusterName: west1
+  - clusterName: cluster-b
+    members: 0
+  - clusterName: cluster-c
     members: 0
   credentials: mc-credentials
   externalMembers:
@@ -96,31 +98,6 @@ spec:
       - LDAP
   type: ReplicaSet
   version: 8.0.4-ent
----
-apiVersion: mongodb.com/v1
-kind: MongoDBUser
-metadata:
-  name: svc-account
-  namespace: mongodb
-spec:
-  db: admin
-  mongodbResourceRef:
-    name: geo-rs
-  passwordSecretKeyRef:
-    key: password
-    name: svc-account-password
-  roles:
-  - db: inventory
-    name: readWrite
-  username: svc-account
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: svc-account-password
-  namespace: mongodb
-stringData:
-  password: test-password
 ---
 apiVersion: v1
 kind: Secret

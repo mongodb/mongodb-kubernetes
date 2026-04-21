@@ -1,0 +1,26 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: app-user
+  namespace: mongodb
+spec:
+  db: admin
+  mongodbResourceRef:
+    name: scram-rs
+  passwordSecretKeyRef:
+    key: password
+    name: app-user-password
+  roles:
+  - db: myapp
+    name: readWrite
+  - db: reporting
+    name: read
+  username: app-user
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-user-password
+  namespace: mongodb
+stringData:
+  password: test-password
