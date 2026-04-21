@@ -116,17 +116,6 @@ def run_migration_dry_run_connectivity_passes(mdb: MongoDB, *, timeout: int = 60
     wait_until_migrating_condition_reason(mdb, MIGRATING_CONDITION_REASON_IN_PROGRESS)
 
 
-def assert_migrating_condition_reason(mdb: MongoDB, expected_reason: str) -> None:
-    """Assert Migrating=True and Migrating.reason equals expected_reason."""
-    mdb.load()
-    conditions = _status_dict(mdb).get("conditions", [])
-    mig = _get_condition(conditions, CONDITION_MIGRATING)
-    assert mig is not None, f"expected Migrating condition with reason {expected_reason!r}, got {conditions!r}"
-    assert mig.get("status") == "True", f"expected Migrating=True for reason {expected_reason!r}, got {mig!r}"
-    actual = mig.get("reason")
-    assert actual == expected_reason, f"expected Migrating.reason={expected_reason!r}, got {actual!r}"
-
-
 def wait_until_migrating_condition_reason(mdb: MongoDB, expected_reason: str, *, timeout: int = 120) -> None:
     """Poll until Migrating=True and Migrating.reason matches expected_reason."""
 
