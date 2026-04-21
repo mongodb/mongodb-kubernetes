@@ -18,6 +18,8 @@ from pymongo.auth_oidc import OIDCCallback, OIDCCallbackContext, OIDCCallbackRes
 from pymongo.errors import OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pytest import fail
 
+TRACER = trace.get_tracer("evergreen-agent")
+
 TEST_DB = "test-db"
 TEST_COLLECTION = "test-collection"
 
@@ -171,6 +173,7 @@ class MongoTester:
     def _init_client(self, **kwargs):
         return pymongo.MongoClient(self.cnx_string, **kwargs)
 
+    @TRACER.start_as_current_span("assert_connectivity")
     def assert_connectivity(
         self,
         attempts: int = 50,
@@ -205,6 +208,7 @@ class MongoTester:
             else:
                 break
 
+    @TRACER.start_as_current_span("assert_no_connection")
     def assert_no_connection(self, opts: Optional[List[Dict[str, str]]] = None):
         try:
             if opts:
@@ -228,6 +232,7 @@ class MongoTester:
     def assert_is_enterprise(self):
         assert "enterprise" in self.client.admin.command("buildInfo")["modules"]
 
+    @TRACER.start_as_current_span("assert_scram_sha_authentication")
     def assert_scram_sha_authentication(
         self,
         username: str,
@@ -260,6 +265,7 @@ class MongoTester:
 
                 time.sleep(5)
 
+    @TRACER.start_as_current_span("assert_scram_sha_authentication_fails")
     def assert_scram_sha_authentication_fails(
         self,
         username: str,
@@ -305,6 +311,7 @@ class MongoTester:
         # authentication doesn't actually happen until we interact with a database
         self.client["admin"]["myCol"].insert_one({})
 
+    @TRACER.start_as_current_span("assert_x509_authentication")
     def assert_x509_authentication(self, cert_file_name: str, attempts: int = 50, **kwargs):
         assert attempts > 0
 
@@ -329,6 +336,7 @@ class MongoTester:
 
                 time.sleep(5)
 
+    @TRACER.start_as_current_span("assert_ldap_authentication")
     def assert_ldap_authentication(
         self,
         username: str,
@@ -363,6 +371,7 @@ class MongoTester:
 
                 time.sleep(5)
 
+    @TRACER.start_as_current_span("assert_oidc_authentication")
     def assert_oidc_authentication(
         self,
         db: str = "admin",
@@ -393,6 +402,7 @@ class MongoTester:
 
                 time.sleep(5)
 
+    @TRACER.start_as_current_span("assert_oidc_authentication_fails")
     def assert_oidc_authentication_fails(self, db: str = "admin", collection: str = "myCol", attempts: int = 10):
         assert attempts > 0
         total_attempts = attempts

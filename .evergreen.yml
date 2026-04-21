@@ -15,7 +15,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.23 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.21 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.22 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -227,6 +227,10 @@ patch_aliases:
     task: ".*"
   - alias: "release"
     variant_tags: [ "release" ]
+    task: ".*"
+  - alias: "preflight_release_test"
+    description: "Release-style preflight only (no image release, no Pyxis submit); patch-only. See EVERGREEN.md."
+    variant_tags: [ "preflight_release_test" ]
     task: ".*"
   - alias: "staging"
     variant_tags: [ "staging" ]
@@ -1676,9 +1680,6 @@ buildvariants:
       - rhel9-zseries-small
       - rhel9-zseries-large
     allowed_requesters: [ "patch", "commit" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1696,9 +1697,6 @@ buildvariants:
   - name: e2e_static_smoke_ibm_z
     display_name: e2e_static_smoke_ibm_z
     tags: [ "staging", "e2e_smoke_test_suite", "static" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -1967,9 +1965,6 @@ buildvariants:
     display_name: init_test_run_ibm_z
     max_hosts: -1
     tags: [ "staging" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -2024,6 +2019,7 @@ buildvariants:
 
   ### Variants that run on each commit
 
+  # Toolchain smoke: one check-only preflight (operator image) every staging build so preflight regressions surface before release.
   - name: preflight_release_images_check_only
     display_name: preflight_release_images_check_only
     tags: [ "staging" ]
@@ -2032,7 +2028,23 @@ buildvariants:
     expansions:
       preflight_submit: false
     tasks:
-      - name: preflight_images_task_group
+      - name: preflight_check_smoke
+
+  # Preflight OM + agent images after release_om_and_agents (same version set as that script). Check-only on master.
+  - name: preflight_om_and_agents
+    display_name: preflight_om_and_agents
+    tags: [ "staging" ]
+    run_on:
+      - rhel90-large
+    allowed_requesters: [ "commit" ]
+    patchable: false
+    depends_on:
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+    expansions:
+      preflight_submit: false
+    tasks:
+      - name: preflight_om_and_agents_task_group
 
   # OM60 images build - kept for on-demand testing only
   - name: build_om60_images
@@ -2176,7 +2188,6 @@ buildvariants:
   - name: flaky_test_report
     display_name: "Flaky Test Weekly Report"
     cron: "0 9 * * 1"
-    allowed_requesters: [ "ad_hoc", "patch" ] # only run on cron jobs or manually via patches
     run_on:
       - ubuntu2404-small
     tasks:

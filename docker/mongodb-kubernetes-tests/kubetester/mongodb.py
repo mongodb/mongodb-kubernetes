@@ -60,12 +60,14 @@ class MongoDB(CustomObject, MongoDBCommon):
                 resource.set_version(ensure_ent_version(custom_mdb_version))
         return resource
 
+    @TRACER.start_as_current_span("assert_state_transition_happens")
     def assert_state_transition_happens(self, last_transition, timeout=None):
         def transition_changed(mdb: MongoDB):
             return mdb.get_status_last_transition_time() != last_transition
 
         self.wait_for(transition_changed, timeout, should_raise=True)
 
+    @TRACER.start_as_current_span("assert_reaches_phase")
     def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
         intermediate_events = (
             "haven't reached READY",
@@ -118,6 +120,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
         )
 
+    @TRACER.start_as_current_span("assert_abandons_phase")
     def assert_abandons_phase(self, phase: Phase, timeout=None):
         """This method can be racy by nature, it assumes that the operator is slow enough that its phase transition
         happens during the time we call this method. If there is not a lot of work, then the phase can already finished
@@ -126,10 +129,16 @@ class MongoDB(CustomObject, MongoDBCommon):
         start_time = time.time()
         self.wait_for(lambda s: s.get_status_phase() != phase, timeout, should_raise=True)
         end_time = time.time()
+        span = trace.get_current_span()
+        span.set_attribute("mck.resource", self.__class__.__name__)
+        span.set_attribute("mck.action", "assert_abandons_phase")
+        span.set_attribute("mck.abandoned_phase", phase.name)
+        span.set_attribute("mck.time_needed", end_time - start_time)
         logger.debug(
             f"Abandonning phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
         )
 
+    @TRACER.start_as_current_span("assert_backup_reaches_status")
     def assert_backup_reaches_status(self, expected_status: str, timeout: int = 600):
         def reaches_backup_status(mdb: MongoDB) -> bool:
             try:
@@ -137,7 +146,14 @@ class MongoDB(CustomObject, MongoDBCommon):
             except KeyError:
                 return False
 
+        start_time = time.time()
         self.wait_for(reaches_backup_status, timeout=timeout, should_raise=True)
+        end_time = time.time()
+        span = trace.get_current_span()
+        span.set_attribute("mck.resource", self.__class__.__name__)
+        span.set_attribute("mck.action", "assert_backup_reaches_status")
+        span.set_attribute("mck.expected_status", expected_status)
+        span.set_attribute("mck.time_needed", end_time - start_time)
 
     def assert_status_resource_not_ready(self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0):
         """Checks the element in 'resources_not_ready' field by index 'idx'"""

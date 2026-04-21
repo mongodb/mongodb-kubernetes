@@ -156,6 +156,7 @@ buildvariants:
     tasks:
       - name: add_releaseinfo_to_github_assets
 
+  # Preflight on git tag: images built in release_images (+ enterprise server on Quay). OM/agent preflight runs on master (see preflight_om_and_agents variant).
   - name: preflight_release_images
     display_name: preflight_release_images
     tags: [ "release" ]
@@ -168,7 +169,19 @@ buildvariants:
     expansions:
       preflight_submit: true
     tasks:
-      - name: preflight_images_task_group
+      - name: preflight_release_operator_images_task_group
+
+  # Patch-only: same preflight tasks as preflight_release_images, but no depends_on release_images (no build/push) and preflight_submit false (no Pyxis). Use an OPERATOR_VERSION (and probe/hook versions if needed) that already exist on Quay.
+  - name: preflight_release_images_patch_test
+    display_name: preflight_release_images_patch_test
+    tags: [ "preflight_release_test" ]
+    run_on:
+      - rhel90-large
+    allowed_requesters: [ "patch" ]
+    expansions:
+      preflight_submit: false
+    tasks:
+      - name: preflight_release_operator_images_task_group
 
   - name: prepare_openshift_bundles
     display_name: prepare_openshift_bundles
@@ -244,9 +257,6 @@ buildvariants:
     display_name: init_smoke_tests_ibm_z
     max_hosts: -1
     tags: [ "release", "e2e_smoke_release_test_suite" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - release-rhel9-zseries-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
       - release-rhel9-zseries-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -335,9 +345,6 @@ buildvariants:
   - name: e2e_smoke_ibm_z_release
     display_name: e2e_smoke_ibm_z
     tags: [ "release", "e2e_smoke_release_test_suite" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -353,9 +360,6 @@ buildvariants:
   - name: e2e_static_smoke_ibm_z_release
     display_name: e2e_static_smoke_ibm_z
     tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
-    # TODO: Re-enable when ibm_z series is stable
-    # https://jira.mongodb.org/browse/DEVPROD-23283
-    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
