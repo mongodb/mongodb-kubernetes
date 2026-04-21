@@ -6,7 +6,6 @@ import (
 
 	"go.uber.org/zap"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,6 +19,14 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
 )
+
+// ProjectConfigs holds project-level agent and log rotation config read from the OM API.
+type ProjectConfigs struct {
+	MonitoringConfig *om.MonitoringAgentConfig
+	BackupConfig     *om.BackupAgentConfig
+	SystemLogRotate  *automationconfig.AcLogRotate
+	AuditLogRotate   *automationconfig.AcLogRotate
+}
 
 var omConnectionFactory om.ConnectionFactory = om.NewOpsManagerConnection
 
@@ -86,12 +93,20 @@ func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Creden
 	return conn, nil
 }
 
-// ProjectConfigs holds project-level agent and log rotation config read from the OM API.
-type ProjectConfigs struct {
-	MonitoringConfig *om.MonitoringAgentConfig
-	BackupConfig     *om.BackupAgentConfig
-	SystemLogRotate  *automationconfig.AcLogRotate
-	AuditLogRotate   *automationconfig.AcLogRotate
+func newKubeClient() (kubernetesClient.Client, error) {
+	kubeConfigPath := common.LoadKubeConfigFilePath()
+	restConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfigPath},
+		&clientcmd.ConfigOverrides{},
+	).ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+	cl, err := k8sClient.New(restConfig, k8sClient.Options{Scheme: scheme.Scheme})
+	if err != nil {
+		return nil, err
+	}
+	return kubernetesClient.NewClient(cl), nil
 }
 
 func readProjectConfigs(conn om.Connection) (*ProjectConfigs, error) {
@@ -117,21 +132,4 @@ func readProjectConfigs(conn om.Connection) (*ProjectConfigs, error) {
 		SystemLogRotate:  systemLogRotate,
 		AuditLogRotate:   auditLogRotate,
 	}, nil
-}
-
-func newKubeClient() (kubernetesClient.Client, error) {
-	restConfig, err := rest.InClusterConfig()
-	if err != nil {
-		kubeConfigPath := common.LoadKubeConfigFilePath()
-		loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfigPath}
-		restConfig, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{}).ClientConfig()
-		if err != nil {
-			return nil, err
-		}
-	}
-	cl, err := k8sClient.New(restConfig, k8sClient.Options{Scheme: scheme.Scheme})
-	if err != nil {
-		return nil, err
-	}
-	return kubernetesClient.NewClient(cl), nil
 }
