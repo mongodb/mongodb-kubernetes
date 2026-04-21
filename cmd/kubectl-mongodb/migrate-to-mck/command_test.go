@@ -116,13 +116,13 @@ func TestBuildOptions_FlagTranslation(t *testing.T) {
 		"replicaSets": []any{},
 	})
 
-	f := cliFlags{
+	f := mongodbFlags{
 		configMapName:        "my-cm",
 		secretName:           "my-secret",
 		namespace:            "mongodb",
 		resourceNameOverride: "my-rs",
 	}
-	opts, err := buildOptions(context.Background(), nil, ac, &ProjectConfigs{}, nil, strings.NewReader(""), f)
+	opts, err := buildMongodbOptions(context.Background(), nil, ac, &ProjectConfigs{}, nil, strings.NewReader(""), f)
 	require.NoError(t, err)
 	assert.Equal(t, "my-cm", opts.ConfigMapName)
 	assert.Equal(t, "my-secret", opts.CredentialsSecretName)
@@ -136,8 +136,8 @@ func TestBuildOptions_InvalidMultiClusterNames(t *testing.T) {
 		"replicaSets": []any{},
 	})
 
-	f := cliFlags{multiClusterNames: "  ,  ,  "}
-	_, err := buildOptions(context.Background(), nil, ac, &ProjectConfigs{}, nil, strings.NewReader(""), f)
+	f := mongodbFlags{multiClusterNames: "  ,  ,  "}
+	_, err := buildMongodbOptions(context.Background(), nil, ac, &ProjectConfigs{}, nil, strings.NewReader(""), f)
 	assert.ErrorContains(t, err, "no valid cluster names")
 }
 
