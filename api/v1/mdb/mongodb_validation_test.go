@@ -337,6 +337,11 @@ func TestReplicasetMemberIsSpecified(t *testing.T) {
 	require.Error(t, err)
 	assert.Errorf(t, err, "'spec.members' must be specified if type of MongoDB is ReplicaSet")
 
+	rs = NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+	rs.Spec.Members = 0
+	rs.Spec.ExternalMembers = []ExternalMember{{ProcessName: "vm-0", Hostname: "vm-0.svc", Type: "mongod", ReplicaSetName: "rs"}}
+	require.NoError(t, rs.ProcessValidationsOnReconcile(nil))
+
 	rs = NewReplicaSetBuilder().Build()
 	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
 		ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},

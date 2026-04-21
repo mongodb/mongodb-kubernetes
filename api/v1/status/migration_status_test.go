@@ -17,7 +17,9 @@ func TestMigrationCondition_PhaseToStatus(t *testing.T) {
 		assert.Equal(t, metav1.ConditionFalse, c.Status)
 	})
 	t.Run("Running maps to Unknown", func(t *testing.T) {
-		c := MigrationCondition(MigrationPhaseConnectivityCheckRunning, "R", "M")
+		c := MigrationCondition(MigrationPhaseConnectivityCheckRunning, string(NetworkConnectivityVerifiedReasonRunning), "M")
 		assert.Equal(t, metav1.ConditionUnknown, c.Status)
+		assert.Equal(t, ConditionNetworkConnectivityVerified, c.Type)
+		assert.Equal(t, string(NetworkConnectivityVerifiedReasonRunning), c.Reason)
 	})
 }

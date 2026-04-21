@@ -347,6 +347,10 @@ func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
 
 func replicasetMemberIsSpecified(ms MongoDbSpec) v1.ValidationResult {
 	if ms.ResourceType == ReplicaSet && ms.Members == 0 {
+		// VM-to-K8s migration: the replica set can exist with only externalMembers until in-cluster members are added.
+		if len(ms.GetExternalMembers()) > 0 {
+			return v1.ValidationSuccess()
+		}
 		return v1.ValidationError("'spec.members' must be specified if type of MongoDB is %s", ms.ResourceType)
 	}
 	return v1.ValidationSuccess()

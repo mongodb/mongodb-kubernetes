@@ -6,6 +6,9 @@ auth between mongod processes continues to use keyFile.
 Flow: TLS → X509 client auth (fixtures bring VM agents to goal state), then migrate (MDB resource
 with externalMembers pointing at VM processes, promote K8s members and prune VM members).
 
+Test order matches ``vm_migration`` (non-TLS): VM ready → AC updates → operator running → MDB
+Running → migration dry-run → promote/prune.
+
 The MDB resource is created with X509 + clientCertificateSecretRef and
 spec.security.authentication.agents.autoPEMKeyFilePath set to CUSTOM_AGENT_CERT_PATH, matching
 the VM pod mount. The operator configures OM and K8s pods to use that path explicitly.
@@ -29,10 +32,11 @@ from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMContext, OMTester
+from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-
 from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+from tests.tls.vm_migration_promote_prune import promote_and_prune_members
 
 VM_STS_NAME = "vm-mongodb"
 VM_RS_NAME = "vm-mongodb-rs"
@@ -181,7 +185,7 @@ def mdb_tls_certs(issuer: str, namespace: str):
 
 
 @fixture(scope="module")
-def mdb_migration(
+def mdb_k8s(
     namespace: str,
     custom_mdb_version: str,
     issuer_ca_configmap: str,
@@ -216,6 +220,10 @@ def mdb_migration(
             },
         },
     }
+    # Start with 0 k8s replicas. Extending begins when the user increments spec.members
+    # to add k8s pods alongside the VM members.
+    resource["spec"]["members"] = 0
+
     resource["spec"]["externalMembers"] = []
     for i in range(vm_sts["spec"]["replicas"]):
         resource["spec"]["externalMembers"].append(
@@ -227,8 +235,6 @@ def mdb_migration(
             }
         )
     resource["spec"]["memberConfig"] = []
-    for i in range(resource.get_members()):
-        resource["spec"]["memberConfig"].append({"votes": 0, "priority": "0"})
     resource.update()
     return resource
 
@@ -397,24 +403,22 @@ def test_vm_ac_x509_auth(
 
 
 @mark.e2e_vm_migration_x509
-def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
-    """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
-    run_migration_dry_run_connectivity_passes(mdb_migration)
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @mark.e2e_vm_migration_x509
-def test_k8s_mdb_reaches_running(mdb_migration: MongoDB):
-    mdb_migration.assert_reaches_phase(Phase.Running, timeout=600)
+def test_k8s_mdb_reaches_running(mdb_k8s: MongoDB):
+    mdb_k8s.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_vm_migration_x509
-def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
-    try_load(mdb_migration)
-    for i in range(vm_sts["spec"]["replicas"]):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
-        mdb_migration["spec"]["externalMembers"].pop()
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
+def test_migration_dry_run_connectivity_passes(mdb_k8s: MongoDB):
+    """Dry-run under TLS+X509; operator records result on ``status.conditions`` before annotation is cleared."""
+    run_migration_dry_run_connectivity_passes(mdb_k8s)
+
+
+# TODO insert sample data, assert it is still there after migration
+@mark.e2e_vm_migration_x509
+def test_promote_and_prune(mdb_k8s: MongoDB, vm_sts):
+    promote_and_prune_members(mdb_k8s, vm_sts)

@@ -291,7 +291,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	// Recovery is skipped when a migration dry-run is active.
-	isDryRun := rs.Annotations[opMigration.AnnotationDryRun] == "true"
+	isDryRun := rs.Annotations[mdbstatus.MigrationDryRunAnnotationKey] == "true"
 	if !isDryRun && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
@@ -316,10 +316,11 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		if operatorImage == "" {
 			return r.updateStatus(ctx,
 				workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)),
-				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
-					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
-				)),
+				mdbstatus.NewMigrationStatusOptionWithCondition(
+					mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
+						"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
+					),
+				),
 			)
 		}
 		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
@@ -843,7 +844,9 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 // so it uses the same credentials volumes and mounts as the STS.
 //
 // The MongoDB resource phase stays PhaseConnectivityValidation for both in-progress and passed
-// outcomes; the migration condition carries ConnectivityCheckRunning or ConnectivityCheckPassed.
+// outcomes. The Migrating condition Reason is Validating while the dry-run annotation is set;
+// NetworkConnectivityVerified on status.conditions carries ConnectivityCheckRunning or ConnectivityCheckPassed;
+// while the Job runs, reason is NetworkConnectivityVerifiedReasonRunning ("Running").
 // While the Job runs, reconciliation is requeued after 30s. When the Job reports a connectivity
 // failure, the resource phase is Failed, it is requeued after 5 minutes. Earlier failures
 // in this function (e.g. building StatefulSet options, agent certificate, or RunConnectivityJob
@@ -854,9 +857,9 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	if err != nil {
 		return r.updateStatus(ctx,
 			workflow.Failed(xerrors.Errorf("connectivity dry-run: building StatefulSet options: %w", err)),
-			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckFailed, "BuildStatefulSetOptions", err.Error(),
-			)),
+			mdbstatus.NewMigrationStatusOptionWithCondition(
+				mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckFailed, "BuildStatefulSetOptions", err.Error()),
+			),
 		)
 	}
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
@@ -881,9 +884,9 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 		if err != nil {
 			return r.updateStatus(ctx,
 				workflow.Failed(xerrors.Errorf("connectivity dry-run: automation agent certificate subject: %w", err)),
-				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-					mdbstatus.MigrationPhaseConnectivityCheckFailed, "AgentCertSubject", err.Error(),
-				)),
+				mdbstatus.NewMigrationStatusOptionWithCondition(
+					mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckFailed, "AgentCertSubject", err.Error()),
+				),
 			)
 		}
 		subjectDN = userOpts.AutomationSubject
@@ -895,9 +898,9 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	if result.Err != nil {
 		return r.updateStatus(ctx,
 			workflow.Failed(fmt.Errorf("connectivity dry run: %w", result.Err)),
-			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				result.Phase, result.Reason, result.Message,
-			)),
+			mdbstatus.NewMigrationStatusOptionWithCondition(
+				mdbstatus.MigrationCondition(result.Phase, result.Reason, result.Message),
+			),
 		)
 	}
 
@@ -906,24 +909,24 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	switch result.Phase {
 	case mdbstatus.MigrationPhaseConnectivityCheckRunning:
 		return r.updateStatus(ctx,
-			workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", opMigration.AnnotationDryRun).WithRetry(30),
-			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckRunning, "Running", "Connectivity validation Job is in progress",
-			)),
+			workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", mdbstatus.MigrationDryRunAnnotationKey).WithRetry(30),
+			mdbstatus.NewMigrationStatusOptionWithCondition(
+				mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckRunning, string(mdbstatus.NetworkConnectivityVerifiedReasonRunning), "Connectivity validation Job is in progress"),
+			),
 		)
 	case mdbstatus.MigrationPhaseConnectivityCheckPassed:
 		return r.updateStatus(ctx,
-			workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", opMigration.AnnotationDryRun),
-			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckPassed, result.Reason, result.Message,
-			)),
+			workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", mdbstatus.MigrationDryRunAnnotationKey),
+			mdbstatus.NewMigrationStatusOptionWithCondition(
+				mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckPassed, result.Reason, result.Message),
+			),
 		)
 	default:
 		if updateResult, updateErr := r.updateStatus(ctx,
 			workflow.Failed(fmt.Errorf("%s: %s", result.Reason, result.Message)),
-			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckFailed, result.Reason, result.Message,
-			)),
+			mdbstatus.NewMigrationStatusOptionWithCondition(
+				mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckFailed, result.Reason, result.Message),
+			),
 		); updateErr != nil {
 			return updateResult, updateErr
 		}
