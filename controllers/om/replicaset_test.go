@@ -122,4 +122,11 @@ func TestMergeFrom_NonExternalExtraMemberRemoved(t *testing.T) {
 	removedMembers := omRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs, nil)
 
 	assert.Contains(t, removedMembers, "stale-host:27017")
+
+	// Verify the stale member is actually gone from the RS
+	memberHosts := make([]string, len(omRsWithProcesses.Rs.Members()))
+	for i, m := range omRsWithProcesses.Rs.Members() {
+		memberHosts[i] = m.Name()
+	}
+	assert.NotContains(t, memberHosts, "stale-host:27017")
 }
