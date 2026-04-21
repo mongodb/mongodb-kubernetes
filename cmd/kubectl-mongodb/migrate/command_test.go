@@ -48,7 +48,6 @@ func TestFetchAndValidate_ValidDeployment(t *testing.T) {
 }
 
 func TestFetchAndValidate_ValidationError(t *testing.T) {
-	// No processes, no replica sets -> validation will fail with "No replica sets found"
 	d := om.Deployment(map[string]any{
 		"processes":   []any{},
 		"replicaSets": []any{},
