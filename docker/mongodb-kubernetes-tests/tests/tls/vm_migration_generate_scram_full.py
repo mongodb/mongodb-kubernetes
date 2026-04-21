@@ -26,8 +26,7 @@ from tests.tls.vm_migration_helpers import (
     apply_user_crs_and_verify_ac,
     deploy_vm_service,
     deploy_vm_statefulset,
-    log_automation_config,
-    log_automation_config_diff,
+    promote_and_prune,
     rotate_password_and_verify,
     run_migrate_generate,
     vm_replica_set_tester,
@@ -280,16 +279,6 @@ def mdb_migration(namespace: str, generated_cr_yaml: str) -> MongoDB:
     return resource
 
 
-@fixture(scope="module")
-def ac_before_migration(om_tester: OMTester) -> dict:
-    return om_tester.api_get_automation_config()
-
-
-@fixture(scope="module")
-def ac_before_promote(om_tester: OMTester) -> dict:
-    return om_tester.api_get_automation_config()
-
-
 @mark.e2e_vm_migration_generate_scram_full
 def test_deploy_vm(namespace: str, vm_sts, vm_service):
     def sts_is_ready():
@@ -302,11 +291,6 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
 @mark.e2e_vm_migration_generate_scram_full
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
     _configure_ac(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
-
-
-@mark.e2e_vm_migration_generate_scram_full
-def test_log_ac_after_vm_setup(om_tester: OMTester):
-    log_automation_config(om_tester.api_get_automation_config(), label="after-vm-setup")
 
 
 @mark.e2e_vm_migration_generate_scram_full
@@ -343,7 +327,7 @@ def test_settings_sourced_from_source_process(generated_cr_yaml: str):
 
 
 @mark.e2e_vm_migration_generate_scram_full
-def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB, ac_before_migration: dict):
+def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
@@ -361,32 +345,8 @@ def test_user_connectivity_after_migration(mdb_migration: MongoDB):
 
 
 @mark.e2e_vm_migration_generate_scram_full
-def test_log_ac_after_migration(om_tester: OMTester, ac_before_migration: dict):
-    ac_after = om_tester.api_get_automation_config()
-    log_automation_config(ac_after, label="after-migration")
-    log_automation_config_diff(ac_before_migration, ac_after)
-
-
-# TODO insert sample data, assert it is still there after migration
-@mark.e2e_vm_migration_generate_scram_full
-def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, ac_before_promote: dict):
-    try_load(mdb_migration)
-    for i in range(vm_sts["spec"]["replicas"]):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
-
-        mdb_migration["spec"]["externalMembers"].pop()
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
-
-
-@mark.e2e_vm_migration_generate_scram_full
-def test_log_ac_after_promote(om_tester: OMTester, ac_before_promote: dict):
-    ac_after = om_tester.api_get_automation_config()
-    log_automation_config(ac_after, label="after-promote")
-    log_automation_config_diff(ac_before_promote, ac_after)
+def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
+    promote_and_prune(mdb_migration, vm_sts)
 
 
 @mark.e2e_vm_migration_generate_scram_full
@@ -400,10 +360,3 @@ def test_user_connectivity_after_promote(mdb_migration: MongoDB):
 @mark.e2e_vm_migration_generate_scram_full
 def test_password_rotation_keeps_migrated_flag(generated_cr_yaml: str, namespace: str, om_tester: OMTester):
     rotate_password_and_verify(generated_cr_yaml, namespace, om_tester, target_username="app-user")
-
-
-@mark.e2e_vm_migration_generate_scram_full
-def test_log_ac_end_to_end(om_tester: OMTester, ac_before_migration: dict):
-    ac_after = om_tester.api_get_automation_config()
-    log_automation_config(ac_after, label="final")
-    log_automation_config_diff(ac_before_migration, ac_after)
