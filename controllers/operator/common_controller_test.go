@@ -1172,7 +1172,8 @@ func TestValidateACForMigration_TLSModeNotSet(t *testing.T) {
 	d := om.NewDeployment()
 	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
-	// Remove the tls key entirely so net.tls.mode is absent
+	// NewMongodProcess sets tls.mode="disabled" by default; delete the key entirely
+	// so net.tls.mode is absent — validateACForMigration rejects absent TLS, not just "disabled"
 	delete(d.GetProcesses()[0].EnsureNetConfig(), "tls")
 
 	conn := om.NewMockedOmConnection(d)
