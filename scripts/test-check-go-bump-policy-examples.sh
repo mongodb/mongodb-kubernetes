@@ -76,7 +76,7 @@ expect_bump() {
     failures=$((failures + 1))
     return
   fi
-  if ! grep -qE 'bump-go: target go version:' <<<"${out}"; then
+  if ! grep -qE 'bump-go: bumping Go version to' <<<"${out}"; then
     echo "FAIL: expected bump-go.sh output"
     echo "${out}"
     failures=$((failures + 1))
@@ -99,7 +99,8 @@ expect_bump "2) May 31 2026 — 1.25 vs 1.26, within upgrade window before EOL" 
   TEST_OVERRIDE_TODAY=2026-05-31 \
   TEST_OVERRIDE_CURRENT_EOL_DATE=2026-08-01 \
   TEST_OVERRIDE_LATEST_GO=1.26.2 \
-  TEST_OVERRIDE_CURRENT_GO=1.25.9
+  TEST_OVERRIDE_CURRENT_GO=1.25.9 \
+  TEST_BUMP_DRY_RUN=1
 
 # EOL 2027-02-01: outside upgrade window on 2026-09-20, inside on 2026-11-15.
 expect_pause "3) Sep 2026 — 1.26 vs 1.27, defer" \
@@ -112,14 +113,16 @@ expect_bump "4) Nov 2026 — 1.26 vs 1.27, within bumping period" \
   TEST_OVERRIDE_TODAY=2026-11-15 \
   TEST_OVERRIDE_CURRENT_EOL_DATE=2027-02-01 \
   TEST_OVERRIDE_LATEST_GO=1.27.1 \
-  TEST_OVERRIDE_CURRENT_GO=1.26.2
+  TEST_OVERRIDE_CURRENT_GO=1.26.2 \
+  TEST_BUMP_DRY_RUN=1
 
 # Past EOL → bump if not latest.
 expect_bump "5) Mar 2027 — 1.26 vs 1.28, past current minor EOL, so bump" \
   TEST_OVERRIDE_TODAY=2027-03-18 \
   TEST_OVERRIDE_CURRENT_EOL_DATE=2027-02-01 \
   TEST_OVERRIDE_LATEST_GO=1.28.0 \
-  TEST_OVERRIDE_CURRENT_GO=1.26.5
+  TEST_OVERRIDE_CURRENT_GO=1.26.5 \
+  TEST_BUMP_DRY_RUN=1
 
 echo
 if [[ "${failures}" -eq 0 ]]; then
