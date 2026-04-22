@@ -206,6 +206,18 @@ func ConvertCrdLogRotateToAC(lr *CrdLogRotate) *AcLogRotate {
 	}
 }
 
+// ConvertACLogRotateToCrd converts an AcLogRotate to a CrdLogRotate representation.
+func ConvertACLogRotateToCrd(lr *AcLogRotate) *CrdLogRotate {
+	if lr == nil {
+		return nil
+	}
+	return &CrdLogRotate{
+		LogRotate:          lr.LogRotate,
+		SizeThresholdMB:    cast.ToString(lr.SizeThresholdMB),
+		PercentOfDiskspace: cast.ToString(lr.PercentOfDiskspace),
+	}
+}
+
 func (p *Process) SetWiredTigerCache(cacheSizeGb *float32) *Process {
 	if cacheSizeGb == nil {
 		return p
@@ -249,6 +261,26 @@ type SystemLog struct {
 	Destination Destination `json:"destination"`
 	Path        string      `json:"path"`
 	LogAppend   bool        `json:"logAppend"`
+}
+
+// SystemLogFromMap converts a raw map (e.g. from args2_6.systemLog) into a
+// typed SystemLog. Returns nil if the map is empty/nil or has no meaningful data.
+func SystemLogFromMap(m map[string]any) *SystemLog {
+	if len(m) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	var sl SystemLog
+	if err := json.Unmarshal(data, &sl); err != nil {
+		return nil
+	}
+	if sl.Destination == "" && sl.Path == "" {
+		return nil
+	}
+	return &sl
 }
 
 type WiredTiger struct {
