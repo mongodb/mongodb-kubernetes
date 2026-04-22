@@ -114,6 +114,24 @@ func (r *ReconcileMongoDBStandbyCluster) Reconcile(ctx context.Context, request 
 		return r.updateStatus(ctx, standby, workflow.Failed(xerrors.Errorf("failed to update automation config: %w", err)), log)
 	}
 
+	// Before patching the StatefulSet, verify the agents have picked up the automation config.
+	// There are two acceptable states to proceed:
+	//   1. Goal state reached — all agents applied the config (votes/priority changes).
+	//   2. All non-ready agents are blocked at WaitForInjectorReady — they are waiting for the
+	//      injector sidecar health check, which only passes once we add it. Patching the STS is
+	//      exactly what unblocks them; waiting for goal state here would be a deadlock.
+	// Any other not-ready reason means the agents haven't applied the config yet — requeue.
+	processNames := make([]string, len(hostnames))
+	for i, h := range hostnames {
+		processNames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
+	}
+	if ready, msg := om.AllAgentsInGoalState(conn, processNames, log); !ready {
+		if !om.AgentsBlockedOnInjector(conn, processNames, log) {
+			return r.updateStatus(ctx, standby, workflow.Pending("waiting for agents to apply automation config before adding injector sidecar: %s", msg), log)
+		}
+		log.Infow("All agents blocked at WaitForInjectorReady — proceeding to add injector sidecar")
+	}
+
 	// Patch the MongoDB RS's StatefulSet to add the injector sidecar if not already present.
 	sts, err := r.client.GetStatefulSet(ctx, kube.ObjectKey(request.Namespace, rs.Name))
 	if err != nil {
@@ -137,15 +155,6 @@ func (r *ReconcileMongoDBStandbyCluster) Reconcile(ctx context.Context, request 
 		if _, err := r.client.UpdateStatefulSet(ctx, sts); err != nil {
 			return r.updateStatus(ctx, standby, workflow.Failed(xerrors.Errorf("failed to patch StatefulSet with injector sidecar: %w", err)), log)
 		}
-	}
-
-	// Wait for the agents to reach goal state.
-	processNames := make([]string, len(hostnames))
-	for i, h := range hostnames {
-		processNames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
-	}
-	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
-		return r.updateStatus(ctx, standby, workflow.Pending("waiting for agents to reach goal state: %s", err.Error()), log)
 	}
 
 	return r.updateStatus(ctx, standby, workflow.OK(), log)

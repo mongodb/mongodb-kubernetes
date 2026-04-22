@@ -259,25 +259,19 @@ def build_monarch_injector_image(build_configuration: ImageBuildConfiguration):
     """
     Builds the Monarch oplog-injector image.
 
-    CI: downloads a pre-built binary from internal-downloads.mongodb.com.
-        MONARCH_COMMIT (pinned in release.json) selects the binary.
+    The binary URLs are hardcoded in the Dockerfile — same binaries used by automation
+    and OM for testing. To update the monarch version, change the URLs there.
 
     Local dev: set MONARCH_PATH to a local monarch checkout. The binary is
-        cross-compiled with `go build` and injected into the Docker build context,
-        so no GitHub token is needed.
+        cross-compiled with `go build` and injected into the Docker build context.
     """
     monarch_path = os.getenv("MONARCH_PATH")
     if monarch_path:
         _build_monarch_injector_from_source(build_configuration, monarch_path)
         return
 
-    # Commit is pinned in release.json ("monarchCommit"). To update the injector version,
-    # change that one field — same workflow as bumping agentVersion or readinessProbeVersion.
-    monarch_commit = load_release_file()["monarchCommit"]
-
     build_image(
         build_configuration=build_configuration,
-        build_args={"MONARCH_COMMIT": monarch_commit},
         build_path="docker/monarch-injector",
     )
 

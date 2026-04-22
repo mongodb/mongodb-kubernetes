@@ -63,13 +63,13 @@ import (
 )
 
 const (
-	mongoDBCRDPlural             = "mongodb"
-	mongoDBUserCRDPlural         = "mongodbusers"
-	mongoDBOpsManagerCRDPlural   = "opsmanagers"
-	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
-	mongoDBCommunityCRDPlural    = "mongodbcommunity"
-	mongoDBSearchCRDPlural        = "mongodbsearch"
-	clusterMongoDBRoleCRDPlural   = "clustermongodbroles"
+	mongoDBCRDPlural               = "mongodb"
+	mongoDBUserCRDPlural           = "mongodbusers"
+	mongoDBOpsManagerCRDPlural     = "opsmanagers"
+	mongoDBMultiClusterCRDPlural   = "mongodbmulticluster"
+	mongoDBCommunityCRDPlural      = "mongodbcommunity"
+	mongoDBSearchCRDPlural         = "mongodbsearch"
+	clusterMongoDBRoleCRDPlural    = "clustermongodbroles"
 	mongoDBStandbyClusterCRDPlural = "mongodbstandbyclusters"
 )
 
@@ -128,6 +128,7 @@ func run() error {
 			mongoDBCommunityCRDPlural,
 			mongoDBSearchCRDPlural,
 			clusterMongoDBRoleCRDPlural,
+			mongoDBStandbyClusterCRDPlural,
 		}
 	}
 

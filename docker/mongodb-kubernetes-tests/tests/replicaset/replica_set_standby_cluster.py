@@ -8,22 +8,17 @@ e2e test for MongoDBStandbyCluster — mirrors the docker compose flow:
   5. Wait for oplog injection (Running)
   6. Verify 10 docs on standby RS       ←→  "docker exec agent-1 mongosh … inventory.find()"
 
-Required environment variable:
-  INJECTOR_IMAGE   The monarch-injector image (quay.io/mongodb/mongodb-kubernetes-monarch-injector:<version>).
-                   Built by the MCK pipeline (build_monarch_injector_image Evergreen task).
-                   The monarch binary is baked into the image — no runtime download needed.
-                   Used for both the injector sidecar and the snapshot (shipper) job.
-
-The test is skipped if INJECTOR_IMAGE is not set.
+The injector image is sourced from MDB_MONARCH_INJECTOR_IMAGE, set automatically
+by the root-context (scripts/dev/contexts/root-context) via print_operator_env.sh.
+To update the injector version, change the hardcoded URLs in docker/monarch-injector/Dockerfile.
 """
 
-import json
 import os
+import subprocess
 import textwrap
 import time
 
 import boto3
-import pymongo
 from botocore.config import Config as BotoConfig
 from kubernetes import client as k8s_client
 from kubetester import create_or_update_secret, try_load
@@ -31,9 +26,9 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_standby_cluster import MongoDBStandbyCluster
-from kubetester.mongotester import ReplicaSetTester
+from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
-from pytest import fixture, mark, skip
+from pytest import fixture, mark
 
 # ── resource names ──────────────────────────────────────────────────────────
 ACTIVE_RS_NAME = "monarch-active-rs"
@@ -51,6 +46,12 @@ MINIO_PASSWORD = "minioadmin123"
 AWS_REGION = "eu-north-1"
 S3_CREDS_SECRET = "monarch-s3-creds"
 
+# ── custom images (hardcoded for dev/staging ECR) ────────────────────────────
+# OM image: overrides spec.version-based resolution for the OpsManager pod.
+OM_IMAGE = "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi:nam.nguyen-om-local"
+# Agent image: applied via operator MDB_AGENT_IMAGE env var (set by root-context).
+AGENT_IMAGE = "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent:nam.nguyen-monarch"
+
 # ── test data (mirrors shipper-entrypoint.sh) ────────────────────────────────
 PRODUCTS_DB = "products"
 INVENTORY_COLLECTION = "inventory"
@@ -67,9 +68,7 @@ INVENTORY_DOCS = [
     {"item": "cable", "qty": 500, "price": 14.99, "warehouse": "C"},
 ]
 
-# Single image for both sidecar and shipper job.
-# Build: docker build -t monarch-injector:latest ~/projects/mms-automation/docker/injector/
-INJECTOR_IMAGE = os.getenv("INJECTOR_IMAGE", "")
+INJECTOR_IMAGE = os.getenv("MDB_MONARCH_INJECTOR_IMAGE", "")
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -80,9 +79,22 @@ def _minio_endpoint(namespace: str) -> str:
 
 
 def _active_rs_uri(namespace: str, cluster_domain: str, members: int = 3) -> str:
+    """Cluster-internal URI for the active RS — used by in-cluster Jobs (shipper)."""
     svc = f"{ACTIVE_RS_NAME}-svc"
     hosts = [f"{ACTIVE_RS_NAME}-{i}.{svc}.{namespace}.svc.{cluster_domain}:27017" for i in range(members)]
     return f"mongodb://{','.join(hosts)}/?replicaSet={ACTIVE_RS_NAME}"
+
+
+def _mongosh_exec(namespace: str, pod: str, js: str) -> str:
+    """Run JavaScript in mongosh inside the database container via stdin, return stdout stripped."""
+    result = subprocess.run(
+        ["kubectl", "exec", "-i", "-n", namespace, pod, "-c", "mongodb-enterprise-database",
+         "--", "mongosh", "--quiet", "--file", "/dev/stdin"],
+        input=js.encode(),
+        capture_output=True,
+        check=True,
+    )
+    return result.stdout.decode().strip()
 
 
 def _wait_for_deployment_ready(namespace: str, name: str, timeout: int = 120):
@@ -96,29 +108,11 @@ def _wait_for_deployment_ready(namespace: str, name: str, timeout: int = 120):
     raise TimeoutError(f"Deployment {name} not ready after {timeout}s")
 
 
-def _wait_for_job_completion(namespace: str, name: str, timeout: int = 300):
-    batch = k8s_client.BatchV1Api()
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            job = batch.read_namespaced_job(name, namespace)
-        except k8s_client.ApiException as e:
-            if e.status == 404:
-                time.sleep(3)
-                continue
-            raise
-        if job.status.succeeded and job.status.succeeded >= 1:
-            return
-        if job.status.failed and job.status.failed >= 3:
-            raise RuntimeError(f"Job {name} failed (backoffLimit reached)")
-        time.sleep(5)
-    raise TimeoutError(f"Job {name} did not complete after {timeout}s")
 
-
-def _s3_client(namespace: str):
+def _s3_client(endpoint: str):
     return boto3.client(
         "s3",
-        endpoint_url=_minio_endpoint(namespace),
+        endpoint_url=endpoint,
         aws_access_key_id=MINIO_USER,
         aws_secret_access_key=MINIO_PASSWORD,
         region_name=AWS_REGION,
@@ -126,91 +120,69 @@ def _s3_client(namespace: str):
     )
 
 
+def _port_forward_minio(namespace: str, local_port: int = 19000):
+    """Context manager: kubectl port-forward MinIO to localhost for boto3 access."""
+    import contextlib
+
+    @contextlib.contextmanager
+    def _ctx():
+        proc = subprocess.Popen(
+            ["kubectl", "port-forward", "-n", namespace, f"svc/{MINIO_NAME}", f"{local_port}:9000"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(2)
+        try:
+            yield f"http://localhost:{local_port}"
+        finally:
+            proc.terminate()
+            proc.wait()
+
+    return _ctx()
+
+
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
 
 @fixture(scope="module")
-def minio(namespace: str) -> str:
-    """Deploy MinIO, create the S3 bucket, and seed the DR state file.
-
-    Mirrors docker-compose-minio.yml + the minio-setup sidecar.
-    """
-    if not INJECTOR_IMAGE:
-        skip("INJECTOR_IMAGE is not set — build it from mms-automation/docker/injector/")
-
-    apps = k8s_client.AppsV1Api()
-    core = k8s_client.CoreV1Api()
-
-    dep = k8s_client.V1Deployment(
-        metadata=k8s_client.V1ObjectMeta(name=MINIO_NAME, namespace=namespace),
-        spec=k8s_client.V1DeploymentSpec(
-            replicas=1,
-            selector=k8s_client.V1LabelSelector(match_labels={"app": MINIO_NAME}),
-            template=k8s_client.V1PodTemplateSpec(
-                metadata=k8s_client.V1ObjectMeta(labels={"app": MINIO_NAME}),
-                spec=k8s_client.V1PodSpec(
-                    containers=[
-                        k8s_client.V1Container(
-                            name="minio",
-                            image="minio/minio:latest",
-                            args=["server", "/data", "--console-address", ":9001"],
-                            env=[
-                                k8s_client.V1EnvVar(name="MINIO_ROOT_USER", value=MINIO_USER),
-                                k8s_client.V1EnvVar(name="MINIO_ROOT_PASSWORD", value=MINIO_PASSWORD),
-                            ],
-                            ports=[k8s_client.V1ContainerPort(container_port=9000)],
-                            readiness_probe=k8s_client.V1Probe(
-                                http_get=k8s_client.V1HTTPGetAction(path="/minio/health/live", port=9000),
-                                initial_delay_seconds=5,
-                                period_seconds=5,
-                            ),
-                        )
+def ops_manager(namespace: str, custom_mdb_version: str, custom_appdb_version: str) -> MongoDBOpsManager:
+    """Deploy OpsManager with custom ECR images, wait for Running."""
+    resource = MongoDBOpsManager.from_yaml(yaml_fixture("om-monarch.yaml"), namespace=namespace)
+    # Override the OM container image with the custom ECR build.
+    resource["spec"]["statefulSet"] = {
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "mongodb-ops-manager",
+                            "image": OM_IMAGE,
+                        }
                     ]
-                ),
-            ),
-        ),
-    )
-    try:
-        apps.create_namespaced_deployment(namespace, dep)
-    except k8s_client.ApiException as e:
-        if e.status != 409:
-            raise
+                }
+            }
+        }
+    }
+    resource["spec"]["applicationDatabase"]["version"] = custom_appdb_version
+    resource.create_admin_secret()
+    resource.update()
+    resource.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    resource.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    return resource
 
-    svc = k8s_client.V1Service(
-        metadata=k8s_client.V1ObjectMeta(name=MINIO_NAME, namespace=namespace),
-        spec=k8s_client.V1ServiceSpec(
-            selector={"app": MINIO_NAME},
-            ports=[k8s_client.V1ServicePort(port=9000, target_port=9000, name="api")],
-        ),
-    )
-    try:
-        core.create_namespaced_service(namespace, svc)
-    except k8s_client.ApiException as e:
-        if e.status != 409:
-            raise
 
+@fixture(scope="module")
+def minio(namespace: str) -> str:
+    """Deploy MinIO via YAML fixture, create the S3 bucket, and seed the DR state file."""
+    subprocess.check_call(["kubectl", "apply", "-n", namespace, "-f", yaml_fixture("minio.yaml")])
     _wait_for_deployment_ready(namespace, MINIO_NAME)
 
-    # Create bucket + seed DR state file (mirrors docker-compose-minio.yml minio-setup sidecar).
-    s3 = _s3_client(namespace)
-    try:
-        s3.create_bucket(Bucket=S3_BUCKET)
-    except Exception:
-        pass  # bucket already exists on re-run
-
-    dr_state = {
-        "state": "Standby",
-        "previousState": "",
-        "clusterName": STANDBY_RS_NAME,
-        "version": "1",
-        "lastModified": "2026-01-01T00:00:00Z",
-        "schemaVersion": "1",
-    }
-    s3.put_object(
-        Bucket=S3_BUCKET,
-        Key=f"{CLUSTER_PREFIX}/dr_status_{STANDBY_RS_NAME}.json",
-        Body=json.dumps(dr_state).encode(),
-    )
+    with _port_forward_minio(namespace) as local_endpoint:
+        s3 = _s3_client(local_endpoint)
+        try:
+            s3.create_bucket(Bucket=S3_BUCKET)
+        except Exception:
+            pass  # bucket already exists on re-run
 
     return _minio_endpoint(namespace)
 
@@ -226,17 +198,19 @@ def s3_creds_secret(namespace: str, minio: str) -> str:
 
 
 @fixture(scope="module")
-def active_replica_set(namespace: str, custom_mdb_version: str, minio: str) -> MongoDB:
-    """Deploy the active MongoDB RS (source of truth, mirrors activeRS2 in docker compose)."""
+def active_replica_set(namespace: str, custom_mdb_version: str, minio: str, ops_manager: MongoDBOpsManager) -> MongoDB:
+    """Deploy the active MongoDB RS (source of truth)."""
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), ACTIVE_RS_NAME, namespace)
     resource.set_version(custom_mdb_version)
     resource["spec"]["persistent"] = False
+    resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static"
+    resource.configure(ops_manager, ACTIVE_RS_NAME)
     try_load(resource)
     return resource
 
 
 @fixture(scope="module")
-def active_rs_with_data(namespace: str, active_replica_set: MongoDB, cluster_domain: str) -> int:
+def active_rs_with_data(namespace: str, active_replica_set: MongoDB) -> int:
     """Deploy active RS and insert 10 documents.
 
     Mirrors shipper-entrypoint.sh: insertMany into products.inventory.
@@ -245,32 +219,31 @@ def active_rs_with_data(namespace: str, active_replica_set: MongoDB, cluster_dom
     active_replica_set.update()
     active_replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
-    uri = _active_rs_uri(namespace, cluster_domain, members=3)
-    mongo = pymongo.MongoClient(uri, serverSelectionTimeoutMS=30_000)
-    db = mongo[PRODUCTS_DB]
-    db[INVENTORY_COLLECTION].delete_many({})
-    db[INVENTORY_COLLECTION].insert_many(INVENTORY_DOCS)
-    count = db[INVENTORY_COLLECTION].count_documents({})
-    mongo.close()
+    import json as _json
+    docs_json = _json.dumps(INVENTORY_DOCS)
+    js = (
+        f"db.getSiblingDB('{PRODUCTS_DB}').{INVENTORY_COLLECTION}.deleteMany({{}});"
+        f"db.getSiblingDB('{PRODUCTS_DB}').{INVENTORY_COLLECTION}.insertMany({docs_json});"
+        f"print(db.getSiblingDB('{PRODUCTS_DB}').{INVENTORY_COLLECTION}.countDocuments({{}}))"
+    )
+    count = int(_mongosh_exec(namespace, f"{ACTIVE_RS_NAME}-0", js).split("\n")[-1])
     assert count == len(INVENTORY_DOCS)
     return count
 
 
-# Shipper script run inside INJECTOR_IMAGE.
-# The monarch binary is baked into the image by the MCK build pipeline — no download needed.
-# We override the ENTRYPOINT to run "monarch shipper" instead of "monarch injector".
+# Shipper script: runs continuously (snapshotterOnly mode keeps running after the initial
+# snapshot). The test detects completion by polling the S3 bucket rather than waiting for
+# the process to exit.
 _SHIPPER_SCRIPT = textwrap.dedent(
     """\
     #!/bin/bash
     set -e
-    /usr/local/bin/monarch --version
-
-    echo "Snapshotting $SHARD_ID -> $MINIO_ENDPOINT/$S3_BUCKET"
-    /usr/local/bin/monarch shipper \\
+    exec /usr/local/bin/monarch shipper \\
       --mode snapshotterOnly \\
       --clusterPrefix "$CLUSTER_PREFIX" \\
       --shardId "$SHARD_ID" \\
       --srcURI "$SRC_URI" \\
+      --backupMongoNodeURI "$BACKUP_MONGO_NODE_URI" \\
       --aws.authMode staticCredentials \\
       --aws.accessKeyId "$AWS_ACCESS_KEY_ID" \\
       --aws.secretAccessKey "$AWS_SECRET_ACCESS_KEY" \\
@@ -278,21 +251,22 @@ _SHIPPER_SCRIPT = textwrap.dedent(
       --aws.region "$AWS_REGION" \\
       --aws.usePathStyle \\
       --aws.customBaseEndpoint "$MINIO_ENDPOINT" \\
-      --logLevel info \\
-      --logPath /tmp/shipper.log &
-    SNAP_PID=$!
-
-    while true; do
-      if ! kill -0 "$SNAP_PID" 2>/dev/null; then
-        echo "ERROR: snapshotter exited unexpectedly"; cat /tmp/shipper.log || true; exit 1
-      fi
-      grep -q "Snapshot created successfully" /tmp/shipper.log 2>/dev/null && break
-      sleep 2
-    done
-    kill "$SNAP_PID" 2>/dev/null; wait "$SNAP_PID" 2>/dev/null || true
-    echo "Snapshot complete."
+      --logLevel info
     """
 )
+
+
+def _wait_for_snapshot(namespace: str, timeout: int = 300):
+    """Wait until monarch shipper has written snapshot objects to the S3 bucket."""
+    with _port_forward_minio(namespace) as local_endpoint:
+        s3 = _s3_client(local_endpoint)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            resp = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=f"{CLUSTER_PREFIX}/{ACTIVE_RS_NAME}/")
+            if resp.get("KeyCount", 0) > 0:
+                return
+            time.sleep(5)
+    raise TimeoutError(f"No snapshot objects appeared in S3 after {timeout}s")
 
 
 @fixture(scope="module")
@@ -321,6 +295,10 @@ def monarch_snapshot(
             raise
 
     src_uri = _active_rs_uri(namespace, cluster_domain, members=3)
+    backup_node_uri = (
+        f"mongodb://{ACTIVE_RS_NAME}-0.{ACTIVE_RS_NAME}-svc"
+        f".{namespace}.svc.{cluster_domain}:27017/?directConnection=true"
+    )
 
     job = k8s_client.V1Job(
         metadata=k8s_client.V1ObjectMeta(name=SHIPPER_JOB_NAME, namespace=namespace),
@@ -340,6 +318,7 @@ def monarch_snapshot(
                                 k8s_client.V1EnvVar(name="CLUSTER_PREFIX", value=CLUSTER_PREFIX),
                                 k8s_client.V1EnvVar(name="SHARD_ID", value=ACTIVE_RS_NAME),
                                 k8s_client.V1EnvVar(name="SRC_URI", value=src_uri),
+                                k8s_client.V1EnvVar(name="BACKUP_MONGO_NODE_URI", value=backup_node_uri),
                                 k8s_client.V1EnvVar(name="AWS_ACCESS_KEY_ID", value=MINIO_USER),
                                 k8s_client.V1EnvVar(name="AWS_SECRET_ACCESS_KEY", value=MINIO_PASSWORD),
                                 k8s_client.V1EnvVar(name="S3_BUCKET", value=S3_BUCKET),
@@ -359,26 +338,39 @@ def monarch_snapshot(
             ),
         ),
     )
+    # Delete any leftover job from a previous run so we always use the current spec.
     try:
-        batch.create_namespaced_job(namespace, job)
+        batch.delete_namespaced_job(
+            SHIPPER_JOB_NAME, namespace,
+            body=k8s_client.V1DeleteOptions(propagation_policy="Foreground"),
+        )
+        time.sleep(3)
     except k8s_client.ApiException as e:
-        if e.status != 409:
+        if e.status != 404:
             raise
 
-    _wait_for_job_completion(namespace, SHIPPER_JOB_NAME, timeout=300)
+    batch.create_namespaced_job(namespace, job)
+
+    _wait_for_snapshot(namespace, timeout=300)
 
 
 @fixture(scope="module")
-def standby_replica_set(namespace: str, custom_mdb_version: str, monarch_snapshot: None) -> MongoDB:
+def standby_replica_set(
+    namespace: str,
+    custom_mdb_version: str,
+    monarch_snapshot: None,
+    ops_manager: MongoDBOpsManager,
+) -> MongoDB:
     """Deploy the standby MongoDB RS.
 
     Must use static architecture — the operator rejects non-static RSes for injector sidecar support.
+    Uses its own OM project (separate from the active RS) to avoid the 1-cluster-per-project limit.
     """
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), STANDBY_RS_NAME, namespace)
     resource.set_version(custom_mdb_version)
     resource["spec"]["persistent"] = False
-    # Required by the StandbyCluster controller (architectures.IsRunningStaticArchitecture check).
     resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static"
+    resource.configure(ops_manager, STANDBY_RS_NAME)
     try_load(resource)
     return resource
 
@@ -389,6 +381,7 @@ def standby_cluster(
     standby_replica_set: MongoDB,
     s3_creds_secret: str,
     minio: str,
+    ops_manager: MongoDBOpsManager,
 ) -> MongoDBStandbyCluster:
     """Deploy the MongoDBStandbyCluster CR."""
     resource = MongoDBStandbyCluster.from_yaml(
@@ -398,6 +391,10 @@ def standby_cluster(
     )
     resource["spec"]["injectorImage"] = INJECTOR_IMAGE
     resource["spec"]["monarch"]["s3BucketEndpoint"] = minio
+    # Wire to the same OM project as the standby RS.
+    cm_name = ops_manager.get_or_create_mongodb_connection_config_map(STANDBY_RS_NAME, STANDBY_RS_NAME, namespace)
+    resource["spec"]["opsManager"]["configMapRef"]["name"] = cm_name
+    resource["spec"]["credentials"] = ops_manager.api_key_secret(namespace)
     try_load(resource)
     return resource
 
@@ -469,22 +466,20 @@ class TestStandbyCluster(KubernetesTester):
         assert injectors[0]["priority"] == 1
         assert injectors[0].get("tags", {}).get("processType") == "INJECTOR"
 
-    def test_documents_replicated_to_standby(self, namespace: str, cluster_domain: str):
+    def test_documents_replicated_to_standby(self, namespace: str):
         """The 10 documents inserted into the active RS must appear on the standby RS.
 
         Mirrors: docker exec agent-1 mongosh --eval "db.getSiblingDB('products').inventory.find()"
         """
-        tester = ReplicaSetTester(STANDBY_RS_NAME, 3, namespace=namespace, cluster_domain=cluster_domain)
-        mongo = tester.client()
+        js = f"print(db.getSiblingDB('{PRODUCTS_DB}').{INVENTORY_COLLECTION}.countDocuments({{}}))"
         deadline = time.time() + 600
         count = 0
         while time.time() < deadline:
             try:
-                count = mongo[PRODUCTS_DB][INVENTORY_COLLECTION].count_documents({})
+                count = int(_mongosh_exec(namespace, f"{STANDBY_RS_NAME}-0", js).split("\n")[-1])
                 if count == len(INVENTORY_DOCS):
                     break
-            except pymongo.errors.PyMongoError:
+            except (subprocess.CalledProcessError, ValueError):
                 pass
             time.sleep(5)
-        mongo.close()
         assert count == len(INVENTORY_DOCS), f"Expected {len(INVENTORY_DOCS)} documents on standby, got {count}"

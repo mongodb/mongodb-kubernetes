@@ -182,7 +182,7 @@ const (
 	// Operator Env configuration properties. Please note that when adding environment variables to this list,
 	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
 	// new variable to be printed at operator start.
-	OpsManagerImageUrl               = "OPS_MANAGER_IMAGE_REPOSITORY"
+	OpsManagerImageUrl = "OPS_MANAGER_IMAGE_REPOSITORY"
 	// MdbOmImage is a full Ops Manager image override (repo:tag) for dev/testing.
 	// When set, ContainerImage() returns this value directly without version replacement.
 	MdbOmImage                       = "MDB_OM_IMAGE"

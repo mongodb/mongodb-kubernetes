@@ -8,8 +8,7 @@
   "databaseImageVersion": "1.8.0",
   "agentVersion": "108.0.12.8846-1",
   "readinessProbeVersion": "1.0.24",
-  "monarchCommit": "22ceab12b0f04eb91121cabd7e008fea5d7a2a72",
-  "versionUpgradeHookVersion": "1.0.10",
+"versionUpgradeHookVersion": "1.0.10",
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },

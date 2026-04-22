@@ -115,11 +115,11 @@ repos:
 
   - repo: local
     hooks:
-      - id: shellharden
-        name: shellharden
-        # Requires: cargo install shellharden (https://github.com/anordal/shellharden)
-        entry: shellharden --transform ''
+      - id: shellcheck-fix
+        name: shellcheck (auto-fix)
+        entry: bash -c 'shellcheck --format=diff "$@" | patch -p1' --
         language: system
+        stages: [manual]
         exclude: |
           (?x)^(
             vendor/.*|
