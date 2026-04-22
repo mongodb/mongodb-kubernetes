@@ -67,8 +67,7 @@ update_files() {
 }
 
 # Extract version from go.mod (source of truth).
-# FULL_VERSION env override skips the go list call, which lets callers like
-# bump-go.sh pass the target version without needing the exact toolchain installed.
+# FULL_VERSION override bypasses `go list` when the target toolchain is not installed.
 FULL_VERSION="${FULL_VERSION:-$(go list -m -f '{{.GoVersion}}')}"
 if [[ -z "${FULL_VERSION}" ]]; then
     echo "Error: Could not extract Go version from go.mod"
