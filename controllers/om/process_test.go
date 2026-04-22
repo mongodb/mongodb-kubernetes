@@ -25,7 +25,7 @@ func TestCreateMongodProcess(t *testing.T) {
 		assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 		assert.Equal(t, "/data", process.DbPath())
 		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
-		assert.Equal(t, 5, process.AuthSchemaVersion())
+		assert.Equal(t, 5, process.authSchemaVersion())
 		assert.Equal(t, "", process.replicaSetName())
 		assert.Equal(t, nil, process.LogRotateSizeThresholdMB())
 
@@ -61,7 +61,7 @@ func TestCreateMongodProcessStatic(t *testing.T) {
 		assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 		assert.Equal(t, "/data", process.DbPath())
 		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
-		assert.Equal(t, 5, process.AuthSchemaVersion())
+		assert.Equal(t, 5, process.authSchemaVersion())
 		assert.Equal(t, "", process.replicaSetName())
 
 		expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort), "tls": map[string]interface{}{

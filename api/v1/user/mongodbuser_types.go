@@ -162,6 +162,8 @@ func (u MongoDBUser) GetConnectionStringSecretName() string {
 
 // normalizeName returns a string that conforms to RFC-1123.
 // This logic is duplicated in the community operator in https://github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/blob/master/api/v1/mongodbcommunity_types.go.
+// The logic should be reused if/when we unify the user types or observe that the logic needs to be changed for business logic reasons, to avoid modifying it
+// in separate places in the future.
 func normalizeName(name string) string {
 	errors := validation.IsDNS1123Subdomain(name)
 	if len(errors) == 0 {
