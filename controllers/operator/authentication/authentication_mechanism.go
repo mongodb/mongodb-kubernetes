@@ -135,6 +135,15 @@ func convertToMechanismOrPanic(mechanismModeInCR string, ac *om.AutomationConfig
 	panic(xerrors.Errorf("unknown mechanism name %s", mechanismModeInCR))
 }
 
+var acMechanismToCRMode = map[string]string{
+	string(MongoDBCR):   util.MONGODBCR,
+	string(ScramSha256): util.SCRAM,
+	string(ScramSha1):   util.SCRAMSHA1,
+	string(MongoDBX509): util.X509,
+	string(LDAPPlain):   util.LDAP,
+	string(MongoDBOIDC): util.OIDC,
+}
+
 // MapMechanismToAuthMode converts an automation config mechanism string to
 // the corresponding CR AuthMode. This is the reverse of convertToMechanismOrPanic.
 func MapMechanismToAuthMode(mech string) (string, bool) {
