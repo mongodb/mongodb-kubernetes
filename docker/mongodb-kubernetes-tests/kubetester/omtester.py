@@ -27,6 +27,8 @@ skip_if_cloud_manager = pytest.mark.skipif(is_cloud_qa(), reason="Do not run in 
 
 logger = test_logger.get_test_logger(__name__)
 
+from kubetester.scram import build_sha1_creds, build_sha256_creds
+
 
 class BackupStatus(str, Enum):
     """Enum for backup statuses in Ops Manager. Note that 'str' is inherited to fix json serialization issues"""
@@ -735,6 +737,42 @@ class OMTester(object):
 
     def api_put_automation_config(self, config: dict):
         self.om_request("put", f"/groups/{self.context.project_id}/automationConfig", json_object=config)
+
+    def add_user(
+        self,
+        username: str,
+        database: str,
+        password: str,
+        mechanisms: List[str],
+        roles: List[Dict[str, str]],
+    ) -> None:
+        """Injects a user directly into OM's automation config with the given mechanisms.
+
+        This simulates an OM-originated user (i.e. one that exists in the AC before a
+        MongoDBUser CR is created), which is needed to test mechanism-preservation logic.
+        """
+        config = self.api_get_automation_config()
+
+        user_entry: Dict = {
+            "user": username,
+            "db": database,
+            "mechanisms": mechanisms,
+            "roles": roles,
+        }
+
+        if "SCRAM-SHA-256" in mechanisms:
+            user_entry["scramSha256Creds"] = build_sha256_creds(password)
+        if "MONGODB-CR" in mechanisms or "SCRAM-SHA-1" in mechanisms:
+            user_entry["scramSha1Creds"] = build_sha1_creds(username, password)
+
+        # Replace any existing entry for this user/db pair.
+        config["auth"]["usersWanted"] = [
+            u for u in config["auth"]["usersWanted"] if not (u["user"] == username and u["db"] == database)
+        ]
+        config["auth"]["usersWanted"].append(user_entry)
+
+        self.api_put_automation_config(config)
+        self.wait_agents_ready()
 
     def wait_agents_ready(self, timeout: Optional[int] = 600):
         """Waits until all the agents reached the goal automation config version."""

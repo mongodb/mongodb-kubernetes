@@ -1,10 +1,9 @@
-import pytest
 from kubetester.mongotester import ReplicaSetTester
-from pytest import fixture
+from pytest import fixture, mark
 from tests.authentication.sha1_connectivity_tests import SHA1ConnectivityTests
 
 
-@pytest.mark.e2e_replica_set_scram_sha_1_user_connectivity
+@mark.e2e_replica_set_scram_sha_1_user_connectivity
 class TestReplicaSetSHA1Connectivity(SHA1ConnectivityTests):
     @fixture
     def yaml_file(self):
