@@ -55,6 +55,7 @@ cd "$OPS_MANAGER_PATH"
 # Copy tarball to project root (docker build context)
 echo ""
 echo "Copying tarball to build context..."
+rm -f "$PROJECT_DIR/package.tar.gz"
 cp "$OPS_MANAGER_PATH/bazel-bin/server/package.tar.gz" "$PROJECT_DIR/"
 
 # Build Docker image using existing Dockerfile with om_download_url=local

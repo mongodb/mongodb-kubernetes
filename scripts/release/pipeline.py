@@ -23,6 +23,7 @@ from scripts.release.atomic_pipeline import (
     build_init_om_image,
     build_mco_tests_image,
     build_meko_tests_image,
+    build_monarch_injector_image,
     build_om_image,
     build_operator_image,
     build_readiness_probe_image,
@@ -38,6 +39,7 @@ from scripts.release.build.build_info import (
     MEKO_TESTS_IBM_POWER_IMAGE,
     MEKO_TESTS_IBM_Z_IMAGE,
     MEKO_TESTS_IMAGE,
+    MONARCH_INJECTOR_IMAGE,
     OPERATOR_IMAGE,
     OPERATOR_RACE_IMAGE,
     OPS_MANAGER_IMAGE,
@@ -70,6 +72,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         OPERATOR_IMAGE: build_operator_image,
         OPERATOR_RACE_IMAGE: partial(build_operator_image, with_race_detection=True),
         MCO_TESTS_IMAGE: build_mco_tests_image,
+        MONARCH_INJECTOR_IMAGE: build_monarch_injector_image,
         READINESS_PROBE_IMAGE: build_readiness_probe_image,
         UPGRADE_HOOK_IMAGE: build_upgrade_hook_image,
         DATABASE_IMAGE: build_database_image,
@@ -303,8 +306,18 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         action=argparse.BooleanOptionalAction,
         help="Append architecture suffix to image tags for single platform builds. Can be true or false. This will override the value from build_info.json",
     )
+    parser.add_argument(
+        "--monarch-path",
+        metavar="",
+        action="store",
+        type=str,
+        help="Path to a local monarch source checkout. When set, builds the monarch binary from source instead of downloading a pre-built binary. Only valid for the monarch-injector image.",
+    )
 
     args = parser.parse_args()
+
+    if args.monarch_path:
+        os.environ["MONARCH_PATH"] = os.path.abspath(args.monarch_path)
 
     build_config = image_build_config_from_args(args)
     logger.info(f"Building image: {args.image}")

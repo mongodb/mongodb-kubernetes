@@ -125,6 +125,24 @@ type DatabaseStatefulSetOptions struct {
 
 	AgentDebug      bool
 	AgentDebugImage string
+
+	// InjectorSidecar, when set, adds a Monarch injector sidecar container at index 3 in the pod.
+	// Only used when the MongoDB resource is a standby cluster (MongoDBStandbyCluster).
+	InjectorSidecar *InjectorSidecarConfig
+}
+
+// InjectorSidecarConfig holds the configuration for the Monarch injector sidecar container.
+type InjectorSidecarConfig struct {
+	Image             string
+	ShardID           string
+	ReplSetName       string
+	ReplSetHosts      string // comma-separated pod DNS names
+	ClusterPrefix     string
+	S3Bucket          string
+	S3Endpoint        string
+	S3PathStyleAccess bool
+	AWSRegion         string
+	CredentialsSecret string // K8s Secret name with awsAccessKeyId and awsSecretAccessKey
 }
 
 func (d DatabaseStatefulSetOptions) IsMongos() bool {
@@ -769,6 +787,10 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		podtemplatespec.WithContainerByIndex(2, agentUtilitiesHolderModifications...),
 	}
 
+	if opts.InjectorSidecar != nil {
+		mods = append(mods, podtemplatespec.WithContainerByIndex(3, InjectorSidecarModifications(opts.InjectorSidecar)...))
+	}
+
 	return podtemplatespec.Apply(mods...)
 }
 
@@ -1112,4 +1134,53 @@ func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []c
 
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
 	return volumes, volumeMounts
+}
+
+// InjectorSidecarModifications returns the container modifications for the Monarch injector sidecar.
+// The injector is co-located with the agent so all endpoints use localhost.
+func InjectorSidecarModifications(cfg *InjectorSidecarConfig) []func(*corev1.Container) {
+	s3PathStyle := "false"
+	if cfg.S3PathStyleAccess {
+		s3PathStyle = "true"
+	}
+	return []func(*corev1.Container){container.Apply(
+		container.WithName("monarch-injector"),
+		container.WithImage(cfg.Image),
+		container.WithPorts([]corev1.ContainerPort{
+			{Name: "health", ContainerPort: 8080, Protocol: corev1.ProtocolTCP},
+			{Name: "replication", ContainerPort: 9995, Protocol: corev1.ProtocolTCP},
+			{Name: "monarch-api", ContainerPort: 1122, Protocol: corev1.ProtocolTCP},
+		}),
+		container.WithEnvs(
+			corev1.EnvVar{Name: "SHARD_ID", Value: cfg.ShardID},
+			corev1.EnvVar{Name: "REPLSET_NAME", Value: cfg.ReplSetName},
+			corev1.EnvVar{Name: "REPLSET_HOSTS", Value: cfg.ReplSetHosts},
+			corev1.EnvVar{Name: "CLUSTER_PREFIX", Value: cfg.ClusterPrefix},
+			corev1.EnvVar{Name: "S3_BUCKET", Value: cfg.S3Bucket},
+			corev1.EnvVar{Name: "S3_ENDPOINT", Value: cfg.S3Endpoint},
+			corev1.EnvVar{Name: "S3_PATH_STYLE", Value: s3PathStyle},
+			corev1.EnvVar{Name: "AWS_REGION", Value: cfg.AWSRegion},
+			corev1.EnvVar{Name: "PORT", Value: "9995"},
+			corev1.EnvVar{Name: "HEALTH_PORT", Value: "8080"},
+			corev1.EnvVar{Name: "MONARCH_API_PORT", Value: "1122"},
+			corev1.EnvVar{
+				Name: "AWS_ACCESS_KEY_ID",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: cfg.CredentialsSecret},
+						Key:                  "awsAccessKeyId",
+					},
+				},
+			},
+			corev1.EnvVar{
+				Name: "AWS_SECRET_ACCESS_KEY",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: cfg.CredentialsSecret},
+						Key:                  "awsSecretAccessKey",
+					},
+				},
+			},
+		),
+	)}
 }

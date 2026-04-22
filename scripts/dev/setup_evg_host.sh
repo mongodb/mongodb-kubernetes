@@ -6,6 +6,7 @@ set -Eeou pipefail
 
 source scripts/funcs/install
 source scripts/funcs/printing
+source scripts/dev/set_env_context.sh
 
 set_limits() {
   echo "Increasing fs.inotify.max_user_instances"

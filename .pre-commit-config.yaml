@@ -113,6 +113,25 @@ repos:
       - id: isort
         args: ["--profile", "black"]
 
+  - repo: local
+    hooks:
+      - id: shellharden
+        name: shellharden
+        # Requires: cargo install shellharden (https://github.com/anordal/shellharden)
+        entry: shellharden --transform ''
+        language: system
+        exclude: |
+          (?x)^(
+            vendor/.*|
+            scripts/dev/contexts/private-context.*
+          )
+        files: |
+          (?x)(
+            \.sh$|
+            ^scripts/dev/contexts/[^/]+$|
+            ^scripts/funcs/[^/]+$
+          )
+
   - repo: https://github.com/koalaman/shellcheck-precommit
     rev: v0.10.0
     hooks:

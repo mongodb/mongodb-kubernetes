@@ -248,6 +248,31 @@
         ]
       }
     },
+    "monarch-injector": {
+      "dockerfile-path": "docker/monarch-injector/Dockerfile",
+      "patch": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-monarch-injector",
+        "platforms": [
+          "linux/arm64"
+        ]
+      },
+      "staging": {
+        "sign": true,
+        "latest-tag": true,
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-monarch-injector",
+        "platforms": [
+          "linux/arm64"
+        ]
+      },
+      "release": {
+        "sign": true,
+        "skip-if-exists": true,
+        "repository": "quay.io/mongodb/mongodb-kubernetes-monarch-injector",
+        "platforms": [
+          "linux/arm64"
+        ]
+      }
+    },
     "readiness-probe": {
       "dockerfile-path": "docker/mongodb-kubernetes-readinessprobe/Dockerfile",
       "patch": {

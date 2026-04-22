@@ -255,6 +255,68 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     )
 
 
+def build_monarch_injector_image(build_configuration: ImageBuildConfiguration):
+    """
+    Builds the Monarch oplog-injector image.
+
+    CI: downloads a pre-built binary from internal-downloads.mongodb.com.
+        MONARCH_COMMIT (pinned in release.json) selects the binary.
+
+    Local dev: set MONARCH_PATH to a local monarch checkout. The binary is
+        cross-compiled with `go build` and injected into the Docker build context,
+        so no GitHub token is needed.
+    """
+    monarch_path = os.getenv("MONARCH_PATH")
+    if monarch_path:
+        _build_monarch_injector_from_source(build_configuration, monarch_path)
+        return
+
+    # Commit is pinned in release.json ("monarchCommit"). To update the injector version,
+    # change that one field — same workflow as bumping agentVersion or readinessProbeVersion.
+    monarch_commit = load_release_file()["monarchCommit"]
+
+    build_image(
+        build_configuration=build_configuration,
+        build_args={"MONARCH_COMMIT": monarch_commit},
+        build_path="docker/monarch-injector",
+    )
+
+
+def _build_monarch_injector_from_source(
+    build_configuration: ImageBuildConfiguration,
+    monarch_path: str,
+):
+    import shutil
+    import subprocess
+    import tempfile
+
+    if len(build_configuration.platforms) != 1:
+        raise ValueError(
+            "Local monarch builds support only a single platform. "
+            "Use --platform to specify one (e.g. --platform linux/arm64)."
+        )
+
+    goos, goarch = build_configuration.platforms[0].split("/")
+
+    logger.info(f"Building monarch binary from {monarch_path} for {goos}/{goarch}...")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        binary_path = os.path.join(tmpdir, "monarch")
+        subprocess.run(
+            ["go", "build", "-trimpath", "-o", binary_path, "."],
+            cwd=monarch_path,
+            env={**os.environ, "CGO_ENABLED": "0", "GOOS": goos, "GOARCH": goarch},
+            check=True,
+        )
+        shutil.copy("docker/monarch-injector/entrypoint.sh", os.path.join(tmpdir, "entrypoint.sh"))
+
+        build_configuration_copy = copy(build_configuration)
+        build_configuration_copy.dockerfile_path = "docker/monarch-injector/Dockerfile.local"
+        build_image(
+            build_configuration=build_configuration_copy,
+            build_path=tmpdir,
+        )
+
+
 def build_readiness_probe_image(build_configuration: ImageBuildConfiguration):
     """
     Builds image used for readiness probe.
