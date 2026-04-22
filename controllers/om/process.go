@@ -300,7 +300,7 @@ func (p Process) ProcessType() MongoType {
 
 // IsDisabled returns the "disabled" attribute.
 func (p Process) IsDisabled() bool {
-	return p["disabled"].(bool)
+	return cast.ToBool(p["disabled"])
 }
 
 // NetTLSSections returns the TLS/SSL config maps from args2_6.net, keyed by
@@ -540,8 +540,8 @@ func (p Process) setClusterAuthMode(authMode string) Process {
 	return p
 }
 
-func (p Process) authSchemaVersion() int {
-	return p["authSchemaVersion"].(int)
+func (p Process) AuthSchemaVersion() int {
+	return cast.ToInt(p["authSchemaVersion"])
 }
 
 // These methods are ONLY FOR REPLICA SET members!
