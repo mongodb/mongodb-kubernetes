@@ -40,7 +40,6 @@ the process that was read from Ops Manager.
 the other properties unmodified. That's why structs are not used anywhere as they would result in possible overriding of
 the whole elements which we don't want. Deal with data as with maps, create convenience methods (setters, getters,
 ensuremap etc.) and make sure not to override anything unrelated.
-
 The resulting json for this type (example):
 
 	{
@@ -302,6 +301,25 @@ func (p Process) ProcessType() MongoType {
 // IsDisabled returns the "disabled" attribute.
 func (p Process) IsDisabled() bool {
 	return p["disabled"].(bool)
+}
+
+// NetTLSSections returns the TLS/SSL config maps from args2_6.net, keyed by
+// section name ("tls" or "ssl"). Only sections that are present are returned.
+func (p Process) NetTLSSections() map[string]map[string]interface{} {
+	net := maputil.ReadMapValueAsMap(p.Args(), "net")
+	if net == nil {
+		return nil
+	}
+	sections := make(map[string]map[string]interface{})
+	for _, key := range []string{"tls", "ssl"} {
+		if sec := maputil.ReadMapValueAsMap(net, key); sec != nil {
+			sections[key] = sec
+		}
+	}
+	if len(sections) == 0 {
+		return nil
+	}
+	return sections
 }
 
 // SetDisabled sets the "disabled" attribute to `disabled`.
