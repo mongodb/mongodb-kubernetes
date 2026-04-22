@@ -114,7 +114,6 @@ func MapOIDCProviderConfigs(oidcProviderConfigs []mdbv1.OIDCProviderConfig) []oi
 	return result
 }
 
-
 func mapToSupportHumanFlows(authMethod mdbv1.OIDCAuthorizationMethod) bool {
 	switch authMethod {
 	case mdbv1.OIDCAuthorizationMethodWorkforceIdentityFederation:
