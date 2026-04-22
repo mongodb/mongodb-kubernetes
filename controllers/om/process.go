@@ -27,24 +27,6 @@ const (
 	ProcessTypeMongod MongoType = "mongod"
 )
 
-// infrastructureFieldPaths lists args2_6 field paths that are set into the
-// mongod spec by the operator or deployment infrastructure, not by the
-// arguments present on the mongod config level. AdditionalMongodConfig
-// strips these to isolate user-supplied config. When a new
-// infrastructure-managed field is introduced, add its path here.
-var infrastructureFieldPaths = [][]string{
-	{"systemLog"},
-	{"storage", "dbPath"},
-	{"replication", "replSetName"},
-	{"security", "clusterAuthMode"},
-}
-
-// infrastructureTLSCertKeys lists TLS/SSL certificate-related keys under
-// net.{tls,ssl} that are set by the operator, not by the arguments present
-// on the mongod config level. Stripped by AdditionalMongodConfig when
-// extracting user config.
-var infrastructureTLSCertKeys = []string{"certificateKeyFile", "PEMKeyFile", "clusterFile"}
-
 /*
 This is a class for all types of processes.
 Note, that mongos types of processes don't have some fields (replication, storage etc.) but it's impossible to use a
@@ -54,8 +36,6 @@ So the code using this type must be careful and make sure the state is consisten
 Dev notes:
 - any new configurations must be "mirrored" in 'mergeFrom' method which merges the "operator owned" fields into
 the process that was read from Ops Manager.
-- when adding a new infrastructure-managed field, also add its path to infrastructureFieldPaths (or
-  infrastructureTLSCertKeys for TLS cert keys) so it is automatically stripped during VM migration.
 - the main principle used everywhere in 'om' code: the Operator overrides only the configurations it "owns" but leaves
 the other properties unmodified. That's why structs are not used anywhere as they would result in possible overriding of
 the whole elements which we don't want. Deal with data as with maps, create convenience methods (setters, getters,
@@ -328,89 +308,6 @@ func (p Process) IsDisabled() bool {
 // AuthSchemaVersion returns the authSchemaVersion for this process.
 func (p Process) AuthSchemaVersion() int {
 	return cast.ToInt(p["authSchemaVersion"])
-}
-
-// SystemLogMap returns the systemLog sub-map from args2_6, or nil if absent.
-func (p Process) SystemLogMap() map[string]interface{} {
-	return maputil.ReadMapValueAsMap(p.Args(), "systemLog")
-}
-
-// AdditionalMongodConfig recovers user-supplied mongod config from args2_6 during VM migration.
-// Infrastructure-managed fields listed in infrastructureFieldPaths and infrastructureTLSCertKeys
-// are stripped, along with default net.port and default TLS modes.
-// Returns nil when nothing user-relevant remains.
-func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
-	if len(p.Args()) == 0 {
-		return nil
-	}
-	m, err := util.MapDeepCopy(p.Args())
-	if err != nil {
-		return nil
-	}
-
-	for _, path := range infrastructureFieldPaths {
-		if len(path) == 1 {
-			delete(m, path[0])
-		} else {
-			maputil.DeleteMapValue(m, path...)
-		}
-	}
-
-	if port := maputil.ReadMapValueAsInt(m, "net", "port"); port == 0 || port == util.MongoDbDefaultPort {
-		maputil.DeleteMapValue(m, "net", "port")
-	}
-	for _, tlsKey := range []string{"tls", "ssl"} {
-		for _, certKey := range infrastructureTLSCertKeys {
-			maputil.DeleteMapValue(m, "net", tlsKey, certKey)
-		}
-		if mode := maputil.ReadMapValueAsString(m, "net", tlsKey, "mode"); mode == string(tls.Require) || mode == "requireSSL" || mode == string(tls.Disabled) {
-			maputil.DeleteMapValue(m, "net", tlsKey, "mode")
-		}
-	}
-
-	// drop sections that became empty after stripping operator fields
-	for _, path := range [][]string{{"net", "tls"}, {"net", "ssl"}, {"net"}, {"storage"}, {"replication"}, {"security"}} {
-		if sub := maputil.ReadMapValueAsMap(m, path...); len(sub) == 0 && sub != nil {
-			maputil.DeleteMapValue(m, path...)
-		}
-	}
-
-	if len(m) == 0 {
-		return nil
-	}
-	cfg := mdbv1.NewEmptyAdditionalMongodConfig()
-	data, err := json.Marshal(m)
-	if err != nil {
-		return nil
-	}
-	if err := json.Unmarshal(data, cfg); err != nil {
-		return nil
-	}
-	return cfg
-}
-
-// ShardingClusterRole returns the sharding.clusterRole from args2_6, or empty if absent.
-func (p Process) ShardingClusterRole() string {
-	return maputil.ReadMapValueAsString(p.Args(), "sharding", "clusterRole")
-}
-
-// NetTLSSections returns the TLS/SSL config maps from args2_6.net, keyed by
-// section name ("tls" or "ssl"). Only sections that are present are returned.
-func (p Process) NetTLSSections() map[string]map[string]interface{} {
-	net := maputil.ReadMapValueAsMap(p.Args(), "net")
-	if net == nil {
-		return nil
-	}
-	sections := make(map[string]map[string]interface{})
-	for _, key := range []string{"tls", "ssl"} {
-		if sec := maputil.ReadMapValueAsMap(net, key); sec != nil {
-			sections[key] = sec
-		}
-	}
-	if len(sections) == 0 {
-		return nil
-	}
-	return sections
 }
 
 // SetDisabled sets the "disabled" attribute to `disabled`.

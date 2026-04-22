@@ -23,7 +23,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -63,8 +62,6 @@ type MockedOmConnection struct {
 	automationConfig      *AutomationConfig
 	backupAgentConfig     *BackupAgentConfig
 	monitoringAgentConfig *MonitoringAgentConfig
-	processLogRotation    *automationconfig.AcLogRotate
-	auditLogRotation      *automationconfig.AcLogRotate
 	controlledFeature     *controlledfeature.ControlledFeature
 	// hosts are used for both automation agents and monitoring endpoints.
 	// They are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
@@ -437,16 +434,6 @@ func (oc *MockedOmConnection) ReadUpdateBackupAgentConfig(bacFunc func(*BackupAg
 func (oc *MockedOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAgentsLogRotation))
 	return nil
-}
-
-func (oc *MockedOmConnection) ReadProcessLogRotation() (*automationconfig.AcLogRotate, error) {
-	oc.addToHistory(reflect.ValueOf(oc.ReadProcessLogRotation))
-	return oc.processLogRotation, nil
-}
-
-func (oc *MockedOmConnection) ReadAuditLogRotation() (*automationconfig.AcLogRotate, error) {
-	oc.addToHistory(reflect.ValueOf(oc.ReadAuditLogRotation))
-	return oc.auditLogRotation, nil
 }
 
 func (oc *MockedOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfig, error) {

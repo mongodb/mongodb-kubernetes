@@ -161,16 +161,3 @@ func MapOIDCProviderConfigs(oidcProviderConfigs []mdbv1.OIDCProviderConfig) []oi
 	return result
 }
 
-// MapACOIDCToProviderConfigs converts AC OIDC provider configs to the CR representation. See MapOIDCProviderConfigs for the reverse.
-func MapACOIDCToProviderConfigs(configs []oidc.ProviderConfig) []mdbv1.OIDCProviderConfig {
-	if len(configs) == 0 {
-		return nil
-	}
-	out := make([]mdbv1.OIDCProviderConfig, len(configs))
-	for i := range configs {
-		for _, f := range oidcFieldMappings {
-			f.toCR(&configs[i], &out[i])
-		}
-	}
-	return out
-}
