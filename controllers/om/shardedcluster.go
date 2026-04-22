@@ -139,8 +139,7 @@ func (s Shard) mergeFrom(operatorShard Shard) {
 	s.setRs(operatorShard.rs())
 }
 
-// Shards returns the shards in the sharded cluster.
-func (s ShardedCluster) Shards() []Shard {
+func (s ShardedCluster) shards() []Shard {
 	switch v := s["shards"].(type) {
 	case []Shard:
 		return v
@@ -215,7 +214,7 @@ func (s ShardedCluster) removeDraining() {
 // getAllReplicaSets returns all replica sets associated with sharded cluster
 func (s ShardedCluster) getAllReplicaSets() []string {
 	var ans []string
-	for _, s := range s.Shards() {
+	for _, s := range s.shards() {
 		ans = append(ans, s.rs())
 	}
 	ans = append(ans, s.ConfigServerRsName())
@@ -252,7 +251,7 @@ func findDifferentKeys(leftMap map[string]Shard, rightMap map[string]Shard) []st
 // Builds the map[<shard name>]<shard>. This makes intersection easier
 func buildMapOfShards(sh ShardedCluster) map[string]Shard {
 	ans := make(map[string]Shard)
-	for _, r := range sh.Shards() {
+	for _, r := range sh.shards() {
 		ans[r.id()] = r
 	}
 	return ans

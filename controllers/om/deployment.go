@@ -409,7 +409,7 @@ func (d Deployment) RemoveShardedClusterByName(clusterName string, log *zap.Suga
 	d.setShardedClusters(toKeep)
 
 	// 2. Remove all replicasets and their processes for shards
-	shards := sc.Shards()
+	shards := sc.shards()
 	shardNames := make([]string, len(shards))
 	for _, el := range shards {
 		shardNames = append(shardNames, el.id())
@@ -699,10 +699,10 @@ func (d Deployment) getReplicaSetProcessNames(name string) []string {
 // GetShardedClusterShardProcessNames returns the process names for sharded cluster named "name" of index "shardNum".
 func (d Deployment) GetShardedClusterShardProcessNames(name string, shardNum int) []string {
 	if sc := d.getShardedClusterByName(name); sc != nil {
-		if shardNum < 0 || shardNum >= len(sc.Shards()) {
+		if shardNum < 0 || shardNum >= len(sc.shards()) {
 			return nil
 		}
-		return d.getReplicaSetProcessNames(sc.Shards()[shardNum].rs())
+		return d.getReplicaSetProcessNames(sc.shards()[shardNum].rs())
 	}
 	return nil
 }
@@ -711,7 +711,7 @@ func (d Deployment) GetShardedClusterShardProcessNames(name string, shardNum int
 func (d Deployment) getShardedClusterShardsProcessNames(name string) []string {
 	processNames := make([]string, 0)
 	if sc := d.getShardedClusterByName(name); sc != nil {
-		for i := range sc.Shards() {
+		for i := range sc.shards() {
 			processNames = append(processNames, d.GetShardedClusterShardProcessNames(name, i)...)
 		}
 	}
