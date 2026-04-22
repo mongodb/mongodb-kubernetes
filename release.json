@@ -2,7 +2,7 @@
   "mongodbToolsBundle": {
     "ubi": "mongodb-database-tools-rhel88-x86_64-100.15.0.tgz"
   },
-  "mongodbOperator": "1.8.0",
+  "mongodbOperator": "1.8.1",
   "initDatabaseVersion": "1.8.0",
   "initOpsManagerVersion": "1.8.0",
   "databaseImageVersion": "1.8.0",
