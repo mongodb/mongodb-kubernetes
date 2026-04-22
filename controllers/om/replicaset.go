@@ -98,7 +98,7 @@ func (r ReplicaSetMember) Priority() float32 {
 }
 
 func (r ReplicaSetMember) Tags() map[string]string {
-	return cast.ToStringMapString(r["tags"])
+	return r["tags"].(map[string]string)
 }
 
 /* Merges the other replica set to the current one. "otherRs" members have higher priority (as they are supposed
@@ -193,7 +193,7 @@ func (r ReplicaSet) addMember(process Process, id string, options automationconf
 
 // mergeFrom merges "operatorRs" into "OM" one
 func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet, externalMembers []string) []string {
-	initDefaultRs(r, operatorRs.Name(), operatorRs.ProtocolVersion())
+	initDefaultRs(r, operatorRs.Name(), operatorRs.protocolVersion())
 
 	// technically we use "operatorMap" as the target map which will be used to update the members
 	// for the 'r' object
@@ -284,8 +284,9 @@ func (r ReplicaSet) findMemberByName(name string) *ReplicaSetMember {
 	return nil
 }
 
-func (r ReplicaSet) ProtocolVersion() string {
-	return cast.ToString(r["protocolVersion"])
+// mms uses string for this field to make it optional in json
+func (r ReplicaSet) protocolVersion() string {
+	return r["protocolVersion"].(string)
 }
 
 func (r ReplicaSetMember) getHorizonConfig() mdbv1.MongoDBHorizonConfig {

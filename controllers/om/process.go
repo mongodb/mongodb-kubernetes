@@ -299,15 +299,9 @@ func (p Process) ProcessType() MongoType {
 	}
 }
 
-// IsDisabled returns the "disabled" attribute, defaulting to false if absent.
+// IsDisabled returns the "disabled" attribute.
 func (p Process) IsDisabled() bool {
-	disabled, _ := p["disabled"].(bool)
-	return disabled
-}
-
-// AuthSchemaVersion returns the authSchemaVersion for this process.
-func (p Process) AuthSchemaVersion() int {
-	return cast.ToInt(p["authSchemaVersion"])
+	return p["disabled"].(bool)
 }
 
 // SetDisabled sets the "disabled" attribute to `disabled`.
@@ -526,6 +520,10 @@ func (p Process) setClusterFile(filePath string) Process {
 func (p Process) setClusterAuthMode(authMode string) Process {
 	p.EnsureSecurity()["clusterAuthMode"] = authMode
 	return p
+}
+
+func (p Process) authSchemaVersion() int {
+	return p["authSchemaVersion"].(int)
 }
 
 // These methods are ONLY FOR REPLICA SET members!

@@ -412,7 +412,7 @@ func (d Deployment) RemoveShardedClusterByName(clusterName string, log *zap.Suga
 	shards := sc.Shards()
 	shardNames := make([]string, len(shards))
 	for _, el := range shards {
-		shardNames = append(shardNames, el.Id())
+		shardNames = append(shardNames, el.id())
 	}
 	d.removeReplicaSets(shardNames, log)
 
