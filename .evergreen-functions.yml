@@ -757,6 +757,14 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: scripts/evergreen/unit-tests-sbom.sh
 
+  test_go_bump_policy:
+    - command: shell.exec
+      type: test
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: scripts/test-check-go-bump-policy-examples.sh
+
   generate_perf_tests_tasks:
     - command: shell.exec
       type: setup
