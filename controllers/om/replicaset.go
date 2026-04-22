@@ -97,30 +97,6 @@ func (r ReplicaSetMember) Tags() map[string]string {
 	return cast.ToStringMapString(r["tags"])
 }
 
-func (r ReplicaSetMember) SlaveDelay() int {
-	return cast.ToInt(r["slaveDelay"])
-}
-
-func (r ReplicaSetMember) IsHidden() bool {
-	return cast.ToBool(r["hidden"])
-}
-
-func (r ReplicaSetMember) SecondaryDelaySecs() int {
-	return cast.ToInt(r["secondaryDelaySecs"])
-}
-
-func (r ReplicaSetMember) IsHidden() bool {
-	return cast.ToBool(r["hidden"])
-}
-
-func (r ReplicaSetMember) BuildIndexes() bool {
-	v, ok := r["buildIndexes"]
-	if !ok {
-		return true
-	}
-	return cast.ToBool(v)
-}
-
 /* Merges the other replica set to the current one. "otherRs" members have higher priority (as they are supposed
  to be RS members managed by Kubernetes).
  Returns the list of names of members which were removed as the result of merge (either they were added by mistake in OM
