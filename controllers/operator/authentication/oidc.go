@@ -2,7 +2,6 @@ package authentication
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -114,24 +113,16 @@ func MapOIDCProviderConfigs(oidcProviderConfigs []mdbv1.OIDCProviderConfig) []oi
 	return result
 }
 
-func mapToSupportHumanFlows(authMethod mdbv1.OIDCAuthorizationMethod) bool {
-	switch authMethod {
-	case mdbv1.OIDCAuthorizationMethodWorkforceIdentityFederation:
-		return true
-	case mdbv1.OIDCAuthorizationMethodWorkloadIdentityFederation:
-		return false
+// MapACOIDCToProviderConfigs converts AC OIDC provider configs to the CR representation. See MapOIDCProviderConfigs for the reverse.
+func MapACOIDCToProviderConfigs(configs []oidc.ProviderConfig) []mdbv1.OIDCProviderConfig {
+	if len(configs) == 0 {
+		return nil
 	}
-
-	panic(fmt.Sprintf("unsupported OIDC authorization method: %s", authMethod))
-}
-
-func mapToUseAuthorizationClaim(authType mdbv1.OIDCAuthorizationType) bool {
-	switch authType {
-	case mdbv1.OIDCAuthorizationTypeGroupMembership:
-		return true
-	case mdbv1.OIDCAuthorizationTypeUserID:
-		return false
+	out := make([]mdbv1.OIDCProviderConfig, len(configs))
+	for i := range configs {
+		for _, f := range oidcFieldMappings {
+			f.toCR(&configs[i], &out[i])
+		}
 	}
-
-	panic(fmt.Sprintf("unsupported OIDC authorization type: %s", authType))
+	return out
 }
