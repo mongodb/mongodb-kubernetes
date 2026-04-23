@@ -42,6 +42,7 @@ def build_image(
     build_configuration: ImageBuildConfiguration,
     build_args: Dict[str, str] = None,
     build_path: str = ".",
+    labels: Dict[str, str] = None,
 ):
     """
     Build an image, sign (optionally) it, then tag and push to all repositories in the registry list.
@@ -88,6 +89,7 @@ def build_image(
         path=build_path,
         args=build_args,
         platforms=build_configuration.platforms,
+        labels=labels or {},
     )
 
     if build_configuration.sign:
@@ -252,6 +254,13 @@ def _build_om_from_source(
 
     logger.info(f"Building Ops Manager from source: {om_path}")
 
+    # Get source commit for labeling
+    try:
+        result = subprocess.run(["git", "-C", om_path, "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+        source_commit = result.stdout.strip()
+    except subprocess.CalledProcessError:
+        source_commit = "unknown"
+
     # Build tarball with Bazel
     logger.info("Running Bazel build...")
     subprocess.run(
@@ -274,9 +283,15 @@ def _build_om_from_source(
             "version": build_configuration_copy.version,
             "om_download_url": "local",
         }
+        labels = {
+            "com.mongodb.source.commit": source_commit,
+            "com.mongodb.source.path": om_path,
+            "com.mongodb.build.timestamp": datetime.datetime.now().isoformat(),
+        }
         build_image(
             build_configuration=build_configuration_copy,
             build_args=args,
+            labels=labels,
         )
     finally:
         # Clean up tarball
@@ -495,12 +510,22 @@ def _build_agent_from_source(
     logger.info(f"Building agent image for {platform}...")
     logger.info(f"Tags: {tags}")
 
+    # Get source commit for labeling
+    try:
+        result = subprocess.run(["git", "-C", agent_path, "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+        source_commit = result.stdout.strip()
+    except subprocess.CalledProcessError:
+        source_commit = "unknown"
+
     # Build with docker directly to support --secret flag
     cmd = [
         "docker", "build",
         "--platform", platform,
         "--build-arg", f"CACHE_BUST={int(datetime.datetime.now().timestamp())}",
         "--secret", "id=github_token,env=GITHUB_TOKEN",
+        "--label", f"com.mongodb.source.commit={source_commit}",
+        "--label", f"com.mongodb.source.path={agent_path}",
+        "--label", f"com.mongodb.build.timestamp={datetime.datetime.now().isoformat()}",
         "-f", "scripts/dev/agent/Dockerfile",
     ]
     for tag in tags:

@@ -19,7 +19,7 @@ class ImageBuilder(object):
     def check_if_image_exists(self, image_tag: str) -> bool:
         pass
 
-    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str]):
+    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str], labels: Dict[str, str] = None):
         pass
 
     # check_if_image_exists could easily be used to get the digest of manfiest list but
@@ -165,7 +165,7 @@ class DockerImageBuilder(ImageBuilder):
         cache_from_refs, cache_to_refs = build_cache_configuration(base_registry)
         return cache_from_refs, cache_to_refs
 
-    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str]):
+    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str], labels: Dict[str, str] = None):
         """
         Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
 
@@ -174,6 +174,7 @@ class DockerImageBuilder(ImageBuilder):
         :param path: Build context path (directory with the Dockerfile)
         :param args: Build arguments dictionary
         :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
+        :param labels: Optional dictionary of labels to add to the image
         """
 
         docker_cmd = python_on_whales.docker
@@ -181,6 +182,7 @@ class DockerImageBuilder(ImageBuilder):
         try:
             # Convert build args to the format expected by python_on_whales
             build_args = {k: str(v) for k, v in args.items()}
+            build_labels = {k: str(v) for k, v in (labels or {}).items()}
 
             # Build cache configuration
             cache_from_refs, cache_to_refs = self._build_cache(tags)
@@ -192,6 +194,7 @@ class DockerImageBuilder(ImageBuilder):
             logger.info(f"Cache write enabled: {should_write_cache()}")
             logger.info(f"Cache from sources: {len(cache_from_refs)} refs")
             logger.debug(f"Build args: {build_args}")
+            logger.debug(f"Labels: {build_labels}")
             logger.debug(f"Cache from: {cache_from_refs}")
             logger.debug(f"Cache to: {cache_to_refs}")
 
@@ -207,6 +210,7 @@ class DockerImageBuilder(ImageBuilder):
                 platforms=platforms,
                 builder=DEFAULT_BUILDER_NAME,
                 build_args=build_args,
+                labels=build_labels if build_labels else None,
                 push=True,
                 provenance=False,  # To not get an untagged image for single platform builds
                 pull=False,  # Don't always pull base images
@@ -234,7 +238,7 @@ class PodmanImageBuilder(ImageBuilder):
             "PodmanImageBuilder does not support getting digest for manifest list, use docker image builder instead."
         )
 
-    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str]):
+    def build_image(self, tags: list[str], dockerfile: str, path: str, args: Dict[str, str], platforms: list[str], labels: Dict[str, str] = None):
         if len(platforms) > 1:
             raise Exception("PodmanImageBuilder currently supports only single platform builds.")
 
@@ -259,6 +263,8 @@ class PodmanImageBuilder(ImageBuilder):
                 build_command.extend(["-t", tag])
             for key, value in args.items():
                 build_command.extend(["--build-arg", f"{key}={value}"])
+            for key, value in (labels or {}).items():
+                build_command.extend(["--label", f"{key}={value}"])
 
             result = subprocess.run(build_command, capture_output=True, text=True, check=True)
             logger.debug(result.stdout)
