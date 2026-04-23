@@ -136,6 +136,13 @@ func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Sc
 		return nil
 	}
 	prefix := certsSecretPrefix
+	if prefix != "" {
+		if errs := k8svalidation.IsDNS1123Subdomain(prefix); len(errs) > 0 {
+			return fmt.Errorf("--certs-secret-prefix value %q is not a valid Kubernetes resource name: %s", prefix, errs[0])
+		}
+		opts.CertsSecretPrefix = prefix
+		return nil
+	}
 	if prefix == "" {
 		for {
 			p, err := promptLine(scanner, "Enter value for security.certsSecretPrefix (e.g. mdb): ")
@@ -153,8 +160,6 @@ func ensureTLS(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Sc
 			prefix = p
 			break
 		}
-	} else if errs := k8svalidation.IsDNS1123Subdomain(prefix); len(errs) > 0 {
-		return fmt.Errorf("--certs-secret-prefix value %q is not a valid Kubernetes resource name: %s", prefix, errs[0])
 	}
 	opts.CertsSecretPrefix = prefix
 	return nil
@@ -176,15 +181,18 @@ func collectPrometheusCreds(ctx context.Context, kubeClient kubernetesClient.Cli
 		opts.PrometheusSecretName = prometheusSecretName
 		return nil
 	}
-	password, err := promptLine(scanner, "Enter password for Prometheus user: ")
-	if err != nil {
-		return fmt.Errorf("failed to read Prometheus password: %w", err)
+	for {
+		password, err := promptLine(scanner, "Enter password for Prometheus user: ")
+		if err != nil {
+			return fmt.Errorf("failed to read Prometheus password: %w", err)
+		}
+		if password == "" {
+			_, _ = fmt.Fprintln(promptOutput, "Prometheus password cannot be empty, please try again.")
+			continue
+		}
+		opts.PrometheusPassword = password
+		return nil
 	}
-	if password == "" {
-		return fmt.Errorf("prometheus password cannot be empty")
-	}
-	opts.PrometheusPassword = password
-	return nil
 }
 
 func parseMultiClusterNames(raw string) []string {

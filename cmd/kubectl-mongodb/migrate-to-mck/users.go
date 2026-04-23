@@ -139,17 +139,21 @@ func collectUserCreds(ctx context.Context, kubeClient kubernetesClient.Client, a
 func collectUserPasswords(ac *om.AutomationConfig, opts *GenerateOptions, scanner *bufio.Scanner) error {
 	opts.UserPasswords = make(map[string]string)
 	for _, user := range scramUsers(ac) {
-		password, err := promptLine(scanner, fmt.Sprintf("Enter password for SCRAM user %q (db: %s) [Enter to skip]: ", user.Username, user.Database))
-		if err != nil {
-			return fmt.Errorf("failed to read password for user %q: %w", user.Username, err)
+		for {
+			password, err := promptLine(scanner, fmt.Sprintf("Enter password for SCRAM user %q (db: %s) [Enter to skip]: ", user.Username, user.Database))
+			if err != nil {
+				return fmt.Errorf("failed to read password for user %q: %w", user.Username, err)
+			}
+			if password == "" {
+				break
+			}
+			if err := validatePasswordAgainstOM(user.Username, user.Database, password, ac); err != nil {
+				_, _ = fmt.Fprintf(promptOutput, "Password for user %q does not match Ops Manager credentials, please try again.\n", user.Username)
+				continue
+			}
+			opts.UserPasswords[userKey(user.Username, user.Database)] = password
+			break
 		}
-		if password == "" {
-			continue
-		}
-		if err := validatePasswordAgainstOM(user.Username, user.Database, password, ac); err != nil {
-			return err
-		}
-		opts.UserPasswords[userKey(user.Username, user.Database)] = password
 	}
 	return nil
 }
