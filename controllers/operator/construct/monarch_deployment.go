@@ -32,23 +32,24 @@ const (
 )
 
 // MonarchDeploymentName returns the name for the Monarch Deployment.
-func MonarchDeploymentName(mdbName string) string {
-	return fmt.Sprintf("%s-monarch", mdbName)
+// Role is "shipper" for active clusters, "injector" for standby.
+func MonarchDeploymentName(mdbName, role string) string {
+	return fmt.Sprintf("%s-monarch-%s", mdbName, role)
 }
 
 // MonarchServiceName returns the name for the Monarch Service.
-func MonarchServiceName(mdbName string) string {
-	return fmt.Sprintf("%s-monarch-svc", mdbName)
+func MonarchServiceName(mdbName, role string) string {
+	return fmt.Sprintf("%s-monarch-%s-svc", mdbName, role)
 }
 
 // MonarchConfigMapName returns the name for the Monarch ConfigMap.
-func MonarchConfigMapName(mdbName string) string {
-	return fmt.Sprintf("%s-monarch-config", mdbName)
+func MonarchConfigMapName(mdbName, role string) string {
+	return fmt.Sprintf("%s-monarch-%s-config", mdbName, role)
 }
 
 // GetMonarchServiceDNS returns the in-cluster DNS name for the Monarch Service.
-func GetMonarchServiceDNS(mdbName, namespace string) string {
-	return fmt.Sprintf("%s.%s.svc.cluster.local", MonarchServiceName(mdbName), namespace)
+func GetMonarchServiceDNS(mdbName, role, namespace string) string {
+	return fmt.Sprintf("%s.%s.svc.cluster.local", MonarchServiceName(mdbName, role), namespace)
 }
 
 // monarchLabels returns the labels for Monarch resources.
@@ -129,7 +130,7 @@ monarchApiPort: %d
 
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            MonarchConfigMapName(mdb.Name),
+			Name:            MonarchConfigMapName(mdb.Name, role),
 			Namespace:       namespace,
 			Labels:          labels,
 			OwnerReferences: kube.BaseOwnerReference(mdb),
@@ -145,7 +146,7 @@ monarchApiPort: %d
 func BuildMonarchDeployment(mdb *mdbv1.MongoDB, namespace string) *appsv1.Deployment {
 	spec := mdb.Spec.Monarch
 	role := monarchRole(spec)
-	name := MonarchDeploymentName(mdb.Name)
+	name := MonarchDeploymentName(mdb.Name, role)
 	labels := monarchLabels(mdb, role)
 
 	// Command uses --config to read YAML configuration
@@ -222,7 +223,7 @@ func BuildMonarchDeployment(mdb *mdbv1.MongoDB, namespace string) *appsv1.Deploy
 							VolumeSource: corev1.VolumeSource{
 								ConfigMap: &corev1.ConfigMapVolumeSource{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: MonarchConfigMapName(mdb.Name),
+										Name: MonarchConfigMapName(mdb.Name, role),
 									},
 								},
 							},
@@ -242,7 +243,7 @@ func BuildMonarchService(mdb *mdbv1.MongoDB, namespace string) *corev1.Service {
 
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            MonarchServiceName(mdb.Name),
+			Name:            MonarchServiceName(mdb.Name, role),
 			Namespace:       namespace,
 			Labels:          labels,
 			OwnerReferences: kube.BaseOwnerReference(mdb),

@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -547,7 +548,30 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 		dep.Labels = fresh.Labels
 		return nil
 	}); err != nil {
+		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
+			Type:    mdbv1.ConditionMonarchReady,
+			Status:  metav1.ConditionFalse,
+			Reason:  mdbv1.ReasonMonarchDeploymentFailed,
+			Message: fmt.Sprintf("Failed to create/update Monarch Deployment: %v", err),
+		})
 		return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Deployment %s: %w", dep.Name, err))
+	}
+
+	// Update MonarchReady condition based on deployment status
+	if dep.Status.ReadyReplicas == *dep.Spec.Replicas {
+		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
+			Type:    mdbv1.ConditionMonarchReady,
+			Status:  metav1.ConditionTrue,
+			Reason:  mdbv1.ReasonMonarchDeploymentReady,
+			Message: fmt.Sprintf("%d/%d pods ready (role=%s)", dep.Status.ReadyReplicas, *dep.Spec.Replicas, rs.Spec.Monarch.Role),
+		})
+	} else {
+		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
+			Type:    mdbv1.ConditionMonarchReady,
+			Status:  metav1.ConditionFalse,
+			Reason:  mdbv1.ReasonMonarchDeploymentPending,
+			Message: fmt.Sprintf("%d/%d pods ready", dep.Status.ReadyReplicas, *dep.Spec.Replicas),
+		})
 	}
 
 	// Create or update Monarch Service
@@ -570,8 +594,14 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 	awsKeyId := string(credSecret.Data["awsAccessKeyId"])
 	awsSecret := string(credSecret.Data["awsSecretAccessKey"])
 
+	// Determine Monarch role for resource naming
+	monarchRole := "injector"
+	if rs.Spec.Monarch.Role == mdbv1.MonarchRoleActive {
+		monarchRole = "shipper"
+	}
+
 	// Build automation config with single service DNS name
-	serviceDNS := construct.GetMonarchServiceDNS(rs.Name, rs.Namespace)
+	serviceDNS := construct.GetMonarchServiceDNS(rs.Name, monarchRole, rs.Namespace)
 	mc, err := om.BuildMaintainedMonarchComponents(rs, rs.Name, awsKeyId, awsSecret, []string{serviceDNS})
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to build Monarch automation config: %w", err))

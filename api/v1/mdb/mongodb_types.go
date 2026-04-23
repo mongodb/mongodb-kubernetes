@@ -77,6 +77,19 @@ const (
 	MonarchRoleStandby MonarchRole = "standby"
 )
 
+// Monarch condition types
+const (
+	// ConditionMonarchReady indicates whether the Monarch Deployment is ready.
+	ConditionMonarchReady = "MonarchReady"
+)
+
+// Monarch condition reasons
+const (
+	ReasonMonarchDeploymentReady   = "DeploymentReady"
+	ReasonMonarchDeploymentPending = "DeploymentPending"
+	ReasonMonarchDeploymentFailed  = "DeploymentFailed"
+)
+
 // MonarchSpec configures Monarch disaster recovery for this MongoDB cluster
 type MonarchSpec struct {
 	// Role determines whether this is an active (shipper) or standby (injector) cluster

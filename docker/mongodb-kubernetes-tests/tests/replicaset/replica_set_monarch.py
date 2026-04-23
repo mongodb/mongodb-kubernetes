@@ -24,13 +24,14 @@ import time
 import boto3
 from botocore.config import Config as BotoConfig
 from kubernetes import client as k8s_client
+from pytest import fixture, mark
+
 from kubetester import create_or_update_secret, try_load
-from kubetester.kubetester import KubernetesTester, run_periodically
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
-from pytest import fixture, mark
 
 # ── resource names ──────────────────────────────────────────────────────────
 ACTIVE_RS_NAME = "monarch-active-rs"
@@ -377,8 +378,7 @@ def standby_replica_set(
 
 @mark.e2e_replica_set_monarch
 class TestMonarchDeployments(KubernetesTester):
-    """Verify Monarch Deployment pattern: single Deployment (with multiple replicas) and
-    single Service, with Service DNS name in the automation config."""
+    """Verify Monarch Deployment pattern with single Deployment and Service"""
 
     # ── Phase 1: Active RS with Monarch Deployments ─────────────────────
 
@@ -386,28 +386,28 @@ class TestMonarchDeployments(KubernetesTester):
         active_replica_set.update()
         active_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_active_monarch_deployment_created(self):
+    def test_active_monarch_deployment_created(self, active_rs_running: MongoDB):
         """Verify single Monarch Deployment with app=monarch-shipper label and correct replicas."""
         apps = k8s_client.AppsV1Api()
-        dep_name = f"{ACTIVE_RS_NAME}-monarch"
+        dep_name = f"{ACTIVE_RS_NAME}-monarch-shipper"
         dep = apps.read_namespaced_deployment(dep_name, self.namespace)
         assert dep is not None, f"Deployment {dep_name} not found"
         assert dep.spec.replicas == DEFAULT_MONARCH_REPLICAS, (
             f"Expected {DEFAULT_MONARCH_REPLICAS} replicas, got {dep.spec.replicas}"
         )
 
-    def test_active_monarch_deployment_ready(self):
+    def test_active_monarch_deployment_ready(self, active_rs_running: MongoDB):
         apps = k8s_client.AppsV1Api()
-        dep_name = f"{ACTIVE_RS_NAME}-monarch"
+        dep_name = f"{ACTIVE_RS_NAME}-monarch-shipper"
         dep = apps.read_namespaced_deployment(dep_name, self.namespace)
         assert dep.status.ready_replicas == DEFAULT_MONARCH_REPLICAS, (
             f"Deployment {dep_name}: expected {DEFAULT_MONARCH_REPLICAS} ready replicas, got {dep.status.ready_replicas}"
         )
 
-    def test_active_monarch_deployment_containers(self):
+    def test_active_monarch_deployment_containers(self, active_rs_running: MongoDB):
         """Verify Monarch container has correct name, ports, and command."""
         apps = k8s_client.AppsV1Api()
-        dep = apps.read_namespaced_deployment(f"{ACTIVE_RS_NAME}-monarch", self.namespace)
+        dep = apps.read_namespaced_deployment(f"{ACTIVE_RS_NAME}-monarch-shipper", self.namespace)
         containers = dep.spec.template.spec.containers
         assert len(containers) == 1
 
@@ -424,24 +424,24 @@ class TestMonarchDeployments(KubernetesTester):
         assert "shipper" in command
         assert "--config=/etc/monarch/config.yaml" in command
 
-    def test_active_monarch_deployment_labels(self):
+    def test_active_monarch_deployment_labels(self, active_rs_running: MongoDB):
         apps = k8s_client.AppsV1Api()
-        dep = apps.read_namespaced_deployment(f"{ACTIVE_RS_NAME}-monarch", self.namespace)
+        dep = apps.read_namespaced_deployment(f"{ACTIVE_RS_NAME}-monarch-shipper", self.namespace)
         labels = dep.spec.template.metadata.labels
         assert labels["app"] == "monarch-shipper"
         assert labels["mongodb"] == ACTIVE_RS_NAME
         assert labels["monarch-component"] == "shipper"
 
-    def test_active_monarch_service_created(self):
+    def test_active_monarch_service_created(self, active_rs_running: MongoDB):
         """Verify single Monarch Service with correct ports and selector."""
         core = k8s_client.CoreV1Api()
-        svc_name = f"{ACTIVE_RS_NAME}-monarch-svc"
+        svc_name = f"{ACTIVE_RS_NAME}-monarch-shipper-svc"
         svc = core.read_namespaced_service(svc_name, self.namespace)
         assert svc is not None, f"Service {svc_name} not found"
 
-    def test_active_monarch_service_ports(self):
+    def test_active_monarch_service_ports(self, active_rs_running: MongoDB):
         core = k8s_client.CoreV1Api()
-        svc = core.read_namespaced_service(f"{ACTIVE_RS_NAME}-monarch-svc", self.namespace)
+        svc = core.read_namespaced_service(f"{ACTIVE_RS_NAME}-monarch-shipper-svc", self.namespace)
         port_map = {p.name: p.port for p in svc.spec.ports}
         assert port_map["health"] == 8080
         assert port_map["replication"] == 9995
@@ -451,22 +451,22 @@ class TestMonarchDeployments(KubernetesTester):
         assert svc.spec.selector["monarch-component"] == "shipper"
         assert svc.spec.selector["mongodb"] == ACTIVE_RS_NAME
 
-    def test_active_monarch_owner_references(self):
+    def test_active_monarch_owner_references(self, active_rs_running: MongoDB):
         """Monarch Deployment, Service, and ConfigMap should be owned by the MongoDB resource."""
         apps = k8s_client.AppsV1Api()
         core = k8s_client.CoreV1Api()
 
-        dep = apps.read_namespaced_deployment(f"{ACTIVE_RS_NAME}-monarch", self.namespace)
+        dep = apps.read_namespaced_deployment(f"{ACTIVE_RS_NAME}-monarch-shipper", self.namespace)
         assert dep.metadata.owner_references is not None
         assert dep.metadata.owner_references[0].kind == "MongoDB"
         assert dep.metadata.owner_references[0].name == ACTIVE_RS_NAME
 
-        svc = core.read_namespaced_service(f"{ACTIVE_RS_NAME}-monarch-svc", self.namespace)
+        svc = core.read_namespaced_service(f"{ACTIVE_RS_NAME}-monarch-shipper-svc", self.namespace)
         assert svc.metadata.owner_references is not None
         assert svc.metadata.owner_references[0].kind == "MongoDB"
         assert svc.metadata.owner_references[0].name == ACTIVE_RS_NAME
 
-        cm = core.read_namespaced_config_map(f"{ACTIVE_RS_NAME}-monarch-config", self.namespace)
+        cm = core.read_namespaced_config_map(f"{ACTIVE_RS_NAME}-monarch-shipper-config", self.namespace)
         assert cm.metadata.owner_references is not None
         assert cm.metadata.owner_references[0].kind == "MongoDB"
         assert cm.metadata.owner_references[0].name == ACTIVE_RS_NAME
@@ -492,47 +492,75 @@ class TestMonarchDeployments(KubernetesTester):
     def test_snapshot_uploaded(self, monarch_snapshot: None):
         pass
 
+    def test_shipper_continuously_ships_slices(self, monarch_snapshot: None):
+        """Verify the shipper Deployment continuously ships oplog slices to S3."""
+        with _port_forward_minio(self.namespace) as endpoint:
+            s3 = _s3_client(endpoint)
+            prefix = f"{CLUSTER_PREFIX}/{ACTIVE_RS_NAME}/slices/"
+
+            # Count slices before
+            before = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
+            before_count = before.get("KeyCount", 0)
+
+            # Insert a document to trigger oplog activity
+            _mongosh_exec(
+                self.namespace,
+                f"{ACTIVE_RS_NAME}-0",
+                "db.getSiblingDB('shipper_test').test.insertOne({ts: new Date()})",
+            )
+
+            # Wait for shipper to ship (ships every ~10s)
+            time.sleep(15)
+
+            # Count slices after
+            after = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
+            after_count = after.get("KeyCount", 0)
+
+            assert after_count > before_count, (
+                f"Shipper not shipping: slice count unchanged at {before_count}"
+            )
+
     # ── Phase 3: Standby RS with Monarch Deployments ───────────────────
 
     def test_standby_rs_running(self, standby_replica_set: MongoDB):
         standby_replica_set.update()
         standby_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_standby_monarch_deployment_created(self):
+    def test_standby_monarch_deployment_created(self, standby_replica_set: MongoDB):
         """Verify single Monarch Deployment for standby with app=monarch-injector label."""
         apps = k8s_client.AppsV1Api()
-        dep_name = f"{STANDBY_RS_NAME}-monarch"
+        dep_name = f"{STANDBY_RS_NAME}-monarch-injector"
         dep = apps.read_namespaced_deployment(dep_name, self.namespace)
         assert dep is not None, f"Deployment {dep_name} not found"
         assert dep.spec.replicas == DEFAULT_MONARCH_REPLICAS, (
             f"Expected {DEFAULT_MONARCH_REPLICAS} replicas, got {dep.spec.replicas}"
         )
 
-    def test_standby_monarch_deployment_containers(self,):
+    def test_standby_monarch_deployment_containers(self, standby_replica_set: MongoDB):
         """Standby Deployment should run the injector role with config file."""
         apps = k8s_client.AppsV1Api()
-        dep = apps.read_namespaced_deployment(f"{STANDBY_RS_NAME}-monarch", self.namespace)
+        dep = apps.read_namespaced_deployment(f"{STANDBY_RS_NAME}-monarch-injector", self.namespace)
         c = dep.spec.template.spec.containers[0]
         assert c.name == "monarch-injector"
         command = " ".join(c.command)
         assert "injector" in command
         assert "--config=/etc/monarch/config.yaml" in command
 
-    def test_standby_monarch_service_created(self):
+    def test_standby_monarch_service_created(self, standby_replica_set: MongoDB):
         core = k8s_client.CoreV1Api()
-        svc_name = f"{STANDBY_RS_NAME}-monarch-svc"
+        svc_name = f"{STANDBY_RS_NAME}-monarch-injector-svc"
         svc = core.read_namespaced_service(svc_name, self.namespace)
         assert svc is not None, f"Service {svc_name} not found"
 
-    def test_standby_monarch_service_ports(self):
+    def test_standby_monarch_service_ports(self, standby_replica_set: MongoDB):
         core = k8s_client.CoreV1Api()
-        svc = core.read_namespaced_service(f"{STANDBY_RS_NAME}-monarch-svc", self.namespace)
+        svc = core.read_namespaced_service(f"{STANDBY_RS_NAME}-monarch-injector-svc", self.namespace)
         port_map = {p.name: p.port for p in svc.spec.ports}
         assert port_map["health"] == 8080
         assert port_map["replication"] == 9995
         assert port_map["monarch-api"] == 1122
 
-    def test_standby_no_sidecar_in_statefulset(self):
+    def test_standby_no_sidecar_in_statefulset(self, standby_replica_set: MongoDB):
         """Verify that injector is NOT a sidecar — it's a separate Deployment now."""
         sts = self.appsv1.read_namespaced_stateful_set(STANDBY_RS_NAME, self.namespace)
         container_names = [c.name for c in sts.spec.template.spec.containers]
@@ -540,7 +568,7 @@ class TestMonarchDeployments(KubernetesTester):
             f"monarch-injector should be a Deployment, not a sidecar. Found containers: {container_names}"
         )
 
-    def test_standby_automation_config_uses_service_dns(self):
+    def test_standby_automation_config_uses_service_dns(self, standby_replica_set: MongoDB):
         """Automation config must use Service DNS name, not localhost."""
         config = self.get_automation_config()
         assert "maintainedMonarchComponents" in config
@@ -559,7 +587,7 @@ class TestMonarchDeployments(KubernetesTester):
         instances = shards[0]["instances"]
         assert len(instances) == 1, f"Expected 1 instance (single service), got {len(instances)}"
 
-        expected_dns = f"{STANDBY_RS_NAME}-monarch-svc.{self.namespace}.svc.cluster.local"
+        expected_dns = f"{STANDBY_RS_NAME}-monarch-injector-svc.{self.namespace}.svc.cluster.local"
         inst = instances[0]
         assert inst["hostname"] == expected_dns, (
             f"Expected hostname={expected_dns}, got {inst['hostname']}"
