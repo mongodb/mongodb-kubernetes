@@ -56,28 +56,6 @@ type GenerateOptions struct {
 	PrometheusSecretName string            // name of a precreated prometheus Secret, no Secret YAML emitted
 }
 
-// generateMigrationResources generates all CRs and supporting Secrets/ConfigMaps as a single YAML output.
-// Nothing is applied to the cluster — the customer owns the apply step.
-func generateMigrationResources(ac *om.AutomationConfig, opts GenerateOptions) (string, error) {
-	mongodbCR, crName, err := GenerateMongoDBCR(ac, opts)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate Custom Resource: %w", err)
-	}
-
-	userObjects, err := GenerateUserCRs(ac, crName, opts.Namespace, opts)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate user Custom Resources: %w", err)
-	}
-
-	extra := generateExtraResources(ac, opts)
-	objects := make([]client.Object, 0, 1+len(userObjects)+len(extra))
-	objects = append(objects, mongodbCR)
-	objects = append(objects, userObjects...)
-	objects = append(objects, extra...)
-
-	return marshalMultiDoc(objects)
-}
-
 // GenerateMongoDBCR generates a MongoDB CR for the given topology.
 func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (client.Object, string, error) {
 	isSharded := len(ac.Deployment.GetShardedClusters()) > 0
