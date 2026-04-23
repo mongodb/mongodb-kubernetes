@@ -84,7 +84,7 @@
           "priority": 0,
           "votes": 1,
           "hidden": true,
-          "slaveDelay": 3600,
+          "secondaryDelaySecs": 3600,
           "tags": {"region": "us-east-1", "role": "delayed"}
         },
         {
