@@ -1277,7 +1277,7 @@ func (m *MongoDB) ResolvedShards() []ResolvedShard {
 
 	result := make([]ResolvedShard, m.Spec.ShardCount)
 	for i := 0; i < m.Spec.ShardCount; i++ {
-		name := synthesizedShardName(m.Name, i)
+		name := SynthesizedShardName(m.Name, i)
 		result[i] = ResolvedShard{
 			ShardName: name,
 			ShardId:   name,
@@ -1295,9 +1295,9 @@ func (m *MongoDB) ResolvedShardCount() int {
 	return m.Spec.ShardCount
 }
 
-// synthesizedShardName produces the default shard name used when
+// SynthesizedShardName produces the default shard name used when
 // spec.shardCount is set and spec.shards is empty.
-func synthesizedShardName(mdbName string, shardIdx int) string {
+func SynthesizedShardName(mdbName string, shardIdx int) string {
 	// Unfortunately the pattern used by OM (name_idx) doesn't work as Kubernetes doesn't create the stateful set with an
 	// exception: "a DNS-1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'"
 	return fmt.Sprintf("%s-%d", mdbName, shardIdx)
@@ -1309,7 +1309,7 @@ func (m *MongoDB) ShardRsName(i int) string {
 			return m.Spec.Shards[i].ShardName
 		}
 	}
-	return synthesizedShardName(m.Name, i)
+	return SynthesizedShardName(m.Name, i)
 }
 
 func (m *MongoDB) ShardRsNames() []string {

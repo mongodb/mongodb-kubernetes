@@ -3865,6 +3865,11 @@ func getMultiClusterFQDN(stsName string, namespace string, clusterIdx int, podId
 func generateExpectedDeploymentState(ctx context.Context, t *testing.T, sc *mdbv1.MongoDB, r *ReconcileCommonController) string {
 	lastSpec, _ := sc.GetLastSpec()
 	lastConfiguredRoles, _ := r.getRoleStrings(ctx, sc.Spec.DbCommonSpec, true, kube.ObjectKeyFromApiObject(sc))
+	resolvedShards := sc.ResolvedShards()
+	shards := make([]ShardStateEntry, len(resolvedShards))
+	for i, s := range resolvedShards {
+		shards[i] = ShardStateEntry{ShardName: s.ShardName, ShardId: s.ShardId}
+	}
 	expectedState := ShardedClusterDeploymentState{
 		CommonDeploymentState: CommonDeploymentState{
 			ClusterMapping: map[string]int{},
@@ -3872,6 +3877,7 @@ func generateExpectedDeploymentState(ctx context.Context, t *testing.T, sc *mdbv
 		LastAchievedSpec:    lastSpec,
 		LastConfiguredRoles: lastConfiguredRoles,
 		Status:              &sc.Status,
+		Shards:              shards,
 	}
 	lastSpecBytes, err := json.Marshal(expectedState)
 	require.NoError(t, err)

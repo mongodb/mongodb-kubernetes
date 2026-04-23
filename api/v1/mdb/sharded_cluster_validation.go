@@ -157,7 +157,7 @@ func shardIdentityImmutable(newObj, oldObj MongoDB) v1.ValidationResult {
 	if len(oldObj.Spec.Shards) == 0 && oldObj.Spec.ShardCount > 0 {
 		checkLen := min(oldObj.Spec.ShardCount, len(newObj.Spec.Shards))
 		for i := 0; i < checkLen; i++ {
-			expected := synthesizedShardName(oldObj.Name, i)
+			expected := SynthesizedShardName(oldObj.Name, i)
 			if newObj.Spec.Shards[i].ShardName != expected {
 				return v1.ValidationError(
 					"migration from spec.shardCount to spec.shards must preserve shard identity: "+

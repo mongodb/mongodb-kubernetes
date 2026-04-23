@@ -37,7 +37,7 @@ func TestMergeShardedCluster_New(t *testing.T) {
 	}
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
 	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), createShards("myShard"))
+	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards, nil), createShards("myShard"))
 }
 
 func TestMergeShardedCluster_ProcessesModified(t *testing.T) {
@@ -85,7 +85,7 @@ func TestMergeShardedCluster_ProcessesModified(t *testing.T) {
 	require.Len(t, d.getProcesses(), 15)
 	checkMongoSProcesses(t, d.getProcesses(), expectedMongosProcesses)
 	checkReplicaSet(t, d, expectedConfigrs)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", expectedConfigrs.Rs.Name(), shards), createShards("cluster"))
+	checkShardedCluster(t, d, NewShardedCluster("cluster", expectedConfigrs.Rs.Name(), shards, nil), createShards("cluster"))
 }
 
 func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
@@ -136,7 +136,7 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	}
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
 	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), expectedShards)
+	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards, nil), expectedShards)
 }
 
 func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
@@ -162,7 +162,7 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 	// These OM changes must be overriden
 	(*d.getShardedClusterByName("cluster")).setConfigServerRsName("fake")
 	(*d.getShardedClusterByName("cluster")).setShards(d.getShardedClusterByName("cluster").shards()[0:2])
-	(*d.getShardedClusterByName("cluster")).setShards(append(d.getShardedClusterByName("cluster").shards(), newShard("fakeShard")))
+	(*d.getShardedClusterByName("cluster")).setShards(append(d.getShardedClusterByName("cluster").shards(), newShard("fakeShard", "fakeShard")))
 
 	mergeReplicaSet(d, "fakeShard", createReplicaSetProcesses("fakeShard"))
 
@@ -181,7 +181,7 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 	_, err = d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
 
-	expectedCluster := NewShardedCluster("cluster", configRs.Rs.Name(), shards)
+	expectedCluster := NewShardedCluster("cluster", configRs.Rs.Name(), shards, nil)
 	expectedCluster["managedSharding"] = true
 	expectedCluster["collections"] = []map[string]interface{}{{"_id": "some", "unique": true}}
 
@@ -223,7 +223,7 @@ func TestMergeShardedCluster_ShardsAdded(t *testing.T) {
 	}
 	_, err = d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards)
+	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards, nil), shards)
 }
 
 // TestMergeShardedCluster_ShardRemoved checks the scenario of decrementing the number of shards
@@ -257,7 +257,7 @@ func TestMergeShardedCluster_ShardsRemoved(t *testing.T) {
 	_, err = d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
 
-	expectedCluster := NewShardedCluster("cluster", configRs.Rs.Name(), shards)
+	expectedCluster := NewShardedCluster("cluster", configRs.Rs.Name(), shards, nil)
 	expectedCluster.setDraining([]string{"cluster-3", "cluster-4"})
 	checkShardedClusterCheckExtraReplicaSets(t, d, expectedCluster, shards, false)
 
@@ -272,7 +272,7 @@ func TestMergeShardedCluster_ShardsRemoved(t *testing.T) {
 	}
 	_, err = d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
-	checkShardedClusterCheckExtraReplicaSets(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards, true)
+	checkShardedClusterCheckExtraReplicaSets(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards, nil), shards, true)
 }
 
 // TestMergeShardedCluster_MongosCountChanged checks the scenario of incrementing and decrementing the number of mongos
@@ -415,10 +415,10 @@ func TestMergeShardedCluster_ScaleUpShardMergeFirstProcess(t *testing.T) {
 		}
 	}
 
-	expectedCluster := NewShardedCluster("cluster", configRs.Rs.Name(), expectedShards)
+	expectedCluster := NewShardedCluster("cluster", configRs.Rs.Name(), expectedShards, nil)
 	checkShardedCluster(t, d, expectedCluster, expectedShards)
 
-	expectedAnotherCluster := NewShardedCluster("anotherCluster", configRs.Rs.Name(), createShards("anotherClusterSh"))
+	expectedAnotherCluster := NewShardedCluster("anotherCluster", configRs.Rs.Name(), createShards("anotherClusterSh"), nil)
 	checkShardedCluster(t, d, expectedAnotherCluster, createShards("anotherClusterSh"))
 }
 
@@ -522,9 +522,9 @@ func TestRemoveShardedClusterByName(t *testing.T) {
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
 	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
 	shards := createShards("myShard")
-	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards), shards)
+	checkShardedCluster(t, d, NewShardedCluster("cluster", configRs.Rs.Name(), shards, nil), shards)
 
 	// Then check that the sharded cluster and all replica sets were removed
 	shards2 := createShards("otherShard")
-	checkShardedClusterRemoved(t, d, NewShardedCluster("otherCluster", configRs2.Rs.Name(), shards2), createConfigSrvRs("otherConfigSrv", false), shards2)
+	checkShardedClusterRemoved(t, d, NewShardedCluster("otherCluster", configRs2.Rs.Name(), shards2, nil), createConfigSrvRs("otherConfigSrv", false), shards2)
 }

@@ -165,6 +165,51 @@ func TestNamedShards_ReconcileWithShardsFromScratch(t *testing.T) {
 	}
 }
 
+// TestNamedShards_RemoveMiddleShardDeletesCorrectSts reconciles a cluster with
+// three named shards, then flips the spec to remove the middle shard by name.
+// Proves that removeUnusedStatefulsets deletes the StatefulSet whose name was
+// dropped (not the tail positional one, which was the pre-fix behaviour).
+func TestNamedShards_RemoveMiddleShardDeletesCorrectSts(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().
+		SetName("mdbs").
+		SetShardsSpec([]mdbv1.Shard{
+			{ShardName: "mdbs-0"},
+			{ShardName: "mdbs-1"},
+			{ShardName: "mdbs-2"},
+		}).
+		Build()
+
+	reconciler, _, cl, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay)
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+
+	for _, name := range []string{"mdbs-0", "mdbs-1", "mdbs-2"} {
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, cl.Get(ctx, kube.ObjectKey(sc.Namespace, name), sts),
+			"shard STS %q must exist after initial reconcile", name)
+	}
+
+	// Drop the middle shard by name.
+	require.NoError(t, cl.Get(ctx, kube.ObjectKeyFromApiObject(sc), sc))
+	sc.Spec.Shards = []mdbv1.Shard{
+		{ShardName: "mdbs-0"},
+		{ShardName: "mdbs-2"},
+	}
+	require.NoError(t, cl.Update(ctx, sc))
+	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+
+	// mdbs-1 must be gone; mdbs-0 and mdbs-2 must remain.
+	err = cl.Get(ctx, kube.ObjectKey(sc.Namespace, "mdbs-1"), &appsv1.StatefulSet{})
+	assert.True(t, err != nil, "shard STS mdbs-1 must be deleted after removal")
+
+	for _, name := range []string{"mdbs-0", "mdbs-2"} {
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, cl.Get(ctx, kube.ObjectKey(sc.Namespace, name), sts),
+			"shard STS %q must still exist", name)
+	}
+}
+
 // --- helpers ---
 
 // snapshotStsSpecs returns a map[stsName]StatefulSetSpec, stripped of the
