@@ -210,10 +210,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
 	}
 
-	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
-		return r.updateStatus(ctx, status)
-	}
-
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, rs.Name, log)
@@ -310,6 +306,13 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	if !status.IsOK() {
 		return r.updateStatus(ctx, status)
+	}
+
+	// === 5b. Monarch reconciliation (Deployments, Services, and automation config)
+	if rs.Spec.Monarch != nil {
+		if monarchStatus := r.reconcileMonarch(ctx, conn); !monarchStatus.IsOK() {
+			return r.updateStatus(ctx, monarchStatus)
+		}
 	}
 
 	// === 6. Final steps
@@ -513,6 +516,76 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	}
 
 	return r.reconcileStatefulSet(ctx, conn, projectConfig, deploymentOptions)
+}
+
+// reconcileMonarch ensures Monarch Deployments, Services, and automation config are up to date.
+func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn om.Connection) workflow.Status {
+	rs := r.resource
+	reconciler := r.reconciler
+	log := r.log
+
+	// Default to 3 Monarch instances for redundancy. Multiple instances are safe -
+	// the CAS protocol on S3 ensures only one shipper's write per oplog entry is accepted.
+	monarchReplicas := construct.DefaultMonarchReplicas
+
+	// Create or update Monarch Deployments and Services
+	for i := 0; i < monarchReplicas; i++ {
+		dep := construct.BuildMonarchDeployment(rs, rs.Namespace, i)
+		if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, dep, func() error {
+			// Refresh spec from builder on each update
+			fresh := construct.BuildMonarchDeployment(rs, rs.Namespace, i)
+			dep.Spec = fresh.Spec
+			dep.Labels = fresh.Labels
+			return nil
+		}); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Deployment %s: %w", dep.Name, err))
+		}
+
+		svc := construct.BuildMonarchService(rs, rs.Namespace, i)
+		if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, svc, func() error {
+			fresh := construct.BuildMonarchService(rs, rs.Namespace, i)
+			svc.Spec.Selector = fresh.Spec.Selector
+			svc.Spec.Ports = fresh.Spec.Ports
+			svc.Labels = fresh.Labels
+			return nil
+		}); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Service %s: %w", svc.Name, err))
+		}
+	}
+
+	// Read AWS credentials from the referenced secret
+	credSecret, err := reconciler.client.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Spec.Monarch.CredentialsSecretRef.Name))
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to read Monarch credentials secret %s: %w", rs.Spec.Monarch.CredentialsSecretRef.Name, err))
+	}
+	awsKeyId := string(credSecret.Data["awsAccessKeyId"])
+	awsSecret := string(credSecret.Data["awsSecretAccessKey"])
+
+	// Build service DNS names for automation config
+	serviceDNSNames := make([]string, monarchReplicas)
+	for i := 0; i < monarchReplicas; i++ {
+		serviceDNSNames[i] = construct.GetMonarchServiceDNS(rs, rs.Namespace, i)
+	}
+
+	mc, err := om.BuildMaintainedMonarchComponents(rs, rs.Name, awsKeyId, awsSecret, serviceDNSNames)
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to build Monarch automation config: %w", err))
+	}
+
+	// Update automation config with Monarch components
+	err = conn.ReadUpdateDeployment(
+		func(d om.Deployment) error {
+			d.SetMaintainedMonarchComponents(mc)
+			return nil
+		},
+		log,
+	)
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to update automation config with Monarch components: %w", err))
+	}
+
+	log.Infof("Reconciled %d Monarch instances", monarchReplicas)
+	return workflow.OK()
 }
 
 func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {

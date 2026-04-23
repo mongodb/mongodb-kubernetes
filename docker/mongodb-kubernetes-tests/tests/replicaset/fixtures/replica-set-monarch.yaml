@@ -1,0 +1,23 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-replica-set
+spec:
+  members: 3
+  version: 5.0.15
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: false
+  monarch:
+    role: active
+    s3BucketName: monarch-standby-bucket
+    awsRegion: eu-north-1
+    credentialsSecretRef:
+      name: monarch-s3-creds
+    clusterPrefix: failoverdemo
+    s3PathStyleAccess: true
+    shipperVersion: "0.1.1"

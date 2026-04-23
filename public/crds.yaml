@@ -992,6 +992,71 @@ spec:
               members:
                 description: Amount of members for this MongoDB Replica Set
                 type: integer
+              monarch:
+                description: Monarch configures disaster recovery using Monarch shipper/injector
+                properties:
+                  activeReplicaSetId:
+                    description: ActiveReplicaSetId is required for standby clusters
+                      - the name of the active RS
+                    type: string
+                  awsRegion:
+                    description: AWSRegion is the AWS region for the S3 bucket
+                    type: string
+                  clusterPrefix:
+                    description: ClusterPrefix is the Monarch cluster prefix for namespace
+                      isolation
+                    type: string
+                  credentialsSecretRef:
+                    description: CredentialsSecretRef references a Secret containing
+                      awsAccessKeyId and awsSecretAccessKey
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  image:
+                    description: Image overrides the default Monarch container image
+                    type: string
+                  injectorVersion:
+                    description: InjectorVersion is the Monarch binary version for
+                      standby clusters
+                    type: string
+                  role:
+                    description: Role determines whether this is an active (shipper)
+                      or standby (injector) cluster
+                    enum:
+                    - active
+                    - standby
+                    type: string
+                  s3BucketEndpoint:
+                    description: S3BucketEndpoint is an optional S3-compatible endpoint
+                      (for MinIO, etc.)
+                    type: string
+                  s3BucketName:
+                    description: S3BucketName is the S3 bucket for storing/retrieving
+                      oplog data
+                    type: string
+                  s3PathStyleAccess:
+                    description: S3PathStyleAccess enables path-style access for S3-compatible
+                      stores
+                    type: boolean
+                  shipperVersion:
+                    description: ShipperVersion is the Monarch binary version for
+                      active clusters
+                    type: string
+                required:
+                - awsRegion
+                - credentialsSecretRef
+                - role
+                - s3BucketName
+                type: object
               mongodsPerShardCount:
                 type: integer
               mongos:
@@ -4636,210 +4701,6 @@ spec:
                 type: array
               version:
                 type: string
-              warnings:
-                items:
-                  type: string
-                type: array
-            required:
-            - phase
-            type: object
-        required:
-        - spec
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
-  name: mongodbstandbyclusters.mongodb.com
-spec:
-  group: mongodb.com
-  names:
-    kind: MongoDBStandbyCluster
-    listKind: MongoDBStandbyClusterList
-    plural: mongodbstandbyclusters
-    shortNames:
-    - mdbstandby
-    singular: mongodbstandbycluster
-  scope: Namespaced
-  versions:
-  - additionalPrinterColumns:
-    - description: Current state of the standby cluster.
-      jsonPath: .status.phase
-      name: Phase
-      type: string
-    - jsonPath: .metadata.creationTimestamp
-      name: Age
-      type: date
-    name: v1
-    schema:
-      openAPIV3Schema:
-        properties:
-          apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
-              Servers should convert recognized schemas to the latest internal value, and
-              may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-            type: string
-          kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
-              Servers may infer this from the endpoint the client submits requests to.
-              Cannot be updated.
-              In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-            type: string
-          metadata:
-            type: object
-          spec:
-            properties:
-              cloudManager:
-                properties:
-                  configMapRef:
-                    properties:
-                      name:
-                        type: string
-                    type: object
-                type: object
-              credentials:
-                description: Name of the Secret holding credentials information
-                type: string
-              injectorImage:
-                description: Image for the injector sidecar container.
-                type: string
-              monarch:
-                description: Monarch / injector configuration.
-                properties:
-                  awsRegion:
-                    type: string
-                  clusterPrefix:
-                    description: ClusterPrefix is the Monarch cluster prefix (e.g.
-                      "failoverdemo").
-                    type: string
-                  credentialsSecretRef:
-                    description: CredentialsSecretRef references a Secret with keys
-                      awsAccessKeyId and awsSecretAccessKey.
-                    properties:
-                      name:
-                        default: ""
-                        description: |-
-                          Name of the referent.
-                          This field is effectively required, but due to backwards compatibility is
-                          allowed to be empty. Instances of this type with an empty value here are
-                          almost certainly wrong.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                        type: string
-                    type: object
-                    x-kubernetes-map-type: atomic
-                  injectorVersion:
-                    description: InjectorVersion is the Monarch injector binary version
-                      (e.g. "0.1.1").
-                    type: string
-                  replicaSetId:
-                    description: ReplicaSetID is the name of the active replica set
-                      (e.g. "activeRS2").
-                    type: string
-                  s3BucketEndpoint:
-                    description: S3BucketEndpoint is the S3-compatible endpoint URL
-                      (e.g. for MinIO).
-                    type: string
-                  s3BucketName:
-                    type: string
-                  s3PathStyleAccess:
-                    type: boolean
-                required:
-                - awsRegion
-                - clusterPrefix
-                - credentialsSecretRef
-                - injectorVersion
-                - replicaSetId
-                - s3BucketName
-                type: object
-              mongoDBResourceRef:
-                description: Reference to the existing MongoDB ReplicaSet resource
-                  in the same namespace.
-                properties:
-                  name:
-                    default: ""
-                    description: |-
-                      Name of the referent.
-                      This field is effectively required, but due to backwards compatibility is
-                      allowed to be empty. Instances of this type with an empty value here are
-                      almost certainly wrong.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                    type: string
-                type: object
-                x-kubernetes-map-type: atomic
-              opsManager:
-                properties:
-                  configMapRef:
-                    properties:
-                      name:
-                        type: string
-                    type: object
-                type: object
-            required:
-            - credentials
-            - injectorImage
-            - monarch
-            - mongoDBResourceRef
-            type: object
-          status:
-            properties:
-              lastTransition:
-                type: string
-              message:
-                type: string
-              observedGeneration:
-                format: int64
-                type: integer
-              phase:
-                type: string
-              pvc:
-                items:
-                  properties:
-                    phase:
-                      type: string
-                    statefulsetName:
-                      type: string
-                  required:
-                  - phase
-                  - statefulsetName
-                  type: object
-                type: array
-              resourcesNotReady:
-                items:
-                  description: ResourceNotReady describes the dependent resource which
-                    is not ready yet
-                  properties:
-                    errors:
-                      items:
-                        properties:
-                          message:
-                            type: string
-                          reason:
-                            type: string
-                        type: object
-                      type: array
-                    kind:
-                      description: ResourceKind specifies a kind of a Kubernetes resource.
-                        Used in status of a Custom Resource
-                      type: string
-                    message:
-                      type: string
-                    name:
-                      type: string
-                  required:
-                  - kind
-                  - name
-                  type: object
-                type: array
               warnings:
                 items:
                   type: string

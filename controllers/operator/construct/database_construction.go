@@ -127,7 +127,6 @@ type DatabaseStatefulSetOptions struct {
 	AgentDebugImage string
 
 	// InjectorSidecar, when set, adds a Monarch injector sidecar container at index 3 in the pod.
-	// Only used when the MongoDB resource is a standby cluster (MongoDBStandbyCluster).
 	InjectorSidecar *InjectorSidecarConfig
 }
 

@@ -178,10 +178,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
 
-	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
-		return r.updateStatus(ctx, s, status, log)
-	}
-
 	r.SetupCommonWatchers(s, nil, nil, s.Name)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, s.Name, log)

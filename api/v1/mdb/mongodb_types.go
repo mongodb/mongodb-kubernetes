@@ -68,6 +68,58 @@ const (
 	LabelResourceOwner = "mongodb.com/v1.mongodbResourceOwner"
 )
 
+// MonarchRole defines whether this is an active or standby cluster
+// +kubebuilder:validation:Enum=active;standby
+type MonarchRole string
+
+const (
+	MonarchRoleActive  MonarchRole = "active"
+	MonarchRoleStandby MonarchRole = "standby"
+)
+
+// MonarchSpec configures Monarch disaster recovery for this MongoDB cluster
+type MonarchSpec struct {
+	// Role determines whether this is an active (shipper) or standby (injector) cluster
+	Role MonarchRole `json:"role"`
+
+	// S3BucketName is the S3 bucket for storing/retrieving oplog data
+	S3BucketName string `json:"s3BucketName"`
+
+	// AWSRegion is the AWS region for the S3 bucket
+	AWSRegion string `json:"awsRegion"`
+
+	// CredentialsSecretRef references a Secret containing awsAccessKeyId and awsSecretAccessKey
+	CredentialsSecretRef corev1.LocalObjectReference `json:"credentialsSecretRef"`
+
+	// +optional
+	// S3BucketEndpoint is an optional S3-compatible endpoint (for MinIO, etc.)
+	S3BucketEndpoint string `json:"s3BucketEndpoint,omitempty"`
+
+	// +optional
+	// S3PathStyleAccess enables path-style access for S3-compatible stores
+	S3PathStyleAccess bool `json:"s3PathStyleAccess,omitempty"`
+
+	// +optional
+	// ActiveReplicaSetId is required for standby clusters - the name of the active RS
+	ActiveReplicaSetId string `json:"activeReplicaSetId,omitempty"`
+
+	// +optional
+	// ClusterPrefix is the Monarch cluster prefix for namespace isolation
+	ClusterPrefix string `json:"clusterPrefix,omitempty"`
+
+	// +optional
+	// ShipperVersion is the Monarch binary version for active clusters
+	ShipperVersion string `json:"shipperVersion,omitempty"`
+
+	// +optional
+	// InjectorVersion is the Monarch binary version for standby clusters
+	InjectorVersion string `json:"injectorVersion,omitempty"`
+
+	// +optional
+	// Image overrides the default Monarch container image
+	Image string `json:"image,omitempty"`
+}
+
 // MongoDB resources allow you to deploy Standalones, ReplicaSets or SharedClusters
 // to your Kubernetes cluster
 
@@ -450,6 +502,10 @@ type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+
+	// +optional
+	// Monarch configures disaster recovery using Monarch shipper/injector
+	Monarch *MonarchSpec `json:"monarch,omitempty"`
 }
 
 func (m *MongoDbSpec) GetExternalDomain() *string {

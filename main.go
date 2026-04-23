@@ -68,9 +68,8 @@ const (
 	mongoDBOpsManagerCRDPlural     = "opsmanagers"
 	mongoDBMultiClusterCRDPlural   = "mongodbmulticluster"
 	mongoDBCommunityCRDPlural      = "mongodbcommunity"
-	mongoDBSearchCRDPlural         = "mongodbsearch"
-	clusterMongoDBRoleCRDPlural    = "clustermongodbroles"
-	mongoDBStandbyClusterCRDPlural = "mongodbstandbyclusters"
+	mongoDBSearchCRDPlural      = "mongodbsearch"
+	clusterMongoDBRoleCRDPlural = "clustermongodbroles"
 )
 
 var (
@@ -128,7 +127,6 @@ func run() error {
 			mongoDBCommunityCRDPlural,
 			mongoDBSearchCRDPlural,
 			clusterMongoDBRoleCRDPlural,
-			mongoDBStandbyClusterCRDPlural,
 		}
 	}
 
@@ -294,12 +292,6 @@ func run() error {
 			return err
 		}
 	}
-	if slices.Contains(crds, mongoDBStandbyClusterCRDPlural) {
-		if err := operator.AddStandbyClusterController(ctx, mgr); err != nil {
-			return err
-		}
-	}
-
 	for _, r := range crds {
 		log.Infof("Registered CRD: %s", r)
 	}

@@ -884,6 +884,71 @@ spec:
               members:
                 description: Amount of members for this MongoDB Replica Set
                 type: integer
+              monarch:
+                description: Monarch configures disaster recovery using Monarch shipper/injector
+                properties:
+                  activeReplicaSetId:
+                    description: ActiveReplicaSetId is required for standby clusters
+                      - the name of the active RS
+                    type: string
+                  awsRegion:
+                    description: AWSRegion is the AWS region for the S3 bucket
+                    type: string
+                  clusterPrefix:
+                    description: ClusterPrefix is the Monarch cluster prefix for namespace
+                      isolation
+                    type: string
+                  credentialsSecretRef:
+                    description: CredentialsSecretRef references a Secret containing
+                      awsAccessKeyId and awsSecretAccessKey
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  image:
+                    description: Image overrides the default Monarch container image
+                    type: string
+                  injectorVersion:
+                    description: InjectorVersion is the Monarch binary version for
+                      standby clusters
+                    type: string
+                  role:
+                    description: Role determines whether this is an active (shipper)
+                      or standby (injector) cluster
+                    enum:
+                    - active
+                    - standby
+                    type: string
+                  s3BucketEndpoint:
+                    description: S3BucketEndpoint is an optional S3-compatible endpoint
+                      (for MinIO, etc.)
+                    type: string
+                  s3BucketName:
+                    description: S3BucketName is the S3 bucket for storing/retrieving
+                      oplog data
+                    type: string
+                  s3PathStyleAccess:
+                    description: S3PathStyleAccess enables path-style access for S3-compatible
+                      stores
+                    type: boolean
+                  shipperVersion:
+                    description: ShipperVersion is the Monarch binary version for
+                      active clusters
+                    type: string
+                required:
+                - awsRegion
+                - credentialsSecretRef
+                - role
+                - s3BucketName
+                type: object
               mongodsPerShardCount:
                 type: integer
               mongos:
