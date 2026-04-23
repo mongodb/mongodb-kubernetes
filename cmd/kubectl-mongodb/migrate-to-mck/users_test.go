@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 )
 
 func writeTempFile(t *testing.T, content string) string {
@@ -107,6 +108,42 @@ func TestGenerateUserCRs_ExistingSecrets_SkipsUnmappedUsers(t *testing.T) {
 	y, err := marshalCRToYAML(users[0])
 	require.NoError(t, err)
 	assert.Contains(t, y, "alice")
+}
+
+func TestCollectUserPasswords_WrongPasswordThenSkip(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []any{},
+		"replicaSets": []any{},
+	})
+	ac.Auth.AutoUser = "mms-automation"
+	ac.Auth.Users = []*om.MongoDBUser{
+		{Username: "alice", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}},
+	}
+
+	opts := &GenerateOptions{}
+	// wrong password (no SCRAM hashes stored so any password fails), then Enter to skip
+	scanner := bufio.NewScanner(strings.NewReader("wrongpassword\n\n"))
+	err := collectUserPasswords(ac, opts, scanner)
+	require.NoError(t, err)
+	assert.Empty(t, opts.UserPasswords)
+}
+
+func TestCollectUserPasswords_WrongPasswordThenCorrect(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []any{},
+		"replicaSets": []any{},
+	})
+	ac.Auth.AutoUser = "mms-automation"
+	alice := &om.MongoDBUser{Username: "alice", Database: "admin", Roles: []*om.Role{{Role: "read", Database: "test"}}}
+	ac.Auth.Users = []*om.MongoDBUser{alice}
+	_, err := authentication.ConfigureScramCredentials(alice, "correct-password", ac)
+	require.NoError(t, err)
+
+	opts := &GenerateOptions{}
+	scanner := bufio.NewScanner(strings.NewReader("wrongpassword\ncorrect-password\n"))
+	err = collectUserPasswords(ac, opts, scanner)
+	require.NoError(t, err)
+	assert.Equal(t, "correct-password", opts.UserPasswords["alice:admin"])
 }
 
 func TestCollectUserPasswords_SkipOnEnter(t *testing.T) {

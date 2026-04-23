@@ -77,7 +77,48 @@ func TestCollectPrometheusCreds_EmptyPassword(t *testing.T) {
 	opts := &GenerateOptions{Namespace: "mongodb"}
 	scanner := bufio.NewScanner(strings.NewReader("\n"))
 	err := collectPrometheusCreds(context.Background(), nil, ac, opts, scanner, "")
-	assert.ErrorContains(t, err, "cannot be empty")
+	assert.ErrorContains(t, err, "input cancelled")
+}
+
+func tlsEnabledAC() *om.AutomationConfig {
+	return om.NewAutomationConfig(om.Deployment{
+		"processes": []any{
+			map[string]any{
+				"name":        "host-0",
+				"processType": "mongod",
+				"args2_6": map[string]any{
+					"net": map[string]any{
+						"tls": map[string]any{"mode": "requireSSL"},
+					},
+				},
+			},
+		},
+		"replicaSets": []any{},
+	})
+}
+
+func TestEnsureTLS_InvalidFlagReturnsError(t *testing.T) {
+	ac := tlsEnabledAC()
+	opts := &GenerateOptions{}
+	err := ensureTLS(ac, opts, nil, "Invalid_Name!")
+	assert.ErrorContains(t, err, "not a valid Kubernetes resource name")
+}
+
+func TestEnsureTLS_InvalidInteractiveInputReprompts(t *testing.T) {
+	ac := tlsEnabledAC()
+	opts := &GenerateOptions{}
+	scanner := bufio.NewScanner(strings.NewReader("Invalid_Name!\nmdb\n"))
+	err := ensureTLS(ac, opts, scanner, "")
+	require.NoError(t, err)
+	assert.Equal(t, "mdb", opts.CertsSecretPrefix)
+}
+
+func TestEnsureTLS_ValidFlagUsedDirectly(t *testing.T) {
+	ac := tlsEnabledAC()
+	opts := &GenerateOptions{}
+	err := ensureTLS(ac, opts, nil, "mdb")
+	require.NoError(t, err)
+	assert.Equal(t, "mdb", opts.CertsSecretPrefix)
 }
 
 func TestIsTLSEnabled_TLSMode(t *testing.T) {
@@ -99,9 +140,9 @@ func TestIsTLSEnabled_TLSMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			processMap := map[string]om.Process{
 				"host-0": {
-					"args2_6": map[string]interface{}{
-						"net": map[string]interface{}{
-							"tls": map[string]interface{}{
+					"args2_6": map[string]any{
+						"net": map[string]any{
+							"tls": map[string]any{
 								"mode": tt.mode,
 							},
 						},
@@ -116,9 +157,9 @@ func TestIsTLSEnabled_TLSMode(t *testing.T) {
 func TestIsTLSEnabled_SSLMode(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
-					"ssl": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{
+					"ssl": map[string]any{
 						"mode": "requireSSL",
 					},
 				},
@@ -138,7 +179,7 @@ func TestIsTLSEnabled_NoArgs(t *testing.T) {
 func TestIsTLSEnabled_NoNet(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{},
+			"args2_6": map[string]any{},
 		},
 	}
 	assert.False(t, isTLSEnabled(processMap))
