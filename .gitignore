@@ -105,3 +105,4 @@ mongodb-kubernetes-*.tgz
 scripts/code_snippets/tests/outputs/*
 
 package.tar.gz
+.build-cache/

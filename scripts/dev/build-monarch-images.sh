@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build all images needed for Monarch testing with :monarch tag
 #
-# Usage: ./build-monarch-images.sh [--agent-path=PATH] [--om-path=PATH]
+# Usage: ./build-monarch-images.sh [--agent-path=PATH] [--om-path=PATH] [--force]
 #
 # Builds agent and ops-manager from source by default using:
 #   ~/projects/mms-automation
@@ -13,27 +13,75 @@
 #   - mongodb-agent:monarch
 #   - mongodb-enterprise-ops-manager-ubi:monarch
 #   - mongodb-kubernetes-monarch-injector:monarch
+#
+# The script tracks git commits and skips rebuilds if source hasn't changed.
+# Use --force to rebuild all images regardless of changes.
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+CACHE_DIR="${PROJECT_DIR}/.build-cache"
 
-AGENT_PATH=""
-OM_PATH=""
+AGENT_PATH="${AGENT_PATH:-$HOME/projects/mms-automation}"
+OM_PATH="${OM_PATH:-$HOME/projects/ops-manager}"
 PLATFORM="${DOCKER_PLATFORM:-linux/amd64}"
+FORCE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --agent-path=*) AGENT_PATH="${1#*=}"; shift ;;
         --om-path=*) OM_PATH="${1#*=}"; shift ;;
         --platform=*) PLATFORM="${1#*=}"; shift ;;
+        --force|-f) FORCE=true; shift ;;
         -h|--help)
-            head -17 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
+            head -18 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
             exit 0
             ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+mkdir -p "${CACHE_DIR}"
+
+# Get git commit hash for a repo path
+get_commit() {
+    local path="$1"
+    if [[ -d "$path/.git" ]]; then
+        git -C "$path" rev-parse HEAD 2>/dev/null || echo "unknown"
+    else
+        echo "not-a-repo"
+    fi
+}
+
+# Check if rebuild is needed by comparing current commit to cached commit
+needs_rebuild() {
+    local name="$1"
+    local current_commit="$2"
+    local cache_file="${CACHE_DIR}/${name}.commit"
+
+    if [[ "$FORCE" == "true" ]]; then
+        return 0  # force rebuild
+    fi
+
+    if [[ ! -f "$cache_file" ]]; then
+        return 0  # no cache, need rebuild
+    fi
+
+    local cached_commit
+    cached_commit=$(cat "$cache_file")
+    if [[ "$cached_commit" != "$current_commit" ]]; then
+        return 0  # commit changed, need rebuild
+    fi
+
+    return 1  # no rebuild needed
+}
+
+# Save commit hash to cache after successful build
+save_commit() {
+    local name="$1"
+    local commit="$2"
+    echo "$commit" > "${CACHE_DIR}/${name}.commit"
+}
 
 cd "${PROJECT_DIR}"
 
@@ -42,32 +90,55 @@ echo "Building Monarch test images"
 echo "============================================"
 echo "Platform: ${PLATFORM}"
 echo "Tag: monarch"
+echo "Force rebuild: ${FORCE}"
 echo "============================================"
+echo ""
+
+# Get current commits
+AGENT_COMMIT=$(get_commit "$AGENT_PATH")
+OM_COMMIT=$(get_commit "$OM_PATH")
+MONARCH_DOCKERFILE_HASH=$(md5sum docker/monarch-injector/Dockerfile 2>/dev/null | cut -d' ' -f1 || md5 -q docker/monarch-injector/Dockerfile)
+
+echo "Source commits:"
+echo "  Agent (${AGENT_PATH}): ${AGENT_COMMIT:0:12}"
+echo "  OM (${OM_PATH}): ${OM_COMMIT:0:12}"
+echo "  Monarch Dockerfile: ${MONARCH_DOCKERFILE_HASH:0:12}"
 echo ""
 
 # Build agent
-echo ">>> Building agent:monarch"
-if [[ -n "$AGENT_PATH" ]]; then
+if needs_rebuild "agent" "$AGENT_COMMIT"; then
+    echo ">>> Building agent:monarch (source changed)"
     python scripts/release/pipeline.py agent -b staging --agent-path="$AGENT_PATH" --version monarch -p "$PLATFORM"
+    save_commit "agent" "$AGENT_COMMIT"
 else
-    python scripts/release/pipeline.py agent -b staging --agent-path --version monarch -p "$PLATFORM"
+    echo ">>> Skipping agent:monarch (no changes since last build)"
 fi
 
 echo ""
-echo ">>> Building ops-manager:monarch"
-if [[ -n "$OM_PATH" ]]; then
+
+# Build ops-manager
+if needs_rebuild "ops-manager" "$OM_COMMIT"; then
+    echo ">>> Building ops-manager:monarch (source changed)"
     python scripts/release/pipeline.py ops-manager -b staging --om-path="$OM_PATH" --version monarch -p "$PLATFORM"
+    save_commit "ops-manager" "$OM_COMMIT"
 else
-    python scripts/release/pipeline.py ops-manager -b staging --om-path --version monarch -p "$PLATFORM"
+    echo ">>> Skipping ops-manager:monarch (no changes since last build)"
 fi
 
 echo ""
-echo ">>> Building monarch-injector:monarch"
-python scripts/release/pipeline.py monarch-injector -b staging --version monarch -p "$PLATFORM"
+
+# Build monarch-injector
+if needs_rebuild "monarch-injector" "$MONARCH_DOCKERFILE_HASH"; then
+    echo ">>> Building monarch-injector:monarch (Dockerfile changed)"
+    python scripts/release/pipeline.py monarch-injector -b staging --version monarch -p "$PLATFORM"
+    save_commit "monarch-injector" "$MONARCH_DOCKERFILE_HASH"
+else
+    echo ">>> Skipping monarch-injector:monarch (no changes since last build)"
+fi
 
 echo ""
 echo "============================================"
-echo "Done! Images pushed to staging ECR:"
+echo "Done! Images available in staging ECR:"
 echo "  - mongodb-agent:monarch"
 echo "  - mongodb-enterprise-ops-manager-ubi:monarch"
 echo "  - mongodb-kubernetes-monarch-injector:monarch"
