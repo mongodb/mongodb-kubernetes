@@ -23,6 +23,17 @@ type ShardedClusterSpec struct {
 	// +optional
 	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
 
+	// Shards, when specified, declares an explicit list of shards with stable
+	// identities. Exactly one of spec.shards or spec.shardCount must be set.
+	//
+	// When spec.shardCount is used, the operator derives an implicit list of
+	// the form [{shardName: "<mdb-name>-0"}, ..., {shardName: "<mdb-name>-(N-1)"}].
+	// For an existing cluster created with spec.shardCount, migrating to
+	// spec.shards is a no-op at the Kubernetes layer as long as each shardName
+	// is set to its corresponding implicit value.
+	// +optional
+	Shards []Shard `json:"shards,omitempty"`
+
 	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
 	ShardPodSpec     *MongoDbPodSpec `json:"shardPodSpec,omitempty"`
@@ -30,6 +41,33 @@ type ShardedClusterSpec struct {
 	// DEPRECATED please use spec.shard.shardOverrides instead
 	// +optional
 	ShardSpecificPodSpec []MongoDbPodSpec `json:"shardSpecificPodSpec,omitempty"`
+}
+
+// Shard is an explicit declaration of a single shard in a sharded cluster.
+// It is an element of spec.shards.
+type Shard struct {
+	// ShardName is the stem of every Kubernetes resource created for this
+	// shard (StatefulSet, Pods, PVCs, headless Service, secrets, config maps).
+	// It must be a DNS-1123 label and is immutable after the shard is created.
+	// +kubebuilder:validation:Required
+	ShardName string `json:"shardName"`
+
+	// ShardId is the shard identity used in Ops Manager automation config
+	// (sharded-cluster shard "_id" and replica-set "_id"/"rs").
+	// It defaults to ShardName. Set explicitly only when migrating an existing
+	// VM/OM deployment whose shard identifier contains characters that are not
+	// valid in a Kubernetes resource name (e.g. underscores).
+	// Immutable after the shard is created.
+	// +optional
+	ShardId string `json:"shardId,omitempty"`
+}
+
+// GetShardId returns the effective shard id (defaults to ShardName).
+func (s Shard) GetShardId() string {
+	if s.ShardId != "" {
+		return s.ShardId
+	}
+	return s.ShardName
 }
 
 type ShardedClusterComponentSpec struct {

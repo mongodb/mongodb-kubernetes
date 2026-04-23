@@ -708,6 +708,14 @@ func newShardedClusterReconcilerHelper(
 	}
 
 	helper.sc = sc
+	// When spec.shards is set (named shards), normalise spec.shardCount to
+	// len(spec.shards) so every downstream iteration that still reads
+	// Spec.ShardCount continues to produce the correct count. The mutual
+	// exclusion (only one of shardCount/shards may be non-zero) is enforced
+	// by the webhook validator.
+	if len(sc.Spec.Shards) > 0 {
+		sc.Spec.ShardCount = len(sc.Spec.Shards)
+	}
 	helper.deploymentState = NewShardedClusterDeploymentState()
 	if err := helper.initializeStateStore(ctx, reconciler, sc, log); err != nil {
 		return nil, xerrors.Errorf("failed to initialize sharded cluster state store: %w", err)
@@ -830,6 +838,14 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcileResult, err
 	}
 
+	// Validate the spec BEFORE the reconcile helper is created. The helper
+	// normalises spec.shardCount from spec.shards when named shards are used,
+	// which would confuse the shardsOrShardCountSpecified validator if run
+	// afterwards.
+	if err := sc.ProcessValidationsOnReconcile(nil); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Invalid("%s", err.Error()), log)
+	}
+
 	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
@@ -848,9 +864,10 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 
 func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) (res reconcile.Result, e error) {
 	sc := r.sc
-	if err := sc.ProcessValidationsOnReconcile(nil); err != nil {
-		return r.commonController.updateStatus(ctx, sc, workflow.Invalid("%s", err.Error()), log)
-	}
+	// Validation is now performed in ReconcileMongoDbShardedCluster.Reconcile
+	// before the helper is created, so that validators (e.g. the mutual
+	// exclusion between spec.shardCount and spec.shards) see the original
+	// unnormalised spec.
 
 	log.Info("-> ShardedCluster.Reconcile")
 	log.Infow("ShardedCluster.Spec", "spec", sc.Spec)

@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 
+	"k8s.io/apimachinery/pkg/util/validation"
+
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 )
 
@@ -16,7 +18,19 @@ func ShardedClusterCommonValidators() []func(m MongoDB) v1.ValidationResult {
 		shardOverridesShardNamesUnique,
 		shardOverridesShardNamesCorrectValues,
 		shardOverridesClusterSpecListsCorrect,
-		shardCountSpecified,
+		shardsOrShardCountSpecified,
+		shardsFieldValid,
+		shardSpecificPodSpecNotUsedWithShards,
+	}
+}
+
+// ShardedClusterUpdateValidators returns validators that compare the new and
+// old MongoDB specs for sharded clusters. Identity of previously existing
+// shards (both shardName and shardId) must be preserved across updates so that
+// the operator never rewrites pre-existing Kubernetes or Ops Manager state.
+func ShardedClusterUpdateValidators() []func(newObj, oldObj MongoDB) v1.ValidationResult {
+	return []func(newObj, oldObj MongoDB) v1.ValidationResult{
+		shardIdentityImmutable,
 	}
 }
 
@@ -43,11 +57,143 @@ func ShardedClusterMultiValidators() []func(m MongoDB) []v1.ValidationResult {
 	}
 }
 
-// This applies to any topology
-func shardCountSpecified(m MongoDB) v1.ValidationResult {
-	if m.Spec.ShardCount == 0 {
-		return v1.ValidationError("shardCount must be specified")
+// shardsOrShardCountSpecified requires exactly one of spec.shardCount or
+// spec.shards to be set. This preserves backwards compatibility (existing
+// customers using spec.shardCount continue to work) while admitting the new
+// named-shards form.
+func shardsOrShardCountSpecified(m MongoDB) v1.ValidationResult {
+	hasShardCount := m.Spec.ShardCount > 0
+	hasShardsList := len(m.Spec.Shards) > 0
+
+	if !hasShardCount && !hasShardsList {
+		return v1.ValidationError("one of spec.shardCount or spec.shards must be specified")
 	}
+	if hasShardCount && hasShardsList {
+		return v1.ValidationError("spec.shardCount and spec.shards are mutually exclusive; specify only one")
+	}
+	return v1.ValidationSuccess()
+}
+
+// shardsFieldValid enforces structural rules on spec.shards when set: every
+// shardName is a DNS-1123 label, shardNames are unique, shardIds are unique,
+// and each derived StatefulSet name fits within Kubernetes length limits.
+// The same style of validation used by the MongoDBSearch controller.
+func shardsFieldValid(m MongoDB) v1.ValidationResult {
+	if len(m.Spec.Shards) == 0 {
+		return v1.ValidationSuccess()
+	}
+
+	seenNames := make(map[string]struct{}, len(m.Spec.Shards))
+	seenIds := make(map[string]struct{}, len(m.Spec.Shards))
+
+	for i, shard := range m.Spec.Shards {
+		if shard.ShardName == "" {
+			return v1.ValidationError("spec.shards[%d].shardName is required", i)
+		}
+		if errs := validation.IsDNS1123Label(shard.ShardName); len(errs) > 0 {
+			return v1.ValidationError("spec.shards[%d].shardName %q is not a valid DNS-1123 label: %v", i, shard.ShardName, errs)
+		}
+		if _, dup := seenNames[shard.ShardName]; dup {
+			return v1.ValidationError("spec.shards[%d].shardName %q is a duplicate; shardNames must be unique", i, shard.ShardName)
+		}
+		seenNames[shard.ShardName] = struct{}{}
+
+		shardId := shard.GetShardId()
+		if _, dup := seenIds[shardId]; dup {
+			return v1.ValidationError("spec.shards[%d].shardId %q is a duplicate; shardIds must be unique", i, shardId)
+		}
+		seenIds[shardId] = struct{}{}
+
+		// StatefulSet names (and by extension pod hostnames) must fit within
+		// a DNS-1123 label. In single-cluster the STS name equals shardName.
+		// In multi-cluster topology it is fmt.Sprintf("%s-%d", shardName, clusterIdx).
+		// We check the single-cluster case plus a conservative upper bound
+		// for multi-cluster (clusterIdx up to 9, i.e. +2 chars).
+		if errs := validation.IsDNS1123Label(shard.ShardName); len(errs) > 0 || len(shard.ShardName) > validation.DNS1123LabelMaxLength {
+			return v1.ValidationError("spec.shards[%d].shardName %q exceeds the %d-character Kubernetes DNS-1123 label limit", i, shard.ShardName, validation.DNS1123LabelMaxLength)
+		}
+		if m.Spec.IsMultiCluster() && len(shard.ShardName)+2 > validation.DNS1123LabelMaxLength {
+			return v1.ValidationError("spec.shards[%d].shardName %q is too long for multi-cluster topology; the derived StatefulSet name (shardName-<clusterIdx>) must fit within the %d-character DNS-1123 label limit", i, shard.ShardName, validation.DNS1123LabelMaxLength)
+		}
+	}
+
+	return v1.ValidationSuccess()
+}
+
+// shardSpecificPodSpecNotUsedWithShards forbids the deprecated index-based
+// ShardSpecificPodSpec when the new explicit shards list is used. Positional
+// mapping would be ambiguous if the list is reordered.
+func shardSpecificPodSpecNotUsedWithShards(m MongoDB) v1.ValidationResult {
+	if len(m.Spec.Shards) > 0 && len(m.Spec.ShardSpecificPodSpec) > 0 {
+		return v1.ValidationError("spec.shardSpecificPodSpec (deprecated) cannot be used together with spec.shards; use spec.shardOverrides instead")
+	}
+	return v1.ValidationSuccess()
+}
+
+// shardIdentityImmutable guards against updates that would silently rewrite
+// Kubernetes StatefulSets or Ops Manager replica sets by mismatching shard
+// identity.
+//
+// Two cases:
+//
+//  1. Transition from spec.shardCount to spec.shards (first migration). The
+//     old spec had no explicit names, so the ONLY safe migration is the one
+//     that preserves the synthesised identity for each pre-existing shard:
+//     for i in [0, min(old.shardCount, len(new.shards))),
+//     new.shards[i].shardName MUST equal "<mdb-name>-<i>".
+//     Typos, reorderings, and unrelated names are rejected here.
+//
+//  2. Subsequent updates where both old and new use spec.shards. Identity is
+//     keyed by shardName; for any shard that exists in both old and new,
+//     shardId must not change. New shards may be appended (or removed),
+//     and the list may be reordered freely provided existing shards keep
+//     their shardId.
+func shardIdentityImmutable(newObj, oldObj MongoDB) v1.ValidationResult {
+	if len(newObj.Spec.Shards) == 0 {
+		return v1.ValidationSuccess()
+	}
+
+	// Case 1: transition from shardCount to shards.
+	if len(oldObj.Spec.Shards) == 0 && oldObj.Spec.ShardCount > 0 {
+		checkLen := min(oldObj.Spec.ShardCount, len(newObj.Spec.Shards))
+		for i := 0; i < checkLen; i++ {
+			expected := synthesizedShardName(oldObj.Name, i)
+			if newObj.Spec.Shards[i].ShardName != expected {
+				return v1.ValidationError(
+					"migration from spec.shardCount to spec.shards must preserve shard identity: "+
+						"spec.shards[%d].shardName must be %q (matching the previously implicit shard identity), got %q. "+
+						"Rename or reorder after the initial migration is complete.",
+					i, expected, newObj.Spec.Shards[i].ShardName,
+				)
+			}
+			// shardId must also be the same as the implicit identity (which
+			// equals shardName when the shard was originally created from
+			// shardCount).
+			newId := newObj.Spec.Shards[i].GetShardId()
+			if newId != expected {
+				return v1.ValidationError(
+					"migration from spec.shardCount to spec.shards must preserve shard identity: "+
+						"spec.shards[%d].shardId must be %q (matching the previously implicit shard identity), got %q",
+					i, expected, newId,
+				)
+			}
+		}
+		return v1.ValidationSuccess()
+	}
+
+	// Case 2: spec.shards → spec.shards. Match by name.
+	oldByName := make(map[string]ResolvedShard, len(oldObj.Spec.Shards))
+	for _, s := range oldObj.ResolvedShards() {
+		oldByName[s.ShardName] = s
+	}
+	for _, newShard := range newObj.ResolvedShards() {
+		if oldShard, ok := oldByName[newShard.ShardName]; ok {
+			if oldShard.ShardId != newShard.ShardId {
+				return v1.ValidationError("spec.shards[].shardId is immutable for shard %q: was %q, got %q", newShard.ShardName, oldShard.ShardId, newShard.ShardId)
+			}
+		}
+	}
+
 	return v1.ValidationSuccess()
 }
 
@@ -172,6 +318,25 @@ func shardOverridesShardNamesUnique(m MongoDB) v1.ValidationResult {
 }
 
 func shardOverridesShardNamesCorrectValues(m MongoDB) v1.ValidationResult {
+	// When spec.shards is set, shardOverrides shardNames must refer to an
+	// existing shardName in the list (set-membership validation).
+	if len(m.Spec.Shards) > 0 {
+		valid := make(map[string]struct{}, len(m.Spec.Shards))
+		for _, s := range m.Spec.Shards {
+			valid[s.ShardName] = struct{}{}
+		}
+		for _, shardOverride := range m.Spec.ShardOverrides {
+			for _, shardName := range shardOverride.ShardNames {
+				if _, ok := valid[shardName]; !ok {
+					return v1.ValidationError("shardOverrides shardName %q does not refer to any shard in spec.shards", shardName)
+				}
+			}
+		}
+		return v1.ValidationSuccess()
+	}
+
+	// Legacy behaviour: when using spec.shardCount, shardOverrides shardNames
+	// must match the synthesised pattern "<mdb-name>-<idx>" with idx < shardCount.
 	for _, shardOverride := range m.Spec.ShardOverrides {
 		for _, shardName := range shardOverride.ShardNames {
 			if !validateShardName(shardName, m.Spec.ShardCount, m.Name) {

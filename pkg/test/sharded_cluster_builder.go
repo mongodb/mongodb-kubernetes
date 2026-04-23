@@ -86,6 +86,14 @@ func (b *ClusterBuilder) SetShardCountSpec(count int) *ClusterBuilder {
 	return b
 }
 
+// SetShardsSpec switches the cluster to the explicit shards list form.
+// It clears spec.shardCount to enforce the webhook's mutual-exclusion rule.
+func (b *ClusterBuilder) SetShardsSpec(shards []mdb.Shard) *ClusterBuilder {
+	b.Spec.Shards = shards
+	b.Spec.ShardCount = 0
+	return b
+}
+
 func (b *ClusterBuilder) SetMongodsPerShardCountSpec(count int) *ClusterBuilder {
 	b.Spec.MongodsPerShardCount = count
 	return b
