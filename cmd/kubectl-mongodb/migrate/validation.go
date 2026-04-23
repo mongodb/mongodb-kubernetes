@@ -74,7 +74,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 		Severity: SeverityWarning,
 		Message:  fmt.Sprintf("spec.additionalMongodConfig and spec.agent.mongod.systemLog will be taken from process %q. Review all members and reconcile any differences before migration.", sourceProcess.Name()),
 	})
-	results = append(results, validateProcessConfig(ac.Deployment, processMap, sourceProcess, projectConfigs)...)
+	results = append(results, validateProcessConfig(ac.Deployment, sourceProcess, projectConfigs)...)
 
 	return results, sourceProcess
 }
@@ -319,14 +319,12 @@ func validateMemberPreservedFields(d om.Deployment) []ValidationResult {
 }
 
 // validateProcessConfig runs per-process checks against the deployment and source process.
-func validateProcessConfig(d om.Deployment, processMap map[string]om.Process, sourceProcess *om.Process, projectProcessConfigs *ProjectConfigs) []ValidationResult {
+func validateProcessConfig(d om.Deployment, sourceProcess *om.Process, projectProcessConfigs *ProjectConfigs) []ValidationResult {
 	var results []ValidationResult
 
 	results = append(results, validateProcessesAreValid(d)...)
 	results = append(results, validateAuthSchemaVersion(d)...)
-	results = append(results, validateNonDefaultDbPath(d, processMap)...)
 	results = append(results, validateTLS(sourceProcess)...)
-	results = append(results, validateTLSPaths(d)...)
 	results = append(results, validateProcessConfigDrift(sourceProcess, projectProcessConfigs)...)
 
 	return results
@@ -382,29 +380,6 @@ func validateAuthSchemaVersion(d om.Deployment) []ValidationResult {
 	return results
 }
 
-func validateNonDefaultDbPath(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
-	replicaSets := d.GetReplicaSets()
-	if len(replicaSets) == 0 {
-		return nil
-	}
-
-	for _, m := range replicaSets[0].Members() {
-		host := m.Name()
-		proc, ok := processMap[host]
-		if !ok {
-			continue
-		}
-		dbPath := proc.DbPath()
-		if dbPath != "" && dbPath != util.PvcMountPathData {
-			return []ValidationResult{{
-				Severity: SeverityWarning,
-				Message:  fmt.Sprintf("Process %q has dbPath %q. The operator uses %q. The path will change when the member becomes operator-managed.", host, dbPath, util.PvcMountPathData),
-			}}
-		}
-	}
-	return nil
-}
-
 // validateTLS warns when TLS is absent so the user knows to set net.tls.mode to "disabled".
 func validateTLS(proc *om.Process) []ValidationResult {
 	if len(proc.NetTLSSections()) == 0 || pkgtls.GetTLSModeFromMongodConfig(proc.Args()) == pkgtls.Disabled {
@@ -414,43 +389,6 @@ func validateTLS(proc *om.Process) []ValidationResult {
 		}}
 	}
 	return nil
-}
-
-func validateTLSPaths(d om.Deployment) []ValidationResult {
-	var results []ValidationResult
-	for _, proc := range d.GetProcesses() {
-		name := proc.Name()
-		sections := proc.NetTLSSections()
-
-		for tlsKey, tlsSection := range sections {
-			certKey, _ := tlsSection["certificateKeyFile"].(string)
-			// PEMKeyFile is the legacy field under net.ssl (deprecated since MongoDB 4.2).
-			// NetTLSSections() returns both "tls" and "ssl" sections when present.
-			pemKey, _ := tlsSection["PEMKeyFile"].(string)
-
-			if certKey != "" && certKey != util.PEMKeyFilePathInContainer {
-				results = append(results, ValidationResult{
-					Severity: SeverityError,
-					Message:  fmt.Sprintf("Process %q has net.%s.certificateKeyFile %q. The operator defaults to %q. The certificate path will change after migration.", name, tlsKey, certKey, util.PEMKeyFilePathInContainer),
-				})
-			}
-			if pemKey != "" && pemKey != util.PEMKeyFilePathInContainer {
-				results = append(results, ValidationResult{
-					Severity: SeverityError,
-					Message:  fmt.Sprintf("Process %q has net.%s.PEMKeyFile %q. The operator default is %q.", name, tlsKey, pemKey, util.PEMKeyFilePathInContainer),
-				})
-			}
-
-			expectedClusterFile := fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, name)
-			if clusterFile, _ := tlsSection["clusterFile"].(string); clusterFile != "" && clusterFile != expectedClusterFile {
-				results = append(results, ValidationResult{
-					Severity: SeverityError,
-					Message:  fmt.Sprintf("Process %q has net.%s.clusterFile %q. The operator default is %q.", name, tlsKey, clusterFile, expectedClusterFile),
-				})
-			}
-		}
-	}
-	return results
 }
 
 // validateProcessConfigDrift warns when the source process logRotate/auditLogRotate differs from project-level config.
