@@ -8,6 +8,7 @@ services:
     environment:
       K8S_FWD_PROXY: *proxy_address
       EVG_HOST_PROXY: "http://gost-proxy:8080"
+      GOTOOLCHAIN: local
 
     volumes:
       # Workspace
