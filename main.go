@@ -63,13 +63,13 @@ import (
 )
 
 const (
-	mongoDBCRDPlural               = "mongodb"
-	mongoDBUserCRDPlural           = "mongodbusers"
-	mongoDBOpsManagerCRDPlural     = "opsmanagers"
-	mongoDBMultiClusterCRDPlural   = "mongodbmulticluster"
-	mongoDBCommunityCRDPlural      = "mongodbcommunity"
-	mongoDBSearchCRDPlural      = "mongodbsearch"
-	clusterMongoDBRoleCRDPlural = "clustermongodbroles"
+	mongoDBCRDPlural             = "mongodb"
+	mongoDBUserCRDPlural         = "mongodbusers"
+	mongoDBOpsManagerCRDPlural   = "opsmanagers"
+	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
+	mongoDBCommunityCRDPlural    = "mongodbcommunity"
+	mongoDBSearchCRDPlural       = "mongodbsearch"
+	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
 )
 
 var (

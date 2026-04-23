@@ -2,13 +2,13 @@ package construct
 
 import (
 	"fmt"
-
-	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
+	"os"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -19,7 +19,7 @@ const (
 	monarchReplicationPort int32 = 9995
 	monarchAPIPort         int32 = 1122
 
-	defaultMonarchImage = "quay.io/mongodb/monarch:latest"
+	defaultMonarchImage = "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-monarch-injector:latest"
 
 	// DefaultMonarchReplicas is the default number of Monarch instances (shippers or injectors)
 	// to create per replica set. Multiple instances provide redundancy - the CAS protocol
@@ -52,10 +52,17 @@ func monarchLabels(mdb *mdbv1.MongoDB, role string, index int) map[string]string
 	}
 }
 
-// monarchImage returns the image to use for Monarch, falling back to a default.
+// MdbMonarchImageEnv is the env var for overriding the Monarch image (for dev/testing).
+const MdbMonarchImageEnv = "MDB_MONARCH_IMAGE"
+
+// monarchImage returns the image to use for Monarch.
+// Priority: 1) spec.monarch.image, 2) MDB_MONARCH_IMAGE env var, 3) default
 func monarchImage(spec *mdbv1.MonarchSpec) string {
 	if spec.Image != "" {
 		return spec.Image
+	}
+	if envImage := os.Getenv(MdbMonarchImageEnv); envImage != "" {
+		return envImage
 	}
 	return defaultMonarchImage
 }

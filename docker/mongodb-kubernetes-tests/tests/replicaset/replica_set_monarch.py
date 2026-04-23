@@ -56,7 +56,10 @@ OM_IMAGE = os.getenv(
     "MDB_OM_IMAGE",
     "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi:nam.nguyen-om-local",
 )
-MONARCH_IMAGE = os.getenv("MDB_MONARCH_IMAGE", "quay.io/mongodb/monarch:latest")
+MONARCH_IMAGE = os.getenv(
+    "MDB_MONARCH_IMAGE",
+    "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-monarch-injector:latest",
+)
 
 # ── test data ───────────────────────────────────────────────────────────────
 PRODUCTS_DB = "products"
