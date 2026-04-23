@@ -93,12 +93,15 @@ def build_image(
     )
 
     if build_configuration.sign:
-        logger.info("Logging in MongoDB Artifactory for Garasign image")
-        mongodb_artifactory_login()
-        logger.info("Signing image")
-        for registry in registries:
-            sign_image(registry, build_configuration.version)
-            verify_signature(registry, build_configuration.version)
+        if not os.environ.get("ARTIFACTORY_PASSWORD"):
+            logger.warning("Skipping image signing - ARTIFACTORY_PASSWORD not set (local dev build)")
+        else:
+            logger.info("Logging in MongoDB Artifactory for Garasign image")
+            mongodb_artifactory_login()
+            logger.info("Signing image")
+            for registry in registries:
+                sign_image(registry, build_configuration.version)
+                verify_signature(registry, build_configuration.version)
 
 
 def build_meko_tests_image(build_configuration: ImageBuildConfiguration):

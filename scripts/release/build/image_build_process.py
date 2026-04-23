@@ -203,20 +203,22 @@ class DockerImageBuilder(ImageBuilder):
                 logger.info(f"Multi-platform build for {len(platforms)} architectures")
 
             # Build the image using buildx, builder must be already initialized
-            docker_cmd.buildx.build(
+            build_kwargs = dict(
                 context_path=path,
                 file=dockerfile,
                 tags=tags,
                 platforms=platforms,
                 builder=DEFAULT_BUILDER_NAME,
                 build_args=build_args,
-                labels=build_labels if build_labels else None,
                 push=True,
                 provenance=False,  # To not get an untagged image for single platform builds
                 pull=False,  # Don't always pull base images
                 cache_from=cache_from_refs,
                 cache_to=cache_to_refs,
             )
+            if build_labels:
+                build_kwargs["labels"] = build_labels
+            docker_cmd.buildx.build(**build_kwargs)
 
             logger.info(f"Successfully built and pushed {tags}")
 
