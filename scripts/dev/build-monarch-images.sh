@@ -16,11 +16,13 @@
 #
 # The script tracks git commits and skips rebuilds if source hasn't changed.
 # Use --force to rebuild all images regardless of changes.
+# Builds run in parallel for faster completion.
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CACHE_DIR="${PROJECT_DIR}/.build-cache"
+LOG_DIR="${PROJECT_DIR}/.build-cache/logs"
 
 AGENT_PATH="${AGENT_PATH:-$HOME/projects/mms-automation}"
 OM_PATH="${OM_PATH:-$HOME/projects/ops-manager}"
@@ -34,14 +36,14 @@ while [[ $# -gt 0 ]]; do
         --platform=*) PLATFORM="${1#*=}"; shift ;;
         --force|-f) FORCE=true; shift ;;
         -h|--help)
-            head -18 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
+            head -19 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
             exit 0
             ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
-mkdir -p "${CACHE_DIR}"
+mkdir -p "${CACHE_DIR}" "${LOG_DIR}"
 
 # Get git commit hash for a repo path
 get_commit() {
@@ -83,10 +85,28 @@ save_commit() {
     echo "$commit" > "${CACHE_DIR}/${name}.commit"
 }
 
+# Build function that runs pipeline and saves commit on success
+build_image() {
+    local name="$1"
+    local commit="$2"
+    local log_file="${LOG_DIR}/${name}.log"
+    shift 2
+
+    echo "[${name}] Starting build... (log: ${log_file})"
+    if "$@" > "${log_file}" 2>&1; then
+        save_commit "$name" "$commit"
+        echo "[${name}] Build complete"
+        return 0
+    else
+        echo "[${name}] Build FAILED - see ${log_file}"
+        return 1
+    fi
+}
+
 cd "${PROJECT_DIR}"
 
 echo "============================================"
-echo "Building Monarch test images"
+echo "Building Monarch test images (parallel)"
 echo "============================================"
 echo "Platform: ${PLATFORM}"
 echo "Tag: monarch"
@@ -105,35 +125,59 @@ echo "  OM (${OM_PATH}): ${OM_COMMIT:0:12}"
 echo "  Monarch Dockerfile: ${MONARCH_DOCKERFILE_HASH:0:12}"
 echo ""
 
-# Build agent
+# Track background jobs
+declare -a PIDS=()
+declare -a NAMES=()
+FAILED=false
+
+# Build agent (background)
 if needs_rebuild "agent" "$AGENT_COMMIT"; then
-    echo ">>> Building agent:monarch (source changed)"
-    python scripts/release/pipeline.py agent -b staging --agent-path="$AGENT_PATH" --version monarch -p "$PLATFORM"
-    save_commit "agent" "$AGENT_COMMIT"
+    build_image "agent" "$AGENT_COMMIT" \
+        python scripts/release/pipeline.py agent -b staging --agent-path="$AGENT_PATH" --version monarch -p "$PLATFORM" &
+    PIDS+=($!)
+    NAMES+=("agent")
 else
-    echo ">>> Skipping agent:monarch (no changes since last build)"
+    echo "[agent] Skipping (no changes since last build)"
 fi
 
-echo ""
-
-# Build ops-manager
+# Build ops-manager (background)
 if needs_rebuild "ops-manager" "$OM_COMMIT"; then
-    echo ">>> Building ops-manager:monarch (source changed)"
-    python scripts/release/pipeline.py ops-manager -b staging --om-path="$OM_PATH" --version monarch -p "$PLATFORM"
-    save_commit "ops-manager" "$OM_COMMIT"
+    build_image "ops-manager" "$OM_COMMIT" \
+        python scripts/release/pipeline.py ops-manager -b staging --om-path="$OM_PATH" --version monarch -p "$PLATFORM" &
+    PIDS+=($!)
+    NAMES+=("ops-manager")
 else
-    echo ">>> Skipping ops-manager:monarch (no changes since last build)"
+    echo "[ops-manager] Skipping (no changes since last build)"
 fi
 
-echo ""
-
-# Build monarch-injector
+# Build monarch-injector (background)
 if needs_rebuild "monarch-injector" "$MONARCH_DOCKERFILE_HASH"; then
-    echo ">>> Building monarch-injector:monarch (Dockerfile changed)"
-    python scripts/release/pipeline.py monarch-injector -b staging --version monarch -p "$PLATFORM"
-    save_commit "monarch-injector" "$MONARCH_DOCKERFILE_HASH"
+    build_image "monarch-injector" "$MONARCH_DOCKERFILE_HASH" \
+        python scripts/release/pipeline.py monarch-injector -b staging --version monarch -p "$PLATFORM" &
+    PIDS+=($!)
+    NAMES+=("monarch-injector")
 else
-    echo ">>> Skipping monarch-injector:monarch (no changes since last build)"
+    echo "[monarch-injector] Skipping (no changes since last build)"
+fi
+
+# Wait for all background jobs
+echo ""
+if [[ ${#PIDS[@]} -gt 0 ]]; then
+    echo "Waiting for ${#PIDS[@]} build(s) to complete..."
+    for i in "${!PIDS[@]}"; do
+        if ! wait "${PIDS[$i]}"; then
+            echo "ERROR: ${NAMES[$i]} build failed"
+            FAILED=true
+        fi
+    done
+fi
+
+if [[ "$FAILED" == "true" ]]; then
+    echo ""
+    echo "============================================"
+    echo "BUILD FAILED - check logs in ${LOG_DIR}"
+    echo "============================================"
+    exit 1
 fi
 
 echo ""
