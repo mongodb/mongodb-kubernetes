@@ -426,7 +426,7 @@ class TestMonarchDeployments(KubernetesTester):
         command = " ".join(c.command)
         assert "shipper" in command
         assert "--healthApiEndpoint=0.0.0.0:8080" in command
-        assert "--monarchApiEndpoint=0.0.0.0:1122" in command
+        assert "--monarchApiPort=1122" in command
 
     def test_active_monarch_deployment_labels(self, active_rs_running: MongoDB):
         apps = k8s_client.AppsV1Api()

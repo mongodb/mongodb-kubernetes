@@ -120,7 +120,7 @@ func BuildMonarchDeployment(mdb *mdbv1.MongoDB, namespace string, index int) *ap
 	command := []string{
 		"monarch", role,
 		"--healthApiEndpoint=0.0.0.0:8080",
-		"--monarchApiEndpoint=0.0.0.0:1122",
+		"--monarchApiPort=1122",
 	}
 
 	return &appsv1.Deployment{
