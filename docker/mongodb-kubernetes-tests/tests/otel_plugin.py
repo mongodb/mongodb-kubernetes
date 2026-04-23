@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 from _pytest.main import Session
@@ -7,13 +7,12 @@ from _pytest.nodes import Node
 from _pytest.reports import TestReport
 from _pytest.runner import CallInfo
 from opentelemetry import trace
-from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor, TracerProvider
-from opentelemetry.trace import NonRecordingSpan
+from opentelemetry.sdk.trace import ReadableSpan, Span, SpanProcessor, TracerProvider
 from pytest_opentelemetry.instrumentation import OpenTelemetryPlugin
 
 
 class PrefixProcessor(SpanProcessor):
-    def on_start(self, span: trace.Span, parent_context=None):
+    def on_start(self, span: Span, parent_context=None):
         # Create a new dictionary for updated attributes, span.attribute is immutable
         prefixed_attributes = EnhancedOpenTelemetryPlugin._prefix_attributes(span.attributes)
         span.set_attributes(prefixed_attributes)
@@ -27,7 +26,7 @@ class PrefixProcessor(SpanProcessor):
 class EnhancedOpenTelemetryPlugin(OpenTelemetryPlugin):
     # This ensures that our pytest finish runs first before the plugins and we can attach spans before
     # they are getting flushed.
-    def pytest_sessionfinish(self, session: Session, exitstatus: int = None) -> None:
+    def pytest_sessionfinish(self, session: Session, exitstatus: Optional[int] = None) -> None:
         # Add the exit status as an attribute if available
         self.session_span.set_attribute("mck.pytest.overall_exit_status", int(session.exitstatus))
 
@@ -41,7 +40,7 @@ class EnhancedOpenTelemetryPlugin(OpenTelemetryPlugin):
         report: TestReport,
     ) -> None:
         current_span = trace.get_current_span()
-        if isinstance(current_span, NonRecordingSpan):
+        if not isinstance(current_span, ReadableSpan):
             return
         prefixed_attributes = EnhancedOpenTelemetryPlugin._prefix_attributes(current_span.attributes)
         prefixed_attributes["mck.pytest.error_details"] = str(report.longrepr)
