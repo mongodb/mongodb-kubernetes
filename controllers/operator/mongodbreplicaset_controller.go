@@ -518,39 +518,48 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	return r.reconcileStatefulSet(ctx, conn, projectConfig, deploymentOptions)
 }
 
-// reconcileMonarch ensures Monarch Deployments, Services, and automation config are up to date.
+// reconcileMonarch ensures Monarch ConfigMap, Deployment, Service, and automation config are up to date.
 func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn om.Connection) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
 
-	// Default to 3 Monarch instances for redundancy. Multiple instances are safe -
-	// the CAS protocol on S3 ensures only one shipper's write per oplog entry is accepted.
-	monarchReplicas := construct.DefaultMonarchReplicas
+	// Build MongoDB connection string for the replica set
+	// Format: mongodb://<rs>-0.<svc>.<ns>.svc.cluster.local:27017,.../?replicaSet=<rs>
+	srcURI := buildMongoDBConnectionString(rs)
 
-	// Create or update Monarch Deployments and Services
-	for i := 0; i < monarchReplicas; i++ {
-		dep := construct.BuildMonarchDeployment(rs, rs.Namespace, i)
-		if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, dep, func() error {
-			// Refresh spec from builder on each update
-			fresh := construct.BuildMonarchDeployment(rs, rs.Namespace, i)
-			dep.Spec = fresh.Spec
-			dep.Labels = fresh.Labels
-			return nil
-		}); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Deployment %s: %w", dep.Name, err))
-		}
+	// Create or update Monarch ConfigMap (contains YAML config)
+	cm := construct.BuildMonarchConfigMap(rs, rs.Namespace, srcURI)
+	if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, cm, func() error {
+		fresh := construct.BuildMonarchConfigMap(rs, rs.Namespace, srcURI)
+		cm.Data = fresh.Data
+		cm.Labels = fresh.Labels
+		return nil
+	}); err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to create/update Monarch ConfigMap %s: %w", cm.Name, err))
+	}
 
-		svc := construct.BuildMonarchService(rs, rs.Namespace, i)
-		if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, svc, func() error {
-			fresh := construct.BuildMonarchService(rs, rs.Namespace, i)
-			svc.Spec.Selector = fresh.Spec.Selector
-			svc.Spec.Ports = fresh.Spec.Ports
-			svc.Labels = fresh.Labels
-			return nil
-		}); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Service %s: %w", svc.Name, err))
-		}
+	// Create or update Monarch Deployment (single deployment with multiple replicas)
+	dep := construct.BuildMonarchDeployment(rs, rs.Namespace)
+	if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, dep, func() error {
+		fresh := construct.BuildMonarchDeployment(rs, rs.Namespace)
+		dep.Spec = fresh.Spec
+		dep.Labels = fresh.Labels
+		return nil
+	}); err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Deployment %s: %w", dep.Name, err))
+	}
+
+	// Create or update Monarch Service
+	svc := construct.BuildMonarchService(rs, rs.Namespace)
+	if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, svc, func() error {
+		fresh := construct.BuildMonarchService(rs, rs.Namespace)
+		svc.Spec.Selector = fresh.Spec.Selector
+		svc.Spec.Ports = fresh.Spec.Ports
+		svc.Labels = fresh.Labels
+		return nil
+	}); err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Service %s: %w", svc.Name, err))
 	}
 
 	// Read AWS credentials from the referenced secret
@@ -561,13 +570,9 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 	awsKeyId := string(credSecret.Data["awsAccessKeyId"])
 	awsSecret := string(credSecret.Data["awsSecretAccessKey"])
 
-	// Build service DNS names for automation config
-	serviceDNSNames := make([]string, monarchReplicas)
-	for i := 0; i < monarchReplicas; i++ {
-		serviceDNSNames[i] = construct.GetMonarchServiceDNS(rs, rs.Namespace, i)
-	}
-
-	mc, err := om.BuildMaintainedMonarchComponents(rs, rs.Name, awsKeyId, awsSecret, serviceDNSNames)
+	// Build automation config with single service DNS name
+	serviceDNS := construct.GetMonarchServiceDNS(rs.Name, rs.Namespace)
+	mc, err := om.BuildMaintainedMonarchComponents(rs, rs.Name, awsKeyId, awsSecret, []string{serviceDNS})
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to build Monarch automation config: %w", err))
 	}
@@ -584,8 +589,27 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 		return workflow.Failed(xerrors.Errorf("failed to update automation config with Monarch components: %w", err))
 	}
 
-	log.Infof("Reconciled %d Monarch instances", monarchReplicas)
+	log.Infof("Reconciled Monarch with %d replicas", construct.DefaultMonarchReplicas)
 	return workflow.OK()
+}
+
+// buildMongoDBConnectionString builds a MongoDB connection string for the replica set.
+func buildMongoDBConnectionString(rs *mdbv1.MongoDB) string {
+	svcName := rs.ServiceName()
+	namespace := rs.Namespace
+	members := rs.Spec.Members
+	port := 27017 // default MongoDB port
+
+	// Build host list: <rs>-0.<svc>.<ns>.svc.cluster.local:27017,...
+	hosts := ""
+	for i := 0; i < members; i++ {
+		if i > 0 {
+			hosts += ","
+		}
+		hosts += fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", rs.Name, i, svcName, namespace, port)
+	}
+
+	return fmt.Sprintf("mongodb://%s/?replicaSet=%s", hosts, rs.Name)
 }
 
 func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {

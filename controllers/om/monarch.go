@@ -11,6 +11,7 @@ import (
 type MaintainedMonarchComponents struct {
 	ReplicaSetID       string         `json:"replicaSetId"`
 	ClusterPrefix      string         `json:"clusterPrefix"`
+	InitialMode        string         `json:"initialMode"`
 	AWSBucketName      string         `json:"awsBucketName"`
 	AWSRegion          string         `json:"awsRegion"`
 	AWSAccessKeyID     string         `json:"awsAccessKeyId"`
@@ -56,9 +57,16 @@ func BuildMaintainedMonarchComponents(mdb *mdbv1.MongoDB, rsName string, awsAcce
 		return nil, fmt.Errorf("monarch spec is nil")
 	}
 
+	// InitialMode: "ACTIVE" for active clusters, "STANDBY" for standby clusters
+	initialMode := "STANDBY"
+	if monarch.Role == mdbv1.MonarchRoleActive {
+		initialMode = "ACTIVE"
+	}
+
 	mc := MaintainedMonarchComponents{
 		ReplicaSetID:       rsName,
 		ClusterPrefix:      monarch.ClusterPrefix,
+		InitialMode:        initialMode,
 		AWSBucketName:      monarch.S3BucketName,
 		AWSRegion:          monarch.AWSRegion,
 		AWSAccessKeyID:     awsAccessKeyId,
