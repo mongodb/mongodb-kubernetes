@@ -2,18 +2,18 @@
   "mongodbToolsBundle": {
     "ubi": "mongodb-database-tools-rhel88-x86_64-100.15.0.tgz"
   },
-  "mongodbOperator": "1.7.0",
-  "initDatabaseVersion": "1.7.0",
-  "initOpsManagerVersion": "1.7.0",
-  "databaseImageVersion": "1.7.0",
+  "mongodbOperator": "1.8.0",
+  "initDatabaseVersion": "1.8.0",
+  "initOpsManagerVersion": "1.8.0",
+  "databaseImageVersion": "1.8.0",
   "agentVersion": "108.0.12.8846-1",
-  "readinessProbeVersion": "1.0.23",
+  "readinessProbeVersion": "1.0.24",
   "versionUpgradeHookVersion": "1.0.10",
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },
   "search": {
-    "version": "0.60.1"
+    "version": "0.64.0"
   },
   "latestOpsManagerAgentMapping": [
     {
@@ -30,8 +30,8 @@
     },
     {
       "8": {
-        "opsManagerVersion": "8.0.21",
-        "agentVersion": "108.0.21.8972-1"
+        "opsManagerVersion": "8.0.22",
+        "agentVersion": "108.0.22.8983-1"
       }
     }
   ],
@@ -71,7 +71,8 @@
         "8.0.18",
         "8.0.19",
         "8.0.20",
-        "8.0.21"
+        "8.0.21",
+        "8.0.22"
       ],
       "variants": [
         "ubi"
@@ -89,7 +90,8 @@
         "1.5.0",
         "1.6.0",
         "1.6.1",
-        "1.7.0"
+        "1.7.0",
+        "1.8.0"
       ],
       "variants": [
         "ubi"
@@ -128,7 +130,7 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.48.0.10348-1",
+        "cloud_manager": "13.49.1.10399-1",
         "cloud_manager_tools": "100.14.0",
         "ops_manager": {
           "6.0.27": {
@@ -250,6 +252,10 @@
           "8.0.21": {
             "agent_version": "108.0.21.8972-1",
             "tools_version": "100.15.0"
+          },
+          "8.0.22": {
+            "agent_version": "108.0.22.8983-1",
+            "tools_version": "100.15.0"
           }
         }
       },
@@ -269,7 +275,8 @@
         "1.5.0",
         "1.6.0",
         "1.6.1",
-        "1.7.0"
+        "1.7.0",
+        "1.8.0"
       ],
       "variants": [
         "ubi"
@@ -287,7 +294,8 @@
         "1.5.0",
         "1.6.0",
         "1.6.1",
-        "1.7.0"
+        "1.7.0",
+        "1.8.0"
       ],
       "variants": [
         "ubi"
@@ -305,7 +313,8 @@
         "1.5.0",
         "1.6.0",
         "1.6.1",
-        "1.7.0"
+        "1.7.0",
+        "1.8.0"
       ],
       "variants": [
         "ubi"

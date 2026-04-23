@@ -277,7 +277,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// 3. Search Overrides
 	// Apply search overrides early so searchCoordinator role is present before ensureRoles runs
 	// This must happen before the ordering logic to ensure roles are synced regardless of order
-	shouldMirrorKeyfileForMongot := r.applySearchOverrides(ctx)
+	shouldMirrorKeyfileForMongot, err := r.applySearchOverrides(ctx)
+	if err != nil {
+		return r.updateStatus(ctx, workflow.Failed(err))
+	}
 
 	// 4. Recovery
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
@@ -686,13 +689,26 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 		}
 	}
 
+	// Watch for MongoDBSearch resources that reference ReplicaSet MongoDB resources
+	// Only enqueue reconciliation requests for ReplicaSet resources, not Standalone or ShardedCluster
+	kubeClient := mgr.GetClient()
 	err = c.Watch(source.Kind(mgr.GetCache(), &searchv1.MongoDBSearch{},
 		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, search *searchv1.MongoDBSearch) []reconcile.Request {
-			source := search.GetMongoDBResourceRef()
-			if source == nil {
+			sourceRef := search.GetMongoDBResourceRef()
+			if sourceRef == nil {
 				return []reconcile.Request{}
 			}
-			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: source.Namespace, Name: source.Name}}}
+			// Fetch the MongoDB resource to check its ResourceType
+			mdb := &mdbv1.MongoDB{}
+			if err := kubeClient.Get(ctx, types.NamespacedName{Namespace: sourceRef.Namespace, Name: sourceRef.Name}, mdb); err != nil {
+				// If we can't fetch the resource, don't enqueue (it might not exist or be a different type)
+				return []reconcile.Request{}
+			}
+			// Only enqueue if this is a ReplicaSet resource
+			if mdb.Spec.ResourceType != mdbv1.ReplicaSet {
+				return []reconcile.Request{}
+			}
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: sourceRef.Namespace, Name: sourceRef.Name}}}
 		})))
 	if err != nil {
 		return err
@@ -778,7 +794,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	if status := reconciler.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, reconciler.SecretClient, log); !status.IsOK() && !isRecovering {
+	if status := reconciler.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, reconciler.SecretClient, log, 0); !status.IsOK() && !isRecovering {
 		return status
 	}
 
@@ -883,14 +899,18 @@ func getAllHostsForReplicas(rs *mdbv1.MongoDB, membersCount int) []string {
 	return hostnames
 }
 
-func (r *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) bool {
+func (r *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) (bool, error) {
 	rs := r.resource
 	log := r.log
 
-	search := r.lookupCorrespondingSearchResource(ctx)
+	search, err := r.lookupCorrespondingSearchResource(ctx)
+	if err != nil {
+		return false, err
+	}
+
 	if search == nil {
 		log.Debugf("No MongoDBSearch resource found, skipping search overrides")
-		return false
+		return false, nil
 	}
 
 	log.Infof("Applying search overrides from MongoDBSearch %s", search.NamespacedName())
@@ -901,7 +921,7 @@ func (r *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) b
 	searchMongodConfig := searchcontroller.GetMongodConfigParameters(search, rs.Spec.GetClusterDomain())
 	rs.Spec.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
 
-	return true
+	return true, nil
 }
 
 func (r *ReplicaSetReconcilerHelper) mirrorKeyfileIntoSecretForMongot(ctx context.Context, d om.Deployment) error {
@@ -924,18 +944,26 @@ func (r *ReplicaSetReconcilerHelper) mirrorKeyfileIntoSecretForMongot(ctx contex
 	return nil
 }
 
-func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx context.Context) *searchv1.MongoDBSearch {
+func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx context.Context) (*searchv1.MongoDBSearch, error) {
 	rs := r.resource
 	reconciler := r.reconciler
-	log := r.log
 
 	var search *searchv1.MongoDBSearch
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := reconciler.client.List(ctx, searchList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, rs.GetNamespace()+"/"+rs.GetName()),
+		FieldSelector: fields.OneTermEqualSelector(searchv1.MongoDBSearchIndexFieldName, rs.GetNamespace()+"/"+rs.GetName()),
 	}); err != nil {
-		log.Debugf("Failed to list MongoDBSearch resources: %v", err)
+		return nil, xerrors.Errorf("Failed to list MongoDBSearch resources referred in the MongoDB resource %s/%s. err : %v", rs.Namespace, rs.Name, err)
 	}
+
+	if len(searchList.Items) == 0 {
+		return nil, nil
+	}
+
+	if len(searchList.Items) > 1 {
+		return nil, xerrors.Errorf("Found multiple MongoDBSearch resources referred in sharded cluster %s/%s", rs.Namespace, rs.Name)
+	}
+
 	// this validates that there is exactly one MongoDBSearch pointing to this resource,
 	// and that this resource passes search validations. If either fails, proceed without a search target
 	// for the mongod automation config.
@@ -945,5 +973,5 @@ func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx conte
 			search = &searchList.Items[0]
 		}
 	}
-	return search
+	return search, nil
 }
