@@ -46,7 +46,7 @@ services:
 
     command: sleep infinity
   k8s-proxy:
-    build: ~/Repos/k8s-proxy
+    image: ghcr.io/fealebenpae/kube-forwarding-proxy:0.8.0
     cap_add:
       - NET_ADMIN
     environment:
