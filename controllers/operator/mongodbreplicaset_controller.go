@@ -731,6 +731,14 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 		return err
 	}
 
+	// Watch Deployments for Monarch components
+	err = c.Watch(
+		source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{},
+			handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &mdbv1.MongoDB{}, handler.OnlyControllerOwner())))
+	if err != nil {
+		return err
+	}
+
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
 		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
