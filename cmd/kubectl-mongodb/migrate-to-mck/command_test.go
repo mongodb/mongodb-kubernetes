@@ -3,8 +3,6 @@ package migratetomck
 import (
 	"bytes"
 	"io"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,13 +13,6 @@ import (
 
 func init() {
 	promptOutput = io.Discard
-}
-
-func writeTempFile(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "secrets.csv")
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
-	return path
 }
 
 func TestFetchAndValidate_ValidDeployment(t *testing.T) {
