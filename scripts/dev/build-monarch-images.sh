@@ -1,12 +1,13 @@
 #!/bin/bash
 # Build all images needed for Monarch testing with :monarch tag
 #
-# Usage: ./build-monarch-images.sh [--agent-path=PATH] [--om-path=PATH] [--monarch-path=PATH]
+# Usage: ./build-monarch-images.sh [--agent-path=PATH] [--om-path=PATH]
 #
-# Builds from source by default using:
+# Builds agent and ops-manager from source by default using:
 #   ~/projects/mms-automation
 #   ~/projects/ops-manager
-#   ~/projects/monarch
+#
+# Monarch-injector uses the released binary (local builds not supported).
 #
 # Images pushed to staging ECR with :monarch tag:
 #   - mongodb-agent:monarch
@@ -19,17 +20,15 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 AGENT_PATH=""
 OM_PATH=""
-MONARCH_PATH=""
 PLATFORM="${DOCKER_PLATFORM:-linux/amd64}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --agent-path=*) AGENT_PATH="${1#*=}"; shift ;;
         --om-path=*) OM_PATH="${1#*=}"; shift ;;
-        --monarch-path=*) MONARCH_PATH="${1#*=}"; shift ;;
         --platform=*) PLATFORM="${1#*=}"; shift ;;
         -h|--help)
-            head -16 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
+            head -17 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
             exit 0
             ;;
         *) echo "Unknown option: $1"; exit 1 ;;
@@ -64,11 +63,7 @@ fi
 
 echo ""
 echo ">>> Building monarch-injector:monarch"
-if [[ -n "$MONARCH_PATH" ]]; then
-    python scripts/release/pipeline.py monarch-injector -b staging --monarch-path="$MONARCH_PATH" --version monarch -p "$PLATFORM"
-else
-    python scripts/release/pipeline.py monarch-injector -b staging --monarch-path --version monarch -p "$PLATFORM"
-fi
+python scripts/release/pipeline.py monarch-injector -b staging --version monarch -p "$PLATFORM"
 
 echo ""
 echo "============================================"
@@ -92,3 +87,7 @@ export MDB_OM_IMAGE="${_MONARCH_ECR}/mongodb-enterprise-ops-manager-ubi:monarch"
 export MDB_MONARCH_IMAGE="${_MONARCH_ECR}/mongodb-kubernetes-monarch-injector:monarch"
 EOF
 echo "Created context override: scripts/dev/contexts/private-context-monarch"
+
+echo ""
+echo "Switching context..."
+make -C "${PROJECT_DIR}" switch context=e2e_static_om80_kind_ubi additional_override=private-context-monarch

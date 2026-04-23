@@ -141,7 +141,6 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     is_source_build = (
         getattr(args, "agent_path", None) is not None
         or getattr(args, "om_path", None) is not None
-        or getattr(args, "monarch_path", None) is not None
     )
 
     # Validate version requirements
@@ -342,15 +341,6 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         const="~/projects/ops-manager",
         help="Build Ops Manager from local source. Default: ~/projects/ops-manager",
     )
-    parser.add_argument(
-        "--monarch-path",
-        metavar="PATH",
-        action="store",
-        type=str,
-        nargs="?",
-        const="~/projects/monarch",
-        help="Build Monarch from local source. Default: ~/projects/monarch",
-    )
 
     args = parser.parse_args()
 
@@ -359,8 +349,6 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         os.environ["AGENT_PATH"] = os.path.abspath(os.path.expanduser(args.agent_path))
     if args.om_path is not None:
         os.environ["OPS_MANAGER_PATH"] = os.path.abspath(os.path.expanduser(args.om_path))
-    if args.monarch_path is not None:
-        os.environ["MONARCH_PATH"] = os.path.abspath(os.path.expanduser(args.monarch_path))
 
     build_config = image_build_config_from_args(args)
     logger.info(f"Building image: {args.image}")
