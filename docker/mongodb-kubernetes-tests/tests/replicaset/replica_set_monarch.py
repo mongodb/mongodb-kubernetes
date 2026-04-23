@@ -52,14 +52,15 @@ S3_CREDS_SECRET = "monarch-s3-creds"
 MONARCH_REPLICAS = 3
 
 # ── custom images ───────────────────────────────────────────────────────────
-OM_IMAGE = os.getenv(
-    "MDB_OM_IMAGE",
-    "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi:nam.nguyen-om-local",
-)
-MONARCH_IMAGE = os.getenv(
-    "MDB_MONARCH_IMAGE",
-    "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-monarch-injector:latest",
-)
+# Default to staging ECR with ':monarch' tag.
+# Build all images: scripts/dev/build-monarch-images.sh
+# Then switch context: make switch context=e2e_static_om80_kind_ubi additional_override=private-context-monarch
+#
+# Agent image comes from operator context (MDB_AGENT_IMAGE env var).
+# OM and Monarch images are configured below for this test.
+_STAGING_ECR = "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
+OM_IMAGE = os.getenv("MDB_OM_IMAGE", f"{_STAGING_ECR}/mongodb-enterprise-ops-manager-ubi:monarch")
+MONARCH_IMAGE = os.getenv("MDB_MONARCH_IMAGE", f"{_STAGING_ECR}/mongodb-kubernetes-monarch-injector:monarch")
 
 # ── test data ───────────────────────────────────────────────────────────────
 PRODUCTS_DB = "products"

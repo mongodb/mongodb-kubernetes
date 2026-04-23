@@ -137,23 +137,40 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     # Get agent_tools_version for agent builds (from --agent-tools-version arg)
     agent_tools_version = getattr(args, "agent_tools_version", None)
 
+    # Check if this is a source build (relaxed version requirements)
+    is_source_build = (
+        getattr(args, "agent_path", None) is not None
+        or getattr(args, "om_path", None) is not None
+        or getattr(args, "monarch_path", None) is not None
+    )
+
     # Validate version requirements
     if image == "agent":
-        # Agent builds: version can be "all", "current", or explicit version (requires agent_tools_version)
-        if version is None:
-            raise ValueError(
-                "Agent build requires --version. Use one of:\n"
-                "  --version all                                      (for all agents in release.json)\n"
-                "  --version current                                  (for currently used agents)\n"
-                "  --version <ver> --agent-tools-version <tools_ver>  (for specific agent)"
-            )
-        is_special_version = version in (ALL_AGENTS, CURRENT_AGENTS)
-        if not is_special_version and agent_tools_version is None:
-            raise ValueError(
-                f"For agent builds with explicit version '{version}', --agent-tools-version must also be provided."
-            )
+        if is_source_build:
+            # Source builds: version is just a tag, default to username
+            if version is None:
+                version = f"{os.environ.get('USER', 'dev')}-agent"
+        else:
+            # Binary builds: version can be "all", "current", or explicit version (requires agent_tools_version)
+            if version is None:
+                raise ValueError(
+                    "Agent build requires --version. Use one of:\n"
+                    "  --version all                                      (for all agents in release.json)\n"
+                    "  --version current                                  (for currently used agents)\n"
+                    "  --version <ver> --agent-tools-version <tools_ver>  (for specific agent)\n"
+                    "  --agent-path [PATH]                                (for source build)"
+                )
+            is_special_version = version in (ALL_AGENTS, CURRENT_AGENTS)
+            if not is_special_version and agent_tools_version is None:
+                raise ValueError(
+                    f"For agent builds with explicit version '{version}', --agent-tools-version must also be provided."
+                )
     elif version is None:
-        raise ValueError(f"Version cannot be empty for {image}.")
+        if is_source_build:
+            # Source builds: version is just a tag, default to username-image
+            version = f"{os.environ.get('USER', 'dev')}-{image}"
+        else:
+            raise ValueError(f"Version cannot be empty for {image}.")
 
     return ImageBuildConfiguration(
         scenario=build_scenario,
@@ -306,18 +323,44 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         action=argparse.BooleanOptionalAction,
         help="Append architecture suffix to image tags for single platform builds. Can be true or false. This will override the value from build_info.json",
     )
+    # Source build options - use flag without value for default path, or specify custom path
     parser.add_argument(
-        "--monarch-path",
-        metavar="",
+        "--agent-path",
+        metavar="PATH",
         action="store",
         type=str,
-        help="Path to a local monarch source checkout. When set, builds the monarch binary from source instead of downloading a pre-built binary. Only valid for the monarch-injector image.",
+        nargs="?",
+        const="~/projects/mms-automation",
+        help="Build agent from local source. Default: ~/projects/mms-automation",
+    )
+    parser.add_argument(
+        "--om-path",
+        metavar="PATH",
+        action="store",
+        type=str,
+        nargs="?",
+        const="~/projects/ops-manager",
+        help="Build Ops Manager from local source. Default: ~/projects/ops-manager",
+    )
+    parser.add_argument(
+        "--monarch-path",
+        metavar="PATH",
+        action="store",
+        type=str,
+        nargs="?",
+        const="~/projects/monarch",
+        help="Build Monarch from local source. Default: ~/projects/monarch",
     )
 
     args = parser.parse_args()
 
-    if args.monarch_path:
-        os.environ["MONARCH_PATH"] = os.path.abspath(args.monarch_path)
+    # Set environment variables for source builds (expand ~ to home directory)
+    if args.agent_path is not None:
+        os.environ["AGENT_PATH"] = os.path.abspath(os.path.expanduser(args.agent_path))
+    if args.om_path is not None:
+        os.environ["OPS_MANAGER_PATH"] = os.path.abspath(os.path.expanduser(args.om_path))
+    if args.monarch_path is not None:
+        os.environ["MONARCH_PATH"] = os.path.abspath(os.path.expanduser(args.monarch_path))
 
     build_config = image_build_config_from_args(args)
     logger.info(f"Building image: {args.image}")
