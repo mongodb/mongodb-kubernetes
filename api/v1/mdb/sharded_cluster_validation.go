@@ -143,11 +143,14 @@ func shardSpecificPodSpecNotUsedWithShards(m MongoDB) v1.ValidationResult {
 //     new.shards[i].shardName MUST equal "<mdb-name>-<i>".
 //     Typos, reorderings, and unrelated names are rejected here.
 //
-//  2. Subsequent updates where both old and new use spec.shards. Identity is
-//     keyed by shardName; for any shard that exists in both old and new,
-//     shardId must not change. New shards may be appended (or removed),
-//     and the list may be reordered freely provided existing shards keep
-//     their shardId.
+//  2. Subsequent updates where both old and new use spec.shards. For any
+//     shard whose shardName is in the old list, the shardId must not change.
+//     For any shard whose shardId is in the old list, the shardName must not
+//     change. Together these two checks block in-place renames (same
+//     shardId, different shardName) and in-place id rewrites (same
+//     shardName, different shardId). Shape changes are limited to appending
+//     new entries and removing existing entries; reordering is also allowed
+//     because identity is keyed by shardName/shardId, not by position.
 func shardIdentityImmutable(newObj, oldObj MongoDB) v1.ValidationResult {
 	if len(newObj.Spec.Shards) == 0 {
 		return v1.ValidationSuccess()
@@ -162,7 +165,7 @@ func shardIdentityImmutable(newObj, oldObj MongoDB) v1.ValidationResult {
 				return v1.ValidationError(
 					"migration from spec.shardCount to spec.shards must preserve shard identity: "+
 						"spec.shards[%d].shardName must be %q (matching the previously implicit shard identity), got %q. "+
-						"Rename or reorder after the initial migration is complete.",
+						"Add or remove shards after the initial migration is complete.",
 					i, expected, newObj.Spec.Shards[i].ShardName,
 				)
 			}
@@ -181,15 +184,25 @@ func shardIdentityImmutable(newObj, oldObj MongoDB) v1.ValidationResult {
 		return v1.ValidationSuccess()
 	}
 
-	// Case 2: spec.shards → spec.shards. Match by name.
+	// Case 2: spec.shards → spec.shards. Both shardName and shardId are
+	// immutable for any shard present in the old list. We check in both
+	// directions: match-by-name catches shardId rewrites; match-by-id
+	// catches shardName renames.
 	oldByName := make(map[string]ResolvedShard, len(oldObj.Spec.Shards))
+	oldById := make(map[string]ResolvedShard, len(oldObj.Spec.Shards))
 	for _, s := range oldObj.ResolvedShards() {
 		oldByName[s.ShardName] = s
+		oldById[s.ShardId] = s
 	}
 	for _, newShard := range newObj.ResolvedShards() {
 		if oldShard, ok := oldByName[newShard.ShardName]; ok {
 			if oldShard.ShardId != newShard.ShardId {
 				return v1.ValidationError("spec.shards[].shardId is immutable for shard %q: was %q, got %q", newShard.ShardName, oldShard.ShardId, newShard.ShardId)
+			}
+		}
+		if oldShard, ok := oldById[newShard.ShardId]; ok {
+			if oldShard.ShardName != newShard.ShardName {
+				return v1.ValidationError("spec.shards[].shardName is immutable for shard with shardId %q: was %q, got %q; in-place renames are not supported", newShard.ShardId, oldShard.ShardName, newShard.ShardName)
 			}
 		}
 	}

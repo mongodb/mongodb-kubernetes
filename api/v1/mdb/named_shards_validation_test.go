@@ -139,6 +139,52 @@ func TestNamedShards_IdentityImmutableOnUpdate_ShardIdChange(t *testing.T) {
 	assert.Contains(t, err.Error(), "shardId is immutable")
 }
 
+// TestNamedShards_IdentityImmutableOnUpdate_ShardNameChange verifies the
+// webhook rejects an in-place rename (same shardId, different shardName).
+// This is the mirror case of the shardId-change test above and is the
+// central rename-blocking check.
+func TestNamedShards_IdentityImmutableOnUpdate_ShardNameChange(t *testing.T) {
+	oldSc := NewDefaultShardedClusterBuilder().
+		SetShardsSpec([]Shard{
+			{ShardName: "test-mdb-0", ShardId: "stable-id"},
+			{ShardName: "test-mdb-1"},
+		}).
+		Build()
+	newSc := NewDefaultShardedClusterBuilder().
+		SetShardsSpec([]Shard{
+			{ShardName: "renamed", ShardId: "stable-id"},
+			{ShardName: "test-mdb-1"},
+		}).
+		Build()
+	_, err := validator.ValidateUpdate(ctx, oldSc, newSc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "shardName is immutable")
+}
+
+// TestNamedShards_IdentityImmutableOnUpdate_ImplicitShardIdRename verifies
+// that a rename where neither side sets shardId explicitly is also rejected.
+// Both sides get ShardId defaulted to ShardName via GetShardId(); but since
+// resolved id matches old shardName while new shardName differs, the
+// match-by-id branch triggers.
+func TestNamedShards_IdentityImmutableOnUpdate_ImplicitShardIdRename(t *testing.T) {
+	oldSc := NewDefaultShardedClusterBuilder().
+		SetShardsSpec([]Shard{
+			{ShardName: "alpha"},
+			{ShardName: "beta"},
+		}).
+		Build()
+	// Attempt to rename "alpha" → "gamma" while keeping shardId "alpha" pinned.
+	newSc := NewDefaultShardedClusterBuilder().
+		SetShardsSpec([]Shard{
+			{ShardName: "gamma", ShardId: "alpha"},
+			{ShardName: "beta"},
+		}).
+		Build()
+	_, err := validator.ValidateUpdate(ctx, oldSc, newSc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "shardName is immutable")
+}
+
 func TestNamedShards_IdentityImmutableOnUpdate_ShardCountToShardsEquivalent(t *testing.T) {
 	// This is the core migration test at the validation layer: going from
 	// spec.shardCount to spec.shards with identity-preserving names MUST be
