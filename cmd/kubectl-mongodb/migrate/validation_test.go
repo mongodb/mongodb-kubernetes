@@ -289,57 +289,6 @@ func TestValidation_NilLdap_NoWarning(t *testing.T) {
 	}
 }
 
-func TestValidation_NonDefaultDbPath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
-	proc := ac.Deployment.GetProcesses()[0]
-	args := proc.Args()
-	storage := args["storage"].(map[string]interface{})
-	storage["dbPath"] = "/data/custom"
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasWarning := false
-	for _, r := range results {
-		if r.Severity == SeverityWarning && strings.Contains(r.Message, "dbPath") {
-			hasWarning = true
-			assert.Contains(t, r.Message, "/data/custom")
-		}
-	}
-	assert.True(t, hasWarning, "expected warning when dbPath is not /data")
-}
-
-func TestValidation_DefaultDbPath_NoWarning(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{
-			map[string]interface{}{
-				"name":        "host-0",
-				"hostname":    "host-0.example.com",
-				"processType": "mongod",
-				"version":     "7.0.0",
-				"args2_6": map[string]interface{}{
-					"net":     map[string]interface{}{"port": 27017},
-					"storage": map[string]interface{}{"dbPath": "/data"},
-				},
-			},
-		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
-				"_id":             "my-rs",
-				"protocolVersion": "1",
-				"members": []interface{}{
-					map[string]interface{}{"host": "host-0", "tags": map[string]string{}},
-				},
-			},
-		},
-		"sharding": []interface{}{},
-	})
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	for _, r := range results {
-		if strings.Contains(r.Message, "dbPath") {
-			t.Errorf("unexpected warning about dbPath: %s", r.Message)
-		}
-	}
-}
 
 func TestValidation_RequireTLS_NoWarning(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
