@@ -41,7 +41,8 @@ type ReplicaSet map[string]interface{}
 		"_id": 0,
 		"host": "blue_0",
  		"priority": 0,
- 		"slaveDelay": 0
+ 		"secondaryDelaySecs": 0,
+ 		"buildIndexes": true
  }*/
 
 type ReplicaSetMember map[string]interface{}
@@ -101,12 +102,20 @@ func (r ReplicaSetMember) Tags() map[string]string {
 	return r["tags"].(map[string]string)
 }
 
-func (r ReplicaSetMember) SlaveDelay() int {
-	return cast.ToInt(r["slaveDelay"])
+func (r ReplicaSetMember) SecondaryDelaySecs() int {
+	return cast.ToInt(r["secondaryDelaySecs"])
 }
 
 func (r ReplicaSetMember) IsHidden() bool {
 	return cast.ToBool(r["hidden"])
+}
+
+func (r ReplicaSetMember) BuildIndexes() bool {
+	v, ok := r["buildIndexes"]
+	if !ok {
+		return true
+	}
+	return cast.ToBool(v)
 }
 
 /* Merges the other replica set to the current one. "otherRs" members have higher priority (as they are supposed
