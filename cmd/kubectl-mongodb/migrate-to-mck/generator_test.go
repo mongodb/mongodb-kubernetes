@@ -100,6 +100,44 @@ func TestGenerateMongoDBCR_MultiCluster_CustomResourceName(t *testing.T) {
 	assert.Contains(t, yamlOutput, "replicaSetNameOverride: geo-rs")
 }
 
+func TestGenerateMongoDBCR_AutoNormalizesRSName(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []any{
+			map[string]any{
+				"name":                        "My_RS-0",
+				"hostname":                    "vm-0.example.com",
+				"version":                     "8.0.4-ent",
+				"featureCompatibilityVersion": "8.0",
+				"processType":                 "mongod",
+				"args2_6": map[string]any{
+					"net":         map[string]any{"port": 27017},
+					"replication": map[string]any{"replSetName": "My_ReplicaSet"},
+				},
+			},
+		},
+		"replicaSets": []any{
+			map[string]any{
+				"_id":     "My_ReplicaSet",
+				"members": []any{map[string]any{"_id": 0, "host": "My_RS-0", "priority": 1, "votes": 1}},
+			},
+		},
+		"sharding": []any{},
+	})
+
+	opts := withDeploymentData(ac, GenerateOptions{
+		CredentialsSecretName: "my-credentials",
+		ConfigMapName:         "my-om-config",
+	})
+
+	obj, resourceName, err := GenerateMongoDBCR(ac, opts)
+	require.NoError(t, err)
+	assert.Equal(t, "my-replicaset", resourceName)
+	yamlOutput, err := marshalCRToYAML(obj)
+	require.NoError(t, err)
+	assert.Contains(t, yamlOutput, "name: my-replicaset")
+	assert.Contains(t, yamlOutput, "replicaSetNameOverride: My_ReplicaSet")
+}
+
 func TestGenerateMongoDBCR_NoReplicaSet(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes":   []any{},
