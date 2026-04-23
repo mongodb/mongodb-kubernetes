@@ -293,10 +293,10 @@ func validateMemberPreservedFields(d om.Deployment) []ValidationResult {
 		for _, m := range rs.Members() {
 			host := m.Name()
 
-			if delay := m.SlaveDelay(); delay > 0 {
+			if delay := m.SecondaryDelaySecs(); delay > 0 {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("Member %q (replica set %q) has slaveDelay %d. This is preserved while the member is external and is lost when operator-managed.", host, rsID, delay),
+					Message:  fmt.Sprintf("Member %q (replica set %q) has secondaryDelaySecs %d. This is preserved while the member is external and is lost when operator-managed.", host, rsID, delay),
 				})
 			}
 
@@ -304,6 +304,13 @@ func validateMemberPreservedFields(d om.Deployment) []ValidationResult {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
 					Message:  fmt.Sprintf("Member %q (replica set %q) is hidden. This is preserved while the member is external and is lost when operator-managed.", host, rsID),
+				})
+			}
+
+			if !m.BuildIndexes() {
+				results = append(results, ValidationResult{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("Member %q (replica set %q) has buildIndexes set to false. This is preserved while the member is external and is lost when operator-managed.", host, rsID),
 				})
 			}
 		}
