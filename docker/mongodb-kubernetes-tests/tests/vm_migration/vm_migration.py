@@ -233,6 +233,7 @@ def test_mdb_reaches_running(mdb_migration: MongoDB, om_tester: OMTester, vm_sts
     assert len(ac_tester.get_replica_set_processes(f"{vm_sts['metadata']['name']}-rs")) == total_members
 
 
+# TODO insert sample data, assert it is still there after migration
 @mark.e2e_vm_migration
 def test_max_voting_members_validation(mdb_migration: MongoDB):
     # Update all members as voting at once, this results in 8 voting members (5 external + 3 k8s) which is more than 7
