@@ -210,6 +210,103 @@ func TestNamedShards_RemoveMiddleShardDeletesCorrectSts(t *testing.T) {
 	}
 }
 
+// TestNamedShards_RemoveMiddleShardDoesNotCreateSpuriousSts reproduces the
+// exact scenario from the e2e test TestRemoveIndexBasedShard:
+//  1. Start with [mdbs-0, mdbs-1, mdbs-2, extra-shard-alpha] (4 shards, the
+//     last one has a name unrelated to the synthesised <mdb>-<idx> scheme).
+//  2. Drop the middle mdbs-1.
+//
+// After step 2, status.ShardCount=4 while spec.ShardCount=3. The reconciler
+// iterates up to max(spec, status)=4. At position 3, the old
+// ShardRsName(3) falls back to the synthesised "mdbs-3" — which is NOT the
+// name of any deployed shard. That produces a spurious "mdbs-3" StatefulSet
+// instead of processing the shard that was actually removed (mdbs-1).
+func TestNamedShards_RemoveMiddleShardDoesNotCreateSpuriousSts(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().
+		SetName("mdbs").
+		SetShardsSpec([]mdbv1.Shard{
+			{ShardName: "mdbs-0"},
+			{ShardName: "mdbs-1"},
+			{ShardName: "mdbs-2"},
+			{ShardName: "extra-shard-alpha"},
+		}).
+		Build()
+
+	reconciler, _, cl, omf, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay)
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+
+	for _, name := range []string{"mdbs-0", "mdbs-1", "mdbs-2", "extra-shard-alpha"} {
+		err := cl.Get(ctx, kube.ObjectKey(sc.Namespace, name), &appsv1.StatefulSet{})
+		require.NoError(t, err, "initial reconcile must create STS %q", name)
+	}
+
+	// Now drop the middle shard (mdbs-1).
+	require.NoError(t, cl.Get(ctx, kube.ObjectKeyFromApiObject(sc), sc))
+	sc.Spec.Shards = []mdbv1.Shard{
+		{ShardName: "mdbs-0"},
+		{ShardName: "mdbs-2"},
+		{ShardName: "extra-shard-alpha"},
+	}
+	require.NoError(t, cl.Update(ctx, sc))
+	checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+
+	// The spurious "mdbs-3" STS must never be created.
+	err = cl.Get(ctx, kube.ObjectKey(sc.Namespace, "mdbs-3"), &appsv1.StatefulSet{})
+	assert.True(t, err != nil,
+		"synthesised tail name 'mdbs-3' must not be created when spec.shards has 3 items (was the bug)")
+
+	// mdbs-1 must be deleted.
+	err = cl.Get(ctx, kube.ObjectKey(sc.Namespace, "mdbs-1"), &appsv1.StatefulSet{})
+	assert.True(t, err != nil, "shard STS mdbs-1 must be deleted after removal")
+
+	// Remaining shards must still be there.
+	for _, name := range []string{"mdbs-0", "mdbs-2", "extra-shard-alpha"} {
+		err := cl.Get(ctx, kube.ObjectKey(sc.Namespace, name), &appsv1.StatefulSet{})
+		require.NoError(t, err, "shard STS %q must still exist", name)
+	}
+
+	// Exactly 3 shard STSes + config + mongos = 5.
+	stsList := mock.GetMapForObject(cl, &appsv1.StatefulSet{})
+	assert.Len(t, stsList, 5, "expected 3 shards + config + mongos, got: %v", stsKeys(stsList))
+
+	// OM-side assertions: after a fully successful reconcile (mocked OM completes
+	// both publishDeployment passes synchronously — first publish marks mdbs-1 for
+	// draining, WaitForReadyState returns immediately in the mock, second publish
+	// with finalizing=true removes mdbs-1 entirely), the final state must be:
+	//   - shards[] contains only the desired {mdbs-0, mdbs-2, extra-shard-alpha}
+	//   - draining[] is empty (drain "completed" in the mock)
+	//   - no mdbs-1 processes remain
+	// This proves the OM publish path now constructs the correct desired config
+	// for a middle-shard removal (pre-fix, publish iterated up to
+	// max(spec.ShardCount, status.ShardCount) using ShardRsName(i), which at
+	// position 3 returned the synthesised "mdbs-3" and included a bogus shard in
+	// the published config).
+	dep := omf.GetConnection().(*om.MockedOmConnection).GetDeployment()
+	scs := dep.ShardedClustersCopy()
+	require.Len(t, scs, 1, "expected one sharded cluster")
+	sharded := scs[0]
+
+	shardIDsInOM := make([]string, 0)
+	for _, sh := range sharded["shards"].([]om.Shard) {
+		shardIDsInOM = append(shardIDsInOM, sh["_id"].(string))
+	}
+	assert.ElementsMatch(t, []string{"mdbs-0", "mdbs-2", "extra-shard-alpha"}, shardIDsInOM,
+		"shards[] in OM sharded-cluster must be exactly the desired set and must NOT contain a bogus 'mdbs-3'")
+	assert.NotContains(t, shardIDsInOM, "mdbs-3",
+		"synthesised tail name 'mdbs-3' must not appear in OM shards[] (was the core bug)")
+
+	// After finalizing, mdbs-1 processes are gone.
+	procNames := dep.GetAllProcessNames()
+	for _, pn := range procNames {
+		assert.False(t, pn == "mdbs-1-0" || pn == "mdbs-1-1" || pn == "mdbs-1-2",
+			"mdbs-1 process %q must be removed after drain completes", pn)
+		assert.False(t, pn == "mdbs-3-0" || pn == "mdbs-3-1" || pn == "mdbs-3-2",
+			"bogus mdbs-3 process %q must never appear", pn)
+	}
+}
+
 // --- helpers ---
 
 // snapshotStsSpecs returns a map[stsName]StatefulSetSpec, stripped of the
@@ -224,6 +321,14 @@ func snapshotStsSpecs(t *testing.T, cl client.Client) map[string]appsv1.Stateful
 		sts, ok := obj.(*appsv1.StatefulSet)
 		require.True(t, ok)
 		out[k.Name] = sts.Spec
+	}
+	return out
+}
+
+func stsKeys(m map[client.ObjectKey]apiruntime.Object) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k.Name)
 	}
 	return out
 }

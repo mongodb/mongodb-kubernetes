@@ -296,6 +296,18 @@ class TestRemoveIndexBasedShard:
     removed_shard: str
     remaining_shards: list[str]
 
+    def test_prepare_for_shard_removal(self, sc: MongoDB):
+        # TestCreateWithShardCount called shard_collection(shards_count=2) which
+        # assigned zone-0 and zone-1 exclusively to the first two shards plus
+        # attached key ranges to those zones. MongoDB will refuse to remove a
+        # shard that is the only member of a zone with a pinned key range
+        # (ZoneStillInUse). Before asking the operator to remove the middle
+        # shard we must flatten the zone membership across all remaining
+        # shards so chunks in zone-1 can migrate off sh-named-shards-1.
+        service_names = get_mongos_service_names(sc)
+        mongod_tester = sc.tester(service_names=service_names)
+        mongod_tester.prepare_for_shard_removal(f"{sc.name}-{{}}", 2)
+
     def test_remove_middle_shard(self, sc: MongoDB):
         sc.load()
         TestRemoveIndexBasedShard.removed_shard = f"{sc.name}-1"
