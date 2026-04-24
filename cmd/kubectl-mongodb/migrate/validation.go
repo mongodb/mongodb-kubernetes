@@ -182,10 +182,23 @@ func validateX509(auth *om.Auth) []ValidationResult {
 	if auth.AutoAuthMechanism != "MONGODB-X509" {
 		return nil
 	}
-	return []ValidationResult{{
+	var results []ValidationResult
+	results = append(results, ValidationResult{
 		Severity: SeverityWarning,
 		Message:  "MONGODB-X509 agent authentication is configured. Create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-agent-certs\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource.",
-	}}
+	})
+	if auth.AutoUser != "" {
+		hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
+			return u != nil && u.Username == auth.AutoUser && u.Database == "$external"
+		})
+		if !hasMatchingUser {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("auth.autoUser %q has no matching entry in auth.usersWanted (database: %q). Agent authentication will fail after migration.", auth.AutoUser, "$external"),
+			})
+		}
+	}
+	return results
 }
 
 // validateAgentTLS checks project-level agent TLS paths against operator defaults.
