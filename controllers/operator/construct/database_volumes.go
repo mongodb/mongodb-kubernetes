@@ -108,7 +108,7 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 
 	defaultCAFilePath := path.Join(util.TLSCaMountPath, tls.CAConfigMapKey)
 	if tlsConfig != nil && tlsConfig.CAFilePath != "" && tlsConfig.CAFilePath != defaultCAFilePath {
-		// Custom CA path (e.g. spec.security.tls.caFilePath): items mount (key=ca-pem, path=basename).
+		// Custom CA path: items mount so the ca-pem key is exposed at the requested filename.
 		certFileName := path.Base(tlsConfig.CAFilePath)
 		certDir := path.Dir(tlsConfig.CAFilePath)
 		caConfigMapVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc, func(v *corev1.Volume) {
@@ -124,7 +124,6 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 		volumesToAdd = append(volumesToAdd, caConfigMapVolume)
 	} else {
 		// Default mode: mount the whole ConfigMap as a directory at TLSCaMountPath.
-		// The CA certificate is accessible at TLSCaMountPath/ca-pem.
 		caConfigMapVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: util.TLSCaMountPath,
