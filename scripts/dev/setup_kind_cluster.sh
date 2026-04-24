@@ -33,9 +33,11 @@ cluster_name=${CLUSTER_NAME:-"kind"}
 cluster_domain="cluster.local"
 export_kubeconfig=0
 recreate=0
+# shellcheck source=../funcs/kind_network
+source "$(dirname "${BASH_SOURCE[0]}")/../funcs/kind_network"
 pod_network="10.244.0.0/16"
 service_network="10.96.0.0/16"
-metallb_ip_range="172.18.255.200-172.18.255.250"
+metallb_ip_range="${KIND_METALLB_RANGE_SINGLE}"
 install_registry=0
 configure_docker_network=0
 while getopts ':n:p:s:c:l:egrhk' opt; do
@@ -65,6 +67,11 @@ reg_name='kind-registry'
 reg_port='5000'
 # kind image source
 kind_image="${KIND_NODE_IMAGE:-$(scripts/get-kind-image.sh max)}"
+
+api_server_address="127.0.0.1"
+if [[ ${REMOTE_CONTAINERS:-false} == "true" ]]; then
+  api_server_address=$(ip addr show eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
+fi
 
 kind_delete_cluster() {
   kind delete cluster --name "${cluster_name}" || true
@@ -109,12 +116,16 @@ nodes:
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
+  apiServerAddress: "${api_server_address}"
 kubeadmConfigPatches:
 - |
   apiVersion: kubeadm.k8s.io/v1beta3
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
+  apiServer:
+    certSANs:
+      - "${api_server_address}"
 EOF
 }
 
@@ -131,12 +142,16 @@ nodes:
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
+  apiServerAddress: "${api_server_address}"
 kubeadmConfigPatches:
 - |
   apiVersion: kubeadm.k8s.io/v1beta3
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
+  apiServer:
+    certSANs:
+      - "${api_server_address}"
 EOF
   echo "finished installing kind"
 }

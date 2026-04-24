@@ -528,19 +528,24 @@ func initializeEnvironment() {
 	printEnvVariables()
 }
 
-// loadEnvFromLocalFileForDevelopment loads env vars from .generated/context.operator.env if not running in "prod" env
+// loadEnvFromLocalFileForDevelopment loads .generated/context.operator.env
+// when not running in "prod" env. The file mirrors the env-var set the
+// operator sees inside its pod (plus KUBECONFIG for local kubectl access),
+// so local runs surface the same env-driven divergence the e2e tests would.
 func loadEnvFromLocalFileForDevelopment() {
 	if getOperatorEnv() == util.OperatorEnvironmentProd {
 		return
 	}
 
 	envFile := ".generated/context.operator.env"
-	if _, err := os.Stat(envFile); err == nil {
-		if err := godotenv.Load(envFile); err != nil {
-			log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
-		} else {
-			log.Infof("Loaded environment variables from file %s", envFile)
-		}
+	if _, err := os.Stat(envFile); err != nil {
+		log.Warnf("Env file %s not found (run 'make switch'); skipping.", envFile)
+		return
+	}
+	if err := godotenv.Overload(envFile); err != nil {
+		log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
+	} else {
+		log.Infof("Loaded environment variables from file %s", envFile)
 	}
 }
 

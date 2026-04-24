@@ -56,20 +56,13 @@ ensure_required_python() {
 }
 
 cd "${PROJECT_DIR}"
-if [[ -d "venv" ]]; then
-    echo "Removing existing venv..." >&2
-    rm -rf "venv"
-    echo "Existing venv removed" >&2
-else
-    echo "No existing venv found" >&2
-fi
 
 install_uv
 
 ensure_required_python
 
 echo "Creating venv with Python ${PYTHON_VERSION} using uv..."
-uv venv venv --python "${PYTHON_VERSION}"
+uv venv venv --python "${PYTHON_VERSION}" --clear
 
 # uv's python build statically link OpenSSL and that might get confused by the system-wide OpenSSL config.
 # see https://github.com/astral-sh/python-build-standalone/issues/999
