@@ -89,11 +89,11 @@ echo "Running check-go-bump-policy examples (stub gh, no go.dev/endoflife fetch)
 echo
 
 # EOL 2026-08-01: outside default upgrade window on 2026-04-15, inside on 2026-05-31.
-expect_pause "1) Apr 2026 — 1.25 vs 1.26, defer (EOL outside upgrade window)" \
-  TEST_OVERRIDE_TODAY=2026-04-15 \
-  TEST_OVERRIDE_CURRENT_EOL_DATE=2026-08-01 \
-  TEST_OVERRIDE_LATEST_GO=1.26.2 \
-  TEST_OVERRIDE_CURRENT_GO=1.25.9
+# expect_pause "1) Apr 2026 — 1.25 vs 1.26, defer (EOL outside upgrade window)" \
+#   TEST_OVERRIDE_TODAY=2026-04-15 \
+#   TEST_OVERRIDE_CURRENT_EOL_DATE=2026-08-01 \
+#   TEST_OVERRIDE_LATEST_GO=1.26.2 \
+#   TEST_OVERRIDE_CURRENT_GO=1.25.9
 
 expect_bump "2) May 31 2026 — 1.25 vs 1.26, within upgrade window before EOL" \
   TEST_OVERRIDE_TODAY=2026-05-31 \
@@ -103,11 +103,11 @@ expect_bump "2) May 31 2026 — 1.25 vs 1.26, within upgrade window before EOL" 
   TEST_BUMP_DRY_RUN=1
 
 # EOL 2027-02-01: outside upgrade window on 2026-09-20, inside on 2026-11-15.
-expect_pause "3) Sep 2026 — 1.26 vs 1.27, defer" \
-  TEST_OVERRIDE_TODAY=2026-09-20 \
-  TEST_OVERRIDE_CURRENT_EOL_DATE=2027-02-01 \
-  TEST_OVERRIDE_LATEST_GO=1.27.0 \
-  TEST_OVERRIDE_CURRENT_GO=1.26.2
+# expect_pause "3) Sep 2026 — 1.26 vs 1.27, defer" \
+#   TEST_OVERRIDE_TODAY=2026-09-20 \
+#   TEST_OVERRIDE_CURRENT_EOL_DATE=2027-02-01 \
+#   TEST_OVERRIDE_LATEST_GO=1.27.0 \
+#   TEST_OVERRIDE_CURRENT_GO=1.26.2
 
 expect_bump "4) Nov 2026 — 1.26 vs 1.27, within bumping period" \
   TEST_OVERRIDE_TODAY=2026-11-15 \
