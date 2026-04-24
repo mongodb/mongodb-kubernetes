@@ -298,6 +298,11 @@ tasks:
     commands:
       - func: lint_repo
 
+  - name: bash_tests
+    tags: [ "unit_tests" ]
+    commands:
+      - func: test_bash
+
   - name: go_bump_policy_tests
     tags: [ "unit_tests" ]
     commands:
@@ -702,6 +707,7 @@ task_groups:
       - func: download_kube_tools
     tasks:
       - lint_repo
+      - bash_tests
       - unit_tests_golang
       - unit_tests_python
       - unit_tests_helm
