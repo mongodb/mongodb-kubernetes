@@ -28,7 +28,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	//nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"

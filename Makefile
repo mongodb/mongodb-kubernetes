@@ -50,6 +50,23 @@ switch:
 switcht:
 	@ scripts/dev/switch_context_by_test.sh $(test)
 
+# Re-run switch_context against whatever context is currently pinned in
+# .generated/.current_context. Useful after crossing the host/devcontainer
+# boundary: per-side files are .generated/context.<side>.env, so the OTHER
+# side's site bytes are written into a different file and don't clobber
+# this side's. `make regenerate-context` is the canonical fix-it-now
+# command (e.g. after a worktree move that changes PROJECT_DIR). Falls
+# back to a clear error if no context has been picked yet.
+regenerate-context:
+	@ if [[ ! -s .generated/.current_context ]]; then \
+		echo "ERROR: .generated/.current_context is missing or empty." >&2; \
+		echo "Run 'make switch context=<name>' first." >&2; \
+		exit 1; \
+	fi; \
+	current="$$(cat .generated/.current_context)"; \
+	echo "Regenerating context for: $${current}"; \
+	scripts/dev/switch_context.sh "$${current}"
+
 # runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
 # The e2e test image is built and pushed together with all main ones (operator, database, init containers)
 # Use 'light=true' parameter to skip images rebuilding - use this mode when you are focused on e2e tests development only
@@ -256,6 +273,11 @@ test-race: generate fmt vet manifests golang-tests-race
 
 test: generate fmt vet manifests golang-tests
 
+# test-bash runs all bats integration tests under scripts/test/bash/.
+# Requires bats-core (brew install bats-core).
+test-bash:
+	@ scripts/test/bash/run.sh $(suite)
+
 # helm-tests will run helm chart unit tests
 helm-tests:
 	@echo "Running helm chart unit tests..."
@@ -264,7 +286,7 @@ helm-tests:
 	@if ! helm unittest --help >/dev/null 2>&1; then \
 		echo "helm-unittest plugin not working/not installed, reinstalling..."; \
 		helm plugin uninstall unittest 2>/dev/null || true; \
-		helm plugin install https://github.com/helm-unittest/helm-unittest; \
+		helm plugin install --verify=false https://github.com/helm-unittest/helm-unittest; \
 	fi
 	helm unittest helm_chart --color
 
