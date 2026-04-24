@@ -153,6 +153,6 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 )
 
-go 1.26.2
+go 1.27.0
 
 tool gotest.tools/gotestsum

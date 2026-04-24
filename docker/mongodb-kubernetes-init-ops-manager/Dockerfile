@@ -1,4 +1,4 @@
-FROM --platform=${BUILDPLATFORM} public.ecr.aws/docker/library/golang:1.26 AS base
+FROM --platform=${BUILDPLATFORM} public.ecr.aws/docker/library/golang:1.27 AS base
 
 COPY . /go/src/github.com/mongodb/mongodb-kubernetes
 WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes

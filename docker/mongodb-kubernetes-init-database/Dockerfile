@@ -26,7 +26,7 @@ RUN if [ -f "/tools/mongodb_tools.tgz" ]; then \
       && rm /tools/mongodb_tools.tgz; \
     fi
 
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.26 AS readiness_builder
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.27 AS readiness_builder
 
 WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
 
