@@ -196,12 +196,6 @@ func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 
 	var results []ValidationResult
 
-	if agentSSL.AutoPEMKeyFilePath != "" {
-		results = append(results, ValidationResult{
-			Severity: SeverityError,
-			Message:  fmt.Sprintf("tls.autoPEMKeyFilePath %q will be overwritten by the operator during reconciliation.", agentSSL.AutoPEMKeyFilePath),
-		})
-	}
 	if agentSSL.CAFilePath != "" && agentSSL.CAFilePath != defaultCAFilePath {
 		results = append(results, ValidationResult{
 			Severity: SeverityError,
@@ -296,21 +290,21 @@ func validateMemberPreservedFields(d om.Deployment) []ValidationResult {
 			if delay := m.SecondaryDelaySecs(); delay > 0 {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("Member %q (replica set %q) has secondaryDelaySecs %d. This is preserved while the member is external and is lost when operator-managed.", host, rsID, delay),
+					Message:  fmt.Sprintf("Member %q (replica set %q) has secondaryDelaySecs %d. This setting is not supported by the operator and will not be applied to new Kubernetes members managed by the operator.", host, rsID, delay),
 				})
 			}
 
 			if m.IsHidden() {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("Member %q (replica set %q) is hidden. This is preserved while the member is external and is lost when operator-managed.", host, rsID),
+					Message:  fmt.Sprintf("Member %q (replica set %q) is hidden. This setting is not supported by the operator and will not be applied to new Kubernetes members managed by the operator.", host, rsID),
 				})
 			}
 
 			if !m.BuildIndexes() {
 				results = append(results, ValidationResult{
 					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("Member %q (replica set %q) has buildIndexes set to false. This is preserved while the member is external and is lost when operator-managed.", host, rsID),
+					Message:  fmt.Sprintf("Member %q (replica set %q) has buildIndexes set to false. This setting is not supported by the operator and will not be applied to new Kubernetes members managed by the operator.", host, rsID),
 				})
 			}
 		}
