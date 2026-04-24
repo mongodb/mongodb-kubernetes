@@ -252,6 +252,11 @@ test-race: generate fmt vet manifests golang-tests-race
 
 test: generate fmt vet manifests golang-tests
 
+# test-bash runs all bats integration tests under scripts/test/bash/.
+# Requires bats-core (brew install bats-core).
+test-bash:
+	@ scripts/test/bash/run.sh $(suite)
+
 # helm-tests will run helm chart unit tests
 helm-tests:
 	@echo "Running helm chart unit tests..."
