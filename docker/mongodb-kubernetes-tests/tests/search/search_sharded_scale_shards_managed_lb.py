@@ -459,7 +459,7 @@ def test_scale_up_move_chunk_to_new_shard(mdb: MongoDB):
     admin_client.admin.command(
         "moveChunk",
         "sample_mflix.movies",
-        find=chunk["min"], # moves a chunk whose key range contains chunk["min"] value to the new shard
+        find=chunk["min"], # moves a chunk, whose key range contains chunk["min"] value, to the new shard
         to=new_shard_name,
     )
     logger.info(f"Chunk successfully moved to {new_shard_name}")
