@@ -19,6 +19,21 @@ prepend() {
   awk -v prefix="${prefix}" '{printf "%s: %s\n", prefix, $0; fflush()}'
 }
 
+# Drop high-volume low-signal lines from buildx / docker build output and
+# similar tooling. Keeps step headers, RUN output, errors, warnings, and
+# final markers. Use line-buffered grep so the pipeline stays interactive.
+#
+# Matches both buildx plain-mode (`#N transferring …`, `#N DONE 0.0s`, …) and
+# TTY-mode (` => => transferring …`) progress lines.
+filter_buildx_noise() {
+  grep --line-buffered -v -E \
+    '^(#[0-9]+|[[:space:]]*=>([[:space:]]*=>)*)[[:space:]]+(transferring|extracting|unpacking|resolving|naming|copying|exporting|preparing|writing|sending|sha256:|CACHED|DONE [0-9])' \
+  | grep --line-buffered -v -E \
+    '^#[0-9]+ \.\.\.$' \
+  | grep --line-buffered -v -E \
+    '^[[:space:]]*$'
+}
+
 export RED='\033[0;31m'
 export GREEN='\033[0;32m'
 export NO_COLOR='\033[0m'
