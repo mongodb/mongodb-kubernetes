@@ -55,6 +55,11 @@ func TestBuildBootstrapJSON(t *testing.T) {
 
 	bootstrap := unmarshalBootstrap(t, result)
 
+	// Node (required for xDS subscriptions)
+	require.NotNil(t, bootstrap.Node)
+	assert.Equal(t, "envoy-search-proxy", bootstrap.Node.Id)
+	assert.Equal(t, "search-proxy", bootstrap.Node.Cluster)
+
 	// Admin
 	require.NotNil(t, bootstrap.Admin)
 	adminAddr := bootstrap.Admin.Address.GetSocketAddress()
