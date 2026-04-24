@@ -38,7 +38,6 @@ type GenerateOptions struct {
 	CredentialsSecretName string
 	ConfigMapName         string
 	Namespace             string
-	MultiClusterNames     []string
 	CertsSecretPrefix     string // spec.security.certsSecretPrefix, required when TLS is enabled
 
 	// Fetched from OM
@@ -61,9 +60,6 @@ func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (client.Ob
 	isSharded := len(ac.Deployment.GetShardedClusters()) > 0
 
 	if isSharded {
-		if len(opts.MultiClusterNames) > 0 {
-			return nil, "", fmt.Errorf("sharded cluster multi-cluster migration is not yet supported")
-		}
 		return nil, "", fmt.Errorf("sharded cluster migration is not yet supported")
 	}
 	return generateReplicaSet(ac, opts)
