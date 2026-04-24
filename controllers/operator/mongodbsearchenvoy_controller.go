@@ -122,20 +122,28 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("No routes to configure for load balancer"), log)
 	}
 
-	// Generate Envoy config JSON
+	// Generate Envoy config files: static bootstrap + dynamic CDS/LDS
 	caKeyName := caKeyNameFromTLSConfig(tlsCfg)
-	envoyJSON, err := buildEnvoyConfigJSON(routes, tlsEnabled, caKeyName)
+	bootstrapJSON, err := buildBootstrapJSON()
+	if err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
+	}
+	cdsJSON, err := buildCDSJSON(routes, tlsEnabled, caKeyName)
+	if err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
+	}
+	ldsJSON, err := buildLDSJSON(routes, tlsEnabled, caKeyName)
 	if err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
 
 	// Ensure ConfigMap
-	if err := r.ensureConfigMap(ctx, mdbSearch, envoyJSON, log); err != nil {
+	if err := r.ensureConfigMap(ctx, mdbSearch, bootstrapJSON, cdsJSON, ldsJSON, log); err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
 
-	// Ensure Deployment
-	if err := r.ensureDeployment(ctx, mdbSearch, envoyJSON, tlsCfg, log); err != nil {
+	// Ensure Deployment (hash only bootstrap — CDS/LDS are hot-reloaded by Envoy)
+	if err := r.ensureDeployment(ctx, mdbSearch, bootstrapJSON, tlsCfg, log); err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
 
@@ -248,8 +256,10 @@ func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
 	}
 }
 
-// ensureConfigMap creates or updates the Envoy ConfigMap.
-func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON string, log *zap.SugaredLogger) error {
+// ensureConfigMap creates or updates the Envoy ConfigMap with three files:
+// bootstrap.json (static), cds.json (dynamic clusters), and lds.json (dynamic listener).
+// Kubernetes ConfigMap updates are atomic (symlink swap), so all files update together.
+func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON, cdsJSON, ldsJSON string, log *zap.SugaredLogger) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      search.LoadBalancerConfigMapName(),
@@ -259,7 +269,11 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.kubeClient, cm, func() error {
 		cm.Labels = envoyLabels(search)
-		cm.Data = map[string]string{"envoy.json": envoyJSON}
+		cm.Data = map[string]string{
+			"bootstrap.json": bootstrapJSON,
+			"cds.json":       cdsJSON,
+			"lds.json":       ldsJSON,
+		}
 		return controllerutil.SetOwnerReference(search, cm, r.kubeClient.Scheme())
 	})
 	if err != nil {
@@ -271,8 +285,10 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 }
 
 // ensureDeployment creates or updates the Envoy Deployment.
-func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON string, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
-	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(envoyJSON)))
+// The config hash is computed from bootstrapJSON only — CDS/LDS changes are
+// hot-reloaded by Envoy via filesystem xDS and do not require a pod restart.
+func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON string, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
+	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(bootstrapJSON)))
 	replicas := envoyReplicas
 	labels := envoyLabels(search)
 	tlsEnabled := search.IsTLSConfigured()
@@ -394,7 +410,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, tlsCfg *searchcontroller.
 				Name:    "envoy",
 				Image:   image,
 				Command: []string{"/usr/local/bin/envoy"},
-				Args:    []string{"-c", "/etc/envoy/envoy.json", "--log-level", "info"},
+				Args:    []string{"-c", "/etc/envoy/bootstrap.json", "--log-level", "info"},
 				Ports: []corev1.ContainerPort{
 					{Name: "grpc", ContainerPort: searchv1.EnvoyDefaultProxyPort},
 					{Name: "admin", ContainerPort: envoyAdminPort},

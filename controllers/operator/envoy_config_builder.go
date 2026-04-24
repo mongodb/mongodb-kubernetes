@@ -6,6 +6,7 @@ import (
 
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -24,86 +25,43 @@ import (
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	upstreamhttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
+	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 )
 
-// buildEnvoyConfigJSON builds the Envoy bootstrap configuration using
-// go-control-plane protobuf types and marshals it to JSON.
-func buildEnvoyConfigJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (string, error) {
-	config, err := buildEnvoyBootstrapConfig(routes, tlsEnabled, caKeyName)
-	if err != nil {
-		return "", fmt.Errorf("failed to build Envoy bootstrap config: %w", err)
-	}
-
-	marshaler := protojson.MarshalOptions{
-		UseProtoNames: true, // snake_case field names (matches Envoy expectations)
-		Indent:        "  ",
-	}
-	data, err := marshaler.Marshal(config)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal Envoy config to JSON: %w", err)
-	}
-
-	return string(data), nil
-}
-
-// buildEnvoyBootstrapConfig constructs the full Envoy bootstrap protobuf.
-func buildEnvoyBootstrapConfig(routes []envoyRoute, tlsEnabled bool, caKeyName string) (*bootstrapv3.Bootstrap, error) {
-	filterChains := make([]*listenerv3.FilterChain, 0, len(routes))
-	clusters := make([]*clusterv3.Cluster, 0, len(routes))
-
-	for _, route := range routes {
-		fc, err := buildFilterChain(route, tlsEnabled, caKeyName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to build filter chain for route %s: %w", route.Name, err)
-		}
-		filterChains = append(filterChains, fc)
-
-		cl, err := buildCluster(route, tlsEnabled, caKeyName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to build cluster for route %s: %w", route.Name, err)
-		}
-		clusters = append(clusters, cl)
-	}
-
-	var listenerFilters []*listenerv3.ListenerFilter
-	if tlsEnabled {
-		tlsInspectorCfg, err := anypb.New(&tlsinspectorv3.TlsInspector{})
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal TLS inspector config: %w", err)
-		}
-		listenerFilters = []*listenerv3.ListenerFilter{
-			{
-				Name: wellknown.TLSInspector,
-				ConfigType: &listenerv3.ListenerFilter_TypedConfig{
-					TypedConfig: tlsInspectorCfg,
-				},
-			},
-		}
-	}
-
+// buildBootstrapJSON returns the static Envoy bootstrap config JSON.
+// This config points Envoy at filesystem-based CDS/LDS for dynamic resource
+// discovery and does not contain any static_resources. It is stable across
+// shard add/remove operations — only CDS/LDS files change.
+func buildBootstrapJSON() (string, error) {
 	runtimeStruct, err := structpb.NewStruct(map[string]interface{}{
 		"overload": map[string]interface{}{
 			"global_downstream_max_connections": 50000,
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to build runtime struct: %w", err)
+		return "", fmt.Errorf("failed to build runtime struct: %w", err)
 	}
 
-	return &bootstrapv3.Bootstrap{
+	pathConfigSource := func(path string) *corev3.ConfigSource {
+		return &corev3.ConfigSource{
+			ConfigSourceSpecifier: &corev3.ConfigSource_PathConfigSource{
+				PathConfigSource: &corev3.PathConfigSource{
+					Path: path,
+					WatchedDirectory: &corev3.WatchedDirectory{
+						Path: envoyConfigPath,
+					},
+				},
+			},
+		}
+	}
+
+	bootstrap := &bootstrapv3.Bootstrap{
 		Admin: &bootstrapv3.Admin{
 			Address: socketAddress("0.0.0.0", uint32(envoyAdminPort)),
 		},
-		StaticResources: &bootstrapv3.Bootstrap_StaticResources{
-			Listeners: []*listenerv3.Listener{
-				{
-					Name:            "mongod_listener",
-					Address:         socketAddress("0.0.0.0", uint32(searchv1.EnvoyDefaultProxyPort)),
-					ListenerFilters: listenerFilters,
-					FilterChains:    filterChains,
-				},
-			},
-			Clusters: clusters,
+		DynamicResources: &bootstrapv3.Bootstrap_DynamicResources{
+			CdsConfig: pathConfigSource(envoyConfigPath + "/cds.json"),
+			LdsConfig: pathConfigSource(envoyConfigPath + "/lds.json"),
 		},
 		LayeredRuntime: &bootstrapv3.LayeredRuntime{
 			Layers: []*bootstrapv3.RuntimeLayer{
@@ -115,7 +73,94 @@ func buildEnvoyBootstrapConfig(routes []envoyRoute, tlsEnabled bool, caKeyName s
 				},
 			},
 		},
-	}, nil
+	}
+
+	return marshalJSON(bootstrap)
+}
+
+// buildCDSJSON builds the CDS DiscoveryResponse JSON containing all upstream clusters.
+// Each route produces one cluster pointing to a mongot group's headless service.
+func buildCDSJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (string, error) {
+	resources := make([]*anypb.Any, 0, len(routes))
+	for _, route := range routes {
+		cluster, err := buildCluster(route, tlsEnabled, caKeyName)
+		if err != nil {
+			return "", fmt.Errorf("failed to build cluster for route %s: %w", route.Name, err)
+		}
+		clusterAny, err := anypb.New(cluster)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal cluster %s to Any: %w", route.Name, err)
+		}
+		resources = append(resources, clusterAny)
+	}
+
+	resp := &discoveryv3.DiscoveryResponse{
+		Resources: resources,
+		TypeUrl:   "type.googleapis.com/envoy.config.cluster.v3.Cluster",
+	}
+
+	return marshalJSON(resp)
+}
+
+// buildLDSJSON builds the LDS DiscoveryResponse JSON containing the listener.
+// The listener has one filter chain per route (per shard or single RS).
+func buildLDSJSON(routes []envoyRoute, tlsEnabled bool, caKeyName string) (string, error) {
+	filterChains := make([]*listenerv3.FilterChain, 0, len(routes))
+	for _, route := range routes {
+		fc, err := buildFilterChain(route, tlsEnabled, caKeyName)
+		if err != nil {
+			return "", fmt.Errorf("failed to build filter chain for route %s: %w", route.Name, err)
+		}
+		filterChains = append(filterChains, fc)
+	}
+
+	var listenerFilters []*listenerv3.ListenerFilter
+	if tlsEnabled {
+		tlsInspectorCfg, err := anypb.New(&tlsinspectorv3.TlsInspector{})
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal TLS inspector config: %w", err)
+		}
+		listenerFilters = []*listenerv3.ListenerFilter{
+			{
+				Name: wellknown.TLSInspector,
+				ConfigType: &listenerv3.ListenerFilter_TypedConfig{
+					TypedConfig: tlsInspectorCfg,
+				},
+			},
+		}
+	}
+
+	listener := &listenerv3.Listener{
+		Name:            "mongod_listener",
+		Address:         socketAddress("0.0.0.0", uint32(searchv1.EnvoyDefaultProxyPort)),
+		ListenerFilters: listenerFilters,
+		FilterChains:    filterChains,
+	}
+
+	listenerAny, err := anypb.New(listener)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal listener to Any: %w", err)
+	}
+
+	resp := &discoveryv3.DiscoveryResponse{
+		Resources: []*anypb.Any{listenerAny},
+		TypeUrl:   "type.googleapis.com/envoy.config.listener.v3.Listener",
+	}
+
+	return marshalJSON(resp)
+}
+
+// marshalJSON marshals a protobuf message to JSON with Envoy-compatible options.
+func marshalJSON(msg proto.Message) (string, error) {
+	marshaler := protojson.MarshalOptions{
+		UseProtoNames: true, // snake_case field names (matches Envoy expectations)
+		Indent:        "  ",
+	}
+	data, err := marshaler.Marshal(msg)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal config to JSON: %w", err)
+	}
+	return string(data), nil
 }
 
 // socketAddress builds an Envoy Address with a TCP socket.
