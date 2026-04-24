@@ -9,7 +9,6 @@ import (
 	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -53,16 +52,8 @@ func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptio
 	}, resourceName, nil
 }
 
-func generateReplicaSetMultiCluster(ac *om.AutomationConfig, opts GenerateOptions, rsName, resourceName, version, fcv string, externalMembers []mdbv1.ExternalMember) (client.Object, string, error) {
-	spec, err := buildReplicaSetMultiClusterSpec(ac, opts, version, fcv, externalMembers, rsName, resourceName)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to build multi-cluster spec: %w", err)
-	}
-	return &mdbmulti.MongoDBMultiCluster{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "mongodb.com/v1", Kind: "MongoDBMultiCluster"},
-		ObjectMeta: buildCRObjectMeta(resourceName, opts.Namespace),
-		Spec:       spec,
-	}, resourceName, nil
+func generateReplicaSetMultiCluster(_ *om.AutomationConfig, _ GenerateOptions, _, _ , _, _ string, _ []mdbv1.ExternalMember) (client.Object, string, error) {
+	return nil, "", fmt.Errorf("multi-cluster replica set migration is not yet supported")
 }
 
 // buildReplicaSetDbCommonSpec constructs the DbCommonSpec for a replica set deployment,
@@ -128,18 +119,5 @@ func buildReplicaSetSpec(ac *om.AutomationConfig, opts GenerateOptions, version,
 	return mdbv1.MongoDbSpec{
 		DbCommonSpec: common,
 		Members:      0,
-	}, nil
-}
-
-// buildReplicaSetMultiClusterSpec assembles a MongoDBMultiSpec, distributing members across target clusters.
-func buildReplicaSetMultiClusterSpec(ac *om.AutomationConfig, opts GenerateOptions, version, fcv string, externalMembers []mdbv1.ExternalMember, rsName, resourceName string) (mdbmulti.MongoDBMultiSpec, error) {
-	common, err := buildReplicaSetDbCommonSpec(ac, opts, version, fcv, rsName, resourceName, externalMembers)
-	if err != nil {
-		return mdbmulti.MongoDBMultiSpec{}, err
-	}
-	clusterSpecList := distributeMembers(opts.MultiClusterNames)
-	return mdbmulti.MongoDBMultiSpec{
-		DbCommonSpec:    common,
-		ClusterSpecList: clusterSpecList,
 	}, nil
 }
