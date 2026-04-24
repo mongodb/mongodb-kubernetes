@@ -38,7 +38,10 @@ git config user.email "${GIT_AUTHOR_EMAIL:-41898282+github-actions[bot]@users.no
 git checkout -b "${branch}"
 git add -A
 git commit -m "${title}"
-git push origin "${branch}"
+# Force-push: the auto/bump-go-* namespace is owned by this automation.
+# A stale remote branch can linger if a prior PR was closed without merging;
+# overwriting it is safe and lets retries succeed.
+git push --force origin "${branch}"
 
 gh pr create \
   --title "${title}" \
