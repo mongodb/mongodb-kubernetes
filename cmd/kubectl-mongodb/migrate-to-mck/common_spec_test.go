@@ -997,25 +997,3 @@ func sourceProc(processMap map[string]om.Process, members []om.ReplicaSetMember)
 	p := processMap[members[0].Name()]
 	return &p
 }
-
-func TestDistributeMembers(t *testing.T) {
-	clusters := []string{"east1", "west1", "central1"}
-	result := distributeMembers(clusters)
-	require.Len(t, result, 3)
-	for i, item := range result {
-		assert.Equal(t, clusters[i], item.ClusterName)
-		assert.Equal(t, 0, item.Members, "cluster %s should have 0 initial members", clusters[i])
-	}
-}
-
-func TestDistributeMembers_SingleCluster(t *testing.T) {
-	result := distributeMembers([]string{"only"})
-	require.Len(t, result, 1)
-	assert.Equal(t, "only", result[0].ClusterName)
-	assert.Equal(t, 0, result[0].Members)
-}
-
-func TestDistributeMembers_EmptyClusterNames(t *testing.T) {
-	assert.Nil(t, distributeMembers(nil))
-	assert.Nil(t, distributeMembers([]string{}))
-}

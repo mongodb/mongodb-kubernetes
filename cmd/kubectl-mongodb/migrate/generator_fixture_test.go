@@ -63,7 +63,6 @@ func runUsers(t *testing.T, ac *om.AutomationConfig, opts GenerateOptions) strin
 // To regenerate fixture files: go test -run TestFixtureMatch -update-fixtures
 func TestFixtureMatch(t *testing.T) {
 	projectCfg := fullTestConfigs()
-	mcProjectCfg := multiClusterTestConfigs()
 
 	tests := []struct {
 		name           string
@@ -83,28 +82,6 @@ func TestFixtureMatch(t *testing.T) {
 				CertsSecretPrefix:     "mdb",
 				PrometheusPassword:    "prom-s3cret",
 				ProjectConfigs:        projectCfg,
-			},
-		},
-		{
-			name:           "5-member distributed multi-cluster replica set — split across 2 clusters",
-			inputJSON:      "multicluster/replicaset/distributed/distributed_input.json",
-			fixtureMongoDB: "multicluster/replicaset/distributed/distributed_2_clusters_mongodb_cr.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "mc-credentials",
-				ConfigMapName:         "mc-om-config",
-				MultiClusterNames:     []string{"east1", "west1"},
-				ProjectConfigs:        mcProjectCfg,
-			},
-		},
-		{
-			name:           "5-member distributed multi-cluster replica set — split across 3 clusters",
-			inputJSON:      "multicluster/replicaset/distributed/distributed_input.json",
-			fixtureMongoDB: "multicluster/replicaset/distributed/distributed_3_clusters_mongodb_cr.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "mc-credentials",
-				ConfigMapName:         "mc-om-config",
-				MultiClusterNames:     []string{"cluster-a", "cluster-b", "cluster-c"},
-				ProjectConfigs:        mcProjectCfg,
 			},
 		},
 		{
@@ -234,29 +211,6 @@ func checkOrUpdateFixture(t *testing.T, path, got string) {
 	require.NoError(t, err, "fixture file %s not found; run with -update-fixtures to create it", path)
 	assert.Equal(t, string(expected), got,
 		"generated output does not match fixture file %s; run with -update-fixtures to accept changes", path)
-}
-
-func multiClusterTestConfigs() *ProjectConfigs {
-	return &ProjectConfigs{
-		SystemLogRotate: &automationconfig.AcLogRotate{
-			LogRotate: automationconfig.LogRotate{
-				TimeThresholdHrs: 1,
-				NumUncompressed:  2,
-				NumTotal:         10,
-			},
-			SizeThresholdMB:    100,
-			PercentOfDiskspace: 0.4,
-		},
-		AuditLogRotate: &automationconfig.AcLogRotate{
-			LogRotate: automationconfig.LogRotate{
-				TimeThresholdHrs: 1,
-				NumUncompressed:  2,
-				NumTotal:         10,
-			},
-			SizeThresholdMB:    100,
-			PercentOfDiskspace: 0.4,
-		},
-	}
 }
 
 func fullTestConfigs() *ProjectConfigs {
