@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-POLICY_UPGRADE_WINDOW_DAYS="${POLICY_UPGRADE_WINDOW_DAYS:-90}"
+POLICY_UPGRADE_WINDOW_DAYS="${POLICY_UPGRADE_WINDOW_DAYS:-140}"
 
 if [[ $# -gt 0 ]]; then
   echo "check-go-bump-policy: error: no arguments (see header)" >&2
