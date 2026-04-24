@@ -139,11 +139,6 @@ create_image_registries_secret() {
       echo "Using Docker config: ${config_file}"
     fi
 
-    if kubectl --context "${context}" get secret "${secret_name}" -n "${namespace}" &>/dev/null; then
-      echo "${context}: Secret ${namespace}/${secret_name} already exists, skipping"
-      return
-    fi
-
     # shellcheck disable=SC2154
     if kubectl --context "${context}" get namespace "${namespace}"; then
       echo "${context}: Applying ${namespace}/${secret_name} pull secret"
@@ -287,11 +282,13 @@ docker_run_local_registry() {
 
 docker_create_kind_network() {
   # We create docker network primarily so that all kind clusters use the same network.
-  # We hardcode 172.18/16 subnet in few places, so we must ensure the network uses that subnet:
-  #   - we set IP ranges for MetalLB
-  #   - we write into coredns config map with IP used for exposing pods externally and for no-mesh test
-  # In case of any errors, verify if any other subnet is not already using that subnet.
-  docker network create --subnet=172.18.0.0/16 kind || true
+  # The subnet must match KIND_NETWORK_SUBNET in scripts/funcs/kind_network — it
+  # drives the MetalLB IP ranges and the IPs the no-mesh tests assume. Override
+  # KIND_NETWORK_SUBNET in the context to use a different /16; the bash scripts
+  # and the Python test fixtures both derive their addresses from the same var.
+  # shellcheck source=scripts/funcs/kind_network
+  source "$(dirname "${BASH_SOURCE[0]}")/kind_network"
+  docker network create --subnet="${KIND_NETWORK_SUBNET}" kind || true
 }
 
 docker_network_connect_to_kind() {
