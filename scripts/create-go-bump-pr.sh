@@ -47,9 +47,10 @@ gh pr create \
 
 Automated Go version bump triggered by the go-bump-policy schedule.
 
-The policy (see `scripts/check-go-bump-policy.sh`) bumps when the current
-minor is within 90 days of its EOL **and** a newer stable release is
-available on go.dev.
+The policy (see `scripts/check-go-bump-policy.sh`) bumps when a newer
+stable release is available on go.dev **and** its `.0` release is at
+least 90 days old (soak window). A 2-minor gap skips the soak and
+bumps immediately (past Go's N-1 support window).
 
 ## Checklist
 
