@@ -99,6 +99,10 @@ func buildAuthenticationConfig(ac *om.AutomationConfig) (*mdbv1.Authentication, 
 		authConfig.Agents.AutomationUserName = auth.AutoUser
 	}
 
+	if ac.AgentSSL != nil && ac.AgentSSL.AutoPEMKeyFilePath != "" {
+		authConfig.Agents.AutoPEMKeyFilePath = ac.AgentSSL.AutoPEMKeyFilePath
+	}
+
 	return authConfig, nil
 }
 
