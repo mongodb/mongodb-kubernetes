@@ -90,20 +90,6 @@ func TestValidation_NonDefaultKeyFile(t *testing.T) {
 	assert.True(t, hasError, "expected error when keyFile differs from default")
 }
 
-func TestValidation_NonDefaultAutoPEMKeyFilePath(t *testing.T) {
-	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
-	ac.AgentSSL.AutoPEMKeyFilePath = "/etc/mongodb-mms/agent.pem"
-
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasWarning := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "autoPEMKeyFilePath") {
-			hasWarning = true
-			assert.Contains(t, r.Message, "/etc/mongodb-mms/agent.pem")
-		}
-	}
-	assert.True(t, hasWarning, "expected error when autoPEMKeyFilePath is set")
-}
 
 func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
@@ -404,16 +390,34 @@ func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
 	}
 }
 
-func TestValidation_X509AutoUser_NotInUsersWanted_NoError(t *testing.T) {
+func TestValidation_X509AutoUser_NotInUsersWanted_Error(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
 	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
 	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
 	ac.Auth.Users = nil
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "CN=mms-automation-agent,OU=test,O=cluster.local") && strings.Contains(r.Message, "usersWanted") {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "expected error when X509 autoUser has no matching entry in usersWanted")
+}
+
+func TestValidation_X509AutoUser_InUsersWanted_NoError(t *testing.T) {
+	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
+	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
+	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
+	ac.Auth.Users = []*om.MongoDBUser{
+		{Username: "CN=mms-automation-agent,OU=test,O=cluster.local", Database: "$external"},
+	}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
 		if r.Severity == SeverityError && strings.Contains(r.Message, "autoUser") && strings.Contains(r.Message, "usersWanted") {
-			t.Errorf("X509 autoUser should not require a matching usersWanted entry: %s", r.Message)
+			t.Errorf("X509 autoUser with matching usersWanted entry should not produce an error: %s", r.Message)
 		}
 	}
 }

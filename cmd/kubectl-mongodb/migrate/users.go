@@ -40,7 +40,7 @@ func init() {
 	UsersCmd.Flags().StringVar(&uFlags.namespace, "namespace", defaultNamespace, "Namespace of the ConfigMap and Secret")
 	UsersCmd.Flags().StringVarP(&uFlags.outputFile, "output", "o", "", "Write generated CRs to this file instead of stdout")
 	UsersCmd.Flags().StringVar(&uFlags.usersSecretsFile, "users-secrets-file", "", "CSV file mapping 'username:database,secret-name' for SCRAM users. When provided, customer-owned Secrets are referenced instead of generated and interactive prompts for user passwords are suppressed")
-	UsersCmd.Flags().StringVar(&uFlags.resourceNameOverride, "resource-name-override", "", "Name of the MongoDB CR that users will reference (mongodbResourceRef.name). Defaults to the normalized replica set name from the automation config")
+	UsersCmd.Flags().StringVar(&uFlags.resourceNameOverride, "resource-name-override", "", "Name of the MongoDB replica set CR that the generated MongoDBUser resources will reference via mongodbResourceRef.name. Defaults to the normalized replica set name from the automation config")
 	_ = UsersCmd.MarkFlagRequired("config-map-name")
 	_ = UsersCmd.MarkFlagRequired("secret-name")
 }
