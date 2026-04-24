@@ -440,13 +440,14 @@ def test_scale_up_verify_search(mdb: MongoDB):
 def test_scale_down_update_shard_count(mdb: MongoDB):
     """Scale MongoDB sharded cluster from 3 back to 2 shards.
 
-    MongoDB will migrate data off the removed shard before completing,
-    so we use a generous timeout.
+    MongoDB will migrate data off the removed shard before completing.
+    The moveChunk in the scale-up phase placed data on the shard being
+    removed, so removeShard must drain it back — use a generous timeout.
     """
     mdb.load()
     mdb["spec"]["shardCount"] = SCALED_DOWN_SHARD_COUNT
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=1200)
+    mdb.assert_reaches_phase(Phase.Running, timeout=1800)
     logger.info("MongoDB scaled down to %d shards", SCALED_DOWN_SHARD_COUNT)
 
 
