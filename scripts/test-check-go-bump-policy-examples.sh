@@ -27,15 +27,39 @@ fi
 STUB_DIR="$(mktemp -d)"
 cat >"${STUB_DIR}/gh" <<'STUB'
 #!/usr/bin/env bash
-# Fake gh: no open bump PRs.
+# Fake gh: returns $STUB_GH_PR_LIST_JSON for `pr list` (default: empty array).
 if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then
-  echo '[]'
+  echo "${STUB_GH_PR_LIST_JSON:-[]}"
   exit 0
 fi
 echo "stub gh: only pr list supported" >&2
 exit 1
 STUB
 chmod +x "${STUB_DIR}/gh"
+
+expect_skip_pr() {
+  local name="$1"
+  shift
+  local out rc
+  echo "── ${name}"
+  set +e
+  out="$(PATH="${STUB_DIR}:${PATH}" env "$@" "${POLICY}" 2>&1)"
+  rc=$?
+  set -e
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "FAIL: exit ${rc}, expected 0 (skip)"
+    echo "${out}"
+    failures=$((failures + 1))
+    return
+  fi
+  if ! grep -q 'open bump PR' <<<"${out}"; then
+    echo "FAIL: expected open-bump-PR skip message"
+    echo "${out}"
+    failures=$((failures + 1))
+    return
+  fi
+  echo "PASS"
+}
 
 expect_pause() {
   local name="$1"
@@ -131,6 +155,23 @@ expect_bump "6) gap>=2 overrides soak — latest just released, current 2 behind
   TEST_OVERRIDE_LATEST_GO=1.28.0 \
   TEST_OVERRIDE_CURRENT_GO=1.26.5 \
   TEST_BUMP_DRY_RUN=1
+
+# PR-dedup: an open PR on the auto/bump-go-* branch should skip.
+expect_skip_pr "7) open auto/bump-go-* PR — skip" \
+  TEST_OVERRIDE_TODAY=2026-05-31 \
+  TEST_OVERRIDE_LATEST_RELEASE_DATE=2026-02-10 \
+  TEST_OVERRIDE_LATEST_GO=1.26.2 \
+  TEST_OVERRIDE_CURRENT_GO=1.25.9 \
+  STUB_GH_PR_LIST_JSON='[{"number":42,"title":"anything reviewers typed","url":"https://example/42","headRefName":"auto/bump-go-1.26.2"}]'
+
+# PR-dedup: an unrelated PR whose title merely mentions "go" must NOT suppress bumps.
+expect_bump "8) unrelated PR with 'go' in title — still bump" \
+  TEST_OVERRIDE_TODAY=2026-05-31 \
+  TEST_OVERRIDE_LATEST_RELEASE_DATE=2026-02-10 \
+  TEST_OVERRIDE_LATEST_GO=1.26.2 \
+  TEST_OVERRIDE_CURRENT_GO=1.25.9 \
+  TEST_BUMP_DRY_RUN=1 \
+  STUB_GH_PR_LIST_JSON='[{"number":7,"title":"refactor: go routines in controller","url":"https://example/7","headRefName":"feature/controller-goroutines"}]'
 
 echo
 if [[ "${failures}" -eq 0 ]]; then
