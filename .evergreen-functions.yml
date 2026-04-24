@@ -225,6 +225,32 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/setup_docker_sbom.sh
 
+  # Assumes the SilkBomb IAM role and writes temporary AWS credentials to silkbomb.env.
+  # This file is consumed by sbom.py when running the SilkBomb container.
+  # Prerequisite: Evergreen project variable 'silkbomb_role_arn' must be set to
+  # arn:aws:iam::119629040606:role/silkbomb
+  write_silkbomb_environment_file:
+    - command: ec2.assume_role
+      display_name: Assume SilkBomb IAM role
+      params:
+        role_arn: ${silkbomb_role_arn}
+    - command: shell.exec
+      display_name: Write temporary AWS credentials to SilkBomb environment file
+      params:
+        silent: true
+        shell: bash
+        include_expansions_in_env:
+          - AWS_ACCESS_KEY_ID
+          - AWS_SECRET_ACCESS_KEY
+          - AWS_SESSION_TOKEN
+          - workdir
+        script: |
+          cat << EOF > ${workdir}/silkbomb.env
+          AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+          AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+          AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+          EOF
+
   helm_registry_login:
     command: subprocess.exec
     type: setup

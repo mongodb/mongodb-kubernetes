@@ -120,6 +120,44 @@ def get_silkbomb_env_file_path() -> str:
     return silkbomb_env_path
 
 
+def upload_sbom_to_kondukto(
+    silkbomb_env_file: str,
+    directory: str,
+    sbom_lite_file_name: str,
+    kondukto_repo: str,
+    kondukto_branch: str,
+) -> bool:
+    logger.debug(f"Uploading SBOM {directory}/{sbom_lite_file_name} to Kondukto")
+
+    command = [
+        "docker",
+        "run",
+        "--platform",
+        "linux/amd64",
+        "--rm",
+        "-v",
+        f"{directory}:/sboms",
+        "--env-file",
+        silkbomb_env_file,
+        SILK_BOMB_IMAGE,
+        "upload",
+        "--sbom_in",
+        f"sboms/{sbom_lite_file_name}",
+        "--repo",
+        kondukto_repo,
+        "--branch",
+        kondukto_branch,
+    ]
+
+    logger.debug(f"Calling Silkbomb upload: {' '.join(command)}")
+    if retry(lambda: subprocess.run(command, check=True)):
+        logger.debug(f"Uploading SBOM to Kondukto done")
+        return True
+    else:
+        logger.error(f"Failed to upload SBOM to Kondukto")
+        return False
+
+
 def augment_sbom(
     silkbomb_env_file: str,
     directory: str,
@@ -219,7 +257,7 @@ def create_sbom_lite_for_binary(directory: str, file_path: str, sbom_light_path:
     logger.info(f"Creating SBOM Lite done")
 
 
-def generate_sbom_for_cli(cli_version: str = "1.25.0", platform: str = "linux/amd64"):
+def generate_sbom_for_cli(cli_version: str, platform: str = "linux/amd64"):
     logger.info(f"Generating SBOM for CLI for version {cli_version} and platform {platform}")
     try:
         silkbomb_env_file = get_silkbomb_env_file_path()

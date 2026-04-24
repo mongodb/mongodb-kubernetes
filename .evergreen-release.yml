@@ -103,6 +103,26 @@ tasks:
       - func: install_macos_notarization_service
       - func: release_kubectl_mongodb_plugin
 
+  # Generate SBOMs for all shipped images during the release pipeline.
+  # Must run after images are pushed to Quay by release_images.
+  - name: generate_sbom_release
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: write_silkbomb_environment_file
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: scripts/dev/run_python.sh
+          args:
+            - generate_sbom.py
+            - --mode
+            - release
+
   - name: add_releaseinfo_to_github_assets
     commands:
       - func: clone
@@ -143,6 +163,18 @@ buildvariants:
       - name: release_database
       - name: release_readiness_probe
       - name: release_version_upgrade_hook
+
+  - name: generate_release_sboms
+    display_name: "Generate Release SBOMs"
+    tags: [ "release" ]
+    run_on:
+      - release-ubuntu2404-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+    tasks:
+      - name: generate_sbom_release
 
   - name: add_releaseinfo_to_github_assets
     display_name: add_releaseinfo_to_github_assets

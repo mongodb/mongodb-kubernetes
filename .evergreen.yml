@@ -298,6 +298,26 @@ tasks:
     commands:
       - func: lint_repo
 
+  # Daily SBOM generation for all shipped images and CLI binary.
+  # Generates SBOM Lites via docker sbom, augments with SilkBomb/Kondukto, uploads to S3.
+  - name: generate_sbom_daily
+    patchable: false
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: write_silkbomb_environment_file
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: scripts/dev/run_python.sh
+          args:
+            - generate_sbom.py
+            - --mode
+            - daily
+
   - name: go_bump_policy_tests
     tags: [ "unit_tests" ]
     commands:
@@ -2189,6 +2209,15 @@ buildvariants:
       - ubuntu2404-small
     tasks:
       - name: notify_master_build_status
+
+  # Daily SBOM generation for all shipped images
+  - name: daily_sbom_generation
+    display_name: "Daily SBOM Generation"
+    cron: "0 6 * * *"
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: generate_sbom_daily
 
   # Weekly flaky test report - runs every Monday at 9 AM UTC
   - name: flaky_test_report
