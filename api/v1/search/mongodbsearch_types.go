@@ -603,8 +603,35 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 }
 
 func (s *MongoDBSearch) GetReplicas() int {
-	if s.Spec.Replicas > 0 {
-		return s.Spec.Replicas
+	// Single legitimate read of the deprecated top-level field — this is the
+	// operator-side default ("1 when unset") for the legacy single-cluster path.
+	// An explicit 0 is honored (callers can take mongot offline via the CR).
+	// Multi-cluster readers go through EffectiveClusters() instead.
+	//nolint:staticcheck // SA1019: deprecated field is the documented fallback.
+	if s.Spec.Replicas != nil {
+		return int(*s.Spec.Replicas)
+	}
+	return 1
+}
+
+// GetReplicasForCluster returns the per-cluster mongot replica count after
+// applying the EffectiveClusters cascade (cluster-set wins, top-level is the
+// default, "1" if neither is set). clusterName="" returns the single-cluster
+// auto-promoted value (equivalent to GetReplicas).
+//
+// An explicit 0 is honored, matching the documented contract on GetReplicas:
+// callers (and the connectivity-tool / availability-tester e2e tests) take
+// mongot offline by setting spec.replicas=0 on the MongoDBSearch CR. The
+// earlier `*r > 0` guard silently clamped that to 1, so the operator never
+// actually scaled the mongot StatefulSet down and the tests waiting on the
+// scale-to-0 timed out.
+func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
+	c, err := s.EffectiveClusterFor(clusterName)
+	if err != nil {
+		return 1
+	}
+	if r := c.Replicas; r != nil {
+		return int(*r)
 	}
 	return 1
 }
