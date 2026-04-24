@@ -56,6 +56,10 @@ func buildBootstrapJSON() (string, error) {
 	}
 
 	bootstrap := &bootstrapv3.Bootstrap{
+		Node: &corev3.Node{
+			Id:      "envoy-search-proxy",
+			Cluster: "search-proxy",
+		},
 		Admin: &bootstrapv3.Admin{
 			Address: socketAddress("0.0.0.0", uint32(envoyAdminPort)),
 		},
