@@ -92,7 +92,7 @@ func BuildMonarchConfigMap(mdb *mdbv1.MongoDB, namespace string, srcURI string) 
 
 	// Build YAML config - monarch reads this via --config flag
 	// Build per-member host list: <rs>-0.<svc>.<ns>.svc.cluster.local:27017,...
-	svcName := fmt.Sprintf("%s-svc", mdb.Name)
+	svcName := mdb.ServiceName()
 	hosts := make([]string, mdb.Spec.Members)
 	for i := 0; i < mdb.Spec.Members; i++ {
 		hosts[i] = fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:27017", mdb.Name, i, svcName, namespace)

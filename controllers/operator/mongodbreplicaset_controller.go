@@ -68,6 +68,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault/vaultwatcher"
+	"k8s.io/utils/ptr"
 )
 
 // ReconcileMongoDbReplicaSet reconciles a MongoDB with a type of ReplicaSet.
@@ -319,7 +320,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateStatus(ctx, monarchStatus)
 		}
 	} else {
-		// Monarch was removed — clear any stale role-specific conditions so they don't mislead.
+		// Monarch was removed — clean up resources and automation config.
+		if cleanupStatus := r.cleanupMonarchResources(ctx, conn); !cleanupStatus.IsOK() {
+			return r.updateStatus(ctx, cleanupStatus)
+		}
 		apimeta.RemoveStatusCondition(&rs.Status.Conditions, mdbv1.ConditionShipperReady)
 		apimeta.RemoveStatusCondition(&rs.Status.Conditions, mdbv1.ConditionInjectorReady)
 	}
@@ -545,6 +549,14 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 	}
 	role := string(rs.Spec.Monarch.Role)
 
+	// 0. Read AWS credentials early (fail fast if secret doesn't exist)
+	credSecret, err := reconciler.client.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Spec.Monarch.CredentialsSecretRef.Name))
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to read Monarch credentials secret %s: %w", rs.Spec.Monarch.CredentialsSecretRef.Name, err))
+	}
+	awsKeyId := string(credSecret.Data["awsAccessKeyId"])
+	awsSecret := string(credSecret.Data["awsSecretAccessKey"])
+
 	// Build MongoDB connection string for the replica set
 	srcURI := buildMongoDBConnectionString(rs)
 
@@ -607,17 +619,9 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 		return workflow.Pending("Waiting for Monarch %s Deployment to be ready: %v", monarchRole, err)
 	}
 
-	// 5. Read AWS credentials from the referenced secret
-	credSecret, err := reconciler.client.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Spec.Monarch.CredentialsSecretRef.Name))
-	if err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to read Monarch credentials secret %s: %w", rs.Spec.Monarch.CredentialsSecretRef.Name, err))
-	}
-	awsKeyId := string(credSecret.Data["awsAccessKeyId"])
-	awsSecret := string(credSecret.Data["awsSecretAccessKey"])
-
-	// 6. Build automation config with InjectorInstances pointing to the now-healthy Service
+	// 5. Build automation config with InjectorInstances pointing to the now-healthy Service
 	serviceDNS := construct.GetMonarchServiceDNS(rs.Name, monarchRole, rs.Namespace)
-	memberSvcName := fmt.Sprintf("%s-svc", rs.Name)
+	memberSvcName := rs.ServiceName()
 	memberHostnames := make([]string, rs.Spec.Members)
 	for i := 0; i < rs.Spec.Members; i++ {
 		memberHostnames[i] = fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local", rs.Name, i, memberSvcName, rs.Namespace)
@@ -636,6 +640,12 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 		log,
 	)
 	if err != nil {
+		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
+			Type:    conditionType,
+			Status:  metav1.ConditionFalse,
+			Reason:  mdbv1.ReasonMonarchDeploymentFailed,
+			Message: fmt.Sprintf("Failed to push automation config: %v", err),
+		})
 		return workflow.Failed(xerrors.Errorf("failed to update automation config with Monarch components: %w", err))
 	}
 
@@ -644,9 +654,70 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 		Type:    conditionType,
 		Status:  metav1.ConditionTrue,
 		Reason:  mdbv1.ReasonMonarchDeploymentReady,
-		Message: fmt.Sprintf("%d/%d pods ready (role=%s)", dep.Status.ReadyReplicas, *dep.Spec.Replicas, role),
+		Message: fmt.Sprintf("%d/%d pods ready (role=%s)", dep.Status.ReadyReplicas, ptr.Deref(dep.Spec.Replicas, 1), role),
 	})
 	log.Infof("Reconciled Monarch %s with %d replicas", monarchRole, construct.DefaultMonarchReplicas)
+	return workflow.OK()
+}
+
+// cleanupMonarchResources deletes Monarch Deployment, Service, ConfigMap, and removes
+// maintainedMonarchComponents from automation config when spec.monarch is removed.
+func (r *ReplicaSetReconcilerHelper) cleanupMonarchResources(ctx context.Context, conn om.Connection) workflow.Status {
+	rs := r.resource
+	reconciler := r.reconciler
+	log := r.log
+
+	// Delete both shipper and injector resources since we don't know which role was previously active.
+	// OwnerReferences should handle this, but explicit cleanup ensures resources are removed
+	// even if the owner reference chain is broken.
+	for _, role := range []string{"shipper", "injector"} {
+		// Delete Deployment
+		dep := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      construct.MonarchDeploymentName(rs.Name, role),
+				Namespace: rs.Namespace,
+			},
+		}
+		if err := reconciler.client.Delete(ctx, dep); err != nil && !errors.IsNotFound(err) {
+			return workflow.Failed(xerrors.Errorf("failed to delete Monarch %s Deployment: %w", role, err))
+		}
+
+		// Delete Service
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      construct.MonarchServiceName(rs.Name, role),
+				Namespace: rs.Namespace,
+			},
+		}
+		if err := reconciler.client.Delete(ctx, svc); err != nil && !errors.IsNotFound(err) {
+			return workflow.Failed(xerrors.Errorf("failed to delete Monarch %s Service: %w", role, err))
+		}
+
+		// Delete ConfigMap
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      construct.MonarchConfigMapName(rs.Name, role),
+				Namespace: rs.Namespace,
+			},
+		}
+		if err := reconciler.client.Delete(ctx, cm); err != nil && !errors.IsNotFound(err) {
+			return workflow.Failed(xerrors.Errorf("failed to delete Monarch %s ConfigMap: %w", role, err))
+		}
+	}
+
+	// Remove maintainedMonarchComponents from automation config
+	err := conn.ReadUpdateDeployment(
+		func(d om.Deployment) error {
+			d.SetMaintainedMonarchComponents([]om.MaintainedMonarchComponents{})
+			return nil
+		},
+		log,
+	)
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to clear Monarch components from automation config: %w", err))
+	}
+
+	log.Info("Cleaned up Monarch resources")
 	return workflow.OK()
 }
 

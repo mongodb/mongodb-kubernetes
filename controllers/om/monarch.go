@@ -16,7 +16,7 @@ type MaintainedMonarchComponents struct {
 	AWSRegion          string         `json:"awsRegion"`
 	AWSAccessKeyID     string         `json:"awsAccessKeyId"`
 	AWSSecretAccessKey string         `json:"awsSecretAccessKey"`
-	S3BucketEndpoint   string         `json:"s3BucketEndPoint,omitempty"`
+	S3BucketEndpoint   string         `json:"s3BucketEndpoint,omitempty"`
 	S3PathStyleAccess  bool           `json:"s3PathStyleAccess,omitempty"`
 	InjectorConfig     InjectorConfig `json:"injectorConfig"`
 }

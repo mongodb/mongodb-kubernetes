@@ -435,7 +435,11 @@ type MongoDbStatus struct {
 	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
 	// Conditions represent the latest available observations of the MongoDB's state.
 	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 type BackupMode string
