@@ -19,7 +19,7 @@ var MigrateCmd = &cobra.Command{
 config for migrating existing deployments to the operator.
 
 Use one of the subcommands to generate specific resource types:
-  mongodb  Generate a MongoDB or MongoDBMultiCluster CR
+  mongodb  Generate a MongoDB CR
   users    Generate MongoDBUser CRs`,
 }
 
