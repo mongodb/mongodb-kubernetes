@@ -49,9 +49,11 @@ func (d Deployment) SetMaintainedMonarchComponents(mc []MaintainedMonarchCompone
 }
 
 // BuildMaintainedMonarchComponents builds the automation config entries for Monarch.
-// For standby (injector) clusters, it creates InjectorInstance entries using Service DNS names.
+// For standby (injector) clusters, it creates one InjectorInstance per RS member.
+// Each instance uses the member's FQDN as Hostname (for agent locality matching) but
+// routes healthApiEndpoint and monarchApiEndpoint through the shared Service.
 // For active (shipper) clusters, it creates entries without injector instances.
-func BuildMaintainedMonarchComponents(mdb *mdbv1.MongoDB, rsName string, awsAccessKeyId string, awsSecretAccessKey string, serviceDNSNames []string) ([]MaintainedMonarchComponents, error) {
+func BuildMaintainedMonarchComponents(mdb *mdbv1.MongoDB, rsName string, awsAccessKeyId string, awsSecretAccessKey string, memberHostnames []string, serviceDNS string) ([]MaintainedMonarchComponents, error) {
 	monarch := mdb.Spec.Monarch
 	if monarch == nil {
 		return nil, fmt.Errorf("monarch spec is nil")
@@ -89,15 +91,15 @@ func BuildMaintainedMonarchComponents(mdb *mdbv1.MongoDB, rsName string, awsAcce
 		}
 		mc.ReplicaSetID = activeRSName
 
-		instances := make([]InjectorInstance, len(serviceDNSNames))
-		for i, dns := range serviceDNSNames {
+		instances := make([]InjectorInstance, len(memberHostnames))
+		for i, fqdn := range memberHostnames {
 			instances[i] = InjectorInstance{
 				ID:                 i,
-				Hostname:           dns,
+				Hostname:           fqdn,
 				Port:               9995,
 				ExternallyManaged:  true,
-				HealthAPIEndpoint:  dns + ":8080",
-				MonarchAPIEndpoint: dns + ":1122",
+				HealthAPIEndpoint:  serviceDNS + ":8080",
+				MonarchAPIEndpoint: serviceDNS + ":1122",
 			}
 		}
 

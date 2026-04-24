@@ -79,8 +79,10 @@ const (
 
 // Monarch condition types
 const (
-	// ConditionMonarchReady indicates whether the Monarch Deployment is ready.
-	ConditionMonarchReady = "MonarchReady"
+	// ConditionShipperReady indicates whether the Monarch shipper Deployment (active cluster) is ready.
+	ConditionShipperReady = "ShipperReady"
+	// ConditionInjectorReady indicates whether the Monarch injector Deployment (standby cluster) is ready.
+	ConditionInjectorReady = "InjectorReady"
 )
 
 // Monarch condition reasons

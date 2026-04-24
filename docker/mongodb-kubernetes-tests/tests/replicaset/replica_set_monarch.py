@@ -1,27 +1,24 @@
 """
 e2e test for Monarch Deployment pattern.
 
-Verifies that when a MongoDB CR has spec.monarch configured, the operator creates
-a single Monarch Deployment (with multiple replicas for redundancy) and a single
-Service, wiring the automation config with the Service DNS name.
-
 Flow:
   1. Deploy MinIO (S3 store)
-  2. Deploy active RS with spec.monarch.role=active, insert docs
-  3. Snapshot active RS → MinIO via shipper Job
-  4. Deploy standby RS with spec.monarch.role=standby
-  5. Verify Monarch Deployment/Service created with correct labels and ports
-  6. Verify automation config uses Service DNS name (not localhost)
-  7. Verify data replication to standby
+  2. Deploy active RS WITHOUT spec.monarch (plain replica set)
+  3. Insert documents while RS is running without DR
+  4. Activate Monarch: patch spec.monarch.role=active → operator creates shipper
+  5. Verify shipper Deployment/Service/ConfigMap and automation config
+  6. Verify shipper uploads to S3
+  7. Deploy standby RS with spec.monarch.role=standby
+  8. Verify standby agents block in WaitForInjectorReady before going Running
+  9. Verify data replicated to standby
 """
 
-import json as _json
 import os
 import subprocess
-import textwrap
 import time
 
 import boto3
+import pymongo
 from botocore.config import Config as BotoConfig
 from kubernetes import client as k8s_client
 from pytest import fixture, mark
@@ -37,28 +34,18 @@ from kubetester.phase import Phase
 ACTIVE_RS_NAME = "monarch-active-rs"
 STANDBY_RS_NAME = "monarch-standby-rs"
 MINIO_NAME = "monarch-minio"
-SHIPPER_JOB_NAME = "monarch-shipper"
-SHIPPER_CONFIGMAP = "monarch-shipper-script"
 
 # ── S3 / Monarch config ────────────────────────────────────────────────────
 S3_BUCKET = "monarch-standby-bucket"
 CLUSTER_PREFIX = "failoverdemo"
+SHARD_ID = "0"
 MINIO_USER = "minioadmin"
 MINIO_PASSWORD = "minioadmin123"
 AWS_REGION = "eu-north-1"
 S3_CREDS_SECRET = "monarch-s3-creds"
 
-# Default number of Monarch pod replicas per RS.
-# Multiple replicas provide redundancy - CAS protocol on S3 ensures safety.
-DEFAULT_MONARCH_REPLICAS = 3
 
 # ── custom images ───────────────────────────────────────────────────────────
-# Default to staging ECR with ':monarch' tag.
-# Build all images: scripts/dev/build-monarch-images.sh
-# Then switch context: make switch context=e2e_static_om80_kind_ubi additional_override=private-context-monarch
-#
-# Agent image comes from operator context (MDB_AGENT_IMAGE env var).
-# OM and Monarch images are configured below for this test.
 _STAGING_ECR = "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
 OM_IMAGE = os.getenv("MDB_OM_IMAGE", f"{_STAGING_ECR}/mongodb-enterprise-ops-manager-ubi:monarch")
 MONARCH_IMAGE = os.getenv("MDB_MONARCH_IMAGE", f"{_STAGING_ECR}/mongodb-kubernetes-monarch-injector:monarch")
@@ -87,26 +74,6 @@ def _minio_endpoint(namespace: str) -> str:
     return f"http://{MINIO_NAME}.{namespace}.svc.cluster.local:9000"
 
 
-def _active_rs_uri(namespace: str, cluster_domain: str, members: int = 3) -> str:
-    svc = f"{ACTIVE_RS_NAME}-svc"
-    hosts = [f"{ACTIVE_RS_NAME}-{i}.{svc}.{namespace}.svc.{cluster_domain}:27017" for i in range(members)]
-    return f"mongodb://{','.join(hosts)}/?replicaSet={ACTIVE_RS_NAME}"
-
-
-def _mongosh_exec(namespace: str, pod: str, js: str) -> str:
-    result = subprocess.run(
-        [
-            "kubectl", "exec", "-i", "-n", namespace, pod,
-            "-c", "mongodb-agent", "--",
-            "mongosh", "--quiet", "--file", "/dev/stdin",
-        ],
-        input=js.encode(),
-        capture_output=True,
-        check=True,
-    )
-    return result.stdout.decode().strip()
-
-
 def _wait_for_deployment_ready(namespace: str, name: str, timeout: int = 120):
     apps = k8s_client.AppsV1Api()
     deadline = time.time() + timeout
@@ -129,24 +96,58 @@ def _s3_client(endpoint: str):
     )
 
 
-def _port_forward_minio(namespace: str, local_port: int = 19000):
-    import contextlib
-
-    @contextlib.contextmanager
-    def _ctx():
-        proc = subprocess.Popen(
-            ["kubectl", "port-forward", "-n", namespace, f"svc/{MINIO_NAME}", f"{local_port}:9000"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        time.sleep(2)
+def _ensure_s3_bucket(namespace: str, timeout: int = 120):
+    """Create the S3 bucket, retrying until MinIO is fully ready to accept API calls."""
+    s3 = _s3_client(_minio_endpoint(namespace))
+    deadline = time.time() + timeout
+    while time.time() < deadline:
         try:
-            yield f"http://localhost:{local_port}"
-        finally:
-            proc.terminate()
-            proc.wait()
+            s3.create_bucket(Bucket=S3_BUCKET)
+            return
+        except s3.exceptions.BucketAlreadyOwnedByYou:
+            return
+        except Exception:
+            time.sleep(3)
+    raise TimeoutError(f"Failed to create S3 bucket {S3_BUCKET} in MinIO after {timeout}s")
 
-    return _ctx()
+
+def _wait_for_s3_data(namespace: str, timeout: int = 300):
+    s3 = _s3_client(_minio_endpoint(namespace))
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=f"{CLUSTER_PREFIX}/{SHARD_ID}/").get("KeyCount", 0) > 0:
+            return
+        time.sleep(5)
+    raise TimeoutError(f"No S3 objects after {timeout}s — shipper may not be running")
+
+
+def _wait_for_monarch_condition(mdb: MongoDB, timeout: int = 300):
+    """Wait until the ShipperReady or InjectorReady condition on the MongoDB CR is True."""
+    role = mdb["spec"]["monarch"]["role"]
+    condition_type = "ShipperReady" if role == "active" else "InjectorReady"
+
+    def is_ready(resource: MongoDB) -> bool:
+        for cond in resource["status"]["conditions"]:
+            if cond.get("type") == condition_type and cond.get("status") == "True":
+                return True
+        return False
+
+    mdb.wait_for(is_ready, timeout=timeout, should_raise=True)
+
+
+def _monarch_spec(namespace: str, role: str, **extra) -> dict:
+    spec = {
+        "role": role,
+        "s3BucketName": S3_BUCKET,
+        "awsRegion": AWS_REGION,
+        "credentialsSecretRef": {"name": S3_CREDS_SECRET},
+        "clusterPrefix": CLUSTER_PREFIX,
+        "s3BucketEndpoint": _minio_endpoint(namespace),
+        "s3PathStyleAccess": True,
+        "image": MONARCH_IMAGE,
+    }
+    spec.update(extra)
+    return spec
 
 
 # ── fixtures ────────────────────────────────────────────────────────────────
@@ -156,18 +157,7 @@ def _port_forward_minio(namespace: str, local_port: int = 19000):
 def ops_manager(namespace: str, custom_mdb_version: str, custom_appdb_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(yaml_fixture("om-monarch.yaml"), namespace=namespace)
     resource["spec"]["statefulSet"] = {
-        "spec": {
-            "template": {
-                "spec": {
-                    "containers": [
-                        {
-                            "name": "mongodb-ops-manager",
-                            "image": OM_IMAGE,
-                        }
-                    ]
-                }
-            }
-        }
+        "spec": {"template": {"spec": {"containers": [{"name": "mongodb-ops-manager", "image": OM_IMAGE}]}}}
     }
     resource["spec"]["applicationDatabase"]["version"] = custom_appdb_version
     resource.create_admin_secret()
@@ -181,13 +171,7 @@ def ops_manager(namespace: str, custom_mdb_version: str, custom_appdb_version: s
 def minio(namespace: str) -> str:
     subprocess.check_call(["kubectl", "apply", "-n", namespace, "-f", yaml_fixture("minio.yaml")])
     _wait_for_deployment_ready(namespace, MINIO_NAME)
-
-    with _port_forward_minio(namespace) as local_endpoint:
-        s3 = _s3_client(local_endpoint)
-        try:
-            s3.create_bucket(Bucket=S3_BUCKET)
-        except Exception:
-            pass
+    _ensure_s3_bucket(namespace)
     return _minio_endpoint(namespace)
 
 
@@ -202,186 +186,47 @@ def s3_creds_secret(namespace: str, minio: str) -> str:
 
 
 @fixture(scope="module")
-def active_replica_set(
-    namespace: str,
-    custom_mdb_version: str,
-    minio: str,
-    s3_creds_secret: str,
-    ops_manager: MongoDBOpsManager,
-) -> MongoDB:
-    """Deploy active RS with spec.monarch.role=active."""
+def active_rs(namespace: str, custom_mdb_version: str, ops_manager: MongoDBOpsManager) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-monarch.yaml"), ACTIVE_RS_NAME, namespace)
     resource.set_version(custom_mdb_version)
-    resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static"
-    resource["spec"]["monarch"]["role"] = "active"
-    resource["spec"]["monarch"]["s3BucketEndpoint"] = _minio_endpoint(namespace)
-    resource["spec"]["monarch"]["image"] = MONARCH_IMAGE
     resource.configure(ops_manager, ACTIVE_RS_NAME)
     try_load(resource)
     return resource
 
 
 @fixture(scope="module")
-def active_rs_running(active_replica_set: MongoDB) -> MongoDB:
-    active_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
-    return active_replica_set
-
-
-@fixture(scope="module")
-def initialize_inventory_documents(namespace: str, active_rs_running: MongoDB) -> int:
-    """
-    Fixture to initialize the inventory documents in the MongoDB database. It deletes all
-    existing documents in the specified collection and inserts predefined inventory
-    documents. This fixture ensures the database starts with a clean state for the
-    provided namespace and replicaset instance.
-    """
-    docs_json = _json.dumps(INVENTORY_DOCS)
-    js = (
-        f"db.getSiblingDB('{PRODUCTS_DB}').{INVENTORY_COLLECTION}.deleteMany({{}});"
-        f"db.getSiblingDB('{PRODUCTS_DB}').{INVENTORY_COLLECTION}.insertMany({docs_json});"
-        f"print(db.getSiblingDB('{PRODUCTS_DB}').{INVENTORY_COLLECTION}.countDocuments({{}}))"
-    )
-    count = int(_mongosh_exec(namespace, f"{ACTIVE_RS_NAME}-0", js).split("\n")[-1])
-    assert count == len(INVENTORY_DOCS)
-    return count
-
-
-_SHIPPER_SCRIPT = textwrap.dedent(
-    """\
-    #!/bin/bash
-    set -e
-    exec /usr/local/bin/monarch shipper \\
-      --mode snapshotterOnly \\
-      --clusterPrefix "$CLUSTER_PREFIX" \\
-      --shardId "$SHARD_ID" \\
-      --srcURI "$SRC_URI" \\
-      --backupMongoNodeURI "$BACKUP_MONGO_NODE_URI" \\
-      --aws.authMode staticCredentials \\
-      --aws.accessKeyId "$AWS_ACCESS_KEY_ID" \\
-      --aws.secretAccessKey "$AWS_SECRET_ACCESS_KEY" \\
-      --aws.bucketName "$S3_BUCKET" \\
-      --aws.region "$AWS_REGION" \\
-      --aws.usePathStyle \\
-      --aws.customBaseEndpoint "$MINIO_ENDPOINT" \\
-      --logLevel info
-    """
-)
-
-
-def _wait_for_snapshot(namespace: str, timeout: int = 300):
-    with _port_forward_minio(namespace) as local_endpoint:
-        s3 = _s3_client(local_endpoint)
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            resp = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=f"{CLUSTER_PREFIX}/{ACTIVE_RS_NAME}/")
-            if resp.get("KeyCount", 0) > 0:
-                return
-            time.sleep(5)
-    raise TimeoutError(f"No snapshot objects appeared in S3 after {timeout}s")
-
-
-@fixture(scope="module")
-def monarch_snapshot(
-    namespace: str,
-    minio: str,
-    cluster_domain: str,
-) -> None:
-    core = k8s_client.CoreV1Api()
-    batch = k8s_client.BatchV1Api()
-
-    cm = k8s_client.V1ConfigMap(
-        metadata=k8s_client.V1ObjectMeta(name=SHIPPER_CONFIGMAP, namespace=namespace),
-        data={"shipper.sh": _SHIPPER_SCRIPT},
-    )
-    try:
-        core.create_namespaced_config_map(namespace, cm)
-    except k8s_client.ApiException as e:
-        if e.status != 409:
-            raise
-
-    src_uri = _active_rs_uri(namespace, cluster_domain, members=3)
-    backup_node_uri = (
-        f"mongodb://{ACTIVE_RS_NAME}-0.{ACTIVE_RS_NAME}-svc"
-        f".{namespace}.svc.{cluster_domain}:27017/?directConnection=true"
-    )
-
-    job = k8s_client.V1Job(
-        metadata=k8s_client.V1ObjectMeta(name=SHIPPER_JOB_NAME, namespace=namespace),
-        spec=k8s_client.V1JobSpec(
-            backoff_limit=2,
-            template=k8s_client.V1PodTemplateSpec(
-                spec=k8s_client.V1PodSpec(
-                    restart_policy="Never",
-                    containers=[
-                        k8s_client.V1Container(
-                            name="shipper",
-                            image=MONARCH_IMAGE,
-                            command=["/bin/bash", "/scripts/shipper.sh"],
-                            env=[
-                                k8s_client.V1EnvVar(name="CLUSTER_PREFIX", value=CLUSTER_PREFIX),
-                                k8s_client.V1EnvVar(name="SHARD_ID", value=ACTIVE_RS_NAME),
-                                k8s_client.V1EnvVar(name="SRC_URI", value=src_uri),
-                                k8s_client.V1EnvVar(name="BACKUP_MONGO_NODE_URI", value=backup_node_uri),
-                                k8s_client.V1EnvVar(name="AWS_ACCESS_KEY_ID", value=MINIO_USER),
-                                k8s_client.V1EnvVar(name="AWS_SECRET_ACCESS_KEY", value=MINIO_PASSWORD),
-                                k8s_client.V1EnvVar(name="S3_BUCKET", value=S3_BUCKET),
-                                k8s_client.V1EnvVar(name="AWS_REGION", value=AWS_REGION),
-                                k8s_client.V1EnvVar(name="MINIO_ENDPOINT", value=_minio_endpoint(namespace)),
-                            ],
-                            volume_mounts=[k8s_client.V1VolumeMount(name="scripts", mount_path="/scripts")],
-                        )
-                    ],
-                    volumes=[
-                        k8s_client.V1Volume(
-                            name="scripts",
-                            config_map=k8s_client.V1ConfigMapVolumeSource(name=SHIPPER_CONFIGMAP, default_mode=0o755),
-                        )
-                    ],
-                )
-            ),
-        ),
-    )
-    try:
-        batch.delete_namespaced_job(
-            SHIPPER_JOB_NAME, namespace,
-            body=k8s_client.V1DeleteOptions(propagation_policy="Foreground"),
-        )
-        time.sleep(3)
-    except k8s_client.ApiException as e:
-        if e.status != 404:
-            raise
-
-    batch.create_namespaced_job(namespace, job)
-    _wait_for_snapshot(namespace, timeout=300)
-
-
-@fixture(scope="module")
-def standby_replica_set(
+def standby_rs(
     namespace: str,
     custom_mdb_version: str,
-    monarch_snapshot: None,
+    active_rs: MongoDB,
     s3_creds_secret: str,
     ops_manager: MongoDBOpsManager,
 ) -> MongoDB:
-    """Deploy standby RS with spec.monarch.role=standby."""
+    """
+    Standby Clusters always start with Injectors.
+    """
+    _wait_for_s3_data(namespace)
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-monarch.yaml"), STANDBY_RS_NAME, namespace)
     resource.set_version(custom_mdb_version)
-    resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static"
-    resource["spec"]["monarch"]["role"] = "standby"
-    resource["spec"]["monarch"]["activeReplicaSetId"] = ACTIVE_RS_NAME
-    resource["spec"]["monarch"]["injectorVersion"] = "0.1.1"
-    resource["spec"]["monarch"]["s3BucketEndpoint"] = _minio_endpoint(namespace)
-    resource["spec"]["monarch"]["image"] = MONARCH_IMAGE
-    resource["spec"]["monarch"].pop("shipperVersion", None)
+    resource["spec"]["monarch"] = _monarch_spec(
+        namespace,
+        "standby",
+        activeReplicaSetId=ACTIVE_RS_NAME,
+        injectorVersion="0.1.1",
+    )
     resource.configure(ops_manager, STANDBY_RS_NAME)
     try_load(resource)
     return resource
 
 
 @fixture(scope="module")
-def standby_rs_running(standby_replica_set: MongoDB) -> MongoDB:
-    standby_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
-    return standby_replica_set
+def initialize_inventory_documents(active_rs: MongoDB) -> int:
+    col = active_rs.tester().client[PRODUCTS_DB][INVENTORY_COLLECTION]
+    col.delete_many({})
+    col.insert_many(INVENTORY_DOCS)
+    count = col.count_documents({})
+    assert count == len(INVENTORY_DOCS)
+    return count
 
 
 # ── test class ──────────────────────────────────────────────────────────────
@@ -389,257 +234,102 @@ def standby_rs_running(standby_replica_set: MongoDB) -> MongoDB:
 
 @mark.e2e_replica_set_monarch
 class TestMonarchDeployments(KubernetesTester):
-    """Verify Monarch Deployment pattern with single Deployment and Service"""
 
-    # ── Phase 1: Active RS with Monarch Deployments ─────────────────────
+    # ── Phase 1: Active RS without Monarch ──────────────────────────────
 
-    def test_active_rs_running(self, active_replica_set: MongoDB):
-        active_replica_set.update()
-        active_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    def test_active_rs_running(self, active_rs: MongoDB):
+        active_rs.update()
+        active_rs.assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_active_monarch_deployment_created(self, active_rs_running: MongoDB):
-        """Verify single Monarch Deployment with app=monarch-shipper label and correct replicas."""
+    def test_no_monarch_resources_before_activation(self, active_rs: MongoDB):
         apps = k8s_client.AppsV1Api()
-        dep_name = f"{ACTIVE_RS_NAME}-monarch-shipper"
-        dep = apps.read_namespaced_deployment(dep_name, self.namespace)
-        assert dep is not None, f"Deployment {dep_name} not found"
-        assert dep.spec.replicas == DEFAULT_MONARCH_REPLICAS, (
-            f"Expected {DEFAULT_MONARCH_REPLICAS} replicas, got {dep.spec.replicas}"
-        )
+        try:
+            apps.read_namespaced_deployment(f"{ACTIVE_RS_NAME}-monarch-shipper", self.namespace)
+            assert False, "Shipper Deployment should not exist before Monarch activation"
+        except k8s_client.exceptions.ApiException as e:
+            assert e.status == 404
 
-    def test_active_monarch_deployment_ready(self, active_rs_running: MongoDB):
-        apps = k8s_client.AppsV1Api()
-        dep_name = f"{ACTIVE_RS_NAME}-monarch-shipper"
-        dep = apps.read_namespaced_deployment(dep_name, self.namespace)
-        assert dep.status.ready_replicas == DEFAULT_MONARCH_REPLICAS, (
-            f"Deployment {dep_name}: expected {DEFAULT_MONARCH_REPLICAS} ready replicas, got {dep.status.ready_replicas}"
-        )
+    def test_insert_documents_before_activation(self, initialize_inventory_documents: int):
+        assert initialize_inventory_documents == len(INVENTORY_DOCS)
 
-    def test_active_monarch_deployment_containers(self, active_rs_running: MongoDB):
-        """Verify Monarch container has correct name, ports, and command."""
-        apps = k8s_client.AppsV1Api()
-        dep = apps.read_namespaced_deployment(f"{ACTIVE_RS_NAME}-monarch-shipper", self.namespace)
-        containers = dep.spec.template.spec.containers
-        assert len(containers) == 1
+    # ── Phase 2: Activate Monarch on running RS ──────────────────────────
 
-        c = containers[0]
-        assert c.name == "monarch-shipper"
+    def test_activate_monarch(self, active_rs: MongoDB, s3_creds_secret: str, namespace: str):
+        active_rs["spec"]["monarch"] = _monarch_spec(namespace, "active", shipperVersion="0.1.1")
+        active_rs.update()
+        active_rs.assert_reaches_phase(Phase.Running, timeout=600)
+        _wait_for_monarch_condition(active_rs)
 
-        ports = {p.name: p.container_port for p in c.ports}
-        assert ports["health"] == 8080
-        assert ports["replication"] == 9995
-        assert ports["monarch-api"] == 1122
+    # ── Phase 3: Automation config ───────────────────────────────────────
 
-        # Command uses --config flag to read YAML configuration from ConfigMap
-        command = " ".join(c.command)
-        assert "shipper" in command
-        assert "--config=/etc/monarch/config.yaml" in command
-
-    def test_active_monarch_deployment_labels(self, active_rs_running: MongoDB):
-        apps = k8s_client.AppsV1Api()
-        dep = apps.read_namespaced_deployment(f"{ACTIVE_RS_NAME}-monarch-shipper", self.namespace)
-        labels = dep.spec.template.metadata.labels
-        assert labels["app"] == "monarch-shipper"
-        assert labels["mongodb"] == ACTIVE_RS_NAME
-        assert labels["monarch-component"] == "shipper"
-
-    def test_active_monarch_service_created(self, active_rs_running: MongoDB):
-        """Verify single Monarch Service with correct ports and selector."""
-        core = k8s_client.CoreV1Api()
-        svc_name = f"{ACTIVE_RS_NAME}-monarch-shipper-svc"
-        svc = core.read_namespaced_service(svc_name, self.namespace)
-        assert svc is not None, f"Service {svc_name} not found"
-
-    def test_active_monarch_service_ports(self, active_rs_running: MongoDB):
-        core = k8s_client.CoreV1Api()
-        svc = core.read_namespaced_service(f"{ACTIVE_RS_NAME}-monarch-shipper-svc", self.namespace)
-        port_map = {p.name: p.port for p in svc.spec.ports}
-        assert port_map["health"] == 8080
-        assert port_map["replication"] == 9995
-        assert port_map["monarch-api"] == 1122
-
-        # Verify selector targets the Deployment pods
-        assert svc.spec.selector["monarch-component"] == "shipper"
-        assert svc.spec.selector["mongodb"] == ACTIVE_RS_NAME
-
-    def test_active_monarch_owner_references(self, active_rs_running: MongoDB):
-        """Monarch Deployment, Service, and ConfigMap should be owned by the MongoDB resource."""
-        apps = k8s_client.AppsV1Api()
-        core = k8s_client.CoreV1Api()
-
-        dep = apps.read_namespaced_deployment(f"{ACTIVE_RS_NAME}-monarch-shipper", self.namespace)
-        assert dep.metadata.owner_references is not None
-        assert dep.metadata.owner_references[0].kind == "MongoDB"
-        assert dep.metadata.owner_references[0].name == ACTIVE_RS_NAME
-
-        svc = core.read_namespaced_service(f"{ACTIVE_RS_NAME}-monarch-shipper-svc", self.namespace)
-        assert svc.metadata.owner_references is not None
-        assert svc.metadata.owner_references[0].kind == "MongoDB"
-        assert svc.metadata.owner_references[0].name == ACTIVE_RS_NAME
-
-        cm = core.read_namespaced_config_map(f"{ACTIVE_RS_NAME}-monarch-shipper-config", self.namespace)
-        assert cm.metadata.owner_references is not None
-        assert cm.metadata.owner_references[0].kind == "MongoDB"
-        assert cm.metadata.owner_references[0].name == ACTIVE_RS_NAME
-
-    def test_active_automation_config_monarch_components(self, active_rs_running: MongoDB):
-        """Active cluster: maintainedMonarchComponents with empty shards."""
-        config = active_rs_running.get_automation_config_tester().automation_config
-        assert "maintainedMonarchComponents" in config
+    def test_automation_config_has_monarch_components(self, active_rs: MongoDB):
+        config = active_rs.get_automation_config_tester().automation_config
         mc = config["maintainedMonarchComponents"]
         assert len(mc) == 1
         assert mc[0]["replicaSetId"] == ACTIVE_RS_NAME
         assert mc[0]["awsBucketName"] == S3_BUCKET
-        assert mc[0]["awsRegion"] == AWS_REGION
         assert mc[0]["clusterPrefix"] == CLUSTER_PREFIX
-        # Active clusters have empty shards list
+        assert mc[0]["initialMode"] == "ACTIVE"
         assert mc[0]["injectorConfig"]["shards"] == []
 
-    # TODO: WORKS UNTIL HERE
-    # ── Phase 2: Snapshot ───────────────────────────────────────────────
+    # ── Phase 4: Shipper uploading to S3 ────────────────────────────────
 
-    def test_documents_can_be_inserted(self, initialize_inventory_documents: int):
-        assert initialize_inventory_documents == len(INVENTORY_DOCS)
+    def test_shipper_uploads_to_s3(self, active_rs: MongoDB):
+        _wait_for_s3_data(self.namespace)
 
-    def test_snapshot_uploaded(self, monarch_snapshot: None):
-        pass
+    def test_shipper_ships_new_writes(self, active_rs: MongoDB):
+        s3 = _s3_client(_minio_endpoint(self.namespace))
+        prefix = f"{CLUSTER_PREFIX}/{SHARD_ID}/slices/"
+        before = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix).get("KeyCount", 0)
+        active_rs.tester().client["shipper_test"]["test"].insert_one({"ts": time.time()})
+        time.sleep(15)
+        after = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix).get("KeyCount", 0)
+        assert after > before, f"Shipper not shipping: slice count unchanged at {before}"
 
-    def test_shipper_continuously_ships_slices(self, monarch_snapshot: None):
-        """Verify the shipper Deployment continuously ships oplog slices to S3."""
-        with _port_forward_minio(self.namespace) as endpoint:
-            s3 = _s3_client(endpoint)
-            prefix = f"{CLUSTER_PREFIX}/{ACTIVE_RS_NAME}/slices/"
+    # ── Phase 5: Standby RS ──────────────────────────────────────────────
 
-            # Count slices before
-            before = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
-            before_count = before.get("KeyCount", 0)
+    def test_standby_rs_running(self, standby_rs: MongoDB):
+        """Standby RS reaches Running with InjectorReady=True.
 
-            # Insert a document to trigger oplog activity
-            _mongosh_exec(
-                self.namespace,
-                f"{ACTIVE_RS_NAME}-0",
-                "db.getSiblingDB('shipper_test').test.insertOne({ts: new Date()})",
-            )
+        The operator waits for the injector Deployment to be healthy before pushing
+        automation config with InjectorInstances. So agents receive InjectorInstances
+        pointing to an already-healthy service, and WaitForInjectorReady completes
+        immediately. No transient blocking window to test — just final state.
+        """
+        standby_rs.update()
+        standby_rs.assert_reaches_phase(Phase.Running, timeout=600)
+        _wait_for_monarch_condition(standby_rs)
 
-            # Wait for shipper to ship (ships every ~10s)
-            time.sleep(15)
-
-            # Count slices after
-            after = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
-            after_count = after.get("KeyCount", 0)
-
-            assert after_count > before_count, (
-                f"Shipper not shipping: slice count unchanged at {before_count}"
-            )
-
-    # ── Phase 3: Standby RS with Monarch Deployments ───────────────────
-
-    def test_standby_rs_running(self, standby_replica_set: MongoDB):
-        standby_replica_set.update()
-        standby_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
-
-    def test_standby_monarch_deployment_created(self, standby_replica_set: MongoDB):
-        """Verify single Monarch Deployment for standby with app=monarch-injector label."""
-        apps = k8s_client.AppsV1Api()
-        dep_name = f"{STANDBY_RS_NAME}-monarch-injector"
-        dep = apps.read_namespaced_deployment(dep_name, self.namespace)
-        assert dep is not None, f"Deployment {dep_name} not found"
-        assert dep.spec.replicas == DEFAULT_MONARCH_REPLICAS, (
-            f"Expected {DEFAULT_MONARCH_REPLICAS} replicas, got {dep.spec.replicas}"
-        )
-
-    def test_standby_monarch_deployment_containers(self, standby_replica_set: MongoDB):
-        """Standby Deployment should run the injector role with config file."""
-        apps = k8s_client.AppsV1Api()
-        dep = apps.read_namespaced_deployment(f"{STANDBY_RS_NAME}-monarch-injector", self.namespace)
-        c = dep.spec.template.spec.containers[0]
-        assert c.name == "monarch-injector"
-        command = " ".join(c.command)
-        assert "injector" in command
-        assert "--config=/etc/monarch/config.yaml" in command
-
-    def test_standby_monarch_service_created(self, standby_replica_set: MongoDB):
-        core = k8s_client.CoreV1Api()
-        svc_name = f"{STANDBY_RS_NAME}-monarch-injector-svc"
-        svc = core.read_namespaced_service(svc_name, self.namespace)
-        assert svc is not None, f"Service {svc_name} not found"
-
-    def test_standby_monarch_service_ports(self, standby_replica_set: MongoDB):
-        core = k8s_client.CoreV1Api()
-        svc = core.read_namespaced_service(f"{STANDBY_RS_NAME}-monarch-injector-svc", self.namespace)
-        port_map = {p.name: p.port for p in svc.spec.ports}
-        assert port_map["health"] == 8080
-        assert port_map["replication"] == 9995
-        assert port_map["monarch-api"] == 1122
-
-    def test_standby_no_sidecar_in_statefulset(self, standby_replica_set: MongoDB):
-        """Verify that injector is NOT a sidecar — it's a separate Deployment now."""
-        sts = self.appsv1.read_namespaced_stateful_set(STANDBY_RS_NAME, self.namespace)
-        container_names = [c.name for c in sts.spec.template.spec.containers]
-        assert "monarch-injector" not in container_names, (
-            f"monarch-injector should be a Deployment, not a sidecar. Found containers: {container_names}"
-        )
-
-    def test_standby_automation_config_uses_service_dns(self, standby_rs_running: MongoDB):
-        """Automation config must use Service DNS name, not localhost."""
-        config = standby_rs_running.get_automation_config_tester().automation_config
-        assert "maintainedMonarchComponents" in config
+    def test_standby_automation_config(self, standby_rs: MongoDB):
+        """One InjectorInstance per RS member: Hostname=pod FQDN, endpoints=Service DNS."""
+        config = standby_rs.get_automation_config_tester().automation_config
         mc = config["maintainedMonarchComponents"]
-        assert len(mc) == 1
-
-        # Should reference the active RS
         assert mc[0]["replicaSetId"] == ACTIVE_RS_NAME
 
-        shards = mc[0]["injectorConfig"]["shards"]
-        assert len(shards) == 1
-        assert shards[0]["shardId"] == "0"
-        assert shards[0]["replSetName"] == STANDBY_RS_NAME
+        instances = mc[0]["injectorConfig"]["shards"][0]["instances"]
+        members = standby_rs["spec"]["members"]
+        assert len(instances) == members
 
-        # Single Service fronts all replicas, so automation config has 1 instance
-        instances = shards[0]["instances"]
-        assert len(instances) == 1, f"Expected 1 instance (single service), got {len(instances)}"
+        svc_dns = f"{STANDBY_RS_NAME}-monarch-injector-svc.{self.namespace}.svc.cluster.local"
+        for i, inst in enumerate(instances):
+            expected_host = f"{STANDBY_RS_NAME}-{i}.{STANDBY_RS_NAME}-svc.{self.namespace}.svc.cluster.local"
+            assert inst["hostname"] == expected_host
+            assert inst["healthApiEndpoint"] == f"{svc_dns}:8080"
+            assert inst["monarchApiEndpoint"] == f"{svc_dns}:1122"
+            assert inst["externallyManaged"] is True
 
-        expected_dns = f"{STANDBY_RS_NAME}-monarch-injector-svc.{self.namespace}.svc.cluster.local"
-        inst = instances[0]
-        assert inst["hostname"] == expected_dns, (
-            f"Expected hostname={expected_dns}, got {inst['hostname']}"
-        )
-        assert inst["healthApiEndpoint"] == f"{expected_dns}:8080"
-        assert inst["monarchApiEndpoint"] == f"{expected_dns}:1122"
-        assert inst["port"] == 9995
-        assert inst["externallyManaged"] is True
-        assert "localhost" not in inst["hostname"]
+    # ── Phase 6: Data replication ────────────────────────────────────────
 
-    def test_standby_injector_member_in_rs_config(self, standby_rs_running: MongoDB):
-        """The RS config should contain an injector member with votes=1, priority=1,
-        and a processType=INJECTOR tag."""
-        config = standby_rs_running.get_automation_config_tester().automation_config
-        rs = next(r for r in config["replicaSets"] if r["_id"] == STANDBY_RS_NAME)
-
-        mongod_hosts = {f"{STANDBY_RS_NAME}-{i}" for i in range(standby_rs_running["spec"]["members"])}
-        injector_members = [m for m in rs["members"] if m.get("host") not in mongod_hosts]
-
-        assert len(injector_members) >= 1, f"No injector members found in RS config. Members: {rs['members']}"
-        inj = injector_members[0]
-        assert inj["votes"] == 1
-        assert inj["priority"] == 1
-        assert inj.get("tags", {}).get("processType") == "INJECTOR"
-
-    # ── Phase 4: Data replication ───────────────────────────────────────
-
-    def test_documents_replicated_to_standby(self):
-        """The documents inserted into the active RS must appear on the standby."""
-        js = f"print(db.getSiblingDB('{PRODUCTS_DB}').{INVENTORY_COLLECTION}.countDocuments({{}}))"
+    def test_documents_replicated_to_standby(self, standby_rs: MongoDB):
+        col = standby_rs.tester().client[PRODUCTS_DB][INVENTORY_COLLECTION]
         deadline = time.time() + 600
         count = 0
         while time.time() < deadline:
             try:
-                count = int(_mongosh_exec(self.namespace, f"{STANDBY_RS_NAME}-0", js).split("\n")[-1])
+                count = col.count_documents({})
                 if count == len(INVENTORY_DOCS):
                     break
-            except (subprocess.CalledProcessError, ValueError):
+            except pymongo.errors.PyMongoError:
                 pass
             time.sleep(5)
-        assert count == len(INVENTORY_DOCS), (
-            f"Expected {len(INVENTORY_DOCS)} documents on standby, got {count}"
-        )
+        assert count == len(INVENTORY_DOCS), f"Expected {len(INVENTORY_DOCS)} docs on standby, got {count}"

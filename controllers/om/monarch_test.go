@@ -110,13 +110,14 @@ func newMonarchMDB(role mdbv1.MonarchRole) *mdbv1.MongoDB {
 
 func TestBuildMaintainedMonarchComponents_Standby(t *testing.T) {
 	mdb := newMonarchMDB(mdbv1.MonarchRoleStandby)
-	dnsNames := []string{
-		"my-rs-monarch-0-svc.ns.svc.cluster.local",
-		"my-rs-monarch-1-svc.ns.svc.cluster.local",
-		"my-rs-monarch-2-svc.ns.svc.cluster.local",
+	memberHostnames := []string{
+		"my-rs-0.my-rs-svc.ns.svc.cluster.local",
+		"my-rs-1.my-rs-svc.ns.svc.cluster.local",
+		"my-rs-2.my-rs-svc.ns.svc.cluster.local",
 	}
+	serviceDNS := "my-rs-monarch-injector-svc.ns.svc.cluster.local"
 
-	result, err := BuildMaintainedMonarchComponents(mdb, "standby-rs", "AKID", "SECRET", dnsNames)
+	result, err := BuildMaintainedMonarchComponents(mdb, "standby-rs", "AKID", "SECRET", memberHostnames, serviceDNS)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 
@@ -141,21 +142,22 @@ func TestBuildMaintainedMonarchComponents_Standby(t *testing.T) {
 
 	for i, inst := range shard.Instances {
 		assert.Equal(t, i, inst.ID)
-		assert.Equal(t, dnsNames[i], inst.Hostname)
+		assert.Equal(t, memberHostnames[i], inst.Hostname)
 		assert.Equal(t, 9995, inst.Port)
 		assert.True(t, inst.ExternallyManaged)
-		assert.Equal(t, dnsNames[i]+":8080", inst.HealthAPIEndpoint)
-		assert.Equal(t, dnsNames[i]+":1122", inst.MonarchAPIEndpoint)
+		assert.Equal(t, serviceDNS+":8080", inst.HealthAPIEndpoint)
+		assert.Equal(t, serviceDNS+":1122", inst.MonarchAPIEndpoint)
 	}
 }
 
 func TestBuildMaintainedMonarchComponents_Active(t *testing.T) {
 	mdb := newMonarchMDB(mdbv1.MonarchRoleActive)
-	dnsNames := []string{
-		"my-rs-monarch-0-svc.ns.svc.cluster.local",
+	memberHostnames := []string{
+		"my-rs-0.my-rs-svc.ns.svc.cluster.local",
 	}
+	serviceDNS := "my-rs-monarch-shipper-svc.ns.svc.cluster.local"
 
-	result, err := BuildMaintainedMonarchComponents(mdb, "active-rs", "AKID", "SECRET", dnsNames)
+	result, err := BuildMaintainedMonarchComponents(mdb, "active-rs", "AKID", "SECRET", memberHostnames, serviceDNS)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 
@@ -172,6 +174,6 @@ func TestBuildMaintainedMonarchComponents_NilMonarch(t *testing.T) {
 		Spec:       mdbv1.MongoDbSpec{Members: 3},
 	}
 
-	_, err := BuildMaintainedMonarchComponents(mdb, "rs", "AKID", "SECRET", nil)
+	_, err := BuildMaintainedMonarchComponents(mdb, "rs", "AKID", "SECRET", nil, "")
 	require.Error(t, err)
 }

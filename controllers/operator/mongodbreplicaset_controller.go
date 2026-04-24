@@ -2,7 +2,10 @@ package operator
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -12,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -314,6 +318,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		if monarchStatus := r.reconcileMonarch(ctx, conn); !monarchStatus.IsOK() {
 			return r.updateStatus(ctx, monarchStatus)
 		}
+	} else {
+		// Monarch was removed — clear any stale role-specific conditions so they don't mislead.
+		apimeta.RemoveStatusCondition(&rs.Status.Conditions, mdbv1.ConditionShipperReady)
+		apimeta.RemoveStatusCondition(&rs.Status.Conditions, mdbv1.ConditionInjectorReady)
 	}
 
 	// === 6. Final steps
@@ -520,16 +528,27 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 }
 
 // reconcileMonarch ensures Monarch ConfigMap, Deployment, Service, and automation config are up to date.
+// Order: ConfigMap → Service → Deployment → wait for ready → push automation config.
+// This ordering ensures agents only see InjectorInstances when the injector is already healthy,
+// eliminating the race where agents block in WaitForInjectorReady on an unhealthy service.
 func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn om.Connection) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
 
+	// Determine role early for condition type and resource naming
+	conditionType := mdbv1.ConditionInjectorReady
+	monarchRole := "injector"
+	if rs.Spec.Monarch.Role == mdbv1.MonarchRoleActive {
+		conditionType = mdbv1.ConditionShipperReady
+		monarchRole = "shipper"
+	}
+	role := string(rs.Spec.Monarch.Role)
+
 	// Build MongoDB connection string for the replica set
-	// Format: mongodb://<rs>-0.<svc>.<ns>.svc.cluster.local:27017,.../?replicaSet=<rs>
 	srcURI := buildMongoDBConnectionString(rs)
 
-	// Create or update Monarch ConfigMap (contains YAML config)
+	// 1. Create or update Monarch ConfigMap (contains YAML config)
 	cm := construct.BuildMonarchConfigMap(rs, rs.Namespace, srcURI)
 	if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, cm, func() error {
 		fresh := construct.BuildMonarchConfigMap(rs, rs.Namespace, srcURI)
@@ -540,41 +559,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 		return workflow.Failed(xerrors.Errorf("failed to create/update Monarch ConfigMap %s: %w", cm.Name, err))
 	}
 
-	// Create or update Monarch Deployment (single deployment with multiple replicas)
-	dep := construct.BuildMonarchDeployment(rs, rs.Namespace)
-	if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, dep, func() error {
-		fresh := construct.BuildMonarchDeployment(rs, rs.Namespace)
-		dep.Spec = fresh.Spec
-		dep.Labels = fresh.Labels
-		return nil
-	}); err != nil {
-		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
-			Type:    mdbv1.ConditionMonarchReady,
-			Status:  metav1.ConditionFalse,
-			Reason:  mdbv1.ReasonMonarchDeploymentFailed,
-			Message: fmt.Sprintf("Failed to create/update Monarch Deployment: %v", err),
-		})
-		return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Deployment %s: %w", dep.Name, err))
-	}
-
-	// Update MonarchReady condition based on deployment status
-	if dep.Status.ReadyReplicas == *dep.Spec.Replicas {
-		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
-			Type:    mdbv1.ConditionMonarchReady,
-			Status:  metav1.ConditionTrue,
-			Reason:  mdbv1.ReasonMonarchDeploymentReady,
-			Message: fmt.Sprintf("%d/%d pods ready (role=%s)", dep.Status.ReadyReplicas, *dep.Spec.Replicas, rs.Spec.Monarch.Role),
-		})
-	} else {
-		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
-			Type:    mdbv1.ConditionMonarchReady,
-			Status:  metav1.ConditionFalse,
-			Reason:  mdbv1.ReasonMonarchDeploymentPending,
-			Message: fmt.Sprintf("%d/%d pods ready", dep.Status.ReadyReplicas, *dep.Spec.Replicas),
-		})
-	}
-
-	// Create or update Monarch Service
+	// 2. Create or update Monarch Service (before Deployment so DNS is resolvable)
 	svc := construct.BuildMonarchService(rs, rs.Namespace)
 	if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, svc, func() error {
 		fresh := construct.BuildMonarchService(rs, rs.Namespace)
@@ -586,7 +571,43 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 		return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Service %s: %w", svc.Name, err))
 	}
 
-	// Read AWS credentials from the referenced secret
+	// Hash the ConfigMap content so pod template annotation changes trigger a rolling restart
+	configHash := monarchConfigHash(cm.Data)
+
+	// 3. Create or update Monarch Deployment
+	dep := construct.BuildMonarchDeployment(rs, rs.Namespace)
+	if _, err := controllerutil.CreateOrUpdate(ctx, reconciler.client, dep, func() error {
+		fresh := construct.BuildMonarchDeployment(rs, rs.Namespace)
+		dep.Spec = fresh.Spec
+		dep.Labels = fresh.Labels
+		if dep.Spec.Template.Annotations == nil {
+			dep.Spec.Template.Annotations = map[string]string{}
+		}
+		dep.Spec.Template.Annotations["checksum/config"] = configHash
+		return nil
+	}); err != nil {
+		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
+			Type:    conditionType,
+			Status:  metav1.ConditionFalse,
+			Reason:  mdbv1.ReasonMonarchDeploymentFailed,
+			Message: fmt.Sprintf("Failed to create/update Monarch Deployment: %v", err),
+		})
+		return workflow.Failed(xerrors.Errorf("failed to create/update Monarch Deployment %s: %w", dep.Name, err))
+	}
+
+	// 4. Wait for at least one Deployment replica to be ready before pushing automation config.
+	// This ensures agents only see InjectorInstances when the health endpoint is already serving.
+	if err := waitForMonarchDeploymentReady(ctx, reconciler.client, dep, 120*time.Second); err != nil {
+		apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
+			Type:    conditionType,
+			Status:  metav1.ConditionFalse,
+			Reason:  mdbv1.ReasonMonarchDeploymentPending,
+			Message: fmt.Sprintf("Waiting for Deployment: %v", err),
+		})
+		return workflow.Pending("Waiting for Monarch %s Deployment to be ready: %v", monarchRole, err)
+	}
+
+	// 5. Read AWS credentials from the referenced secret
 	credSecret, err := reconciler.client.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Spec.Monarch.CredentialsSecretRef.Name))
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to read Monarch credentials secret %s: %w", rs.Spec.Monarch.CredentialsSecretRef.Name, err))
@@ -594,20 +615,19 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 	awsKeyId := string(credSecret.Data["awsAccessKeyId"])
 	awsSecret := string(credSecret.Data["awsSecretAccessKey"])
 
-	// Determine Monarch role for resource naming
-	monarchRole := "injector"
-	if rs.Spec.Monarch.Role == mdbv1.MonarchRoleActive {
-		monarchRole = "shipper"
-	}
-
-	// Build automation config with single service DNS name
+	// 6. Build automation config with InjectorInstances pointing to the now-healthy Service
 	serviceDNS := construct.GetMonarchServiceDNS(rs.Name, monarchRole, rs.Namespace)
-	mc, err := om.BuildMaintainedMonarchComponents(rs, rs.Name, awsKeyId, awsSecret, []string{serviceDNS})
+	memberSvcName := fmt.Sprintf("%s-svc", rs.Name)
+	memberHostnames := make([]string, rs.Spec.Members)
+	for i := 0; i < rs.Spec.Members; i++ {
+		memberHostnames[i] = fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local", rs.Name, i, memberSvcName, rs.Namespace)
+	}
+	mc, err := om.BuildMaintainedMonarchComponents(rs, rs.Name, awsKeyId, awsSecret, memberHostnames, serviceDNS)
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to build Monarch automation config: %w", err))
 	}
 
-	// Update automation config with Monarch components
+	// 7. Push automation config — agents will see InjectorInstances pointing to a healthy service
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.SetMaintainedMonarchComponents(mc)
@@ -619,8 +639,25 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 		return workflow.Failed(xerrors.Errorf("failed to update automation config with Monarch components: %w", err))
 	}
 
-	log.Infof("Reconciled Monarch with %d replicas", construct.DefaultMonarchReplicas)
+	// 8. Update condition to reflect final ready state
+	apimeta.SetStatusCondition(&rs.Status.Conditions, metav1.Condition{
+		Type:    conditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  mdbv1.ReasonMonarchDeploymentReady,
+		Message: fmt.Sprintf("%d/%d pods ready (role=%s)", dep.Status.ReadyReplicas, *dep.Spec.Replicas, role),
+	})
+	log.Infof("Reconciled Monarch %s with %d replicas", monarchRole, construct.DefaultMonarchReplicas)
 	return workflow.OK()
+}
+
+// waitForMonarchDeploymentReady polls until at least one Deployment replica is ready.
+func waitForMonarchDeploymentReady(ctx context.Context, c client.Client, dep *appsv1.Deployment, timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(ctx, 3*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+		if err := c.Get(ctx, types.NamespacedName{Name: dep.Name, Namespace: dep.Namespace}, dep); err != nil {
+			return false, err
+		}
+		return dep.Status.ReadyReplicas > 0, nil
+	})
 }
 
 // buildMongoDBConnectionString builds a MongoDB connection string for the replica set.
@@ -1109,4 +1146,12 @@ func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx conte
 		}
 	}
 	return search, nil
+}
+
+// monarchConfigHash returns a short SHA256 hash of the ConfigMap data to use
+// as a pod template annotation, triggering a rolling restart when config changes.
+func monarchConfigHash(data map[string]string) string {
+	b, _ := json.Marshal(data)
+	sum := sha256.Sum256(b)
+	return fmt.Sprintf("%x", sum[:8])
 }
