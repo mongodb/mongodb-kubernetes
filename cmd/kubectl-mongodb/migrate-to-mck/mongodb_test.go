@@ -32,16 +32,6 @@ func TestBuildMongodbOptions_FlagTranslation(t *testing.T) {
 	assert.Equal(t, "my-rs", opts.ResourceNameOverride)
 }
 
-func TestBuildMongodbOptions_InvalidMultiClusterNames(t *testing.T) {
-	ac := om.NewAutomationConfig(om.Deployment{
-		"processes":   []any{},
-		"replicaSets": []any{},
-	})
-
-	f := mongodbFlags{multiClusterNames: "  ,  ,  "}
-	_, err := buildMongodbOptions(context.Background(), nil, ac, &ProjectConfigs{}, nil, strings.NewReader(""), f)
-	assert.ErrorContains(t, err, "no valid cluster names")
-}
 
 func TestCollectPrometheusCreds_NoPrometheus(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{

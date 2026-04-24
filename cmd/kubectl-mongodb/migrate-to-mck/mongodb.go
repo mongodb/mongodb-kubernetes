@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -104,13 +103,6 @@ func buildMongodbOptions(ctx context.Context, kubeClient kubernetesClient.Client
 		SourceProcess:         sourceProcess,
 	}
 
-	if flags.multiClusterNames != "" {
-		opts.MultiClusterNames = parseMultiClusterNames(flags.multiClusterNames)
-		if len(opts.MultiClusterNames) == 0 {
-			return GenerateOptions{}, fmt.Errorf("--multi-cluster-names was provided but contains no valid cluster names after trimming")
-		}
-	}
-
 	scanner := bufio.NewScanner(stdin)
 
 	if err := ensureTLS(ac, &opts, scanner, flags.certsSecretPrefix); err != nil {
@@ -195,13 +187,3 @@ func collectPrometheusCreds(ctx context.Context, kubeClient kubernetesClient.Cli
 	}
 }
 
-func parseMultiClusterNames(raw string) []string {
-	var names []string
-	for s := range strings.SplitSeq(raw, ",") {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			names = append(names, s)
-		}
-	}
-	return names
-}
