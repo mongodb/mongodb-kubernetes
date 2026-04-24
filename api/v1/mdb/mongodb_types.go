@@ -638,7 +638,7 @@ type BackupAgent struct {
 	// LogRotate configures log rotation for the BackupAgent processes
 	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
 	// +optional
-	// +kubebuilder:validation:Pattern=`^/.*`
+	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9/_\-.]*$`
 	// LogFilePath configures the log file path for the backup agent.
 	// Default: /var/log/mongodb-mms-automation/backup-agent.log
 	LogFilePath string `json:"logFilePath,omitempty"`
@@ -656,7 +656,7 @@ type MonitoringAgent struct {
 	// LogRotate configures log rotation for the MonitoringAgent processes
 	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
 	// +optional
-	// +kubebuilder:validation:Pattern=`^/.*`
+	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9/_\-.]*$`
 	// LogFilePath configures the log file path for the monitoring agent.
 	// Default: /var/log/mongodb-mms-automation/monitoring-agent.log
 	LogFilePath string `json:"logFilePath,omitempty"`
