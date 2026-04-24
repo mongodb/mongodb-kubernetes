@@ -34,9 +34,6 @@ func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (client.O
 		return nil, "", fmt.Errorf("resource name %q is not a valid Kubernetes resource name: %s", resourceName, errs[0])
 	}
 
-	if len(opts.MultiClusterNames) > 0 {
-		return generateReplicaSetMultiCluster(ac, opts, rsName, resourceName, version, fcv, externalMembers)
-	}
 	return generateReplicaSetSingleCluster(ac, opts, rsName, resourceName, version, fcv, externalMembers)
 }
 
@@ -52,9 +49,6 @@ func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptio
 	}, resourceName, nil
 }
 
-func generateReplicaSetMultiCluster(_ *om.AutomationConfig, _ GenerateOptions, _, _ , _, _ string, _ []mdbv1.ExternalMember) (client.Object, string, error) {
-	return nil, "", fmt.Errorf("multi-cluster replica set migration is not yet supported")
-}
 
 // buildReplicaSetDbCommonSpec constructs the DbCommonSpec for a replica set deployment,
 // including security, Prometheus, TLS, and connection settings.
