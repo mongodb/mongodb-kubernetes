@@ -16,7 +16,6 @@ import (
 )
 
 const automationAgentKubeUpgradeMove = "ChangeVersionKube"
-const automationAgentWaitForInjectorMove = "WaitForInjectorReady"
 
 // AutomationStatus represents the status of automation agents registered with Ops Manager
 type AutomationStatus struct {
@@ -82,38 +81,6 @@ func AllAgentsInGoalState(oc Connection, processNames []string, log *zap.Sugared
 		return false, fmt.Sprintf("failed to read automation status: %s", err)
 	}
 	return checkAutomationStatusIsGoal(as, processNames, log)
-}
-
-// AgentsBlockedOnInjector returns true when every process that has not yet reached goal state
-// is blocked exclusively at WaitForInjectorReady. This means the only thing preventing goal
-// state is the injector sidecar not being present yet — the operator should proceed to patch
-// the StatefulSet rather than requeue.
-func AgentsBlockedOnInjector(oc Connection, processNames []string, log *zap.SugaredLogger) bool {
-	as, err := oc.ReadAutomationStatus()
-	if err != nil {
-		return false
-	}
-	return allNonReadyBlockedOnInjector(as, processNames)
-}
-
-func allNonReadyBlockedOnInjector(as *AutomationStatus, processNames []string) bool {
-	nonReady, blockedOnInjector := 0, 0
-	for _, p := range as.Processes {
-		if !stringutil.Contains(processNames, p.Name) {
-			continue
-		}
-		if p.LastGoalVersionAchieved != as.GoalVersion {
-			nonReady++
-			for _, move := range p.Plan {
-				if move == automationAgentWaitForInjectorMove {
-					blockedOnInjector++
-					break
-				}
-			}
-		}
-	}
-	// Only meaningful when there ARE non-ready processes and all of them cite WaitForInjectorReady.
-	return nonReady > 0 && nonReady == blockedOnInjector
 }
 
 // CheckAutomationStatusIsGoal returns true if all the relevant processes are in Goal
