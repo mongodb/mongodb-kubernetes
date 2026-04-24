@@ -154,4 +154,4 @@ repos:
     hooks:
       - id: golangci-lint
         args: [--timeout=10m]
-        language_version: 1.25.9
+        language_version: 1.26.2
