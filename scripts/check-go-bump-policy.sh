@@ -251,12 +251,15 @@ get_latest_published_go_version() {
 }
 
 find_open_go_bump_pull_request() {
+  # Anchor on the branch name created by scripts/create-go-bump-pr.sh
+  # (auto/bump-go-<version>) — PR titles can be edited/prefixed by reviewers,
+  # branch names set by the automation cannot.
   local raw
-  raw=$(gh pr list --state open --limit 100 --json number,title,url) || {
+  raw=$(gh pr list --state open --limit 100 --json number,title,url,headRefName) || {
     echo "check-go-bump-policy: error: gh pr list" >&2
     return 2
   }
-  echo "${raw}" | jq -r '.[] | select(.title | test("bump go|go bump|bump golang|upgrade go|go toolchain|go version"; "i")) | "\(.number)\t\(.title)\t\(.url)"' | head -1
+  echo "${raw}" | jq -r '.[] | select(.headRefName | startswith("auto/bump-go-")) | "\(.number)\t\(.title)\t\(.url)"' | head -1
 }
 
 evaluate_go_bump_policy() {
