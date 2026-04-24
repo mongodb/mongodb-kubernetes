@@ -126,8 +126,7 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 	var caPath string
 	switch authMechanism {
 	case util.AutomationConfigX509Option:
-		// For X509/TLS, the CA is mounted at TLSCaMountPath with the file named "ca-pem"
-		caPath = util.TLSCaMountPath + "/ca-pem"
+		caPath = rs.GetSecurity().GetTLSCAFilePath(util.TLSCaMountPath + "/ca-pem")
 	default:
 		caPath = util.CAFilePathInContainer
 	}

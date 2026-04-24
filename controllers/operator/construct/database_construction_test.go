@@ -46,15 +46,12 @@ func Test_tlsVolumeSource_CAFilePath(t *testing.T) {
 
 		volumes, mounts := src.getVolumesAndMounts()
 
-		// Custom mode: directory mount at path.Dir, no SubPath, default TLSCaMountPath absent.
 		assert.True(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
 			return m.MountPath == path.Dir(customPath) && m.SubPath == "" && m.ReadOnly
 		}), "custom CAFilePath should mount at the parent directory")
 		assert.False(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
 			return m.MountPath == util.TLSCaMountPath
 		}), "default TLSCaMountPath should not be present in custom mode")
-
-		// Volume must use KeyToPath to rename ca-pem → the custom filename.
 		assert.True(t, slices.ContainsFunc(volumes, func(v corev1.Volume) bool {
 			cm := v.ConfigMap
 			return cm != nil &&
