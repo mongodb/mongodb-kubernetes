@@ -1023,7 +1023,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	podEnvVars := newPodVars(conn, projectConfig, sc.Spec.LogLevel)
 
-	workflowStatus, _ := r.ensureSSLCertificates(ctx, sc, log)
+	workflowStatus := r.ensureSSLCertificates(ctx, sc, log)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
@@ -1226,30 +1226,27 @@ func (r *ShardedClusterReconcileHelper) removeUnusedStatefulsets(ctx context.Con
 	}
 }
 
-func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Context, s *mdbv1.MongoDB, log *zap.SugaredLogger) (workflow.Status, map[string]bool) {
+func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Context, s *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
 	tlsConfig := s.Spec.GetTLSConfig()
 
-	certSecretTypes := map[string]bool{}
 	if tlsConfig == nil || !s.Spec.GetSecurity().IsTLSEnabled() {
-		return workflow.OK(), certSecretTypes
+		return workflow.OK()
 	}
 
 	if err := r.replicateTLSCAConfigMap(ctx, log); err != nil {
-		return workflow.Failed(err), nil
+		return workflow.Failed(err)
 	}
 
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		mongosCert := certs.MongosConfig(*s, r.sc.Spec.GetExternalDomain(), r.GetMongosScaler(memberCluster))
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, mongosCert, log)
-		certSecretTypes[mongosCert.CertSecretName] = true
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 		configSrvCert := certs.ConfigSrvConfig(*s, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetConfigSrvScaler(memberCluster))
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, configSrvCert, log)
-		certSecretTypes[configSrvCert.CertSecretName] = true
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
@@ -1257,12 +1254,11 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[i]) {
 			shardCert := certs.ShardConfig(*s, i, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetShardScaler(i, memberCluster))
 			tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, shardCert, log)
-			certSecretTypes[shardCert.CertSecretName] = true
 			workflowStatus = workflowStatus.Merge(tStatus)
 		}
 	}
 
-	return workflowStatus, certSecretTypes
+	return workflowStatus
 }
 
 // createKubernetesResources creates all Kubernetes objects that are specified in 'state' parameter.

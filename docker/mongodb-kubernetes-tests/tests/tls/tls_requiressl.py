@@ -8,6 +8,8 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 
 MDB_RESOURCE = "test-tls-base-rs-require-ssl"
+MDB_RESOURCE_CUSTOM_CA = "test-tls-rs-custom-ca-path"
+CUSTOM_CA_FILE_PATH = "/var/lib/tls/custom-ca/ca-pem"
 
 
 @pytest.fixture(scope="module")
@@ -113,3 +115,54 @@ def test_mdb_renewed_is_not_reachable_without_ssl(mdb: MongoDB):
 @skip_if_local()
 def test_mdb_renewed_is_reachable_with_ssl(mdb: MongoDB, ca_path: str):
     mdb.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()
+
+
+# --- custom caFilePath tests ---
+
+
+@pytest.fixture(scope="module")
+def server_certs_custom_ca(issuer: str, namespace: str):
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME,
+        namespace,
+        MDB_RESOURCE_CUSTOM_CA,
+        f"{MDB_RESOURCE_CUSTOM_CA}-cert",
+        replicas=3,
+    )
+
+
+@pytest.fixture(scope="module")
+def mdb_custom_ca(namespace: str, server_certs_custom_ca: str, issuer_ca_configmap: str) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        load_fixture("test-tls-base-rs-require-ssl.yaml"),
+        name=MDB_RESOURCE_CUSTOM_CA,
+        namespace=namespace,
+    )
+    resource.set_architecture_annotation()
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    resource["spec"]["security"]["tls"]["caFilePath"] = CUSTOM_CA_FILE_PATH
+    try_load(resource)
+    return resource
+
+
+@pytest.mark.e2e_replica_set_tls_require_custom_ca_path
+def test_custom_ca_install_operator(operator: Operator):
+    operator.assert_is_running()
+
+
+@pytest.mark.e2e_replica_set_tls_require_custom_ca_path
+def test_custom_ca_replica_set_running(mdb_custom_ca: MongoDB):
+    mdb_custom_ca.update()
+    mdb_custom_ca.assert_reaches_phase(Phase.Running, timeout=400)
+
+
+@pytest.mark.e2e_replica_set_tls_require_custom_ca_path
+@skip_if_local()
+def test_custom_ca_mdb_is_not_reachable_without_ssl(mdb_custom_ca: MongoDB):
+    mdb_custom_ca.tester(use_ssl=False).assert_no_connection()
+
+
+@pytest.mark.e2e_replica_set_tls_require_custom_ca_path
+@skip_if_local()
+def test_custom_ca_mdb_is_reachable_with_ssl(mdb_custom_ca: MongoDB, ca_path: str):
+    mdb_custom_ca.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()
