@@ -178,6 +178,31 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("%s", firstFailure), log)
 	}
 
+	// Generate Envoy config files: static bootstrap + dynamic CDS/LDS
+	caKeyName := caKeyNameFromTLSConfig(tlsCfg)
+	bootstrapJSON, err := buildBootstrapJSON()
+	if err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
+	}
+	cdsJSON, err := buildCDSJSON(routes, tlsEnabled, caKeyName)
+	if err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
+	}
+	ldsJSON, err := buildLDSJSON(routes, tlsEnabled, caKeyName)
+	if err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
+	}
+
+	// Ensure ConfigMap
+	if err := r.ensureConfigMap(ctx, mdbSearch, bootstrapJSON, cdsJSON, ldsJSON, log); err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
+	}
+
+	// Ensure Deployment (hash only bootstrap — CDS/LDS are hot-reloaded by Envoy)
+	if err := r.ensureDeployment(ctx, mdbSearch, bootstrapJSON, tlsCfg, log); err != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
+	}
+
 	log.Info("MongoDBSearchEnvoy reconciliation complete")
 	return r.updateLBStatus(ctx, mdbSearch, workflow.OK(), log)
 }
@@ -402,53 +427,10 @@ func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
 	}
 }
 
-// buildRoutesForCluster returns the Envoy routes for one member cluster.
-// Empty clusterName is the single-cluster path.
-func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, clusterIndex int, clusterName string) []envoyRoute {
-	if clusterName == "" {
-		return buildRoutes(search, source)
-	}
-
-	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
-		return buildShardRoutes(search, shardedSource.GetShardNames(), clusterIndex, clusterName)
-	}
-	return []envoyRoute{buildReplicaSetRouteForCluster(search, clusterIndex, clusterName)}
-}
-
-// buildReplicaSetRouteForCluster builds the RS-mode route for one cluster.
-// Upstream is the index-suffixed mongot Service — the unindexed name NXDOMAINs
-// under STRICT_DNS and fails mongod's gRPC with code 125.
-func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string) envoyRoute {
-	mongotServiceName := search.SearchServiceNamespacedNameForCluster(clusterIndex).Name
-	namespace := search.Namespace
-	mongotPort := search.GetMongotGrpcPort()
-
-	sniServiceName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
-	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-	if endpoint := search.GetManagedLBEndpointForCluster(clusterIndex); endpoint != "" {
-		sniHostname = endpoint
-	}
-
-	return envoyRoute{
-		Name:          "rs",
-		NameSafe:      "rs",
-		ClusterID:     clusterName,
-		SNIHostname:   sniHostname,
-		UpstreamHosts: []string{fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace)},
-		UpstreamPort:  mongotPort,
-	}
-}
-
-// ensureConfigMap creates or updates the Envoy ConfigMap in the cluster
-// indicated by clusterName ("" = central cluster, single-cluster path).
-// clusterIndex is used for resource naming; clusterName is used for client
-// lookup and labels.
-//
-// Cross-cluster ownership note: Kubernetes garbage collection does not span
-// clusters, so we only set an OwnerReference when writing into the central
-// cluster (clusterName == ""). Cleanup of member-cluster objects is handled
-// explicitly in deleteEnvoyResources.
-func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, clusterIndex int, c kubernetesClient.Client, log *zap.SugaredLogger) error {
+// ensureConfigMap creates or updates the Envoy ConfigMap with three files:
+// bootstrap.json (static), cds.json (dynamic clusters), and lds.json (dynamic listener).
+// Kubernetes ConfigMap updates are atomic (symlink swap), so all files update together.
+func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON, cdsJSON, ldsJSON string, log *zap.SugaredLogger) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      search.LoadBalancerConfigMapNameForCluster(clusterIndex),
@@ -456,13 +438,14 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 		},
 	}
 
-	_, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
-		cm.Labels = envoyLabelsForCluster(search, clusterName, clusterIndex)
-		cm.Data = map[string]string{"envoy.json": envoyJSON}
-		if clusterName == "" {
-			return controllerutil.SetOwnerReference(search, cm, c.Scheme())
+	_, err := controllerutil.CreateOrUpdate(ctx, r.kubeClient, cm, func() error {
+		cm.Labels = envoyLabels(search)
+		cm.Data = map[string]string{
+			"bootstrap.json": bootstrapJSON,
+			"cds.json":       cdsJSON,
+			"lds.json":       ldsJSON,
 		}
-		return nil
+		return controllerutil.SetOwnerReference(search, cm, r.kubeClient.Scheme())
 	})
 	if err != nil {
 		return fmt.Errorf("failed to ensure Envoy ConfigMap: %w", err)
@@ -472,15 +455,13 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 	return nil
 }
 
-// ensureDeployment creates or updates the Envoy Deployment in the cluster
-// indicated by clusterName ("" = central cluster, single-cluster path).
-// clusterIndex is used for resource naming; clusterName is used for labels.
-// See ensureConfigMap for the cross-cluster ownership rule.
-func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, clusterIndex int, c kubernetesClient.Client, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
-	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(envoyJSON)))
-	replicas := envoyReplicas(search)
-	labels := envoyLabelsForCluster(search, clusterName, clusterIndex)
-	podLabels := envoyPodLabelsForCluster(search, clusterIndex)
+// ensureDeployment creates or updates the Envoy Deployment.
+// The config hash is computed from bootstrapJSON only — CDS/LDS changes are
+// hot-reloaded by Envoy via filesystem xDS and do not require a pod restart.
+func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON string, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
+	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(bootstrapJSON)))
+	replicas := envoyReplicas
+	labels := envoyLabels(search)
 	tlsEnabled := search.IsTLSConfigured()
 	image, err := r.envoyContainerImage()
 	if err != nil {
@@ -611,7 +592,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 				Name:    "envoy",
 				Image:   image,
 				Command: []string{"/usr/local/bin/envoy"},
-				Args:    []string{"-c", "/etc/envoy/envoy.json", "--log-level", "info"},
+				Args:    []string{"-c", "/etc/envoy/bootstrap.json", "--log-level", "info"},
 				Ports: []corev1.ContainerPort{
 					{Name: "grpc", ContainerPort: searchv1.EnvoyDefaultProxyPort},
 					{Name: "admin", ContainerPort: envoyAdminPort},
