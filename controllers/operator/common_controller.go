@@ -827,6 +827,16 @@ func (r *ReconcileCommonController) agentCertHashAndPath(ctx context.Context, lo
 	return agentCertHash, agentCertPath
 }
 
+// EffectiveAgentCertPEMPath returns the path used for the automation agent PEM in pods and in Ops Manager
+// (autoPEMKeyFilePath). When security.authentication.agents.autoPEMKeyFilePath is set, that value is used;
+// otherwise defaultPath (typically AgentCertMountPath/<cert hash>) is used.
+func EffectiveAgentCertPEMPath(defaultPath string, sec *mdbv1.Security) string {
+	if p := sec.GetAgentAutoPEMKeyFilePath(); p != "" {
+		return p
+	}
+	return defaultPath
+}
+
 // isPrometheusSupported checks if Prometheus integration can be enabled.
 //
 // Prometheus is only enabled in Cloud Manager and Ops Manager 5.9 (6.0) and above.

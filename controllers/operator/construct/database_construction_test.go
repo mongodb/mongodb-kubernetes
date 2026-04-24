@@ -155,6 +155,23 @@ func TestDatabaseEnvVars(t *testing.T) {
 	})
 
 	envVars = defaultPodVars()
+	opts = DatabaseStatefulSetOptions{
+		PodVars:              envVars,
+		ExternalAgentVersion: "108.0.1.8800-1",
+	}
+	podEnv = databaseEnvVars(opts)
+	var names []string
+	for _, ev := range podEnv {
+		names = append(names, ev.Name)
+	}
+	assert.Contains(t, names, util.EnvVarAgentVersion)
+	for _, ev := range podEnv {
+		if ev.Name == util.EnvVarAgentVersion {
+			assert.Equal(t, "108.0.1.8800-1", ev.Value)
+		}
+	}
+
+	envVars = defaultPodVars()
 	envVars.SSLMMSCAConfigMap = "custom-ca"
 	v := &caVolumeSource{}
 	extraEnvs := v.GetEnvs()
