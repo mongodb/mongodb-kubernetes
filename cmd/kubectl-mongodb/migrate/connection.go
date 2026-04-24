@@ -5,11 +5,10 @@ import (
 	"fmt"
 
 	"go.uber.org/zap"
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/clientcmd"
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -17,7 +16,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
 )
 
 // ProjectConfigs holds project-level agent and log rotation config read from the OM API.
@@ -94,15 +92,11 @@ func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Creden
 }
 
 func newKubeClient() (kubernetesClient.Client, error) {
-	kubeConfigPath := common.LoadKubeConfigFilePath()
-	restConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfigPath},
-		&clientcmd.ConfigOverrides{},
-	).ClientConfig()
+	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		return nil, err
 	}
-	cl, err := k8sClient.New(restConfig, k8sClient.Options{Scheme: scheme.Scheme})
+	cl, err := k8sClient.New(cfg, k8sClient.Options{})
 	if err != nil {
 		return nil, err
 	}
