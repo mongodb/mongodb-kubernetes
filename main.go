@@ -31,6 +31,7 @@ import (
 	localruntime "runtime"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -168,6 +169,14 @@ func main() {
 		BaseContext: func() context.Context {
 			// Ensures every controller gets the trace and signal-aware context
 			return ctx
+		},
+		// Exclude batch/v1.Job from the cache: connectivity dry-run uses Get/List on Jobs infrequently.
+		// A cluster-wide Job informer would be heavier than a few direct API reads per reconcile;
+		// skipping the cache also avoids hanging on WaitForCacheSync when batch RBAC is missing (403 instead).
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&batchv1.Job{}},
+			},
 		},
 	}
 
