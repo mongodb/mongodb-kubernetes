@@ -2,18 +2,22 @@
 # Go toolchain bump policy gate. When conditions pass, runs scripts/bump-go.sh
 # (executor only; bump logic lives here).
 #
-# Invariant: bump only if the repo is not already on go.dev latest *and* the current
-# minor's EOL (endoflife.date) is within POLICY_UPGRADE_WINDOW_DAYS (default
-# 90 days, ~3 months, tunable). If there is no newer stable to adopt, we never bump.
+# Invariant: bump only if the repo is not already on go.dev latest *and* the
+# latest minor's .0 release is at least POLICY_SOAK_DAYS old (default 90).
+# If the repo is 2+ minors behind latest (past Go's "N-1 supported" window),
+# bump immediately regardless of soak. If there is no newer stable to adopt,
+# never bump.
 #
-# https://endoflife.date/api/v1/products/go/
+# Latest minor release date is derived from the GitHub tag go<latest_minor>.0
+# (api.github.com), since Go does not publish EOL dates in a stable machine
+# form and endoflife.date has been unreliable for Go.
 #
 # Tests: TEST_OVERRIDE_LATEST_GO, TEST_OVERRIDE_CURRENT_GO, TEST_OVERRIDE_TODAY,
-#        TEST_OVERRIDE_CURRENT_EOL_DATE (optional ISO; skips endoflife fetch for EOL)
+#        TEST_OVERRIDE_LATEST_RELEASE_DATE (optional ISO; skips GitHub fetch)
 
 set -euo pipefail
 
-POLICY_UPGRADE_WINDOW_DAYS="${POLICY_UPGRADE_WINDOW_DAYS:-90}"
+POLICY_SOAK_DAYS="${POLICY_SOAK_DAYS:-90}"
 
 if [[ $# -gt 0 ]]; then
   echo "check-go-bump-policy: error: no arguments (see header)" >&2
@@ -43,7 +47,7 @@ _validate_iso() {
 }
 
 [[ -n "${TEST_OVERRIDE_TODAY:-}" ]] && _validate_iso "${TEST_OVERRIDE_TODAY}" TEST_OVERRIDE_TODAY
-[[ -n "${TEST_OVERRIDE_CURRENT_EOL_DATE:-}" ]] && _validate_iso "${TEST_OVERRIDE_CURRENT_EOL_DATE}" TEST_OVERRIDE_CURRENT_EOL_DATE
+[[ -n "${TEST_OVERRIDE_LATEST_RELEASE_DATE:-}" ]] && _validate_iso "${TEST_OVERRIDE_LATEST_RELEASE_DATE}" TEST_OVERRIDE_LATEST_RELEASE_DATE
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -67,7 +71,7 @@ PR_SCRIPT="${ROOT_DIR}/scripts/create-go-bump-pr.sh"
 log_active_test_overrides() {
   local p=()
   [[ -n "${TEST_OVERRIDE_TODAY:-}" ]] && p+=("TEST_OVERRIDE_TODAY=${TEST_OVERRIDE_TODAY}")
-  [[ -n "${TEST_OVERRIDE_CURRENT_EOL_DATE:-}" ]] && p+=("TEST_OVERRIDE_CURRENT_EOL_DATE=${TEST_OVERRIDE_CURRENT_EOL_DATE}")
+  [[ -n "${TEST_OVERRIDE_LATEST_RELEASE_DATE:-}" ]] && p+=("TEST_OVERRIDE_LATEST_RELEASE_DATE=${TEST_OVERRIDE_LATEST_RELEASE_DATE}")
   [[ -n "${TEST_OVERRIDE_LATEST_GO:-}" ]] && p+=("TEST_OVERRIDE_LATEST_GO=${TEST_OVERRIDE_LATEST_GO}")
   [[ -n "${TEST_OVERRIDE_CURRENT_GO:-}" ]] && p+=("TEST_OVERRIDE_CURRENT_GO=${TEST_OVERRIDE_CURRENT_GO}")
   if ((${#p[@]} > 0)); then
@@ -102,40 +106,46 @@ effective_today_epoch() {
   fi
 }
 
-# Prints eolFrom YYYY-MM-DD for repo minor (or test override).
-current_minor_eol_iso() {
-  local json="$1" current_full="$2"
-  local minor eol
-
-  if [[ -n "${TEST_OVERRIDE_CURRENT_EOL_DATE:-}" ]]; then
-    echo "${TEST_OVERRIDE_CURRENT_EOL_DATE}"
+# Prints YYYY-MM-DD for the .0 release of the given "1.N" minor (or test override).
+# GET commits/{ref} accepts tag names and resolves annotated tags transparently.
+latest_minor_release_iso() {
+  local tag="go$1.0" date
+  if [[ -n "${TEST_OVERRIDE_LATEST_RELEASE_DATE:-}" ]]; then
+    echo "${TEST_OVERRIDE_LATEST_RELEASE_DATE}"
     return 0
   fi
-
-  minor="$(go_minor_label "${current_full}")"
-  eol=$(printf '%s' "${json}" | jq -r --arg m "${minor}" '.result.releases[] | select(.name == $m) | .eolFrom // empty' | head -1)
-  [[ -n "${eol}" ]] || {
-    echo "check-go-bump-policy: no eolFrom for Go ${minor} on endoflife.date" >&2
+  date=$(gh api "repos/golang/go/commits/${tag}" --jq '.commit.committer.date[0:10]') || {
+    echo "check-go-bump-policy: error: failed to fetch ${tag} from github" >&2
     return 1
   }
-  echo "${eol}"
+  [[ -n "${date}" ]] || {
+    echo "check-go-bump-policy: error: empty date for ${tag}" >&2
+    return 1
+  }
+  echo "${date}"
 }
 
-# 0 = defer, 1 = continue toward bump, 2 = error
-upgrade_window_gate() {
-  local current="$1" latest="$2" json="$3"
-  local eol_iso eol_e td gate_sec sec_left days_left minor
+# 0 = defer, 1 = continue toward bump, 2 = error.
+soak_gate() {
+  local current_minor latest_minor
+  current_minor="$(go_minor_label "$1")"
+  latest_minor="$(go_minor_label "$2")"
+  # Assumes both are 1.N (Go 2.x does not exist).
+  local gap=$(( ${latest_minor#1.} - ${current_minor#1.} ))
 
-  eol_iso="$(current_minor_eol_iso "${json}" "${current}")" || return 2
-  eol_e=$(date_utc_epoch "${eol_iso}") || return 2
+  if [[ "${gap}" -ge 2 ]]; then
+    echo "check-go-bump-policy: ${current_minor} is ${gap} minors behind ${latest_minor} (past Go N-1 support window) — bump$(test_clock_note)" >&2
+    return 1
+  fi
+
+  local release_iso release_e td days_until
+  release_iso="$(latest_minor_release_iso "${latest_minor}")" || return 2
+  release_e=$(date_utc_epoch "${release_iso}") || return 2
   td=$(effective_today_epoch) || return 2
-  gate_sec=$((POLICY_UPGRADE_WINDOW_DAYS * 86400))
-  sec_left=$((eol_e - td))
-  days_left=$((sec_left / 86400))
+  days_until=$(( (release_e + POLICY_SOAK_DAYS * 86400 - td) / 86400 ))
 
-  minor="$(go_minor_label "${current}")"
-  if [[ "${sec_left}" -gt "${gate_sec}" ]]; then
-    echo "check-go-bump-policy: defer bump: Go ${minor} EOL ${eol_iso} is ${days_left}d away (>${POLICY_UPGRADE_WINDOW_DAYS}d gate) — skip$(test_clock_note)" >&2
+  if [[ "${days_until}" -gt 0 ]]; then
+    echo "check-go-bump-policy: defer bump: Go ${latest_minor} released ${release_iso}, ${days_until}d until ${POLICY_SOAK_DAYS}d soak elapses — skip$(test_clock_note)" >&2
     return 0
   fi
   return 1
@@ -221,32 +231,24 @@ evaluate_go_bump_policy() {
 # --- main
 log_active_test_overrides
 
+command -v gh >/dev/null 2>&1 || {
+  echo "check-go-bump-policy: error: gh is required" >&2
+  exit 1
+}
+
 latest="$(get_latest_published_go_version)" || exit 1
 current="$(get_repository_go_version)" || exit 1
 
-_eol_json=""
 if [[ "${current}" != "${latest}" ]]; then
-  if [[ -z "${TEST_OVERRIDE_CURRENT_EOL_DATE:-}" ]]; then
-    _eol_json="$(curl -fsSL --max-time 60 'https://endoflife.date/api/v1/products/go/')" || {
-      echo "check-go-bump-policy: error: endoflife.date fetch failed" >&2
-      exit 1
-    }
-  else
-    _eol_json="{}"
-  fi
   _gate_rc=0
-  upgrade_window_gate "${current}" "${latest}" "${_eol_json}" || _gate_rc=$?
+  soak_gate "${current}" "${latest}" || _gate_rc=$?
   case "${_gate_rc}" in
-    0) exit 0 ;; # defer — outside POLICY_UPGRADE_WINDOW_DAYS of current minor EOL
-    1) ;;        # within gate or past EOL — continue
-    *) exit 1 ;; # EOL resolution error
+    0) exit 0 ;; # defer — within POLICY_SOAK_DAYS of latest minor release
+    1) ;;        # past soak or gap>=2 — continue
+    *) exit 1 ;; # lookup error
   esac
 fi
 
-command -v gh >/dev/null 2>&1 || {
-  echo "check-go-bump-policy: error: need gh" >&2
-  exit 1
-}
 pr="$(find_open_go_bump_pull_request)" || exit 1
 
 if evaluate_go_bump_policy "${current}" "${latest}" "${pr}"; then
