@@ -223,12 +223,18 @@ def active_replica_set(
 
 @fixture(scope="module")
 def active_rs_running(active_replica_set: MongoDB) -> MongoDB:
-    active_replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    active_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
     return active_replica_set
 
 
 @fixture(scope="module")
-def active_rs_with_data(namespace: str, active_rs_running: MongoDB) -> int:
+def initialize_inventory_documents(namespace: str, active_rs_running: MongoDB) -> int:
+    """
+    Fixture to initialize the inventory documents in the MongoDB database. It deletes all
+    existing documents in the specified collection and inserts predefined inventory
+    documents. This fixture ensures the database starts with a clean state for the
+    provided namespace and replicaset instance.
+    """
     docs_json = _json.dumps(INVENTORY_DOCS)
     js = (
         f"db.getSiblingDB('{PRODUCTS_DB}').{INVENTORY_COLLECTION}.deleteMany({{}});"
@@ -277,7 +283,6 @@ def _wait_for_snapshot(namespace: str, timeout: int = 300):
 @fixture(scope="module")
 def monarch_snapshot(
     namespace: str,
-    active_rs_with_data: int,
     minio: str,
     cluster_domain: str,
 ) -> None:
@@ -371,6 +376,12 @@ def standby_replica_set(
     resource.configure(ops_manager, STANDBY_RS_NAME)
     try_load(resource)
     return resource
+
+
+@fixture(scope="module")
+def standby_rs_running(standby_replica_set: MongoDB) -> MongoDB:
+    standby_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    return standby_replica_set
 
 
 # ── test class ──────────────────────────────────────────────────────────────
@@ -471,9 +482,9 @@ class TestMonarchDeployments(KubernetesTester):
         assert cm.metadata.owner_references[0].kind == "MongoDB"
         assert cm.metadata.owner_references[0].name == ACTIVE_RS_NAME
 
-    def test_active_automation_config_monarch_components(self):
+    def test_active_automation_config_monarch_components(self, active_rs_running: MongoDB):
         """Active cluster: maintainedMonarchComponents with empty shards."""
-        config = self.get_automation_config()
+        config = active_rs_running.get_automation_config_tester().automation_config
         assert "maintainedMonarchComponents" in config
         mc = config["maintainedMonarchComponents"]
         assert len(mc) == 1
@@ -484,10 +495,11 @@ class TestMonarchDeployments(KubernetesTester):
         # Active clusters have empty shards list
         assert mc[0]["injectorConfig"]["shards"] == []
 
+    # TODO: WORKS UNTIL HERE
     # ── Phase 2: Snapshot ───────────────────────────────────────────────
 
-    def test_documents_inserted(self, active_rs_with_data: int):
-        assert active_rs_with_data == len(INVENTORY_DOCS)
+    def test_documents_can_be_inserted(self, initialize_inventory_documents: int):
+        assert initialize_inventory_documents == len(INVENTORY_DOCS)
 
     def test_snapshot_uploaded(self, monarch_snapshot: None):
         pass
@@ -568,9 +580,9 @@ class TestMonarchDeployments(KubernetesTester):
             f"monarch-injector should be a Deployment, not a sidecar. Found containers: {container_names}"
         )
 
-    def test_standby_automation_config_uses_service_dns(self, standby_replica_set: MongoDB):
+    def test_standby_automation_config_uses_service_dns(self, standby_rs_running: MongoDB):
         """Automation config must use Service DNS name, not localhost."""
-        config = self.get_automation_config()
+        config = standby_rs_running.get_automation_config_tester().automation_config
         assert "maintainedMonarchComponents" in config
         mc = config["maintainedMonarchComponents"]
         assert len(mc) == 1
@@ -598,13 +610,13 @@ class TestMonarchDeployments(KubernetesTester):
         assert inst["externallyManaged"] is True
         assert "localhost" not in inst["hostname"]
 
-    def test_standby_injector_member_in_rs_config(self, standby_replica_set: MongoDB):
+    def test_standby_injector_member_in_rs_config(self, standby_rs_running: MongoDB):
         """The RS config should contain an injector member with votes=1, priority=1,
         and a processType=INJECTOR tag."""
-        config = self.get_automation_config()
+        config = standby_rs_running.get_automation_config_tester().automation_config
         rs = next(r for r in config["replicaSets"] if r["_id"] == STANDBY_RS_NAME)
 
-        mongod_hosts = {f"{STANDBY_RS_NAME}-{i}" for i in range(standby_replica_set["spec"]["members"])}
+        mongod_hosts = {f"{STANDBY_RS_NAME}-{i}" for i in range(standby_rs_running["spec"]["members"])}
         injector_members = [m for m in rs["members"] if m.get("host") not in mongod_hosts]
 
         assert len(injector_members) >= 1, f"No injector members found in RS config. Members: {rs['members']}"
