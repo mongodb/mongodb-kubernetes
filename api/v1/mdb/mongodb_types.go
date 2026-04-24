@@ -847,6 +847,8 @@ func (s *Security) GetTLSCAFilePath(defaultPath string) string {
 		return defaultPath
 	}
 	return s.TLSConfig.GetCAFilePath(defaultPath)
+}
+
 func (d *DbCommonSpec) GetExternalMembers() []ExternalMember {
 	return d.ExternalMembers
 }
