@@ -5,6 +5,12 @@ on:
     # Runs on the 1st and 15th of each month at 08:00 UTC (~every 2 weeks).
     - cron: '0 8 1,15 * *'
   workflow_dispatch:
+    inputs:
+      soak_days:
+        description: 'Override POLICY_SOAK_DAYS (days the latest minor .0 must age before we bump). Leave blank to use the script default (90).'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   check-and-bump:
@@ -29,4 +35,5 @@ jobs:
       - name: Run Go bump policy check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          POLICY_SOAK_DAYS: ${{ inputs.soak_days }}
         run: scripts/check-go-bump-policy.sh
