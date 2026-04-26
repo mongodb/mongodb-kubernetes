@@ -118,7 +118,7 @@ type reconcileUnit struct {
 // here in hook closures so the reconcile body stays a straight, unbranched sequence.
 type reconcilePlan struct {
 	units        []reconcileUnit
-	skipProxySvc bool                                                                // topology-wide: true when the LB is unmanaged
+	manageProxySvc bool                                                              // topology-wide: true when the operator owns the proxy Service lifecycle (i.e. the LB is not user-managed)
 	preflight    func(context.Context, *zap.SugaredLogger) workflow.Status           // runs before the loop; must return workflow.OK() to proceed
 	cleanup      func(context.Context, *zap.SugaredLogger)                           // runs after the loop; best-effort, errors logged
 }
@@ -163,7 +163,7 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 			tlsResource:        r.mdbSearch,
 			mongotConfigFn:     mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch)),
 		}},
-		skipProxySvc: r.mdbSearch.IsReplicaSetUnmanagedLB(),
+		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
 		preflight:    func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
 		cleanup:      func(context.Context, *zap.SugaredLogger) {},
 	}, nil
@@ -197,7 +197,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 
 	return reconcilePlan{
 		units:        units,
-		skipProxySvc: r.mdbSearch.IsShardedUnmanagedLB(),
+		manageProxySvc: !r.mdbSearch.IsShardedUnmanagedLB(),
 		preflight: func(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 			return r.validatePerShardTLSSecrets(ctx, log, shardNames)
 		},
@@ -299,7 +299,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		}
 
 		// Proxy service (skipped for unmanaged LB)
-		if !plan.skipProxySvc {
+		if plan.manageProxySvc {
 			if err := r.ensureSearchService(ctx, unitLog, unit.proxySvc, buildProxyService(r.mdbSearch, unit)); err != nil {
 				return workflow.Failed(err)
 			}
