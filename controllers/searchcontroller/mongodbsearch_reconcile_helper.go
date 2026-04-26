@@ -103,7 +103,6 @@ type reconcileUnit struct {
 	headlessSvc         types.NamespacedName
 	proxySvc            types.NamespacedName
 	configMapName       types.NamespacedName
-	appLabel            string               // value of the "app" key used as pod selector by services
 	podLabels           map[string]string    // applied identically as STS metadata labels, matchLabels, and pod-template labels
 	additionalSvcLabels map[string]string    // merged into both headless and proxy Service metadata labels (e.g. {"shard": name})
 	publishNotReady     bool                 // headless Service PublishNotReadyAddresses
@@ -157,8 +156,7 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 			headlessSvc:        r.mdbSearch.SearchServiceNamespacedName(),
 			proxySvc:           r.mdbSearch.ProxyServiceNamespacedName(),
 			configMapName:      r.mdbSearch.MongotConfigConfigMapNamespacedName(),
-			appLabel:           svcName,
-			podLabels:          map[string]string{"app": svcName},
+			podLabels:          map[string]string{appLabelKey: svcName},
 			extraHeadlessPorts: extraHeadlessPorts,
 			tlsResource:        r.mdbSearch,
 			mongotConfigFn:     mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch)),
@@ -185,9 +183,8 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			headlessSvc:         r.mdbSearch.MongotServiceForShard(shardName),
 			proxySvc:            r.mdbSearch.ProxyServiceNameForShard(shardName),
 			configMapName:       r.mdbSearch.MongotConfigMapForShard(shardName),
-			appLabel:            stsName.Name,
-			podLabels:           map[string]string{"app": stsName.Name, "shard": shardName},
-			additionalSvcLabels: map[string]string{"shard": shardName},
+			podLabels:           map[string]string{appLabelKey: stsName.Name, shardLabelKey: shardName},
+			additionalSvcLabels: map[string]string{shardLabelKey: shardName},
 			publishNotReady:     true,
 			logFields:           []any{"shard", shardName, "shardIdx", shardIdx},
 			tlsResource:         &perShardTLSResource{MongoDBSearch: r.mdbSearch, shardName: shardName},
@@ -293,12 +290,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	for _, unit := range plan.units {
 		unitLog := log.With(unit.logFields...)
 
-		// Headless service
 		if err := r.ensureSearchService(ctx, unitLog, unit.headlessSvc, buildHeadlessService(r.mdbSearch, unit)); err != nil {
 			return workflow.Failed(err)
 		}
 
-		// Proxy service (skipped for unmanaged LB)
 		if plan.manageProxySvc {
 			if err := r.ensureSearchService(ctx, unitLog, unit.proxySvc, buildProxyService(r.mdbSearch, unit)); err != nil {
 				return workflow.Failed(err)
@@ -312,7 +307,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 			return workflow.Failed(err)
 		}
 
-		// Mongot config
 		configHash, err := r.ensureMongotConfig(ctx,
 			unitLog,
 			unit.configMapName,
@@ -333,7 +327,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 			},
 		))
 
-		// StatefulSet
 		mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 			unitLog,
 			unit.stsName,
@@ -683,14 +676,15 @@ func mongotServicePorts(search *searchv1.MongoDBSearch) []corev1.ServicePort {
 }
 
 const (
-	// proxyServiceComponent is the label value for the proxy service component.
+	appLabelKey           = "app"
+	shardLabelKey         = "shard"
 	proxyServiceComponent = "search-proxy"
 )
 
 // buildHeadlessService builds a headless Service for a reconcile unit. All topology-specific
 // behavior comes from the unit's explicit fields — no branching on "is this a shard?".
 func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
-	svcLabels := map[string]string{"app": unit.headlessSvc.Name}
+	svcLabels := map[string]string{appLabelKey: unit.headlessSvc.Name}
 	for k, v := range unit.additionalSvcLabels {
 		svcLabels[k] = v
 	}
@@ -699,7 +693,7 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 		SetName(unit.headlessSvc.Name).
 		SetNamespace(unit.headlessSvc.Namespace).
 		SetLabels(svcLabels).
-		SetSelector(map[string]string{"app": unit.appLabel}).
+		SetSelector(map[string]string{appLabelKey: unit.podLabels[appLabelKey]}).
 		SetClusterIP("None").
 		SetPublishNotReadyAddresses(unit.publishNotReady).
 		SetServiceType(corev1.ServiceTypeClusterIP).
@@ -722,13 +716,13 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
 	var selector map[string]string
 	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {
-		selector = map[string]string{"app": search.LoadBalancerDeploymentName()}
+		selector = map[string]string{appLabelKey: search.LoadBalancerDeploymentName()}
 	} else {
-		selector = map[string]string{"app": unit.appLabel}
+		selector = map[string]string{appLabelKey: unit.podLabels[appLabelKey]}
 	}
 
 	labels := map[string]string{
-		"app":       unit.proxySvc.Name,
+		appLabelKey: unit.proxySvc.Name,
 		"component": proxyServiceComponent,
 	}
 	for k, v := range unit.additionalSvcLabels {

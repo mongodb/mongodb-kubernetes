@@ -287,8 +287,7 @@ func newTestRSUnit(search *searchv1.MongoDBSearch) reconcileUnit {
 		headlessSvc:   search.SearchServiceNamespacedName(),
 		proxySvc:      search.ProxyServiceNamespacedName(),
 		configMapName: search.MongotConfigConfigMapNamespacedName(),
-		appLabel:      svcName,
-		podLabels:     map[string]string{"app": svcName},
+		podLabels:     map[string]string{appLabelKey: svcName},
 	}
 }
 
@@ -300,9 +299,8 @@ func newTestShardUnit(search *searchv1.MongoDBSearch, shardName string) reconcil
 		headlessSvc:         search.MongotServiceForShard(shardName),
 		proxySvc:            search.ProxyServiceNameForShard(shardName),
 		configMapName:       search.MongotConfigMapForShard(shardName),
-		appLabel:            stsName.Name,
-		podLabels:           map[string]string{"app": stsName.Name, "shard": shardName},
-		additionalSvcLabels: map[string]string{"shard": shardName},
+		podLabels:           map[string]string{appLabelKey: stsName.Name, shardLabelKey: shardName},
+		additionalSvcLabels: map[string]string{shardLabelKey: shardName},
 		publishNotReady:     true,
 	}
 }
