@@ -94,75 +94,119 @@ func NewMongoDBSearchReconcileHelper(
 	}
 }
 
-// reconcileUnit captures all per-unit (per-shard or single-RS) resource names,
-// labels, and config so the reconcile loop body is topology-agnostic.
+// reconcileUnit captures all per-unit (per-shard or single-RS) resource names, labels, and
+// config. The unit is intentionally topology-free: every per-shard vs. per-RS difference is
+// encoded as an explicit field populated by the factory, so downstream code never branches
+// on "am I sharded?" and new topologies (e.g. multicluster) only extend the factory.
 type reconcileUnit struct {
-	shardName      string // "" for RS
-	stsName        types.NamespacedName
-	headlessSvc    types.NamespacedName
-	proxySvc       types.NamespacedName
-	configMapName  types.NamespacedName
-	podLabels      map[string]string           // STS labels + matchLabels + pod labels
-	tlsResource    tls.TLSConfigurableResource // r.mdbSearch for RS, perShardTLSResource for sharded
-	mongotConfigFn mongot.Modification         // topology-specific mongot config
-	skipProxySvc   bool                        // true when unmanaged LB for this topology
+	stsName             types.NamespacedName
+	headlessSvc         types.NamespacedName
+	proxySvc            types.NamespacedName
+	configMapName       types.NamespacedName
+	appLabel            string               // value of the "app" key used as pod selector by services
+	podLabels           map[string]string    // applied identically as STS metadata labels, matchLabels, and pod-template labels
+	additionalSvcLabels map[string]string    // merged into both headless and proxy Service metadata labels (e.g. {"shard": name})
+	publishNotReady     bool                 // headless Service PublishNotReadyAddresses
+	extraHeadlessPorts  []corev1.ServicePort // additional ports on the headless Service (e.g. wireproto for RS)
+	logFields           []any                // k/v fields attached to the per-unit logger (nil for single-unit topologies)
+	tlsResource         tls.TLSConfigurableResource
+	mongotConfigFn      mongot.Modification
 }
 
-// buildReconcileUnits returns the list of reconcile units for the current topology.
-// ReplicaSet returns a single unit; sharded returns one unit per shard.
-func (r *MongoDBSearchReconcileHelper) buildReconcileUnits() ([]reconcileUnit, error) {
+// reconcilePlan is the full per-reconcile work description: a list of units plus the
+// topology-wide knobs and hooks that surround the loop. Everything sharded-specific lives
+// here in hook closures so the reconcile body stays a straight, unbranched sequence.
+type reconcilePlan struct {
+	units        []reconcileUnit
+	skipProxySvc bool                                                                // topology-wide: true when the LB is unmanaged
+	preflight    func(context.Context, *zap.SugaredLogger) workflow.Status           // runs before the loop; must return workflow.OK() to proceed
+	cleanup      func(context.Context, *zap.SugaredLogger)                           // runs after the loop; best-effort, errors logged
+}
+
+// buildReconcilePlan returns the full reconcile plan for the current topology.
+// All sharded-vs-RS differences are resolved here so the reconcile body is topology-agnostic.
+func (r *MongoDBSearchReconcileHelper) buildReconcilePlan(log *zap.SugaredLogger) (reconcilePlan, error) {
 	if shardedSource, ok := r.db.(SearchSourceShardedDeployment); ok {
-		return r.buildShardedUnits(shardedSource)
+		log.Infof("Reconciling MongoDBSearch for sharded source deployment with %d shards", shardedSource.GetShardCount())
+		return r.buildShardedPlan(shardedSource)
 	}
-	return r.buildReplicaSetUnits()
+	return r.buildReplicaSetPlan()
 }
 
-func (r *MongoDBSearchReconcileHelper) buildReplicaSetUnits() ([]reconcileUnit, error) {
+func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, error) {
 	hostSeeds, err := r.db.HostSeeds("")
 	if err != nil {
-		return nil, err
+		return reconcilePlan{}, err
 	}
 
 	svcName := r.mdbSearch.SearchServiceNamespacedName().Name
-	return []reconcileUnit{
-		{
-			stsName:        r.mdbSearch.StatefulSetNamespacedName(),
-			headlessSvc:    r.mdbSearch.SearchServiceNamespacedName(),
-			proxySvc:       r.mdbSearch.ProxyServiceNamespacedName(),
-			configMapName:  r.mdbSearch.MongotConfigConfigMapNamespacedName(),
-			podLabels:      map[string]string{"app": svcName},
-			tlsResource:    r.mdbSearch,
-			mongotConfigFn: createMongotConfig(r.mdbSearch, hostSeeds),
-			skipProxySvc:   r.mdbSearch.IsReplicaSetUnmanagedLB(),
-		},
+
+	var extraHeadlessPorts []corev1.ServicePort
+	if r.mdbSearch.IsWireprotoEnabled() {
+		extraHeadlessPorts = []corev1.ServicePort{{
+			Name:       "mongot-wireproto",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       r.mdbSearch.GetMongotWireprotoPort(),
+			TargetPort: intstr.FromInt32(r.mdbSearch.GetMongotWireprotoPort()),
+		}}
+	}
+
+	return reconcilePlan{
+		units: []reconcileUnit{{
+			stsName:            r.mdbSearch.StatefulSetNamespacedName(),
+			headlessSvc:        r.mdbSearch.SearchServiceNamespacedName(),
+			proxySvc:           r.mdbSearch.ProxyServiceNamespacedName(),
+			configMapName:      r.mdbSearch.MongotConfigConfigMapNamespacedName(),
+			appLabel:           svcName,
+			podLabels:          map[string]string{"app": svcName},
+			extraHeadlessPorts: extraHeadlessPorts,
+			tlsResource:        r.mdbSearch,
+			mongotConfigFn:     mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch)),
+		}},
+		skipProxySvc: r.mdbSearch.IsReplicaSetUnmanagedLB(),
+		preflight:    func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
+		cleanup:      func(context.Context, *zap.SugaredLogger) {},
 	}, nil
 }
 
-func (r *MongoDBSearchReconcileHelper) buildShardedUnits(shardedSource SearchSourceShardedDeployment) ([]reconcileUnit, error) {
+func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSourceShardedDeployment) (reconcilePlan, error) {
 	shardNames := shardedSource.GetShardNames()
 	units := make([]reconcileUnit, 0, len(shardNames))
 
-	for _, shardName := range shardNames {
+	for shardIdx, shardName := range shardNames {
 		hostSeeds, err := shardedSource.HostSeeds(shardName)
 		if err != nil {
-			return nil, err
+			return reconcilePlan{}, err
 		}
 
 		stsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
 		units = append(units, reconcileUnit{
-			shardName:      shardName,
-			stsName:        stsName,
-			headlessSvc:    r.mdbSearch.MongotServiceForShard(shardName),
-			proxySvc:       r.mdbSearch.ProxyServiceNameForShard(shardName),
-			configMapName:  r.mdbSearch.MongotConfigMapForShard(shardName),
-			podLabels:      map[string]string{"app": stsName.Name, "shard": shardName},
-			tlsResource:    &perShardTLSResource{MongoDBSearch: r.mdbSearch, shardName: shardName},
-			mongotConfigFn: createMongotConfigForShard(r.mdbSearch, hostSeeds, shardedSource, shardName),
-			skipProxySvc:   r.mdbSearch.IsShardedUnmanagedLB(),
+			stsName:             stsName,
+			headlessSvc:         r.mdbSearch.MongotServiceForShard(shardName),
+			proxySvc:            r.mdbSearch.ProxyServiceNameForShard(shardName),
+			configMapName:       r.mdbSearch.MongotConfigMapForShard(shardName),
+			appLabel:            stsName.Name,
+			podLabels:           map[string]string{"app": stsName.Name, "shard": shardName},
+			additionalSvcLabels: map[string]string{"shard": shardName},
+			publishNotReady:     true,
+			logFields:           []any{"shard", shardName, "shardIdx", shardIdx},
+			tlsResource:         &perShardTLSResource{MongoDBSearch: r.mdbSearch, shardName: shardName},
+			mongotConfigFn:      mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), routerMongotMod(r.mdbSearch, shardedSource)),
 		})
 	}
 
-	return units, nil
+	return reconcilePlan{
+		units:        units,
+		skipProxySvc: r.mdbSearch.IsShardedUnmanagedLB(),
+		preflight: func(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
+			return r.validatePerShardTLSSecrets(ctx, log, shardNames)
+		},
+		cleanup: func(ctx context.Context, log *zap.SugaredLogger) {
+			if err := r.cleanupStaleShardResources(ctx, log, shardNames); err != nil {
+				log.Warnf("Failed to cleanup stale shard resources: %s", err)
+			}
+		},
+	}, nil
 }
 
 func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
@@ -206,23 +250,25 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	// Determine if sharded (needed for pre-loop validation and post-loop cleanup)
-	shardedSource, isSharded := r.db.(SearchSourceShardedDeployment)
+	plan, err := r.buildReconcilePlan(log)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	if status := plan.preflight(ctx, log); !status.IsOK() {
+		return status
+	}
 
 	keyfileStsModification, st, ok := r.ensureKeyfileModification(ctx, log)
 	if !ok {
 		return st
 	}
 
-	// Sharded-only: validate per-shard TLS secrets exist before proceeding
-	if isSharded {
-		shardNames := shardedSource.GetShardNames()
-		if status := r.validatePerShardTLSSecrets(ctx, log, shardNames); !status.IsOK() {
-			return status
-		}
-	}
-
-	// Topology-agnostic modifications (computed once, applied to every unit)
+	// Topology-agnostic modifications (computed once, applied to every unit).
+	// Ordering note: egress TLS must be applied after ingress TLS because it toggles mTLS
+	// based on the mode set by ingress. x509 must run after baseMongotConfig (which sets
+	// username/password) so it can clear them. The loop below preserves this order when
+	// passing modifications to ensureMongotConfig and createOrUpdateStatefulSet.
 	passwordAuthStsModification := statefulset.NOOP()
 	if !r.mdbSearch.IsX509Auth() {
 		passwordAuthStsModification = PasswordAuthModification(r.mdbSearch)
@@ -244,21 +290,8 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	image, imageVersion := r.searchImageAndVersion()
 	searchImage := fmt.Sprintf("%s:%s", image, imageVersion)
 
-	units, err := r.buildReconcileUnits()
-	if err != nil {
-		return workflow.Failed(err)
-	}
-
-	if isSharded {
-		log.Infof("Reconciling MongoDBSearch for sharded source deployment with %d shards", shardedSource.GetShardCount())
-	}
-
-	for unitIdx, unit := range units {
-		unitLog := log
-		if unit.shardName != "" {
-			unitLog = log.With("shard", unit.shardName, "shardIdx", unitIdx)
-			unitLog.Infof("Reconciling mongot for shard %s", unit.shardName)
-		}
+	for _, unit := range plan.units {
+		unitLog := log.With(unit.logFields...)
 
 		// Headless service
 		if err := r.ensureSearchService(ctx, unitLog, unit.headlessSvc, buildHeadlessService(r.mdbSearch, unit)); err != nil {
@@ -266,16 +299,14 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		}
 
 		// Proxy service (skipped for unmanaged LB)
-		if !unit.skipProxySvc {
+		if !plan.skipProxySvc {
 			if err := r.ensureSearchService(ctx, unitLog, unit.proxySvc, buildProxyService(r.mdbSearch, unit)); err != nil {
 				return workflow.Failed(err)
 			}
 		}
 
-		// Per-unit ingress TLS (RS uses mdbSearch, sharded uses perShardTLSResource)
-		// The egress TLS modification needs to always be applied after the ingress one,
-		// because it toggles mTLS based on the mode set by the ingress modification.
-		// The x509 modification must run after baseMongotConfig (which sets username/password) so it can clear them.
+		// Per-unit ingress TLS (RS uses mdbSearch, sharded uses perShardTLSResource).
+		// Each shard may have its own TLS secret, so this is not hoistable out of the loop.
 		ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx, unit.tlsResource)
 		if err != nil {
 			return workflow.Failed(err)
@@ -325,12 +356,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		}
 	}
 
-	// Sharded-only: clean up resources from removed shards
-	if isSharded {
-		if err := r.cleanupStaleShardResources(ctx, log, shardedSource.GetShardNames()); err != nil {
-			log.Warnf("Failed to cleanup stale shard resources: %s", err)
-		}
-	}
+	plan.cleanup(ctx, log)
 
 	if !r.mdbSearch.IsLoadBalancerReady() {
 		return workflow.Pending("Waiting for managed load balancer to be ready").
@@ -661,31 +687,26 @@ const (
 	proxyServiceComponent = "search-proxy"
 )
 
-// buildHeadlessService builds a headless Service for a reconcile unit (RS or per-shard).
+// buildHeadlessService builds a headless Service for a reconcile unit. All topology-specific
+// behavior comes from the unit's explicit fields — no branching on "is this a shard?".
 func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
 	svcLabels := map[string]string{"app": unit.headlessSvc.Name}
-	if unit.shardName != "" {
-		svcLabels["shard"] = unit.shardName
+	for k, v := range unit.additionalSvcLabels {
+		svcLabels[k] = v
 	}
 
 	serviceBuilder := service.Builder().
 		SetName(unit.headlessSvc.Name).
 		SetNamespace(unit.headlessSvc.Namespace).
 		SetLabels(svcLabels).
-		SetSelector(map[string]string{"app": unit.podLabels["app"]}).
+		SetSelector(map[string]string{"app": unit.appLabel}).
 		SetClusterIP("None").
-		SetPublishNotReadyAddresses(unit.shardName != "").
+		SetPublishNotReadyAddresses(unit.publishNotReady).
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetOwnerReferences(search.GetOwnerReferences())
 
-	// Wireproto port is only used for RS (non-sharded) deployments
-	if unit.shardName == "" && search.IsWireprotoEnabled() {
-		serviceBuilder.AddPort(&corev1.ServicePort{
-			Name:       "mongot-wireproto",
-			Protocol:   corev1.ProtocolTCP,
-			Port:       search.GetMongotWireprotoPort(),
-			TargetPort: intstr.FromInt32(search.GetMongotWireprotoPort()),
-		})
+	for i := range unit.extraHeadlessPorts {
+		serviceBuilder.AddPort(&unit.extraHeadlessPorts[i])
 	}
 
 	for _, port := range mongotServicePorts(search) {
@@ -703,15 +724,15 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {
 		selector = map[string]string{"app": search.LoadBalancerDeploymentName()}
 	} else {
-		selector = map[string]string{"app": unit.podLabels["app"]}
+		selector = map[string]string{"app": unit.appLabel}
 	}
 
 	labels := map[string]string{
 		"app":       unit.proxySvc.Name,
 		"component": proxyServiceComponent,
 	}
-	if unit.shardName != "" {
-		labels["shard"] = unit.shardName
+	for k, v := range unit.additionalSvcLabels {
+		labels[k] = v
 	}
 
 	targetPort := search.GetEffectiveMongotPort()
@@ -734,20 +755,6 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 	return serviceBuilder.Build()
 }
 
-// createMongotConfigForShard creates the mongot configuration for a specific shard.
-// Each shard's mongot connects to its own shard's mongod hosts and includes Router config for mongos.
-func createMongotConfigForShard(search *searchv1.MongoDBSearch, hostSeeds []string, shardedSource SearchSourceShardedDeployment, shardName string) mongot.Modification {
-	return func(config *mongot.Config) {
-		baseMongotConfig(search, hostSeeds)(config)
-
-		config.SyncSource.Router = &mongot.ConfigRouter{
-			HostAndPort:  shardedSource.MongosHostsAndPorts(),
-			Username:     search.SourceUsername(),
-			PasswordFile: TempSourceUserPasswordPath,
-			TLS:          ptr.To(false),
-		}
-	}
-}
 
 // EnsureEmbeddingAPIKeySecret makes sure that the scret that is provided in MDBSearch resource
 // for embedding model's keys is present and has expected keys.
@@ -1096,21 +1103,34 @@ func baseMongotConfig(search *searchv1.MongoDBSearch, hostAndPorts []string) mon
 	}
 }
 
-func createMongotConfig(search *searchv1.MongoDBSearch, hostSeeds []string) mongot.Modification {
+// wireprotoMongotMod appends a Wireproto server config when enabled, otherwise a no-op.
+// Used only by ReplicaSet units.
+func wireprotoMongotMod(search *searchv1.MongoDBSearch) mongot.Modification {
+	if !search.IsWireprotoEnabled() {
+		return func(*mongot.Config) {}
+	}
 	return func(config *mongot.Config) {
-		baseMongotConfig(search, hostSeeds)(config)
+		config.Server.Wireproto = &mongot.ConfigWireproto{
+			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotWireprotoPort()),
+			Authentication: &mongot.ConfigAuthentication{
+				Mode:    "keyfile",
+				KeyFile: TempKeyfilePath,
+			},
+			TLS: &mongot.ConfigWireprotoTLS{
+				Mode: mongot.ConfigTLSModeDisabled,
+			},
+		}
+	}
+}
 
-		if search.IsWireprotoEnabled() {
-			config.Server.Wireproto = &mongot.ConfigWireproto{
-				Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotWireprotoPort()),
-				Authentication: &mongot.ConfigAuthentication{
-					Mode:    "keyfile",
-					KeyFile: TempKeyfilePath,
-				},
-				TLS: &mongot.ConfigWireprotoTLS{
-					Mode: mongot.ConfigTLSModeDisabled,
-				},
-			}
+// routerMongotMod appends the mongos Router config. Used only by sharded units.
+func routerMongotMod(search *searchv1.MongoDBSearch, shardedSource SearchSourceShardedDeployment) mongot.Modification {
+	return func(config *mongot.Config) {
+		config.SyncSource.Router = &mongot.ConfigRouter{
+			HostAndPort:  shardedSource.MongosHostsAndPorts(),
+			Username:     search.SourceUsername(),
+			PasswordFile: TempSourceUserPasswordPath,
+			TLS:          ptr.To(false),
 		}
 	}
 }

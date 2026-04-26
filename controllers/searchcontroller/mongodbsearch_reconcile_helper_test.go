@@ -287,6 +287,7 @@ func newTestRSUnit(search *searchv1.MongoDBSearch) reconcileUnit {
 		headlessSvc:   search.SearchServiceNamespacedName(),
 		proxySvc:      search.ProxyServiceNamespacedName(),
 		configMapName: search.MongotConfigConfigMapNamespacedName(),
+		appLabel:      svcName,
 		podLabels:     map[string]string{"app": svcName},
 	}
 }
@@ -295,12 +296,14 @@ func newTestRSUnit(search *searchv1.MongoDBSearch) reconcileUnit {
 func newTestShardUnit(search *searchv1.MongoDBSearch, shardName string) reconcileUnit {
 	stsName := search.MongotStatefulSetForShard(shardName)
 	return reconcileUnit{
-		shardName:     shardName,
-		stsName:       stsName,
-		headlessSvc:   search.MongotServiceForShard(shardName),
-		proxySvc:      search.ProxyServiceNameForShard(shardName),
-		configMapName: search.MongotConfigMapForShard(shardName),
-		podLabels:     map[string]string{"app": stsName.Name, "shard": shardName},
+		stsName:             stsName,
+		headlessSvc:         search.MongotServiceForShard(shardName),
+		proxySvc:            search.ProxyServiceNameForShard(shardName),
+		configMapName:       search.MongotConfigMapForShard(shardName),
+		appLabel:            stsName.Name,
+		podLabels:           map[string]string{"app": stsName.Name, "shard": shardName},
+		additionalSvcLabels: map[string]string{"shard": shardName},
+		publishNotReady:     true,
 	}
 }
 
@@ -1019,14 +1022,14 @@ func TestCreateShardMongotConfig(t *testing.T) {
 
 	seeds0, _ := shardedSource.HostSeeds(shardedSource.shardNames[0])
 	config := mongot.Config{}
-	createMongotConfigForShard(search, seeds0, shardedSource, shardedSource.shardNames[0])(&config)
+	mongot.Apply(baseMongotConfig(search, seeds0), routerMongotMod(search, shardedSource))(&config)
 
 	assert.Equal(t, []string{"my-cluster-0-0.svc:27017", "my-cluster-0-1.svc:27017", "my-cluster-0-2.svc:27017"}, config.SyncSource.ReplicaSet.HostAndPort)
 	assert.Equal(t, search.SourceUsername(), config.SyncSource.ReplicaSet.Username)
 
 	seeds1, _ := shardedSource.HostSeeds(shardedSource.shardNames[1])
 	config2 := mongot.Config{}
-	createMongotConfigForShard(search, seeds1, shardedSource, shardedSource.shardNames[1])(&config2)
+	mongot.Apply(baseMongotConfig(search, seeds1), routerMongotMod(search, shardedSource))(&config2)
 
 	assert.Equal(t, []string{"my-cluster-1-0.svc:27017", "my-cluster-1-1.svc:27017", "my-cluster-1-2.svc:27017"}, config2.SyncSource.ReplicaSet.HostAndPort)
 }
@@ -1051,7 +1054,7 @@ func TestShardedMongotConfigWithTLS(t *testing.T) {
 
 	seedsTLS, _ := shardedSource.HostSeeds(shardedSource.shardNames[0])
 	config := mongot.Config{}
-	createMongotConfigForShard(search, seedsTLS, shardedSource, shardedSource.shardNames[0])(&config)
+	mongot.Apply(baseMongotConfig(search, seedsTLS), routerMongotMod(search, shardedSource))(&config)
 
 	require.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should initially be false")
@@ -1093,7 +1096,7 @@ func TestShardedMongotConfigWithoutTLS(t *testing.T) {
 
 	seedsNoTLS, _ := shardedSource.HostSeeds(shardedSource.shardNames[0])
 	config := mongot.Config{}
-	createMongotConfigForShard(search, seedsNoTLS, shardedSource, shardedSource.shardNames[0])(&config)
+	mongot.Apply(baseMongotConfig(search, seedsNoTLS), routerMongotMod(search, shardedSource))(&config)
 
 	require.NotNil(t, config.SyncSource.ReplicaSet.TLS)
 	assert.False(t, *config.SyncSource.ReplicaSet.TLS, "ReplicaSet TLS should be false when source has no TLS")
