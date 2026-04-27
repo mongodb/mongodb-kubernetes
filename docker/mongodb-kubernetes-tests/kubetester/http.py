@@ -1,11 +1,11 @@
-from typing import Tuple
+from typing import Tuple, Union
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 
-def get_retriable_session(proto: str, tls_verify: bool) -> requests.Session:
+def get_retriable_session(proto: str, tls_verify: Union[bool, str]) -> requests.Session:
     """
     Returns a request Session object with a retry mechanism.
 
@@ -26,12 +26,13 @@ def get_retriable_session(proto: str, tls_verify: bool) -> requests.Session:
     return s
 
 
-def get_retriable_https_session(*, tls_verify: bool) -> requests.Session:
+def get_retriable_https_session(*, tls_verify: Union[bool, str]) -> requests.Session:
     return get_retriable_session("https", tls_verify)
 
 
-def https_endpoint_is_reachable(url: str, auth: Tuple[str], *, tls_verify: bool) -> bool:
+def https_endpoint_is_reachable(url: str, auth: Tuple[str], *, tls_verify: Union[bool, str]) -> bool:
     """
     Checks that `url` is reachable, using `auth` basic credentials.
+    tls_verify: Path to CA bundle file, True for system CAs, or False to skip verification.
     """
     return get_retriable_https_session(tls_verify=tls_verify).get(url, auth=auth).status_code == 200

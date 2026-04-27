@@ -6,7 +6,12 @@ import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import create_configmap, delete_secret, get_statefulset, random_k8s_name, read_secret, try_load
-from kubetester.certs import create_mongodb_tls_certs, create_x509_agent_tls_certs, create_x509_mongodb_tls_certs
+from kubetester.certs import (
+    create_mongodb_sharded_tls_certs,
+    create_mongodb_tls_certs,
+    create_x509_agent_tls_certs,
+    create_x509_mongodb_tls_certs,
+)
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -27,7 +32,7 @@ PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
 
 
-def certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str:
+def replica_set_certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str:
     secret_name = random_k8s_name(resource_name + "-") + "-prometheus-cert"
 
     return create_mongodb_tls_certs(
@@ -35,6 +40,21 @@ def certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str
         namespace,
         resource_name,
         secret_name,
+        secret_backend="Vault",
+        vault_subpath="database",
+    )
+
+
+def sharded_certs_for_prometheus(issuer: str, namespace: str, resource: "MongoDB") -> str:
+    return create_mongodb_sharded_tls_certs(
+        issuer,
+        namespace,
+        resource.name,
+        random_k8s_name(resource.name + "-") + "-prometheus-cert",
+        shards=resource["spec"]["shardCount"],
+        mongod_per_shard=resource["spec"]["mongodsPerShardCount"],
+        config_servers=resource["spec"]["configServerCount"],
+        mongos=resource["spec"]["mongosCount"],
         secret_backend="Vault",
         vault_subpath="database",
     )
@@ -64,7 +84,7 @@ def replica_set(
         },
     }
 
-    prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name)
+    prom_cert_secret = replica_set_certs_for_prometheus(issuer, namespace, resource.name)
     store_secret_in_vault(
         vault_namespace,
         vault_name,
@@ -147,8 +167,8 @@ def sharded_cluster(
         f"secret/mongodbenterprise/operator/{namespace}/prom-password-cluster",
     )
 
-    # A prometheus certificate stored in Vault
-    prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name)
+    # A prometheus certificate stored in Vault — must cover all sharded cluster components
+    prom_cert_secret = sharded_certs_for_prometheus(issuer, namespace, resource)
     resource["spec"]["prometheus"] = {
         "username": "prom-user",
         "passwordSecretRef": {
@@ -452,7 +472,7 @@ def test_api_key_in_pod(replica_set: MongoDB):
 
 
 @mark.e2e_vault_setup
-def test_prometheus_endpoint_on_replica_set(replica_set: MongoDB, namespace: str):
+def test_prometheus_endpoint_on_replica_set(replica_set: MongoDB, namespace: str, issuer_ca_filepath: str):
     members = replica_set["spec"]["members"]
     name = replica_set.name
 
@@ -460,7 +480,7 @@ def test_prometheus_endpoint_on_replica_set(replica_set: MongoDB, namespace: str
 
     for idx in range(members):
         member_url = f"https://{name}-{idx}.{name}-svc.{namespace}.svc.cluster.local:9216/metrics"
-        assert https_endpoint_is_reachable(member_url, auth, tls_verify=False)
+        assert https_endpoint_is_reachable(member_url, auth, tls_verify=issuer_ca_filepath)
 
 
 @mark.e2e_vault_setup
@@ -470,26 +490,28 @@ def test_sharded_mdb_created(sharded_cluster: MongoDB):
 
 
 @mark.e2e_vault_setup
-def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(sharded_cluster: MongoDB, namespace: str):
+def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(
+    sharded_cluster: MongoDB, namespace: str, issuer_ca_filepath: str
+):
     auth = ("prom-user", "prom-password")
     name = sharded_cluster.name
 
     mongos_count = sharded_cluster["spec"]["mongosCount"]
     for idx in range(mongos_count):
         url = f"https://{name}-mongos-{idx}.{name}-svc.{namespace}.svc.cluster.local:9216/metrics"
-        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+        assert https_endpoint_is_reachable(url, auth, tls_verify=issuer_ca_filepath)
 
     shard_count = sharded_cluster["spec"]["shardCount"]
     mongodbs_per_shard_count = sharded_cluster["spec"]["mongodsPerShardCount"]
     for shard in range(shard_count):
         for mongodb in range(mongodbs_per_shard_count):
             url = f"https://{name}-{shard}-{mongodb}.{name}-sh.{namespace}.svc.cluster.local:9216/metrics"
-            assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+            assert https_endpoint_is_reachable(url, auth, tls_verify=issuer_ca_filepath)
 
     config_server_count = sharded_cluster["spec"]["configServerCount"]
     for idx in range(config_server_count):
         url = f"https://{name}-config-{idx}.{name}-cs.{namespace}.svc.cluster.local:9216/metrics"
-        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+        assert https_endpoint_is_reachable(url, auth, tls_verify=issuer_ca_filepath)
 
 
 @mark.e2e_vault_setup
