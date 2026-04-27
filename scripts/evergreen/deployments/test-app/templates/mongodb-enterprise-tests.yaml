@@ -180,10 +180,8 @@ spec:
       value: "{{ .Values.helm.oci.registry }}"
     - name: OCI_HELM_REPOSITORY
       value: "{{ .Values.helm.oci.repository }}"
-    - name: OCI_HELM_REGION
-      value: "{{ .Values.helm.oci.region }}"
     - name: DEFAULT_HELM_CHART_PATH
-      value: "oci://{{ .Values.helm.oci.registry }}/{{ .Values.helm.oci.repository }}/mongodb-kubernetes"
+      value: "oci://{{ .Values.helm.oci.repository }}/mongodb-kubernetes"
     - name: ops_manager_version
       value: "{{ .Values.opsManagerVersion }}"
     - name: cognito_user_pool_id

@@ -8,7 +8,6 @@ from typing import Dict, List, Optional, Tuple
 from tests import test_logger
 from tests.constants import (
     DEFAULT_HELM_CHART_PATH_ENV_VAR_NAME,
-    OCI_HELM_REGION_ENV_VAR_NAME,
     OCI_HELM_REGISTRY_ENV_VAR_NAME,
     OCI_HELM_VERSION_ENV_VAR_NAME,
 )
@@ -17,7 +16,6 @@ logger = test_logger.get_test_logger(__name__)
 
 # LOCAL_CRDS_DIR is the dir where local helm chart's CRDs are copied in tests image
 LOCAL_CRDS_DIR = "helm_chart/crds"
-OCI_HELM_REGISTRY_ECR = "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 
 
 def helm_template(
@@ -306,8 +304,8 @@ def helm_chart_path_and_version(helm_chart_path: str, operator_version: str) -> 
 
         registry = os.environ.get(OCI_HELM_REGISTRY_ENV_VAR_NAME)
         # If ECR we need to login first to the OCI container registry
-        if registry == OCI_HELM_REGISTRY_ECR:
-            region = os.environ.get(OCI_HELM_REGION_ENV_VAR_NAME)
+        if registry and ".ecr." in registry and registry.endswith(".amazonaws.com"):
+            region = registry.split(".")[3]
             try:
                 helm_registry_login_to_ecr(registry, region)
             except Exception as e:
