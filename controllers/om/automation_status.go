@@ -72,17 +72,6 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 	return nil
 }
 
-// AllAgentsInGoalState performs a single non-blocking check and returns (true, "") when
-// all relevant processes have reached goal state, or (false, reason) otherwise.
-// Use this in reconcile loops to requeue instead of blocking with WaitForReadyState.
-func AllAgentsInGoalState(oc Connection, processNames []string, log *zap.SugaredLogger) (bool, string) {
-	as, err := oc.ReadAutomationStatus()
-	if err != nil {
-		return false, fmt.Sprintf("failed to read automation status: %s", err)
-	}
-	return checkAutomationStatusIsGoal(as, processNames, log)
-}
-
 // CheckAutomationStatusIsGoal returns true if all the relevant processes are in Goal
 // state.
 // Note, that the function is quite tolerant to any situations except for non-matching goal state, for example

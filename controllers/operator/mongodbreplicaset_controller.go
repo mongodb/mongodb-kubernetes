@@ -320,8 +320,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateStatus(ctx, monarchStatus)
 		}
 	} else {
-		// Monarch was removed — clean up resources and automation config.
-		if cleanupStatus := r.cleanupMonarchResources(ctx, conn); !cleanupStatus.IsOK() {
+		// Monarch was removed — clean up K8s resources.
+		if cleanupStatus := r.cleanupMonarchResources(ctx); !cleanupStatus.IsOK() {
 			return r.updateStatus(ctx, cleanupStatus)
 		}
 		apimeta.RemoveStatusCondition(&rs.Status.Conditions, mdbv1.ConditionShipperReady)
@@ -660,9 +660,8 @@ func (r *ReplicaSetReconcilerHelper) reconcileMonarch(ctx context.Context, conn 
 	return workflow.OK()
 }
 
-// cleanupMonarchResources deletes Monarch Deployment, Service, ConfigMap, and removes
-// maintainedMonarchComponents from automation config when spec.monarch is removed.
-func (r *ReplicaSetReconcilerHelper) cleanupMonarchResources(ctx context.Context, conn om.Connection) workflow.Status {
+// cleanupMonarchResources deletes Monarch Deployment, Service, and ConfigMap when spec.monarch is removed.
+func (r *ReplicaSetReconcilerHelper) cleanupMonarchResources(ctx context.Context) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -705,19 +704,7 @@ func (r *ReplicaSetReconcilerHelper) cleanupMonarchResources(ctx context.Context
 		}
 	}
 
-	// Remove maintainedMonarchComponents from automation config
-	err := conn.ReadUpdateDeployment(
-		func(d om.Deployment) error {
-			d.SetMaintainedMonarchComponents([]om.MaintainedMonarchComponents{})
-			return nil
-		},
-		log,
-	)
-	if err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to clear Monarch components from automation config: %w", err))
-	}
-
-	log.Info("Cleaned up Monarch resources")
+	log.Info("Cleaned up Monarch K8s resources")
 	return workflow.OK()
 }
 
