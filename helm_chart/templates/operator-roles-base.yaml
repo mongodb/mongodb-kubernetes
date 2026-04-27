@@ -92,6 +92,14 @@ rules:
       - opsmanagers/status
       - mongodbmulticluster/status
       - mongodbsearch/status
+  - apiGroups:
+      - ai.mongodb.com
+    verbs:
+      - '*'
+    resources:
+      - voyageai
+      - voyageai/finalizers
+      - voyageai/status
 {{- if eq $roleScope "ClusterRole" }}
   - apiGroups:
       - ''

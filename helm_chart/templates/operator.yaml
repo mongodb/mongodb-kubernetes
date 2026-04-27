@@ -273,6 +273,12 @@ spec:
             - name: MDB_ENVOY_IMAGE
               value: "{{ .Values.search.envoyImage }}"
     {{- end }}
+    {{- if .Values.voyageai }}
+            - name: MDB_VOYAGEAI_REPO_URL
+              value: "{{ .Values.voyageai.repo }}"
+            - name: MDB_VOYAGEAI_VERSION
+              value: "{{ .Values.voyageai.version }}"
+    {{- end }}
     {{- if .Values.customEnvVars }}
       {{- range split "&" .Values.customEnvVars }}
             - name: {{ (splitn "=" 2 .)._0 }}
