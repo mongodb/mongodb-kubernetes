@@ -1,0 +1,28 @@
+// Package cli builds the cobra command tree for mck-ci.
+//
+// NewRoot is the single entry point: cmd/mck-ci/main.go calls it, and tests
+// instantiate fresh root commands per case. Subcommands register themselves
+// here in NewRoot; their implementations live in sibling files (one file per
+// subcommand) so they stay independently testable.
+package cli
+
+import (
+	"github.com/spf13/cobra"
+)
+
+// NewRoot constructs a fresh root command with all subcommands registered.
+// It returns a new instance on every call so tests can run in parallel
+// without shared global cobra state.
+func NewRoot() *cobra.Command {
+	root := &cobra.Command{
+		Use:           "mck-ci",
+		Short:         "MCK CI and release automation helper",
+		Long:          "mck-ci centralizes CI automation logic, including release-automation logic so it can be invoked identically from local shells, GitHub Actions, and Evergreen.",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+
+	root.AddCommand(newVersionCmd())
+
+	return root
+}
