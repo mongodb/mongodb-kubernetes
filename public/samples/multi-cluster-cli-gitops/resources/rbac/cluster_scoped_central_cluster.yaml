@@ -13,7 +13,6 @@ rules:
   - clustermongodbroles
   verbs:
   - '*'
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -49,6 +48,14 @@ rules:
   - mongodbcommunity/status
   - mongodbcommunity/spec
   - mongodbcommunity/finalizers
+  verbs:
+  - '*'
+- apiGroups:
+  - ai.mongodb.com
+  resources:
+  - voyageai
+  - voyageai/finalizers
+  - voyageai/status
   verbs:
   - '*'
 - apiGroups:
@@ -106,7 +113,6 @@ rules:
   verbs:
   - list
   - watch
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -134,7 +140,6 @@ rules:
   - /version
   verbs:
   - get
-
 ---
 # Central Cluster, cluster-scoped resources
 apiVersion: rbac.authorization.k8s.io/v1
@@ -152,7 +157,6 @@ subjects:
 - kind: ServiceAccount
   name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -169,7 +173,6 @@ subjects:
 - kind: ServiceAccount
   name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -186,7 +189,6 @@ subjects:
 - kind: ServiceAccount
   name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
-
 ---
 # Central Cluster, cluster-scoped resources
 apiVersion: v1
@@ -197,5 +199,5 @@ metadata:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
-
 ---
+

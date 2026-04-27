@@ -27,12 +27,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	golog "log"
+	localruntime "runtime"
+
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	golog "log"
-	localruntime "runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	kubelog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -43,6 +44,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -67,6 +69,7 @@ const (
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
 	mongoDBSearchCRDPlural       = "mongodbsearch"
+	voyageAICRDPlural            = "voyageai"
 	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
 )
 
@@ -89,6 +92,7 @@ func init() {
 	utilruntime.Must(apiv1.AddToScheme(scheme))
 	utilruntime.Must(mcov1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(vaiv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
@@ -124,6 +128,7 @@ func run() error {
 			mongoDBOpsManagerCRDPlural,
 			mongoDBCommunityCRDPlural,
 			mongoDBSearchCRDPlural,
+			voyageAICRDPlural,
 			clusterMongoDBRoleCRDPlural,
 		}
 	}
@@ -291,6 +296,11 @@ func run() error {
 			return err
 		}
 	}
+	if slices.Contains(crds, voyageAICRDPlural) {
+		if err := setupVoyageAICRD(ctx, mgr); err != nil {
+			return err
+		}
+	}
 
 	for _, r := range crds {
 		log.Infof("Registered CRD: %s", r)
@@ -405,6 +415,13 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
 		WithValidator(&mdbmultiv1.MongoDBMultiClusterValidator{}).
 		Complete()
+}
+
+func setupVoyageAICRD(ctx context.Context, mgr manager.Manager) error {
+	return operator.AddVoyageAIController(ctx, mgr, operator.OperatorVoyageAIConfig{
+		VoyageAIRepo:    env.ReadOrPanic(util.VoyageAIRepoURLEnv),
+		VoyageAIVersion: env.ReadOrPanic(util.VoyageAIVersionEnv),
+	})
 }
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
