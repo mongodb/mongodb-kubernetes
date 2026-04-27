@@ -10,8 +10,9 @@ func TestNewRoot_RegistersExpectedSubcommands(t *testing.T) {
 	root := NewRoot()
 
 	want := map[string]bool{
-		"version":         false,
-		"open-release-pr": false,
+		"version":                  false,
+		"open-release-pr":          false,
+		"copy-release-dockerfiles": false,
 	}
 	for _, sub := range root.Commands() {
 		if _, ok := want[sub.Name()]; ok {

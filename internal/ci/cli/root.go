@@ -28,6 +28,7 @@ func NewRoot() *cobra.Command {
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newOpenReleasePRCmd())
+	root.AddCommand(newCopyReleaseDockerfilesCmd())
 
 	return root
 }
