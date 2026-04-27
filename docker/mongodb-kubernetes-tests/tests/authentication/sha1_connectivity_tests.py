@@ -1,5 +1,7 @@
+from typing import Dict
+
 import kubernetes
-from kubetester import create_or_update_secret, try_load
+from kubetester import create_or_update_secret, read_secret, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -15,6 +17,12 @@ class SHA1ConnectivityTests:
     PASSWORD_SECRET_NAME = "mms-user-1-password"
     USER_PASSWORD = "my-password"
     USER_NAME = "mms-user-1"
+    USER_DATABASE = "admin"
+
+    NON_ADMIN_USER_NAME = "mms-user-2"
+    NON_ADMIN_PASSWORD_SECRET_NAME = "mms-user-2-password"
+    NON_ADMIN_USER_PASSWORD = "my-password-2"
+    NON_ADMIN_USER_DATABASE = "testdb"
 
     @fixture
     def yaml_file(self):
@@ -131,6 +139,56 @@ class SHA1ConnectivityTests:
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-1",
         )
+
+    # Credentials secret connectivity
+
+    @fixture
+    def standard_secret(self, namespace: str, mdb_resource_name: str) -> Dict[str, str]:
+        secret_name = f"{mdb_resource_name}-{self.USER_NAME}-{self.USER_DATABASE}"
+        return read_secret(namespace, secret_name)
+
+    @fixture
+    def non_admin_standard_secret(self, namespace: str, mdb_resource_name: str) -> Dict[str, str]:
+        secret_name = f"{mdb_resource_name}-{self.NON_ADMIN_USER_NAME}-{self.NON_ADMIN_USER_DATABASE}"
+        return read_secret(namespace, secret_name)
+
+    def test_credentials_secret_is_created(self, standard_secret: Dict[str, str]):
+        assert "username" in standard_secret
+        assert "password" in standard_secret
+        assert "connectionString.standard" in standard_secret
+        assert "connectionString.standardSrv" in standard_secret
+        assert f"authSource={self.USER_DATABASE}" in standard_secret["connectionString.standard"]
+        assert f"authSource={self.USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
+
+    def test_credentials_can_connect_to_db(self, standard_secret: Dict[str, str]):
+        MongoTester(standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
+
+    def test_credentials_can_connect_to_db_with_srv(self, standard_secret: Dict[str, str]):
+        MongoTester(standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
+
+    def test_create_non_admin_db_user(self, namespace: str, mdb_resource_name: str):
+        create_or_update_secret(
+            namespace, self.NON_ADMIN_PASSWORD_SECRET_NAME, {"password": self.NON_ADMIN_USER_PASSWORD}
+        )
+        resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-non-admin-db.yaml"), namespace=namespace)
+        resource["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
+        try_load(resource)
+        resource.update()
+        resource.assert_reaches_phase(Phase.Updated, timeout=150)
+
+    def test_non_admin_db_credentials_secret_is_created(self, non_admin_standard_secret: Dict[str, str]):
+        assert "username" in non_admin_standard_secret
+        assert "password" in non_admin_standard_secret
+        assert "connectionString.standard" in non_admin_standard_secret
+        assert "connectionString.standardSrv" in non_admin_standard_secret
+        assert f"authSource={self.NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
+        assert f"authSource={self.NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
+
+    def test_non_admin_credentials_can_connect_to_db(self, non_admin_standard_secret: Dict[str, str]):
+        MongoTester(non_admin_standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
+
+    def test_non_admin_credentials_can_connect_to_db_with_srv(self, non_admin_standard_secret: Dict[str, str]):
+        MongoTester(non_admin_standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
 
     def test_authentication_is_disabled_once_resource_is_deleted(namespace: str, mdb: MongoDB):
         mdb.delete()
