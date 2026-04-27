@@ -15,14 +15,19 @@ import (
 // without shared global cobra state.
 func NewRoot() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "mck-ci",
-		Short:         "MCK CI and release automation helper",
-		Long:          "mck-ci centralizes CI automation logic, including release-automation logic so it can be invoked identically from local shells, GitHub Actions, and Evergreen.",
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		Use:          "mck-ci",
+		Short:        "MCK CI and release automation helper",
+		Long:         "mck-ci centralizes CI automation logic, including release-automation logic so it can be invoked identically from local shells, GitHub Actions, and Evergreen.",
+		SilenceUsage: true,
+		// No subcommand selected: print help and succeed instead of returning
+		// flag.ErrHelp (which would otherwise propagate as exit 1 from main).
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
 	}
 
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newOpenReleasePRCmd())
 
 	return root
 }
