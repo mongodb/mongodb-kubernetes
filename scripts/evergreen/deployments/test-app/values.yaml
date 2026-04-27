@@ -51,7 +51,6 @@ helm:
     version: ""
     registry: ""
     repository: ""
-    region: ""
 
 autoEmbedding:
   providerMongoDB:
