@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from dotenv import load_dotenv
 
@@ -41,6 +41,7 @@ def _load_env_from_local_file_for_development():
 _load_env_from_local_file_for_development()
 
 import kubernetes
+import kubernetes.client.rest
 import requests
 from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
@@ -345,7 +346,10 @@ def multi_cluster_issuer_ca_configmap(
 
 
 def create_issuer_ca_configmap(
-    issuer_ca_filepath: str, namespace: str, name: str = "issuer-ca", api_client: kubernetes.client.ApiClient = None
+    issuer_ca_filepath: str,
+    namespace: str,
+    name: str = "issuer-ca",
+    api_client: kubernetes.client.ApiClient | None = None,
 ):
     """This is the CA file which verifies the certificates signed by it."""
     ca = open(issuer_ca_filepath).read()
@@ -402,7 +406,7 @@ def app_db_issuer_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
 
 
 @fixture(scope="module")
-def issuer_ca_plus(issuer_ca_filepath: str, namespace: str) -> str:
+def issuer_ca_plus(issuer_ca_filepath: str, namespace: str) -> Iterator[str]:
     """Returns the name of a ConfigMap which includes a custom CA and the full
     certificate chain for downloads.mongodb.com, fastdl.mongodb.org,
     downloads.mongodb.org. This allows for the use of a custom CA while still
@@ -578,7 +582,7 @@ def member_cluster_names() -> List[str]:
     return get_member_cluster_names()
 
 
-def get_member_cluster_clients(cluster_mapping: dict[str, int] = None) -> List[MultiClusterClient]:
+def get_member_cluster_clients(cluster_mapping: Optional[dict[str, int]] = None) -> List[MultiClusterClient]:
     if not is_multi_cluster():
         return [MultiClusterClient(kubernetes.client.ApiClient(), LEGACY_CENTRAL_CLUSTER_NAME)]
 
@@ -596,7 +600,7 @@ def get_member_cluster_clients(cluster_mapping: dict[str, int] = None) -> List[M
     return member_cluster_clients
 
 
-def get_member_cluster_client_map(deployment_state: dict[str, Any] = None) -> dict[str, MultiClusterClient]:
+def get_member_cluster_client_map(deployment_state: Optional[dict[str, Any]] = None) -> dict[str, MultiClusterClient]:
     return {
         multi_cluster_client.cluster_name: multi_cluster_client
         for multi_cluster_client in get_member_cluster_clients(deployment_state)
@@ -607,6 +611,7 @@ def get_member_cluster_api_client(
     member_cluster_name: Optional[str],
 ) -> kubernetes.client.ApiClient:
     if is_member_cluster(member_cluster_name):
+        assert member_cluster_name is not None
         return get_cluster_clients()[member_cluster_name]
     else:
         return kubernetes.client.ApiClient()
@@ -848,7 +853,9 @@ def _install_multi_cluster_operator(
     # The Operator will be installed from the following repo, so adding it first
     helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
-    helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path, custom_operator_version)
+    helm_chart_path, operator_version = helm_chart_path_and_version(
+        helm_chart_path or "", custom_operator_version or ""
+    )
 
     prepare_multi_cluster_namespaces(
         namespace,
@@ -1012,6 +1019,7 @@ def install_official_operator(
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead of the "ubi"
     # images are used for installing the dev Operator
+    assert operator_image is not None
     helm_args["operator.operator_image_name"] = operator_image
 
     # Note:
@@ -1036,6 +1044,9 @@ def install_official_operator(
     """
 
     if is_multi_cluster():
+        assert member_cluster_names is not None
+        assert operator_name is not None
+        assert central_cluster_name is not None
         os.environ["HELM_KUBECONTEXT"] = central_cluster_name
         # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
         if not local_operator():
@@ -1059,6 +1070,8 @@ def install_official_operator(
         # The "official" Operator will be installed from the Helm Repo ("mongodb/enterprise-operator")
         # but workload images (OpsManager, Agent, etc.) will use dev registries from operator_installation_config
         # to support testing unreleased versions in patch builds.
+        assert member_cluster_clients is not None
+        assert central_cluster_client is not None
         return _install_multi_cluster_operator(
             namespace,
             helm_args,
@@ -1096,14 +1109,14 @@ def log_deployment_and_images(deployments):
 
 # Extract container images and deployments names from the nested dict returned by kubetester
 # Handles any missing key gracefully
-def extract_container_images_and_deployments(deployments) -> (dict[str, str], List[str]):
-    deployment_images = {}
-    deployment_names = []
+def extract_container_images_and_deployments(deployments) -> tuple[dict[str, list[str]], list[str]]:
+    deployment_images: dict[str, list[str]] = {}
+    deployment_names: list[str] = []
     deployments = deployments.to_dict()
 
     if "items" not in deployments:
         logger.debug("Error: 'items' field not found in the response.")
-        return deployment_images
+        return deployment_images, deployment_names
 
     for deployment in deployments.get("items", []):
         try:
@@ -1215,6 +1228,7 @@ def install_cert_manager(
 ) -> str:
     if is_member_cluster(cluster_name):
         # ensure we cert-manager in the member clusters.
+        assert cluster_name is not None
         os.environ["HELM_KUBECONTEXT"] = cluster_name
 
     install_required = True
@@ -1323,12 +1337,12 @@ def run_kube_config_creation_tool(
     member_namespace: str,
     member_cluster_names: List[str],
     cluster_scoped: Optional[bool] = False,
-    service_account_name: Optional[str] = "mongodb-kubernetes-operator-multi-cluster",
-    operator_name: Optional[str] = OPERATOR_NAME,
+    service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
+    operator_name: str = OPERATOR_NAME,
 ):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
-    args = [
+    args: list[str] = [
         os.getenv(
             "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
             "multi-cluster-kube-config-creator",
@@ -1402,12 +1416,12 @@ def run_multi_cluster_recovery_tool(
     central_namespace: str,
     member_namespace: str,
     cluster_scoped: Optional[bool] = False,
-    service_account_name: Optional[str] = "mongodb-kubernetes-operator-multi-cluster",
-    operator_name: Optional[str] = OPERATOR_NAME,
+    service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
+    operator_name: str = OPERATOR_NAME,
 ) -> int:
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
-    args = [
+    args: list[str] = [
         os.getenv(
             "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
             "multi-cluster-kube-config-creator",
@@ -1536,7 +1550,7 @@ def update_coredns_hosts(
     host_mappings: list[tuple[str, str]],
     cluster_name: Optional[str] = None,
     api_client: Optional[kubernetes.client.ApiClient] = None,
-    additional_rules: list[str] = None,
+    additional_rules: Optional[list[str]] = None,
 ):
     """Updates kube-system/coredns config map with given host_mappings."""
 
@@ -1561,7 +1575,7 @@ def update_coredns_hosts(
     update_configmap("kube-system", "coredns", config_data, api_client=api_client)
 
 
-def coredns_config(tld: str, mappings: str, additional_rules: str = None):
+def coredns_config(tld: str, mappings: str, additional_rules: Optional[str] = None):
     """Returns coredns config map data with mappings inserted."""
     return f"""
 .:53 {{
@@ -1599,6 +1613,8 @@ def pytest_sessionfinish(session, exitstatus):
     project_id = os.environ.get("OM_PROJECT_ID", "")
     if project_id:
         base_url = os.environ.get("OM_HOST")
+        if base_url is None:
+            return
         user = os.environ.get("OM_USER")
         key = os.environ.get("OM_API_KEY")
         ids = project_id.split(",")
@@ -1651,10 +1667,10 @@ def install_multi_cluster_operator_cluster_scoped(
     namespace: str = get_namespace(),
     central_cluster_name: str = get_central_cluster_name(),
     central_cluster_client: client.ApiClient = get_central_cluster_client(),
-    multi_cluster_operator_installation_config: dict[str, str] = None,
-    member_cluster_clients: list[kubernetes.client.ApiClient] = None,
-    cluster_clients: dict[str, kubernetes.client.ApiClient] = None,
-    member_cluster_names: list[str] = None,
+    multi_cluster_operator_installation_config: Optional[dict[str, str]] = None,
+    member_cluster_clients: Optional[list[MultiClusterClient]] = None,
+    cluster_clients: Optional[dict[str, kubernetes.client.ApiClient]] = None,
+    member_cluster_names: Optional[list[str]] = None,
 ) -> Operator:
     if multi_cluster_operator_installation_config is None:
         multi_cluster_operator_installation_config = get_multi_cluster_operator_installation_config(namespace).copy()

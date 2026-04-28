@@ -1,3 +1,5 @@
+from typing import Iterator
+
 from kubetester import create_service_account, delete_service_account, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -12,7 +14,7 @@ def create_custom_sa(namespace: str) -> str:
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, custom_mdb_version: str, create_custom_sa: str) -> MongoDB:
+def replica_set(namespace: str, custom_mdb_version: str, create_custom_sa: str) -> Iterator[MongoDB]:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
 
     resource["spec"]["podSpec"] = {"podTemplate": {"spec": {"serviceAccountName": "test-sa"}}}

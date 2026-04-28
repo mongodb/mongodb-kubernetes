@@ -174,6 +174,6 @@ def test_backup_log_rotation():
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_backup_log_rotation():
+def test_monitoring_log_rotation():
     mc = KubernetesTester.get_monitoring_config()
     assert_log_rotation_backup_monitoring(mc)

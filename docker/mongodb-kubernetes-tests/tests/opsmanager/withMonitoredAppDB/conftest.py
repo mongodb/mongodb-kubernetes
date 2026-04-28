@@ -32,8 +32,8 @@ def get_om_member_cluster_names():
 
 def enable_multi_cluster_deployment(
     resource: MongoDBOpsManager,
-    om_cluster_spec_list: Optional[list[int]] = None,
-    appdb_cluster_spec_list: Optional[list[int]] = None,
+    om_cluster_spec_list: Optional[list[int | None]] = None,
+    appdb_cluster_spec_list: Optional[list[int | None]] = None,
     appdb_member_configs: Optional[list[list[dict]]] = None,
 ):
     resource["spec"]["topology"] = "MultiCluster"

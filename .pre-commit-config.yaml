@@ -131,12 +131,12 @@ repos:
 
   - repo: local
     hooks:
-      - id: ty-search
-        name: ty (search tests)
-        entry: bash -c 'cd docker/mongodb-kubernetes-tests && uvx ty check tests/search/ tests/common/search/'
+      - id: ty
+        name: ty
+        entry: bash -c 'cd docker/mongodb-kubernetes-tests && uvx ty check tests/'
         language: system
         pass_filenames: false
-        files: docker/mongodb-kubernetes-tests/tests/(common/)?search/.*\.py$
+        files: docker/mongodb-kubernetes-tests/tests/.*\.py$
         stages: [pre-commit]
 
   - repo: local

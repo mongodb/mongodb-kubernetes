@@ -128,7 +128,7 @@ def test_add_annotations(opsmanager: MongoDBOpsManager):
 
     for _, cluster_spec_item in opsmanager.get_om_indexed_cluster_spec_items():
         internal, external = opsmanager.services(cluster_spec_item["clusterName"])
-
+        assert external is not None
         ant = external.metadata.annotations
         assert len(ant) == 3
         assert "first-annotation" in ant
@@ -153,6 +153,8 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
 
     for _, cluster_spec_item in opsmanager.get_om_indexed_cluster_spec_items():
         internal, external = opsmanager.services(cluster_spec_item["clusterName"])
+        assert internal is not None
+        assert external is not None
         assert internal.spec.type == "ClusterIP"
         assert external.spec.type == "NodePort"
         assert external.spec.ports[0].node_port == node_port
@@ -170,6 +172,7 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
 
     for _, cluster_spec_item in opsmanager.get_om_indexed_cluster_spec_items():
         _, external = opsmanager.services(cluster_spec_item["clusterName"])
+        assert external is not None
         assert external.spec.type == "LoadBalancer"
         assert external.spec.ports[0].port == 443
         assert external.spec.ports[0].target_port == 8080
@@ -178,7 +181,7 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
 def service_is_changed_to_nodeport(om: MongoDBOpsManager) -> bool:
     for _, cluster_spec_item in om.get_om_indexed_cluster_spec_items():
         svc = om.services(cluster_spec_item["clusterName"])[1]
-        if svc.spec.type != "NodePort":
+        if svc is None or svc.spec.type != "NodePort":
             return False
 
     return True
@@ -187,7 +190,7 @@ def service_is_changed_to_nodeport(om: MongoDBOpsManager) -> bool:
 def service_is_changed_to_loadbalancer(om: MongoDBOpsManager) -> bool:
     for _, cluster_spec_item in om.get_om_indexed_cluster_spec_items():
         svc = om.services(cluster_spec_item["clusterName"])[1]
-        if svc.spec.type != "LoadBalancer":
+        if svc is None or svc.spec.type != "LoadBalancer":
             return False
 
     return True
