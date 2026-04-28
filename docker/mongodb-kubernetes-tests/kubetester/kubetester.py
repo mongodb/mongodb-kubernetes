@@ -108,7 +108,7 @@ def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architect
         static_env_var = next(
             (env for env in agent_container.env if env.name == "MDB_STATIC_CONTAINERS_ARCHITECTURE"), None
         )
-        assert static_env_var.value == "true"
+        assert static_env_var is not None and static_env_var.value == "true"
 
 
 skip_if_static_containers = pytest.mark.skipif(
@@ -233,7 +233,7 @@ class KubernetesTester(object):
         cls,
         namespace: str,
         name: str,
-        container: str = None,
+        container: Optional[str] = None,
         api_client: Optional[client.ApiClient] = None,
     ) -> str:
         return cls.clients("corev1", api_client=api_client).read_namespaced_pod_log(
@@ -246,7 +246,7 @@ class KubernetesTester(object):
         return cls.read_pod_labels(namespace, label_selector).items[0]
 
     @classmethod
-    def read_pod_labels(cls, namespace: str, label_selector: Optional[str] = None) -> Dict[str, str]:
+    def read_pod_labels(cls, namespace: str, label_selector: Optional[str] = None):
         """Reads a Pod by labels."""
         return cls.clients("corev1").list_namespaced_pod(namespace=namespace, label_selector=label_selector)
 
@@ -308,7 +308,7 @@ class KubernetesTester(object):
         cls,
         namespace: str,
         body: Dict,
-        storage_class_name: str = None,
+        storage_class_name: Optional[str] = None,
         api_client: Optional[kubernetes.client.ApiClient] = None,
     ):
         if storage_class_name is not None:
@@ -1339,7 +1339,7 @@ class KubernetesTester(object):
         options = {}
         if ssl:
             options = {"ssl": True, "tlsCAFile": SSL_CA_CERT}
-        client = pymongo.MongoClient(mongodburi, **options, serverSelectionTimeoutMs=300000)
+        client: pymongo.MongoClient = pymongo.MongoClient(mongodburi, **options, serverSelectionTimeoutMs=300000)  # type: ignore[arg-type]
 
         # The ismaster command is cheap and does not require auth.
         client.admin.command("ismaster")
@@ -1570,11 +1570,11 @@ def build_om_org_endpoint(base_url):
     return "{}/api/public/v1.0/orgs".format(base_url)
 
 
-def build_om_org_list_endpoint(base_url: string, page_num: int):
+def build_om_org_list_endpoint(base_url: str, page_num: int):
     return "{}/api/public/v1.0/orgs?itemsPerPage=500&pageNum={}".format(base_url, page_num)
 
 
-def build_om_org_list_by_name_endpoint(base_url: string, name: string):
+def build_om_org_list_by_name_endpoint(base_url: str, name: str):
     return "{}/api/public/v1.0/orgs?name={}".format(base_url, name)
 
 
@@ -1586,7 +1586,7 @@ def build_om_groups_in_org_endpoint(base_url, org_id, page_num):
     return "{}/api/public/v1.0/orgs/{}/groups?itemsPerPage=500&pageNum={}".format(base_url, org_id, page_num)
 
 
-def build_om_groups_in_org_by_name_endpoint(base_url: string, org_id: string, name: string):
+def build_om_groups_in_org_by_name_endpoint(base_url: str, org_id: str, name: str):
     return "{}/api/public/v1.0/orgs/{}/groups?name={}".format(base_url, org_id, name)
 
 
