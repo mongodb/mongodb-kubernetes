@@ -1223,8 +1223,9 @@ type TLSConfig struct {
 
 	AdditionalCertificateDomains []string `json:"additionalCertificateDomains,omitempty"`
 
-	// CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-	// used to validate the certificates created already.
+	// CA corresponds to a ConfigMap containing the CA certificate used to validate
+	// the certificates created already. The ConfigMap must contain a key named ca-pem
+	// whose value is the PEM-encoded CA bundle.
 	CA string `json:"ca,omitempty"`
 
 	// +optional
