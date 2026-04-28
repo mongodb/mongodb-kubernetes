@@ -4,10 +4,11 @@ import os
 import subprocess
 import tempfile
 import time
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # ty: ignore[unresolved-import]
 
 if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "false":
     # otel_plugin.py requires pytest-opentelemetry which is disabled via PYTEST_OTEL_ENABLED=false on s390x.
@@ -1631,7 +1632,7 @@ def pytest_sessionfinish(session, exitstatus):
 
                 # let's only access om if its healthy and around.
                 status_code, _ = tester.request_health(base_url)
-                if status_code == requests.status_codes.codes.OK:
+                if status_code == HTTPStatus.OK:
                     ev = tester.get_project_events().json()["results"]
                     with open(f"/tmp/diagnostics/{project_id}-events.json", "w", encoding="utf-8") as f:
                         json.dump(ev, f, ensure_ascii=False, indent=4)
