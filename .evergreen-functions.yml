@@ -393,7 +393,11 @@ functions:
       type: setup
       retry_on_failure: true
       params:
-        command: "docker login quay.io -u ${quay_staging_username} -p ${quay_staging_robot_token}"
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        env:
+          QUAY_STAGING_USERNAME: ${quay_staging_username}
+          QUAY_STAGING_PASSWORD: ${quay_staging_robot_token}
+        binary: scripts/release/quay_staging_login.sh
 
   setup_cloud_qa:
     - command: shell.exec
