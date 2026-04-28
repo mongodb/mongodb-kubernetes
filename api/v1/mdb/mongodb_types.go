@@ -1231,10 +1231,10 @@ type TLSConfig struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^/.*`
 	// CAFilePath allows specifying a custom in-container path for the CA certificate file. Applies to
-	// MongoDB ReplicaSet and ShardedCluster resources. If not specified, the default
-	// /mongodb-automation/tls/ca/ca-pem is used. When set, the operator projects the ca-pem key from
-	// the CA ConfigMap (tls.CA) to the basename of this path and mounts it at the parent directory.
-	// The ConfigMap referenced by tls.CA must therefore contain a key named ca-pem.
+	// MongoDB ReplicaSet, ShardedCluster, and MongoDBMultiCluster resources. If not specified, the
+	// default /mongodb-automation/tls/ca/ca-pem is used. When set, the operator projects the ca-pem
+	// key from the CA ConfigMap (tls.CA) to the basename of this path and mounts it at the parent
+	// directory. The ConfigMap referenced by tls.CA must therefore contain a key named ca-pem.
 	CAFilePath string `json:"caFilePath,omitempty"`
 }
 
