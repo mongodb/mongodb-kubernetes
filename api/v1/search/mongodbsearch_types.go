@@ -697,6 +697,32 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 	return strings.ReplaceAll(s.Spec.LoadBalancer.Unmanaged.Endpoint, ShardNamePlaceholder, shardName)
 }
 
+// EffectiveClusters returns the per-cluster distribution slice the reconcile
+// loop should iterate over.
+//
+//   - When spec.clusters is non-nil (including the explicitly-empty slice),
+//     it is returned as-is. The empty-slice case is reached only when admission
+//     allows it; readers that index [0] must guard.
+//   - When spec.clusters is nil, it auto-promotes the top-level
+//     Replicas/ResourceRequirements/Persistence/StatefulSetConfiguration into
+//     a one-element ClusterSpec for the legacy single-cluster path.
+//
+// The function is pure — no mutation of s, no side effects.
+func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
+	if s.Spec.Clusters != nil {
+		return *s.Spec.Clusters
+	}
+	// Single legitimate read of the deprecated top-level distribution fields:
+	// the auto-promotion fallback. Per-cluster readers go through this function.
+	//nolint:staticcheck // SA1019: deprecated fields are the documented fallback path.
+	return []ClusterSpec{{
+		Replicas:                 s.Spec.Replicas,
+		ResourceRequirements:     s.Spec.ResourceRequirements,
+		Persistence:              s.Spec.Persistence,
+		StatefulSetConfiguration: s.Spec.StatefulSetConfiguration,
+	}}
+}
+
 func (s *MongoDBSearch) GetReplicas() int {
 	// Single legitimate read of the deprecated top-level field — this is the
 	// operator-side default ("1 when unset") for the legacy single-cluster path.
