@@ -349,6 +349,11 @@ func (in *MongoDBSearchSpec) DeepCopyInto(out *MongoDBSearchSpec) {
 		*out = new(MongoDBSource)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Replicas != nil {
+		in, out := &in.Replicas, &out.Replicas
+		*out = new(int32)
+		**out = **in
+	}
 	if in.StatefulSetConfiguration != nil {
 		in, out := &in.StatefulSetConfiguration, &out.StatefulSetConfiguration
 		*out = (*in).DeepCopy()
