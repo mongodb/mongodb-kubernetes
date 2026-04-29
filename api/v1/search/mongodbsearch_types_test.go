@@ -4,9 +4,26 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 )
+
+func TestGetReplicasNilDefaultsToOne(t *testing.T) {
+	s := &MongoDBSearch{}
+	assert.Equal(t, 1, s.GetReplicas())
+}
+
+func TestGetReplicasReturnsExplicitValue(t *testing.T) {
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(3))}}
+	assert.Equal(t, 3, s.GetReplicas())
+}
+
+func TestHasMultipleReplicas(t *testing.T) {
+	assert.False(t, (&MongoDBSearch{}).HasMultipleReplicas())
+	assert.False(t, (&MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(1))}}).HasMultipleReplicas())
+	assert.True(t, (&MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(2))}}).HasMultipleReplicas())
+}
 
 func TestUpdateStatus_MainPath(t *testing.T) {
 	s := &MongoDBSearch{}
