@@ -116,7 +116,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{},
 			expectError:    true,
-			expectedErrMsg: "MongoDBSearch is only supported for SingleCluster topology",
+			expectedErrMsg: "multi-cluster source (Q1-MC) is deferred to phase 2",
 		},
 		{
 			name:         "Valid topology - SingleCluster",
@@ -264,7 +264,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{},
 			expectError:    true,
-			expectedErrMsg: "MongoDBSearch is only supported for SingleCluster topology",
+			expectedErrMsg: "multi-cluster source (Q1-MC) is deferred to phase 2",
 		},
 		{
 			name:           "Valid version and topology, invalid resource type",

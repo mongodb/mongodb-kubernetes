@@ -67,7 +67,7 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 	}
 
 	if r.Spec.GetTopology() != mdbv1.ClusterTopologySingleCluster {
-		return xerrors.Errorf("MongoDBSearch is only supported for %s topology", mdbv1.ClusterTopologySingleCluster)
+		return xerrors.Errorf("MongoDBSearch against an internal MongoDB source is only supported for %s topology; multi-cluster source (Q1-MC) is deferred to phase 2", mdbv1.ClusterTopologySingleCluster)
 	}
 
 	if r.GetResourceType() != mdbv1.ReplicaSet {

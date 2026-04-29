@@ -90,7 +90,7 @@ func (r *ShardedInternalSearchSource) Validate() error {
 	}
 
 	if r.Spec.GetTopology() != mdbv1.ClusterTopologySingleCluster {
-		return xerrors.Errorf("MongoDBSearch for sharded clusters is only supported for %s topology", mdbv1.ClusterTopologySingleCluster)
+		return xerrors.Errorf("MongoDBSearch against an internal sharded MongoDB source is only supported for %s topology; multi-cluster source (Q1-MC) is deferred to phase 2", mdbv1.ClusterTopologySingleCluster)
 	}
 
 	if r.GetResourceType() != mdbv1.ShardedCluster {
