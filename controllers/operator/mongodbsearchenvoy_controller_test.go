@@ -668,6 +668,39 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	assert.Contains(t, extractWorkflowMsg(st), "missing-cluster")
 }
 
+func TestMapEnvoyObjectToSearch(t *testing.T) {
+	// Object with both labels → reconcile request returned.
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mdb-search-search-lb-0-a-config",
+			Namespace: "ns",
+			Labels: map[string]string{
+				envoyOwnerSearchNameLabel:      "mdb-search",
+				envoyOwnerSearchNamespaceLabel: "ns",
+				envoyClusterNameLabel:          "a",
+			},
+		},
+	}
+	reqs := mapEnvoyObjectToSearch(context.Background(), cm)
+	require.Len(t, reqs, 1)
+	assert.Equal(t, "mdb-search", reqs[0].Name)
+	assert.Equal(t, "ns", reqs[0].Namespace)
+
+	// Object missing labels → no enqueue.
+	cmNoLabels := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "ns"}}
+	assert.Empty(t, mapEnvoyObjectToSearch(context.Background(), cmNoLabels))
+
+	// Partial labels → no enqueue (both required).
+	cmPartial := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "x",
+			Namespace: "ns",
+			Labels:    map[string]string{envoyOwnerSearchNameLabel: "mdb-search"},
+		},
+	}
+	assert.Empty(t, mapEnvoyObjectToSearch(context.Background(), cmPartial))
+}
+
 func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()

@@ -8,18 +8,21 @@ import (
 
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	runtimeCluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
@@ -35,6 +38,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -741,20 +745,71 @@ func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) 
 	}
 }
 
+// mapEnvoyObjectToSearch maps an Envoy Deployment or ConfigMap (in any cluster)
+// back to its owning MongoDBSearch. Cross-cluster owner refs do not GC, so the
+// label-based mapper is the only path home for member-cluster watches.
+func mapEnvoyObjectToSearch(_ context.Context, obj client.Object) []reconcile.Request {
+	labels := obj.GetLabels()
+	name := labels[envoyOwnerSearchNameLabel]
+	ns := labels[envoyOwnerSearchNamespaceLabel]
+	if name == "" || ns == "" {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: name, Namespace: ns}}}
+}
+
 // Controller Registration
-func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string) error {
+//
+// memberClusterObjectsMap is the same map main.go passes to AddMongoDBSearchController.
+// Empty in single-cluster installs — the controller behaves identically to before
+// when the map is empty.
+//
+// For each member cluster we register watches on Envoy Deployment + ConfigMap
+// using the label-based mapper (cross-cluster owner refs do not GC).
+func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster) error {
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.
 
-	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, nil)
+	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, multicluster.ClustersMapToClientMap(memberClusterObjectsMap))
 
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("mongodbsearchenvoy").
-		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
-		For(&searchv1.MongoDBSearch{}).
-		Watches(&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}).
-		Watches(&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}).
-		Owns(&appsv1.Deployment{}).
-		Owns(&corev1.ConfigMap{}).
-		Complete(r)
+	c, err := controller.New("mongodbsearchenvoy", mgr, controller.Options{
+		Reconciler:              r,
+		MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1), // nolint:forbidigo
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &searchv1.MongoDBSearch{}, &handler.EnqueueRequestForObject{})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+
+	// Central-cluster owned Envoy resources (single-cluster path).
+	ownerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{}, handler.OnlyControllerOwner())
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, ownerHandler)); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, ownerHandler)); err != nil {
+		return err
+	}
+
+	// Per-member-cluster Envoy resource watches: use the label-based mapper because
+	// cross-cluster owner refs do not GC. Mirrors mongodbmultireplicaset_controller.go:1170-1175.
+	mapper := handler.EnqueueRequestsFromMapFunc(mapEnvoyObjectToSearch)
+	for k, v := range memberClusterObjectsMap {
+		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper)); err != nil {
+			return fmt.Errorf("failed to set Envoy Deployment watch on member cluster %s: %w", k, err)
+		}
+		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &corev1.ConfigMap{}, mapper)); err != nil {
+			return fmt.Errorf("failed to set Envoy ConfigMap watch on member cluster %s: %w", k, err)
+		}
+	}
+
+	return nil
 }
