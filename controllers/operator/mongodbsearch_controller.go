@@ -258,9 +258,8 @@ func AddMongoDBSearchController(
 			&corev1.Secret{},
 		}
 		for k, v := range memberClusterObjectsMap {
-			memberCluster := v
 			for _, gvk := range watchedTypes {
-				if err := c.Watch(source.Kind[client.Object](memberCluster.GetCache(), gvk, searchOwnerHandler, searchOwnerPredicate)); err != nil {
+				if err := c.Watch(source.Kind[client.Object](v.GetCache(), gvk, searchOwnerHandler, searchOwnerPredicate)); err != nil {
 					return xerrors.Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %w", k, gvk, err)
 				}
 			}

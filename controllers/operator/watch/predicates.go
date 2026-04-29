@@ -156,12 +156,9 @@ func PredicatesForStatefulSet() predicate.Funcs {
 // not cross cluster boundaries, so identification is by annotation
 // (handler.MongoDBSearchResourceAnnotation) rather than ownerRef.
 //
-// Create / Delete: pass through only when the annotation is present.
-// Update:          pass through if either side carries the annotation
-//
-//	(so annotation add/remove transitions also reconcile).
-//
-// Generic:         drop — informer-resync events are noise here.
+// Create and Delete pass through only when the annotation is present. Update
+// passes if either side carries the annotation, so annotation add/remove
+// transitions also reconcile. Generic drops everything (informer-resync noise).
 func PredicatesForMultiClusterSearchResource() predicate.Funcs {
 	hasAnn := func(obj interface{ GetAnnotations() map[string]string }) bool {
 		_, ok := obj.GetAnnotations()[handler.MongoDBSearchResourceAnnotation]
