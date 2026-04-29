@@ -47,6 +47,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateShardNames,
 		validateJVMFlags,
 		validateX509AuthConfig,
+		validateClustersUniqueClusterName,
 		validateClustersSyncSourceSelector,
 		validateClustersShardOverrides,
 	}
@@ -305,6 +306,25 @@ func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationError("x509 and password authentication are mutually exclusive: spec.source.x509 and spec.source.username cannot both be set")
 	}
 
+	return v1.ValidationSuccess()
+}
+
+// validateClustersUniqueClusterName enforces clusterName uniqueness inside spec.clusters.
+// ClusterName presence and immutability when len(clusters) > 1 are B13 scope.
+func validateClustersUniqueClusterName(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil {
+		return v1.ValidationSuccess()
+	}
+	seen := make(map[string]int, len(*s.Spec.Clusters))
+	for i, c := range *s.Spec.Clusters {
+		if first, dup := seen[c.ClusterName]; dup {
+			return v1.ValidationError(
+				"duplicate clusterName %q in spec.clusters (entries %d and %d)",
+				c.ClusterName, first, i,
+			)
+		}
+		seen[c.ClusterName] = i
+	}
 	return v1.ValidationSuccess()
 }
 

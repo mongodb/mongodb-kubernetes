@@ -261,6 +261,45 @@ func TestValidateClustersShardOverrides(t *testing.T) {
 	}
 }
 
+func TestValidateClustersUniqueClusterName(t *testing.T) {
+	tests := []struct {
+		name          string
+		clusters      []ClusterSpec
+		errorContains string
+	}{
+		{name: "single empty clusterName", clusters: []ClusterSpec{{}}},
+		{name: "two unique names", clusters: []ClusterSpec{{ClusterName: "a"}, {ClusterName: "b"}}},
+		{
+			name:          "duplicate names",
+			clusters:      []ClusterSpec{{ClusterName: "a"}, {ClusterName: "a"}},
+			errorContains: "duplicate",
+		},
+		{
+			// Empty names are reserved for the single-cluster degenerate case;
+			// two empty names is still a duplicate.
+			name:          "two empty names",
+			clusters:      []ClusterSpec{{}, {}},
+			errorContains: "duplicate",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clusters := tt.clusters
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec:       MongoDBSearchSpec{Clusters: &clusters},
+			}
+			res := validateClustersUniqueClusterName(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
+}
+
 func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTLS, isLBManaged bool) *MongoDBSearch {
 	search := &MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-namespace"},
