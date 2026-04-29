@@ -409,3 +409,53 @@ func TestLoadBalancerStatus_ClustersFieldExists(t *testing.T) {
 	assert.Len(t, s.Status.LoadBalancer.Clusters, 1)
 	assert.Equal(t, "us-east-k8s", s.Status.LoadBalancer.Clusters[0].ClusterName)
 }
+
+// TestValidateClustersEnvoyResourceNames is the B16 admission check for the
+// per-cluster Envoy Deployment + ConfigMap resource names. The Deployment name
+// follows DNS-1123 label rules (≤63 chars); the ConfigMap follows DNS-1123
+// subdomain rules (≤253). When the search resource name + cluster suffix push
+// the result over the limit, validation must reject the spec.
+func TestValidateClustersEnvoyResourceNames(t *testing.T) {
+	tests := []struct {
+		name          string
+		searchName    string
+		clusterNames  []string
+		errorContains string
+	}{
+		{
+			name:         "short names ok",
+			searchName:   "s",
+			clusterNames: []string{"us-east-k8s", "eu-west-k8s"},
+		},
+		{
+			name:         "nil clusters ok",
+			searchName:   "s",
+			clusterNames: nil,
+		},
+		{
+			name:          "Deployment name >63 chars rejected",
+			searchName:    strings.Repeat("a", 40),
+			clusterNames:  []string{strings.Repeat("c", 30)},
+			errorContains: "exceeds",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: tt.searchName, Namespace: "ns"}}
+			if tt.clusterNames != nil {
+				clusters := make([]ClusterSpec, 0, len(tt.clusterNames))
+				for _, cn := range tt.clusterNames {
+					clusters = append(clusters, ClusterSpec{ClusterName: cn})
+				}
+				s.Spec.Clusters = &clusters
+			}
+			res := validateClustersEnvoyResourceNames(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
+}
