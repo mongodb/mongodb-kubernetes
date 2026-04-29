@@ -2,6 +2,7 @@ package search
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -19,6 +20,17 @@ import (
 
 // ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 const ShardNamePlaceholder = "{shardName}"
+
+// ClusterNamePlaceholder is substituted with spec.clusters[i].ClusterName when
+// resolving spec.loadBalancer.managed.externalHostname for cluster i in
+// multi-cluster MongoDBSearch deployments.
+const ClusterNamePlaceholder = "{clusterName}"
+
+// ClusterIndexPlaceholder is substituted with the slice index i of spec.clusters[i].
+// TODO(B3): switch to the stable cluster-index annotation
+// (mongodb.com/v1.last-cluster-num-mapping) after B3 lands so adds/removes don't
+// shuffle indices on existing entries.
+const ClusterIndexPlaceholder = "{clusterIndex}"
 
 const (
 	MongotDefaultWireprotoPort      int32 = 27027
@@ -763,6 +775,36 @@ func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
 		return ""
 	}
 	return strings.ReplaceAll(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder, shardName)
+}
+
+// GetManagedLBEndpointForCluster returns the externalHostname template with
+// {clusterName} and {clusterIndex} resolved for spec.clusters[i]. Returns "" when
+// managed LB is not configured. Use GetManagedLBEndpointForClusterShard for
+// sharded sources where {shardName} also needs resolving.
+//
+// Behaviour:
+//   - Legacy single-cluster (spec.clusters nil): placeholders are left untouched.
+//     Admission rejects MC specs missing the required placeholders, so reaching
+//     this path with a placeholder-bearing legacy template is malformed.
+//   - Out-of-range i: placeholders are left untouched (defensive — call sites
+//     iterate over len(*spec.clusters)).
+func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+		return ""
+	}
+	out := s.Spec.LoadBalancer.Managed.ExternalHostname
+	if s.Spec.Clusters == nil {
+		return out
+	}
+	clusters := *s.Spec.Clusters
+	if i < 0 || i >= len(clusters) {
+		return out
+	}
+	out = strings.ReplaceAll(out, ClusterNamePlaceholder, clusters[i].ClusterName)
+	// TODO(B3): replace strconv.Itoa(i) with the cluster's stable annotation index
+	// (mongodb.com/v1.last-cluster-num-mapping) once B3 lands.
+	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
+	return out
 }
 
 // IsLoadBalancerReady returns true if managed LB is not configured,

@@ -130,3 +130,78 @@ func TestIsLoadBalancerReady(t *testing.T) {
 		})
 	}
 }
+
+func TestGetManagedLBEndpointForCluster(t *testing.T) {
+	tests := []struct {
+		name     string
+		template string
+		clusters []ClusterSpec
+		index    int
+		want     string
+	}{
+		{
+			name:     "clusterName substitution first cluster",
+			template: "{clusterName}.search-lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			index:    0,
+			want:     "us-east-k8s.search-lb.example.com:443",
+		},
+		{
+			name:     "clusterIndex substitution second cluster",
+			template: "search-{clusterIndex}.lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			index:    1,
+			want:     "search-1.lb.example.com:443",
+		},
+		{
+			name:     "both placeholders present",
+			template: "{clusterName}-{clusterIndex}.lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			index:    1,
+			want:     "eu-west-k8s-1.lb.example.com:443",
+		},
+		{
+			name:     "no placeholders left untouched",
+			template: "static.lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}},
+			index:    0,
+			want:     "static.lb.example.com:443",
+		},
+		{
+			name:     "legacy spec.clusters nil leaves placeholders literal",
+			template: "{clusterName}.lb.example.com:443",
+			clusters: nil,
+			index:    0,
+			want:     "{clusterName}.lb.example.com:443",
+		},
+		{
+			name:     "out-of-range index leaves placeholders literal",
+			template: "{clusterName}.lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}},
+			index:    5,
+			want:     "{clusterName}.lb.example.com:443",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				Spec: MongoDBSearchSpec{
+					LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: tc.template}},
+				},
+			}
+			if tc.clusters != nil {
+				cs := tc.clusters
+				s.Spec.Clusters = &cs
+			}
+			assert.Equal(t, tc.want, s.GetManagedLBEndpointForCluster(tc.index))
+		})
+	}
+}
+
+func TestGetManagedLBEndpointForCluster_NotManaged(t *testing.T) {
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
+	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(0))
+
+	s.Spec.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: ""}}
+	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(0))
+}
