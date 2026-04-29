@@ -13,10 +13,6 @@ Asserts:
 - per-cluster, per-shard:
   status.clusterStatusList.clusterStatuses[i].loadBalancer.shards[<shardName>].phase
   == "Running"
-
-NOTE: parts of the stack are in flight (per-cluster Envoy: PR #1036; sharded
-source matrix: PR #1032; clusterStatusList: TBD). The scaffold compiles and
-collects; runtime steps will pass once the stack converges.
 """
 
 from typing import List
@@ -27,6 +23,7 @@ from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.common.search.sharded_search_helper import build_external_sharded_source
 from tests.multicluster_search.helpers import assert_envoy_ready_in_each_cluster, build_clusters_spec
 
 MDB_RESOURCE_NAME = "mdb-sh-q2-mc"
@@ -35,28 +32,6 @@ MDBS_RESOURCE_NAME = "mdb-sh-q2-mc-search"
 SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
-
-
-def _build_external_sharded_source(namespace: str) -> dict:
-    """spec.source.external.shardedCluster for a 2-shard external cluster."""
-    router_hosts = [
-        f"{MDB_RESOURCE_NAME}-mongos-{i}.{MDB_RESOURCE_NAME}-svc.{namespace}.svc.cluster.local:27017"
-        for i in range(MONGOS_COUNT)
-    ]
-    shards = []
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        shard_hosts = [
-            f"{shard_name}-{m}.{MDB_RESOURCE_NAME}-sh.{namespace}.svc.cluster.local:27017"
-            for m in range(MONGODS_PER_SHARD)
-        ]
-        shards.append({"shardName": shard_name, "hosts": shard_hosts})
-    return {
-        "shardedCluster": {
-            "router": {"hosts": router_hosts},
-            "shards": shards,
-        },
-    }
 
 
 @fixture(scope="function")
@@ -72,7 +47,9 @@ def mdbs(namespace: str, member_cluster_clients: List[MultiClusterClient]) -> Mo
             "name": f"{MDBS_RESOURCE_NAME}-search-sync-source-password",
             "key": "password",
         },
-        "external": _build_external_sharded_source(namespace),
+        "external": build_external_sharded_source(
+            MDB_RESOURCE_NAME, namespace, MONGOS_COUNT, SHARD_COUNT, MONGODS_PER_SHARD
+        ),
     }
     resource["spec"]["clusters"] = build_clusters_spec(member_cluster_clients)
     return resource

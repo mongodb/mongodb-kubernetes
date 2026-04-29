@@ -15,10 +15,6 @@ Verifies (when the full stack converges):
     "{clusterName}-{shardName}.search-lb.example.com:443"` reaches Phase=Running
 - `status.clusterStatusList.clusterStatuses[0].phase == "Running"`
 - $search query through mongos returns results from all shards
-
-NOTE: parts of the stack are still being landed (per-cluster Envoy: PR #1036;
-sharded source matrix: PR #1032; clusterStatusList: TBD). The scaffold
-compiles and collects; runtime steps will pass once the stack converges.
 """
 
 from kubetester import find_fixture
@@ -31,28 +27,33 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.q2_shared import (
+    ADMIN_USER_NAME,
+    ADMIN_USER_PASSWORD,
+    ENVOY_PROXY_PORT,
+    MDBS_TLS_CERT_PREFIX,
+    MONGOT_USER_NAME,
+    MONGOT_USER_PASSWORD,
+    USER_NAME,
+    USER_PASSWORD,
+    q2_create_search_index,
+    q2_restore_sample,
+    q2_text_search_query,
+)
+from tests.common.search.q2_topology import SINGLE_CLUSTER_NAME, SINGLE_REGION_TAG
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.sharded_search_helper import (
+    build_external_sharded_source,
     create_issuer_ca,
     create_lb_certificates,
     create_per_shard_search_tls_certs,
     get_search_tester,
     verify_search_results_from_all_shards,
-    verify_text_search_query,
 )
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
-
-ADMIN_USER_NAME = "mdb-admin-user"
-ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
-MONGOT_USER_NAME = "search-sync-source"
-MONGOT_USER_PASSWORD = "search-sync-source-user-password"
-USER_NAME = "mdb-user"
-USER_PASSWORD = "mdb-user-pass"
-
-ENVOY_PROXY_PORT = 27028
 
 MDB_RESOURCE_NAME = "mdb-sh-q2-sc"
 MDBS_RESOURCE_NAME = "mdb-sh-q2-sc-search"
@@ -60,11 +61,7 @@ SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
 
-MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
-
-SINGLE_CLUSTER_NAME = "kind-e2e-cluster-1"
-SINGLE_REGION_TAG = "us-east"
 
 
 @fixture(scope="module")
@@ -104,20 +101,6 @@ def mdbs(namespace: str) -> MongoDBSearch:
         namespace=namespace,
         name=MDBS_RESOURCE_NAME,
     )
-
-    router_hosts = [
-        f"{MDB_RESOURCE_NAME}-mongos-{i}.{MDB_RESOURCE_NAME}-svc.{namespace}.svc.cluster.local:27017"
-        for i in range(MONGOS_COUNT)
-    ]
-    shards = []
-    for shard_idx in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
-        shard_hosts = [
-            f"{shard_name}-{m}.{MDB_RESOURCE_NAME}-sh.{namespace}.svc.cluster.local:27017"
-            for m in range(MONGODS_PER_SHARD)
-        ]
-        shards.append({"shardName": shard_name, "hosts": shard_hosts})
-
     resource["spec"]["source"] = {
         "username": MONGOT_USER_NAME,
         "passwordSecretRef": {
@@ -125,10 +108,9 @@ def mdbs(namespace: str) -> MongoDBSearch:
             "key": "password",
         },
         "external": {
-            "shardedCluster": {
-                "router": {"hosts": router_hosts},
-                "shards": shards,
-            },
+            **build_external_sharded_source(
+                MDB_RESOURCE_NAME, namespace, MONGOS_COUNT, SHARD_COUNT, MONGODS_PER_SHARD
+            ),
             "tls": {"ca": {"name": CA_CONFIGMAP_NAME}},
         },
     }
@@ -222,11 +204,7 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_q2_sc_sharded_steady
 def test_verify_per_cluster_status(mdbs: MongoDBSearch):
-    """Per-cluster + per-shard status assertions.
-
-    Raw dict access — status.clusterStatusList isn't on the Go status struct
-    yet (lands with the per-cluster status PR). Once it lands, this fires.
-    """
+    """Per-cluster + per-shard status assertions."""
     mdbs.load()
     cluster_statuses = mdbs["status"]["clusterStatusList"]["clusterStatuses"]
     assert len(cluster_statuses) == 1, f"expected 1 cluster status entry, got {len(cluster_statuses)}"
@@ -255,25 +233,17 @@ def test_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
 
 @mark.e2e_search_q2_sc_sharded_steady
 def test_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.ToolsPod):
-    search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
-    search_tester.mongorestore_from_url(
-        archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
-        ns_include="sample_mflix.*",
-        tools_pod=tools_pod,
-    )
+    q2_restore_sample(mdb, tools_pod, get_search_tester)
 
 
 @mark.e2e_search_q2_sc_sharded_steady
 def test_create_search_index(mdb: MongoDB):
-    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    search_tester.create_search_index("sample_mflix", "movies")
-    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
+    q2_create_search_index(mdb, get_search_tester)
 
 
 @mark.e2e_search_q2_sc_sharded_steady
 def test_execute_text_search_query(mdb: MongoDB):
-    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    verify_text_search_query(search_tester)
+    q2_text_search_query(mdb, get_search_tester)
 
 
 @mark.e2e_search_q2_sc_sharded_steady

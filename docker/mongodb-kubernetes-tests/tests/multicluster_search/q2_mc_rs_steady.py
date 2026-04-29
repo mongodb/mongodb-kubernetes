@@ -11,10 +11,6 @@ Asserts:
 - status.clusterStatusList.clusterStatuses[i].phase == "Running" for each cluster
 - the operator-managed Envoy Deployment in *each* cluster reports
   status.availableReplicas >= 1
-
-NOTE: parts of the stack are in flight (per-cluster Envoy: PR #1036;
-status.clusterStatusList: TBD). The scaffold compiles and collects;
-runtime steps will pass once the stack converges.
 """
 
 from typing import List
@@ -56,9 +52,6 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_q2_mc_rs_steady
 def test_verify_per_cluster_status(mdbs: MongoDBSearch, member_cluster_clients: List[MultiClusterClient]):
-    """status.clusterStatusList is not yet on the Go status struct (lands with
-    the per-cluster status PR). Once it lands, this assertion fires.
-    """
     mdbs.load()
     cluster_statuses = mdbs["status"]["clusterStatusList"]["clusterStatuses"]
     assert len(cluster_statuses) == len(member_cluster_clients), (

@@ -18,6 +18,37 @@ from tests.conftest import get_issuer_ca_filepath
 logger = test_logger.get_test_logger(__name__)
 
 
+def build_external_sharded_source(
+    name: str,
+    namespace: str,
+    mongos_count: int,
+    shard_count: int,
+    mongods_per_shard: int,
+) -> dict:
+    """Build the spec.source.external.shardedCluster dict for a given external sharded cluster.
+
+    Used by Q2-MC scaffolds to point a MongoDBSearch at an external sharded MongoDB.
+    """
+    router_hosts = [
+        f"{name}-mongos-{i}.{name}-svc.{namespace}.svc.cluster.local:27017"
+        for i in range(mongos_count)
+    ]
+    shards = []
+    for shard_idx in range(shard_count):
+        shard_name = f"{name}-{shard_idx}"
+        shard_hosts = [
+            f"{shard_name}-{m}.{name}-sh.{namespace}.svc.cluster.local:27017"
+            for m in range(mongods_per_shard)
+        ]
+        shards.append({"shardName": shard_name, "hosts": shard_hosts})
+    return {
+        "shardedCluster": {
+            "router": {"hosts": router_hosts},
+            "shards": shards,
+        },
+    }
+
+
 def create_per_shard_search_tls_certs(
     namespace: str,
     issuer: str,

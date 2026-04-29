@@ -15,11 +15,6 @@ What this test verifies (when the full stack converges):
 - `status.clusterStatusList.clusterStatuses[0].phase == "Running"`
 - Sample mflix data is restored, a search index is created, and a $search
   query returns results
-
-NOTE: parts of the underlying stack are still being landed (per-cluster Envoy:
-PR #1036; sharded source matrix: PR #1032; status.clusterStatusList: TBD).
-The scaffold compiles and collects; runtime steps will pass once the stack
-converges.
 """
 
 from kubetester import find_fixture
@@ -32,6 +27,20 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.q2_shared import (
+    ADMIN_USER_NAME,
+    ADMIN_USER_PASSWORD,
+    ENVOY_PROXY_PORT,
+    MDBS_TLS_CERT_PREFIX,
+    MONGOT_USER_NAME,
+    MONGOT_USER_PASSWORD,
+    USER_NAME,
+    USER_PASSWORD,
+    q2_create_search_index,
+    q2_restore_sample,
+    q2_text_search_query,
+)
+from tests.common.search.q2_topology import SINGLE_CLUSTER_NAME, SINGLE_REGION_TAG
 from tests.common.search.rs_search_helper import (
     create_rs_lb_certificates,
     create_rs_search_tls_cert,
@@ -39,37 +48,17 @@ from tests.common.search.rs_search_helper import (
     verify_rs_mongod_parameters,
 )
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
-from tests.common.search.sharded_search_helper import (
-    create_issuer_ca,
-    verify_text_search_query,
-)
+from tests.common.search.sharded_search_helper import create_issuer_ca
 from tests.conftest import get_default_operator
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
 
-# User credentials
-ADMIN_USER_NAME = "mdb-admin-user"
-ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
-MONGOT_USER_NAME = "search-sync-source"
-MONGOT_USER_PASSWORD = "search-sync-source-user-password"
-USER_NAME = "mdb-user"
-USER_PASSWORD = "mdb-user-pass"
-
-ENVOY_PROXY_PORT = 27028
-
 MDB_RESOURCE_NAME = "mdb-rs-q2-sc"
 MDBS_RESOURCE_NAME = "mdb-rs-q2-sc-search"
 RS_MEMBERS = 3
 
-MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
-
-# In a single-cluster deployment we still need a cluster identifier for
-# the new spec.clusters[] entry. The legacy/default name is used by the
-# central-cluster-only path; the auto-promotion code path also lands here.
-SINGLE_CLUSTER_NAME = "kind-e2e-cluster-1"
-SINGLE_REGION_TAG = "us-east"
 
 
 @fixture(scope="module")
@@ -198,12 +187,7 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_q2_sc_rs_steady
 def test_verify_per_cluster_status(mdbs: MongoDBSearch):
-    """Assert the new clusterStatusList per-cluster phase is Running.
-
-    Raw dict access rather than a typed helper — status.clusterStatusList is
-    not yet present on the Go status struct (lands with the per-cluster
-    status PR). Once it lands, this assertion will fire.
-    """
+    """Assert the new clusterStatusList per-cluster phase is Running."""
     mdbs.load()
     cluster_statuses = mdbs["status"]["clusterStatusList"]["clusterStatuses"]
     assert len(cluster_statuses) == 1, f"expected 1 cluster status entry, got {len(cluster_statuses)}"
@@ -230,22 +214,14 @@ def test_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
 
 @mark.e2e_search_q2_sc_rs_steady
 def test_restore_sample_database(mdb: MongoDB, tools_pod: mongodb_tools_pod.ToolsPod):
-    search_tester = get_rs_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
-    search_tester.mongorestore_from_url(
-        archive_url="https://atlas-education.s3.amazonaws.com/sample_mflix.archive",
-        ns_include="sample_mflix.*",
-        tools_pod=tools_pod,
-    )
+    q2_restore_sample(mdb, tools_pod, get_rs_search_tester)
 
 
 @mark.e2e_search_q2_sc_rs_steady
 def test_create_search_index(mdb: MongoDB):
-    search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    search_tester.create_search_index("sample_mflix", "movies")
-    search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
+    q2_create_search_index(mdb, get_rs_search_tester)
 
 
 @mark.e2e_search_q2_sc_rs_steady
 def test_execute_text_search_query(mdb: MongoDB):
-    search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
-    verify_text_search_query(search_tester)
+    q2_text_search_query(mdb, get_rs_search_tester)
