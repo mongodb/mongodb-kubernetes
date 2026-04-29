@@ -95,7 +95,8 @@ remote_repo() {
     local url
     url=$(git remote get-url "${REMOTE}") \
         || die "git remote get-url ${REMOTE} failed (is the remote configured?)"
-    echo "${url}" | sed -E 's#.*[:/]([^/]+/[^/]+?)(\.git)?$#\1#'
+    url="${url%.git}"
+    echo "${url}" | sed -E 's#.*[:/]([^/]+/[^/]+)$#\1#'
 }
 
 find_open_drift_pr() {
