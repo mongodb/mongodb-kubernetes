@@ -18,6 +18,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -56,7 +57,7 @@ func Test_tlsVolumeSource_CAFilePath(t *testing.T) {
 			cm := v.ConfigMap
 			return cm != nil &&
 				len(cm.Items) == 1 &&
-				cm.Items[0].Key == "ca-pem" &&
+				cm.Items[0].Key == tls.CAConfigMapKey &&
 				cm.Items[0].Path == path.Base(customPath)
 		}), "custom CAFilePath volume should map ca-pem key to the custom filename")
 	})
