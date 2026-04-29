@@ -120,6 +120,15 @@ def lb_deployment_name(search_name: str) -> str:
     return f"{search_name}-search-lb-0"
 
 
+def lb_deployment_name_for_cluster(search_name: str, cluster_name: str) -> str:
+    """Per-member-cluster Envoy Deployment name. Mirrors LoadBalancerDeploymentNameForCluster().
+
+    Multi-cluster (B16) appends the cluster identifier so per-cluster Deployments
+    stay distinct in the same namespace.
+    """
+    return f"{lb_deployment_name(search_name)}-{cluster_name}"
+
+
 def lb_configmap_name(search_name: str) -> str:
     """Managed LB ConfigMap name. Mirrors LoadBalancerConfigMapName()."""
     return f"{search_name}-search-lb-0-config"

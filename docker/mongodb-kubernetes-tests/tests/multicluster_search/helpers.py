@@ -30,7 +30,7 @@ def _envoy_ready_in_cluster(namespace: str, deployment_name: str, mcc: MultiClus
     try:
         deployment = apps_v1.read_namespaced_deployment(deployment_name, namespace)
         ready = deployment.status.ready_replicas or 0
-        return ready >= 1, f"cluster={mcc.cluster_name} ready_replicas={ready}"
+        return ready >= 1, f"cluster={mcc.cluster_name} deployment={deployment_name} ready_replicas={ready}"
     except Exception as e:
         return False, f"cluster={mcc.cluster_name} deployment {deployment_name} not found: {e}"
 
@@ -41,12 +41,19 @@ def assert_envoy_ready_in_each_cluster(
     member_cluster_clients: List[MultiClusterClient],
     timeout: int = 180,
 ):
-    """Poll all member clusters concurrently until every Envoy Deployment is ready."""
-    envoy_deployment_name = search_resource_names.lb_deployment_name(mdbs_name)
+    """Poll all member clusters concurrently until each per-cluster Envoy Deployment is ready.
+
+    The per-cluster Deployment name is `{mdbs_name}-search-lb-0-{clusterName}` (B16) so each
+    member cluster is queried for its own Deployment, not a shared name.
+    """
 
     def all_ready():
         statuses = [
-            _envoy_ready_in_cluster(namespace, envoy_deployment_name, mcc)
+            _envoy_ready_in_cluster(
+                namespace,
+                search_resource_names.lb_deployment_name_for_cluster(mdbs_name, mcc.cluster_name),
+                mcc,
+            )
             for mcc in member_cluster_clients
         ]
         ok = all(ready for ready, _ in statuses)
@@ -57,6 +64,6 @@ def assert_envoy_ready_in_each_cluster(
         all_ready,
         timeout=timeout,
         sleep_time=5,
-        msg=f"Envoy Deployment {envoy_deployment_name} ready in all member clusters",
+        msg=f"per-cluster Envoy Deployments for MongoDBSearch {mdbs_name} ready in all member clusters",
     )
     logger.info(f"Envoy Deployment ready on all {len(member_cluster_clients)} cluster(s)")

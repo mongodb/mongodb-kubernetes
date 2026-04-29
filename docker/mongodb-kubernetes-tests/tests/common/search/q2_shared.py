@@ -1,8 +1,8 @@
 """Shared constants and smoke-step helpers for Q2 search e2e tests.
 
-Used by single-cluster RS/sharded scaffolds (and potentially MC tests once the
-runtime stack converges). Keeps the per-test files focused on source-construction
-and topology-specific assertions.
+Used by single-cluster RS/sharded scaffolds and the multi-cluster harness.
+Keeps the per-test files focused on source-construction and topology-specific
+assertions.
 """
 
 from typing import Callable
