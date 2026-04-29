@@ -155,7 +155,8 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 		}}
 	}
 
-	clusterName := ""
+	// clusterName stays "" until per-cluster unit expansion lands in a follow-up B-section;
+	// the readPref/hosts modifiers below are NOOPs in that state.
 	return reconcilePlan{
 		units: []reconcileUnit{{
 			stsName:            r.mdbSearch.StatefulSetNamespacedName(),
@@ -165,12 +166,11 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 			podLabels:          map[string]string{appLabelKey: svcName},
 			extraHeadlessPorts: extraHeadlessPorts,
 			tlsResource:        r.mdbSearch,
-			clusterName:        clusterName,
 			mongotConfigFn: mongot.Apply(
 				baseMongotConfig(r.mdbSearch, hostSeeds),
 				wireprotoMongotMod(r.mdbSearch),
-				readPreferenceTagsMod(r.mdbSearch, clusterName),
-				syncSourceHostsMod(r.mdbSearch, clusterName),
+				readPreferenceTagsMod(r.mdbSearch, ""),
+				syncSourceHostsMod(r.mdbSearch, ""),
 			),
 		}},
 		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
@@ -190,7 +190,8 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 		}
 
 		stsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
-		clusterName := ""
+		// clusterName stays "" until per-cluster unit expansion lands in a follow-up B-section;
+		// the readPref/hosts modifiers below are NOOPs in that state.
 		units = append(units, reconcileUnit{
 			stsName:             stsName,
 			headlessSvc:         r.mdbSearch.MongotServiceForShard(shardName),
@@ -201,12 +202,11 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			publishNotReady:     true,
 			logFields:           []any{"shard", shardName, "shardIdx", shardIdx},
 			tlsResource:         &perShardTLSResource{MongoDBSearch: r.mdbSearch, shardName: shardName},
-			clusterName:         clusterName,
 			mongotConfigFn: mongot.Apply(
 				baseMongotConfig(r.mdbSearch, hostSeeds),
 				routerMongotMod(r.mdbSearch, shardedSource),
-				readPreferenceTagsMod(r.mdbSearch, clusterName),
-				syncSourceHostsMod(r.mdbSearch, clusterName),
+				readPreferenceTagsMod(r.mdbSearch, ""),
+				syncSourceHostsMod(r.mdbSearch, ""),
 			),
 		})
 	}

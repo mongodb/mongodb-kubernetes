@@ -11,9 +11,10 @@ func findClusterSpec(search *searchv1.MongoDBSearch, clusterName string) *search
 	if clusterName == "" || search == nil || search.Spec.Clusters == nil {
 		return nil
 	}
-	for i := range *search.Spec.Clusters {
-		if (*search.Spec.Clusters)[i].ClusterName == clusterName {
-			return &(*search.Spec.Clusters)[i]
+	cs := *search.Spec.Clusters
+	for i := range cs {
+		if cs[i].ClusterName == clusterName {
+			return &cs[i]
 		}
 	}
 	return nil
