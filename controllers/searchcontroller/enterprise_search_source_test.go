@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/ptr"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -322,7 +323,7 @@ func newShardedUnmanagedLBSearch(name, namespace, mdbName string, endpointTempla
 			Namespace: namespace,
 		},
 		Spec: searchv1.MongoDBSearchSpec{
-			Replicas: 1,
+			Replicas: ptr.To(int32(1)),
 			Source: &searchv1.MongoDBSource{
 				MongoDBResourceRef: &userv1.MongoDBResourceRef{
 					Name: mdbName,

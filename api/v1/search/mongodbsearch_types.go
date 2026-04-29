@@ -63,18 +63,17 @@ type MongoDBSearchSpec struct {
 	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].replicas. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].replicas.
+	// Setting both spec.replicas and spec.clusters at the same time is rejected by admission.
 	// Replicas is the number of mongot pods to deploy.
 	// For ReplicaSet source: the number of mongot pods in total.
 	// For Sharded source: the number mongot pods per shard.
 	// When Replicas > 1, a load balancer configuration (spec.loadBalancer)
 	// is required to distribute traffic across mongot instances.
-	// In multi-cluster deployments, prefer spec.clusters[].replicas. Auto-promotion
-	// of this top-level field into spec.clusters[0].replicas when spec.clusters is
-	// omitted lands in B18; until then this field remains the single-cluster path.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=1
-	Replicas int `json:"replicas,omitempty"`
+	Replicas *int32 `json:"replicas,omitempty"`
 	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
 	// which aren't exposed as fields in the MongoDBSearch.spec.
 	// In multi-cluster deployments, prefer spec.clusters[].statefulSet. Auto-promotion
@@ -699,8 +698,12 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 }
 
 func (s *MongoDBSearch) GetReplicas() int {
-	if s.Spec.Replicas > 0 {
-		return s.Spec.Replicas
+	// Single legitimate read of the deprecated top-level field — this is the
+	// operator-side default ("1 when unset") for the legacy single-cluster path.
+	// Multi-cluster readers go through EffectiveClusters() instead.
+	//nolint:staticcheck // SA1019: deprecated field is the documented fallback.
+	if s.Spec.Replicas != nil && *s.Spec.Replicas > 0 {
+		return int(*s.Spec.Replicas)
 	}
 	return 1
 }
