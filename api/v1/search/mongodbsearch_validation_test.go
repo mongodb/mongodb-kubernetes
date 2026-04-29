@@ -300,6 +300,101 @@ func TestValidateClustersUniqueClusterName(t *testing.T) {
 	}
 }
 
+func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
+	mkSearch := func(template string, clusters []ClusterSpec, sharded bool) *MongoDBSearch {
+		s := &MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+			Spec: MongoDBSearchSpec{
+				LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: template}},
+			},
+		}
+		if clusters != nil {
+			cs := clusters
+			s.Spec.Clusters = &cs
+		}
+		if sharded {
+			s.Spec.Source = &MongoDBSource{
+				ExternalMongoDBSource: &ExternalMongoDBSource{
+					ShardedCluster: &ExternalShardedClusterConfig{
+						Router: ExternalRouterConfig{Hosts: []string{"mongos.example.com:27017"}},
+						Shards: []ExternalShardConfig{{ShardName: "shard-0", Hosts: []string{"h:27017"}}},
+					},
+				},
+			}
+		}
+		return s
+	}
+
+	tests := []struct {
+		name          string
+		template      string
+		clusters      []ClusterSpec
+		sharded       bool
+		errorContains string
+	}{
+		{
+			name:     "single-cluster legacy no placeholder",
+			template: "static.lb.example.com:443",
+			clusters: nil,
+		},
+		{
+			name:     "single-entry clusters does not require placeholder",
+			template: "static.lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}},
+		},
+		{
+			name:     "MC RS with clusterName placeholder",
+			template: "{clusterName}.lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+		},
+		{
+			name:     "MC RS with clusterIndex placeholder",
+			template: "search-{clusterIndex}.lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+		},
+		{
+			name:          "MC RS missing both cluster placeholders",
+			template:      "static.lb.example.com:443",
+			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			errorContains: "{clusterName}",
+		},
+		{
+			name:     "MC sharded with all three placeholders",
+			template: "{clusterName}.{shardName}.lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			sharded:  true,
+		},
+		{
+			name:          "MC sharded missing shardName",
+			template:      "{clusterName}.lb.example.com:443",
+			clusters:      []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			sharded:       true,
+			errorContains: "{shardName}",
+		},
+		{
+			name:     "no managed LB returns success",
+			template: "",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := mkSearch(tt.template, tt.clusters, tt.sharded)
+			if tt.template == "" {
+				s.Spec.LoadBalancer = nil
+			}
+			res := validateMCExternalHostnamePlaceholders(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level, "expected error, got %+v", res)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level, "expected success, got %+v", res)
+			}
+		})
+	}
+}
+
 func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTLS, isLBManaged bool) *MongoDBSearch {
 	search := &MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-namespace"},

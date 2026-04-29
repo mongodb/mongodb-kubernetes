@@ -50,6 +50,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateClustersUniqueClusterName,
 		validateClustersSyncSourceSelector,
 		validateClustersShardOverrides,
+		validateMCExternalHostnamePlaceholders,
 	}
 
 	var results []v1.ValidationResult
@@ -380,4 +381,37 @@ func ValidateShardNameRFC1123(shardName string) error {
 	}
 
 	return nil
+}
+
+// validateMCExternalHostnamePlaceholders enforces:
+//   - When len(spec.clusters) > 1 and managed LB is in use, externalHostname
+//     must contain {clusterName} or {clusterIndex} so each cluster's resolved
+//     hostname is distinct.
+//   - When the source is external sharded AND len(spec.clusters) > 1,
+//     externalHostname must additionally contain {shardName}.
+//
+// Single-cluster (len <= 1) and legacy specs (clusters nil) fall through —
+// the existing single-cluster behaviour is preserved.
+func validateMCExternalHostnamePlaceholders(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	tmpl := s.Spec.LoadBalancer.Managed.ExternalHostname
+	hasCluster := strings.Contains(tmpl, ClusterNamePlaceholder) || strings.Contains(tmpl, ClusterIndexPlaceholder)
+	if !hasCluster {
+		return v1.ValidationError(
+			"spec.loadBalancer.managed.externalHostname must contain %s or %s when len(spec.clusters) > 1",
+			ClusterNamePlaceholder, ClusterIndexPlaceholder,
+		)
+	}
+	if s.IsExternalSourceSharded() && !strings.Contains(tmpl, ShardNamePlaceholder) {
+		return v1.ValidationError(
+			"spec.loadBalancer.managed.externalHostname must contain %s for multi-cluster sharded deployments",
+			ShardNamePlaceholder,
+		)
+	}
+	return v1.ValidationSuccess()
 }
