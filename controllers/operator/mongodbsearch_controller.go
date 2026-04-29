@@ -182,7 +182,7 @@ func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operat
 		return err
 	}
 
-	r := newMongoDBSearchReconciler(kubernetesClient.NewClient(mgr.GetClient()), operatorSearchConfig, nil)
+	r := newMongoDBSearchReconciler(mgr.GetClient(), operatorSearchConfig, nil)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
