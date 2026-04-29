@@ -11,7 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	runtimeCluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -19,20 +18,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
@@ -41,6 +31,16 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	runtimeCluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 )
 
 // Some of these variables can be exposed as configuration to the user
@@ -667,18 +667,12 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 	}
 }
 
-// envoyLabels returns standard labels for Envoy resources (single-cluster path).
-// envoyLabelsForCluster is the multi-cluster aware variant — both stamp the
-// cross-cluster enqueue labels so the label-based mapper can route Deployment/
-// ConfigMap events back to the owning MongoDBSearch even when objects live in
-// a member cluster (where owner refs don't GC).
-func envoyLabels(search *searchv1.MongoDBSearch) map[string]string {
-	return envoyLabelsForCluster(search, "")
-}
-
 // envoyLabelsForCluster returns Envoy resource labels including the cross-cluster
 // enqueue labels and an optional cluster-name label. In single-cluster (clusterID
-// == "") the cluster-name label is omitted.
+// == "") the cluster-name label is omitted. Both stamp the cross-cluster enqueue
+// labels so the label-based mapper can route Deployment/ConfigMap events back
+// to the owning MongoDBSearch even when objects live in a member cluster (where
+// owner refs don't GC).
 func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) map[string]string {
 	labels := map[string]string{
 		"app":                          search.LoadBalancerDeploymentNameForCluster(clusterID),
@@ -729,11 +723,6 @@ func envoyReplicasForCluster(search *searchv1.MongoDBSearch, clusterName string)
 		return *search.Spec.LoadBalancer.Managed.Replicas
 	}
 	return envoyReplicasDefault
-}
-
-// envoyPodLabels returns labels for Envoy pod selection (single-cluster path).
-func envoyPodLabels(search *searchv1.MongoDBSearch) map[string]string {
-	return envoyPodLabelsForCluster(search, "")
 }
 
 // envoyPodLabelsForCluster returns Envoy pod-selection labels for one cluster.
