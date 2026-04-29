@@ -853,6 +853,13 @@ func TestCountMemberConfigChangesForExistingMembers(t *testing.T) {
 			want:            2,
 		},
 		{
+			name:            "one member with both votes and priority changed — counts as 1",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes0, Priority: &prio0}},
+			existingMembers: 1,
+			want:            1,
+		},
+		{
 			name:            "new member appended — not counted as a change",
 			oldConf:         []automationconfig.MemberOptions{{Votes: &votes1}},
 			newConf:         []automationconfig.MemberOptions{{Votes: &votes1}, {Votes: &votes0, Priority: &prio0}},
