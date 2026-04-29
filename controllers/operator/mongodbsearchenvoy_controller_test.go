@@ -21,6 +21,7 @@ import (
 	apiv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -599,6 +600,104 @@ func TestEnsureDeployment_PerClusterReplicas_FromClustersSpec(t *testing.T) {
 		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster("a"), Namespace: "ns"}, dep))
 	require.NotNil(t, dep.Spec.Replicas)
 	assert.Equal(t, int32(5), *dep.Spec.Replicas)
+}
+
+// --- B16 reconcile loop + per-cluster status -----------------------------------
+
+func TestBuildClusterWorkList_SingleClusterDegenerate(t *testing.T) {
+	r := newMongoDBSearchEnvoyReconciler(fake.NewClientBuilder().Build(), "envoy:latest", nil)
+	search := &searchv1.MongoDBSearch{}
+	wl := r.buildClusterWorkList(search)
+	require.Len(t, wl, 1)
+	assert.Equal(t, "", wl[0].ClusterName)
+}
+
+func TestBuildClusterWorkList_EmptySpecClusters_TreatedAsSingle(t *testing.T) {
+	central := fake.NewClientBuilder().Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+		"a": fake.NewClientBuilder().Build(),
+	})
+	search := &searchv1.MongoDBSearch{}
+	wl := r.buildClusterWorkList(search)
+	require.Len(t, wl, 1)
+	assert.Equal(t, "", wl[0].ClusterName)
+}
+
+func TestBuildClusterWorkList_MultiCluster_OneItemPerSpecEntry(t *testing.T) {
+	central := fake.NewClientBuilder().Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+		"a": fake.NewClientBuilder().Build(),
+		"b": fake.NewClientBuilder().Build(),
+	})
+	search := &searchv1.MongoDBSearch{
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "a"},
+				{ClusterName: "b"},
+			},
+		},
+	}
+	wl := r.buildClusterWorkList(search)
+	require.Len(t, wl, 2)
+	assert.Equal(t, "a", wl[0].ClusterName)
+	assert.Equal(t, "b", wl[1].ClusterName)
+}
+
+func TestIsWorsePhase(t *testing.T) {
+	assert.True(t, isWorsePhase(status.PhaseFailed, status.PhaseRunning))
+	assert.True(t, isWorsePhase(status.PhasePending, status.PhaseRunning))
+	assert.True(t, isWorsePhase(status.PhaseFailed, status.PhasePending))
+	assert.False(t, isWorsePhase(status.PhaseRunning, status.PhasePending))
+	assert.False(t, isWorsePhase(status.PhaseRunning, status.PhaseRunning))
+}
+
+func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+		"a": fake.NewClientBuilder().WithScheme(scheme).Build(),
+	})
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: &[]searchv1.ClusterSpec{{ClusterName: "missing-cluster"}},
+		},
+	}
+	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, "missing-cluster", zap.S())
+	assert.Equal(t, status.PhasePending, st.Phase())
+	assert.Contains(t, extractWorkflowMsg(st), "missing-cluster")
+}
+
+func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{clusterName}.example.com"},
+			},
+			Clusters: &[]searchv1.ClusterSpec{{ClusterName: "a"}},
+		},
+	}
+
+	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, "a", zap.S())
+	require.True(t, st.IsOK(), "expected OK, got %s: %s", st.Phase(), extractWorkflowMsg(st))
+
+	// Member cluster has Deployment + ConfigMap; central does not.
+	dep := &appsv1.Deployment{}
+	require.NoError(t, memberA.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster("a"), Namespace: "ns"}, dep))
+	cm := &corev1.ConfigMap{}
+	require.NoError(t, memberA.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster("a"), Namespace: "ns"}, cm))
+
+	err := central.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster("a"), Namespace: "ns"}, &appsv1.Deployment{})
+	assert.True(t, apierrors.IsNotFound(err))
 }
 
 func TestEnsureDeployment_PerClusterReplicas_DefaultsTo1(t *testing.T) {

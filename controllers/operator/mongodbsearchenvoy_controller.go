@@ -23,6 +23,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -143,31 +144,134 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	tlsCfg := searchSource.TLSConfig()
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
-	routes := buildRoutes(mdbSearch, searchSource)
-	if len(routes) == 0 {
-		log.Warn("No routes to configure, nothing to deploy")
-		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("No routes to configure for load balancer"), log)
+	workList := r.buildClusterWorkList(mdbSearch)
+	perClusterStatuses := make([]searchv1.ClusterLoadBalancerStatus, 0, len(workList))
+	worstPhase := status.PhaseRunning
+	var firstFailure error
+	multiCluster := len(workList) > 1 || (len(workList) == 1 && workList[0].ClusterName != "")
+
+	for _, w := range workList {
+		st := r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w.ClusterName, log)
+		if multiCluster {
+			perClusterStatuses = append(perClusterStatuses, searchv1.ClusterLoadBalancerStatus{
+				ClusterName: w.ClusterName,
+				Phase:       st.Phase(),
+				Message:     extractWorkflowMsg(st),
+			})
+		}
+		if isWorsePhase(st.Phase(), worstPhase) {
+			worstPhase = st.Phase()
+		}
+		if !st.IsOK() && firstFailure == nil {
+			firstFailure = fmt.Errorf("cluster %q: %s", w.ClusterName, extractWorkflowMsg(st))
+		}
 	}
 
-	// Generate Envoy config JSON
-	caKeyName := caKeyNameFromTLSConfig(tlsCfg)
-	envoyJSON, err := buildEnvoyConfigJSON(routes, tlsEnabled, caKeyName)
-	if err != nil {
-		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
+	if multiCluster {
+		mdbSearch.Status.LoadBalancer = &searchv1.LoadBalancerStatus{
+			Phase:    worstPhase,
+			Clusters: perClusterStatuses,
+		}
 	}
 
-	// Ensure ConfigMap (single-cluster path; Task 5 introduces the per-cluster loop).
-	if err := r.ensureConfigMap(ctx, mdbSearch, envoyJSON, "", log); err != nil {
-		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
-	}
-
-	// Ensure Deployment (single-cluster path; Task 5 introduces the per-cluster loop).
-	if err := r.ensureDeployment(ctx, mdbSearch, envoyJSON, "", tlsCfg, log); err != nil {
-		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
+	if firstFailure != nil {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("%s", firstFailure), log)
 	}
 
 	log.Info("MongoDBSearchEnvoy reconciliation complete")
 	return r.updateLBStatus(ctx, mdbSearch, workflow.OK(), log)
+}
+
+// clusterWorkItem represents one (clusterName) unit the reconciler must process.
+// In single-cluster (no spec.clusters or empty memberClusterClientsMap) the slice
+// has one entry with ClusterName == "" and writes go to the central cluster.
+type clusterWorkItem struct {
+	ClusterName string
+}
+
+// buildClusterWorkList expands spec.clusters[] into the per-cluster work units
+// the reconciler will iterate over. Membership rules:
+//   - len(memberClusterClientsMap) == 0 → single-cluster install; one work item with "".
+//   - len(spec.clusters) == 0 → single-cluster degenerate; one work item with "" until B18 lands.
+//   - otherwise → one work item per spec.clusters[i]. Member clusters in the
+//     reconciler's map but absent from spec.clusters[] are intentionally ignored
+//     (the CR drives, not the operator's membership).
+func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch) []clusterWorkItem {
+	if len(r.memberClusterClientsMap) == 0 || search.Spec.Clusters == nil || len(*search.Spec.Clusters) == 0 {
+		return []clusterWorkItem{{ClusterName: ""}}
+	}
+	work := make([]clusterWorkItem, 0, len(*search.Spec.Clusters))
+	for _, c := range *search.Spec.Clusters {
+		work = append(work, clusterWorkItem{ClusterName: c.ClusterName})
+	}
+	return work
+}
+
+// reconcileForCluster runs the ConfigMap + Deployment ensure for one cluster.
+// Returns a workflow.Status describing the per-cluster outcome.
+func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
+	ctx context.Context,
+	search *searchv1.MongoDBSearch,
+	source searchcontroller.SearchSourceDBResource,
+	tlsEnabled bool,
+	tlsCfg *searchcontroller.TLSSourceConfig,
+	clusterName string,
+	log *zap.SugaredLogger,
+) workflow.Status {
+	if clusterName != "" {
+		if _, ok := r.memberClusterClientsMap[clusterName]; !ok {
+			return workflow.Pending("Member cluster %q not registered with the operator", clusterName)
+		}
+	}
+
+	routes := buildRoutesForCluster(search, source, clusterName)
+	if len(routes) == 0 {
+		return workflow.Pending("No routes to configure for load balancer (cluster=%q)", clusterName)
+	}
+
+	caKeyName := caKeyNameFromTLSConfig(tlsCfg)
+	envoyJSON, err := buildEnvoyConfigJSON(routes, tlsEnabled, caKeyName)
+	if err != nil {
+		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
+	}
+	if err := r.ensureConfigMap(ctx, search, envoyJSON, clusterName, log); err != nil {
+		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
+	}
+	if err := r.ensureDeployment(ctx, search, envoyJSON, clusterName, tlsCfg, log); err != nil {
+		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
+	}
+	return workflow.OK()
+}
+
+// isWorsePhase returns true if a is "worse" than b in the ordering
+// Failed > Pending > Running. Used to compute the top-level Phase from
+// per-cluster phases.
+func isWorsePhase(a, b status.Phase) bool {
+	rank := func(p status.Phase) int {
+		switch p {
+		case status.PhaseFailed:
+			return 3
+		case status.PhasePending:
+			return 2
+		case status.PhaseRunning:
+			return 1
+		default:
+			return 0
+		}
+	}
+	return rank(a) > rank(b)
+}
+
+// extractWorkflowMsg pulls the message from a workflow.Status's StatusOptions
+// (the workflow.Status interface does not expose Msg() directly). Returns ""
+// for OK statuses or when no MessageOption is set.
+func extractWorkflowMsg(st workflow.Status) string {
+	for _, opt := range st.StatusOptions() {
+		if msgOpt, ok := opt.(status.MessageOption); ok {
+			return msgOpt.Message
+		}
+	}
+	return ""
 }
 
 // updateLBStatus patches the loadBalancer sub-status on the MongoDBSearch CR
