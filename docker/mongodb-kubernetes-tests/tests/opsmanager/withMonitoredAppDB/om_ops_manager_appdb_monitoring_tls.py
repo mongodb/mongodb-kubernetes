@@ -90,7 +90,7 @@ def test_appdb_password_can_be_changed(ops_manager: MongoDBOpsManager):
 def test_new_database_is_monitored_after_restart(ops_manager: MongoDBOpsManager):
     # Connect with the new connection string
     connection_string = ops_manager.read_appdb_connection_url()
-    client = pymongo.MongoClient(connection_string, tlsAllowInvalidCertificates=True)
+    client: pymongo.MongoClient = pymongo.MongoClient(connection_string, tlsAllowInvalidCertificates=True)
     database_name = "new_database"
     database = client[database_name]
     collection = database["new_collection"]

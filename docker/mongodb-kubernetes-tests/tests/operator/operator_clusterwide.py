@@ -1,6 +1,7 @@
 import time
 from typing import Dict
 
+import kubernetes.client.rest
 import pytest
 from kubernetes import client
 from kubetester import create_secret, read_secret, try_load

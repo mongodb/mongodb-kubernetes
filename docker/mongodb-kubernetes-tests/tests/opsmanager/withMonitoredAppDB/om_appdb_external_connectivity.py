@@ -120,6 +120,7 @@ def test_service_exists(namespace: str):
             namespace,
             f"{APPDB_NAME}-{i}-svc-external",
         )
+        assert service is not None
         assert service.spec.type == "LoadBalancer"
         assert service.spec.ports[0].port == 27017
         assert service.spec.ports[1].port == 27018
@@ -139,6 +140,7 @@ def test_placeholders_in_external_services(ops_manager: MongoDBOpsManager, names
 
     for pod_idx in range(3):
         service = get_service(namespace, f"{APPDB_NAME}-{pod_idx}-svc-external")
+        assert service is not None
         assert (
             service.metadata.annotations
             == placeholders.get_expected_annotations_single_cluster_with_external_domain(

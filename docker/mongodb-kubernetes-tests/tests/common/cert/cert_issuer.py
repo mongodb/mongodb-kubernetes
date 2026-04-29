@@ -11,7 +11,7 @@ def create_appdb_certs(
     namespace: str,
     issuer: str,
     appdb_name: str,
-    cluster_index_with_members: list[tuple[int, int]] = None,
+    cluster_index_with_members: Optional[list[tuple[int, int]]] = None,
     cert_prefix="appdb",
     clusterwide: bool = False,
     additional_domains: Optional[List[str]] = None,
