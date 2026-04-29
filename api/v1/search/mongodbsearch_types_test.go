@@ -6,7 +6,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/ptr"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 )
 
 func TestGetReplicasNilDefaultsToOne(t *testing.T) {
@@ -23,6 +26,73 @@ func TestHasMultipleReplicas(t *testing.T) {
 	assert.False(t, (&MongoDBSearch{}).HasMultipleReplicas())
 	assert.False(t, (&MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(1))}}).HasMultipleReplicas())
 	assert.True(t, (&MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(2))}}).HasMultipleReplicas())
+}
+
+func TestEffectiveClusters(t *testing.T) {
+	tests := []struct {
+		name     string
+		spec     MongoDBSearchSpec
+		expected []ClusterSpec
+	}{
+		{
+			name:     "nil clusters, all top-level unset",
+			spec:     MongoDBSearchSpec{},
+			expected: []ClusterSpec{{}},
+		},
+		{
+			name:     "nil clusters, only top-level Replicas set",
+			spec:     MongoDBSearchSpec{Replicas: ptr.To(int32(3))},
+			expected: []ClusterSpec{{Replicas: ptr.To(int32(3))}},
+		},
+		{
+			name: "nil clusters, all four top-level fields set",
+			spec: MongoDBSearchSpec{
+				Replicas:                 ptr.To(int32(2)),
+				ResourceRequirements:     &corev1.ResourceRequirements{},
+				Persistence:              &common.Persistence{},
+				StatefulSetConfiguration: &common.StatefulSetConfiguration{},
+			},
+			expected: []ClusterSpec{{
+				Replicas:                 ptr.To(int32(2)),
+				ResourceRequirements:     &corev1.ResourceRequirements{},
+				Persistence:              &common.Persistence{},
+				StatefulSetConfiguration: &common.StatefulSetConfiguration{},
+			}},
+		},
+		{
+			name: "spec.clusters set, returned unchanged",
+			spec: MongoDBSearchSpec{
+				Clusters: &[]ClusterSpec{
+					{ClusterName: "us-east", Replicas: ptr.To(int32(2))},
+					{ClusterName: "us-west", Replicas: ptr.To(int32(3))},
+				},
+			},
+			expected: []ClusterSpec{
+				{ClusterName: "us-east", Replicas: ptr.To(int32(2))},
+				{ClusterName: "us-west", Replicas: ptr.To(int32(3))},
+			},
+		},
+		{
+			name:     "spec.clusters explicitly empty slice — preserved",
+			spec:     MongoDBSearchSpec{Clusters: &[]ClusterSpec{}},
+			expected: []ClusterSpec{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{Spec: tt.spec}
+			got := EffectiveClusters(s)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestEffectiveClustersDoesNotMutate(t *testing.T) {
+	// Independent invariant — a pure function must not mutate spec.
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{Replicas: ptr.To(int32(7))}}
+	_ = EffectiveClusters(s)
+	assert.Nil(t, s.Spec.Clusters)
+	assert.Equal(t, int32(7), *s.Spec.Replicas)
 }
 
 func TestUpdateStatus_MainPath(t *testing.T) {
