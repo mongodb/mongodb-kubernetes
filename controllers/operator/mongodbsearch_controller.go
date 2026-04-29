@@ -9,13 +9,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
@@ -27,6 +29,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -191,15 +194,52 @@ func AddMongoDBSearchController(
 
 	r := newMongoDBSearchReconciler(mgr.GetClient(), operatorSearchConfig, multicluster.ClustersMapToClientMap(memberClusterObjectsMap))
 
-	return ctrl.NewControllerManagedBy(mgr).
-		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
-		For(&searchv1.MongoDBSearch{}).
-		Watches(&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}).
-		Watches(&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}).
-		Watches(&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}).
-		Watches(&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}).
-		Owns(&appsv1.StatefulSet{}).
-		Owns(&corev1.Service{}).
-		Owns(&corev1.Secret{}).
-		Complete(r)
+	c, err := controller.New("mongodbsearch-controller", mgr, controller.Options{
+		Reconciler:              r,
+		MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1), // nolint:forbidigo
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &searchv1.MongoDBSearch{}, &handler.EnqueueRequestForObject{})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	ownerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{}, handler.OnlyControllerOwner())
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.StatefulSet{}, ownerHandler)); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Service{}, ownerHandler)); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{}, ownerHandler)); err != nil {
+		return err
+	}
+
+	// Health-check goroutine fans out per-cluster reachability changes onto a
+	// GenericEvent channel that the controller watches. Empty memberClusterObjectsMap
+	// (single-cluster install) skips the goroutine entirely — there is nothing to watch.
+	if len(memberClusterObjectsMap) > 0 {
+		eventChannel := make(chan event.GenericEvent)
+		healthChecker := memberwatch.MemberClusterHealthChecker{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
+		go healthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, r.kubeClient, memberClusterObjectsMap)
+
+		if err := c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{})); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
