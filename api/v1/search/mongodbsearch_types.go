@@ -862,6 +862,28 @@ func (s *MongoDBSearch) LoadBalancerConfigMapName() string {
 	return s.Name + "-search-lb-0-config"
 }
 
+// LoadBalancerDeploymentNameForCluster returns the name of the managed Envoy
+// Deployment for one member cluster (B16). When clusterName is empty the result
+// matches LoadBalancerDeploymentName for back-compat with single-cluster installs.
+// In multi-cluster, the cluster identifier is appended so per-cluster Deployments
+// in the same namespace stay distinct (resource-name length is checked at
+// admission via validateClustersEnvoyResourceNames).
+func (s *MongoDBSearch) LoadBalancerDeploymentNameForCluster(clusterName string) string {
+	if clusterName == "" {
+		return s.LoadBalancerDeploymentName()
+	}
+	return s.LoadBalancerDeploymentName() + "-" + clusterName
+}
+
+// LoadBalancerConfigMapNameForCluster returns the name of the managed Envoy
+// ConfigMap for one member cluster (B16). See LoadBalancerDeploymentNameForCluster.
+func (s *MongoDBSearch) LoadBalancerConfigMapNameForCluster(clusterName string) string {
+	if clusterName == "" {
+		return s.LoadBalancerConfigMapName()
+	}
+	return s.Name + "-search-lb-0-" + clusterName + "-config"
+}
+
 // LoadBalancerServerCert returns the namespaced name of the TLS server certificate secret for the
 // managed Envoy LB (ReplicaSet). Naming pattern:
 //   - With prefix: {prefix}-{name}-search-lb-0-cert

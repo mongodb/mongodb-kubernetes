@@ -17,6 +17,7 @@ import (
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 )
 
@@ -402,4 +403,98 @@ func TestNewMongoDBSearchEnvoyReconciler_NilMembersMap(t *testing.T) {
 	require.NotNil(t, r)
 	assert.Empty(t, r.memberClusterClientsMap)
 	assert.Empty(t, r.memberClusterSecretClientsMap)
+}
+
+// --- B16 selectEnvoyClient ----------------------------------------------------
+
+func TestSelectEnvoyClient(t *testing.T) {
+	central := kubernetesClient.NewClient(fake.NewClientBuilder().Build())
+	memberA := kubernetesClient.NewClient(fake.NewClientBuilder().Build())
+	members := map[string]kubernetesClient.Client{"a": memberA}
+
+	// Empty cluster name → central (single-cluster path)
+	assert.Equal(t, central, selectEnvoyClient("", central, members))
+	// Known member name → that member
+	assert.Equal(t, memberA, selectEnvoyClient("a", central, members))
+	// Unknown member name → silent fallback to central (mirrors B1 selectClusterClient)
+	assert.Equal(t, central, selectEnvoyClient("zzz", central, members))
+}
+
+// --- B16 per-cluster name helpers + cross-cluster enqueue labels --------------
+
+func TestLoadBalancerNamesForCluster_SingleClusterUnchanged(t *testing.T) {
+	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
+	assert.Equal(t, search.LoadBalancerDeploymentName(), search.LoadBalancerDeploymentNameForCluster(""))
+	assert.Equal(t, search.LoadBalancerConfigMapName(), search.LoadBalancerConfigMapNameForCluster(""))
+}
+
+func TestLoadBalancerNamesForCluster_MultiClusterAppendsClusterID(t *testing.T) {
+	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
+	dep := search.LoadBalancerDeploymentNameForCluster("us-east-k8s")
+	cm := search.LoadBalancerConfigMapNameForCluster("us-east-k8s")
+	assert.Contains(t, dep, "us-east-k8s")
+	assert.Contains(t, cm, "us-east-k8s")
+	assert.NotEqual(t, search.LoadBalancerDeploymentName(), dep)
+}
+
+func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
+	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
+
+	// Single-cluster: cluster-name label must be absent.
+	single := envoyLabelsForCluster(search, "")
+	assert.Equal(t, "mdb-search", single[envoyOwnerSearchNameLabel])
+	assert.Equal(t, "ns", single[envoyOwnerSearchNamespaceLabel])
+	_, hasCluster := single[envoyClusterNameLabel]
+	assert.False(t, hasCluster)
+
+	// Multi-cluster: all three labels present.
+	mc := envoyLabelsForCluster(search, "us-east-k8s")
+	assert.Equal(t, "mdb-search", mc[envoyOwnerSearchNameLabel])
+	assert.Equal(t, "ns", mc[envoyOwnerSearchNamespaceLabel])
+	assert.Equal(t, "us-east-k8s", mc[envoyClusterNameLabel])
+}
+
+// --- B16 per-cluster replicas defaulting -------------------------------------
+
+func TestEnvoyReplicasForCluster_SingleCluster_DefaultsTo1(t *testing.T) {
+	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
+	assert.Equal(t, int32(1), envoyReplicasForCluster(search, ""))
+}
+
+func TestEnvoyReplicasForCluster_TopLevelOnly(t *testing.T) {
+	three := int32(3)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{Replicas: &three},
+			},
+		},
+	}
+	assert.Equal(t, int32(3), envoyReplicasForCluster(search, ""))
+	assert.Equal(t, int32(3), envoyReplicasForCluster(search, "us-east-k8s"))
+}
+
+func TestEnvoyReplicasForCluster_PerClusterOverride(t *testing.T) {
+	top := int32(2)
+	override := int32(5)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{Replicas: &top},
+			},
+			Clusters: &[]searchv1.ClusterSpec{
+				{
+					ClusterName: "us-east-k8s",
+					LoadBalancer: &searchv1.PerClusterLoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{Replicas: &override},
+					},
+				},
+				{ClusterName: "eu-west-k8s"}, // inherits top-level (2)
+			},
+		},
+	}
+	assert.Equal(t, int32(5), envoyReplicasForCluster(search, "us-east-k8s"))
+	assert.Equal(t, int32(2), envoyReplicasForCluster(search, "eu-west-k8s"))
 }

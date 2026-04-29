@@ -40,7 +40,7 @@ import (
 
 // Some of these variables can be exposed as configuration to the user
 const (
-	envoyReplicas = int32(1)
+	envoyReplicasDefault = int32(1)
 
 	envoyAdminPort = 9901
 
@@ -55,6 +55,13 @@ const (
 	envoyConfigHashAnnotation = "mongodb.com/envoy-config-hash"
 
 	labelName = "search-proxy"
+
+	// Cross-cluster enqueue labels (B16). Cross-cluster owner refs do not GC,
+	// so a label-based mapper is the only path back to the parent MongoDBSearch
+	// for member-cluster Deployment/ConfigMap watches.
+	envoyOwnerSearchNameLabel      = "mongodb.com/search-name"
+	envoyOwnerSearchNamespaceLabel = "mongodb.com/search-namespace"
+	envoyClusterNameLabel          = "mongodb.com/cluster-name"
 )
 
 // envoyRoute defines routing information for one Envoy entrypoint (one per shard, or one for RS).
@@ -359,7 +366,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 // ensureDeployment creates or updates the Envoy Deployment.
 func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON string, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
 	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(envoyJSON)))
-	replicas := envoyReplicas
+	replicas := envoyReplicasForCluster(search, "")
 	labels := envoyLabels(search)
 	tlsEnabled := search.IsTLSConfigured()
 	image, err := r.envoyContainerImage()
@@ -535,12 +542,68 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 	}
 }
 
-// envoyLabels returns standard labels for Envoy resources.
+// envoyLabels returns standard labels for Envoy resources (single-cluster path).
+// envoyLabelsForCluster is the multi-cluster aware variant — both stamp the
+// cross-cluster enqueue labels so the label-based mapper can route Deployment/
+// ConfigMap events back to the owning MongoDBSearch even when objects live in
+// a member cluster (where owner refs don't GC).
 func envoyLabels(search *searchv1.MongoDBSearch) map[string]string {
-	return map[string]string{
-		"app":       search.LoadBalancerDeploymentName(),
-		"component": labelName,
+	return envoyLabelsForCluster(search, "")
+}
+
+// envoyLabelsForCluster returns Envoy resource labels including the cross-cluster
+// enqueue labels and an optional cluster-name label. In single-cluster (clusterID
+// == "") the cluster-name label is omitted.
+func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) map[string]string {
+	labels := map[string]string{
+		"app":                          search.LoadBalancerDeploymentNameForCluster(clusterID),
+		"component":                    labelName,
+		envoyOwnerSearchNameLabel:      search.Name,
+		envoyOwnerSearchNamespaceLabel: search.Namespace,
 	}
+	if clusterID != "" {
+		labels[envoyClusterNameLabel] = clusterID
+	}
+	return labels
+}
+
+// selectEnvoyClient picks the right Kubernetes client for one member cluster.
+// Mirrors B1's selectClusterClient: empty clusterName means single-cluster
+// (return central); known member name returns the member client; unknown name
+// silently falls back to central. The reconcile loop is responsible for
+// surfacing unknown ClusterNames as Pending in per-cluster status.
+func selectEnvoyClient(clusterName string, central kubernetesClient.Client, members map[string]kubernetesClient.Client) kubernetesClient.Client {
+	if clusterName == "" {
+		return central
+	}
+	if c, ok := members[clusterName]; ok {
+		return c
+	}
+	return central
+}
+
+// envoyReplicasForCluster returns the desired Envoy replica count for one
+// member cluster, applying the precedence:
+//
+//	clusters[i].loadBalancer.managed.replicas  >  spec.loadBalancer.managed.replicas  >  envoyReplicasDefault
+//
+// In single-cluster (clusterName == "") the per-cluster lookup is skipped.
+func envoyReplicasForCluster(search *searchv1.MongoDBSearch, clusterName string) int32 {
+	if clusterName != "" && search.Spec.Clusters != nil {
+		for _, c := range *search.Spec.Clusters {
+			if c.ClusterName != clusterName {
+				continue
+			}
+			if c.LoadBalancer != nil && c.LoadBalancer.Managed != nil && c.LoadBalancer.Managed.Replicas != nil {
+				return *c.LoadBalancer.Managed.Replicas
+			}
+			break
+		}
+	}
+	if search.Spec.LoadBalancer != nil && search.Spec.LoadBalancer.Managed != nil && search.Spec.LoadBalancer.Managed.Replicas != nil {
+		return *search.Spec.LoadBalancer.Managed.Replicas
+	}
+	return envoyReplicasDefault
 }
 
 // envoyPodLabels returns labels for Envoy pod selection.
