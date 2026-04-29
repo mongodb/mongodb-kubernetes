@@ -564,6 +564,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		resourceTypeImmutable,
 		noTopologyMigration,
 		noSimultaneousTLSDisablingAndScaling,
+		atMostOneMigrationChangeAtATime,
 	}
 
 	var validationResults []v1.ValidationResult

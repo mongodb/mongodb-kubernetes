@@ -1039,3 +1039,32 @@ func TestAtMostOneMigrationChangeAtATime(t *testing.T) {
 		})
 	}
 }
+
+func TestAtMostOneMigrationChangeAtATime_WiredIntoWebhook(t *testing.T) {
+	externalMembers := []ExternalMember{
+		{ProcessName: "vm-rs-0", Hostname: "vm0.example.com:27017", Type: "mongod"},
+		{ProcessName: "vm-rs-1", Hostname: "vm1.example.com:27017", Type: "mongod"},
+		{ProcessName: "vm-rs-2", Hostname: "vm2.example.com:27017", Type: "mongod"},
+	}
+
+	votes0 := 0
+	prio0 := "0"
+
+	oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(1).Build()
+	oldRs.Spec.ExternalMembers = externalMembers
+	oldRs.Spec.MemberConfig = []automationconfig.MemberOptions{{Votes: new(int), Priority: new(string)}}
+	*oldRs.Spec.MemberConfig[0].Votes = 1
+	*oldRs.Spec.MemberConfig[0].Priority = "1"
+
+	// Simultaneously add a k8s member AND change member config — two types at once
+	newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(2).Build()
+	newRs.Spec.ExternalMembers = externalMembers
+	newRs.Spec.MemberConfig = []automationconfig.MemberOptions{
+		{Votes: &votes0, Priority: &prio0},
+		{Votes: &votes0, Priority: &prio0},
+	}
+
+	_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only one migration change type is allowed per update")
+}
