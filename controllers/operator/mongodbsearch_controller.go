@@ -18,6 +18,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -32,6 +33,12 @@ type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
 	watch                *watch.ResourceWatcher
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
+
+	// memberClusterClientsMap is keyed by the member cluster name and holds
+	// the per-cluster Kubernetes client. Empty in single-cluster installs;
+	// callers must fall back to kubeClient via selectClusterClient().
+	memberClusterClientsMap       map[string]kubernetesClient.Client
+	memberClusterSecretClientsMap map[string]secrets.SecretClient
 }
 
 func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig searchcontroller.OperatorSearchConfig) *MongoDBSearchReconciler {
