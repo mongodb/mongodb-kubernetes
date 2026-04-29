@@ -68,30 +68,27 @@ type MongoDBSearchSpec struct {
 	// For Sharded source: the number mongot pods per shard.
 	// When Replicas > 1, a load balancer configuration (spec.loadBalancer)
 	// is required to distribute traffic across mongot instances.
-	//
-	// Deprecated: use spec.clusters[].replicas instead. Auto-promoted to
-	// spec.clusters[0].replicas when spec.clusters is omitted (B18).
+	// In multi-cluster deployments, prefer spec.clusters[].replicas. Auto-promotion
+	// of this top-level field into spec.clusters[0].replicas when spec.clusters is
+	// omitted lands in B18; until then this field remains the single-cluster path.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=1
 	Replicas int `json:"replicas,omitempty"`
 	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
 	// which aren't exposed as fields in the MongoDBSearch.spec.
-	//
-	// Deprecated: use spec.clusters[].statefulSet instead. Auto-promoted to
-	// spec.clusters[0].statefulSet when spec.clusters is omitted (B18).
+	// In multi-cluster deployments, prefer spec.clusters[].statefulSet. Auto-promotion
+	// into spec.clusters[0].statefulSet lands in B18.
 	// +optional
 	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
-	//
-	// Deprecated: use spec.clusters[].persistence instead. Auto-promoted to
-	// spec.clusters[0].persistence when spec.clusters is omitted (B18).
+	// In multi-cluster deployments, prefer spec.clusters[].persistence. Auto-promotion
+	// into spec.clusters[0].persistence lands in B18.
 	// +optional
 	Persistence *common.Persistence `json:"persistence,omitempty"`
 	// Configure resource requests and limits for the MongoDB Search pods.
-	//
-	// Deprecated: use spec.clusters[].resourceRequirements instead. Auto-promoted
-	// to spec.clusters[0].resourceRequirements when spec.clusters is omitted (B18).
+	// In multi-cluster deployments, prefer spec.clusters[].resourceRequirements.
+	// Auto-promotion into spec.clusters[0].resourceRequirements lands in B18.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
 	// Configure security settings of the MongoDB Search server that MongoDB database is connecting to when performing search queries.
