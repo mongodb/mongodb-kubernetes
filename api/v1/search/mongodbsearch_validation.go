@@ -471,23 +471,18 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationSuccess()
 	}
 
-	// Legacy / single-cluster (no spec.clusters): no cluster substitution.
-	if clusterCount == 0 {
-		base := s.Spec.LoadBalancer.Managed.ExternalHostname
-		if len(shardNames) == 0 {
-			return check(base)
-		}
-		for _, sn := range shardNames {
-			if res := check(strings.ReplaceAll(base, ShardNamePlaceholder, sn)); res.Level == v1.ErrorLevel {
-				return res
-			}
-		}
-		return v1.ValidationSuccess()
+	// Iterate the cross-product. clusterCount == 0 (legacy / no spec.clusters)
+	// runs a single pass with no cluster substitution; len(shardNames) == 0
+	// runs a single pass with no shard substitution.
+	clusterIters := clusterCount
+	if clusterIters == 0 {
+		clusterIters = 1
 	}
-
-	// Multi-cluster (clusterCount >= 1): substitute per cluster, then per shard.
-	for i := 0; i < clusterCount; i++ {
-		base := s.GetManagedLBEndpointForCluster(i)
+	for i := 0; i < clusterIters; i++ {
+		base := s.Spec.LoadBalancer.Managed.ExternalHostname
+		if clusterCount > 0 {
+			base = s.GetManagedLBEndpointForCluster(i)
+		}
 		if len(shardNames) == 0 {
 			if res := check(base); res.Level == v1.ErrorLevel {
 				return res
