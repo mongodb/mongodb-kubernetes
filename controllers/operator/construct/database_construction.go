@@ -724,11 +724,8 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	return volumesToAdd, volumeMounts
 }
 
-// getCustomLogVolumeMounts provisions emptyDir volumes for backup and monitoring
-// agent log paths whose parent directories fall outside util.PvcMountPathLogs.
-// Default paths live under that mount, which is already provisioned, so they are
-// skipped here. When both agents share a parent directory, a single shared
-// volume is rendered to avoid implying ownership in the volume name.
+// getCustomLogVolumeMounts provisions emptyDir volumes for agent log paths outside util.PvcMountPathLogs.
+// When both agents share a parent dir, a single shared volume is used.
 func getCustomLogVolumeMounts(agentConfig *mdbv1.AgentConfig) ([]corev1.Volume, []corev1.VolumeMount) {
 	if agentConfig == nil {
 		return nil, nil
@@ -755,9 +752,7 @@ func getCustomLogVolumeMounts(agentConfig *mdbv1.AgentConfig) ([]corev1.Volume, 
 	return volumes, mounts
 }
 
-// customLogDir returns the parent directory of logFilePath when it falls
-// outside util.PvcMountPathLogs and therefore needs its own emptyDir mount.
-// Paths under the standard logs mount return "" since that mount already exists.
+// customLogDir returns the parent dir of logFilePath, or "" if it's already under util.PvcMountPathLogs.
 func customLogDir(logFilePath string) string {
 	dir := path.Dir(logFilePath)
 	if dir == util.PvcMountPathLogs || strings.HasPrefix(dir, util.PvcMountPathLogs+"/") {
