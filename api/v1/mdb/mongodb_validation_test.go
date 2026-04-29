@@ -1068,3 +1068,117 @@ func TestAtMostOneMigrationChangeAtATime_WiredIntoWebhook(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "only one migration change type is allowed per update")
 }
+
+func TestNoExternalMembersAdditionOrChanges(t *testing.T) {
+	memberA := ExternalMember{ProcessName: "vm-rs-0", Hostname: "vm0.example.com:27017", Type: "mongod"}
+	memberB := ExternalMember{ProcessName: "vm-rs-1", Hostname: "vm1.example.com:27017", Type: "mongod"}
+	memberC := ExternalMember{ProcessName: "vm-rs-2", Hostname: "vm2.example.com:27017", Type: "mongod"}
+
+	tests := []struct {
+		name        string
+		oldSpec     MongoDbSpec
+		newSpec     MongoDbSpec
+		expectError bool
+		errorMsg    string
+	}{
+		// --- success cases ---
+		{
+			name:        "both empty — success",
+			oldSpec:     MongoDbSpec{},
+			newSpec:     MongoDbSpec{},
+			expectError: false,
+		},
+		{
+			name:        "members unchanged — success",
+			oldSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB, memberC}},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB, memberC}},
+			expectError: false,
+		},
+		{
+			name:        "one member removed — success",
+			oldSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB, memberC}},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB}},
+			expectError: false,
+		},
+		{
+			name:        "all members removed — success",
+			oldSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB}},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{}},
+			expectError: false,
+		},
+		// --- addition errors ---
+		{
+			name:        "member added to previously empty list — rejected",
+			oldSpec:     MongoDbSpec{},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA}},
+			expectError: true,
+			errorMsg:    "Cannot add external members to an existing MongoDB resource",
+		},
+		{
+			name:        "member added to existing list — rejected",
+			oldSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB}},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB, memberC}},
+			expectError: true,
+			errorMsg:    "Cannot add external members to an existing MongoDB resource",
+		},
+		// --- modification errors ---
+		{
+			name:    "hostname changed — rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA}},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				{ProcessName: "vm-rs-0", Hostname: "new-host.example.com:27017", Type: "mongod"},
+			}},
+			expectError: true,
+			errorMsg:    "Cannot make changes to existing external members",
+		},
+		{
+			name:    "type changed — rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA}},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				{ProcessName: "vm-rs-0", Hostname: "vm0.example.com:27017", Type: "mongos"},
+			}},
+			expectError: true,
+			errorMsg:    "Cannot make changes to existing external members",
+		},
+		{
+			name:    "replicaSetName added — rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA}},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				{ProcessName: "vm-rs-0", Hostname: "vm0.example.com:27017", Type: "mongod", ReplicaSetName: "my-rs"},
+			}},
+			expectError: true,
+			errorMsg:    "Cannot make changes to existing external members",
+		},
+		{
+			name:    "processName changed — treated as new member, rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA}},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				{ProcessName: "vm-rs-0-renamed", Hostname: "vm0.example.com:27017", Type: "mongod"},
+			}},
+			expectError: true,
+			errorMsg:    "Cannot add external members to an existing MongoDB resource",
+		},
+		{
+			name: "one unchanged, one changed — rejected for changed member",
+			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB}},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				memberA,
+				{ProcessName: "vm-rs-1", Hostname: "new-host.example.com:27017", Type: "mongod"},
+			}},
+			expectError: true,
+			errorMsg:    "Cannot make changes to existing external members",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := noExternalMembersAdditionOrChanges(tt.newSpec, tt.oldSpec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
