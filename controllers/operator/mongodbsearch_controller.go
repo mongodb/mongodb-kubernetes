@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -25,6 +26,7 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -177,12 +179,17 @@ func mdbcSearchIndexBuilder(rawObj client.Object) []string {
 	return []string{resourceRef.Namespace + "/" + resourceRef.Name}
 }
 
-func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operatorSearchConfig searchcontroller.OperatorSearchConfig) error {
+func AddMongoDBSearchController(
+	ctx context.Context,
+	mgr manager.Manager,
+	operatorSearchConfig searchcontroller.OperatorSearchConfig,
+	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
+) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
 	}
 
-	r := newMongoDBSearchReconciler(mgr.GetClient(), operatorSearchConfig, nil)
+	r := newMongoDBSearchReconciler(mgr.GetClient(), operatorSearchConfig, multicluster.ClustersMapToClientMap(memberClusterObjectsMap))
 
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
