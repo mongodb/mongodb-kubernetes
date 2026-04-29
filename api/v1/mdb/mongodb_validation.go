@@ -511,6 +511,45 @@ func countMemberConfigChangesForExistingMembers(newConf, oldConf []automationcon
 	return changes
 }
 
+// atMostOneMigrationChangeAtATime enforces that during migration (when
+// externalMembers is present on the old object) only one type of change may
+// occur per update: adding Kubernetes members, removing external members, or
+// updating member votes/priority — never two types simultaneously.
+func atMostOneMigrationChangeAtATime(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if len(oldObj.ExternalMembers) == 0 {
+		return v1.ValidationSuccess()
+	}
+
+	membersDelta := newObj.Members - oldObj.Members
+	externalDelta := len(oldObj.ExternalMembers) - len(newObj.ExternalMembers)
+	memberConfigChanges := countMemberConfigChangesForExistingMembers(
+		newObj.MemberConfig, oldObj.MemberConfig, oldObj.Members,
+	)
+
+	if membersDelta < 0 {
+		return v1.ValidationError("Kubernetes members may not be removed during migration")
+	}
+	if externalDelta < 0 {
+		return v1.ValidationError("external members may not be added once migration has started")
+	}
+
+	activeChanges := 0
+	if membersDelta > 0 {
+		activeChanges++
+	}
+	if externalDelta > 0 {
+		activeChanges++
+	}
+	if memberConfigChanges > 0 {
+		activeChanges++
+	}
+	if activeChanges > 1 {
+		return v1.ValidationError("only one migration change type is allowed per update: adding Kubernetes members, removing external members, or updating member votes/priority")
+	}
+
+	return v1.ValidationSuccess()
+}
+
 func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	// The below validators apply to all MongoDB resource (but not MongoDBMulti), regardless of the value of the
 	// Topology field
