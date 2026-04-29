@@ -408,6 +408,29 @@ func noSimultaneousTLSDisablingAndScaling(newObj, oldObj MongoDbSpec) v1.Validat
 	return v1.ValidationSuccess()
 }
 
+func noExternalMembersAdditionOrChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	externalMembers := newObj.GetExternalMembers()
+	prevExternalMembers := oldObj.GetExternalMembers()
+	prevExternalMembersMap := make(map[string]ExternalMember)
+
+	for _, member := range prevExternalMembers {
+		prevExternalMembersMap[member.ProcessName] = member
+	}
+
+	for _, member := range externalMembers {
+		if prevMember, ok := prevExternalMembersMap[member.ProcessName]; ok {
+			// If member is found in the previous external members, check if it's being modified
+			if member != prevMember {
+				return v1.ValidationError("Cannot make changes to existing external members. External member with process name %s was changed.", member.ProcessName)
+			}
+		} else {
+			// If member is not found in the previous external members, it means it's being added
+			return v1.ValidationError("Cannot add external members to an existing MongoDB resource. Please remove member with process name %s", member.ProcessName)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
 // specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
 // is configured, doing the "oneOf" validation in the webhook.
 func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
@@ -565,6 +588,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		noTopologyMigration,
 		noSimultaneousTLSDisablingAndScaling,
 		atMostOneMigrationChangeAtATime,
+		noExternalMembersAdditionOrChanges,
 	}
 
 	var validationResults []v1.ValidationResult
