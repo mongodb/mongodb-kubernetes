@@ -46,11 +46,7 @@ def ops_manager_unmarshalled(
         item["statefulSet"] = {
             "spec": {
                 "template": {
-                    "spec": {
-                        "hostAliases": [
-                            {"ip": "127.0.0.1", "hostnames": [f"appdb-{item['clusterName']}.local"]}
-                        ]
-                    }
+                    "spec": {"hostAliases": [{"ip": "127.0.0.1", "hostnames": [f"appdb-{item['clusterName']}.local"]}]}
                 }
             }
         }
