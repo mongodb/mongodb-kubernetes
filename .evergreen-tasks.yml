@@ -1441,3 +1441,23 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
+
+  - name: e2e_search_q2_sc_rs_steady
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_q2_sc_sharded_steady
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_q2_mc_rs_steady
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_q2_mc_sharded_steady
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"

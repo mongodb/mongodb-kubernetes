@@ -1,0 +1,24 @@
+---
+# Q2-MC MongoDBSearch fixture: multi-cluster RS source using the new
+# spec.clusters[] distribution shape. The test populates one entry per
+# member cluster with a region-tagged syncSourceSelector.
+#
+# The single externalHostname template is templated per cluster by the
+# operator at runtime via the {clusterName} placeholder.
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-rs-q2-mc
+spec:
+  logLevel: DEBUG
+  source:
+    mongodbResourceRef:
+      name: mdb-rs-q2-mc
+  security:
+    tls:
+      certsSecretPrefix: certs
+  loadBalancer:
+    managed:
+      externalHostname: "{clusterName}.search-lb.example.com:443"
+  # The test rewrites this slice to len(member_cluster_clients) entries.
+  clusters: []
