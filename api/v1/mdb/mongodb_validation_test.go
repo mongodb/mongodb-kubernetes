@@ -12,6 +12,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -787,6 +788,90 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 			result := validationFunc(dbSpec)
 
 			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
+
+func TestCountMemberConfigChangesForExistingMembers(t *testing.T) {
+	votes0 := 0
+	votes1 := 1
+	prio0 := "0"
+	prio1 := "1"
+
+	tests := []struct {
+		name            string
+		oldConf         []automationconfig.MemberOptions
+		newConf         []automationconfig.MemberOptions
+		existingMembers int
+		want            int
+	}{
+		{
+			name:            "both nil — no change",
+			existingMembers: 3,
+			want:            0,
+		},
+		{
+			name:            "identical non-nil — no change",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}, {Votes: &votes1, Priority: &prio1}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}, {Votes: &votes1, Priority: &prio1}},
+			existingMembers: 2,
+			want:            0,
+		},
+		{
+			name:            "nil votes same as explicit 1 — no change",
+			oldConf:         []automationconfig.MemberOptions{{Votes: nil}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes1}},
+			existingMembers: 1,
+			want:            0,
+		},
+		{
+			name:            "nil priority same as explicit 1 — no change",
+			oldConf:         []automationconfig.MemberOptions{{Priority: nil}},
+			newConf:         []automationconfig.MemberOptions{{Priority: &prio1}},
+			existingMembers: 1,
+			want:            0,
+		},
+		{
+			name:            "one votes change",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes1}, {Votes: &votes1}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes0}, {Votes: &votes1}},
+			existingMembers: 2,
+			want:            1,
+		},
+		{
+			name:            "one priority change",
+			oldConf:         []automationconfig.MemberOptions{{Priority: &prio1}, {Priority: &prio1}},
+			newConf:         []automationconfig.MemberOptions{{Priority: &prio0}, {Priority: &prio1}},
+			existingMembers: 2,
+			want:            1,
+		},
+		{
+			name:            "two changes",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes1}, {Votes: &votes1}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes0}, {Votes: &votes0}},
+			existingMembers: 2,
+			want:            2,
+		},
+		{
+			name:            "new member appended — not counted as a change",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes1}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes1}, {Votes: &votes0, Priority: &prio0}},
+			existingMembers: 1, // only 1 pre-existing k8s member
+			want:            0,
+		},
+		{
+			name:            "old entry removed — counted as change (back to default)",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes0}},
+			newConf:         []automationconfig.MemberOptions{},
+			existingMembers: 1,
+			want:            1, // was 0 votes, now implicitly default (1)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := countMemberConfigChangesForExistingMembers(tt.newConf, tt.oldConf, tt.existingMembers)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

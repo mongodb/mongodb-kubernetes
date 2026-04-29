@@ -14,6 +14,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -486,6 +487,28 @@ func ValidateFCV(fcvStringPointer *string) v1.ValidationResult {
 		}
 	}
 	return v1.ValidationResult{}
+}
+
+// countMemberConfigChangesForExistingMembers returns how many of the first
+// existingMembersCount MemberConfig entries have a different effective votes
+// or priority between newConf and oldConf.
+// Indices beyond existingMembersCount are intentionally ignored so that a new
+// entry appended for a freshly added k8s member is not counted as a change.
+func countMemberConfigChangesForExistingMembers(newConf, oldConf []automationconfig.MemberOptions, existingMembersCount int) int {
+	changes := 0
+	for i := 0; i < existingMembersCount; i++ {
+		var oldOpts, newOpts automationconfig.MemberOptions
+		if i < len(oldConf) {
+			oldOpts = oldConf[i]
+		}
+		if i < len(newConf) {
+			newOpts = newConf[i]
+		}
+		if oldOpts.GetVotes() != newOpts.GetVotes() || oldOpts.GetPriority() != newOpts.GetPriority() {
+			changes++
+		}
+	}
+	return changes
 }
 
 func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
