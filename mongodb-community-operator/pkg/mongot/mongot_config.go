@@ -47,13 +47,17 @@ type ConfigRouter struct {
 }
 
 type ConfigReplicaSet struct {
-	HostAndPort    []string    `json:"hostAndPort"`
-	Username       string      `json:"username,omitempty"`
-	PasswordFile   string      `json:"passwordFile,omitempty"`
-	TLS            *bool       `json:"tls,omitempty"`
-	ReadPreference *string     `json:"readPreference,omitempty"`
-	AuthSource     *string     `json:"authSource,omitempty"`
-	X509           *ConfigX509 `json:"x509,omitempty"`
+	HostAndPort    []string `json:"hostAndPort"`
+	Username       string   `json:"username,omitempty"`
+	PasswordFile   string   `json:"passwordFile,omitempty"`
+	TLS            *bool    `json:"tls,omitempty"`
+	ReadPreference *string  `json:"readPreference,omitempty"`
+	// ReadPreferenceTags is a hard filter on sync-source members; mongot uses
+	// tag-based driver routing to pin its sync source to colocated members.
+	// Multi-cluster only — single-cluster deployments leave this empty.
+	ReadPreferenceTags []map[string]string `json:"readPreferenceTags,omitempty"`
+	AuthSource         *string             `json:"authSource,omitempty"`
+	X509               *ConfigX509         `json:"x509,omitempty"`
 }
 
 type ConfigX509 struct {
