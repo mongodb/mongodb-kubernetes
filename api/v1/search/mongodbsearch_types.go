@@ -232,6 +232,8 @@ type LoadBalancerConfig struct {
 type ManagedLBConfig struct {
 	// ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
 	// For sharded clusters, may contain a {shardName} placeholder.
+	// In multi-cluster deployments, may contain a {clusterName} placeholder so per-cluster
+	// SNI hostnames stay distinct.
 	// Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
 	// +optional
 	ExternalHostname string `json:"externalHostname,omitempty"`
@@ -243,6 +245,13 @@ type ManagedLBConfig struct {
 	// Follows the same convention as spec.statefulSet on MongoDB resources.
 	// +optional
 	Deployment *common.DeploymentConfiguration `json:"deployment,omitempty"`
+	// Replicas is the number of Envoy pods the operator deploys.
+	// In multi-cluster deployments, top-level spec.loadBalancer.managed.replicas is the
+	// default; per-cluster spec.clusters[].loadBalancer.managed.replicas overrides for
+	// that cluster. Default 1 when unset.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Replicas *int32 `json:"replicas,omitempty"`
 }
 
 // UnmanagedLBConfig configures a user-provided (BYO) L7 load balancer.
@@ -361,6 +370,24 @@ type TLS struct {
 type LoadBalancerStatus struct {
 	Phase   status.Phase `json:"phase"`
 	Message string       `json:"message,omitempty"`
+	// Clusters is the per-cluster managed-LB phase. Only populated when
+	// len(spec.clusters) > 0 — single-cluster keeps the existing top-level Phase.
+	// B16 writes a placeholder schema; B9 will formalize it (sharded sub-statuses,
+	// observedGeneration, etc.).
+	// +optional
+	Clusters []ClusterLoadBalancerStatus `json:"clusters,omitempty"`
+}
+
+// ClusterLoadBalancerStatus reports per-cluster managed LB state.
+// Placeholder schema written by B16; B9 formalizes the per-cluster status surface.
+type ClusterLoadBalancerStatus struct {
+	// ClusterName is the member cluster this status entry belongs to.
+	ClusterName string `json:"clusterName"`
+	// Phase mirrors LoadBalancerStatus.Phase but for one cluster.
+	Phase status.Phase `json:"phase"`
+	// Message is an optional explanation for the per-cluster phase.
+	// +optional
+	Message string `json:"message,omitempty"`
 }
 
 type MongoDBSearchStatus struct {
