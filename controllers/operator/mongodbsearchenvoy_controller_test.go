@@ -4,13 +4,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 )
@@ -252,4 +255,122 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 
 	// deployment override wins (500m)
 	assert.Equal(t, resource.MustParse("500m"), dep.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
+}
+
+// --- B16 per-cluster route renderer tests -------------------------------------
+
+func TestBuildRoutesForCluster_RS_TemplateSubstitutesClusterName(t *testing.T) {
+	one := int32(1)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "us-east-k8s", Replicas: &one},
+				{ClusterName: "eu-west-k8s", Replicas: &one},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{
+					ExternalHostname: "mongot-{clusterName}.example.com",
+				},
+			},
+		},
+	}
+
+	routes := buildRoutesForCluster(search, nil, "us-east-k8s")
+	require.Len(t, routes, 1)
+	assert.Equal(t, "rs", routes[0].Name)
+	assert.Equal(t, "us-east-k8s", routes[0].ClusterID)
+	assert.Equal(t, "mongot-us-east-k8s.example.com", routes[0].SNIHostname)
+}
+
+func TestBuildRoutesForCluster_RS_NoTemplateAppendsClusterIDToServiceFQDN(t *testing.T) {
+	// No externalHostname template — controller appends -<clusterID> to the service-FQDN base
+	// so SNI strings stay distinct per cluster.
+	one := int32(1)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "us-east-k8s", Replicas: &one},
+			},
+		},
+	}
+
+	routes := buildRoutesForCluster(search, nil, "us-east-k8s")
+	require.Len(t, routes, 1)
+	assert.Equal(t, "us-east-k8s", routes[0].ClusterID)
+	assert.Contains(t, routes[0].SNIHostname, "us-east-k8s",
+		"per-cluster SNI must encode the cluster identifier when no externalHostname template is provided")
+}
+
+func TestBuildRoutesForCluster_SingleClusterUnchanged(t *testing.T) {
+	// clusterName == "" must produce identical routes to buildRoutes (back-compat path).
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
+	}
+
+	mc := buildRoutesForCluster(search, nil, "")
+	sc := []envoyRoute{buildReplicaSetRoute(search)}
+
+	require.Len(t, mc, 1)
+	assert.Equal(t, "", mc[0].ClusterID)
+	assert.Equal(t, sc[0].SNIHostname, mc[0].SNIHostname)
+	assert.Equal(t, sc[0].UpstreamHost, mc[0].UpstreamHost)
+}
+
+// mockShardedSourceForEnvoy is a minimal SearchSourceShardedDeployment double for B16 tests.
+type mockShardedSourceForEnvoy struct {
+	shardNames []string
+}
+
+func (m *mockShardedSourceForEnvoy) GetShardCount() int      { return len(m.shardNames) }
+func (m *mockShardedSourceForEnvoy) GetShardNames() []string { return m.shardNames }
+func (m *mockShardedSourceForEnvoy) GetUnmanagedLBEndpointForShard(_ string) string {
+	return ""
+}
+func (m *mockShardedSourceForEnvoy) MongosHostsAndPorts() []string { return nil }
+func (m *mockShardedSourceForEnvoy) KeyfileSecretName() string     { return "" }
+func (m *mockShardedSourceForEnvoy) TLSConfig() *searchcontroller.TLSSourceConfig {
+	return nil
+}
+func (m *mockShardedSourceForEnvoy) HostSeeds(_ string) ([]string, error) { return nil, nil }
+func (m *mockShardedSourceForEnvoy) Validate() error                      { return nil }
+func (m *mockShardedSourceForEnvoy) ResourceType() mdbv1.ResourceType {
+	return mdbv1.ShardedCluster
+}
+
+func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{
+					// Both placeholders present — must substitute both.
+					ExternalHostname: "mongot-{clusterName}-{shardName}.example.com",
+				},
+			},
+		},
+	}
+	src := &mockShardedSourceForEnvoy{shardNames: []string{"mdb-sh-0", "mdb-sh-1"}}
+
+	east := buildRoutesForCluster(search, src, "us-east-k8s")
+	west := buildRoutesForCluster(search, src, "eu-west-k8s")
+
+	require.Len(t, east, 2)
+	require.Len(t, west, 2)
+
+	// Per-(cluster, shard) SNI emitted with both substitutions.
+	assert.Equal(t, "us-east-k8s", east[0].ClusterID)
+	assert.Equal(t, "mongot-us-east-k8s-mdb-sh-0.example.com", east[0].SNIHostname)
+	assert.Equal(t, "mongot-us-east-k8s-mdb-sh-1.example.com", east[1].SNIHostname)
+	assert.Equal(t, "mongot-eu-west-k8s-mdb-sh-0.example.com", west[0].SNIHostname)
+	assert.Equal(t, "mongot-eu-west-k8s-mdb-sh-1.example.com", west[1].SNIHostname)
+
+	// All 4 SNIs must be unique.
+	all := []string{east[0].SNIHostname, east[1].SNIHostname, west[0].SNIHostname, west[1].SNIHostname}
+	seen := map[string]struct{}{}
+	for _, s := range all {
+		seen[s] = struct{}{}
+	}
+	assert.Len(t, seen, 4, "per-(cluster, shard) SNIs must all be distinct")
 }

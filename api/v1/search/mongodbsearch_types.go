@@ -20,6 +20,11 @@ import (
 // ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 const ShardNamePlaceholder = "{shardName}"
 
+// ClusterNamePlaceholder is the placeholder used in managed-LB externalHostname
+// templates for multi-cluster deployments. The Envoy reconciler substitutes the
+// member cluster name so per-cluster SNI hostnames stay distinct.
+const ClusterNamePlaceholder = "{clusterName}"
+
 const (
 	MongotDefaultWireprotoPort      int32 = 27027
 	MongotDefaultGrpcPort           int32 = 27028

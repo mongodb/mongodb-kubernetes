@@ -60,6 +60,7 @@ const (
 type envoyRoute struct {
 	Name         string // identifier: shard name (e.g., "mdb-sh-0") or "rs" for ReplicaSets
 	NameSafe     string // identifier safe for Envoy (hyphens replaced with underscores)
+	ClusterID    string // member cluster name in MC; "" in single-cluster installs
 	SNIHostname  string // FQDN of the proxy service for SNI matching
 	UpstreamHost string // FQDN of the mongot headless service
 	UpstreamPort int32  // typically 27028
@@ -246,6 +247,72 @@ func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
 		UpstreamHost: fmt.Sprintf("%s.%s.svc.cluster.local", mongotServiceName, namespace),
 		UpstreamPort: search.GetMongotGrpcPort(),
 	}
+}
+
+// buildRoutesForCluster returns the Envoy routes for one member cluster (B16).
+// When clusterName is empty, this is the single-cluster install path and
+// behaves identically to buildRoutes (back-compat).
+//
+// In multi-cluster (clusterName != ""):
+//   - SNI hostnames must be distinct per cluster, so the externalHostname template
+//     is expected to contain {clusterName}; if it doesn't, the controller appends
+//     -<clusterName> to the default proxy-service-FQDN base so SNI strings stay
+//     unique. For sharded sources, the {shardName} placeholder is also substituted.
+//   - The ClusterID field on each envoyRoute carries the member cluster name for
+//     downstream consumers (Deployment naming, status writes).
+func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, clusterName string) []envoyRoute {
+	if clusterName == "" {
+		return buildRoutes(search, source)
+	}
+
+	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
+		return buildShardRoutesForCluster(search, shardedSource.GetShardNames(), clusterName)
+	}
+	return []envoyRoute{buildReplicaSetRouteForCluster(search, clusterName)}
+}
+
+// buildReplicaSetRouteForCluster builds a single RS-mode route for one cluster.
+func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterName string) envoyRoute {
+	route := buildReplicaSetRoute(search)
+	route.ClusterID = clusterName
+	route.SNIHostname = applyClusterIDToSNI(route.SNIHostname, clusterName, search.GetManagedLBEndpoint() != "")
+	return route
+}
+
+// buildShardRoutesForCluster builds per-shard routes for one cluster.
+func buildShardRoutesForCluster(search *searchv1.MongoDBSearch, shardNames []string, clusterName string) []envoyRoute {
+	base := buildShardRoutes(search, shardNames)
+	templated := search.GetManagedLBEndpoint() != ""
+	for i := range base {
+		base[i].ClusterID = clusterName
+		base[i].SNIHostname = applyClusterIDToSNI(base[i].SNIHostname, clusterName, templated)
+	}
+	return base
+}
+
+// applyClusterIDToSNI substitutes the {clusterName} placeholder in the given SNI
+// hostname. If the placeholder isn't present and the user supplied an
+// externalHostname template (templated == true), the original is returned unchanged
+// (the user-supplied template wins). Otherwise (no template, default service-FQDN
+// base) -<clusterName> is inserted before the first dot so per-cluster SNIs stay
+// distinct.
+func applyClusterIDToSNI(sni, clusterName string, templated bool) string {
+	if strings.Contains(sni, searchv1.ClusterNamePlaceholder) {
+		return strings.ReplaceAll(sni, searchv1.ClusterNamePlaceholder, clusterName)
+	}
+	if templated {
+		// User supplied an externalHostname template without {clusterName}; honour
+		// it as-is. Multi-cluster users are expected (per B4) to include the
+		// placeholder; a missing-placeholder admission rule lives in B13/B4.
+		return sni
+	}
+	// Default service-FQDN base: <name>.<ns>.svc.cluster.local — append cluster
+	// suffix to the first DNS label so the FQDN stays well-formed.
+	idx := strings.Index(sni, ".")
+	if idx == -1 {
+		return sni + "-" + clusterName
+	}
+	return sni[:idx] + "-" + clusterName + sni[idx:]
 }
 
 // ensureConfigMap creates or updates the Envoy ConfigMap.
