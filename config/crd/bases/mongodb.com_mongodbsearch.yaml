@@ -88,6 +88,9 @@ spec:
                   deployments (len > 1); when omitted, the reconciler defaults it to a single
                   entry built from the top-level fields (B18 — not yet implemented). Pointer-of-slice
                   so omitted vs. empty is distinguishable.
+                  MaxItems is set so the apiserver can bound the cost of the clusterName
+                  uniqueness CEL rule below; 50 is well above any realistic multi-cluster
+                  deployment.
                 items:
                   description: |-
                     ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
@@ -98,6 +101,10 @@ spec:
                       description: |-
                         ClusterName is the Kubernetes cluster name. Required and immutable
                         when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
+                        MaxLength bounds the per-element cost contributed to the parent
+                        clusters[] uniqueness CEL rule. 253 matches the DNS subdomain limit
+                        that K8s cluster names obey.
+                      maxLength: 253
                       type: string
                     jvmFlags:
                       description: JVMFlags overrides spec.jvmFlags for this cluster's
@@ -504,13 +511,18 @@ spec:
                         SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
                         At-most-one of MatchTags or Hosts may be set; the cross-field rule that
                         requires exactly one when len(spec.clusters) > 1 lives in B13.
+                        MaxProperties / MaxItems / MaxLength on the children are required so the
+                        apiserver can bound the schema-cost contribution that the XValidation rule
+                        reads via has().
                       properties:
                         hosts:
                           description: |-
                             Hosts is an explicit list of host:port sync-source members.
                             Mutually exclusive with MatchTags.
                           items:
+                            maxLength: 253
                             type: string
+                          maxItems: 100
                           type: array
                         matchTags:
                           additionalProperties:
@@ -518,6 +530,7 @@ spec:
                           description: |-
                             MatchTags renders into mongot's readPreferenceTags; the operator picks
                             sync-source members whose replSetConfig tags match.
+                          maxProperties: 50
                           type: object
                       type: object
                       x-kubernetes-validations:
@@ -525,6 +538,7 @@ spec:
                           are mutually exclusive
                         rule: '!(has(self.matchTags) && has(self.hosts))'
                   type: object
+                maxItems: 50
                 type: array
                 x-kubernetes-validations:
                 - message: clusters[].clusterName must be unique

@@ -122,7 +122,11 @@ type MongoDBSearchSpec struct {
 	// deployments (len > 1); when omitted, the reconciler defaults it to a single
 	// entry built from the top-level fields (B18 — not yet implemented). Pointer-of-slice
 	// so omitted vs. empty is distinguishable.
+	// MaxItems is set so the apiserver can bound the cost of the clusterName
+	// uniqueness CEL rule below; 50 is well above any realistic multi-cluster
+	// deployment.
 	// +optional
+	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:XValidation:rule="self.all(c1, self.exists_one(c2, c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be unique"
 	Clusters *[]ClusterSpec `json:"clusters,omitempty"`
 }
@@ -130,15 +134,21 @@ type MongoDBSearchSpec struct {
 // SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
 // At-most-one of MatchTags or Hosts may be set; the cross-field rule that
 // requires exactly one when len(spec.clusters) > 1 lives in B13.
+// MaxProperties / MaxItems / MaxLength on the children are required so the
+// apiserver can bound the schema-cost contribution that the XValidation rule
+// reads via has().
 // +kubebuilder:validation:XValidation:rule="!(has(self.matchTags) && has(self.hosts))",message="syncSourceSelector.matchTags and syncSourceSelector.hosts are mutually exclusive"
 type SyncSourceSelector struct {
 	// MatchTags renders into mongot's readPreferenceTags; the operator picks
 	// sync-source members whose replSetConfig tags match.
 	// +optional
+	// +kubebuilder:validation:MaxProperties=50
 	MatchTags map[string]string `json:"matchTags,omitempty"`
 	// Hosts is an explicit list of host:port sync-source members.
 	// Mutually exclusive with MatchTags.
 	// +optional
+	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:items:MaxLength=253
 	Hosts []string `json:"hosts,omitempty"`
 }
 
@@ -175,7 +185,11 @@ type ShardOverride struct {
 type ClusterSpec struct {
 	// ClusterName is the Kubernetes cluster name. Required and immutable
 	// when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
+	// MaxLength bounds the per-element cost contributed to the parent
+	// clusters[] uniqueness CEL rule. 253 matches the DNS subdomain limit
+	// that K8s cluster names obey.
 	// +optional
+	// +kubebuilder:validation:MaxLength=253
 	ClusterName string `json:"clusterName,omitempty"`
 	// Replicas overrides spec.replicas for this cluster's mongot StatefulSet.
 	// For sharded sources, this is mongot pods per shard, not total.
