@@ -107,7 +107,8 @@ create_update_pr() {
     log "creating update PR for OpenShift ${new_minor}"
     cd "${PROJECT_ROOT}"
 
-    git checkout -b "${branch}"
+    git fetch origin master --quiet || die "git fetch origin master failed"
+    git checkout -b "${branch}" origin/master
 
     local tmp
     tmp=$(mktemp)
