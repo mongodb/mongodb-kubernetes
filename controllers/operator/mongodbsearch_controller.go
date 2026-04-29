@@ -39,11 +39,8 @@ type MongoDBSearchReconciler struct {
 	watch                *watch.ResourceWatcher
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
 
-	// memberClusterClientsMap is keyed by the member cluster name and holds
-	// the per-cluster Kubernetes client. Empty in single-cluster installs;
-	// callers must fall back to kubeClient via selectClusterClient().
-	memberClusterClientsMap       map[string]kubernetesClient.Client
-	memberClusterSecretClientsMap map[string]secrets.SecretClient
+	memberClusterClientsMap       map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
+	memberClusterSecretClientsMap map[string]secrets.SecretClient    // per-cluster secret client; empty in single-cluster installs
 }
 
 func newMongoDBSearchReconciler(
