@@ -266,14 +266,12 @@ func isWorsePhase(a, b status.Phase) bool {
 	return rank(a) > rank(b)
 }
 
-// extractWorkflowMsg pulls the message from a workflow.Status's StatusOptions
-// (the workflow.Status interface does not expose Msg() directly). Returns ""
-// for OK statuses or when no MessageOption is set.
+// extractWorkflowMsg pulls the message from a workflow.Status's StatusOptions.
+// The workflow.Status interface does not expose Msg() directly; the message
+// rides on a status.MessageOption populated by workflow.{Pending,Failed,Invalid}.
 func extractWorkflowMsg(st workflow.Status) string {
-	for _, opt := range st.StatusOptions() {
-		if msgOpt, ok := opt.(status.MessageOption); ok {
-			return msgOpt.Message
-		}
+	if opt, ok := status.GetOption(st.StatusOptions(), status.MessageOption{}); ok {
+		return opt.(status.MessageOption).Message
 	}
 	return ""
 }
