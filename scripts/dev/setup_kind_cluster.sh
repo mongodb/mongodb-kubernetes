@@ -68,7 +68,8 @@ metrics_server_version="v0.7.2"
 
 reg_name='kind-registry'
 reg_port='5000'
-kind_image="${registry}/kindest/node:v1.35.0"
+kube_max_version=$(jq -r '.kubernetes.max' kubernetes-versions.json)
+kind_image="${registry}/kindest/node:v${kube_max_version}"
 
 kind_delete_cluster() {
   kind delete cluster --name "${cluster_name}" || true
