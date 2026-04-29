@@ -110,6 +110,11 @@ type reconcileUnit struct {
 	logFields           []any                // k/v fields attached to the per-unit logger (nil for single-unit topologies)
 	tlsResource         tls.TLSConfigurableResource
 	mongotConfigFn      mongot.Modification
+	// clusterName is the K8s member-cluster name this unit reconciles against, or "" for
+	// single-cluster topologies. Consumed by the readPreferenceTags / sync-source-hosts modifiers
+	// to pick the matching spec.clusters[i] entry. Per-cluster unit expansion lands in a
+	// follow-up B-section; until then this stays "" and the modifiers are NOOPs.
+	clusterName string
 }
 
 // reconcilePlan is the full per-reconcile work description: a list of units plus the
@@ -150,6 +155,7 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 		}}
 	}
 
+	clusterName := ""
 	return reconcilePlan{
 		units: []reconcileUnit{{
 			stsName:            r.mdbSearch.StatefulSetNamespacedName(),
@@ -159,7 +165,13 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 			podLabels:          map[string]string{appLabelKey: svcName},
 			extraHeadlessPorts: extraHeadlessPorts,
 			tlsResource:        r.mdbSearch,
-			mongotConfigFn:     mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch)),
+			clusterName:        clusterName,
+			mongotConfigFn: mongot.Apply(
+				baseMongotConfig(r.mdbSearch, hostSeeds),
+				wireprotoMongotMod(r.mdbSearch),
+				readPreferenceTagsMod(r.mdbSearch, clusterName),
+				syncSourceHostsMod(r.mdbSearch, clusterName),
+			),
 		}},
 		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
 		preflight:    func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
@@ -178,6 +190,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 		}
 
 		stsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
+		clusterName := ""
 		units = append(units, reconcileUnit{
 			stsName:             stsName,
 			headlessSvc:         r.mdbSearch.MongotServiceForShard(shardName),
@@ -188,7 +201,13 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			publishNotReady:     true,
 			logFields:           []any{"shard", shardName, "shardIdx", shardIdx},
 			tlsResource:         &perShardTLSResource{MongoDBSearch: r.mdbSearch, shardName: shardName},
-			mongotConfigFn:      mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), routerMongotMod(r.mdbSearch, shardedSource)),
+			clusterName:         clusterName,
+			mongotConfigFn: mongot.Apply(
+				baseMongotConfig(r.mdbSearch, hostSeeds),
+				routerMongotMod(r.mdbSearch, shardedSource),
+				readPreferenceTagsMod(r.mdbSearch, clusterName),
+				syncSourceHostsMod(r.mdbSearch, clusterName),
+			),
 		})
 	}
 
