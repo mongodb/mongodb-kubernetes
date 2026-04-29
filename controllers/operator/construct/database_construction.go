@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"go.uber.org/zap"
 	"k8s.io/utils/ptr"
@@ -716,7 +717,41 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 
 	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts)
 
+	customLogVolumes, customLogVolumeMounts := getCustomLogVolumeMounts(databaseOpts.AgentConfig)
+	volumesToAdd = append(volumesToAdd, customLogVolumes...)
+	volumeMounts = append(volumeMounts, customLogVolumeMounts...)
+
 	return volumesToAdd, volumeMounts
+}
+
+// getCustomLogVolumeMounts provisions emptyDir volumes for backup and monitoring
+// agent log paths whose parent directories fall outside util.PvcMountPathLogs.
+// Default paths live under that mount, which is already provisioned, so they are
+// skipped here. Mounts are deduped by parent directory, so two log paths sharing
+// a custom dir produce a single emptyDir.
+func getCustomLogVolumeMounts(agentConfig *mdbv1.AgentConfig) ([]corev1.Volume, []corev1.VolumeMount) {
+	if agentConfig == nil {
+		return nil, nil
+	}
+
+	var volumes []corev1.Volume
+	var mounts []corev1.VolumeMount
+	mountedDirs := map[string]bool{}
+
+	addMount := func(volumeName, logFilePath string) {
+		dir := path.Dir(logFilePath)
+		if dir == util.PvcMountPathLogs || strings.HasPrefix(dir, util.PvcMountPathLogs+"/") || mountedDirs[dir] {
+			return
+		}
+		mountedDirs[dir] = true
+		volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(volumeName))
+		mounts = append(mounts, statefulset.CreateVolumeMount(volumeName, dir))
+	}
+
+	addMount("monitoring-agent-logs", agentConfig.MonitoringAgent.GetLogFilePath())
+	addMount("backup-agent-logs", agentConfig.BackupAgent.GetLogFilePath())
+
+	return volumes, mounts
 }
 
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource

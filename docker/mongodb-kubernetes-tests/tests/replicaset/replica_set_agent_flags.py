@@ -12,6 +12,8 @@ custom_agent_log_path = "/var/log/mongodb-mms-automation/customLogFile"
 custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogFile"
 custom_monitoring_log_path = "/var/log/mongodb-mms-automation/custom-monitoring-agent.log"
 custom_backup_log_path = "/var/log/mongodb-mms-automation/custom-backup-agent.log"
+outside_mount_monitoring_log_path = "/agent-logs/monitoring-agent.log"
+outside_mount_backup_log_path = "/agent-logs/backup-agent.log"
 
 
 @fixture(scope="module")
@@ -199,6 +201,24 @@ def test_custom_backup_log_path_env_var(replica_set: MongoDB, namespace: str):
             f"Expected MDB_LOG_FILE_BACKUP_AGENT={custom_backup_log_path}, "
             f"got {env_vars.get('MDB_LOG_FILE_BACKUP_AGENT')}"
         )
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_set_log_paths_outside_standard_mount(replica_set: MongoDB, namespace: str):
+    """Log paths outside /var/log/mongodb-mms-automation should get their own emptyDir mount."""
+    replica_set.load()
+    replica_set["spec"]["agent"]["monitoringAgent"] = {"logFilePath": outside_mount_monitoring_log_path}
+    replica_set["spec"]["agent"]["backupAgent"] = {"logFilePath": outside_mount_backup_log_path}
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+    expected_paths = (outside_mount_monitoring_log_path, outside_mount_backup_log_path)
+    for i in range(3):
+        pod = f"replica-set-{i}"
+        for log_path in expected_paths:
+            cmd = ["/bin/sh", "-c", f"test -f {log_path} && echo present || echo missing"]
+            result = KubernetesTester.run_command_in_pod_container(pod, namespace, cmd)
+            assert "present" in result, f"expected log file at {log_path} on {pod}, got: {result!r}"
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
