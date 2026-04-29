@@ -95,7 +95,7 @@ spec:
                             description: |-
                               LogFilePath configures the log file path for the backup agent.
                               Default: /var/log/mongodb-mms-automation/backup-agent.log
-                            pattern: ^/[a-zA-Z0-9/_\-.]*$
+                            pattern: ^/[a-zA-Z0-9/_\-.]+$
                             type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
@@ -244,7 +244,7 @@ spec:
                             description: |-
                               LogFilePath configures the log file path for the monitoring agent.
                               Default: /var/log/mongodb-mms-automation/monitoring-agent.log
-                            pattern: ^/[a-zA-Z0-9/_\-.]*$
+                            pattern: ^/[a-zA-Z0-9/_\-.]+$
                             type: string
                           logRotate:
                             description: LogRotate configures log rotation for the

@@ -431,8 +431,8 @@ func (oc *MockedOmConnection) ReadUpdateBackupAgentConfig(bacFunc func(*BackupAg
 	return bacFunc(oc.backupAgentConfig)
 }
 
-func (oc *MockedOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
-	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAgentsLogRotation))
+func (oc *MockedOmConnection) ReadUpdateAgentsLogConfiguration(agentConfig mdbv1.AgentConfig, log *zap.SugaredLogger) error {
+	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAgentsLogConfiguration))
 	return nil
 }
 

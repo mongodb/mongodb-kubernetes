@@ -219,7 +219,7 @@ def test_set_log_paths_outside_standard_mount(replica_set: MongoDB, namespace: s
         for log_path in expected_paths:
             cmd = ["/bin/sh", "-c", f"test -f {log_path} && echo present || echo missing"]
 
-            def file_present(p=pod, lp=log_path, c=cmd) -> bool:
+            def file_present(p=pod, c=cmd) -> bool:
                 return "present" in KubernetesTester.run_command_in_pod_container(p, namespace, c)
 
             wait_until(

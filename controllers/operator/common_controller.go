@@ -1106,8 +1106,8 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 	return nil
 }
 
-func ReconcileLogRotateSetting(conn om.Connection, agentConfig mdbv1.AgentConfig, log *zap.SugaredLogger) (workflow.Status, error) {
-	if err := conn.ReadUpdateAgentsLogRotation(agentConfig, log); err != nil {
+func ReconcileAgentLogConfiguration(conn om.Connection, agentConfig mdbv1.AgentConfig, log *zap.SugaredLogger) (workflow.Status, error) {
+	if err := conn.ReadUpdateAgentsLogConfiguration(agentConfig, log); err != nil {
 		return workflow.Failed(err), err
 	}
 	return workflow.OK(), nil

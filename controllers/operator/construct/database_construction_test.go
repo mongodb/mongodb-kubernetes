@@ -376,7 +376,7 @@ func TestGetCustomLogVolumeMounts(t *testing.T) {
 		assert.Equal(t, "/other-logs", mounts[1].MountPath)
 	})
 
-	t.Run("shared parent dir is mounted only once", func(t *testing.T) {
+	t.Run("shared parent dir is mounted only once under a neutral name", func(t *testing.T) {
 		agentConfig := &mdbv1.AgentConfig{
 			MonitoringAgent: mdbv1.MonitoringAgent{LogFilePath: "/agent-logs/monitoring.log"},
 			BackupAgent:     mdbv1.BackupAgent{LogFilePath: "/agent-logs/backup.log"},
@@ -384,7 +384,7 @@ func TestGetCustomLogVolumeMounts(t *testing.T) {
 		volumes, mounts := getCustomLogVolumeMounts(agentConfig)
 		require.Len(t, volumes, 1)
 		require.Len(t, mounts, 1)
-		assert.Equal(t, "monitoring-agent-logs", volumes[0].Name)
+		assert.Equal(t, "agent-logs", volumes[0].Name)
 		assert.Equal(t, "/agent-logs", mounts[0].MountPath)
 	})
 

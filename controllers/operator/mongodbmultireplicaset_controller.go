@@ -784,7 +784,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return err
 	}
 
-	reconcileResult, err := ReconcileLogRotateSetting(conn, mrs.Spec.Agent, log)
+	reconcileResult, err := ReconcileAgentLogConfiguration(conn, mrs.Spec.Agent, log)
 	if !reconcileResult.IsOK() {
 		return xerrors.Errorf("failed to configure logrotation for MongoDBMultiCluster RS, err: %w", err)
 	}

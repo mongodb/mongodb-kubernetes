@@ -812,7 +812,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	reconcileResult, _ := ReconcileLogRotateSetting(conn, rs.Spec.Agent, log)
+	reconcileResult, _ := ReconcileAgentLogConfiguration(conn, rs.Spec.Agent, log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
 	}

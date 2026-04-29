@@ -727,31 +727,43 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 // getCustomLogVolumeMounts provisions emptyDir volumes for backup and monitoring
 // agent log paths whose parent directories fall outside util.PvcMountPathLogs.
 // Default paths live under that mount, which is already provisioned, so they are
-// skipped here. Mounts are deduped by parent directory, so two log paths sharing
-// a custom dir produce a single emptyDir.
+// skipped here. When both agents share a parent directory, a single shared
+// volume is rendered to avoid implying ownership in the volume name.
 func getCustomLogVolumeMounts(agentConfig *mdbv1.AgentConfig) ([]corev1.Volume, []corev1.VolumeMount) {
 	if agentConfig == nil {
 		return nil, nil
 	}
 
-	var volumes []corev1.Volume
-	var mounts []corev1.VolumeMount
-	mountedDirs := map[string]bool{}
+	monitoringDir := customLogDir(agentConfig.MonitoringAgent.GetLogFilePath())
+	backupDir := customLogDir(agentConfig.BackupAgent.GetLogFilePath())
 
-	addMount := func(volumeName, logFilePath string) {
-		dir := path.Dir(logFilePath)
-		if dir == util.PvcMountPathLogs || strings.HasPrefix(dir, util.PvcMountPathLogs+"/") || mountedDirs[dir] {
-			return
-		}
-		mountedDirs[dir] = true
-		volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(volumeName))
-		mounts = append(mounts, statefulset.CreateVolumeMount(volumeName, dir))
+	if monitoringDir != "" && monitoringDir == backupDir {
+		return []corev1.Volume{statefulset.CreateVolumeFromEmptyDir("agent-logs")},
+			[]corev1.VolumeMount{statefulset.CreateVolumeMount("agent-logs", monitoringDir)}
 	}
 
-	addMount("monitoring-agent-logs", agentConfig.MonitoringAgent.GetLogFilePath())
-	addMount("backup-agent-logs", agentConfig.BackupAgent.GetLogFilePath())
-
+	var volumes []corev1.Volume
+	var mounts []corev1.VolumeMount
+	if monitoringDir != "" {
+		volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir("monitoring-agent-logs"))
+		mounts = append(mounts, statefulset.CreateVolumeMount("monitoring-agent-logs", monitoringDir))
+	}
+	if backupDir != "" {
+		volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir("backup-agent-logs"))
+		mounts = append(mounts, statefulset.CreateVolumeMount("backup-agent-logs", backupDir))
+	}
 	return volumes, mounts
+}
+
+// customLogDir returns the parent directory of logFilePath when it falls
+// outside util.PvcMountPathLogs and therefore needs its own emptyDir mount.
+// Paths under the standard logs mount return "" since that mount already exists.
+func customLogDir(logFilePath string) string {
+	dir := path.Dir(logFilePath)
+	if dir == util.PvcMountPathLogs || strings.HasPrefix(dir, util.PvcMountPathLogs+"/") {
+		return ""
+	}
+	return dir
 }
 
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
