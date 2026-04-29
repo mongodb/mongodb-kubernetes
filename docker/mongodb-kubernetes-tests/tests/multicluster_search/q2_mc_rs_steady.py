@@ -70,10 +70,7 @@ from tests.common.search.q2_shared import (
     q2_restore_sample,
 )
 from tests.common.search.q2_topology import REGION_TAGS
-from tests.common.search.rs_search_helper import (
-    create_rs_lb_certificates,
-    create_rs_search_tls_cert,
-)
+from tests.common.search.rs_search_helper import create_rs_lb_certificates, create_rs_search_tls_cert
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_issuer_ca, verify_text_search_query
 from tests.multicluster.conftest import cluster_spec_list
