@@ -51,6 +51,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateClustersSyncSourceSelector,
 		validateClustersShardOverrides,
 		validateClustersAndTopLevelFieldsMutuallyExclusive,
+		validateMCRequiresExternalSource,
 	}
 
 	var results []v1.ValidationResult
@@ -400,6 +401,20 @@ func validateClustersAndTopLevelFieldsMutuallyExclusive(s *MongoDBSearch) v1.Val
 	//nolint:staticcheck // SA1019
 	if s.Spec.StatefulSetConfiguration != nil {
 		return v1.ValidationError("spec.statefulSet and spec.clusters are mutually exclusive; specify statefulSet inside spec.clusters[].statefulSet instead")
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateMCRequiresExternalSource enforces that multi-cluster MongoDBSearch (len(spec.clusters) > 1)
+// requires an external MongoDB source. Internal-source multi-cluster (Q1-MC) is deferred to phase 2.
+func validateMCRequiresExternalSource(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.Source == nil || s.Spec.Source.ExternalMongoDBSource == nil {
+		return v1.ValidationError(
+			"spec.clusters with more than one entry requires spec.source.external.* (multi-cluster requires spec.source.external; multi-cluster against internal sources is deferred to phase 2)",
+		)
 	}
 	return v1.ValidationSuccess()
 }

@@ -354,6 +354,52 @@ func TestValidateClustersAndTopLevelFieldsMutuallyExclusive(t *testing.T) {
 	}
 }
 
+func TestValidateMCRequiresExternalSource(t *testing.T) {
+	external := &MongoDBSource{ExternalMongoDBSource: &ExternalMongoDBSource{HostAndPorts: []string{"mongo:27017"}}}
+	internalRef := &MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "src"}}
+	twoClusters := []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}}
+	oneCluster := []ClusterSpec{{ClusterName: "us-east-k8s"}}
+
+	tests := []struct {
+		name          string
+		clusters      *[]ClusterSpec
+		source        *MongoDBSource
+		errorContains string
+	}{
+		{name: "nil clusters is success", clusters: nil, source: nil},
+		{name: "single cluster is success without external", clusters: &oneCluster, source: nil},
+		{name: "single cluster is success with internal source", clusters: &oneCluster, source: internalRef},
+		{name: "MC with external source is success", clusters: &twoClusters, source: external},
+		{
+			name:          "MC without source rejected",
+			clusters:      &twoClusters,
+			source:        nil,
+			errorContains: "multi-cluster requires spec.source.external",
+		},
+		{
+			name:          "MC with internal source rejected",
+			clusters:      &twoClusters,
+			source:        internalRef,
+			errorContains: "multi-cluster requires spec.source.external",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec:       MongoDBSearchSpec{Clusters: tt.clusters, Source: tt.source},
+			}
+			res := validateMCRequiresExternalSource(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
+}
+
 func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTLS, isLBManaged bool) *MongoDBSearch {
 	search := &MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-namespace"},
