@@ -34,18 +34,32 @@ type MongoDBSearchReconciler struct {
 	watch                *watch.ResourceWatcher
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
 
-	// memberClusterClientsMap is keyed by the member cluster name and holds
-	// the per-cluster Kubernetes client. Empty in single-cluster installs;
-	// callers must fall back to kubeClient via selectClusterClient().
-	memberClusterClientsMap       map[string]kubernetesClient.Client
-	memberClusterSecretClientsMap map[string]secrets.SecretClient
+	memberClusterClientsMap       map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
+	memberClusterSecretClientsMap map[string]secrets.SecretClient    // per-cluster secret client; empty in single-cluster installs
 }
 
-func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig searchcontroller.OperatorSearchConfig) *MongoDBSearchReconciler {
+func newMongoDBSearchReconciler(
+	kubeClient client.Client,
+	operatorSearchConfig searchcontroller.OperatorSearchConfig,
+	memberClustersMap map[string]client.Client,
+) *MongoDBSearchReconciler {
+	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
+	secretClientsMap := make(map[string]secrets.SecretClient, len(memberClustersMap))
+
+	for k, v := range memberClustersMap {
+		clientsMap[k] = kubernetesClient.NewClient(v)
+		secretClientsMap[k] = secrets.SecretClient{
+			VaultClient: nil, // Vault is not supported on multicluster
+			KubeClient:  clientsMap[k],
+		}
+	}
+
 	return &MongoDBSearchReconciler{
-		kubeClient:           kubernetesClient.NewClient(client),
-		watch:                watch.NewResourceWatcher(),
-		operatorSearchConfig: operatorSearchConfig,
+		kubeClient:                    kubernetesClient.NewClient(kubeClient),
+		watch:                         watch.NewResourceWatcher(),
+		operatorSearchConfig:          operatorSearchConfig,
+		memberClusterClientsMap:       clientsMap,
+		memberClusterSecretClientsMap: secretClientsMap,
 	}
 }
 
@@ -168,7 +182,7 @@ func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operat
 		return err
 	}
 
-	r := newMongoDBSearchReconciler(kubernetesClient.NewClient(mgr.GetClient()), operatorSearchConfig)
+	r := newMongoDBSearchReconciler(kubernetesClient.NewClient(mgr.GetClient()), operatorSearchConfig, nil)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
