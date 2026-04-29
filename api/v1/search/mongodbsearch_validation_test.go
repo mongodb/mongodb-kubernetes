@@ -222,6 +222,45 @@ func TestValidateClustersSyncSourceSelector(t *testing.T) {
 	}
 }
 
+func TestValidateClustersShardOverrides(t *testing.T) {
+	tests := []struct {
+		name          string
+		overrides     []ShardOverride
+		errorContains string
+	}{
+		{name: "no overrides", overrides: nil},
+		{name: "valid single shardName", overrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
+		{name: "valid multiple shardNames", overrides: []ShardOverride{{ShardNames: []string{"shard-0", "shard-1"}}}},
+		{
+			name:          "empty shardNames slice",
+			overrides:     []ShardOverride{{ShardNames: []string{}}},
+			errorContains: "must have at least one entry",
+		},
+		{
+			name:          "nil shardNames slice",
+			overrides:     []ShardOverride{{}},
+			errorContains: "must have at least one entry",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec: MongoDBSearchSpec{
+					Clusters: &[]ClusterSpec{{ClusterName: "us-east-k8s", ShardOverrides: tt.overrides}},
+				},
+			}
+			res := validateClustersShardOverrides(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
+}
+
 func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTLS, isLBManaged bool) *MongoDBSearch {
 	search := &MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-namespace"},
