@@ -74,20 +74,23 @@ type MongoDBSearchSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	Replicas *int32 `json:"replicas,omitempty"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].statefulSet. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].statefulSet.
+	// Setting both spec.statefulSet and spec.clusters at the same time is rejected by admission.
 	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
 	// which aren't exposed as fields in the MongoDBSearch.spec.
-	// In multi-cluster deployments, prefer spec.clusters[].statefulSet. Auto-promotion
-	// into spec.clusters[0].statefulSet lands in B18.
 	// +optional
 	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].persistence. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].persistence.
+	// Setting both spec.persistence and spec.clusters at the same time is rejected by admission.
 	// Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
-	// In multi-cluster deployments, prefer spec.clusters[].persistence. Auto-promotion
-	// into spec.clusters[0].persistence lands in B18.
 	// +optional
 	Persistence *common.Persistence `json:"persistence,omitempty"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].resourceRequirements. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].resourceRequirements.
+	// Setting both spec.resourceRequirements and spec.clusters at the same time is rejected by admission.
 	// Configure resource requests and limits for the MongoDB Search pods.
-	// In multi-cluster deployments, prefer spec.clusters[].resourceRequirements.
-	// Auto-promotion into spec.clusters[0].resourceRequirements lands in B18.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
 	// Configure security settings of the MongoDB Search server that MongoDB database is connecting to when performing search queries.
