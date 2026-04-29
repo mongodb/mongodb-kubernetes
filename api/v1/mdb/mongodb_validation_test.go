@@ -1052,9 +1052,9 @@ func TestAtMostOneMigrationChangeAtATime_WiredIntoWebhook(t *testing.T) {
 
 	oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(1).Build()
 	oldRs.Spec.ExternalMembers = externalMembers
-	oldRs.Spec.MemberConfig = []automationconfig.MemberOptions{{Votes: new(int), Priority: new(string)}}
-	*oldRs.Spec.MemberConfig[0].Votes = 1
-	*oldRs.Spec.MemberConfig[0].Priority = "1"
+	votes1 := 1
+	prio1 := "1"
+	oldRs.Spec.MemberConfig = []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}}
 
 	// Simultaneously add a k8s member AND change member config — two types at once
 	newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(2).Build()
