@@ -29,16 +29,12 @@ def build_external_sharded_source(
 
     Used by Q2-MC scaffolds to point a MongoDBSearch at an external sharded MongoDB.
     """
-    router_hosts = [
-        f"{name}-mongos-{i}.{name}-svc.{namespace}.svc.cluster.local:27017"
-        for i in range(mongos_count)
-    ]
+    router_hosts = [f"{name}-mongos-{i}.{name}-svc.{namespace}.svc.cluster.local:27017" for i in range(mongos_count)]
     shards = []
     for shard_idx in range(shard_count):
         shard_name = f"{name}-{shard_idx}"
         shard_hosts = [
-            f"{shard_name}-{m}.{name}-sh.{namespace}.svc.cluster.local:27017"
-            for m in range(mongods_per_shard)
+            f"{shard_name}-{m}.{name}-sh.{namespace}.svc.cluster.local:27017" for m in range(mongods_per_shard)
         ]
         shards.append({"shardName": shard_name, "hosts": shard_hosts})
     return {

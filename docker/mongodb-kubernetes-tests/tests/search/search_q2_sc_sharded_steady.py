@@ -108,9 +108,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
             "key": "password",
         },
         "external": {
-            **build_external_sharded_source(
-                MDB_RESOURCE_NAME, namespace, MONGOS_COUNT, SHARD_COUNT, MONGODS_PER_SHARD
-            ),
+            **build_external_sharded_source(MDB_RESOURCE_NAME, namespace, MONGOS_COUNT, SHARD_COUNT, MONGODS_PER_SHARD),
             "tls": {"ca": {"name": CA_CONFIGMAP_NAME}},
         },
     }

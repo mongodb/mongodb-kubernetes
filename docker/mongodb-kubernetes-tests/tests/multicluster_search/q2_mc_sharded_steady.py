@@ -70,28 +70,26 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 def test_verify_per_cluster_status(mdbs: MongoDBSearch, member_cluster_clients: List[MultiClusterClient]):
     mdbs.load()
     cluster_statuses = mdbs["status"]["clusterStatusList"]["clusterStatuses"]
-    assert len(cluster_statuses) == len(member_cluster_clients), (
-        f"expected {len(member_cluster_clients)} cluster status entries, got {len(cluster_statuses)}"
-    )
+    assert len(cluster_statuses) == len(
+        member_cluster_clients
+    ), f"expected {len(member_cluster_clients)} cluster status entries, got {len(cluster_statuses)}"
 
     expected_shard_names = {f"{MDB_RESOURCE_NAME}-{i}" for i in range(SHARD_COUNT)}
     for cs in cluster_statuses:
         assert cs["phase"] == "Running", f"cluster {cs['clusterName']}: phase={cs['phase']}, expected Running"
         shard_lb = cs["loadBalancer"]["shards"]
-        assert set(shard_lb.keys()) == expected_shard_names, (
-            f"cluster {cs['clusterName']}: shard set mismatch — got {set(shard_lb.keys())}, want {expected_shard_names}"
-        )
+        assert (
+            set(shard_lb.keys()) == expected_shard_names
+        ), f"cluster {cs['clusterName']}: shard set mismatch — got {set(shard_lb.keys())}, want {expected_shard_names}"
         for shard_name, shard_status in shard_lb.items():
             phase = shard_status["phase"]
-            assert phase == "Running", (
-                f"cluster {cs['clusterName']}, shard {shard_name}: phase={phase}, expected Running"
-            )
+            assert (
+                phase == "Running"
+            ), f"cluster {cs['clusterName']}, shard {shard_name}: phase={phase}, expected Running"
 
 
 @mark.e2e_search_q2_mc_sharded_steady
-def test_verify_per_cluster_envoy_deployment(
-    namespace: str, member_cluster_clients: List[MultiClusterClient]
-):
+def test_verify_per_cluster_envoy_deployment(namespace: str, member_cluster_clients: List[MultiClusterClient]):
     assert_envoy_ready_in_each_cluster(namespace, MDBS_RESOURCE_NAME, member_cluster_clients)
 
 

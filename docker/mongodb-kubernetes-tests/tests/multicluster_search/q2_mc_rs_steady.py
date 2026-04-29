@@ -40,7 +40,7 @@ Asserts:
   a follow-up.
 """
 
-from typing import List
+from typing import List, Optional
 
 import kubernetes
 from kubetester import create_or_update_secret, try_load
@@ -114,8 +114,7 @@ def mdb_unmarshalled(
     # REGION_TAGS[i]. The MongoDBSearch CR's clusters[i].syncSourceSelector
     # matches the same region tag at the same index — see `mdbs` fixture.
     member_options = [
-        [{"votes": 1, "priority": "1.0", "tags": {"region": REGION_TAGS[i]}}]
-        for i in range(len(member_cluster_names))
+        [{"votes": 1, "priority": "1.0", "tags": {"region": REGION_TAGS[i]}}] for i in range(len(member_cluster_names))
     ]
     resource["spec"]["clusterSpecList"] = cluster_spec_list(
         member_cluster_names,
@@ -229,10 +228,12 @@ def mongot_user(namespace: str, central_cluster_client: kubernetes.client.ApiCli
     )
 
 
-def _seed_pod_fqdn(mdb_name: str, namespace: str, cluster_index: int, pod_index: int = 0) -> str:
+def _seed_pod_fqdn(mdb_name: str, namespace: str, cluster_index: Optional[int], pod_index: int = 0) -> str:
     """Per-cluster, per-pod Service FQDN — same pattern certs/operator use
     (mirrors `multi_cluster_service_fqdns` at kubetester/certs.py:345).
     """
+    if cluster_index is None:
+        raise ValueError("cluster_index is required for member-cluster seed FQDN construction")
     return f"{mdb_name}-{cluster_index}-{pod_index}-svc.{namespace}.svc.cluster.local"
 
 
@@ -367,9 +368,9 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 def test_verify_per_cluster_status(mdbs: MongoDBSearch, member_cluster_clients: List[MultiClusterClient]):
     mdbs.load()
     cluster_statuses = mdbs["status"]["clusterStatusList"]["clusterStatuses"]
-    assert len(cluster_statuses) == len(member_cluster_clients), (
-        f"expected {len(member_cluster_clients)} cluster status entries, got {len(cluster_statuses)}"
-    )
+    assert len(cluster_statuses) == len(
+        member_cluster_clients
+    ), f"expected {len(member_cluster_clients)} cluster status entries, got {len(cluster_statuses)}"
     cluster_names = {mcc.cluster_name for mcc in member_cluster_clients}
     for cs in cluster_statuses:
         assert cs["clusterName"] in cluster_names, f"unexpected clusterName: {cs['clusterName']}"
@@ -377,9 +378,7 @@ def test_verify_per_cluster_status(mdbs: MongoDBSearch, member_cluster_clients: 
 
 
 @mark.e2e_search_q2_mc_rs_steady
-def test_verify_per_cluster_envoy_deployment(
-    namespace: str, member_cluster_clients: List[MultiClusterClient]
-):
+def test_verify_per_cluster_envoy_deployment(namespace: str, member_cluster_clients: List[MultiClusterClient]):
     assert_envoy_ready_in_each_cluster(namespace, MDBS_RESOURCE_NAME, member_cluster_clients)
 
 
@@ -404,10 +403,7 @@ def _mc_search_tester_factory(seed_pod_fqdn: str, ca_path: str):
     """
 
     def factory(_mdb, username: str, password: str, use_ssl: bool):
-        conn = (
-            f"mongodb://{username}:{password}@{seed_pod_fqdn}:27017/"
-            f"?replicaSet={_mdb.name}"
-        )
+        conn = f"mongodb://{username}:{password}@{seed_pod_fqdn}:27017/" f"?replicaSet={_mdb.name}"
         return SearchTester(conn, use_ssl=use_ssl, ca_path=ca_path if use_ssl else None)
 
     return factory
@@ -465,10 +461,7 @@ def test_execute_text_search_query_per_cluster(
     """
     for mcc in member_cluster_clients:
         seed = _seed_pod_fqdn(mdb.name, namespace, mcc.cluster_index)
-        conn = (
-            f"mongodb://{USER_NAME}:{USER_PASSWORD}@{seed}:27017/"
-            f"?replicaSet={mdb.name}"
-        )
+        conn = f"mongodb://{USER_NAME}:{USER_PASSWORD}@{seed}:27017/" f"?replicaSet={mdb.name}"
         tester = SearchTester(conn, use_ssl=True, ca_path=issuer_ca_filepath)
         logger.info(f"Running $search seeded from cluster {mcc.cluster_name} (pod {seed})")
         verify_text_search_query(tester)
