@@ -188,7 +188,8 @@ type HTTPOmConnection struct {
 func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
 	// We don't have to wait for each step for the agent to reach goal state as setting logrotation does not require order
 	if logRotateSetting.Mongod.LogRotate == nil && logRotateSetting.MonitoringAgent.LogRotate == nil &&
-		logRotateSetting.BackupAgent.LogRotate == nil && logRotateSetting.Mongod.AuditLogRotate == nil {
+		logRotateSetting.BackupAgent.LogRotate == nil && logRotateSetting.Mongod.AuditLogRotate == nil &&
+		logRotateSetting.MonitoringAgent.LogFilePath == "" && logRotateSetting.BackupAgent.LogFilePath == "" {
 		return nil
 	}
 
@@ -219,16 +220,26 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.A
 		}
 	}
 
-	if len(automationConfig.Deployment.getBackupVersions()) > 0 && logRotateSetting.BackupAgent.LogRotate != nil {
+	if len(automationConfig.Deployment.getBackupVersions()) > 0 && (logRotateSetting.BackupAgent.LogRotate != nil || logRotateSetting.BackupAgent.LogFilePath != "") {
 		err = oc.ReadUpdateBackupAgentConfig(func(config *BackupAgentConfig) error {
-			config.SetLogRotate(*logRotateSetting.BackupAgent.LogRotate)
+			if logRotateSetting.BackupAgent.LogRotate != nil {
+				config.SetLogRotate(*logRotateSetting.BackupAgent.LogRotate)
+			}
+			if logRotateSetting.BackupAgent.LogFilePath != "" {
+				config.SetLogPath(logRotateSetting.BackupAgent.LogFilePath)
+			}
 			return nil
 		}, log)
 	}
 
-	if len(automationConfig.Deployment.getMonitoringVersions()) > 0 && logRotateSetting.MonitoringAgent.LogRotate != nil {
+	if len(automationConfig.Deployment.getMonitoringVersions()) > 0 && (logRotateSetting.MonitoringAgent.LogRotate != nil || logRotateSetting.MonitoringAgent.LogFilePath != "") {
 		err = oc.ReadUpdateMonitoringAgentConfig(func(config *MonitoringAgentConfig) error {
-			config.SetLogRotate(*logRotateSetting.MonitoringAgent.LogRotate)
+			if logRotateSetting.MonitoringAgent.LogRotate != nil {
+				config.SetLogRotate(*logRotateSetting.MonitoringAgent.LogRotate)
+			}
+			if logRotateSetting.MonitoringAgent.LogFilePath != "" {
+				config.SetLogPath(logRotateSetting.MonitoringAgent.LogFilePath)
+			}
 			return nil
 		}, log)
 	}

@@ -13,6 +13,7 @@ type BackupAgentTemplate struct {
 	SSLPemKeyFile string                                `json:"sslPEMKeyFile,omitempty"`
 	LdapGroupDN   string                                `json:"ldapGroupDN,omitempty"`
 	LogRotate     mdbv1.LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
+	LogPath       string                                `json:"logPath,omitempty"`
 }
 
 type BackupAgentConfig struct {
@@ -35,6 +36,10 @@ func (bac *BackupAgentConfig) SetAgentUserName(backupAgentSubject string) {
 
 func (bac *BackupAgentConfig) SetLogRotate(logRotate mdbv1.LogRotateForBackupAndMonitoring) {
 	bac.BackupAgentTemplate.LogRotate = logRotate
+}
+
+func (bac *BackupAgentConfig) SetLogPath(logPath string) {
+	bac.BackupAgentTemplate.LogPath = logPath
 }
 
 func (bac *BackupAgentConfig) UnsetAgentUsername() {

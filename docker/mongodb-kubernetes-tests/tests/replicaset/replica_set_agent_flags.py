@@ -1,7 +1,7 @@
 from typing import Optional
 
 from kubernetes import client
-from kubetester import create_or_update_configmap, find_fixture, random_k8s_name, read_configmap, try_load
+from kubetester import create_or_update_configmap, find_fixture, random_k8s_name, read_configmap, try_load, wait_until
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
@@ -207,6 +207,7 @@ def test_custom_backup_log_path_env_var(replica_set: MongoDB, namespace: str):
 def test_set_log_paths_outside_standard_mount(replica_set: MongoDB, namespace: str):
     """Log paths outside /var/log/mongodb-mms-automation should get their own emptyDir mount."""
     replica_set.load()
+    replica_set["spec"].setdefault("agent", {})
     replica_set["spec"]["agent"]["monitoringAgent"] = {"logFilePath": outside_mount_monitoring_log_path}
     replica_set["spec"]["agent"]["backupAgent"] = {"logFilePath": outside_mount_backup_log_path}
     replica_set.update()
@@ -217,8 +218,16 @@ def test_set_log_paths_outside_standard_mount(replica_set: MongoDB, namespace: s
         pod = f"replica-set-{i}"
         for log_path in expected_paths:
             cmd = ["/bin/sh", "-c", f"test -f {log_path} && echo present || echo missing"]
-            result = KubernetesTester.run_command_in_pod_container(pod, namespace, cmd)
-            assert "present" in result, f"expected log file at {log_path} on {pod}, got: {result!r}"
+
+            def file_present(p=pod, lp=log_path, c=cmd) -> bool:
+                return "present" in KubernetesTester.run_command_in_pod_container(p, namespace, c)
+
+            wait_until(
+                file_present,
+                timeout=400,
+                sleep_time=5,
+                msg=f"log file {log_path} to appear on {pod}",
+            )
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
