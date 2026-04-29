@@ -7,8 +7,8 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -183,7 +183,7 @@ func AddMongoDBSearchController(
 	ctx context.Context,
 	mgr manager.Manager,
 	operatorSearchConfig searchcontroller.OperatorSearchConfig,
-	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
+	memberClusterObjectsMap map[string]cluster.Cluster,
 ) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
