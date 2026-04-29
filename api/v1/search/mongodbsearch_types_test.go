@@ -205,3 +205,45 @@ func TestGetManagedLBEndpointForCluster_NotManaged(t *testing.T) {
 	s.Spec.LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: ""}}
 	assert.Equal(t, "", s.GetManagedLBEndpointForCluster(0))
 }
+
+func TestGetManagedLBEndpointForClusterShard_CrossProduct(t *testing.T) {
+	template := "{clusterName}.{shardName}.lb.example.com:443"
+	clusters := []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}}
+	shards := []string{"shard-0", "shard-1"}
+	s := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{
+			LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: template}},
+			Clusters:     &clusters,
+		},
+	}
+
+	got := make(map[string]struct{})
+	for i := range clusters {
+		for _, sh := range shards {
+			got[s.GetManagedLBEndpointForClusterShard(i, sh)] = struct{}{}
+		}
+	}
+	assert.Len(t, got, 4, "2x2 cross-product should yield 4 distinct hostnames")
+	assert.Contains(t, got, "us-east-k8s.shard-0.lb.example.com:443")
+	assert.Contains(t, got, "us-east-k8s.shard-1.lb.example.com:443")
+	assert.Contains(t, got, "eu-west-k8s.shard-0.lb.example.com:443")
+	assert.Contains(t, got, "eu-west-k8s.shard-1.lb.example.com:443")
+}
+
+func TestGetManagedLBEndpointForClusterShard_ClusterIndex(t *testing.T) {
+	template := "search-{clusterIndex}.{shardName}.lb.example.com:443"
+	clusters := []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}}
+	s := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{
+			LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: template}},
+			Clusters:     &clusters,
+		},
+	}
+	assert.Equal(t, "search-0.shard-a.lb.example.com:443", s.GetManagedLBEndpointForClusterShard(0, "shard-a"))
+	assert.Equal(t, "search-1.shard-b.lb.example.com:443", s.GetManagedLBEndpointForClusterShard(1, "shard-b"))
+}
+
+func TestGetManagedLBEndpointForClusterShard_NotManaged(t *testing.T) {
+	s := &MongoDBSearch{Spec: MongoDBSearchSpec{}}
+	assert.Equal(t, "", s.GetManagedLBEndpointForClusterShard(0, "shard-0"))
+}

@@ -807,6 +807,18 @@ func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
 	return out
 }
 
+// GetManagedLBEndpointForClusterShard returns the externalHostname template with
+// {clusterName}, {clusterIndex}, and {shardName} all resolved for the
+// (spec.clusters[i], shardName) pair. Used for sharded multi-cluster
+// MongoDBSearch deployments. Returns "" when managed LB is not configured.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName string) string {
+	out := s.GetManagedLBEndpointForCluster(i)
+	if out == "" {
+		return ""
+	}
+	return strings.ReplaceAll(out, ShardNamePlaceholder, shardName)
+}
+
 // IsLoadBalancerReady returns true if managed LB is not configured,
 // or if it is configured and its status phase is Running.
 func (s *MongoDBSearch) IsLoadBalancerReady() bool {
