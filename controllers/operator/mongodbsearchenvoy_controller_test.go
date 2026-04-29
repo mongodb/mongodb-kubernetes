@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -373,4 +375,31 @@ func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
 		seen[s] = struct{}{}
 	}
 	assert.Len(t, seen, 4, "per-(cluster, shard) SNIs must all be distinct")
+}
+
+// --- B16 reconciler constructor with member-cluster client maps ---------------
+
+func TestNewMongoDBSearchEnvoyReconciler_AcceptsMemberClusters(t *testing.T) {
+	central := fake.NewClientBuilder().Build()
+	memberA := fake.NewClientBuilder().Build()
+	memberB := fake.NewClientBuilder().Build()
+	members := map[string]client.Client{
+		"us-east-k8s": memberA,
+		"eu-west-k8s": memberB,
+	}
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", members)
+	require.NotNil(t, r)
+	assert.Len(t, r.memberClusterClientsMap, 2)
+	assert.NotNil(t, r.memberClusterClientsMap["us-east-k8s"])
+	assert.NotNil(t, r.memberClusterClientsMap["eu-west-k8s"])
+	assert.Len(t, r.memberClusterSecretClientsMap, 2)
+}
+
+func TestNewMongoDBSearchEnvoyReconciler_NilMembersMap(t *testing.T) {
+	central := fake.NewClientBuilder().Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil)
+	require.NotNil(t, r)
+	assert.Empty(t, r.memberClusterClientsMap)
+	assert.Empty(t, r.memberClusterSecretClientsMap)
 }

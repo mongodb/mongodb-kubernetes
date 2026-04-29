@@ -23,6 +23,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -70,13 +71,31 @@ type MongoDBSearchEnvoyReconciler struct {
 	kubeClient        kubernetesClient.Client
 	watch             *watch.ResourceWatcher
 	defaultEnvoyImage string
+
+	// memberClusterClientsMap is keyed by the member cluster name and holds the
+	// per-cluster Kubernetes client. Empty in single-cluster installs; the
+	// Reconcile path falls back to kubeClient via selectEnvoyClient().
+	memberClusterClientsMap       map[string]kubernetesClient.Client
+	memberClusterSecretClientsMap map[string]secrets.SecretClient
 }
 
-func newMongoDBSearchEnvoyReconciler(client client.Client, defaultEnvoyImage string) *MongoDBSearchEnvoyReconciler {
+func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client) *MongoDBSearchEnvoyReconciler {
+	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
+	secretClientsMap := make(map[string]secrets.SecretClient, len(memberClustersMap))
+	for k, v := range memberClustersMap {
+		clientsMap[k] = kubernetesClient.NewClient(v)
+		secretClientsMap[k] = secrets.SecretClient{
+			VaultClient: nil, // Vault is not supported on multicluster
+			KubeClient:  clientsMap[k],
+		}
+	}
+
 	return &MongoDBSearchEnvoyReconciler{
-		kubeClient:        kubernetesClient.NewClient(client),
-		watch:             watch.NewResourceWatcher(),
-		defaultEnvoyImage: defaultEnvoyImage,
+		kubeClient:                    kubernetesClient.NewClient(c),
+		watch:                         watch.NewResourceWatcher(),
+		defaultEnvoyImage:             defaultEnvoyImage,
+		memberClusterClientsMap:       clientsMap,
+		memberClusterSecretClientsMap: secretClientsMap,
 	}
 }
 
@@ -536,7 +555,7 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.
 
-	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage)
+	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, nil)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("mongodbsearchenvoy").
