@@ -37,9 +37,26 @@ def ops_manager_unmarshalled(
     resource.create_admin_secret(api_client=central_cluster_client)
 
     resource["spec"]["backup"] = {"enabled": False}
+    appdb_cluster_spec_list = cluster_spec_list(appdb_member_cluster_names, [2, 3])
+    # Per-cluster statefulSet override (hostAliases). Verifies that
+    # clusterSpecList[i].statefulSet is merged into the AppDB STS of that cluster.
+    # Only verified at initial create. Later tests rebuild clusterSpecList via
+    # cluster_spec_list(...) and drop this override.
+    for item in appdb_cluster_spec_list:
+        item["statefulSet"] = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "hostAliases": [
+                            {"ip": "127.0.0.1", "hostnames": [f"appdb-{item['clusterName']}.local"]}
+                        ]
+                    }
+                }
+            }
+        }
     resource["spec"]["applicationDatabase"] = {
         "topology": "MultiCluster",
-        "clusterSpecList": cluster_spec_list(appdb_member_cluster_names, [2, 3]),
+        "clusterSpecList": appdb_cluster_spec_list,
         "version": custom_appdb_version,
         "agent": {"logLevel": "DEBUG"},
         "security": {
@@ -85,11 +102,21 @@ def test_patch_central_namespace(namespace: str, central_cluster_client: kuberne
 
 @mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb
-def test_create_om(ops_manager: MongoDBOpsManager):
+def test_create_om(ops_manager: MongoDBOpsManager, appdb_member_cluster_names: list[str]):
     ops_manager.load()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.assert_appdb_preferred_hostnames_are_added()
     ops_manager.assert_appdb_hostnames_are_correct()
+
+    # Verify the per-cluster statefulSet override (hostAliases) set in the fixture
+    # was merged into each cluster's AppDB StatefulSet.
+    for cluster_name in appdb_member_cluster_names:
+        sts = ops_manager.read_appdb_statefulset(member_cluster_name=cluster_name)
+        host_aliases = sts.spec.template.spec.host_aliases or []
+        hostnames = [h for alias in host_aliases for h in (alias.hostnames or [])]
+        assert (
+            f"appdb-{cluster_name}.local" in hostnames
+        ), f"per-cluster hostAlias missing on AppDB STS in {cluster_name}: got {hostnames}"
 
 
 @mark.e2e_multi_cluster_appdb

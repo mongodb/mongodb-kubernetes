@@ -37,6 +37,69 @@ func TestAppDBAgentFlags(t *testing.T) {
 	assert.Contains(t, command[len(command)-1], "-Key1=Value1", "-Key2=Value2")
 }
 
+// TestAppDBMultiClusterPerClusterStatefulSetOverride verifies that a
+// per-cluster StatefulSetConfiguration set on
+// spec.applicationDatabase.clusterSpecList[i].statefulSet is merged into the
+// generated StatefulSet. Specifically asserts hostAliases, since each pod in
+// a multi-cluster AppDB needs to bind its own external FQDN to localhost.
+func TestAppDBMultiClusterPerClusterStatefulSetOverride(t *testing.T) {
+	hostAliasesA := []corev1.HostAlias{{IP: "127.0.0.1", Hostnames: []string{"appdb-a.example.com"}}}
+	hostAliasesB := []corev1.HostAlias{{IP: "127.0.0.1", Hostnames: []string{"appdb-b.example.com"}}}
+
+	clusterSpecList := mdbv1.ClusterSpecList{
+		{
+			ClusterName: "cluster-a",
+			Members:     2,
+			StatefulSetConfiguration: &common.StatefulSetConfiguration{
+				SpecWrapper: common.StatefulSetSpecWrapper{
+					Spec: v1.StatefulSetSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{HostAliases: hostAliasesA},
+						},
+					},
+				},
+			},
+		},
+		{
+			ClusterName: "cluster-b",
+			Members:     1,
+			StatefulSetConfiguration: &common.StatefulSetConfiguration{
+				SpecWrapper: common.StatefulSetSpecWrapper{
+					Spec: v1.StatefulSetSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{HostAliases: hostAliasesB},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	om := omv1.NewOpsManagerBuilderDefault().
+		SetAppDBTopology(omv1.ClusterTopologyMultiCluster).
+		SetAppDBClusterSpecList(clusterSpecList).
+		Build()
+
+	stsA, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
+		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "cluster-a", 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, hostAliasesA, stsA.Spec.Template.Spec.HostAliases)
+
+	stsB, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
+		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "cluster-b", 1, nil), v1.OnDeleteStatefulSetStrategyType, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, hostAliasesB, stsB.Spec.Template.Spec.HostAliases)
+
+	// The per-cluster override only sets hostAliases, so fields set by the base
+	// construction (Replicas, ServiceName) must not be overwritten by the merge.
+	assert.NotNil(t, stsA.Spec.Replicas)
+	assert.Equal(t, int32(2), *stsA.Spec.Replicas)
+	assert.NotEmpty(t, stsA.Spec.ServiceName)
+	assert.NotNil(t, stsB.Spec.Replicas)
+	assert.Equal(t, int32(1), *stsB.Spec.Replicas)
+	assert.NotEmpty(t, stsB.Spec.ServiceName)
+}
+
 func TestResourceRequirements(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	agentResourceRequirements := corev1.ResourceRequirements{
