@@ -179,6 +179,12 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	}
 
 	if firstFailure != nil {
+		// Preserve the worst-of phase computed across clusters; without this branch,
+		// the JSON patch would downgrade Failed → Pending and contradict the
+		// per-cluster entries.
+		if worstPhase == status.PhaseFailed {
+			return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(firstFailure), log)
+		}
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("%s", firstFailure), log)
 	}
 
@@ -298,6 +304,11 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 // deleteEnvoyResources removes the Envoy Deployment and ConfigMap that were
 // created when managed LB was active. This is called exactly once per LB removal,
 // gated by Status.LoadBalancer != nil (cleared immediately after).
+//
+// B16 scope: this still walks only the central cluster. Member-cluster
+// Deployments + ConfigMaps will leak on managed→unmanaged transitions and on
+// CR delete because cross-cluster owner refs do not GC. B12 (graceful drain
+// on cluster removal) extends this to all member clusters in memberClusterClientsMap.
 func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
 	ns := search.Namespace
 

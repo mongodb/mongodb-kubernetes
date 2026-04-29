@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -778,4 +780,130 @@ func TestEnvoyReplicasForCluster_PerClusterOverride(t *testing.T) {
 	}
 	assert.Equal(t, int32(5), envoyReplicasForCluster(search, "us-east-k8s"))
 	assert.Equal(t, int32(2), envoyReplicasForCluster(search, "eu-west-k8s"))
+}
+
+// --- B16 end-to-end Reconcile + status aggregation ---------------------------
+
+// TestReconcile_PerClusterStatus_Aggregated exercises the full Reconcile path:
+// two clusters in spec.clusters[]; one is a member registered with the operator
+// (succeeds), the other isn't (Pending). The status.loadBalancer.clusters slice
+// must hold one entry per cluster, and the aggregated top-level Phase must be
+// the worst-of (Pending here).
+func TestReconcile_PerClusterStatus_Aggregated(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mdb-search",
+			Namespace: "ns",
+			UID:       "abc",
+		},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					HostAndPorts: []string{"mongo-0:27017"},
+				},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{
+					ExternalHostname: "mongot-{clusterName}.example.com",
+				},
+			},
+			Clusters: &[]searchv1.ClusterSpec{
+				{ClusterName: "a"},
+				{ClusterName: "missing"},
+			},
+		},
+	}
+
+	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
+
+	res, err := r.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"},
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Requeue)
+
+	// Re-fetch to see the patched status.
+	patched := &searchv1.MongoDBSearch{}
+	require.NoError(t, central.Get(context.Background(),
+		types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
+	require.NotNil(t, patched.Status.LoadBalancer, "status.loadBalancer must be populated")
+	assert.Equal(t, status.PhasePending, patched.Status.LoadBalancer.Phase, "worst-of (Running, Pending) is Pending")
+	require.Len(t, patched.Status.LoadBalancer.Clusters, 2, "one per-cluster status entry per spec.clusters[i]")
+
+	byName := map[string]searchv1.ClusterLoadBalancerStatus{}
+	for _, c := range patched.Status.LoadBalancer.Clusters {
+		byName[c.ClusterName] = c
+	}
+	assert.Equal(t, status.PhaseRunning, byName["a"].Phase)
+	assert.Equal(t, status.PhasePending, byName["missing"].Phase)
+
+	// And cluster "a" actually got its Deployment + ConfigMap in the member-cluster client.
+	require.NoError(t, memberA.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster("a"), Namespace: "ns"}, &appsv1.Deployment{}))
+	require.NoError(t, memberA.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster("a"), Namespace: "ns"}, &corev1.ConfigMap{}))
+}
+
+// TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed asserts that when a
+// per-cluster reconcile returns workflow.Failed, the aggregated top-level
+// phase patched onto status.loadBalancer is Failed (not Pending). Without
+// this guard, all errors would be downgraded to Pending in the final write.
+func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
+	scheme := envoyTestScheme(t)
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					HostAndPorts: []string{"mongo-0:27017"},
+				},
+			},
+			LoadBalancer: &searchv1.LoadBalancerConfig{
+				Managed: &searchv1.ManagedLBConfig{
+					ExternalHostname: "mongot-{clusterName}.example.com",
+				},
+			},
+			Clusters: &[]searchv1.ClusterSpec{{ClusterName: "a"}},
+		},
+	}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+	// Member client is a fake that fails every write — drives Failed.
+	memberA := failingWriteClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
+
+	_, err := r.Reconcile(context.Background(), reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"},
+	})
+	require.NoError(t, err)
+
+	patched := &searchv1.MongoDBSearch{}
+	require.NoError(t, central.Get(context.Background(),
+		types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
+	require.NotNil(t, patched.Status.LoadBalancer)
+	assert.Equal(t, status.PhaseFailed, patched.Status.LoadBalancer.Phase,
+		"all-Failed clusters must aggregate to top-level Failed, not Pending")
+}
+
+// failingWriteClient wraps a client.Client and rejects every write so we can
+// simulate a per-cluster Failed status without needing a real envtest.
+type failingWriteClient struct {
+	client.Client
+}
+
+func (f failingWriteClient) Create(_ context.Context, _ client.Object, _ ...client.CreateOption) error {
+	return fmt.Errorf("simulated write failure")
+}
+
+func (f failingWriteClient) Update(_ context.Context, _ client.Object, _ ...client.UpdateOption) error {
+	return fmt.Errorf("simulated write failure")
+}
+
+func (f failingWriteClient) Patch(_ context.Context, _ client.Object, _ client.Patch, _ ...client.PatchOption) error {
+	return fmt.Errorf("simulated write failure")
 }
