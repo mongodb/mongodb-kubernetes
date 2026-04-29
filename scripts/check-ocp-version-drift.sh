@@ -13,6 +13,11 @@
 #                          Useful for testing without a live OCP cluster.
 #                          Example: --actual-version 4.21
 #
+# Environment:
+#   REMOTE                 Git remote to push to and create the PR against.
+#                          Defaults to "origin".  Set to e.g. "mongodb" when
+#                          testing against an upstream remote from a fork.
+#
 # Prerequisites (normal mode): oc (already logged in), jq, gh (authenticated via GH_TOKEN)
 # Prerequisites (dry-run + --actual-version): jq
 
@@ -21,6 +26,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${CONFIG_FILE:-${PROJECT_ROOT}/kubernetes-versions.json}"
+REMOTE="${REMOTE:-origin}"
 
 # --- argument parsing --------------------------------------------------------
 
@@ -85,10 +91,18 @@ get_actual_minor() {
     echo "${full_ver}" | cut -d. -f1,2
 }
 
+remote_repo() {
+    local url
+    url=$(git remote get-url "${REMOTE}") \
+        || die "git remote get-url ${REMOTE} failed (is the remote configured?)"
+    echo "${url}" | sed -E 's#.*[:/]([^/]+/[^/]+?)(\.git)?$#\1#'
+}
+
 find_open_drift_pr() {
     # Returns "<number>\t<title>\t<url>" for the first matching open PR, or empty.
-    local raw
-    raw=$(gh pr list --state open --limit 100 --json number,title,url) \
+    local raw repo
+    repo=$(remote_repo)
+    raw=$(gh pr list --repo "${repo}" --state open --limit 100 --json number,title,url) \
         || die "gh pr list failed"
     echo "${raw}" | jq -r \
         '.[] | select(.title | test("openshift.*version|ocp.*version|update.*ocp|update.*openshift"; "i")) | "\(.number)\t\(.title)\t\(.url)"' \
@@ -107,8 +121,11 @@ create_update_pr() {
     log "creating update PR for OpenShift ${new_minor}"
     cd "${PROJECT_ROOT}"
 
-    git fetch origin master --quiet || die "git fetch origin master failed"
-    git checkout -b "${branch}" origin/master
+    local repo
+    repo=$(remote_repo)
+
+    git fetch "${REMOTE}" master --quiet || die "git fetch ${REMOTE} master failed"
+    git checkout -b "${branch}" "${REMOTE}/master"
 
     local tmp
     tmp=$(mktemp)
@@ -121,9 +138,10 @@ create_update_pr() {
 The OpenShift cluster now runs ${new_minor} but kubernetes-versions.json still
 recorded the old minor version.  This automated commit keeps the file in sync."
 
-    git push origin "${branch}"
+    git push "${REMOTE}" "${branch}"
 
     gh pr create \
+        --repo "${repo}" \
         --title "Update OpenShift version to ${new_minor} in kubernetes-versions.json" \
         --body "$(cat <<EOF
 ## Summary
