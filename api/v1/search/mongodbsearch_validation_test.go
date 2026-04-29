@@ -188,6 +188,40 @@ func TestValidateX509AuthConfig(t *testing.T) {
 	}
 }
 
+func TestValidateClustersSyncSourceSelector(t *testing.T) {
+	tests := []struct {
+		name          string
+		selector      *SyncSourceSelector
+		errorContains string
+	}{
+		{name: "nil selector", selector: nil},
+		{name: "matchTags only", selector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
+		{name: "hosts only", selector: &SyncSourceSelector{Hosts: []string{"mongo-1:27017"}}},
+		{
+			name:          "both set rejected",
+			selector:      &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}, Hosts: []string{"mongo-1:27017"}},
+			errorContains: "mutually exclusive",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec: MongoDBSearchSpec{
+					Clusters: &[]ClusterSpec{{ClusterName: "us-east-k8s", SyncSourceSelector: tt.selector}},
+				},
+			}
+			res := validateClustersSyncSourceSelector(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
+}
+
 func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTLS, isLBManaged bool) *MongoDBSearch {
 	search := &MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-namespace"},

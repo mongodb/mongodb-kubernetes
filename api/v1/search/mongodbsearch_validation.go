@@ -47,6 +47,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateShardNames,
 		validateJVMFlags,
 		validateX509AuthConfig,
+		validateClustersSyncSourceSelector,
 	}
 
 	var results []v1.ValidationResult
@@ -303,6 +304,28 @@ func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationError("x509 and password authentication are mutually exclusive: spec.source.x509 and spec.source.username cannot both be set")
 	}
 
+	return v1.ValidationSuccess()
+}
+
+// validateClustersSyncSourceSelector enforces the at-most-one matchTags/hosts rule
+// for every entry in spec.clusters. The "exactly one when len(clusters) > 1" rule
+// lives in B13 (it depends on cluster-count semantics that aren't B14's scope).
+func validateClustersSyncSourceSelector(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil {
+		return v1.ValidationSuccess()
+	}
+	for i, c := range *s.Spec.Clusters {
+		sel := c.SyncSourceSelector
+		if sel == nil {
+			continue
+		}
+		if len(sel.MatchTags) > 0 && len(sel.Hosts) > 0 {
+			return v1.ValidationError(
+				"spec.clusters[%d].syncSourceSelector: matchTags and hosts are mutually exclusive",
+				i,
+			)
+		}
+	}
 	return v1.ValidationSuccess()
 }
 
