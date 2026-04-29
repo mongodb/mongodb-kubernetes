@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# scripts/mckctl — build mckctl from source if stale, then exec it.
+#
+# Lets users invoke `scripts/mckctl release pr ...` without remembering to
+# rebuild after pulling. Go's build cache makes incremental rebuilds near
+# instant; only the first build is slow.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+go build -o bin/mckctl ./cmd/mckctl
+exec ./bin/mckctl "$@"
