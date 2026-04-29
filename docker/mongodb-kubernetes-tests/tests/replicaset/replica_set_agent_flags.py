@@ -175,12 +175,8 @@ def test_log_types_with_audit_enabled(replica_set: MongoDB):
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_set_custom_monitoring_and_backup_log_paths(replica_set: MongoDB):
     replica_set.load()
-    replica_set["spec"]["agent"]["monitoringAgent"] = {
-        "logFilePath": custom_monitoring_log_path,
-    }
-    replica_set["spec"]["agent"]["backupAgent"] = {
-        "logFilePath": custom_backup_log_path,
-    }
+    replica_set["spec"]["agent"]["monitoringAgent"] = {"logFilePath": custom_monitoring_log_path}
+    replica_set["spec"]["agent"]["backupAgent"] = {"logFilePath": custom_backup_log_path}
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
@@ -211,7 +207,6 @@ def test_custom_backup_log_path_env_var(replica_set: MongoDB, namespace: str):
 def test_set_log_paths_outside_standard_mount(replica_set: MongoDB, namespace: str):
     """Log paths outside /var/log/mongodb-mms-automation should get their own emptyDir mount."""
     replica_set.load()
-    replica_set["spec"].setdefault("agent", {})
     replica_set["spec"]["agent"]["monitoringAgent"] = {"logFilePath": outside_mount_monitoring_log_path}
     replica_set["spec"]["agent"]["backupAgent"] = {"logFilePath": outside_mount_backup_log_path}
     replica_set.update()
@@ -240,7 +235,6 @@ def test_set_log_paths_inside_existing_data_mount(replica_set: MongoDB, namespac
     mount (here /data) should not need a new emptyDir. The agent writes into the
     existing volume naturally and no agent-log volume should be added to the pod."""
     replica_set.load()
-    replica_set["spec"].setdefault("agent", {})
     replica_set["spec"]["agent"]["monitoringAgent"] = {"logFilePath": inside_data_monitoring_log_path}
     replica_set["spec"]["agent"]["backupAgent"] = {"logFilePath": inside_data_backup_log_path}
     replica_set.update()

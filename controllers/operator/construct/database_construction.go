@@ -455,6 +455,11 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		volumes, volumeMounts = GetNonPersistentMongoDBVolumeMounts(volumes, volumeMounts)
 	}
 
+	// Run after persistence mounts so /data, /journal and the standard logs mount are visible to the overlap check.
+	customLogVolumes, customLogVolumeMounts := getCustomLogVolumeMounts(opts.AgentConfig, volumeMounts)
+	volumes = append(volumes, customLogVolumes...)
+	volumeMounts = append(volumeMounts, customLogVolumeMounts...)
+
 	volumesFunc := func(spec *corev1.PodTemplateSpec) {
 		for _, v := range volumes {
 			podtemplatespec.WithVolume(v)(spec)
@@ -717,10 +722,6 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 
 	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts)
 
-	customLogVolumes, customLogVolumeMounts := getCustomLogVolumeMounts(databaseOpts.AgentConfig, volumeMounts)
-	volumesToAdd = append(volumesToAdd, customLogVolumes...)
-	volumeMounts = append(volumeMounts, customLogVolumeMounts...)
-
 	return volumesToAdd, volumeMounts
 }
 
@@ -753,13 +754,10 @@ func getCustomLogVolumeMounts(agentConfig *mdbv1.AgentConfig, existingMounts []c
 	return volumes, mounts
 }
 
-// customLogDir returns the parent dir of logFilePath, or "" when it already falls
-// under util.PvcMountPathLogs (appended later by the caller) or any existingMount.
+// customLogDir returns the parent dir of logFilePath, or "" when that dir is
+// already covered by an existing operator-managed volume mount.
 func customLogDir(logFilePath string, existingMounts []corev1.VolumeMount) string {
 	dir := path.Dir(logFilePath)
-	if dir == util.PvcMountPathLogs || strings.HasPrefix(dir, util.PvcMountPathLogs+"/") {
-		return ""
-	}
 	for _, vm := range existingMounts {
 		if dir == vm.MountPath || strings.HasPrefix(dir, vm.MountPath+"/") {
 			return ""
