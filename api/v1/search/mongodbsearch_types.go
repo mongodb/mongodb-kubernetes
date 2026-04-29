@@ -68,18 +68,30 @@ type MongoDBSearchSpec struct {
 	// For Sharded source: the number mongot pods per shard.
 	// When Replicas > 1, a load balancer configuration (spec.loadBalancer)
 	// is required to distribute traffic across mongot instances.
+	//
+	// Deprecated: use spec.clusters[].replicas instead. Auto-promoted to
+	// spec.clusters[0].replicas when spec.clusters is omitted (B18).
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:default=1
 	Replicas int `json:"replicas,omitempty"`
 	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
 	// which aren't exposed as fields in the MongoDBSearch.spec.
+	//
+	// Deprecated: use spec.clusters[].statefulSet instead. Auto-promoted to
+	// spec.clusters[0].statefulSet when spec.clusters is omitted (B18).
 	// +optional
 	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
+	//
+	// Deprecated: use spec.clusters[].persistence instead. Auto-promoted to
+	// spec.clusters[0].persistence when spec.clusters is omitted (B18).
 	// +optional
 	Persistence *common.Persistence `json:"persistence,omitempty"`
 	// Configure resource requests and limits for the MongoDB Search pods.
+	//
+	// Deprecated: use spec.clusters[].resourceRequirements instead. Auto-promoted
+	// to spec.clusters[0].resourceRequirements when spec.clusters is omitted (B18).
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
 	// Configure security settings of the MongoDB Search server that MongoDB database is connecting to when performing search queries.
@@ -97,10 +109,96 @@ type MongoDBSearchSpec struct {
 	// +optional
 	AutoEmbedding *EmbeddingConfig `json:"autoEmbedding,omitempty"`
 	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
+	// Top-level spec.loadBalancer.managed.* serves as the default for every entry in spec.clusters;
+	// per-cluster overrides deep-merge into this template (see spec.clusters[].loadBalancer.managed).
+	// spec.loadBalancer.unmanaged is top-level only — there is no per-cluster form.
 	// +optional
 	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
 	// JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
+	// Top-level spec.jvmFlags serves as the default; spec.clusters[].jvmFlags replaces (not merges) it for that cluster.
 	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
+	// +optional
+	JVMFlags []string `json:"jvmFlags,omitempty"`
+	// Clusters is the per-cluster distribution shape. Required for multi-cluster
+	// deployments (len > 1); when omitted, the reconciler defaults it to a single
+	// entry built from the top-level fields (B18 — not yet implemented). Pointer-of-slice
+	// so omitted vs. empty is distinguishable.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="self.all(c1, self.exists_one(c2, c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be unique"
+	Clusters *[]ClusterSpec `json:"clusters,omitempty"`
+}
+
+// SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
+// At-most-one of MatchTags or Hosts may be set; the cross-field rule that
+// requires exactly one when len(spec.clusters) > 1 lives in B13.
+// +kubebuilder:validation:XValidation:rule="!(has(self.matchTags) && has(self.hosts))",message="syncSourceSelector.matchTags and syncSourceSelector.hosts are mutually exclusive"
+type SyncSourceSelector struct {
+	// MatchTags renders into mongot's readPreferenceTags; the operator picks
+	// sync-source members whose replSetConfig tags match.
+	// +optional
+	MatchTags map[string]string `json:"matchTags,omitempty"`
+	// Hosts is an explicit list of host:port sync-source members.
+	// Mutually exclusive with MatchTags.
+	// +optional
+	Hosts []string `json:"hosts,omitempty"`
+}
+
+// PerClusterLoadBalancerConfig narrows LoadBalancerConfig to the subset that
+// is overridable per-cluster: only Managed sub-fields. Unmanaged is top-level only.
+type PerClusterLoadBalancerConfig struct {
+	// Managed deep-merges into the top-level spec.loadBalancer.managed for this cluster.
+	// +optional
+	Managed *ManagedLBConfig `json:"managed,omitempty"`
+}
+
+// ShardOverride lets sharded MongoDBSearch deployments tune one or more shards
+// beyond the per-cluster defaults. Only valid for sharded sources (the source-aware
+// admission rule lives in B13).
+type ShardOverride struct {
+	// ShardNames is the set of shard names this override applies to.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	ShardNames []string `json:"shardNames"`
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Replicas *int32 `json:"replicas,omitempty"`
+	// +optional
+	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// +optional
+	Persistence *common.Persistence `json:"persistence,omitempty"`
+	// +optional
+	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+}
+
+// ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
+// when len(spec.clusters) > 1 (B13); optional in the single-cluster degenerate case.
+// All other fields override the corresponding top-level value when set; nil/omitted inherits.
+type ClusterSpec struct {
+	// ClusterName is the Kubernetes cluster name. Required and immutable
+	// when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
+	// +optional
+	ClusterName string `json:"clusterName,omitempty"`
+	// Replicas overrides spec.replicas for this cluster's mongot StatefulSet.
+	// For sharded sources, this is mongot pods per shard, not total.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Replicas *int32 `json:"replicas,omitempty"`
+	// +optional
+	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// +optional
+	Persistence *common.Persistence `json:"persistence,omitempty"`
+	// +optional
+	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// +optional
+	SyncSourceSelector *SyncSourceSelector `json:"syncSourceSelector,omitempty"`
+	// LoadBalancer per-cluster override; deep-merged into spec.loadBalancer.managed.
+	// Only managed sub-fields are overridable per-cluster.
+	// +optional
+	LoadBalancer *PerClusterLoadBalancerConfig `json:"loadBalancer,omitempty"`
+	// ShardOverrides applies only to sharded sources.
+	// +optional
+	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
+	// JVMFlags overrides spec.jvmFlags for this cluster's mongot pods. Replace, not merge.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
 }
