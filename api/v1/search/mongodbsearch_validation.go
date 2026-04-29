@@ -48,6 +48,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateJVMFlags,
 		validateX509AuthConfig,
 		validateClustersSyncSourceSelector,
+		validateClustersShardOverrides,
 	}
 
 	var results []v1.ValidationResult
@@ -324,6 +325,26 @@ func validateClustersSyncSourceSelector(s *MongoDBSearch) v1.ValidationResult {
 				"spec.clusters[%d].syncSourceSelector: matchTags and hosts are mutually exclusive",
 				i,
 			)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateClustersShardOverrides enforces shardNames non-empty per ShardOverride.
+// Whether shardOverrides[] is allowed at all (only sharded sources) is a B13
+// source-aware rule and lives outside B14.
+func validateClustersShardOverrides(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil {
+		return v1.ValidationSuccess()
+	}
+	for i, c := range *s.Spec.Clusters {
+		for j, ov := range c.ShardOverrides {
+			if len(ov.ShardNames) == 0 {
+				return v1.ValidationError(
+					"spec.clusters[%d].shardOverrides[%d].shardNames must have at least one entry",
+					i, j,
+				)
+			}
 		}
 	}
 	return v1.ValidationSuccess()
