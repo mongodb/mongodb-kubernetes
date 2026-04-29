@@ -395,6 +395,126 @@ func TestValidateMCExternalHostnamePlaceholders(t *testing.T) {
 	}
 }
 
+func TestValidateExternalHostnameDNSLength(t *testing.T) {
+	mkSearch := func(template string, clusters []ClusterSpec, shardNames []string) *MongoDBSearch {
+		s := &MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+			Spec: MongoDBSearchSpec{
+				LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: template}},
+			},
+		}
+		if clusters != nil {
+			cs := clusters
+			s.Spec.Clusters = &cs
+		}
+		if shardNames != nil {
+			shards := make([]ExternalShardConfig, 0, len(shardNames))
+			for _, sn := range shardNames {
+				shards = append(shards, ExternalShardConfig{ShardName: sn, Hosts: []string{"h:27017"}})
+			}
+			s.Spec.Source = &MongoDBSource{
+				ExternalMongoDBSource: &ExternalMongoDBSource{
+					ShardedCluster: &ExternalShardedClusterConfig{
+						Router: ExternalRouterConfig{Hosts: []string{"mongos.example.com:27017"}},
+						Shards: shards,
+					},
+				},
+			}
+		}
+		return s
+	}
+
+	// Build a > 63-char label.
+	longLabel := strings.Repeat("a", 64)
+
+	// Build a > 253-char total host: 4 labels of 60 chars each separated by dots = 4*60 + 3 = 243 (<253),
+	// so use longer labels to overflow. 5 labels of 60 chars: 5*60 + 4 = 304 > 253.
+	longClusterLabel := strings.Repeat("c", 60)
+
+	tests := []struct {
+		name          string
+		template      string
+		clusters      []ClusterSpec
+		shardNames    []string
+		errorContains string
+	}{
+		{
+			name:     "short hostname RS legacy passes",
+			template: "search.lb.example.com:443",
+		},
+		{
+			name:     "short hostname MC RS passes",
+			template: "{clusterName}.search-lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+		},
+		{
+			name:       "short hostname MC sharded passes",
+			template:   "{clusterName}.{shardName}.lb.example.com:443",
+			clusters:   []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+			shardNames: []string{"shard-0", "shard-1"},
+		},
+		{
+			name:          "DNS label > 63 after substitution rejected",
+			template:      "{clusterName}.lb.example.com:443",
+			clusters:      []ClusterSpec{{ClusterName: longLabel}, {ClusterName: "ok"}},
+			errorContains: "invalid DNS subdomain",
+		},
+		{
+			// Each label fits 63, but the FQDN exceeds 253 after substitution.
+			// 4 x 60-char labels + 4 dots = 244; plus "{clusterName}." (60+1=61) and tail (suffix) bring it well over 253.
+			name:     "FQDN > 253 after cross-product rejected",
+			template: "{clusterName}." + strings.Repeat("a", 60) + "." + strings.Repeat("b", 60) + "." + strings.Repeat("c", 60) + "." + strings.Repeat("d", 60) + ".lb.example.com:443",
+			clusters: []ClusterSpec{
+				{ClusterName: longClusterLabel},
+				{ClusterName: "ok"},
+			},
+			errorContains: "invalid DNS subdomain",
+		},
+		{
+			name:     "single-cluster legacy with literal hostname passes",
+			template: "search.lb.example.com:443",
+			clusters: nil,
+		},
+		{
+			name:     "single-entry clusters substitutes and validates",
+			template: "{clusterName}.lb.example.com:443",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}},
+		},
+		{
+			name:     "no managed LB returns success",
+			template: "",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+		},
+		{
+			name:          "empty host after port-stripping rejected",
+			template:      ":443",
+			clusters:      nil,
+			errorContains: "empty host",
+		},
+		{
+			name:     "no port present validates whole string as host",
+			template: "{clusterName}.lb.example.com",
+			clusters: []ClusterSpec{{ClusterName: "us-east-k8s"}, {ClusterName: "eu-west-k8s"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := mkSearch(tt.template, tt.clusters, tt.shardNames)
+			if tt.template == "" {
+				s.Spec.LoadBalancer = nil
+			}
+			res := validateExternalHostnameDNSLength(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level, "expected error, got %+v", res)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level, "expected success, got %+v", res)
+			}
+		})
+	}
+}
+
 func newSearch(name string, shards []ExternalShardConfig, tlsPrefix string, isTLS, isLBManaged bool) *MongoDBSearch {
 	search := &MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-namespace"},

@@ -51,6 +51,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateClustersSyncSourceSelector,
 		validateClustersShardOverrides,
 		validateMCExternalHostnamePlaceholders,
+		validateExternalHostnameDNSLength,
 	}
 
 	var results []v1.ValidationResult
@@ -412,6 +413,92 @@ func validateMCExternalHostnamePlaceholders(s *MongoDBSearch) v1.ValidationResul
 			"spec.loadBalancer.managed.externalHostname must contain %s for multi-cluster sharded deployments",
 			ShardNamePlaceholder,
 		)
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateExternalHostnameDNSLength validates that every resolved
+// (cluster, shard) cross-product hostname is a valid RFC 1123 subdomain
+// (FQDN <= 253 chars, each label <= 63 chars). The host portion is the
+// substring before the last ":" (port stripped); if no ":" is present the
+// entire string is the host. Iterates spec.clusters[] x
+// spec.source.external.shardedCluster.shards[] (either may be empty).
+func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+		return v1.ValidationSuccess()
+	}
+
+	var clusterCount int
+	if s.Spec.Clusters != nil {
+		clusterCount = len(*s.Spec.Clusters)
+	}
+
+	var shardNames []string
+	if s.IsExternalSourceSharded() {
+		for _, sh := range s.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
+			shardNames = append(shardNames, sh.ShardName)
+		}
+	}
+
+	check := func(host string) v1.ValidationResult {
+		h := host
+		if idx := strings.LastIndex(h, ":"); idx >= 0 {
+			h = h[:idx]
+		}
+		if len(h) == 0 {
+			return v1.ValidationError(
+				"spec.loadBalancer.managed.externalHostname resolves to an empty host: %q",
+				host,
+			)
+		}
+		// IsDNS1123Subdomain caps the FQDN at 253 chars and enforces the
+		// overall regex, but does *not* enforce the per-label 63-char limit.
+		// Walk the labels separately so a single oversized cluster/shard label trips here.
+		if errs := validation.IsDNS1123Subdomain(h); len(errs) > 0 {
+			return v1.ValidationError(
+				"spec.loadBalancer.managed.externalHostname resolves to an invalid DNS subdomain %q: %s",
+				h, strings.Join(errs, ", "),
+			)
+		}
+		for _, label := range strings.Split(h, ".") {
+			if errs := validation.IsDNS1123Label(label); len(errs) > 0 {
+				return v1.ValidationError(
+					"spec.loadBalancer.managed.externalHostname resolves to an invalid DNS subdomain %q: label %q: %s",
+					h, label, strings.Join(errs, ", "),
+				)
+			}
+		}
+		return v1.ValidationSuccess()
+	}
+
+	// Legacy / single-cluster (no spec.clusters): no cluster substitution.
+	if clusterCount == 0 {
+		base := s.Spec.LoadBalancer.Managed.ExternalHostname
+		if len(shardNames) == 0 {
+			return check(base)
+		}
+		for _, sn := range shardNames {
+			if res := check(strings.ReplaceAll(base, ShardNamePlaceholder, sn)); res.Level == v1.ErrorLevel {
+				return res
+			}
+		}
+		return v1.ValidationSuccess()
+	}
+
+	// Multi-cluster (clusterCount >= 1): substitute per cluster, then per shard.
+	for i := 0; i < clusterCount; i++ {
+		base := s.GetManagedLBEndpointForCluster(i)
+		if len(shardNames) == 0 {
+			if res := check(base); res.Level == v1.ErrorLevel {
+				return res
+			}
+			continue
+		}
+		for _, sn := range shardNames {
+			if res := check(strings.ReplaceAll(base, ShardNamePlaceholder, sn)); res.Level == v1.ErrorLevel {
+				return res
+			}
+		}
 	}
 	return v1.ValidationSuccess()
 }
