@@ -180,8 +180,11 @@ spec:
                       logFilePath:
                         description: |-
                           LogFilePath configures the log file path for the backup agent.
+                          If the parent directory overlaps a user-defined podTemplate volume mount,
+                          the operator's emptyDir for this log path would shadow it.
+                          Not supported for the AppDB agent.
                           Default: /var/log/mongodb-mms-automation/backup-agent.log
-                        pattern: ^/[a-zA-Z0-9/_\-.]+$
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                         type: string
                       logRotate:
                         description: LogRotate configures log rotation for the BackupAgent
@@ -327,8 +330,11 @@ spec:
                       logFilePath:
                         description: |-
                           LogFilePath configures the log file path for the monitoring agent.
+                          If the parent directory overlaps a user-defined podTemplate volume mount,
+                          the operator's emptyDir for this log path would shadow it.
+                          Not supported for the AppDB agent.
                           Default: /var/log/mongodb-mms-automation/monitoring-agent.log
-                        pattern: ^/[a-zA-Z0-9/_\-.]+$
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                         type: string
                       logRotate:
                         description: LogRotate configures log rotation for the MonitoringAgent
@@ -533,8 +539,11 @@ spec:
                           logFilePath:
                             description: |-
                               LogFilePath configures the log file path for the backup agent.
+                              If the parent directory overlaps a user-defined podTemplate volume mount,
+                              the operator's emptyDir for this log path would shadow it.
+                              Not supported for the AppDB agent.
                               Default: /var/log/mongodb-mms-automation/backup-agent.log
-                            pattern: ^/[a-zA-Z0-9/_\-.]+$
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
@@ -682,8 +691,11 @@ spec:
                           logFilePath:
                             description: |-
                               LogFilePath configures the log file path for the monitoring agent.
+                              If the parent directory overlaps a user-defined podTemplate volume mount,
+                              the operator's emptyDir for this log path would shadow it.
+                              Not supported for the AppDB agent.
                               Default: /var/log/mongodb-mms-automation/monitoring-agent.log
-                            pattern: ^/[a-zA-Z0-9/_\-.]+$
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
@@ -1066,8 +1078,11 @@ spec:
                           logFilePath:
                             description: |-
                               LogFilePath configures the log file path for the backup agent.
+                              If the parent directory overlaps a user-defined podTemplate volume mount,
+                              the operator's emptyDir for this log path would shadow it.
+                              Not supported for the AppDB agent.
                               Default: /var/log/mongodb-mms-automation/backup-agent.log
-                            pattern: ^/[a-zA-Z0-9/_\-.]+$
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
@@ -1215,8 +1230,11 @@ spec:
                           logFilePath:
                             description: |-
                               LogFilePath configures the log file path for the monitoring agent.
+                              If the parent directory overlaps a user-defined podTemplate volume mount,
+                              the operator's emptyDir for this log path would shadow it.
+                              Not supported for the AppDB agent.
                               Default: /var/log/mongodb-mms-automation/monitoring-agent.log
-                            pattern: ^/[a-zA-Z0-9/_\-.]+$
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
@@ -1906,8 +1924,11 @@ spec:
                           logFilePath:
                             description: |-
                               LogFilePath configures the log file path for the backup agent.
+                              If the parent directory overlaps a user-defined podTemplate volume mount,
+                              the operator's emptyDir for this log path would shadow it.
+                              Not supported for the AppDB agent.
                               Default: /var/log/mongodb-mms-automation/backup-agent.log
-                            pattern: ^/[a-zA-Z0-9/_\-.]+$
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
@@ -2055,8 +2076,11 @@ spec:
                           logFilePath:
                             description: |-
                               LogFilePath configures the log file path for the monitoring agent.
+                              If the parent directory overlaps a user-defined podTemplate volume mount,
+                              the operator's emptyDir for this log path would shadow it.
+                              Not supported for the AppDB agent.
                               Default: /var/log/mongodb-mms-automation/monitoring-agent.log
-                            pattern: ^/[a-zA-Z0-9/_\-.]+$
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
@@ -2265,8 +2289,11 @@ spec:
                             logFilePath:
                               description: |-
                                 LogFilePath configures the log file path for the backup agent.
+                                If the parent directory overlaps a user-defined podTemplate volume mount,
+                                the operator's emptyDir for this log path would shadow it.
+                                Not supported for the AppDB agent.
                                 Default: /var/log/mongodb-mms-automation/backup-agent.log
-                              pattern: ^/[a-zA-Z0-9/_\-.]+$
+                              pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                               type: string
                             logRotate:
                               description: LogRotate configures log rotation for the
@@ -2416,8 +2443,11 @@ spec:
                             logFilePath:
                               description: |-
                                 LogFilePath configures the log file path for the monitoring agent.
+                                If the parent directory overlaps a user-defined podTemplate volume mount,
+                                the operator's emptyDir for this log path would shadow it.
+                                Not supported for the AppDB agent.
                                 Default: /var/log/mongodb-mms-automation/monitoring-agent.log
-                              pattern: ^/[a-zA-Z0-9/_\-.]+$
+                              pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                               type: string
                             logRotate:
                               description: LogRotate configures log rotation for the
@@ -3084,8 +3114,11 @@ spec:
                       logFilePath:
                         description: |-
                           LogFilePath configures the log file path for the backup agent.
+                          If the parent directory overlaps a user-defined podTemplate volume mount,
+                          the operator's emptyDir for this log path would shadow it.
+                          Not supported for the AppDB agent.
                           Default: /var/log/mongodb-mms-automation/backup-agent.log
-                        pattern: ^/[a-zA-Z0-9/_\-.]+$
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                         type: string
                       logRotate:
                         description: LogRotate configures log rotation for the BackupAgent
@@ -3231,8 +3264,11 @@ spec:
                       logFilePath:
                         description: |-
                           LogFilePath configures the log file path for the monitoring agent.
+                          If the parent directory overlaps a user-defined podTemplate volume mount,
+                          the operator's emptyDir for this log path would shadow it.
+                          Not supported for the AppDB agent.
                           Default: /var/log/mongodb-mms-automation/monitoring-agent.log
-                        pattern: ^/[a-zA-Z0-9/_\-.]+$
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                         type: string
                       logRotate:
                         description: LogRotate configures log rotation for the MonitoringAgent
@@ -4914,8 +4950,11 @@ spec:
                           logFilePath:
                             description: |-
                               LogFilePath configures the log file path for the backup agent.
+                              If the parent directory overlaps a user-defined podTemplate volume mount,
+                              the operator's emptyDir for this log path would shadow it.
+                              Not supported for the AppDB agent.
                               Default: /var/log/mongodb-mms-automation/backup-agent.log
-                            pattern: ^/[a-zA-Z0-9/_\-.]+$
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
@@ -5063,8 +5102,11 @@ spec:
                           logFilePath:
                             description: |-
                               LogFilePath configures the log file path for the monitoring agent.
+                              If the parent directory overlaps a user-defined podTemplate volume mount,
+                              the operator's emptyDir for this log path would shadow it.
+                              Not supported for the AppDB agent.
                               Default: /var/log/mongodb-mms-automation/monitoring-agent.log
-                            pattern: ^/[a-zA-Z0-9/_\-.]+$
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           logRotate:
                             description: LogRotate configures log rotation for the

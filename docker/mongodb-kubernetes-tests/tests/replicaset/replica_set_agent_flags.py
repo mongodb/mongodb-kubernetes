@@ -12,8 +12,12 @@ custom_agent_log_path = "/var/log/mongodb-mms-automation/customLogFile"
 custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogFile"
 custom_monitoring_log_path = "/var/log/mongodb-mms-automation/custom-monitoring-agent.log"
 custom_backup_log_path = "/var/log/mongodb-mms-automation/custom-backup-agent.log"
+
 outside_mount_monitoring_log_path = "/agent-logs/monitoring-agent.log"
 outside_mount_backup_log_path = "/agent-logs/backup-agent.log"
+
+inside_data_monitoring_log_path = "/data/agent-logs/monitoring-agent.log"
+inside_data_backup_log_path = "/data/agent-logs/backup-agent.log"
 
 
 @fixture(scope="module")
@@ -228,6 +232,42 @@ def test_set_log_paths_outside_standard_mount(replica_set: MongoDB, namespace: s
                 sleep_time=5,
                 msg=f"log file {log_path} to appear on {pod}",
             )
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_set_log_paths_inside_existing_data_mount(replica_set: MongoDB, namespace: str):
+    """Log paths whose parent dir is already covered by an existing operator-managed
+    mount (here /data) should not need a new emptyDir. The agent writes into the
+    existing volume naturally and no agent-log volume should be added to the pod."""
+    replica_set.load()
+    replica_set["spec"].setdefault("agent", {})
+    replica_set["spec"]["agent"]["monitoringAgent"] = {"logFilePath": inside_data_monitoring_log_path}
+    replica_set["spec"]["agent"]["backupAgent"] = {"logFilePath": inside_data_backup_log_path}
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+    expected_paths = (inside_data_monitoring_log_path, inside_data_backup_log_path)
+    agent_log_volume_names = {"monitoring-agent-logs", "backup-agent-logs", "agent-logs"}
+    for i in range(3):
+        pod_name = f"replica-set-{i}"
+        for log_path in expected_paths:
+            cmd = ["/bin/sh", "-c", f"test -f {log_path} && echo present || echo missing"]
+
+            def file_present(p=pod_name, c=cmd) -> bool:
+                return "present" in KubernetesTester.run_command_in_pod_container(p, namespace, c)
+
+            wait_until(
+                file_present,
+                timeout=400,
+                sleep_time=5,
+                msg=f"log file {log_path} to appear on {pod_name}",
+            )
+
+        pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
+        added_volumes = [v.name for v in pod.spec.volumes if v.name in agent_log_volume_names]
+        assert (
+            added_volumes == []
+        ), f"Expected no agent-log emptyDir volumes since /data is already mounted, found: {added_volumes}"
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe

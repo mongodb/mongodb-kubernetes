@@ -717,22 +717,23 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 
 	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts)
 
-	customLogVolumes, customLogVolumeMounts := getCustomLogVolumeMounts(databaseOpts.AgentConfig)
+	customLogVolumes, customLogVolumeMounts := getCustomLogVolumeMounts(databaseOpts.AgentConfig, volumeMounts)
 	volumesToAdd = append(volumesToAdd, customLogVolumes...)
 	volumeMounts = append(volumeMounts, customLogVolumeMounts...)
 
 	return volumesToAdd, volumeMounts
 }
 
-// getCustomLogVolumeMounts provisions emptyDir volumes for agent log paths outside util.PvcMountPathLogs.
+// getCustomLogVolumeMounts provisions emptyDir volumes for agent log paths whose
+// parent dir isn't already covered by an existing operator-managed volume mount.
 // When both agents share a parent dir, a single shared volume is used.
-func getCustomLogVolumeMounts(agentConfig *mdbv1.AgentConfig) ([]corev1.Volume, []corev1.VolumeMount) {
+func getCustomLogVolumeMounts(agentConfig *mdbv1.AgentConfig, existingMounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
 	if agentConfig == nil {
 		return nil, nil
 	}
 
-	monitoringDir := customLogDir(agentConfig.MonitoringAgent.GetLogFilePath())
-	backupDir := customLogDir(agentConfig.BackupAgent.GetLogFilePath())
+	monitoringDir := customLogDir(agentConfig.MonitoringAgent.GetLogFilePath(), existingMounts)
+	backupDir := customLogDir(agentConfig.BackupAgent.GetLogFilePath(), existingMounts)
 
 	if monitoringDir != "" && monitoringDir == backupDir {
 		return []corev1.Volume{statefulset.CreateVolumeFromEmptyDir("agent-logs")},
@@ -752,11 +753,17 @@ func getCustomLogVolumeMounts(agentConfig *mdbv1.AgentConfig) ([]corev1.Volume, 
 	return volumes, mounts
 }
 
-// customLogDir returns the parent dir of logFilePath, or "" if it's already under util.PvcMountPathLogs.
-func customLogDir(logFilePath string) string {
+// customLogDir returns the parent dir of logFilePath, or "" when it already falls
+// under util.PvcMountPathLogs (appended later by the caller) or any existingMount.
+func customLogDir(logFilePath string, existingMounts []corev1.VolumeMount) string {
 	dir := path.Dir(logFilePath)
 	if dir == util.PvcMountPathLogs || strings.HasPrefix(dir, util.PvcMountPathLogs+"/") {
 		return ""
+	}
+	for _, vm := range existingMounts {
+		if dir == vm.MountPath || strings.HasPrefix(dir, vm.MountPath+"/") {
+			return ""
+		}
 	}
 	return dir
 }

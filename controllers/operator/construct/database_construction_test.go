@@ -338,15 +338,21 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 
 func TestGetCustomLogVolumeMounts(t *testing.T) {
 	standardDir := util.PvcMountPathLogs
+	// The standard logs mount is added after getCustomLogVolumeMounts runs, so it is not in existingMounts here.
+	operatorMounts := []corev1.VolumeMount{
+		{Name: util.PvMms, MountPath: util.PvcMmsMountPath},
+		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath},
+		{Name: util.PvMms, MountPath: util.PvcMountPathTmp},
+	}
 
 	t.Run("nil agent config returns nothing", func(t *testing.T) {
-		volumes, mounts := getCustomLogVolumeMounts(nil)
+		volumes, mounts := getCustomLogVolumeMounts(nil, operatorMounts)
 		assert.Empty(t, volumes)
 		assert.Empty(t, mounts)
 	})
 
-	t.Run("default paths produce no extra mounts", func(t *testing.T) {
-		volumes, mounts := getCustomLogVolumeMounts(&mdbv1.AgentConfig{})
+	t.Run("default paths produce no extra mounts even though standard logs mount is not yet in existingMounts", func(t *testing.T) {
+		volumes, mounts := getCustomLogVolumeMounts(&mdbv1.AgentConfig{}, operatorMounts)
 		assert.Empty(t, volumes)
 		assert.Empty(t, mounts)
 	})
@@ -356,7 +362,7 @@ func TestGetCustomLogVolumeMounts(t *testing.T) {
 			MonitoringAgent: mdbv1.MonitoringAgent{LogFilePath: standardDir + "/sub/monitoring.log"},
 			BackupAgent:     mdbv1.BackupAgent{LogFilePath: standardDir + "/backup.log"},
 		}
-		volumes, mounts := getCustomLogVolumeMounts(agentConfig)
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, operatorMounts)
 		assert.Empty(t, volumes)
 		assert.Empty(t, mounts)
 	})
@@ -366,7 +372,7 @@ func TestGetCustomLogVolumeMounts(t *testing.T) {
 			MonitoringAgent: mdbv1.MonitoringAgent{LogFilePath: "/agent-logs/monitoring.log"},
 			BackupAgent:     mdbv1.BackupAgent{LogFilePath: "/other-logs/backup.log"},
 		}
-		volumes, mounts := getCustomLogVolumeMounts(agentConfig)
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, operatorMounts)
 		require.Len(t, volumes, 2)
 		require.Len(t, mounts, 2)
 		assert.Equal(t, "monitoring-agent-logs", volumes[0].Name)
@@ -381,7 +387,7 @@ func TestGetCustomLogVolumeMounts(t *testing.T) {
 			MonitoringAgent: mdbv1.MonitoringAgent{LogFilePath: "/agent-logs/monitoring.log"},
 			BackupAgent:     mdbv1.BackupAgent{LogFilePath: "/agent-logs/backup.log"},
 		}
-		volumes, mounts := getCustomLogVolumeMounts(agentConfig)
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, operatorMounts)
 		require.Len(t, volumes, 1)
 		require.Len(t, mounts, 1)
 		assert.Equal(t, "agent-logs", volumes[0].Name)
@@ -392,7 +398,31 @@ func TestGetCustomLogVolumeMounts(t *testing.T) {
 		agentConfig := &mdbv1.AgentConfig{
 			BackupAgent: mdbv1.BackupAgent{LogFilePath: "/agent-logs/backup.log"},
 		}
-		volumes, mounts := getCustomLogVolumeMounts(agentConfig)
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, operatorMounts)
+		require.Len(t, volumes, 1)
+		require.Len(t, mounts, 1)
+		assert.Equal(t, "backup-agent-logs", volumes[0].Name)
+		assert.Equal(t, "/agent-logs", mounts[0].MountPath)
+	})
+
+	t.Run("path covered by an existing operator mount reuses that volume", func(t *testing.T) {
+		existingMounts := append(operatorMounts, corev1.VolumeMount{Name: "data", MountPath: "/data"})
+		agentConfig := &mdbv1.AgentConfig{
+			MonitoringAgent: mdbv1.MonitoringAgent{LogFilePath: "/data/monitoring-agent.log"},
+			BackupAgent:     mdbv1.BackupAgent{LogFilePath: "/data/sub/backup-agent.log"},
+		}
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, existingMounts)
+		assert.Empty(t, volumes)
+		assert.Empty(t, mounts)
+	})
+
+	t.Run("only the colliding agent reuses, the other gets its own emptyDir", func(t *testing.T) {
+		existingMounts := append(operatorMounts, corev1.VolumeMount{Name: "data", MountPath: "/data"})
+		agentConfig := &mdbv1.AgentConfig{
+			MonitoringAgent: mdbv1.MonitoringAgent{LogFilePath: "/data/monitoring-agent.log"},
+			BackupAgent:     mdbv1.BackupAgent{LogFilePath: "/agent-logs/backup.log"},
+		}
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, existingMounts)
 		require.Len(t, volumes, 1)
 		require.Len(t, mounts, 1)
 		assert.Equal(t, "backup-agent-logs", volumes[0].Name)

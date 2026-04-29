@@ -638,14 +638,17 @@ type BackupAgent struct {
 	// LogRotate configures log rotation for the BackupAgent processes
 	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
 	// +optional
-	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9/_\-.]+$`
+	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$`
 	// LogFilePath configures the log file path for the backup agent.
+	// If the parent directory overlaps a user-defined podTemplate volume mount,
+	// the operator's emptyDir for this log path would shadow it.
+	// Not supported for the AppDB agent.
 	// Default: /var/log/mongodb-mms-automation/backup-agent.log
 	LogFilePath string `json:"logFilePath,omitempty"`
 }
 
 func (b *BackupAgent) GetLogFilePath() string {
-	if b == nil || b.LogFilePath == "" {
+	if b.LogFilePath == "" {
 		return path.Join(util.PvcMountPathLogs, "backup-agent.log")
 	}
 	return b.LogFilePath
@@ -656,14 +659,17 @@ type MonitoringAgent struct {
 	// LogRotate configures log rotation for the MonitoringAgent processes
 	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
 	// +optional
-	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9/_\-.]+$`
+	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$`
 	// LogFilePath configures the log file path for the monitoring agent.
+	// If the parent directory overlaps a user-defined podTemplate volume mount,
+	// the operator's emptyDir for this log path would shadow it.
+	// Not supported for the AppDB agent.
 	// Default: /var/log/mongodb-mms-automation/monitoring-agent.log
 	LogFilePath string `json:"logFilePath,omitempty"`
 }
 
 func (m *MonitoringAgent) GetLogFilePath() string {
-	if m == nil || m.LogFilePath == "" {
+	if m.LogFilePath == "" {
 		return path.Join(util.PvcMountPathLogs, "monitoring-agent.log")
 	}
 	return m.LogFilePath
