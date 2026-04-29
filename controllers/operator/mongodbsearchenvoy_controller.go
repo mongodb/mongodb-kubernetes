@@ -156,13 +156,13 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
 
-	// Ensure ConfigMap
-	if err := r.ensureConfigMap(ctx, mdbSearch, envoyJSON, log); err != nil {
+	// Ensure ConfigMap (single-cluster path; Task 5 introduces the per-cluster loop).
+	if err := r.ensureConfigMap(ctx, mdbSearch, envoyJSON, "", log); err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
 
-	// Ensure Deployment
-	if err := r.ensureDeployment(ctx, mdbSearch, envoyJSON, tlsCfg, log); err != nil {
+	// Ensure Deployment (single-cluster path; Task 5 introduces the per-cluster loop).
+	if err := r.ensureDeployment(ctx, mdbSearch, envoyJSON, "", tlsCfg, log); err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Failed(err), log)
 	}
 
@@ -341,33 +341,47 @@ func applyClusterIDToSNI(sni, clusterName string, templated bool) string {
 	return sni[:idx] + "-" + clusterName + sni[idx:]
 }
 
-// ensureConfigMap creates or updates the Envoy ConfigMap.
-func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON string, log *zap.SugaredLogger) error {
+// ensureConfigMap creates or updates the Envoy ConfigMap in the cluster
+// indicated by clusterName ("" = central cluster, single-cluster path).
+//
+// Cross-cluster ownership note: Kubernetes garbage collection does not span
+// clusters, so we only set an OwnerReference when writing into the central
+// cluster (clusterName == ""). Cleanup of member-cluster objects is handled
+// explicitly in deleteEnvoyResources.
+func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, log *zap.SugaredLogger) error {
+	c := selectEnvoyClient(clusterName, r.kubeClient, r.memberClusterClientsMap)
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      search.LoadBalancerConfigMapName(),
+			Name:      search.LoadBalancerConfigMapNameForCluster(clusterName),
 			Namespace: search.Namespace,
 		},
 	}
 
-	_, err := controllerutil.CreateOrUpdate(ctx, r.kubeClient, cm, func() error {
-		cm.Labels = envoyLabels(search)
+	_, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
+		cm.Labels = envoyLabelsForCluster(search, clusterName)
 		cm.Data = map[string]string{"envoy.json": envoyJSON}
-		return controllerutil.SetOwnerReference(search, cm, r.kubeClient.Scheme())
+		if clusterName == "" {
+			return controllerutil.SetOwnerReference(search, cm, c.Scheme())
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to ensure Envoy ConfigMap: %w", err)
 	}
 
-	log.Info("Envoy ConfigMap created/updated")
+	log.Infof("Envoy ConfigMap created/updated (cluster=%q)", clusterName)
 	return nil
 }
 
-// ensureDeployment creates or updates the Envoy Deployment.
-func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON string, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
+// ensureDeployment creates or updates the Envoy Deployment in the cluster
+// indicated by clusterName ("" = central cluster, single-cluster path).
+// See ensureConfigMap for the cross-cluster ownership rule.
+func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON, clusterName string, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
+	c := selectEnvoyClient(clusterName, r.kubeClient, r.memberClusterClientsMap)
 	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(envoyJSON)))
-	replicas := envoyReplicasForCluster(search, "")
-	labels := envoyLabels(search)
+	replicas := envoyReplicasForCluster(search, clusterName)
+	labels := envoyLabelsForCluster(search, clusterName)
+	podLabels := envoyPodLabelsForCluster(search, clusterName)
 	tlsEnabled := search.IsTLSConfigured()
 	image, err := r.envoyContainerImage()
 	if err != nil {
@@ -378,22 +392,22 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      search.LoadBalancerDeploymentName(),
+			Name:      search.LoadBalancerDeploymentNameForCluster(clusterName),
 			Namespace: search.Namespace,
 		},
 	}
 
-	_, err = controllerutil.CreateOrUpdate(ctx, r.kubeClient, dep, func() error {
+	_, err = controllerutil.CreateOrUpdate(ctx, c, dep, func() error {
 		dep.Labels = labels
 
 		dep.Spec = appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: envoyPodLabels(search),
+				MatchLabels: podLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: envoyPodLabels(search),
+					Labels: podLabels,
 					Annotations: map[string]string{
 						envoyConfigHashAnnotation: configHash,
 					},
@@ -409,13 +423,16 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 			dep.Annotations = merge.StringToStringMap(dep.Annotations, depCfg.MetadataWrapper.Annotations)
 		}
 
-		return controllerutil.SetOwnerReference(search, dep, r.kubeClient.Scheme())
+		if clusterName == "" {
+			return controllerutil.SetOwnerReference(search, dep, c.Scheme())
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to ensure Envoy Deployment: %w", err)
 	}
 
-	log.Info("Envoy Deployment created/updated")
+	log.Infof("Envoy Deployment created/updated (cluster=%q)", clusterName)
 	return nil
 }
 
@@ -606,10 +623,17 @@ func envoyReplicasForCluster(search *searchv1.MongoDBSearch, clusterName string)
 	return envoyReplicasDefault
 }
 
-// envoyPodLabels returns labels for Envoy pod selection.
+// envoyPodLabels returns labels for Envoy pod selection (single-cluster path).
 func envoyPodLabels(search *searchv1.MongoDBSearch) map[string]string {
+	return envoyPodLabelsForCluster(search, "")
+}
+
+// envoyPodLabelsForCluster returns Envoy pod-selection labels for one cluster.
+// The "app" label uses the per-cluster Deployment name so Pods stay distinct
+// per (cluster, namespace) — Pod names already carry the Deployment prefix.
+func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) map[string]string {
 	return map[string]string{
-		"app": search.LoadBalancerDeploymentName(),
+		"app": search.LoadBalancerDeploymentNameForCluster(clusterID),
 	}
 }
 

@@ -1,18 +1,24 @@
 package operator
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	apiv1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -473,6 +479,149 @@ func TestEnvoyReplicasForCluster_TopLevelOnly(t *testing.T) {
 	}
 	assert.Equal(t, int32(3), envoyReplicasForCluster(search, ""))
 	assert.Equal(t, int32(3), envoyReplicasForCluster(search, "us-east-k8s"))
+}
+
+// envoyTestScheme returns a runtime.Scheme registered for the types ensureDeployment/
+// ensureConfigMap interact with. Using a per-test scheme avoids depending on the
+// global scheme initialization order and keeps these unit tests self-contained.
+//
+// MongoDBSearch is registered through api/v1's SchemeBuilder, not search-local.
+func envoyTestScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, apiv1.AddToScheme(scheme))
+	_ = searchv1.AddToScheme // keep import live
+	return scheme
+}
+
+func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+	memberB := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+		"a": memberA,
+		"b": memberB,
+	})
+
+	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "a", zap.S()))
+
+	// Member A has it.
+	cmA := &corev1.ConfigMap{}
+	require.NoError(t, memberA.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster("a"), Namespace: "ns"}, cmA))
+	assert.Equal(t, `{"x":1}`, cmA.Data["envoy.json"])
+	// Cluster name label stamped.
+	assert.Equal(t, "a", cmA.Labels[envoyClusterNameLabel])
+	assert.Equal(t, "mdb-search", cmA.Labels[envoyOwnerSearchNameLabel])
+
+	// Central and member B do not.
+	cm := &corev1.ConfigMap{}
+	err := central.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster("a"), Namespace: "ns"}, cm)
+	assert.True(t, apierrors.IsNotFound(err))
+	err = memberB.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster("a"), Namespace: "ns"}, cm)
+	assert.True(t, apierrors.IsNotFound(err))
+}
+
+func TestEnsureConfigMap_SingleCluster_WritesToCentralWithOwnerRef(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil)
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
+	}
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "", zap.S()))
+
+	cm := &corev1.ConfigMap{}
+	require.NoError(t, central.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerConfigMapName(), Namespace: "ns"}, cm))
+
+	// Owner ref present in single-cluster path (back-compat).
+	require.Len(t, cm.OwnerReferences, 1)
+	assert.Equal(t, "mdb-search", cm.OwnerReferences[0].Name)
+}
+
+func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
+	}
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"x":1}`, "a", zap.S()))
+
+	cm := &corev1.ConfigMap{}
+	require.NoError(t, memberA.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster("a"), Namespace: "ns"}, cm))
+
+	// Cross-cluster: no owner ref (k8s GC does not span clusters).
+	assert.Empty(t, cm.OwnerReferences)
+}
+
+func TestEnsureDeployment_PerClusterReplicas_FromClustersSpec(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
+
+	five := int32(5)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+			Clusters: &[]searchv1.ClusterSpec{
+				{
+					ClusterName: "a",
+					LoadBalancer: &searchv1.PerClusterLoadBalancerConfig{
+						Managed: &searchv1.ManagedLBConfig{Replicas: &five},
+					},
+				},
+			},
+		},
+	}
+
+	require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "a", nil, zap.S()))
+
+	dep := &appsv1.Deployment{}
+	require.NoError(t, memberA.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster("a"), Namespace: "ns"}, dep))
+	require.NotNil(t, dep.Spec.Replicas)
+	assert.Equal(t, int32(5), *dep.Spec.Replicas)
+}
+
+func TestEnsureDeployment_PerClusterReplicas_DefaultsTo1(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA})
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}},
+			Clusters:     &[]searchv1.ClusterSpec{{ClusterName: "a"}},
+		},
+	}
+	require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "a", nil, zap.S()))
+
+	dep := &appsv1.Deployment{}
+	require.NoError(t, memberA.Get(context.Background(),
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster("a"), Namespace: "ns"}, dep))
+	require.NotNil(t, dep.Spec.Replicas)
+	assert.Equal(t, int32(1), *dep.Spec.Replicas, "per-cluster replicas must default to 1 when unset")
 }
 
 func TestEnvoyReplicasForCluster_PerClusterOverride(t *testing.T) {
