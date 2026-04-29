@@ -12,6 +12,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 )
 
 func TestValidateShardNames(t *testing.T) {
@@ -290,6 +291,59 @@ func TestValidateClustersUniqueClusterName(t *testing.T) {
 				Spec:       MongoDBSearchSpec{Clusters: &clusters},
 			}
 			res := validateClustersUniqueClusterName(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
+}
+
+func TestValidateClustersAndTopLevelFieldsMutuallyExclusive(t *testing.T) {
+	cluster := func() ClusterSpec { return ClusterSpec{ClusterName: "us-east"} }
+	tests := []struct {
+		name          string
+		spec          MongoDBSearchSpec
+		errorContains string
+	}{
+		{
+			name: "no clusters, top-level Replicas set — legacy path, OK",
+			spec: MongoDBSearchSpec{Replicas: ptr.To(int32(3))},
+		},
+		{
+			name: "clusters set, no top-level distribution fields — OK",
+			spec: MongoDBSearchSpec{Clusters: &[]ClusterSpec{cluster()}},
+		},
+		{
+			name:          "top-level Replicas + clusters set — reject",
+			spec:          MongoDBSearchSpec{Replicas: ptr.To(int32(2)), Clusters: &[]ClusterSpec{cluster()}},
+			errorContains: "spec.replicas and spec.clusters are mutually exclusive",
+		},
+		{
+			name:          "top-level ResourceRequirements + clusters set — reject",
+			spec:          MongoDBSearchSpec{ResourceRequirements: &corev1.ResourceRequirements{}, Clusters: &[]ClusterSpec{cluster()}},
+			errorContains: "spec.resourceRequirements and spec.clusters are mutually exclusive",
+		},
+		{
+			name:          "top-level Persistence + clusters set — reject",
+			spec:          MongoDBSearchSpec{Persistence: &common.Persistence{}, Clusters: &[]ClusterSpec{cluster()}},
+			errorContains: "spec.persistence and spec.clusters are mutually exclusive",
+		},
+		{
+			name:          "top-level StatefulSet + clusters set — reject",
+			spec:          MongoDBSearchSpec{StatefulSetConfiguration: &common.StatefulSetConfiguration{}, Clusters: &[]ClusterSpec{cluster()}},
+			errorContains: "spec.statefulSet and spec.clusters are mutually exclusive",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec:       tt.spec,
+			}
+			res := validateClustersAndTopLevelFieldsMutuallyExclusive(s)
 			if tt.errorContains != "" {
 				assert.Equal(t, v1.ErrorLevel, res.Level)
 				assert.Contains(t, res.Msg, tt.errorContains)

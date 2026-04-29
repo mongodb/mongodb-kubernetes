@@ -50,6 +50,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateClustersUniqueClusterName,
 		validateClustersSyncSourceSelector,
 		validateClustersShardOverrides,
+		validateClustersAndTopLevelFieldsMutuallyExclusive,
 	}
 
 	var results []v1.ValidationResult
@@ -366,6 +367,39 @@ func validateClustersShardOverrides(s *MongoDBSearch) v1.ValidationResult {
 				)
 			}
 		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateClustersAndTopLevelFieldsMutuallyExclusive enforces B18's mutual-exclusion
+// rule: when spec.clusters is set, none of the auto-promotion-eligible top-level
+// distribution fields (spec.replicas, spec.resourceRequirements, spec.persistence,
+// spec.statefulSet) may also be set. This keeps the migration path unambiguous —
+// either the user is on the legacy single-cluster path (top-level only) or on
+// the new per-cluster shape (spec.clusters only).
+//
+// jvmFlags and loadBalancer remain top-level + per-cluster combinable on purpose
+// (top-level is the default that per-cluster overrides) and are intentionally
+// excluded from this check.
+func validateClustersAndTopLevelFieldsMutuallyExclusive(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil {
+		return v1.ValidationSuccess()
+	}
+	//nolint:staticcheck // SA1019: deprecated fields — this is the documented detection path.
+	if s.Spec.Replicas != nil {
+		return v1.ValidationError("spec.replicas and spec.clusters are mutually exclusive; specify replicas inside spec.clusters[].replicas instead")
+	}
+	//nolint:staticcheck // SA1019
+	if s.Spec.ResourceRequirements != nil {
+		return v1.ValidationError("spec.resourceRequirements and spec.clusters are mutually exclusive; specify resourceRequirements inside spec.clusters[].resourceRequirements instead")
+	}
+	//nolint:staticcheck // SA1019
+	if s.Spec.Persistence != nil {
+		return v1.ValidationError("spec.persistence and spec.clusters are mutually exclusive; specify persistence inside spec.clusters[].persistence instead")
+	}
+	//nolint:staticcheck // SA1019
+	if s.Spec.StatefulSetConfiguration != nil {
+		return v1.ValidationError("spec.statefulSet and spec.clusters are mutually exclusive; specify statefulSet inside spec.clusters[].statefulSet instead")
 	}
 	return v1.ValidationSuccess()
 }
