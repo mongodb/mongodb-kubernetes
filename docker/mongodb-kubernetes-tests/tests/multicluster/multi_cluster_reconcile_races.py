@@ -355,4 +355,4 @@ def test_telemetry_configmap(namespace: str):
             assert isinstance(payload, list), "payload should be a list"
             assert len(payload) > 0, "payload should not be empty"
         except json.JSONDecodeError:
-            pytest.fail("payload contains invalid JSON data")
+            pytest.fail("payload contains invalid JSON data")  # ty: ignore[invalid-argument-type]

@@ -621,4 +621,4 @@ def test_telemetry_configmap(namespace: str):
         assert payload[1]["properties"]["type"] == "OpsManager"
         assert payload[1]["properties"]["externalDomains"] == "Mixed"
     except json.JSONDecodeError:
-        pytest.fail("payload contains invalid JSON data")
+        pytest.fail("payload contains invalid JSON data")  # ty: ignore[invalid-argument-type]

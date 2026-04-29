@@ -315,7 +315,6 @@ def test_load_build_info_staging():
             ),
             "ops-manager": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi",
-                secondary_repositories=["quay.io/mongodb/staging/mongodb-enterprise-ops-manager-ubi"],
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
                 sign=True,

@@ -116,7 +116,9 @@ class TestOpsManagerCreation:
         om_tester.assert_test_service()
         try:
             om_tester.assert_support_page_enabled()
-            pytest.xfail("mms.helpAndSupportPage.enabled is expected to be false")
+            pytest.xfail(
+                "mms.helpAndSupportPage.enabled is expected to be false"  # ty: ignore[too-many-positional-arguments]
+            )
         except AssertionError:
             pass
 
@@ -237,7 +239,7 @@ class TestOpsManagerConfigurationChange:
         om_tester.assert_support_page_enabled()
         try:
             om_tester.assert_test_service()
-            pytest.xfail("mms.testUtil.enabled is expected to be false")
+            pytest.xfail("mms.testUtil.enabled is expected to be false")  # ty: ignore[too-many-positional-arguments]
         except AssertionError:
             pass
 

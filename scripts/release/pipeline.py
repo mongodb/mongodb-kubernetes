@@ -111,8 +111,8 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     builder = get_image_builder_from_arg(image_build_info.builder)
     latest_tag = (
         image_build_info.latest_tag
-        and os.environ.get("requester", "") is "commit"
-        and os.environ.get("branch_name") is "master"
+        and os.environ.get("requester", "") == "commit"
+        and os.environ.get("branch_name") == "master"
     )
     olm_tag = image_build_info.olm_tag
     if args.registry:
