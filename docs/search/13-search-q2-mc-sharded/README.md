@@ -115,6 +115,7 @@ spec:
     username: search-sync-source
     passwordSecretRef:
       name: search-sync-password
+      key: password
   loadBalancer:
     managed:
       externalHostname: "{clusterName}.{shardName}.search-lb.lt.example.com:443"

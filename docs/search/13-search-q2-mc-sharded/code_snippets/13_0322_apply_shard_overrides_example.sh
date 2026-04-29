@@ -37,6 +37,7 @@ spec:
     username: ${MDB_SEARCH_SYNC_USERNAME}
     passwordSecretRef:
       name: ${MDB_SYNC_PASSWORD_SECRET}
+      key: password
   loadBalancer:
     managed:
       externalHostname: "${MDB_LB_EXTERNAL_HOSTNAME_TEMPLATE}"
