@@ -1,0 +1,38 @@
+---
+# Q2-MC MongoDBSearch fixture: single-cluster sharded source using the new
+# spec.clusters[] distribution shape AND the external sharded-cluster source
+# block (router + shards).
+#
+# The externalHostname carries BOTH {clusterName} and {shardName} placeholders,
+# which the operator substitutes per shard at runtime.
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-sh-q2-sc
+spec:
+  logLevel: DEBUG
+  source:
+    external:
+      shardedCluster:
+        router:
+          hosts:
+            - "PLACEHOLDER_ROUTER_HOST:27017"
+        shards:
+          - shardName: shard-0
+            hosts:
+              - "PLACEHOLDER_SHARD_0_HOST:27017"
+          - shardName: shard-1
+            hosts:
+              - "PLACEHOLDER_SHARD_1_HOST:27017"
+  security:
+    tls:
+      certsSecretPrefix: certs
+  loadBalancer:
+    managed:
+      externalHostname: "{clusterName}-{shardName}.search-lb.example.com:443"
+  clusters:
+    - clusterName: PLACEHOLDER_CLUSTER
+      replicas: 2
+      syncSourceSelector:
+        matchTags:
+          region: PLACEHOLDER_REGION

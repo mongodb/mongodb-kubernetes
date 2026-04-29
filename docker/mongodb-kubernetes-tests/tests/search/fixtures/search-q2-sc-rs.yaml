@@ -1,0 +1,29 @@
+---
+# Q2-MC MongoDBSearch fixture: single-cluster RS source using the new
+# spec.clusters[] distribution shape (no top-level spec.replicas).
+#
+# The single clusterName is a placeholder — the test substitutes the real
+# member-cluster name (or the legacy single-cluster name) at apply-time.
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-rs-q2-sc
+spec:
+  logLevel: DEBUG
+  source:
+    mongodbResourceRef:
+      name: mdb-rs-q2-sc
+  security:
+    tls:
+      certsSecretPrefix: certs
+  loadBalancer:
+    managed:
+      # {clusterName} is substituted by the test fixture at apply-time so the
+      # SNI hostname tracks whichever single cluster we land on.
+      externalHostname: "{clusterName}.search-lb.example.com:443"
+  clusters:
+    - clusterName: PLACEHOLDER_CLUSTER
+      replicas: 2
+      syncSourceSelector:
+        matchTags:
+          region: PLACEHOLDER_REGION
