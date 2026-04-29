@@ -1182,3 +1182,24 @@ func TestNoExternalMembersAdditionOrChanges(t *testing.T) {
 		})
 	}
 }
+
+func TestNoExternalMembersAdditionOrChanges_WiredIntoWebhook(t *testing.T) {
+	externalMember := ExternalMember{
+		ProcessName: "vm-rs-0",
+		Hostname:    "vm0.example.com:27017",
+		Type:        "mongod",
+	}
+
+	oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(3).Build()
+	oldRs.Spec.ExternalMembers = []ExternalMember{externalMember}
+
+	// Attempt to modify an existing external member's hostname
+	newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(3).Build()
+	newRs.Spec.ExternalMembers = []ExternalMember{
+		{ProcessName: "vm-rs-0", Hostname: "changed-host.example.com:27017", Type: "mongod"},
+	}
+
+	_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Cannot make changes to existing external members")
+}
