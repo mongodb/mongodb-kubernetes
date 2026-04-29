@@ -7,20 +7,28 @@ from kubetester.kubetester import run_periodically
 from kubetester.multicluster_client import MultiClusterClient
 from tests import test_logger
 from tests.common.search import search_resource_names
-from tests.common.search.q2_topology import REGION_TAGS
 
 logger = test_logger.get_test_logger(__name__)
 
 
-def build_clusters_spec(member_cluster_clients: List[MultiClusterClient], replicas: int = 2) -> List[dict]:
-    """Produce one spec.clusters[] entry per member cluster, region-tagged."""
+def build_clusters_hosts_spec(
+    member_cluster_clients: List[MultiClusterClient],
+    hosts: List[str],
+    replicas: int = 2,
+) -> List[dict]:
+    """Produce one spec.clusters[] entry per member cluster pinned to `hosts`.
+
+    Hosts-first MVP routing path (CLARIFY-6 + CLARIFY-8). The same host list
+    is shared across all member clusters; per-cluster fan-out is a Phase 5
+    implementation concern (operator code, not the test scaffold).
+    """
     return [
         {
             "clusterName": mcc.cluster_name,
             "replicas": replicas,
-            "syncSourceSelector": {"matchTags": {"region": REGION_TAGS[idx % len(REGION_TAGS)]}},
+            "syncSourceSelector": {"hosts": hosts},
         }
-        for idx, mcc in enumerate(member_cluster_clients)
+        for mcc in member_cluster_clients
     ]
 
 
