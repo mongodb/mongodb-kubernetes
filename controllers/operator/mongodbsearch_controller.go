@@ -25,7 +25,6 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
-	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -34,10 +33,6 @@ type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
 	watch                *watch.ResourceWatcher
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
-	// per-reconcile: reset at the start of each Reconcile call for the specific resource being reconciled.
-	// Safe with MaxConcurrentReconciles==1 (the default for this controller).
-	stateStore      *StateStore[MongoDBSearchDeploymentState]
-	deploymentState *MongoDBSearchDeploymentState
 }
 
 func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig searchcontroller.OperatorSearchConfig) *MongoDBSearchReconciler {
@@ -58,18 +53,20 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
-	if err := r.initializeStateStore(ctx, mdbSearch, log); err != nil {
-		return reconcile.Result{}, xerrors.Errorf("failed to initialize search state store: %w", err)
-	}
-	r.updateClusterMapping(mdbSearch)
-	if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
-		return reconcile.Result{}, xerrors.Errorf("failed to save search deployment state: %w", err)
-	}
-
 	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
 	if err != nil {
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("Waiting for MongoDB source: %s", err)), log)
 	}
+
+	stateStore := NewStateStore[searchcontroller.MongoDBSearchDeploymentState](mdbSearch, kube.BaseOwnerReference(mdbSearch), r.kubeClient)
+	reconcileHelper, err := searchcontroller.NewMongoDBSearchReconcileHelper(ctx, kubernetesClient.NewClient(r.kubeClient), mdbSearch, searchSource, r.operatorSearchConfig, stateStore, log)
+	if err != nil {
+		return reconcile.Result{}, xerrors.Errorf("failed to initialize search reconcile helper: %w", err)
+	}
+
+	// Phase 1 is single-cluster only: always use the first (and only) cluster's name.
+	// GetFirstCluster() is safe here because P1.5 admission ensures spec.clusters is non-empty.
+	clusterIndex := reconcileHelper.ClusterIndexFor(mdbSearch.GetFirstCluster().ClusterName)
 
 	if mdbSearch.IsWireprotoEnabled() {
 		log.Info("Enabling the mongot wireproto server as required by annotation")
@@ -92,12 +89,12 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		if shardedSource, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment); ok {
 			// Sharded: watch per-shard source secrets (one per shard)
 			for _, shardName := range shardedSource.GetShardNames() {
-				shardSecretNsName := mdbSearch.TLSSecretForShard(shardName)
+				shardSecretNsName := mdbSearch.TLSSecretForShard(clusterIndex, shardName)
 				r.watch.AddWatchedResourceIfNotAdded(shardSecretNsName.Name, shardSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
 			}
 		} else {
 			// Non-sharded: watch the single source secret
-			sourceSecretNsName := mdbSearch.TLSSecretNamespacedName()
+			sourceSecretNsName := mdbSearch.TLSSecretNamespacedName(clusterIndex)
 			r.watch.AddWatchedResourceIfNotAdded(sourceSecretNsName.Name, sourceSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
 		}
 	}
@@ -106,44 +103,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
-	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, searchSource, r.operatorSearchConfig)
-
 	return reconcileHelper.Reconcile(ctx, log).ReconcileResult()
-}
-
-// initializeStateStore reads the deployment state ConfigMap for search. On first deploy
-// (NotFound), it writes an empty state to create the ConfigMap and establish owner references.
-func (r *MongoDBSearchReconciler) initializeStateStore(ctx context.Context, mdbSearch *searchv1.MongoDBSearch, log *zap.SugaredLogger) error {
-	r.deploymentState = NewMongoDBSearchDeploymentState()
-	r.stateStore = NewStateStore[MongoDBSearchDeploymentState](mdbSearch, kube.BaseOwnerReference(mdbSearch), r.kubeClient)
-	if state, err := r.stateStore.ReadState(ctx); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-		// ConfigMap does not exist yet (fresh deploy or manual deletion) — write empty state now.
-		if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
-			return err
-		}
-	} else {
-		r.deploymentState = state
-	}
-	return nil
-}
-
-// updateClusterMapping refreshes the clusterName → clusterIndex mapping in deploymentState
-// using the clusters declared in the current spec. Indices are never reused once a cluster
-// name is removed (max+1 allocation via AssignIndexesForMemberClusterNames).
-func (r *MongoDBSearchReconciler) updateClusterMapping(mdbSearch *searchv1.MongoDBSearch) {
-	r.deploymentState.ClusterMapping = multicluster.AssignIndexesForMemberClusterNames(
-		r.deploymentState.ClusterMapping,
-		mdbSearch.GetClusterNames(),
-	)
-}
-
-// ClusterIndexFor returns the stable cluster index for clusterName from the current deployment state.
-// Must be called after initializeStateStore and updateClusterMapping have run in the same Reconcile cycle.
-func (r *MongoDBSearchReconciler) ClusterIndexFor(clusterName string) int {
-	return r.deploymentState.ClusterMapping[clusterName]
 }
 
 func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {

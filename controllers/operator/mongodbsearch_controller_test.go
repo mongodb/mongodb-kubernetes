@@ -209,7 +209,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			checkSearchReconcileSuccessful(ctx, t, reconciler, c, search)
 
 			svc := &corev1.Service{}
-			err := c.Get(ctx, search.SearchServiceNamespacedName(), svc)
+			err := c.Get(ctx, search.SearchServiceNamespacedName(0), svc)
 			assert.NoError(t, err)
 			servicePortNames := []string{}
 			for _, port := range svc.Spec.Ports {
@@ -222,7 +222,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			assert.ElementsMatch(t, expectedPortNames, servicePortNames)
 
 			cm := &corev1.ConfigMap{}
-			err = c.Get(ctx, search.MongotConfigConfigMapNamespacedName(), cm)
+			err = c.Get(ctx, search.MongotConfigConfigMapNamespacedName(0), cm)
 			assert.NoError(t, err)
 			expectedConfig := buildExpectedMongotConfig(search, mdbc)
 			configYaml, err := yaml.Marshal(expectedConfig)
@@ -234,7 +234,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			assert.Equal(t, operatorConfig.SearchVersion, updatedSearch.Status.Version)
 
 			sts := &appsv1.StatefulSet{}
-			err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
+			err = c.Get(ctx, search.StatefulSetNamespacedName(0), sts)
 			assert.NoError(t, err)
 		})
 	}

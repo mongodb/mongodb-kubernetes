@@ -58,7 +58,7 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 			assert.Equal(t, "rs", route.Name)
 			assert.Equal(t, "rs", route.NameSafe)
 			assert.Equal(t, tt.expectedSNI, route.SNIHostname)
-			assert.Equal(t, "mdb-search-search-svc.test-ns.svc.cluster.local", route.UpstreamHost)
+			assert.Equal(t, "mdb-search-search-0-svc.test-ns.svc.cluster.local", route.UpstreamHost)
 			assert.Equal(t, int32(27028), route.UpstreamPort)
 		})
 	}
@@ -167,7 +167,7 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 	// Now simulate what ensureDeployment does: build dep.Spec then apply override
 	dep := appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   search.LoadBalancerDeploymentName(),
+			Name:   search.LoadBalancerDeploymentName(0),
 			Labels: map[string]string{"app": "envoy"},
 		},
 		Spec: appsv1.DeploymentSpec{
