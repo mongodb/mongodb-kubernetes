@@ -2,8 +2,10 @@ package search
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 )
@@ -76,6 +78,71 @@ func TestUpdateStatus_LoadBalancerClearsStaleMessage(t *testing.T) {
 	s.UpdateStatus(status.PhaseRunning, partOpt)
 	assert.Equal(t, status.PhaseRunning, s.Status.LoadBalancer.Phase)
 	assert.Equal(t, "", s.Status.LoadBalancer.Message)
+}
+
+func TestSetReadyCondition(t *testing.T) {
+	tests := []struct {
+		name           string
+		phase          status.Phase
+		wantStatus     metav1.ConditionStatus
+		wantConditions int
+	}{
+		{
+			name:           "PhaseRunning sets ConditionTrue",
+			phase:          status.PhaseRunning,
+			wantStatus:     metav1.ConditionTrue,
+			wantConditions: 1,
+		},
+		{
+			name:           "PhaseFailed sets ConditionFalse",
+			phase:          status.PhaseFailed,
+			wantStatus:     metav1.ConditionFalse,
+			wantConditions: 1,
+		},
+		{
+			name:           "PhasePending sets ConditionFalse",
+			phase:          status.PhasePending,
+			wantStatus:     metav1.ConditionFalse,
+			wantConditions: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{}
+			s.setReadyCondition(tt.phase)
+			assert.Len(t, s.Status.Conditions, tt.wantConditions)
+			assert.Equal(t, ReadyCondition, s.Status.Conditions[0].Type)
+			assert.Equal(t, tt.wantStatus, s.Status.Conditions[0].Status)
+		})
+	}
+
+	t.Run("LastTransitionTime advances when status changes", func(t *testing.T) {
+		s := &MongoDBSearch{}
+		s.setReadyCondition(status.PhaseFailed)
+		first := s.Status.Conditions[0].LastTransitionTime
+
+		time.Sleep(time.Millisecond)
+		s.setReadyCondition(status.PhaseRunning)
+		assert.True(t, s.Status.Conditions[0].LastTransitionTime.After(first.Time))
+	})
+
+	t.Run("LastTransitionTime preserved when status unchanged", func(t *testing.T) {
+		s := &MongoDBSearch{}
+		s.setReadyCondition(status.PhaseFailed)
+		first := s.Status.Conditions[0].LastTransitionTime
+
+		s.setReadyCondition(status.PhaseFailed)
+		assert.Equal(t, first, s.Status.Conditions[0].LastTransitionTime)
+	})
+
+	t.Run("idempotent repeated calls keep one condition entry", func(t *testing.T) {
+		s := &MongoDBSearch{}
+		s.setReadyCondition(status.PhaseRunning)
+		s.setReadyCondition(status.PhaseRunning)
+		s.setReadyCondition(status.PhaseRunning)
+		assert.Len(t, s.Status.Conditions, 1)
+	})
 }
 
 func TestIsLoadBalancerReady(t *testing.T) {

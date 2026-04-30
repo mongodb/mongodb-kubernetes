@@ -43,6 +43,13 @@ const (
 	// This Service always exists (except for unmanaged LB) and its selector flips between
 	// mongot pods (no LB) and Envoy pods (managed LB), keeping mongotHost stable.
 	ProxyServiceSuffix = "proxy-svc"
+
+	// Kubernetes condition type constants for MongoDBSearch.Status.Conditions.
+	// ReadyCondition is wired in Phase 1 (P1.4).
+	// LoadBalancerReadyCondition and SyncSourceReachableCondition are wired in Phase 7.
+	ReadyCondition               = "Ready"
+	LoadBalancerReadyCondition   = "LoadBalancerReady"
+	SyncSourceReachableCondition = "SyncSourceReachable"
 )
 
 func init() {
@@ -356,12 +363,52 @@ type LoadBalancerStatus struct {
 	Message string       `json:"message,omitempty"`
 }
 
+// ShardLoadBalancerStatus reports the state of the operator-managed load balancer for a specific shard.
+// Used by sharded multi-cluster deployments (Phase 4+).
+type ShardLoadBalancerStatus struct {
+	Phase   status.Phase `json:"phase"`
+	Message string       `json:"message,omitempty"`
+}
+
+// SearchClusterStatusItem holds per-cluster reconcile status for a MongoDBSearch deployment.
+// Populated per spec.clusters entry starting in Phase 2.
+type SearchClusterStatusItem struct {
+	// ClusterName is the name of the Kubernetes cluster (matches spec.clusters[].clusterName).
+	// Empty for single-cluster deployments.
+	ClusterName   string              `json:"clusterName,omitempty"`
+	status.Common `json:",inline"`
+	Warnings      []status.Warning    `json:"warnings,omitempty"`
+	// LoadBalancer reports the per-cluster state of the operator-managed load balancer (Envoy).
+	// +optional
+	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
+}
+
+// SearchClusterStatusList holds the per-cluster reconcile status for all clusters in a MongoDBSearch deployment.
+type SearchClusterStatusList struct {
+	ClusterStatuses []SearchClusterStatusItem `json:"clusterStatuses,omitempty"`
+}
+
 type MongoDBSearchStatus struct {
 	status.Common `json:",inline"`
 	Version       string           `json:"version,omitempty"`
 	Warnings      []status.Warning `json:"warnings,omitempty"`
+	// ClusterStatusList holds per-cluster reconcile status.
+	// Phase 2+ populates one entry per spec.clusters item.
+	// +optional
+	ClusterStatusList SearchClusterStatusList `json:"clusterStatusList,omitempty"`
+	// ShardLoadBalancerStatusInClusters is a flat map-of-map keyed by clusterName then shardName.
+	// Used by sharded multi-cluster deployments; populated in Phase 4+.
+	// +optional
+	ShardLoadBalancerStatusInClusters map[string]map[string]*ShardLoadBalancerStatus `json:"shardLoadBalancerStatusInClusters,omitempty"`
+	// Conditions is the standard Kubernetes conditions list.
+	// Ready is wired in Phase 1. LoadBalancerReady and SyncSourceReachable land in Phase 7.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// LoadBalancer reports the state of the operator-managed load balancer.
 	// Only populated when spec.loadBalancer.managed is set.
+	// Deprecated: per-cluster LB state migrates to clusterStatusList[].loadBalancer in Phase 2.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
 }
@@ -433,6 +480,39 @@ func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status
 	if option, exists := status.GetOption(statusOptions, MongoDBSearchVersionOption{}); exists {
 		s.Status.Version = option.(MongoDBSearchVersionOption).Version
 	}
+	s.setReadyCondition(phase)
+}
+
+// setReadyCondition updates the standard "Ready" condition based on the current phase.
+// LoadBalancerReady and SyncSourceReachable are deferred to Phase 7.
+func (s *MongoDBSearch) setReadyCondition(phase status.Phase) {
+	conditionStatus := metav1.ConditionFalse
+	reason := string(phase)
+	if reason == "" {
+		reason = "Unknown"
+	}
+	if phase == status.PhaseRunning {
+		conditionStatus = metav1.ConditionTrue
+	}
+	now := metav1.Now()
+	for i := range s.Status.Conditions {
+		if s.Status.Conditions[i].Type == ReadyCondition {
+			if s.Status.Conditions[i].Status != conditionStatus {
+				s.Status.Conditions[i].LastTransitionTime = now
+			}
+			s.Status.Conditions[i].Status = conditionStatus
+			s.Status.Conditions[i].Reason = reason
+			s.Status.Conditions[i].ObservedGeneration = s.GetGeneration()
+			return
+		}
+	}
+	s.Status.Conditions = append(s.Status.Conditions, metav1.Condition{
+		Type:               ReadyCondition,
+		Status:             conditionStatus,
+		Reason:             reason,
+		LastTransitionTime: now,
+		ObservedGeneration: s.GetGeneration(),
+	})
 }
 
 func (s *MongoDBSearch) updateLoadBalancerStatus(phase status.Phase, statusOptions ...status.Option) {
