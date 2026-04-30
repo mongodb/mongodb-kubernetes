@@ -36,6 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
 
@@ -78,20 +79,77 @@ type MongoDBSearchReconcileHelper struct {
 	mdbSearch            *searchv1.MongoDBSearch
 	db                   SearchSourceDBResource
 	operatorSearchConfig OperatorSearchConfig
+	stateStore           deploymentStateStore
+	deploymentState      *MongoDBSearchDeploymentState
+	// clusterIndex is the stable per-cluster index computed from deploymentState in the constructor
+	// (0 for single-cluster / Phase 1). Phase 2's per-cluster reconcile loop sets this to the
+	// cluster's actual index.
+	clusterIndex int
 }
 
+// NewMongoDBSearchReconcileHelper constructs the per-Reconcile helper, initialises the
+// deployment state (reading the persisted ConfigMap if it exists), and computes the stable
+// cluster index. Returns an error if state initialisation fails.
 func NewMongoDBSearchReconcileHelper(
+	ctx context.Context,
 	client kubernetesClient.Client,
 	mdbSearch *searchv1.MongoDBSearch,
 	db SearchSourceDBResource,
 	operatorSearchConfig OperatorSearchConfig,
-) *MongoDBSearchReconcileHelper {
-	return &MongoDBSearchReconcileHelper{
+	stateStore deploymentStateStore,
+	log *zap.SugaredLogger,
+) (*MongoDBSearchReconcileHelper, error) {
+	h := &MongoDBSearchReconcileHelper{
 		client:               client,
 		operatorSearchConfig: operatorSearchConfig,
 		mdbSearch:            mdbSearch,
 		db:                   db,
+		stateStore:           stateStore,
 	}
+	if err := h.initializeDeploymentState(ctx, log); err != nil {
+		return nil, xerrors.Errorf("failed to initialize search deployment state: %w", err)
+	}
+	// GetFirstCluster() is non-nil in production because P1.5 admission ensures spec.clusters is
+	// non-empty. Tests that construct pre-GA CRs (no clusters) get clusterIndex=0 by default.
+	if firstCluster := mdbSearch.GetFirstCluster(); firstCluster != nil {
+		h.clusterIndex = h.ClusterIndexFor(firstCluster.ClusterName)
+	}
+	return h, nil
+}
+
+// initializeDeploymentState reads the deployment state ConfigMap. On first deploy (NotFound),
+// it writes an empty state to create the ConfigMap and establish owner references.
+func (r *MongoDBSearchReconcileHelper) initializeDeploymentState(ctx context.Context, log *zap.SugaredLogger) error {
+	r.deploymentState = NewMongoDBSearchDeploymentState()
+	if state, err := r.stateStore.ReadState(ctx); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		// ConfigMap does not exist yet (fresh deploy or manual deletion) — write empty state now.
+		if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
+			return err
+		}
+	} else {
+		r.deploymentState = state
+	}
+	r.updateClusterMapping()
+	return r.stateStore.WriteState(ctx, r.deploymentState, log)
+}
+
+// updateClusterMapping refreshes the clusterName → clusterIndex mapping in deploymentState
+// using the clusters declared in the current spec. Indices are never reused once a cluster
+// name is removed (max+1 allocation via AssignIndexesForMemberClusterNames).
+func (r *MongoDBSearchReconcileHelper) updateClusterMapping() {
+	r.deploymentState.ClusterMapping = multicluster.AssignIndexesForMemberClusterNames(
+		r.deploymentState.ClusterMapping,
+		r.mdbSearch.GetClusterNames(),
+	)
+}
+
+// ClusterIndexFor returns the stable cluster index for clusterName from the current deployment state.
+// Must be called after initializeDeploymentState has run.
+func (r *MongoDBSearchReconcileHelper) ClusterIndexFor(clusterName string) int {
+	return r.deploymentState.ClusterMapping[clusterName]
 }
 
 // reconcileUnit captures all per-unit (per-shard or single-RS) resource names, labels, and
@@ -99,6 +157,7 @@ func NewMongoDBSearchReconcileHelper(
 // encoded as an explicit field populated by the factory, so downstream code never branches
 // on "am I sharded?" and new topologies (e.g. multicluster) only extend the factory.
 type reconcileUnit struct {
+	clusterIndex        int                  // stable index for the cluster that owns this unit's resources
 	stsName             types.NamespacedName
 	headlessSvc         types.NamespacedName
 	proxySvc            types.NamespacedName
@@ -138,7 +197,7 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 		return reconcilePlan{}, err
 	}
 
-	svcName := r.mdbSearch.SearchServiceNamespacedName().Name
+	svcName := r.mdbSearch.SearchServiceNamespacedName(r.clusterIndex).Name
 
 	var extraHeadlessPorts []corev1.ServicePort
 	if r.mdbSearch.IsWireprotoEnabled() {
@@ -152,13 +211,14 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 
 	return reconcilePlan{
 		units: []reconcileUnit{{
-			stsName:            r.mdbSearch.StatefulSetNamespacedName(),
-			headlessSvc:        r.mdbSearch.SearchServiceNamespacedName(),
-			proxySvc:           r.mdbSearch.ProxyServiceNamespacedName(),
-			configMapName:      r.mdbSearch.MongotConfigConfigMapNamespacedName(),
+			clusterIndex:       r.clusterIndex,
+			stsName:            r.mdbSearch.StatefulSetNamespacedName(r.clusterIndex),
+			headlessSvc:        r.mdbSearch.SearchServiceNamespacedName(r.clusterIndex),
+			proxySvc:           r.mdbSearch.ProxyServiceNamespacedName(r.clusterIndex),
+			configMapName:      r.mdbSearch.MongotConfigConfigMapNamespacedName(r.clusterIndex),
 			podLabels:          map[string]string{appLabelKey: svcName},
 			extraHeadlessPorts: extraHeadlessPorts,
-			tlsResource:        r.mdbSearch,
+			tlsResource:        &searchTLSResource{MongoDBSearch: r.mdbSearch, clusterIndex: r.clusterIndex},
 			mongotConfigFn:     mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch)),
 		}},
 		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
@@ -177,17 +237,18 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			return reconcilePlan{}, err
 		}
 
-		stsName := r.mdbSearch.MongotStatefulSetForShard(shardName)
+		stsName := r.mdbSearch.MongotStatefulSetForShard(r.clusterIndex, shardName)
 		units = append(units, reconcileUnit{
+			clusterIndex:        r.clusterIndex,
 			stsName:             stsName,
-			headlessSvc:         r.mdbSearch.MongotServiceForShard(shardName),
-			proxySvc:            r.mdbSearch.ProxyServiceNameForShard(shardName),
-			configMapName:       r.mdbSearch.MongotConfigMapForShard(shardName),
+			headlessSvc:         r.mdbSearch.MongotServiceForShard(r.clusterIndex, shardName),
+			proxySvc:            r.mdbSearch.ProxyServiceNameForShard(r.clusterIndex, shardName),
+			configMapName:       r.mdbSearch.MongotConfigMapForShard(r.clusterIndex, shardName),
 			podLabels:           map[string]string{appLabelKey: stsName.Name, shardLabelKey: shardName},
 			additionalSvcLabels: map[string]string{shardLabelKey: shardName},
 			publishNotReady:     true,
 			logFields:           []any{"shard", shardName, "shardIdx", shardIdx},
-			tlsResource:         &perShardTLSResource{MongoDBSearch: r.mdbSearch, shardName: shardName},
+			tlsResource:         &perShardTLSResource{MongoDBSearch: r.mdbSearch, clusterIndex: r.clusterIndex, shardName: shardName},
 			mongotConfigFn:      mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), routerMongotMod(r.mdbSearch, shardedSource)),
 		})
 	}
@@ -386,7 +447,7 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 
 	expectedNames := make(map[string]bool, len(currentShardNames))
 	for _, shardName := range currentShardNames {
-		expectedNames[r.mdbSearch.ProxyServiceNameForShard(shardName).Name] = true
+		expectedNames[r.mdbSearch.ProxyServiceNameForShard(r.clusterIndex, shardName).Name] = true
 	}
 
 	for i := range serviceList.Items {
@@ -455,7 +516,7 @@ func (r *MongoDBSearchReconcileHelper) validatePerShardTLSSecrets(ctx context.Co
 
 	// Per-shard mode: validate each shard's source secret exists
 	for _, shardName := range shardNames {
-		secretNsName := r.mdbSearch.TLSSecretForShard(shardName)
+		secretNsName := r.mdbSearch.TLSSecretForShard(r.clusterIndex, shardName)
 		tlsSecret := &corev1.Secret{}
 		err := r.client.Get(ctx, secretNsName, tlsSecret)
 		if apierrors.IsNotFound(err) {
@@ -716,7 +777,7 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
 	var selector map[string]string
 	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {
-		selector = map[string]string{appLabelKey: search.LoadBalancerDeploymentName()}
+		selector = map[string]string{appLabelKey: search.LoadBalancerDeploymentName(unit.clusterIndex)}
 	} else {
 		selector = map[string]string{appLabelKey: unit.podLabels[appLabelKey]}
 	}
@@ -997,21 +1058,38 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	return mongotModification, stsModification, nil
 }
 
+// searchTLSResource adapts MongoDBSearch for the TLSConfigurableResource interface used by
+// tls.EnsureTLSSecret. It captures the clusterIndex so the correct per-cluster secret names
+// are generated. Used for non-sharded (ReplicaSet) deployments.
+type searchTLSResource struct {
+	*searchv1.MongoDBSearch
+	clusterIndex int
+}
+
+func (r *searchTLSResource) TLSSecretNamespacedName() types.NamespacedName {
+	return r.MongoDBSearch.TLSSecretNamespacedName(r.clusterIndex)
+}
+
+func (r *searchTLSResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
+	return r.MongoDBSearch.TLSOperatorSecretNamespacedName(r.clusterIndex)
+}
+
 // perShardTLSResource wraps MongoDBSearch to provide per-shard TLS secret names.
 // It implements the tls.TLSConfigurableResource interface for use with tls.EnsureTLSSecret.
 type perShardTLSResource struct {
 	*searchv1.MongoDBSearch
-	shardName string
+	clusterIndex int
+	shardName    string
 }
 
 // TLSSecretNamespacedName returns the per-shard source secret name.
 func (p *perShardTLSResource) TLSSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSSecretForShard(p.shardName)
+	return p.MongoDBSearch.TLSSecretForShard(p.clusterIndex, p.shardName)
 }
 
 // TLSOperatorSecretNamespacedName returns the per-shard operator-managed secret name.
 func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
-	return p.MongoDBSearch.TLSOperatorSecretForShard(p.shardName)
+	return p.MongoDBSearch.TLSOperatorSecretForShard(p.clusterIndex, p.shardName)
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification) {
@@ -1144,8 +1222,8 @@ func mongotEndpointForShard(search *searchv1.MongoDBSearch, shardName string, cl
 	if search.IsLBModeManaged() {
 		return proxyServiceHostAndPortForShard(search, shardName, clusterDomain)
 	}
-	stsName := search.MongotStatefulSetForShard(shardName)
-	svcName := search.MongotServiceForShard(shardName)
+	stsName := search.MongotStatefulSetForShard(0, shardName)
+	svcName := search.MongotServiceForShard(0, shardName)
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s-0.%s.%s.svc.%s:%d", stsName.Name, svcName.Name, svcName.Namespace, clusterDomain, port)
 }
@@ -1197,17 +1275,17 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) str
 	}
 	port := search.GetEffectiveMongotPort()
 	if search.IsLBModeManaged() {
-		proxyName := search.ProxyServiceNamespacedName()
+		proxyName := search.ProxyServiceNamespacedName(0)
 		return fmt.Sprintf("%s.%s.svc.%s:%d", proxyName.Name, proxyName.Namespace, clusterDomain, port)
 	}
-	stsName := search.StatefulSetNamespacedName()
-	svcName := search.SearchServiceNamespacedName()
+	stsName := search.StatefulSetNamespacedName(0)
+	svcName := search.SearchServiceNamespacedName(0)
 	return fmt.Sprintf("%s-0.%s.%s.svc.%s:%d", stsName.Name, svcName.Name, svcName.Namespace, clusterDomain, port)
 }
 
 // proxyServiceHostAndPortForShard returns the stable proxy service endpoint for a shard.
 func proxyServiceHostAndPortForShard(search *searchv1.MongoDBSearch, shardName string, clusterDomain string) string {
-	proxyName := search.ProxyServiceNameForShard(shardName)
+	proxyName := search.ProxyServiceNameForShard(0, shardName)
 	port := search.GetEffectiveMongotPort()
 	return fmt.Sprintf("%s.%s.svc.%s:%d", proxyName.Name, proxyName.Namespace, clusterDomain, port)
 }

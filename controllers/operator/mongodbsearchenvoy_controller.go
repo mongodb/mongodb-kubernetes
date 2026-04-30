@@ -168,14 +168,14 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
 	ns := search.Namespace
 
-	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentName(), Namespace: ns}}
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentName(0), Namespace: ns}}
 	if err := r.kubeClient.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
 		log.Warnf("Failed to delete Envoy Deployment %s: %s", dep.Name, err)
 	} else if err == nil {
 		log.Infof("Deleted Envoy Deployment %s", dep.Name)
 	}
 
-	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapName(), Namespace: ns}}
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapName(0), Namespace: ns}}
 	if err := r.kubeClient.Delete(ctx, cm); err != nil && !apierrors.IsNotFound(err) {
 		log.Warnf("Failed to delete Envoy ConfigMap %s: %s", cm.Name, err)
 	} else if err == nil {
@@ -208,8 +208,8 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string) []env
 	mongotPort := search.GetMongotGrpcPort()
 
 	for _, shardName := range shardNames {
-		sniServiceName := search.ProxyServiceNameForShard(shardName).Name
-		mongotServiceName := search.MongotServiceForShard(shardName).Name
+		sniServiceName := search.ProxyServiceNameForShard(0, shardName).Name
+		mongotServiceName := search.MongotServiceForShard(0, shardName).Name
 
 		sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
 		if endpoint := search.GetManagedLBEndpointForShard(shardName); endpoint != "" {
@@ -230,8 +230,8 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string) []env
 
 // buildReplicaSetRoute returns the single route for a ReplicaSet.
 func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
-	sniServiceName := search.ProxyServiceNamespacedName().Name
-	mongotServiceName := search.SearchServiceNamespacedName().Name
+	sniServiceName := search.ProxyServiceNamespacedName(0).Name
+	mongotServiceName := search.SearchServiceNamespacedName(0).Name
 	namespace := search.Namespace
 
 	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
@@ -252,7 +252,7 @@ func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
 func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, envoyJSON string, log *zap.SugaredLogger) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      search.LoadBalancerConfigMapName(),
+			Name:      search.LoadBalancerConfigMapName(0),
 			Namespace: search.Namespace,
 		},
 	}
@@ -285,7 +285,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      search.LoadBalancerDeploymentName(),
+			Name:      search.LoadBalancerDeploymentName(0),
 			Namespace: search.Namespace,
 		},
 	}
@@ -334,7 +334,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, tlsCfg *searchcontroller.
 			Name: "envoy-config",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: search.LoadBalancerConfigMapName()},
+					LocalObjectReference: corev1.LocalObjectReference{Name: search.LoadBalancerConfigMapName(0)},
 				},
 			},
 		},
@@ -359,13 +359,13 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, tlsCfg *searchcontroller.
 			corev1.Volume{
 				Name: "envoy-server-cert",
 				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{SecretName: search.LoadBalancerServerCert().Name},
+					Secret: &corev1.SecretVolumeSource{SecretName: search.LoadBalancerServerCert(0).Name},
 				},
 			},
 			corev1.Volume{
 				Name: "envoy-client-cert",
 				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{SecretName: search.LoadBalancerClientCert().Name},
+					Secret: &corev1.SecretVolumeSource{SecretName: search.LoadBalancerClientCert(0).Name},
 				},
 			},
 			caVolume,
@@ -452,7 +452,7 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 // envoyLabels returns standard labels for Envoy resources.
 func envoyLabels(search *searchv1.MongoDBSearch) map[string]string {
 	return map[string]string{
-		"app":       search.LoadBalancerDeploymentName(),
+		"app":       search.LoadBalancerDeploymentName(0),
 		"component": labelName,
 	}
 }
@@ -460,7 +460,7 @@ func envoyLabels(search *searchv1.MongoDBSearch) map[string]string {
 // envoyPodLabels returns labels for Envoy pod selection.
 func envoyPodLabels(search *searchv1.MongoDBSearch) map[string]string {
 	return map[string]string{
-		"app": search.LoadBalancerDeploymentName(),
+		"app": search.LoadBalancerDeploymentName(0),
 	}
 }
 
