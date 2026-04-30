@@ -204,6 +204,19 @@ def test_custom_backup_log_path_env_var(replica_set: MongoDB, namespace: str):
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_custom_monitoring_and_backup_log_paths_in_ac(replica_set: MongoDB):
+    ac = replica_set.get_automation_config_tester().automation_config
+    assert ac.get("monitoringAgentConfig", {}).get("logPath") == custom_monitoring_log_path, (
+        f"Expected AC monitoringAgentConfig.logPath={custom_monitoring_log_path}, "
+        f"got {ac.get('monitoringAgentConfig', {}).get('logPath')}"
+    )
+    assert ac.get("backupAgentConfig", {}).get("logPath") == custom_backup_log_path, (
+        f"Expected AC backupAgentConfig.logPath={custom_backup_log_path}, "
+        f"got {ac.get('backupAgentConfig', {}).get('logPath')}"
+    )
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_set_log_paths_outside_standard_mount(replica_set: MongoDB, namespace: str):
     """Log paths outside /var/log/mongodb-mms-automation should get their own emptyDir mount."""
     replica_set.load()
@@ -280,6 +293,16 @@ def test_default_monitoring_and_backup_log_paths(second_replica_set: MongoDB, na
             f"Expected default MDB_LOG_FILE_BACKUP_AGENT={default_backup_path}, "
             f"got {env_vars.get('MDB_LOG_FILE_BACKUP_AGENT')}"
         )
+
+    ac = second_replica_set.get_automation_config_tester().automation_config
+    assert ac.get("monitoringAgentConfig", {}).get("logPath") == default_monitoring_path, (
+        f"Expected AC monitoringAgentConfig.logPath={default_monitoring_path}, "
+        f"got {ac.get('monitoringAgentConfig', {}).get('logPath')}"
+    )
+    assert ac.get("backupAgentConfig", {}).get("logPath") == default_backup_path, (
+        f"Expected AC backupAgentConfig.logPath={default_backup_path}, "
+        f"got {ac.get('backupAgentConfig', {}).get('logPath')}"
+    )
 
 
 def assert_pod_log_types(replica_set: MongoDB, expected_log_types: Optional[set[str]]):

@@ -639,10 +639,10 @@ type BackupAgent struct {
 	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
 	// +optional
 	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$`
-	// LogFilePath configures the log file path for the backup agent.
-	// If the parent directory overlaps a user-defined podTemplate volume mount,
-	// the operator's emptyDir for this log path would shadow it.
-	// Not supported for the AppDB agent.
+	// LogFilePath is the absolute path for the backup agent log. It must have at
+	// least two segments, for example /var/log/foo.log. If the parent directory
+	// overlaps a volume mount declared in your podTemplate, the operator's
+	// emptyDir will shadow that mount. Not supported for the AppDB agent.
 	// Default: /var/log/mongodb-mms-automation/backup-agent.log
 	LogFilePath string `json:"logFilePath,omitempty"`
 }
@@ -660,10 +660,10 @@ type MonitoringAgent struct {
 	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
 	// +optional
 	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$`
-	// LogFilePath configures the log file path for the monitoring agent.
-	// If the parent directory overlaps a user-defined podTemplate volume mount,
-	// the operator's emptyDir for this log path would shadow it.
-	// Not supported for the AppDB agent.
+	// LogFilePath is the absolute path for the monitoring agent log. It must have at
+	// least two segments, for example /var/log/foo.log. If the parent directory
+	// overlaps a volume mount declared in your podTemplate, the operator's
+	// emptyDir will shadow that mount. Not supported for the AppDB agent.
 	// Default: /var/log/mongodb-mms-automation/monitoring-agent.log
 	LogFilePath string `json:"logFilePath,omitempty"`
 }
