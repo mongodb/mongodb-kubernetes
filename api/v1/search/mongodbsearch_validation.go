@@ -54,6 +54,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateClusterReplicas,
 		validateSourceMutualExclusion,
 		validateSourceNamespace,
+		validateMongoDBCommunitySourceForbidden,
 		validateMultiClusterLBRequirements,
 		validateReplicasRequireLB,
 		validateMCExternalHostnamePlaceholders,
@@ -555,4 +556,35 @@ func validateClusterNamesImmutable(newSearch, oldSearch *MongoDBSearch) v1.Valid
 		}
 	}
 	return v1.ValidationSuccess()
+}
+
+// validateMongoDBCommunitySourceForbidden rejects any CR that explicitly sets
+// spec.source.mongodbResourceRef.kind to "MongoDBCommunity".
+// The kubebuilder Enum on MongoDBSearchSourceRef.Kind (MongoDB;MongoDBMultiCluster)
+// already blocks this at CRD admission; this Go-level check is defense-in-depth.
+// Additionally, MongoDBCommunity is forbidden with multi-cluster and sharded sources
+// (TD §11.8.1).
+func validateMongoDBCommunitySourceForbidden(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Source == nil || s.Spec.Source.MongoDBResourceRef == nil {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.Source.MongoDBResourceRef.Kind != "MongoDBCommunity" {
+		return v1.ValidationSuccess()
+	}
+	if len(s.Spec.Clusters) > 1 {
+		return v1.ValidationError(
+			"spec.source.mongodbResourceRef.kind MongoDBCommunity is forbidden with multi-cluster deployments (len(spec.clusters) > 1)",
+		)
+	}
+	// IsExternalSourceSharded requires ExternalMongoDBSource to be non-nil, which is impossible
+	// here because we've already confirmed MongoDBResourceRef != nil and validateSourceMutualExclusion
+	// (which runs earlier) rejects any CR that sets both. This branch is defense-in-depth only.
+	if s.IsExternalSourceSharded() {
+		return v1.ValidationError(
+			"spec.source.mongodbResourceRef.kind MongoDBCommunity is forbidden with sharded topologies",
+		)
+	}
+	return v1.ValidationError(
+		"spec.source.mongodbResourceRef.kind MongoDBCommunity is not supported; use MongoDB or MongoDBMultiCluster",
+	)
 }
