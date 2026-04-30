@@ -2054,9 +2054,9 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		return nil, shardsRemoving, workflow.Failed(err)
 	}
 
-	// Here we only support sc.Spec.Agent on purpose because logRotation for the agents and all processes
-	// are configured the same way, its unrelated what type of process it is.
-	if reconcileResult, _ := ReconcileLogRotateSetting(conn, sc.Spec.Agent, log); !reconcileResult.IsOK() {
+	// Here we only support sc.Spec.Agent on purpose because agent log configuration (log rotation and log file paths)
+	// is configured the same way for all processes, regardless of process type.
+	if reconcileResult, _ := ReconcileAgentLogConfiguration(conn, sc.Spec.Agent, log); !reconcileResult.IsOK() {
 		return nil, shardsRemoving, reconcileResult
 	}
 

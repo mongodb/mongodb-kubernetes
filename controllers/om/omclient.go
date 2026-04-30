@@ -43,7 +43,7 @@ type Connection interface {
 
 	// ReadUpdateDeployment reads Deployment from Ops Manager, applies the update function to it and pushes it back
 	ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error
-	ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error
+	ReadUpdateAgentsLogConfiguration(agentConfig mdbv1.AgentConfig, log *zap.SugaredLogger) error
 	ReadAutomationStatus() (*AutomationStatus, error)
 	ReadAutomationAgents(page int) (Paginated, error)
 	MarkProjectAsBackingDatabase(databaseType BackingDatabaseType) error
@@ -185,10 +185,11 @@ type HTTPOmConnection struct {
 	clientOpts []func(*api.Client) error // Additional options for the HTTP client (e.g., for testing)
 }
 
-func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
-	// We don't have to wait for each step for the agent to reach goal state as setting logrotation does not require order
-	if logRotateSetting.Mongod.LogRotate == nil && logRotateSetting.MonitoringAgent.LogRotate == nil &&
-		logRotateSetting.BackupAgent.LogRotate == nil && logRotateSetting.Mongod.AuditLogRotate == nil {
+func (oc *HTTPOmConnection) ReadUpdateAgentsLogConfiguration(agentConfig mdbv1.AgentConfig, log *zap.SugaredLogger) error {
+	// We don't have to wait for each step for the agent to reach goal state as setting log rotation and log file paths does not require order
+	if agentConfig.Mongod.LogRotate == nil && agentConfig.MonitoringAgent.LogRotate == nil &&
+		agentConfig.BackupAgent.LogRotate == nil && agentConfig.Mongod.AuditLogRotate == nil &&
+		agentConfig.MonitoringAgent.LogFilePath == "" && agentConfig.BackupAgent.LogFilePath == "" {
 		return nil
 	}
 
@@ -197,7 +198,7 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.A
 		return err
 	}
 
-	if len(automationConfig.Deployment.getProcesses()) > 0 && logRotateSetting.Mongod.LogRotate != nil {
+	if len(automationConfig.Deployment.getProcesses()) > 0 && agentConfig.Mongod.LogRotate != nil {
 		omVersion, err := oc.OpsManagerVersion().Semver()
 		if err != nil {
 			log.Debugw("Failed to fetch OpsManager version: %s", err)
@@ -211,24 +212,34 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.A
 
 		// We only retrieve the first process, since logRotation is configured the same for all processes
 		process := automationConfig.Deployment.getProcesses()[0]
-		if err = updateProcessLogRotateIfChanged(logRotateSetting.Mongod.LogRotate, process.GetLogRotate(), oc.UpdateProcessLogRotation); err != nil {
+		if err = updateProcessLogRotateIfChanged(agentConfig.Mongod.LogRotate, process.GetLogRotate(), oc.UpdateProcessLogRotation); err != nil {
 			return err
 		}
-		if err = updateProcessLogRotateIfChanged(logRotateSetting.Mongod.AuditLogRotate, process.GetAuditLogRotate(), oc.UpdateAuditLogRotation); err != nil {
+		if err = updateProcessLogRotateIfChanged(agentConfig.Mongod.AuditLogRotate, process.GetAuditLogRotate(), oc.UpdateAuditLogRotation); err != nil {
 			return err
 		}
 	}
 
-	if len(automationConfig.Deployment.getBackupVersions()) > 0 && logRotateSetting.BackupAgent.LogRotate != nil {
+	if len(automationConfig.Deployment.getBackupVersions()) > 0 && (agentConfig.BackupAgent.LogRotate != nil || agentConfig.BackupAgent.LogFilePath != "") {
 		err = oc.ReadUpdateBackupAgentConfig(func(config *BackupAgentConfig) error {
-			config.SetLogRotate(*logRotateSetting.BackupAgent.LogRotate)
+			if agentConfig.BackupAgent.LogRotate != nil {
+				config.SetLogRotate(*agentConfig.BackupAgent.LogRotate)
+			}
+			if agentConfig.BackupAgent.LogFilePath != "" {
+				config.SetLogPath(agentConfig.BackupAgent.LogFilePath)
+			}
 			return nil
 		}, log)
 	}
 
-	if len(automationConfig.Deployment.getMonitoringVersions()) > 0 && logRotateSetting.MonitoringAgent.LogRotate != nil {
+	if len(automationConfig.Deployment.getMonitoringVersions()) > 0 && (agentConfig.MonitoringAgent.LogRotate != nil || agentConfig.MonitoringAgent.LogFilePath != "") {
 		err = oc.ReadUpdateMonitoringAgentConfig(func(config *MonitoringAgentConfig) error {
-			config.SetLogRotate(*logRotateSetting.MonitoringAgent.LogRotate)
+			if agentConfig.MonitoringAgent.LogRotate != nil {
+				config.SetLogRotate(*agentConfig.MonitoringAgent.LogRotate)
+			}
+			if agentConfig.MonitoringAgent.LogFilePath != "" {
+				config.SetLogPath(agentConfig.MonitoringAgent.LogFilePath)
+			}
 			return nil
 		}, log)
 	}

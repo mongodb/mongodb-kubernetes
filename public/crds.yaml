@@ -177,6 +177,15 @@ spec:
                 properties:
                   backupAgent:
                     properties:
+                      logFilePath:
+                        description: |-
+                          LogFilePath is the absolute path for the backup agent log. It must have at
+                          least two segments, for example /var/log/foo.log. If the parent directory
+                          overlaps a volume mount declared in your podTemplate, the operator's
+                          emptyDir will shadow that mount. Not supported for the AppDB agent.
+                          Default: /var/log/mongodb-mms-automation/backup-agent.log
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                        type: string
                       logRotate:
                         description: LogRotate configures log rotation for the BackupAgent
                           processes
@@ -318,8 +327,17 @@ spec:
                     type: object
                   monitoringAgent:
                     properties:
+                      logFilePath:
+                        description: |-
+                          LogFilePath is the absolute path for the monitoring agent log. It must have at
+                          least two segments, for example /var/log/foo.log. If the parent directory
+                          overlaps a volume mount declared in your podTemplate, the operator's
+                          emptyDir will shadow that mount. Not supported for the AppDB agent.
+                          Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                        type: string
                       logRotate:
-                        description: LogRotate configures log rotation for the BackupAgent
+                        description: LogRotate configures log rotation for the MonitoringAgent
                           processes
                         properties:
                           sizeThresholdMB:
@@ -518,6 +536,15 @@ spec:
                     properties:
                       backupAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath is the absolute path for the backup agent log. It must have at
+                              least two segments, for example /var/log/foo.log. If the parent directory
+                              overlaps a volume mount declared in your podTemplate, the operator's
+                              emptyDir will shadow that mount. Not supported for the AppDB agent.
+                              Default: /var/log/mongodb-mms-automation/backup-agent.log
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
                               BackupAgent processes
@@ -661,9 +688,18 @@ spec:
                         type: object
                       monitoringAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath is the absolute path for the monitoring agent log. It must have at
+                              least two segments, for example /var/log/foo.log. If the parent directory
+                              overlaps a volume mount declared in your podTemplate, the operator's
+                              emptyDir will shadow that mount. Not supported for the AppDB agent.
+                              Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
-                              BackupAgent processes
+                              MonitoringAgent processes
                             properties:
                               sizeThresholdMB:
                                 description: |-
@@ -1039,6 +1075,15 @@ spec:
                     properties:
                       backupAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath is the absolute path for the backup agent log. It must have at
+                              least two segments, for example /var/log/foo.log. If the parent directory
+                              overlaps a volume mount declared in your podTemplate, the operator's
+                              emptyDir will shadow that mount. Not supported for the AppDB agent.
+                              Default: /var/log/mongodb-mms-automation/backup-agent.log
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
                               BackupAgent processes
@@ -1182,9 +1227,18 @@ spec:
                         type: object
                       monitoringAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath is the absolute path for the monitoring agent log. It must have at
+                              least two segments, for example /var/log/foo.log. If the parent directory
+                              overlaps a volume mount declared in your podTemplate, the operator's
+                              emptyDir will shadow that mount. Not supported for the AppDB agent.
+                              Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
-                              BackupAgent processes
+                              MonitoringAgent processes
                             properties:
                               sizeThresholdMB:
                                 description: |-
@@ -1867,6 +1921,15 @@ spec:
                     properties:
                       backupAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath is the absolute path for the backup agent log. It must have at
+                              least two segments, for example /var/log/foo.log. If the parent directory
+                              overlaps a volume mount declared in your podTemplate, the operator's
+                              emptyDir will shadow that mount. Not supported for the AppDB agent.
+                              Default: /var/log/mongodb-mms-automation/backup-agent.log
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
                               BackupAgent processes
@@ -2010,9 +2073,18 @@ spec:
                         type: object
                       monitoringAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath is the absolute path for the monitoring agent log. It must have at
+                              least two segments, for example /var/log/foo.log. If the parent directory
+                              overlaps a volume mount declared in your podTemplate, the operator's
+                              emptyDir will shadow that mount. Not supported for the AppDB agent.
+                              Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
-                              BackupAgent processes
+                              MonitoringAgent processes
                             properties:
                               sizeThresholdMB:
                                 description: |-
@@ -2214,6 +2286,15 @@ spec:
                       properties:
                         backupAgent:
                           properties:
+                            logFilePath:
+                              description: |-
+                                LogFilePath is the absolute path for the backup agent log. It must have at
+                                least two segments, for example /var/log/foo.log. If the parent directory
+                                overlaps a volume mount declared in your podTemplate, the operator's
+                                emptyDir will shadow that mount. Not supported for the AppDB agent.
+                                Default: /var/log/mongodb-mms-automation/backup-agent.log
+                              pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                              type: string
                             logRotate:
                               description: LogRotate configures log rotation for the
                                 BackupAgent processes
@@ -2359,9 +2440,18 @@ spec:
                           type: object
                         monitoringAgent:
                           properties:
+                            logFilePath:
+                              description: |-
+                                LogFilePath is the absolute path for the monitoring agent log. It must have at
+                                least two segments, for example /var/log/foo.log. If the parent directory
+                                overlaps a volume mount declared in your podTemplate, the operator's
+                                emptyDir will shadow that mount. Not supported for the AppDB agent.
+                                Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                              pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                              type: string
                             logRotate:
                               description: LogRotate configures log rotation for the
-                                BackupAgent processes
+                                MonitoringAgent processes
                               properties:
                                 sizeThresholdMB:
                                   description: |-
@@ -3021,6 +3111,15 @@ spec:
                 properties:
                   backupAgent:
                     properties:
+                      logFilePath:
+                        description: |-
+                          LogFilePath is the absolute path for the backup agent log. It must have at
+                          least two segments, for example /var/log/foo.log. If the parent directory
+                          overlaps a volume mount declared in your podTemplate, the operator's
+                          emptyDir will shadow that mount. Not supported for the AppDB agent.
+                          Default: /var/log/mongodb-mms-automation/backup-agent.log
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                        type: string
                       logRotate:
                         description: LogRotate configures log rotation for the BackupAgent
                           processes
@@ -3162,8 +3261,17 @@ spec:
                     type: object
                   monitoringAgent:
                     properties:
+                      logFilePath:
+                        description: |-
+                          LogFilePath is the absolute path for the monitoring agent log. It must have at
+                          least two segments, for example /var/log/foo.log. If the parent directory
+                          overlaps a volume mount declared in your podTemplate, the operator's
+                          emptyDir will shadow that mount. Not supported for the AppDB agent.
+                          Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                        type: string
                       logRotate:
-                        description: LogRotate configures log rotation for the BackupAgent
+                        description: LogRotate configures log rotation for the MonitoringAgent
                           processes
                         properties:
                           sizeThresholdMB:
@@ -4839,6 +4947,15 @@ spec:
                     properties:
                       backupAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath is the absolute path for the backup agent log. It must have at
+                              least two segments, for example /var/log/foo.log. If the parent directory
+                              overlaps a volume mount declared in your podTemplate, the operator's
+                              emptyDir will shadow that mount. Not supported for the AppDB agent.
+                              Default: /var/log/mongodb-mms-automation/backup-agent.log
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
                               BackupAgent processes
@@ -4982,9 +5099,18 @@ spec:
                         type: object
                       monitoringAgent:
                         properties:
+                          logFilePath:
+                            description: |-
+                              LogFilePath is the absolute path for the monitoring agent log. It must have at
+                              least two segments, for example /var/log/foo.log. If the parent directory
+                              overlaps a volume mount declared in your podTemplate, the operator's
+                              emptyDir will shadow that mount. Not supported for the AppDB agent.
+                              Default: /var/log/mongodb-mms-automation/monitoring-agent.log
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
+                            type: string
                           logRotate:
                             description: LogRotate configures log rotation for the
-                              BackupAgent processes
+                              MonitoringAgent processes
                             properties:
                               sizeThresholdMB:
                                 description: |-

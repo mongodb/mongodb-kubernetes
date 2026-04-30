@@ -237,6 +237,9 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 		"a":       "1",
 		"logFile": "/var/log/mongodb-mms-automation/log.file",
 	}
+	agentConfig := &mdbv1.AgentConfig{
+		StartupParameters: parameters,
+	}
 	additionalMongodConfig := mdbv1.NewEmptyAdditionalMongodConfig()
 	additionalMongodConfig.AddOption("auditLog", map[string]interface{}{
 		"destination": "file",
@@ -244,7 +247,7 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 		"path":        "/var/log/mongodb-mms-automation/audit.log",
 	})
 
-	envVars := logConfigurationToEnvVars(parameters, additionalMongodConfig)
+	envVars := logConfigurationToEnvVars(agentConfig, additionalMongodConfig)
 	assert.Len(t, envVars, 7)
 
 	logFileAutomationAgentEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "log.file")}
@@ -262,7 +265,7 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 	numberOfLogFilesInEnvVars := 7
 
 	t.Run("automation log is changed and audit log is changed", func(t *testing.T) {
-		envVars := logConfigurationToEnvVars(parameters, additionalMongodConfig)
+		envVars := logConfigurationToEnvVars(agentConfig, additionalMongodConfig)
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseEnvVar)
@@ -274,7 +277,7 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 	})
 
 	t.Run("automation log is changed and audit log is default", func(t *testing.T) {
-		envVars := logConfigurationToEnvVars(parameters, additionalMongodConfig)
+		envVars := logConfigurationToEnvVars(agentConfig, additionalMongodConfig)
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseEnvVar)
@@ -286,7 +289,10 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 	})
 
 	t.Run("automation log is default and audit log is changed", func(t *testing.T) {
-		envVars = logConfigurationToEnvVars(map[string]string{}, additionalMongodConfig)
+		defaultAgentConfig := &mdbv1.AgentConfig{
+			StartupParameters: map[string]string{},
+		}
+		envVars = logConfigurationToEnvVars(defaultAgentConfig, additionalMongodConfig)
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentDefaultEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseDefaultEnvVar)
@@ -298,7 +304,10 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 	})
 
 	t.Run("all log files are default", func(t *testing.T) {
-		envVars = logConfigurationToEnvVars(map[string]string{"other": "value"}, mdbv1.NewEmptyAdditionalMongodConfig().AddOption("other", "value"))
+		defaultAgentConfig := &mdbv1.AgentConfig{
+			StartupParameters: map[string]string{"other": "value"},
+		}
+		envVars = logConfigurationToEnvVars(defaultAgentConfig, mdbv1.NewEmptyAdditionalMongodConfig().AddOption("other", "value"))
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentDefaultEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseDefaultEnvVar)
@@ -308,7 +317,122 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 		assert.Contains(t, envVars, logFileAgentMonitoringEnvVar)
 		assert.Contains(t, envVars, logFileAgentBackupEnvVar)
 	})
+
+	t.Run("custom monitoring and backup agent log paths", func(t *testing.T) {
+		customAgentConfig := &mdbv1.AgentConfig{
+			StartupParameters: parameters,
+			MonitoringAgent: mdbv1.MonitoringAgent{
+				LogFilePath: "/custom/path/monitoring-agent.log",
+			},
+			BackupAgent: mdbv1.BackupAgent{
+				LogFilePath: "/custom/path/backup-agent.log",
+			},
+		}
+		envVars := logConfigurationToEnvVars(customAgentConfig, additionalMongodConfig)
+		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
+		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: "/custom/path/monitoring-agent.log"})
+		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: "/custom/path/backup-agent.log"})
+		assert.Contains(t, envVars, logFileMongoDBEnvVar)
+	})
 }
+
+func TestGetCustomLogVolumeMounts(t *testing.T) {
+	standardDir := util.PvcMountPathLogs
+	// Mirror the production call site: ApplyCustomAgentLogMounts runs AFTER the
+	// user podTemplate is merged, so the agent container has both operator and
+	// user-supplied mounts visible.
+	containerMounts := []corev1.VolumeMount{
+		{Name: util.PvMms, MountPath: util.PvcMmsMountPath},
+		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath},
+		{Name: util.PvMms, MountPath: util.PvcMountPathTmp},
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal},
+		{Name: util.PvcNameData, MountPath: standardDir},
+	}
+
+	t.Run("nil agent config returns nothing", func(t *testing.T) {
+		volumes, mounts := getCustomLogVolumeMounts(nil, containerMounts)
+		assert.Empty(t, volumes)
+		assert.Empty(t, mounts)
+	})
+
+	t.Run("default paths produce no extra mounts", func(t *testing.T) {
+		volumes, mounts := getCustomLogVolumeMounts(&mdbv1.AgentConfig{}, containerMounts)
+		assert.Empty(t, volumes)
+		assert.Empty(t, mounts)
+	})
+
+	t.Run("paths under the standard logs mount produce no extra mounts", func(t *testing.T) {
+		agentConfig := &mdbv1.AgentConfig{
+			MonitoringAgent: mdbv1.MonitoringAgent{LogFilePath: standardDir + "/sub/monitoring.log"},
+			BackupAgent:     mdbv1.BackupAgent{LogFilePath: standardDir + "/backup.log"},
+		}
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, containerMounts)
+		assert.Empty(t, volumes)
+		assert.Empty(t, mounts)
+	})
+
+	t.Run("paths under /data reuse the data volume", func(t *testing.T) {
+		agentConfig := &mdbv1.AgentConfig{
+			MonitoringAgent: mdbv1.MonitoringAgent{LogFilePath: "/data/monitoring-agent.log"},
+			BackupAgent:     mdbv1.BackupAgent{LogFilePath: "/data/sub/backup-agent.log"},
+		}
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, containerMounts)
+		assert.Empty(t, volumes)
+		assert.Empty(t, mounts)
+	})
+
+	t.Run("paths outside any operator mount get their own emptyDir", func(t *testing.T) {
+		agentConfig := &mdbv1.AgentConfig{
+			MonitoringAgent: mdbv1.MonitoringAgent{LogFilePath: "/agent-logs/monitoring.log"},
+			BackupAgent:     mdbv1.BackupAgent{LogFilePath: "/other-logs/backup.log"},
+		}
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, containerMounts)
+		require.Len(t, volumes, 2)
+		require.Len(t, mounts, 2)
+		assert.Equal(t, "monitoring-agent-logs", volumes[0].Name)
+		assert.NotNil(t, volumes[0].EmptyDir)
+		assert.Equal(t, "/agent-logs", mounts[0].MountPath)
+		assert.Equal(t, "backup-agent-logs", volumes[1].Name)
+		assert.Equal(t, "/other-logs", mounts[1].MountPath)
+	})
+
+	t.Run("shared parent dir is mounted only once under a neutral name", func(t *testing.T) {
+		agentConfig := &mdbv1.AgentConfig{
+			MonitoringAgent: mdbv1.MonitoringAgent{LogFilePath: "/agent-logs/monitoring.log"},
+			BackupAgent:     mdbv1.BackupAgent{LogFilePath: "/agent-logs/backup.log"},
+		}
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, containerMounts)
+		require.Len(t, volumes, 1)
+		require.Len(t, mounts, 1)
+		assert.Equal(t, "agent-logs", volumes[0].Name)
+		assert.Equal(t, "/agent-logs", mounts[0].MountPath)
+	})
+
+	t.Run("only one custom path", func(t *testing.T) {
+		agentConfig := &mdbv1.AgentConfig{
+			BackupAgent: mdbv1.BackupAgent{LogFilePath: "/agent-logs/backup.log"},
+		}
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, containerMounts)
+		require.Len(t, volumes, 1)
+		require.Len(t, mounts, 1)
+		assert.Equal(t, "backup-agent-logs", volumes[0].Name)
+		assert.Equal(t, "/agent-logs", mounts[0].MountPath)
+	})
+
+	t.Run("only the colliding agent reuses, the other gets its own emptyDir", func(t *testing.T) {
+		agentConfig := &mdbv1.AgentConfig{
+			MonitoringAgent: mdbv1.MonitoringAgent{LogFilePath: "/data/monitoring-agent.log"},
+			BackupAgent:     mdbv1.BackupAgent{LogFilePath: "/agent-logs/backup.log"},
+		}
+		volumes, mounts := getCustomLogVolumeMounts(agentConfig, containerMounts)
+		require.Len(t, volumes, 1)
+		require.Len(t, mounts, 1)
+		assert.Equal(t, "backup-agent-logs", volumes[0].Name)
+		assert.Equal(t, "/agent-logs", mounts[0].MountPath)
+	})
+}
+
 
 func TestGetAutomationLogEnvVars(t *testing.T) {
 	t.Run("automation log file with extension", func(t *testing.T) {

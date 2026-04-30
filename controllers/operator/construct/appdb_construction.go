@@ -60,6 +60,7 @@ type AppDBStatefulSetOptions struct {
 	PrometheusTLSCertHash string
 }
 
+// AppDB pins the monitoring agent log path. Custom paths are not supported because no emptyDir is provisioned for them.
 func getMonitoringAgentLogOptions(spec om.AppDBSpec) string {
 	return fmt.Sprintf(" -logFile=/var/log/mongodb-mms-automation/monitoring-agent.log -maxLogFileDurationHrs=%d -logLevel=%s", spec.GetAgentMaxLogFileDurationHours(), spec.GetAgentLogLevel())
 }
