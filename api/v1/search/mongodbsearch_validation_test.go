@@ -420,6 +420,66 @@ func TestValidateClusterNamesImmutable(t *testing.T) {
 	}
 }
 
+func TestValidateMongoDBCommunitySourceForbidden(t *testing.T) {
+	tests := []struct {
+		name          string
+		source        *MongoDBSource
+		clusters      []SearchClusterSpecItem
+		errorContains string
+	}{
+		{
+			name:     "no source",
+			clusters: []SearchClusterSpecItem{{Replicas: 1}},
+		},
+		{
+			name:     "MongoDB kind allowed",
+			clusters: []SearchClusterSpecItem{{Replicas: 1}},
+			source:   &MongoDBSource{MongoDBResourceRef: &MongoDBSearchSourceRef{Name: "my-rs", Kind: "MongoDB"}},
+		},
+		{
+			name:     "MongoDBMultiCluster kind allowed",
+			clusters: []SearchClusterSpecItem{{ClusterName: "c1", Replicas: 1}, {ClusterName: "c2", Replicas: 1}},
+			source:   &MongoDBSource{MongoDBResourceRef: &MongoDBSearchSourceRef{Name: "my-mc", Kind: "MongoDBMultiCluster"}},
+		},
+		{
+			name:     "no kind set",
+			clusters: []SearchClusterSpecItem{{Replicas: 1}},
+			source:   &MongoDBSource{MongoDBResourceRef: &MongoDBSearchSourceRef{Name: "my-rs"}},
+		},
+		{
+			name:          "MongoDBCommunity kind rejected",
+			clusters:      []SearchClusterSpecItem{{Replicas: 1}},
+			source:        &MongoDBSource{MongoDBResourceRef: &MongoDBSearchSourceRef{Name: "my-mdb", Kind: "MongoDBCommunity"}},
+			errorContains: "MongoDBCommunity is not supported",
+		},
+		{
+			name:          "MongoDBCommunity kind + multi-cluster",
+			clusters:      []SearchClusterSpecItem{{ClusterName: "c1", Replicas: 1}, {ClusterName: "c2", Replicas: 1}},
+			source:        &MongoDBSource{MongoDBResourceRef: &MongoDBSearchSourceRef{Name: "my-mdb", Kind: "MongoDBCommunity"}},
+			errorContains: "forbidden with multi-cluster",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clusters := tt.clusters
+			if clusters == nil {
+				clusters = []SearchClusterSpecItem{{Replicas: 1}}
+			}
+			search := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-search", Namespace: "test-ns"},
+				Spec:       MongoDBSearchSpec{Clusters: clusters, Source: tt.source},
+			}
+			result := validateMongoDBCommunitySourceForbidden(search)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, result.Level)
+			}
+		})
+	}
+}
+
 func TestValidateSourceNamespace(t *testing.T) {
 	tests := []struct {
 		name          string
