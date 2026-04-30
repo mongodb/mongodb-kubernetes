@@ -3,7 +3,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 SAMPLE_RELEASE_JSON = {
     "mongodbToolsBundle": {"ubi": "mongodb-database-tools-rhel88-x86_64-100.15.0.tgz"},
     "mongodbOperator": "1.8.0",
@@ -27,11 +26,15 @@ def test_round_trip_overwrites_mongodb_operator_and_preserves_rest(tmp_path, mon
     release_path = _write_release_json(tmp_path, SAMPLE_RELEASE_JSON)
     monkeypatch.chdir(tmp_path)
 
-    with patch("scripts.release.update_mongodb_operator_version.Repo"), patch(
-        "scripts.release.update_mongodb_operator_version.calculate_next_version",
-        return_value="1.9.0",
+    with (
+        patch("scripts.release.update_mongodb_operator_version.Repo"),
+        patch(
+            "scripts.release.update_mongodb_operator_version.calculate_next_version",
+            return_value="1.9.0",
+        ),
     ):
         from scripts.release import update_mongodb_operator_version
+
         update_mongodb_operator_version.main()
 
     with open(release_path) as f:
@@ -54,11 +57,15 @@ def test_no_op_when_value_matches(tmp_path, monkeypatch, capsys):
     original_bytes = release_path.read_bytes()
     monkeypatch.chdir(tmp_path)
 
-    with patch("scripts.release.update_mongodb_operator_version.Repo"), patch(
-        "scripts.release.update_mongodb_operator_version.calculate_next_version",
-        return_value=SAMPLE_RELEASE_JSON["mongodbOperator"],
+    with (
+        patch("scripts.release.update_mongodb_operator_version.Repo"),
+        patch(
+            "scripts.release.update_mongodb_operator_version.calculate_next_version",
+            return_value=SAMPLE_RELEASE_JSON["mongodbOperator"],
+        ),
     ):
         from scripts.release import update_mongodb_operator_version
+
         update_mongodb_operator_version.main()
 
     assert release_path.read_bytes() == original_bytes
@@ -71,11 +78,15 @@ def test_failure_propagates_and_release_json_unchanged(tmp_path, monkeypatch):
     original_bytes = release_path.read_bytes()
     monkeypatch.chdir(tmp_path)
 
-    with patch("scripts.release.update_mongodb_operator_version.Repo"), patch(
-        "scripts.release.update_mongodb_operator_version.calculate_next_version",
-        side_effect=RuntimeError("simulated failure"),
+    with (
+        patch("scripts.release.update_mongodb_operator_version.Repo"),
+        patch(
+            "scripts.release.update_mongodb_operator_version.calculate_next_version",
+            side_effect=RuntimeError("simulated failure"),
+        ),
     ):
         from scripts.release import update_mongodb_operator_version
+
         with pytest.raises(RuntimeError, match="simulated failure"):
             update_mongodb_operator_version.main()
 
