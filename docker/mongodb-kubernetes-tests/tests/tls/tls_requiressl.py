@@ -166,3 +166,12 @@ def test_custom_ca_mdb_is_not_reachable_without_ssl(mdb_custom_ca: MongoDB):
 @skip_if_local()
 def test_custom_ca_mdb_is_reachable_with_ssl(mdb_custom_ca: MongoDB, ca_path: str):
     mdb_custom_ca.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()
+
+
+@pytest.mark.e2e_replica_set_tls_require_custom_ca_path
+def test_custom_ca_path_in_automation_config(mdb_custom_ca: MongoDB):
+    ac = mdb_custom_ca.get_automation_config_tester().automation_config
+    assert ac.get("tls", {}).get("CAFilePath") == CUSTOM_CA_FILE_PATH, (
+        f"Expected AC tls.CAFilePath={CUSTOM_CA_FILE_PATH}, "
+        f"got {ac.get('tls', {}).get('CAFilePath')}"
+    )
