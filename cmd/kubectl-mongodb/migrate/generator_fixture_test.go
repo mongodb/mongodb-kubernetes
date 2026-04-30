@@ -58,144 +58,107 @@ func runUsers(t *testing.T, ac *om.AutomationConfig, opts GenerateOptions) strin
 	return result
 }
 
-// TestFixtureMatch tests that generating Kubernetes CR manifests from the given
-// Automation Config input yields bytes identical to the committed fixture file.
-// To regenerate fixture files: go test -run TestFixtureMatch -update-fixtures
-func TestFixtureMatch(t *testing.T) {
-	projectCfg := fullTestConfigs()
+// fixtureCase declares one TestFixtureMatch entry.
+// fixture is the shared path stem for input + outputs, e.g. "singlecluster/replicaset/foo/foo".
+// The runner derives "<fixture>_input.json", "<fixture>_mongodb_cr.yaml", and "<fixture>_users.yaml" (when hasUsers).
+// opts is layered on top of defaultGenerateOptions, so cases only need to set fields that differ.
+type fixtureCase struct {
+	name     string
+	fixture  string
+	hasUsers bool
+	opts     GenerateOptions
+}
 
-	tests := []struct {
-		name           string
-		inputJSON      string
-		fixtureMongoDB string
-		fixtureUsers   string // empty if the deployment has no users
-		opts           GenerateOptions
-	}{
+// withDefaultBoilerplate fills in the credentials secret name and OM config-map name unless the case set them.
+func withDefaultBoilerplate(opts GenerateOptions) GenerateOptions {
+	if opts.CredentialsSecretName == "" {
+		opts.CredentialsSecretName = "my-credentials"
+	}
+	if opts.ConfigMapName == "" {
+		opts.ConfigMapName = "my-om-config"
+	}
+	return opts
+}
+
+// TestFixtureMatch_ReplicaSet covers replica-set generator output. To regenerate fixtures: go test -run TestFixtureMatch -update-fixtures
+func TestFixtureMatch_ReplicaSet(t *testing.T) {
+	projectCfg := fullTestConfigs()
+	cases := []fixtureCase{
 		{
-			name:           "single-cluster replica set — SCRAM, TLS, LDAP, Prometheus, log rotation",
-			inputJSON:      "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json",
-			fixtureMongoDB: "singlecluster/replicaset/complex_replicaset/complex_replicaset_mongodb_cr.yaml",
-			fixtureUsers:   "singlecluster/replicaset/complex_replicaset/complex_replicaset_users.yaml",
+			name:     "single-cluster replica set — SCRAM, TLS, LDAP, Prometheus, log rotation",
+			fixture:  "singlecluster/replicaset/complex_replicaset/complex_replicaset",
+			hasUsers: true,
 			opts: GenerateOptions{
-				CredentialsSecretName: "my-credentials",
-				ConfigMapName:         "my-om-config",
-				CertsSecretPrefix:     "mdb",
-				PrometheusPassword:    "prom-s3cret",
-				ProjectConfigs:        projectCfg,
+				CertsSecretPrefix:  "mdb",
+				PrometheusPassword: "prom-s3cret",
+				ProjectConfigs:     projectCfg,
 			},
 		},
 		{
-			name:           "additionalMongodConfig — unknown fields (zstdCompressionLevel) are passed through",
-			inputJSON:      "singlecluster/replicaset/additional_mongod_config/additional_mongod_config_input.json",
-			fixtureMongoDB: "singlecluster/replicaset/additional_mongod_config/additional_mongod_config_mongodb_cr.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "my-credentials",
-				ConfigMapName:         "my-om-config",
-			},
+			name:    "additionalMongodConfig — unknown fields (zstdCompressionLevel) are passed through",
+			fixture: "singlecluster/replicaset/additional_mongod_config/additional_mongod_config",
 		},
 		{
-			name:           "different mongod config — additionalMongodConfig taken from first process",
-			inputJSON:      "singlecluster/replicaset/different_mongod_config/different_mongod_config_input.json",
-			fixtureMongoDB: "singlecluster/replicaset/different_mongod_config/different_mongod_config_mongodb_cr.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "my-credentials",
-				ConfigMapName:         "my-om-config",
-			},
+			name:    "different mongod config — additionalMongodConfig taken from first process",
+			fixture: "singlecluster/replicaset/different_mongod_config/different_mongod_config",
 		},
 		{
-			name:           "TLS requireSSL — TLS enabled, mode not in additionalMongodConfig",
-			inputJSON:      "singlecluster/replicaset/tls/require/require_input.json",
-			fixtureMongoDB: "singlecluster/replicaset/tls/require/require_mongodb_cr.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "my-credentials",
-				ConfigMapName:         "my-om-config",
-				CertsSecretPrefix:     "mdb",
-			},
+			name:    "TLS requireSSL — TLS enabled, mode not in additionalMongodConfig",
+			fixture: "singlecluster/replicaset/tls/require/require",
+			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
 		},
 		{
-			name:           "TLS allowTLS — TLS enabled, mode preserved in additionalMongodConfig",
-			inputJSON:      "singlecluster/replicaset/tls/allow/allow_input.json",
-			fixtureMongoDB: "singlecluster/replicaset/tls/allow/allow_mongodb_cr.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "my-credentials",
-				ConfigMapName:         "my-om-config",
-				CertsSecretPrefix:     "mdb",
-			},
+			name:    "TLS allowTLS — TLS enabled, mode preserved in additionalMongodConfig",
+			fixture: "singlecluster/replicaset/tls/allow/allow",
+			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
 		},
 		{
-			name:           "TLS disabled — no TLS section at all",
-			inputJSON:      "singlecluster/replicaset/tls/disabled/disabled_input.json",
-			fixtureMongoDB: "singlecluster/replicaset/tls/disabled/disabled_mongodb_cr.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "my-credentials",
-				ConfigMapName:         "my-om-config",
-			},
+			name:    "TLS disabled — no TLS section at all",
+			fixture: "singlecluster/replicaset/tls/disabled/disabled",
 		},
 		{
-			name:           "auth disabled — no security block",
-			inputJSON:      "singlecluster/replicaset/authentication/disabled/disabled_input.json",
-			fixtureMongoDB: "singlecluster/replicaset/authentication/disabled/disabled_mongodb_cr.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "my-credentials",
-				ConfigMapName:         "my-om-config",
-			},
+			name:    "auth disabled — no security block",
+			fixture: "singlecluster/replicaset/authentication/disabled/disabled",
 		},
 		{
-			name:           "SCRAM-SHA-256 auth — single mechanism with user password secrets",
-			inputJSON:      "singlecluster/replicaset/authentication/scram_sha256/scram_sha256_input.json",
-			fixtureMongoDB: "singlecluster/replicaset/authentication/scram_sha256/scram_sha256_mongodb_cr.yaml",
-			fixtureUsers:   "singlecluster/replicaset/authentication/scram_sha256/scram_sha256_users.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "my-credentials",
-				ConfigMapName:         "my-om-config",
-			},
+			name:     "SCRAM-SHA-256 auth — single mechanism with user password secrets",
+			fixture:  "singlecluster/replicaset/authentication/scram_sha256/scram_sha256",
+			hasUsers: true,
 		},
 		{
-			name:           "SCRAM+X509 auth — MongoDB CR + user CRs",
-			inputJSON:      "singlecluster/replicaset/authentication/x509/x509_input.json",
-			fixtureMongoDB: "singlecluster/replicaset/authentication/x509/x509_mongodb_cr.yaml",
-			fixtureUsers:   "singlecluster/replicaset/authentication/x509/x509_users.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "my-credentials",
-				ConfigMapName:         "my-om-config",
-				CertsSecretPrefix:     "mdb",
-			},
+			name:     "SCRAM+X509 auth — MongoDB CR + user CRs",
+			fixture:  "singlecluster/replicaset/authentication/x509/x509",
+			hasUsers: true,
+			opts:     GenerateOptions{CertsSecretPrefix: "mdb"},
 		},
 		{
-			name:           "X509-only auth — single mode, keyFile internal cluster",
-			inputJSON:      "singlecluster/replicaset/authentication/x509_only/x509_only_input.json",
-			fixtureMongoDB: "singlecluster/replicaset/authentication/x509_only/x509_only_mongodb_cr.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "my-credentials",
-				ConfigMapName:         "my-om-config",
-				CertsSecretPrefix:     "mdb",
-			},
+			name:    "X509-only auth — single mode, keyFile internal cluster",
+			fixture: "singlecluster/replicaset/authentication/x509_only/x509_only",
+			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
 		},
 		{
-			name:           "member options — tags",
-			inputJSON:      "singlecluster/replicaset/member_options/member_options_input.json",
-			fixtureMongoDB: "singlecluster/replicaset/member_options/member_options_mongodb_cr.yaml",
-			opts: GenerateOptions{
-				CredentialsSecretName: "my-credentials",
-				ConfigMapName:         "my-om-config",
-			},
+			name:    "member options — tags",
+			fixture: "singlecluster/replicaset/member_options/member_options",
 		},
 	}
+	runFixtureCases(t, cases)
+}
 
-	for _, tt := range tests {
+func runFixtureCases(t *testing.T, cases []fixtureCase) {
+	t.Helper()
+	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			ac := loadTestAutomationConfig(t, tt.inputJSON)
+			opts := withDefaultBoilerplate(tt.opts)
+			ac := loadTestAutomationConfig(t, tt.fixture+"_input.json")
 
-			mongodbOutput := runMongodb(t, ac, tt.opts)
-			fixtureMongoDBPath := "testdata/" + tt.fixtureMongoDB
-			checkOrUpdateFixture(t, fixtureMongoDBPath, mongodbOutput)
+			mongodbOutput := runMongodb(t, ac, opts)
+			checkOrUpdateFixture(t, "testdata/"+tt.fixture+"_mongodb_cr.yaml", mongodbOutput)
 
-			if tt.fixtureUsers == "" {
+			if !tt.hasUsers {
 				return
 			}
-			usersOutput := runUsers(t, ac, tt.opts)
-			fixtureUsersPath := "testdata/" + tt.fixtureUsers
-			checkOrUpdateFixture(t, fixtureUsersPath, usersOutput)
+			usersOutput := runUsers(t, ac, opts)
+			checkOrUpdateFixture(t, "testdata/"+tt.fixture+"_users.yaml", usersOutput)
 		})
 	}
 }
