@@ -50,9 +50,8 @@ deploy_test_app() {
 
     chart_info=$(scripts/dev/run_python.sh scripts/release/oci_chart_info.py --build-scenario "${BUILD_SCENARIO}") || { echo "Failed to generate chart_info" ; exit 1; }
 
-    helm_oci_registry=$(echo "${chart_info}" | jq -r '.registry') || { echo "Failed to parse registry from chart_info"; exit 1; }
     helm_oci_repository=$(echo "${chart_info}" | jq -r '.repository') || { echo "Failed to parse repository from chart_info"; exit 1; }
-    helm_oci_registry_region=$(echo "${chart_info}" | jq -r '.region') || { echo "Failed to parse region from chart_info"; exit 1; }
+    helm_oci_registry="${helm_oci_repository%%/*}"
     helm_oci_version_prefix=$(echo "${chart_info}" | jq -r '.version_prefix // empty') || { echo "Failed to parse version_prefix from chart_info"; exit 1; }
     helm_oci_version="${helm_oci_version_prefix:-}${OPERATOR_VERSION}"
 
@@ -86,7 +85,6 @@ deploy_test_app() {
         "--set" "helm.oci.version=${helm_oci_version}"
         "--set" "helm.oci.registry=${helm_oci_registry}"
         "--set" "helm.oci.repository=${helm_oci_repository}"
-        "--set" "helm.oci.region=${helm_oci_registry_region}"
         "--set" "autoEmbedding.providerMongoDB.indexingKey=${AI_MONGODB_EMBEDDING_INDEXING_KEY}"
         "--set" "autoEmbedding.providerMongoDB.queryKey=${AI_MONGODB_EMBEDDING_QUERY_KEY}"
     )

@@ -51,7 +51,7 @@ def install_database_roles(
         raise e
 
 
-def create_om_admin_secret(ops_manager_namespace: str, api_client: kubernetes.client.ApiClient = None):
+def create_om_admin_secret(ops_manager_namespace: str, api_client: kubernetes.client.ApiClient | None = None):
     data = dict(
         Username="test-user",
         Password="@Sihjifutestpass21nnH",

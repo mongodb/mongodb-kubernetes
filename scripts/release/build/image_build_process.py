@@ -111,6 +111,10 @@ class DockerImageBuilder(ImageBuilder):
             decoded_stderr = e.stderr.lower() if e.stderr else ""
             if any(str(error) in decoded_stderr for error in ["no such image", "image not known", "not found"]):
                 return False
+            # Quay.io returns 401 Unauthorized for non-existent manifests instead of 404,
+            # even when the registry credentials are valid. Treat that case as "not found".
+            if "quay.io" in image_tag.lower() and "401 unauthorized" in decoded_stderr:
+                return False
             raise RuntimeError(
                 f"Failed to check if image '{image_tag}' exists: {e.stderr.strip() if e.stderr else str(e)}"
             )

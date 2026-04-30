@@ -44,5 +44,9 @@ kubectl create secret generic version-id --from-literal=version-id="${version_id
 kubectl create secret generic task-id --from-literal=task-id="${task_id}" --namespace=honeycomb --dry-run=client -o yaml | kubectl apply -f -
 kubectl create secret generic task-name --from-literal=task-name="${task_name}" --namespace=honeycomb --dry-run=client -o yaml | kubectl apply -f -
 
-helm upgrade --install otel-collector-cluster open-telemetry/opentelemetry-collector --namespace honeycomb --values scripts/evergreen/e2e/performance/honeycomb/values-deployment.yaml
-helm upgrade --install otel-collector open-telemetry/opentelemetry-collector --namespace honeycomb --values scripts/evergreen/e2e/performance/honeycomb/values-daemonset.yaml
+# The otel-collector charts create cluster-scoped ClusterRoles tied to the honeycomb namespace.
+# With max_hosts>1, two tasks may run concurrently and race to install the same releases.
+# || true prevents a concurrent install by another task from failing this task — the collector
+# will already be running or will be started by the other task.
+helm upgrade --install otel-collector-cluster open-telemetry/opentelemetry-collector --namespace honeycomb --values scripts/evergreen/e2e/performance/honeycomb/values-deployment.yaml || true
+helm upgrade --install otel-collector open-telemetry/opentelemetry-collector --namespace honeycomb --values scripts/evergreen/e2e/performance/honeycomb/values-daemonset.yaml || true

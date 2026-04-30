@@ -71,8 +71,8 @@ def ops_manager(
     appdb_certs_secret: str,
     ops_manager_unmarshalled: MongoDBOpsManager,
 ) -> MongoDBOpsManager:
-    resource = ops_manager_unmarshalled.update()
-    return resource
+    ops_manager_unmarshalled.update()
+    return ops_manager_unmarshalled
 
 
 @mark.e2e_multi_cluster_appdb

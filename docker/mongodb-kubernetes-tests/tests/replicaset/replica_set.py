@@ -1,5 +1,6 @@
 from typing import Dict
 
+import kubernetes.client.rest
 import pytest
 from kubernetes import client
 from kubetester import assert_pod_container_security_context, assert_pod_security_context, try_load
@@ -381,7 +382,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts.spec.replicas == 5
 
-    def _get_pods(self, podname, qty):
+    def _get_pods(self, podname, qty=3):
         return [podname.format(i) for i in range(qty)]
 
     def test_replica_set_pods_exists(self):

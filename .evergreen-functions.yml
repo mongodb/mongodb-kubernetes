@@ -225,18 +225,32 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/setup_docker_sbom.sh
 
-  helm_registry_login:
+  helm_registry_login_prod: &helm_registry_login_prod
     command: subprocess.exec
     type: setup
     retry_on_failure: true
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
-      include_expansions_in_env:
-        - quay_prod_username
-        - quay_prod_robot_token
       add_to_path:
         - ${workdir}/bin
         - ${PROJECT_DIR}/bin
+      env:
+        QUAY_USERNAME: ${quay_prod_username}
+        QUAY_PASSWORD: ${quay_prod_robot_token}
+      binary: scripts/release/helm_registry_login.sh
+
+  helm_registry_login_staging: &helm_registry_login_staging
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+        - ${PROJECT_DIR}/bin
+      env:
+        QUAY_USERNAME: ${quay_staging_username}
+        QUAY_PASSWORD: ${quay_staging_robot_token}
       binary: scripts/release/helm_registry_login.sh
 
   # Logs into all used registries
@@ -356,6 +370,47 @@ functions:
     # After setting up KUBE, we need to update the KUBECONFIG and other env vars.
     - *switch_context
 
+  setup_gh: &setup_gh
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+        - workdir
+      binary: scripts/evergreen/setup_gh.sh
+
+  # Downloads the oc binary and logs into the OpenShift cluster.
+  setup_openshift_client:
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+        - workdir
+      env:
+        OPENSHIFT_TOKEN: ${openshift_token}
+        OPENSHIFT_URL: ${openshift_url}
+      binary: scripts/evergreen/setup_openshift_client.sh
+
+  # Checks whether the live OpenShift cluster version matches kubernetes-versions.json.
+  # On mismatch, opens a PR to update the file (if one doesn't already exist).
+  check_ocp_version_drift:
+    command: subprocess.exec
+    type: test
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      env:
+        GH_TOKEN: ${GH_TOKEN}
+      binary: scripts/check-ocp-version-drift.sh
+
   # cleanup_exec_environment is a very generic name when the only thing this function
   # does is to clean the logs directory. In the future, more "commands" can be
   # added to it with more clearing features, when needed.
@@ -373,6 +428,17 @@ functions:
       retry_on_failure: true
       params:
         command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
+
+  quay_staging_login:
+    - command: subprocess.exec
+      type: setup
+      retry_on_failure: true
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        env:
+          QUAY_STAGING_USERNAME: ${quay_staging_username}
+          QUAY_STAGING_PASSWORD: ${quay_staging_robot_token}
+        binary: scripts/release/quay_staging_login.sh
 
   setup_cloud_qa:
     - command: shell.exec
@@ -484,7 +550,7 @@ functions:
           - --image
           - ${image_name}
           - --version
-          - ${OPERATOR_VERSION}
+          - ${mongodbOperator}
           - --submit
           - ${preflight_submit}
 
@@ -715,6 +781,14 @@ functions:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: scripts/evergreen/unit-tests-sbom.sh
+
+  test_go_bump_policy:
+    - command: shell.exec
+      type: test
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: scripts/test-check-go-bump-policy-examples.sh
 
   generate_perf_tests_tasks:
     - command: shell.exec
