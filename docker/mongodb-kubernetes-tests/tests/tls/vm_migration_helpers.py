@@ -25,7 +25,12 @@ _GENERATE_CR_ENV = {**os.environ, "KUBECONFIG": os.environ.get("KUBECONFIG", KUB
 
 
 def deploy_vm_statefulset(
-    namespace: str, om_tester: OMTester, extra_volumes=None, extra_volume_mounts=None, extra_command_args=""
+    namespace: str,
+    om_tester: OMTester,
+    extra_volumes=None,
+    extra_volume_mounts=None,
+    extra_command_args="",
+    replicas: Optional[int] = None,
 ):
     """Create or update the VM agent StatefulSet with OM credentials.
 
@@ -38,6 +43,9 @@ def deploy_vm_statefulset(
             {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
             {"name": "MMS_API_KEY", "value": om_tester.context.agent_api_key},
         ]
+
+    if replicas is not None:
+        sts_body["spec"]["replicas"] = replicas
 
     if extra_command_args:
         cmd = sts_body["spec"]["template"]["spec"]["containers"][0]["command"]
@@ -132,6 +140,17 @@ def promote_and_prune(mdb_migration, vm_sts):
         mdb_migration["spec"]["externalMembers"].pop()
         mdb_migration.update()
         mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+
+
+def promote_and_prune_sharded(mdb_migration, target_shards: int, target_config_servers: int, target_mongos: int):
+    """Sharded-cluster promote-and-prune.
+
+    Per the design, the safe extension order is config server → shards → mongos.
+    TODO: implement when the operator supports VM migrations for sharded
+    clusters. Until then this helper is a placeholder so the test can wire
+    through the call site without exercising unsupported behavior.
+    """
+    raise NotImplementedError("promote_and_prune_sharded: pending operator support for sharded VM migration")
 
 
 def vm_replica_set_tester(namespace: str, use_ssl: bool = False, ca_path: Optional[str] = None) -> MongoTester:
