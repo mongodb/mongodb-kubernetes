@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -9,9 +10,14 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_common import MongoDBCommon
 from kubetester.mongodb_utils_state import in_desired_state
 from kubetester.phase import Phase
+from opentelemetry import trace
+
+TRACER = trace.get_tracer("evergreen-agent")
 
 
 class MongoDBUser(CustomObject, MongoDBCommon):
+    _password: Optional[str] = None
+
     def __init__(self, *args, **kwargs):
         with_defaults = {
             "plural": "mongodbusers",
@@ -26,8 +32,10 @@ class MongoDBUser(CustomObject, MongoDBCommon):
     def password(self):
         return self._password
 
+    @TRACER.start_as_current_span("assert_reaches_phase")
     def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
-        return self.wait_for(
+        start_time = time.time()
+        self.wait_for(
             lambda s: in_desired_state(
                 current_state=self.get_status_phase(),
                 desired_state=phase,
@@ -40,6 +48,12 @@ class MongoDBUser(CustomObject, MongoDBCommon):
             timeout,
             should_raise=True,
         )
+        end_time = time.time()
+        span = trace.get_current_span()
+        span.set_attribute("mck.resource", self.__class__.__name__)
+        span.set_attribute("mck.action", "assert_phase")
+        span.set_attribute("mck.desired_phase", phase.name)
+        span.set_attribute("mck.time_needed", end_time - start_time)
 
     def get_user_name(self):
         return self["spec"]["username"]
@@ -68,6 +82,7 @@ class MongoDBUser(CustomObject, MongoDBCommon):
     def add_role(self, role: Role) -> MongoDBUser:
         self["spec"]["roles"] = self["spec"].get("roles", [])
         self["spec"]["roles"].append({"db": role.db, "name": role.role})
+        return self
 
     def add_roles(self, roles: List[Role]):
         for role in roles:

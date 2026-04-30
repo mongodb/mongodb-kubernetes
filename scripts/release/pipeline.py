@@ -4,7 +4,6 @@ from functools import partial
 from typing import Callable, Dict
 
 from opentelemetry import context, trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as OTLPSpanGrpcExporter
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SynchronousMultiSpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -110,7 +109,11 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     version = args.version
     dockerfile_path = image_build_info.dockerfile_path
     builder = get_image_builder_from_arg(image_build_info.builder)
-    latest_tag = image_build_info.latest_tag
+    latest_tag = (
+        image_build_info.latest_tag
+        and os.environ.get("requester", "") == "commit"
+        and os.environ.get("branch_name") == "master"
+    )
     olm_tag = image_build_info.olm_tag
     if args.registry:
         registries = [args.registry]
@@ -172,12 +175,23 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
 
 def _setup_tracing():
+    if os.environ.get("PYTEST_OTEL_ENABLED", "true") == "false":
+        logger.info("PYTEST_OTEL_ENABLED is false, not setting up tracing")
+        return
+
     trace_id = os.environ.get("otel_trace_id")
     parent_id = os.environ.get("otel_parent_id")
     endpoint = os.environ.get("otel_collector_endpoint")
     if any(value is None for value in [trace_id, parent_id, endpoint]):
         logger.info("tracing environment variables are missing, not configuring tracing")
         return
+
+    # Import lazily to avoid loading grpcio C extension when tracing is not used.
+    # grpcio registers at exit handlers that segfault on s390x + Python 3.13.
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
+        OTLPSpanExporter as OTLPSpanGrpcExporter,
+    )
+
     logger.info(f"parent_id is {parent_id}")
     logger.info(f"trace_id is {trace_id}")
     logger.info(f"endpoint is {endpoint}")

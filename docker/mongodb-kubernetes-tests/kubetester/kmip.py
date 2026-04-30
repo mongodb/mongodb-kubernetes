@@ -124,7 +124,7 @@ class KMIPDeployment(object):
         resource_name: str,
         bundle_secret_name: str,
         replicas: int = 3,
-        service_name: str = None,
+        service_name: Optional[str] = None,
         spec: Optional[Dict] = None,
     ) -> str:
         ca = read_configmap(namespace, self.ca_configmap)
@@ -135,7 +135,7 @@ class KMIPDeployment(object):
             replicas=replicas,
             service_name=service_name,
             spec=spec,
-            additional_domains=[service_name],
+            additional_domains=[service_name] if service_name else None,
         )
         secret = read_secret(namespace, cert_secret_name)
         create_or_update_secret(

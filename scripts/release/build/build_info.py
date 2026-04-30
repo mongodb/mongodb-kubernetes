@@ -49,10 +49,9 @@ class BinaryInfo:
 @dataclass
 class HelmChartInfo:
     repository: str
-    registry: str
-    region: str = None
     version_prefix: str = None
     sign: bool = False
+    secondary_repositories: list[str] = None
 
 
 @dataclass
@@ -60,6 +59,25 @@ class BuildInfo:
     images: Dict[str, ImageInfo]
     binaries: Dict[str, BinaryInfo]
     helm_charts: Dict[str, HelmChartInfo]
+
+
+def get_registry_host(repository: str) -> str:
+    """Extract the registry host from a full repository string.
+
+    e.g. 'quay.io/mongodb/helm-charts' -> 'quay.io'
+         '268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb/helm-charts' -> '268558157000.dkr.ecr.us-east-1.amazonaws.com'
+    """
+    return repository.split("/")[0]
+
+
+def get_ecr_region(registry: str) -> str:
+    """Extract the AWS region from an ECR registry hostname.
+
+    e.g. '268558157000.dkr.ecr.us-east-1.amazonaws.com' -> 'us-east-1'
+    """
+    parts = registry.split(".")
+    ecr_index = parts.index("ecr")
+    return parts[ecr_index + 1]
 
 
 def load_build_info(scenario: BuildScenario) -> BuildInfo:
@@ -122,8 +140,7 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
             repository=scenario_data.get("repository"),
             sign=scenario_data.get("sign", False),
             version_prefix=scenario_data.get("version-prefix"),
-            registry=scenario_data.get("registry"),
-            region=scenario_data.get("region"),
+            secondary_repositories=scenario_data.get("secondary-repositories"),
         )
 
     return BuildInfo(images=images, binaries=binaries, helm_charts=helm_charts)

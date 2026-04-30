@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Iterator, Optional
 
 from kubetester import create_or_update_secret, try_load
 from kubetester.awss3client import AwsS3Client, s3_endpoint
@@ -28,13 +28,13 @@ def appdb_certs_secret(namespace: str, issuer: str):
 
 
 @fixture(scope="module")
-def s3_bucket_oplog(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket_oplog(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_OPLOG_NAME + "-secret", namespace)
     yield from create_s3_bucket(aws_s3_client, "test-bucket-oplog-")
 
 
 @fixture(scope="module")
-def s3_bucket_blockstore(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket_blockstore(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_BLOCKSTORE_NAME + "-secret", namespace)
     yield from create_s3_bucket(aws_s3_client, "test-bucket-blockstorage-")
 

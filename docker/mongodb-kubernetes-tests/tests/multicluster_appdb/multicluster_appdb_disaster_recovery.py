@@ -165,7 +165,7 @@ def test_delete_om_and_appdb_statefulset_in_failed_cluster(
         if e.status != 404:
             raise e
 
-    def statefulset_is_deleted(namespace: str, name: str, api_client=Optional[kubernetes.client.ApiClient]):
+    def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None):
         try:
             get_statefulset(namespace, name, api_client=api_client)
             return False

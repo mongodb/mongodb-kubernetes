@@ -38,6 +38,7 @@ otel_trace_id:
 otel_parent_id:
 otel_endpoint:
 otel_resource_attributes:
+pytestOtelEnabled: true
 mdbDefaultArchitecture: "non-static"
 
 # set to "true" to set OM_DEBUG_HTTP=true for the operator
@@ -50,7 +51,6 @@ helm:
     version: ""
     registry: ""
     repository: ""
-    region: ""
 
 autoEmbedding:
   providerMongoDB:

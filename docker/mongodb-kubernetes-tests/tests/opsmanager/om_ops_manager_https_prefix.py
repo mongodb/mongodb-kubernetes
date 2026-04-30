@@ -47,5 +47,7 @@ def ops_manager(
 def test_om_created(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
-    assert ops_manager.om_status().get_url().startswith("https://")
-    assert ops_manager.om_status().get_url().endswith(":8443")
+    om_url = ops_manager.om_status().get_url()
+    assert om_url is not None
+    assert om_url.startswith("https://")
+    assert om_url.endswith(":8443")
