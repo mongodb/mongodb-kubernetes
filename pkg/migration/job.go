@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"path"
 	"strings"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -11,6 +12,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -126,8 +128,7 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 	var caPath string
 	switch authMechanism {
 	case util.AutomationConfigX509Option:
-		// For X509/TLS, the CA is mounted at TLSCaMountPath with the file named "ca-pem"
-		caPath = util.TLSCaMountPath + "/ca-pem"
+		caPath = rs.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
 	default:
 		caPath = util.CAFilePathInContainer
 	}

@@ -1833,8 +1833,20 @@ spec:
                         type: array
                       ca:
                         description: |-
-                          CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-                          used to validate the certificates created already.
+                          CA corresponds to a ConfigMap containing the CA certificate used to validate
+                          the certificates created already. The ConfigMap must contain a key named ca-pem
+                          whose value is the PEM-encoded CA bundle.
+                        type: string
+                      caFilePath:
+                        description: |-
+                          CAFilePath is the absolute path for the CA certificate file. It must have
+                          at least two segments, for example /var/lib/ca/ca-pem. The ConfigMap
+                          referenced by tls.CA must contain a key named ca-pem, which the operator
+                          projects to this path. If the parent directory overlaps a volume mount
+                          declared in your podTemplate, the operator's mount will shadow that mount.
+                          Not supported for the AppDB.
+                          Default: /mongodb-automation/tls/ca/ca-pem
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                         type: string
                       enabled:
                         description: |-
@@ -3946,8 +3958,20 @@ spec:
                         type: array
                       ca:
                         description: |-
-                          CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-                          used to validate the certificates created already.
+                          CA corresponds to a ConfigMap containing the CA certificate used to validate
+                          the certificates created already. The ConfigMap must contain a key named ca-pem
+                          whose value is the PEM-encoded CA bundle.
+                        type: string
+                      caFilePath:
+                        description: |-
+                          CAFilePath is the absolute path for the CA certificate file. It must have
+                          at least two segments, for example /var/lib/ca/ca-pem. The ConfigMap
+                          referenced by tls.CA must contain a key named ca-pem, which the operator
+                          projects to this path. If the parent directory overlaps a volume mount
+                          declared in your podTemplate, the operator's mount will shadow that mount.
+                          Not supported for the AppDB.
+                          Default: /mongodb-automation/tls/ca/ca-pem
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                         type: string
                       enabled:
                         description: |-
@@ -5760,8 +5784,20 @@ spec:
                             type: array
                           ca:
                             description: |-
-                              CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-                              used to validate the certificates created already.
+                              CA corresponds to a ConfigMap containing the CA certificate used to validate
+                              the certificates created already. The ConfigMap must contain a key named ca-pem
+                              whose value is the PEM-encoded CA bundle.
+                            type: string
+                          caFilePath:
+                            description: |-
+                              CAFilePath is the absolute path for the CA certificate file. It must have
+                              at least two segments, for example /var/lib/ca/ca-pem. The ConfigMap
+                              referenced by tls.CA must contain a key named ca-pem, which the operator
+                              projects to this path. If the parent directory overlaps a volume mount
+                              declared in your podTemplate, the operator's mount will shadow that mount.
+                              Not supported for the AppDB.
+                              Default: /mongodb-automation/tls/ca/ca-pem
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           enabled:
                             description: |-

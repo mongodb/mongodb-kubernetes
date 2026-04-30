@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"path"
 	"slices"
 	"sort"
 	"strings"
@@ -66,6 +67,7 @@ import (
 	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -1022,7 +1024,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	podEnvVars := newPodVars(conn, projectConfig, sc.Spec.LogLevel)
 
-	workflowStatus, certSecretTypesForSTS := r.ensureSSLCertificates(ctx, sc, log)
+	workflowStatus := r.ensureSSLCertificates(ctx, sc, log)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
@@ -1040,18 +1042,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflowStatus
 	}
 
-	// Ensures that all sharded cluster certificates are either of Opaque type (old design)
-	// or are all of kubernetes.io/tls type
-	// and save the value for future use
-	allCertsType, err := getCertTypeForAllShardedClusterCertificates(certSecretTypesForSTS)
-	if err != nil {
-		return workflow.Failed(err)
-	}
-
-	caFilePath := util.CAFilePathInContainer
-	if allCertsType == corev1.SecretTypeTLS {
-		caFilePath = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
-	}
+	caFilePath := sc.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
 
 	if workflowStatus := controlledfeature.EnsureFeatureControls(*sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
 		return workflowStatus
@@ -1177,27 +1168,6 @@ func getInternalAuthSecretNames(sc *mdbv1.MongoDB) func() []string {
 	}
 }
 
-// getCertTypeForAllShardedClusterCertificates checks whether all certificates secret are of the same type and returns it.
-func getCertTypeForAllShardedClusterCertificates(certTypes map[string]bool) (corev1.SecretType, error) {
-	if len(certTypes) == 0 {
-		return corev1.SecretTypeTLS, nil
-	}
-	valueSlice := make([]bool, 0, len(certTypes))
-	for _, v := range certTypes {
-		valueSlice = append(valueSlice, v)
-	}
-	curTypeIsTLS := valueSlice[0]
-	for i := 1; i < len(valueSlice); i++ {
-		if valueSlice[i] != curTypeIsTLS {
-			return corev1.SecretTypeOpaque, xerrors.Errorf("TLS Certificates for Sharded cluster must all be of the same type - either kubernetes.io/tls or secrets containing a concatenated pem file")
-		}
-	}
-	if curTypeIsTLS {
-		return corev1.SecretTypeTLS, nil
-	}
-	return corev1.SecretTypeOpaque, nil
-}
-
 // anyStatefulSetNeedsToPublishStateToOM checks to see if any stateful set
 // of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
 func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, kubeClient kubernetesClient.Client, lastSpec *mdbv1.MongoDbSpec, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
@@ -1257,30 +1227,27 @@ func (r *ShardedClusterReconcileHelper) removeUnusedStatefulsets(ctx context.Con
 	}
 }
 
-func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Context, s *mdbv1.MongoDB, log *zap.SugaredLogger) (workflow.Status, map[string]bool) {
+func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Context, s *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
 	tlsConfig := s.Spec.GetTLSConfig()
 
-	certSecretTypes := map[string]bool{}
 	if tlsConfig == nil || !s.Spec.GetSecurity().IsTLSEnabled() {
-		return workflow.OK(), certSecretTypes
+		return workflow.OK()
 	}
 
 	if err := r.replicateTLSCAConfigMap(ctx, log); err != nil {
-		return workflow.Failed(err), nil
+		return workflow.Failed(err)
 	}
 
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		mongosCert := certs.MongosConfig(*s, r.sc.Spec.GetExternalDomain(), r.GetMongosScaler(memberCluster))
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, mongosCert, log)
-		certSecretTypes[mongosCert.CertSecretName] = true
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 		configSrvCert := certs.ConfigSrvConfig(*s, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetConfigSrvScaler(memberCluster))
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, configSrvCert, log)
-		certSecretTypes[configSrvCert.CertSecretName] = true
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
@@ -1288,12 +1255,11 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[i]) {
 			shardCert := certs.ShardConfig(*s, i, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetShardScaler(i, memberCluster))
 			tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, shardCert, log)
-			certSecretTypes[shardCert.CertSecretName] = true
 			workflowStatus = workflowStatus.Merge(tStatus)
 		}
 	}
 
-	return workflowStatus, certSecretTypes
+	return workflowStatus
 }
 
 // createKubernetesResources creates all Kubernetes objects that are specified in 'state' parameter.
@@ -1817,7 +1783,7 @@ type deploymentOptions struct {
 	caFilePath           string
 	agentCertPath        string
 	agentCertHash        string
-	certTLSType          map[string]bool
+
 	finalizing           bool
 	processNames         []string
 	prometheusCertHash   string

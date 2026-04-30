@@ -1704,13 +1704,15 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 	}
 
 	// Configure Authentication Options.
+	appDBCAFilePath := util.CAFilePathInContainer
+
 	opts := authentication.Options{
 		AgentMechanism:     util.SCRAM,
 		Mechanisms:         []string{util.SCRAM},
 		ClientCertificates: util.OptionalClientCertficates,
 		AutoUser:           util.AutomationAgentUserName,
 		AutoPEMKeyFilePath: agentCertPath,
-		CAFilePath:         util.CAFilePathInContainer,
+		CAFilePath:         appDBCAFilePath,
 		MongoDBResource:    types.NamespacedName{Namespace: opsManager.Namespace, Name: opsManager.Name},
 	}
 	err = authentication.Configure(ctx, r.client, conn, opts, false, log)
@@ -1721,7 +1723,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 	}
 
 	err = conn.ReadUpdateDeployment(func(d om.Deployment) error {
-		d.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), util.CAFilePathInContainer)
+		d.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), appDBCAFilePath)
 		return nil
 	}, log)
 	if err != nil {

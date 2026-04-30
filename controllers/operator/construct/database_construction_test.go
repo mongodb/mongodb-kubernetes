@@ -18,6 +18,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -27,6 +28,63 @@ func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
 	mock.InitDefaultEnvVariables()
+}
+
+func Test_tlsVolumeSource_CAFilePath(t *testing.T) {
+	t.Run("custom path uses KeyToPath directory mount", func(t *testing.T) {
+		customPath := "/etc/ssl/certs/ca.pem"
+		src := &tlsVolumeSource{
+			security: &mdbv1.Security{
+				TLSConfig: &mdbv1.TLSConfig{
+					Enabled:    true,
+					CA:         "my-ca-configmap",
+					CAFilePath: customPath,
+				},
+			},
+			databaseOpts: DatabaseStatefulSetOptions{Name: "my-rs"},
+			logger:       zap.S(),
+		}
+
+		volumes, mounts := src.getVolumesAndMounts()
+
+		assert.True(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+			return m.MountPath == path.Dir(customPath) && m.SubPath == "" && m.ReadOnly
+		}), "custom CAFilePath should mount at the parent directory")
+		assert.False(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+			return m.MountPath == util.TLSCaMountPath
+		}), "default TLSCaMountPath should not be present in custom mode")
+		assert.True(t, slices.ContainsFunc(volumes, func(v corev1.Volume) bool {
+			cm := v.ConfigMap
+			return cm != nil &&
+				len(cm.Items) == 1 &&
+				cm.Items[0].Key == tls.CAConfigMapKey &&
+				cm.Items[0].Path == path.Base(customPath)
+		}), "custom CAFilePath volume should map ca-pem key to the custom filename")
+	})
+
+	t.Run("default path mounts whole ConfigMap at TLSCaMountPath", func(t *testing.T) {
+		src := &tlsVolumeSource{
+			security: &mdbv1.Security{
+				TLSConfig: &mdbv1.TLSConfig{
+					Enabled: true,
+					CA:      "my-ca-configmap",
+				},
+			},
+			databaseOpts: DatabaseStatefulSetOptions{Name: "my-rs"},
+			logger:       zap.S(),
+		}
+
+		volumes, mounts := src.getVolumesAndMounts()
+
+		// Default mode: full directory mount at TLSCaMountPath, no KeyToPath items.
+		assert.True(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+			return m.MountPath == util.TLSCaMountPath
+		}), "default mode should mount at TLSCaMountPath")
+		assert.True(t, slices.ContainsFunc(volumes, func(v corev1.Volume) bool {
+			cm := v.ConfigMap
+			return cm != nil && len(cm.Items) == 0
+		}), "default mode should not restrict ConfigMap keys via Items")
+	})
 }
 
 func Test_buildDatabaseInitContainer(t *testing.T) {
