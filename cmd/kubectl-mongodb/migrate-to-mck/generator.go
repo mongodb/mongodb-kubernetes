@@ -51,8 +51,8 @@ type GenerateOptions struct {
 	PrometheusPassword string            // plaintext password, a prometheus Secret is generated from it
 
 	// Non-interactive flow (supplied via flags)
-	ExistingUserSecrets  map[string]string // maps "username:database" to a precreated Secret name, no Secret YAML emitted
-	PrometheusSecretName string            // name of a precreated prometheus Secret, no Secret YAML emitted
+	ExistingUserSecrets  map[string]string // maps "username:database" to a precreated Secret name, no Secret YAML written
+	PrometheusSecretName string            // name of a precreated prometheus Secret, no Secret YAML written
 }
 
 // GenerateMongoDBCR generates a MongoDB CR for the given topology.

@@ -75,7 +75,7 @@ func tlsEnabledAC() *om.AutomationConfig {
 		"processes": []any{
 			map[string]any{
 				"name":        "host-0",
-				"processType": "mongod",
+				"processType": string(om.ProcessTypeMongod),
 				"args2_6": map[string]any{
 					"net": map[string]any{
 						"tls": map[string]any{"mode": "requireSSL"},
