@@ -76,6 +76,12 @@ update_values_yaml_files() {
   python scripts/evergreen/release/update_helm_values_files.py
 }
 
+update_mongodb_operator_version() {
+  # ensure that release.json:mongodbOperator matches calculate_next_version output.
+  # MUST run before update_release_json, which propagates this field to dependents.
+  python scripts/release/update_mongodb_operator_version.py
+}
+
 update_release_json() {
   # ensure that release.json is up 2 date
   # shellcheck disable=SC2154
@@ -155,7 +161,8 @@ generate_all() {
 
   # NOTE: The following are now separate pre-commit hooks that run serially
   # BEFORE this hook to avoid race conditions with release.json:
-  #   - update_release_json (writes release.json)
+  #   - update_mongodb_operator_version (writes release.json:mongodbOperator)
+  #   - update_release_json (propagates mongodbOperator and writes release.json)
   #   - update_values_yaml_files (reads release.json)
   #   - generate_standalone_yaml (reads values files)
 
@@ -187,6 +194,8 @@ elif [[ "${cmd}" == "generate_manifests" ]]; then
   generate_manifests
 elif [[ "${cmd}" == "update_values" ]]; then
   update_values_yaml_files
+elif [[ "${cmd}" == "update_operator_version" ]]; then
+  update_mongodb_operator_version
 elif [[ "${cmd}" == "update_release" ]]; then
   update_release_json
 elif [[ "${cmd}" == "update_licenses" ]]; then
