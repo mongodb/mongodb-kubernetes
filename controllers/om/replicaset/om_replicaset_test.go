@@ -102,27 +102,112 @@ func TestBuildFromMongoDBWithReplicas(t *testing.T) {
 	}
 }
 
+// Exercises the legacy-naming path: when existingProcessIds contains only
+// legacy-named processes (no "k8s/" prefix) and there are no external members,
+// IsLegacyDeployment returns true, so processes keep their bare names.
+func TestBuildFromMongoDBWithReplicas_LegacyNaming(t *testing.T) {
+	memberOptions := []automationconfig.MemberOptions{
+		{Votes: ptr.To(1), Priority: ptr.To("1.0")},
+		{Votes: ptr.To(1), Priority: ptr.To("0.5")},
+		{Votes: ptr.To(0), Priority: ptr.To("0")},
+	}
+
+	mdb := &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-rs",
+			Namespace: "test-namespace",
+		},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				ResourceType: mdbv1.ReplicaSet,
+				Version:      "7.0.5",
+				Security: &mdbv1.Security{
+					TLSConfig:      &mdbv1.TLSConfig{},
+					Authentication: &mdbv1.Authentication{},
+				},
+				Connectivity: &mdbv1.MongoDBConnectivity{
+					ReplicaSetHorizons: []mdbv1.MongoDBHorizonConfig{},
+				},
+			},
+			Members:      3,
+			MemberConfig: memberOptions,
+		},
+	}
+
+	// All-legacy existing process IDs and no external members → legacy deployment.
+	existingProcessIds := map[string]int{
+		"test-rs-0": 0,
+		"test-rs-1": 1,
+		"test-rs-2": 2,
+	}
+
+	replicas := 3
+	rsWithProcesses := BuildFromMongoDBWithReplicas(
+		"mongodb/mongodb-enterprise-server:7.0.5",
+		false,
+		mdb,
+		replicas,
+		"7.0",
+		"",
+		existingProcessIds,
+	)
+
+	assert.Equal(t, "test-rs", rsWithProcesses.Rs.Name())
+	assert.Equal(t, "1", rsWithProcesses.Rs["protocolVersion"])
+
+	members := rsWithProcesses.Rs["members"].([]om.ReplicaSetMember)
+	assert.Len(t, members, replicas)
+	assert.Len(t, rsWithProcesses.Processes, replicas)
+
+	// Legacy naming: no "k8s/<namespace>/" prefix on process names.
+	expectedProcessNames := []string{
+		"test-rs-0",
+		"test-rs-1",
+		"test-rs-2",
+	}
+	expectedHostnames := []string{
+		"test-rs-0.test-rs-svc.test-namespace.svc.cluster.local",
+		"test-rs-1.test-rs-svc.test-namespace.svc.cluster.local",
+		"test-rs-2.test-rs-svc.test-namespace.svc.cluster.local",
+	}
+
+	for i := 0; i < replicas; i++ {
+		assert.Equal(t, expectedProcessNames[i], rsWithProcesses.Processes[i].Name(),
+			"Process name should use legacy naming at index %d", i)
+		assert.Equal(t, expectedHostnames[i], rsWithProcesses.Processes[i].HostName(),
+			"Process hostname mismatch at index %d", i)
+		assert.Equal(t, expectedProcessNames[i], members[i].Name(),
+			"Member host should match legacy process name at index %d", i)
+	}
+
+	assert.Equal(t, 1, members[0].Votes())
+	assert.Equal(t, float32(1.0), members[0].Priority())
+	assert.Equal(t, 1, members[1].Votes())
+	assert.Equal(t, float32(0.5), members[1].Priority())
+	assert.Equal(t, 0, members[2].Votes())
+	assert.Equal(t, float32(0), members[2].Priority())
+}
+
 func TestIsLegacyDeployment_EmptyExistingIds(t *testing.T) {
 	assert.False(t, IsLegacyDeployment(nil, nil))
 	assert.False(t, IsLegacyDeployment(map[string]int{}, nil))
 }
 
 func TestIsLegacyDeployment_HasExternalMembers(t *testing.T) {
-	existingIds := map[string]int{"old-name-0": 0, "old-name-1": 1}
-	assert.False(t, IsLegacyDeployment(existingIds, []string{"external-host:27017"}))
+	// External members must also appear in existingIds — they are real entries
+	// in the AC's processes map. Here "external-0" is both the external member
+	// process name and a key in existingIds.
+	existingIds := map[string]int{
+		"k8s/test-ns/my-rs-0": 0,
+		"k8s/test-ns/my-rs-1": 1,
+		"external-0":          2,
+	}
+	assert.False(t, IsLegacyDeployment(existingIds, []string{"external-0"}))
 }
 
 func TestIsLegacyDeployment_AllNewNaming(t *testing.T) {
 	existingIds := map[string]int{
 		"k8s/test-ns/my-rs-0": 0,
-		"k8s/test-ns/my-rs-1": 1,
-	}
-	assert.False(t, IsLegacyDeployment(existingIds, nil))
-}
-
-func TestIsLegacyDeployment_MixedNaming(t *testing.T) {
-	existingIds := map[string]int{
-		"old-name-0":          0,
 		"k8s/test-ns/my-rs-1": 1,
 	}
 	assert.False(t, IsLegacyDeployment(existingIds, nil))

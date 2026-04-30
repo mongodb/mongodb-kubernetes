@@ -63,7 +63,7 @@ func IsLegacyDeployment(existingProcessIds map[string]int, externalMembers []str
 	for name := range existingProcessIds {
 		if strings.HasPrefix(name, "k8s/") {
 			// Found a member with the "k8s/" prefix
-			// This means it is a new deployment, even if there are some members with the legacy naming scheme.
+			// This means it is a new deployment, even if there are some members without the "k8s/" prefix.
 			// There can be only one process without the "k8s/" at this point which is the last external member that was removed
 			foundNewMember = true
 		}
