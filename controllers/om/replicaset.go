@@ -377,7 +377,7 @@ func ExtractMemberInfo(members []ReplicaSetMember, processMap map[string]Process
 			ProcessName:    host,
 			Hostname:       fmt.Sprintf("%s:%d", proc.HostName(), port),
 			Type:           "mongod",
-			ReplicaSetName: proc.replicaSetName(),
+			ReplicaSetName: proc.ReplicaSetName(),
 		})
 	}
 
