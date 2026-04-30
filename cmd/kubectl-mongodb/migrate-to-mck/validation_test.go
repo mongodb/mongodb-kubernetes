@@ -48,14 +48,126 @@ func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
 func TestValidation_OneDeploymentPerProject_SingleSharded(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "validation/sharded_cluster.json")
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasError := false
-	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "not yet supported") {
-			hasError = true
-		}
-	}
-	assert.True(t, hasError, "expected error for sharded cluster config")
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	assert.Empty(t, results, "single sharded cluster should not trigger one-deployment-per-project error")
+}
+
+func TestValidation_OneDeploymentPerProject_ShardedWithExtraReplicaSet(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "stray-rs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "config-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
+
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "stray-rs")
+}
+
+func TestValidation_OneDeploymentPerProject_MultipleSharded(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []interface{}{},
+		"replicaSets": []interface{}{},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "sc-a",
+				"configServerReplica": "config-a",
+				"shards":              []interface{}{},
+			},
+			map[string]interface{}{
+				"name":                "sc-b",
+				"configServerReplica": "config-b",
+				"shards":              []interface{}{},
+			},
+		},
+	})
+
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "2 sharded clusters")
+}
+
+func TestValidation_EmbeddedConfigServer(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []interface{}{},
+		"replicaSets": []interface{}{},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "shard-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+					map[string]interface{}{"_id": "shard1", "rs": "shard-rs-1"},
+				},
+			},
+		},
+	})
+
+	results := validateEmbeddedConfigServer(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "embedded config server")
+	assert.Contains(t, results[0].Message, "shard0")
+	assert.Contains(t, results[0].Message, "shard-rs")
+}
+
+func TestValidation_DedicatedConfigServer_NoError(t *testing.T) {
+	ac := loadTestAutomationConfig(t, "validation/sharded_cluster.json")
+
+	results := validateEmbeddedConfigServer(ac.Deployment)
+	assert.Empty(t, results, "dedicated config server should not trigger embedded-config-server error")
+}
+
+func TestValidation_EmbeddedConfigServer_ViaProcessClusterRole(t *testing.T) {
+	// Malformed AC where the sharding section claims a dedicated config server
+	// (configServerReplica = csrs) but a shard process declares
+	// sharding.clusterRole = configsvr. The cross-check must still flag this.
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name":     "shard0-0",
+				"hostname": "shard0-0.example.com",
+				"args2_6": map[string]interface{}{
+					"replication": map[string]interface{}{"replSetName": "shard-rs"},
+					"sharding":    map[string]interface{}{"clusterRole": "configsvr"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "csrs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "csrs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
+
+	results := validateEmbeddedConfigServer(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "shard0")
+	assert.Contains(t, results[0].Message, "shard-rs")
+	assert.Contains(t, results[0].Message, "clusterRole = configsvr")
 }
 
 func TestValidation_NoReplicaSets(t *testing.T) {
@@ -300,7 +412,7 @@ func TestCheckTLS_NoTLSSection_Warning(t *testing.T) {
 	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
 			},
 		},
@@ -316,7 +428,7 @@ func TestCheckTLS_ModeDisabled_Warning(t *testing.T) {
 	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{
 						"port": 27017,
@@ -335,7 +447,7 @@ func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
 	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{
 						"port": 27017,
@@ -427,7 +539,7 @@ func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 		"options": map[string]interface{}{"downloadBase": "/var/lib/mongodb-mms-automation"},
 		"processes": []interface{}{
 			map[string]interface{}{
-				"name": "rs-0", "processType": "mongod", "version": "7.0.0", "authSchemaVersion": 5,
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
 				"logRotate": map[string]interface{}{"sizeThresholdMB": 500, "timeThresholdHrs": 12},
 				"args2_6": map[string]interface{}{
 					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},

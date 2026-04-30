@@ -141,11 +141,7 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 			fixture: "singlecluster/replicaset/member_options/member_options",
 		},
 	}
-	runFixtureCases(t, cases)
-}
 
-func runFixtureCases(t *testing.T, cases []fixtureCase) {
-	t.Helper()
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := withDefaultBoilerplate(tt.opts)

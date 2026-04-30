@@ -1,0 +1,24 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: appuser
+  namespace: mongodb
+spec:
+  db: admin
+  mongodbResourceRef:
+    name: my-cluster-v1
+  passwordSecretKeyRef:
+    key: password
+    name: appuser-password
+  roles:
+  - db: appdb
+    name: readWrite
+  username: appuser
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: appuser-password
+  namespace: mongodb
+stringData:
+  password: test-password
