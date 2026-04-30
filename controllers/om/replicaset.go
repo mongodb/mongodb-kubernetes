@@ -11,7 +11,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 /* This corresponds to:
@@ -356,32 +355,35 @@ func findDifference(leftMap map[string]ReplicaSetMember, rightMap map[string]Rep
 	return ans
 }
 
-// ExtractMemberInfo reads version, FCV, and per-member metadata from the
-// given replica set members and process map. Each member becomes an
-// mdbv1.ExternalMember suitable for the CR's spec.externalMembers.
+// ExtractExternalMembers builds CR-shaped externalMembers from the given processes, skipping disabled ones.
+// mongos processes naturally produce an empty ReplicaSetName since their AC args do not declare replication.replSetName.
+func ExtractExternalMembers(processes []Process) []mdbv1.ExternalMember {
+	var out []mdbv1.ExternalMember
+	for _, proc := range processes {
+		if proc.IsDisabled() {
+			continue
+		}
+		out = append(out, mdbv1.ExternalMember{
+			ProcessName:    proc.Name(),
+			Hostname:       fmt.Sprintf("%s:%d", proc.HostName(), proc.Port()),
+			Type:           string(proc.ProcessType()),
+			ReplicaSetName: proc.ReplicaSetName(),
+		})
+	}
+	return out
+}
+
+// ExtractMemberInfo returns the externalMembers, version, and FCV for a replica set's members.
+// Disabled processes are skipped to match the validation contract surfaced to the user.
 func ExtractMemberInfo(members []ReplicaSetMember, processMap map[string]Process) ([]mdbv1.ExternalMember, string, string) {
 	if len(members) == 0 {
 		return nil, "", ""
 	}
-	firstProc := processMap[members[0].Name()]
-	version := firstProc.Version()
-	fcv := firstProc.FeatureCompatibilityVersion()
-
-	var externalMembers []mdbv1.ExternalMember
+	procs := make([]Process, 0, len(members))
 	for _, m := range members {
-		host := m.Name()
-		proc := processMap[host]
-		port := maputil.ReadMapValueAsInt(proc.Args(), "net", "port")
-
-		externalMembers = append(externalMembers, mdbv1.ExternalMember{
-			ProcessName:    host,
-			Hostname:       fmt.Sprintf("%s:%d", proc.HostName(), port),
-			Type:           "mongod",
-			ReplicaSetName: proc.ReplicaSetName(),
-		})
+		procs = append(procs, processMap[m.Name()])
 	}
-
-	return externalMembers, version, fcv
+	return ExtractExternalMembers(procs), procs[0].Version(), procs[0].FeatureCompatibilityVersion()
 }
 
 // Builds the map[<process name>]<replica set member>. This makes intersection easier

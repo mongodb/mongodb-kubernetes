@@ -57,10 +57,8 @@ type GenerateOptions struct {
 
 // GenerateMongoDBCR generates a MongoDB CR for the given topology.
 func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (client.Object, string, error) {
-	isSharded := len(ac.Deployment.GetShardedClusters()) > 0
-
-	if isSharded {
-		return nil, "", fmt.Errorf("sharded cluster migration is not yet supported")
+	if len(ac.Deployment.GetShardedClusters()) > 0 {
+		return generateShardedCluster(ac, opts)
 	}
 	return generateReplicaSet(ac, opts)
 }
@@ -102,7 +100,12 @@ func marshalMultiDoc(objects []client.Object) (string, error) {
 }
 
 // marshalCRToYAML marshals a resource to YAML, stripping status, creationTimestamp, and empty fields.
+// When the resource is wrapped in a yamlCommentCarrier, the spec comment is spliced into the produced YAML.
 func marshalCRToYAML(obj client.Object) (string, error) {
+	var specComment string
+	if w, ok := obj.(*yamlCommentCarrier); ok {
+		obj, specComment = w.Object, w.specComment
+	}
 	jsonBytes, err := json.Marshal(obj)
 	if err != nil {
 		return "", err
@@ -120,7 +123,25 @@ func marshalCRToYAML(obj client.Object) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(out), nil
+	produced := string(out)
+	if specComment != "" {
+		// TODO: drop the comment splice once the CRD supports configServerNameOverride
+		// and shardNameOverrides as real fields, then populate them on the spec directly.
+		const marker = "\n  type: ShardedCluster\n"
+		if strings.Count(produced, marker) != 1 {
+			return "", fmt.Errorf("cannot inject spec comment: expected exactly one %q anchor in produced YAML, got %d", marker, strings.Count(produced, marker))
+		}
+		produced = strings.Replace(produced, marker, "\n"+specComment+"  type: ShardedCluster\n", 1)
+	}
+	return produced, nil
+}
+
+// yamlCommentCarrier wraps a client.Object so a spec-level YAML comment block can travel through
+// the GenerateMongoDBCR call chain and be spliced in by marshalCRToYAML. Code paths that bypass
+// marshalCRToYAML drop the comment, so consumers that need it must go through that helper.
+type yamlCommentCarrier struct {
+	client.Object
+	specComment string
 }
 
 // stripZeroValues recursively removes nil, empty strings, maps, and slices.
