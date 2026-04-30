@@ -325,6 +325,8 @@ spec:
         app.kubernetes.io/component: controller
         app.kubernetes.io/name: mongodb-kubernetes-operator
         app.kubernetes.io/instance: mongodb-kubernetes-operator
+      annotations:
+        mongodb.com/installation-method: "yaml"
     spec:
       serviceAccountName: mongodb-kubernetes-operator
       securityContext:
@@ -408,6 +410,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: MCK_INSTALLER
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['mongodb.com/installation-method']
             - name: OPERATOR_NAME
               value: mongodb-kubernetes-operator
             # Community Env Vars Start
