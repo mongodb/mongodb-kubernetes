@@ -82,9 +82,457 @@ spec:
                 required:
                 - embeddingModelAPIKeySecret
                 type: object
+              clusters:
+                description: |-
+                  Clusters declares the per-cluster distribution of this MongoDBSearch deployment.
+                  Single-cluster is the degenerate case: one entry, clusterName optional.
+                  Multi-cluster requires clusterName on every entry and spec.loadBalancer.managed.
+                items:
+                  description: SearchClusterSpecItem configures one Kubernetes cluster's
+                    share of a MongoDBSearch deployment.
+                  properties:
+                    clusterName:
+                      description: |-
+                        ClusterName is the name of the Kubernetes cluster registered with the operator.
+                        Optional when len(spec.clusters)==1; mandatory and immutable when len(spec.clusters)>1.
+                      type: string
+                    jvmFlags:
+                      description: |-
+                        JVMFlags configures JVM flags for mongot processes in this cluster.
+                        When set (non-nil slice, even if empty), replaces the top-level spec.jvmFlags for this cluster.
+                      items:
+                        type: string
+                      type: array
+                    loadBalancer:
+                      description: |-
+                        LoadBalancer configures per-cluster managed load balancer overrides.
+                        When Managed is non-nil it replaces (not deep-merges) the top-level spec.loadBalancer.managed.
+                        Resolution of this override lands in Phase 7 (TD §11.7 OQ-2a).
+                      properties:
+                        managed:
+                          description: |-
+                            Managed overrides the operator-managed Envoy configuration for this cluster.
+                            Replaces the top-level spec.loadBalancer.managed when set; does not deep-merge.
+                          properties:
+                            deployment:
+                              description: |-
+                                Deployment holds optional overrides merged into the operator-created Envoy Deployment.
+                                Follows the same convention as spec.statefulSet on MongoDB resources.
+                              properties:
+                                metadata:
+                                  description: DeploymentMetadataWrapper is a wrapper
+                                    around Labels and Annotations
+                                  properties:
+                                    annotations:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                    labels:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                  type: object
+                                spec:
+                                  type: object
+                                  x-kubernetes-preserve-unknown-fields: true
+                              required:
+                              - spec
+                              type: object
+                            externalHostname:
+                              description: |-
+                                ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
+                                For sharded clusters, may contain a {shardName} placeholder.
+                                Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
+                              type: string
+                            resourceRequirements:
+                              description: |-
+                                ResourceRequirements for the Envoy container.
+                                When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.
+                              properties:
+                                claims:
+                                  description: |-
+                                    Claims lists the names of resources, defined in spec.resourceClaims,
+                                    that are used by this container.
+
+                                    This is an alpha field and requires enabling the
+                                    DynamicResourceAllocation feature gate.
+
+                                    This field is immutable. It can only be set for containers.
+                                  items:
+                                    description: ResourceClaim references one entry
+                                      in PodSpec.ResourceClaims.
+                                    properties:
+                                      name:
+                                        description: |-
+                                          Name must match the name of one entry in pod.spec.resourceClaims of
+                                          the Pod where this field is used. It makes that resource available
+                                          inside a container.
+                                        type: string
+                                      request:
+                                        description: |-
+                                          Request is the name chosen for a request in the referenced claim.
+                                          If empty, everything from the claim is made available, otherwise
+                                          only the result of this request.
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                  type: array
+                                  x-kubernetes-list-map-keys:
+                                  - name
+                                  x-kubernetes-list-type: map
+                                limits:
+                                  additionalProperties:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  description: |-
+                                    Limits describes the maximum amount of compute resources allowed.
+                                    More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                                  type: object
+                                requests:
+                                  additionalProperties:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  description: |-
+                                    Requests describes the minimum amount of compute resources required.
+                                    If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                                    otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                                    More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                                  type: object
+                              type: object
+                          type: object
+                      type: object
+                    persistence:
+                      description: Persistence configures persistent volume settings
+                        for mongot pods in this cluster.
+                      properties:
+                        multiple:
+                          properties:
+                            data:
+                              properties:
+                                labelSelector:
+                                  type: object
+                                  x-kubernetes-preserve-unknown-fields: true
+                                storage:
+                                  type: string
+                                storageClass:
+                                  type: string
+                              type: object
+                            journal:
+                              properties:
+                                labelSelector:
+                                  type: object
+                                  x-kubernetes-preserve-unknown-fields: true
+                                storage:
+                                  type: string
+                                storageClass:
+                                  type: string
+                              type: object
+                            logs:
+                              properties:
+                                labelSelector:
+                                  type: object
+                                  x-kubernetes-preserve-unknown-fields: true
+                                storage:
+                                  type: string
+                                storageClass:
+                                  type: string
+                              type: object
+                          type: object
+                        single:
+                          properties:
+                            labelSelector:
+                              type: object
+                              x-kubernetes-preserve-unknown-fields: true
+                            storage:
+                              type: string
+                            storageClass:
+                              type: string
+                          type: object
+                      type: object
+                    replicas:
+                      description: |-
+                        Replicas is the number of mongot pods in this cluster.
+                        For ReplicaSet sources: total mongot pods in this cluster.
+                        For Sharded sources: mongot pods per shard in this cluster.
+                      minimum: 1
+                      type: integer
+                    resourceRequirements:
+                      description: ResourceRequirements configures resource requests
+                        and limits for mongot pods in this cluster.
+                      properties:
+                        claims:
+                          description: |-
+                            Claims lists the names of resources, defined in spec.resourceClaims,
+                            that are used by this container.
+
+                            This is an alpha field and requires enabling the
+                            DynamicResourceAllocation feature gate.
+
+                            This field is immutable. It can only be set for containers.
+                          items:
+                            description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                            properties:
+                              name:
+                                description: |-
+                                  Name must match the name of one entry in pod.spec.resourceClaims of
+                                  the Pod where this field is used. It makes that resource available
+                                  inside a container.
+                                type: string
+                              request:
+                                description: |-
+                                  Request is the name chosen for a request in the referenced claim.
+                                  If empty, everything from the claim is made available, otherwise
+                                  only the result of this request.
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          type: array
+                          x-kubernetes-list-map-keys:
+                          - name
+                          x-kubernetes-list-type: map
+                        limits:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: |-
+                            Limits describes the maximum amount of compute resources allowed.
+                            More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                          type: object
+                        requests:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: |-
+                            Requests describes the minimum amount of compute resources required.
+                            If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                            otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                            More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                          type: object
+                      type: object
+                    shardOverrides:
+                      description: |-
+                        ShardOverrides configures per-shard overrides within this cluster.
+                        Cluster-major layout: each entry overrides resources for one shard in this cluster.
+                        Phase 1 ships the type; override resolution lands in Phase 7.
+                      items:
+                        description: |-
+                          ShardOverride applies per-shard resource overrides within a cluster.
+                          Phase 1 ships the type; override resolution lands in Phase 7.
+                        properties:
+                          persistence:
+                            description: Persistence overrides persistent volume settings
+                              for this shard's mongot pods.
+                            properties:
+                              multiple:
+                                properties:
+                                  data:
+                                    properties:
+                                      labelSelector:
+                                        type: object
+                                        x-kubernetes-preserve-unknown-fields: true
+                                      storage:
+                                        type: string
+                                      storageClass:
+                                        type: string
+                                    type: object
+                                  journal:
+                                    properties:
+                                      labelSelector:
+                                        type: object
+                                        x-kubernetes-preserve-unknown-fields: true
+                                      storage:
+                                        type: string
+                                      storageClass:
+                                        type: string
+                                    type: object
+                                  logs:
+                                    properties:
+                                      labelSelector:
+                                        type: object
+                                        x-kubernetes-preserve-unknown-fields: true
+                                      storage:
+                                        type: string
+                                      storageClass:
+                                        type: string
+                                    type: object
+                                type: object
+                              single:
+                                properties:
+                                  labelSelector:
+                                    type: object
+                                    x-kubernetes-preserve-unknown-fields: true
+                                  storage:
+                                    type: string
+                                  storageClass:
+                                    type: string
+                                type: object
+                            type: object
+                          replicas:
+                            description: Replicas overrides the number of mongot pods
+                              for this shard in this cluster.
+                            minimum: 1
+                            type: integer
+                          resourceRequirements:
+                            description: ResourceRequirements overrides resource requests
+                              and limits for this shard's mongot pods.
+                            properties:
+                              claims:
+                                description: |-
+                                  Claims lists the names of resources, defined in spec.resourceClaims,
+                                  that are used by this container.
+
+                                  This is an alpha field and requires enabling the
+                                  DynamicResourceAllocation feature gate.
+
+                                  This field is immutable. It can only be set for containers.
+                                items:
+                                  description: ResourceClaim references one entry
+                                    in PodSpec.ResourceClaims.
+                                  properties:
+                                    name:
+                                      description: |-
+                                        Name must match the name of one entry in pod.spec.resourceClaims of
+                                        the Pod where this field is used. It makes that resource available
+                                        inside a container.
+                                      type: string
+                                    request:
+                                      description: |-
+                                        Request is the name chosen for a request in the referenced claim.
+                                        If empty, everything from the claim is made available, otherwise
+                                        only the result of this request.
+                                      type: string
+                                  required:
+                                  - name
+                                  type: object
+                                type: array
+                                x-kubernetes-list-map-keys:
+                                - name
+                                x-kubernetes-list-type: map
+                              limits:
+                                additionalProperties:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                                description: |-
+                                  Limits describes the maximum amount of compute resources allowed.
+                                  More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                                type: object
+                              requests:
+                                additionalProperties:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                                description: |-
+                                  Requests describes the minimum amount of compute resources required.
+                                  If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                                  otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                                  More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                                type: object
+                            type: object
+                          shardName:
+                            description: ShardName is the name of the shard to override.
+                              Must match a shard name in the source.
+                            type: string
+                          statefulSet:
+                            description: StatefulSetConfiguration overrides the StatefulSet
+                              spec for this shard's mongot pods.
+                            properties:
+                              metadata:
+                                description: StatefulSetMetadataWrapper is a wrapper
+                                  around Labels and Annotations
+                                properties:
+                                  annotations:
+                                    additionalProperties:
+                                      type: string
+                                    type: object
+                                  labels:
+                                    additionalProperties:
+                                      type: string
+                                    type: object
+                                type: object
+                              spec:
+                                type: object
+                                x-kubernetes-preserve-unknown-fields: true
+                            required:
+                            - spec
+                            type: object
+                        required:
+                        - shardName
+                        type: object
+                      type: array
+                    statefulSet:
+                      description: StatefulSetConfiguration provides overrides merged
+                        into the operator-created StatefulSet for this cluster.
+                      properties:
+                        metadata:
+                          description: StatefulSetMetadataWrapper is a wrapper around
+                            Labels and Annotations
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              type: object
+                            labels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                        spec:
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                      required:
+                      - spec
+                      type: object
+                    syncSourceSelector:
+                      description: |-
+                        SyncSourceSelector configures which MongoDB members this cluster's mongots sync from.
+                        Mandatory in Q2-MC (external source + multi-cluster); optional in Q1-MC; ignored in single-cluster.
+                      properties:
+                        hosts:
+                          description: |-
+                            Hosts is an explicit list of mongod host:port seeds this cluster's mongots sync from.
+                            Forbidden in multi-cluster deployments; MC requires tag-based routing via matchTags.
+                          items:
+                            type: string
+                          type: array
+                        matchTags:
+                          additionalProperties:
+                            type: string
+                          description: |-
+                            MatchTags is a map of MongoDB RS member tag key-value pairs used to filter sync sources.
+                            mongot only syncs from RS members that carry all specified tags (hard filter, no fallback).
+                          type: object
+                      type: object
+                      x-kubernetes-validations:
+                      - message: matchTags and hosts are mutually exclusive
+                        rule: '!(has(self.matchTags) && has(self.hosts))'
+                  required:
+                  - replicas
+                  type: object
+                minItems: 1
+                type: array
               jvmFlags:
                 description: |-
-                  JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
+                  JVMFlags sets the default --jvm-flags for all clusters' mongot processes.
+                  Per-cluster spec.clusters[i].jvmFlags replaces this value when set (non-nil).
                   https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
                 items:
                   type: string
@@ -214,54 +662,6 @@ spec:
                 - WARN
                 - ERROR
                 type: string
-              persistence:
-                description: Configure MongoDB Search's persistent volume. If not
-                  defined, the operator will request 10GB of storage.
-                properties:
-                  multiple:
-                    properties:
-                      data:
-                        properties:
-                          labelSelector:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                          storage:
-                            type: string
-                          storageClass:
-                            type: string
-                        type: object
-                      journal:
-                        properties:
-                          labelSelector:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                          storage:
-                            type: string
-                          storageClass:
-                            type: string
-                        type: object
-                      logs:
-                        properties:
-                          labelSelector:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                          storage:
-                            type: string
-                          storageClass:
-                            type: string
-                        type: object
-                    type: object
-                  single:
-                    properties:
-                      labelSelector:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
-                      storage:
-                        type: string
-                      storageClass:
-                        type: string
-                    type: object
-                type: object
               prometheus:
                 description: Configure prometheus metrics endpoint in mongot. If not
                   set, the metrics endpoint will be disabled.
@@ -273,76 +673,6 @@ spec:
                     maximum: 65535
                     minimum: 0
                     type: integer
-                type: object
-              replicas:
-                default: 1
-                description: |-
-                  Replicas is the number of mongot pods to deploy.
-                  For ReplicaSet source: the number of mongot pods in total.
-                  For Sharded source: the number mongot pods per shard.
-                  When Replicas > 1, a load balancer configuration (spec.loadBalancer)
-                  is required to distribute traffic across mongot instances.
-                minimum: 1
-                type: integer
-              resourceRequirements:
-                description: Configure resource requests and limits for the MongoDB
-                  Search pods.
-                properties:
-                  claims:
-                    description: |-
-                      Claims lists the names of resources, defined in spec.resourceClaims,
-                      that are used by this container.
-
-                      This is an alpha field and requires enabling the
-                      DynamicResourceAllocation feature gate.
-
-                      This field is immutable. It can only be set for containers.
-                    items:
-                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
-                      properties:
-                        name:
-                          description: |-
-                            Name must match the name of one entry in pod.spec.resourceClaims of
-                            the Pod where this field is used. It makes that resource available
-                            inside a container.
-                          type: string
-                        request:
-                          description: |-
-                            Request is the name chosen for a request in the referenced claim.
-                            If empty, everything from the claim is made available, otherwise
-                            only the result of this request.
-                          type: string
-                      required:
-                      - name
-                      type: object
-                    type: array
-                    x-kubernetes-list-map-keys:
-                    - name
-                    x-kubernetes-list-type: map
-                  limits:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: |-
-                      Limits describes the maximum amount of compute resources allowed.
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                    type: object
-                  requests:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: |-
-                      Requests describes the minimum amount of compute resources required.
-                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                    type: object
                 type: object
               security:
                 description: Configure security settings of the MongoDB Search server
@@ -470,10 +800,29 @@ spec:
                         type: object
                     type: object
                   mongodbResourceRef:
+                    description: |-
+                      MongoDBResourceRef points at the MongoDB or MongoDBMultiCluster source CR.
+                      Use Kind to enable admission-time rejection of unsupported source kinds.
                     properties:
+                      kind:
+                        description: |-
+                          Kind of the source CR. When set, admission rejects unsupported kinds.
+                          Supported values: MongoDB, MongoDBMultiCluster.
+                          When omitted, the operator attempts to dereference MongoDB then MongoDBCommunity,
+                          matching pre-GA behaviour; MongoDBCommunity will fail at reconcile time.
+                        enum:
+                        - MongoDB
+                        - MongoDBMultiCluster
+                        type: string
                       name:
+                        description: Name is the name of the source CR in the same
+                          namespace.
                         type: string
                       namespace:
+                        description: |-
+                          Namespace of the source CR. Defaults to the MongoDBSearch namespace when omitted.
+                          Reserved for future use: the admission rule (TD §11.8.1 "same namespace") requires this to
+                          equal metadata.namespace when set. Cross-namespace source references are not supported.
                         type: string
                     required:
                     - name
@@ -520,44 +869,169 @@ spec:
                     - clientCertificateSecretRef
                     type: object
                 type: object
-              statefulSet:
-                description: |-
-                  StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
-                  which aren't exposed as fields in the MongoDBSearch.spec.
-                properties:
-                  metadata:
-                    description: StatefulSetMetadataWrapper is a wrapper around Labels
-                      and Annotations
-                    properties:
-                      annotations:
-                        additionalProperties:
-                          type: string
-                        type: object
-                      labels:
-                        additionalProperties:
-                          type: string
-                        type: object
-                    type: object
-                  spec:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
-                required:
-                - spec
-                type: object
               version:
                 description: Optional version of MongoDB Search component (mongot).
                   If not set, then the operator will set the most appropriate version
                   of MongoDB Search.
                 type: string
+            required:
+            - clusters
             type: object
           status:
             properties:
+              clusterStatusList:
+                description: |-
+                  ClusterStatusList holds per-cluster reconcile status.
+                  Phase 2+ populates one entry per spec.clusters item.
+                properties:
+                  clusterStatuses:
+                    items:
+                      description: |-
+                        SearchClusterStatusItem holds per-cluster reconcile status for a MongoDBSearch deployment.
+                        Populated per spec.clusters entry starting in Phase 2.
+                      properties:
+                        clusterName:
+                          description: |-
+                            ClusterName is the name of the Kubernetes cluster (matches spec.clusters[].clusterName).
+                            Empty for single-cluster deployments.
+                          type: string
+                        lastTransition:
+                          type: string
+                        loadBalancer:
+                          description: LoadBalancer reports the per-cluster state
+                            of the operator-managed load balancer (Envoy).
+                          properties:
+                            message:
+                              type: string
+                            phase:
+                              type: string
+                          required:
+                          - phase
+                          type: object
+                        message:
+                          type: string
+                        observedGeneration:
+                          format: int64
+                          type: integer
+                        phase:
+                          type: string
+                        pvc:
+                          items:
+                            properties:
+                              phase:
+                                type: string
+                              statefulsetName:
+                                type: string
+                            required:
+                            - phase
+                            - statefulsetName
+                            type: object
+                          type: array
+                        resourcesNotReady:
+                          items:
+                            description: ResourceNotReady describes the dependent
+                              resource which is not ready yet
+                            properties:
+                              errors:
+                                items:
+                                  properties:
+                                    message:
+                                      type: string
+                                    reason:
+                                      type: string
+                                  type: object
+                                type: array
+                              kind:
+                                description: ResourceKind specifies a kind of a Kubernetes
+                                  resource. Used in status of a Custom Resource
+                                type: string
+                              message:
+                                type: string
+                              name:
+                                type: string
+                            required:
+                            - kind
+                            - name
+                            type: object
+                          type: array
+                        warnings:
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - phase
+                      type: object
+                    type: array
+                type: object
+              conditions:
+                description: |-
+                  Conditions is the standard Kubernetes conditions list.
+                  Ready is wired in Phase 1. LoadBalancerReady and SyncSourceReachable land in Phase 7.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               lastTransition:
                 type: string
               loadBalancer:
                 description: |-
                   LoadBalancer reports the state of the operator-managed load balancer.
                   Only populated when spec.loadBalancer.managed is set.
+                  Deprecated: per-cluster LB state migrates to clusterStatusList[].loadBalancer in Phase 2.
                 properties:
                   message:
                     type: string
@@ -612,6 +1086,25 @@ spec:
                   - name
                   type: object
                 type: array
+              shardLoadBalancerStatusInClusters:
+                additionalProperties:
+                  additionalProperties:
+                    description: |-
+                      ShardLoadBalancerStatus reports the state of the operator-managed load balancer for a specific shard.
+                      Used by sharded multi-cluster deployments (Phase 4+).
+                    properties:
+                      message:
+                        type: string
+                      phase:
+                        type: string
+                    required:
+                    - phase
+                    type: object
+                  type: object
+                description: |-
+                  ShardLoadBalancerStatusInClusters is a flat map-of-map keyed by clusterName then shardName.
+                  Used by sharded multi-cluster deployments; populated in Phase 4+.
+                type: object
               version:
                 type: string
               warnings:

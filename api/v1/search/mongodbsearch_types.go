@@ -1,6 +1,7 @@
 package search
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -19,6 +20,12 @@ import (
 
 // ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 const ShardNamePlaceholder = "{shardName}"
+
+// SearchClusterMappingAnnotation is the annotation key on a MongoDBSearch CR that stores
+// the stable clusterName → clusterIndex mapping as a JSON object (e.g. {"east":0,"west":1}).
+// Mirrors the LastClusterNumMapping convention used by MongoDBMultiCluster; indices are never
+// reused once a cluster name is removed.
+const SearchClusterMappingAnnotation = "mongodb.com/v1.searchClusterMapping"
 
 const (
 	MongotDefaultWireprotoPort      int32 = 27027
@@ -42,6 +49,112 @@ func init() {
 	v1.SchemeBuilder.Register(&MongoDBSearch{}, &MongoDBSearchList{})
 }
 
+// MongoDBSearchSourceRef identifies the MongoDB source CR for a MongoDBSearch resource.
+// Unlike the shared MongoDBResourceRef, this type carries a Kind field so that admission
+// can statically reject unsupported source kinds (e.g. MongoDBCommunity).
+type MongoDBSearchSourceRef struct {
+	// Name is the name of the source CR in the same namespace.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+	// Namespace of the source CR. Defaults to the MongoDBSearch namespace when omitted.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+	// Kind of the source CR. When set, admission rejects unsupported kinds.
+	// Supported values: MongoDB, MongoDBMultiCluster.
+	// When omitted, the operator attempts to dereference MongoDB then MongoDBCommunity,
+	// matching pre-GA behaviour; MongoDBCommunity will fail at reconcile time.
+	// +kubebuilder:validation:Enum=MongoDB;MongoDBMultiCluster
+	// +optional
+	Kind string `json:"kind,omitempty"`
+}
+
+// SyncSourceSelector configures tag-based sync-source routing for a cluster's mongots.
+// At most one of MatchTags or Hosts may be set.
+// +kubebuilder:validation:XValidation:rule="!(has(self.matchTags) && has(self.hosts))",message="matchTags and hosts are mutually exclusive"
+type SyncSourceSelector struct {
+	// MatchTags is a map of MongoDB RS member tag key-value pairs used to filter sync sources.
+	// mongot only syncs from RS members that carry all specified tags (hard filter, no fallback).
+	// +optional
+	MatchTags map[string]string `json:"matchTags,omitempty"`
+	// Hosts is an explicit list of mongod host:port seeds this cluster's mongots sync from.
+	// Forbidden in multi-cluster deployments; MC requires tag-based routing via matchTags.
+	// +optional
+	Hosts []string `json:"hosts,omitempty"`
+}
+
+// ShardOverride applies per-shard resource overrides within a cluster.
+// Phase 1 ships the type; override resolution lands in Phase 7.
+type ShardOverride struct {
+	// ShardName is the name of the shard to override. Must match a shard name in the source.
+	// +kubebuilder:validation:Required
+	ShardName string `json:"shardName"`
+	// Replicas overrides the number of mongot pods for this shard in this cluster.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Replicas *int `json:"replicas,omitempty"`
+	// ResourceRequirements overrides resource requests and limits for this shard's mongot pods.
+	// +optional
+	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// Persistence overrides persistent volume settings for this shard's mongot pods.
+	// +optional
+	Persistence *common.Persistence `json:"persistence,omitempty"`
+	// StatefulSetConfiguration overrides the StatefulSet spec for this shard's mongot pods.
+	// +optional
+	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+}
+
+// ClusterLBOverride configures per-cluster load balancer overrides.
+// Only the Managed sub-field is supported at the per-cluster level; unmanaged LB is
+// single-cluster only at GA, so no per-cluster unmanaged override exists.
+// Override semantics: when Managed is non-nil it replaces (not deep-merges) the top-level
+// spec.loadBalancer.managed for this cluster. Resolution lands in Phase 7 (TD §11.7 OQ-2a).
+type ClusterLBOverride struct {
+	// Managed overrides the operator-managed Envoy configuration for this cluster.
+	// Replaces the top-level spec.loadBalancer.managed when set; does not deep-merge.
+	// +optional
+	Managed *ManagedLBConfig `json:"managed,omitempty"`
+}
+
+// SearchClusterSpecItem configures one Kubernetes cluster's share of a MongoDBSearch deployment.
+type SearchClusterSpecItem struct {
+	// ClusterName is the name of the Kubernetes cluster registered with the operator.
+	// Optional when len(spec.clusters)==1; mandatory and immutable when len(spec.clusters)>1.
+	// +optional
+	ClusterName string `json:"clusterName,omitempty"`
+	// Replicas is the number of mongot pods in this cluster.
+	// For ReplicaSet sources: total mongot pods in this cluster.
+	// For Sharded sources: mongot pods per shard in this cluster.
+	// +kubebuilder:validation:Minimum=1
+	Replicas int `json:"replicas"`
+	// SyncSourceSelector configures which MongoDB members this cluster's mongots sync from.
+	// Mandatory in Q2-MC (external source + multi-cluster); optional in Q1-MC; ignored in single-cluster.
+	// +optional
+	SyncSourceSelector *SyncSourceSelector `json:"syncSourceSelector,omitempty"`
+	// ShardOverrides configures per-shard overrides within this cluster.
+	// Cluster-major layout: each entry overrides resources for one shard in this cluster.
+	// Phase 1 ships the type; override resolution lands in Phase 7.
+	// +optional
+	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
+	// ResourceRequirements configures resource requests and limits for mongot pods in this cluster.
+	// +optional
+	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// Persistence configures persistent volume settings for mongot pods in this cluster.
+	// +optional
+	Persistence *common.Persistence `json:"persistence,omitempty"`
+	// StatefulSetConfiguration provides overrides merged into the operator-created StatefulSet for this cluster.
+	// +optional
+	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// JVMFlags configures JVM flags for mongot processes in this cluster.
+	// When set (non-nil slice, even if empty), replaces the top-level spec.jvmFlags for this cluster.
+	// +optional
+	JVMFlags []string `json:"jvmFlags,omitempty"`
+	// LoadBalancer configures per-cluster managed load balancer overrides.
+	// When Managed is non-nil it replaces (not deep-merges) the top-level spec.loadBalancer.managed.
+	// Resolution of this override lands in Phase 7 (TD §11.7 OQ-2a).
+	// +optional
+	LoadBalancer *ClusterLBOverride `json:"loadBalancer,omitempty"`
+}
+
 type Prometheus struct {
 	// Port where metrics endpoint will be exposed on. Defaults to 9946.
 	// +optional
@@ -63,25 +176,11 @@ type MongoDBSearchSpec struct {
 	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
-	// Replicas is the number of mongot pods to deploy.
-	// For ReplicaSet source: the number of mongot pods in total.
-	// For Sharded source: the number mongot pods per shard.
-	// When Replicas > 1, a load balancer configuration (spec.loadBalancer)
-	// is required to distribute traffic across mongot instances.
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=1
-	Replicas int `json:"replicas,omitempty"`
-	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
-	// which aren't exposed as fields in the MongoDBSearch.spec.
-	// +optional
-	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-	// Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
-	// +optional
-	Persistence *common.Persistence `json:"persistence,omitempty"`
-	// Configure resource requests and limits for the MongoDB Search pods.
-	// +optional
-	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// Clusters declares the per-cluster distribution of this MongoDBSearch deployment.
+	// Single-cluster is the degenerate case: one entry, clusterName optional.
+	// Multi-cluster requires clusterName on every entry and spec.loadBalancer.managed.
+	// +kubebuilder:validation:MinItems=1
+	Clusters []SearchClusterSpecItem `json:"clusters"`
 	// Configure security settings of the MongoDB Search server that MongoDB database is connecting to when performing search queries.
 	// +optional
 	Security Security `json:"security"`
@@ -99,7 +198,8 @@ type MongoDBSearchSpec struct {
 	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
 	// +optional
 	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
-	// JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
+	// JVMFlags sets the default --jvm-flags for all clusters' mongot processes.
+	// Per-cluster spec.clusters[i].jvmFlags replaces this value when set (non-nil).
 	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
@@ -151,8 +251,10 @@ type EmbeddingConfig struct {
 }
 
 type MongoDBSource struct {
+	// MongoDBResourceRef points at the MongoDB or MongoDBMultiCluster source CR.
+	// Use Kind to enable admission-time rejection of unsupported source kinds.
 	// +optional
-	MongoDBResourceRef *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
+	MongoDBResourceRef *MongoDBSearchSourceRef `json:"mongodbResourceRef,omitempty"`
 	// +optional
 	ExternalMongoDBSource *ExternalMongoDBSource `json:"external,omitempty"`
 	// +optional
@@ -603,15 +705,74 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 	return strings.ReplaceAll(s.Spec.LoadBalancer.Unmanaged.Endpoint, ShardNamePlaceholder, shardName)
 }
 
+// GetFirstCluster returns the spec for the first cluster entry, or nil when no clusters are
+// configured (pre-GA CR detected by P1.7). Phase 1 reconcile paths operate on clusterIndex=0
+// only; the per-cluster loop in Phase 2 replaces direct use of this helper.
+func (s *MongoDBSearch) GetFirstCluster() *SearchClusterSpecItem {
+	if len(s.Spec.Clusters) == 0 {
+		return nil
+	}
+	return &s.Spec.Clusters[0]
+}
+
 func (s *MongoDBSearch) GetReplicas() int {
-	if s.Spec.Replicas > 0 {
-		return s.Spec.Replicas
+	if c := s.GetFirstCluster(); c != nil && c.Replicas > 0 {
+		return c.Replicas
 	}
 	return 1
 }
 
 func (s *MongoDBSearch) HasMultipleReplicas() bool {
 	return s.GetReplicas() > 1
+}
+
+// ClusterIndexFor returns the stable cluster index for clusterName, allocating a fresh index
+// on first sight. The allocation is stored in metadata.annotations[SearchClusterMappingAnnotation]
+// as a JSON object; the caller is responsible for persisting the CR before creating any
+// per-cluster resource so the assignment survives operator restarts (idempotency invariant).
+//
+// For the single-cluster degenerate case (clusterName == ""), the empty string is used as the
+// map key, yielding index 0 on first reconcile — matching the MongoDBMultiCluster precedent.
+func (s *MongoDBSearch) ClusterIndexFor(clusterName string) int {
+	mapping := s.readClusterMapping()
+	if idx, ok := mapping[clusterName]; ok {
+		return idx
+	}
+	idx := nextSearchClusterIndex(mapping)
+	mapping[clusterName] = idx
+	s.writeClusterMapping(mapping)
+	return idx
+}
+
+func (s *MongoDBSearch) readClusterMapping() map[string]int {
+	m := make(map[string]int)
+	if s.Annotations == nil {
+		return m
+	}
+	if raw, ok := s.Annotations[SearchClusterMappingAnnotation]; ok {
+		_ = json.Unmarshal([]byte(raw), &m)
+	}
+	return m
+}
+
+func (s *MongoDBSearch) writeClusterMapping(m map[string]int) {
+	if s.Annotations == nil {
+		s.Annotations = make(map[string]string)
+	}
+	raw, _ := json.Marshal(m)
+	s.Annotations[SearchClusterMappingAnnotation] = string(raw)
+}
+
+// nextSearchClusterIndex returns max(existing values)+1, or 0 when the map is empty.
+// Indices are never reused: a removed-then-re-added cluster gets a fresh index.
+func nextSearchClusterIndex(m map[string]int) int {
+	maxi := -1
+	for _, v := range m {
+		if v > maxi {
+			maxi = v
+		}
+	}
+	return maxi + 1
 }
 
 // HasAutoEmbedding returns true when auto-embedding is configured.

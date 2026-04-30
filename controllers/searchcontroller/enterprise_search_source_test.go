@@ -10,7 +10,6 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 )
 
 func newEnterpriseSearchSource(version string, topology string, resourceType mdbv1.ResourceType, authModes []string, internalClusterAuth string) EnterpriseResourceSearchSource {
@@ -322,9 +321,9 @@ func newShardedUnmanagedLBSearch(name, namespace, mdbName string, endpointTempla
 			Namespace: namespace,
 		},
 		Spec: searchv1.MongoDBSearchSpec{
-			Replicas: 1,
+			Clusters: []searchv1.SearchClusterSpecItem{{Replicas: 1}},
 			Source: &searchv1.MongoDBSource{
-				MongoDBResourceRef: &userv1.MongoDBResourceRef{
+				MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 					Name: mdbName,
 				},
 			},

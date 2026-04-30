@@ -95,8 +95,8 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 	}
 
 	var persistenceConfig *common.PersistenceConfig
-	if mdbSearch.Spec.Persistence != nil && mdbSearch.Spec.Persistence.SingleConfig != nil {
-		persistenceConfig = mdbSearch.Spec.Persistence.SingleConfig
+	if c := mdbSearch.GetFirstCluster(); c != nil && c.Persistence != nil && c.Persistence.SingleConfig != nil {
+		persistenceConfig = c.Persistence.SingleConfig
 	}
 
 	defaultPersistenceConfig := common.PersistenceConfig{Storage: util.DefaultMongodStorageSize}
@@ -136,11 +136,11 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		),
 	}
 
-	if mdbSearch.Spec.StatefulSetConfiguration != nil {
-		stsModifications = append(stsModifications, statefulset.WithCustomSpecs(mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec))
+	if c := mdbSearch.GetFirstCluster(); c != nil && c.StatefulSetConfiguration != nil {
+		stsModifications = append(stsModifications, statefulset.WithCustomSpecs(c.StatefulSetConfiguration.SpecWrapper.Spec))
 		stsModifications = append(stsModifications, statefulset.WithObjectMetadata(
-			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Labels,
-			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Annotations,
+			c.StatefulSetConfiguration.MetadataWrapper.Labels,
+			c.StatefulSetConfiguration.MetadataWrapper.Annotations,
 		))
 	}
 
@@ -213,7 +213,11 @@ func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.Res
 
 func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
-	resourceRequirements := createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)
+	var clusterResourceRequirements *corev1.ResourceRequirements
+	if c := mdbSearch.GetFirstCluster(); c != nil {
+		clusterResourceRequirements = c.ResourceRequirements
+	}
+	resourceRequirements := createSearchResourceRequirements(clusterResourceRequirements)
 	jvmFlags := jvmFlags(mdbSearch, resourceRequirements)
 
 	var mongotStartCommand string

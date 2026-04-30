@@ -20,7 +20,6 @@ import (
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
@@ -41,9 +40,12 @@ func newTestMongoDBSearch(name, namespace string, modifications ...func(*searchv
 		},
 		Spec: searchv1.MongoDBSearchSpec{
 			Source: &searchv1.MongoDBSource{
-				MongoDBResourceRef: &userv1.MongoDBResourceRef{
+				MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 					Name: "test-mongodb",
 				},
+			},
+			Clusters: []searchv1.SearchClusterSpecItem{
+				{Replicas: 1},
 			},
 		},
 	}
@@ -105,7 +107,7 @@ func reconcileMongoDBSearch(ctx context.Context, fakeClient kubernetesClient.Cli
 func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource(t *testing.T) {
 	mdbSearchSpec := searchv1.MongoDBSearchSpec{
 		Source: &searchv1.MongoDBSource{
-			MongoDBResourceRef: &userv1.MongoDBResourceRef{
+			MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 				Name: "test-mongodb",
 			},
 		},
@@ -817,7 +819,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "test-ns")
-			search.Spec.Replicas = tc.replicas
+			search.Spec.Clusters[0].Replicas = tc.replicas
 			if tc.hasAutoEmbedding {
 				search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
 			}
@@ -855,7 +857,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 
 func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
-	search.Spec.Replicas = 1
+	search.Spec.Clusters[0].Replicas = 1
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
 	cmName := search.MongotConfigConfigMapNamespacedName()
@@ -926,7 +928,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 				},
 				Spec: searchv1.MongoDBSearchSpec{
 					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+						MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 							Name: "test-mdb",
 						},
 					},
@@ -946,7 +948,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 				},
 				Spec: searchv1.MongoDBSearchSpec{
 					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+						MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 							Name: "test-mdb",
 						},
 					},
@@ -969,7 +971,7 @@ func TestGetMongodConfigParametersForShard(t *testing.T) {
 				},
 				Spec: searchv1.MongoDBSearchSpec{
 					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+						MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 							Name: "test-mdb",
 						},
 					},
@@ -1189,7 +1191,7 @@ func TestBuildShardSearchHeadlessService(t *testing.T) {
 func TestValidateMultipleReplicasConfig(t *testing.T) {
 	mdbSearchSpec := searchv1.MongoDBSearchSpec{
 		Source: &searchv1.MongoDBSource{
-			MongoDBResourceRef: &userv1.MongoDBResourceRef{
+			MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 				Name: "test-mongodb",
 			},
 		},
@@ -1226,9 +1228,9 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					Namespace: "test",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 3,
+					Clusters: []searchv1.SearchClusterSpecItem{{Replicas: 3}},
 					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+						MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 							Name: "test-mongodb",
 						},
 					},
@@ -1244,9 +1246,9 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					Namespace: "test",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 3,
+					Clusters: []searchv1.SearchClusterSpecItem{{Replicas: 3}},
 					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+						MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 							Name: "test-mongodb",
 						},
 					},
@@ -1375,7 +1377,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 				},
 				Spec: searchv1.MongoDBSearchSpec{
 					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+						MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 							Name: "test-mdb",
 						},
 					},
@@ -1395,7 +1397,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 				},
 				Spec: searchv1.MongoDBSearchSpec{
 					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+						MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 							Name: "test-mdb",
 						},
 					},
@@ -1416,7 +1418,7 @@ func TestGetMongosConfigParametersForSharded(t *testing.T) {
 				},
 				Spec: searchv1.MongoDBSearchSpec{
 					Source: &searchv1.MongoDBSource{
-						MongoDBResourceRef: &userv1.MongoDBResourceRef{
+						MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{
 							Name: "test-mdb",
 						},
 					},
