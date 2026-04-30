@@ -27,7 +27,7 @@ func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 				"hostname":                    "vm-0.example.com",
 				"version":                     "8.0.4-ent",
 				"featureCompatibilityVersion": "8.0",
-				"processType":                 "mongod",
+				"processType":                 string(om.ProcessTypeMongod),
 				"args2_6": map[string]any{
 					"net":         map[string]any{"port": 27017},
 					"replication": map[string]any{"replSetName": "my-rs"},
@@ -68,7 +68,7 @@ func TestGenerateMongoDBCR_AutoNormalizesRSName(t *testing.T) {
 				"hostname":                    "vm-0.example.com",
 				"version":                     "8.0.4-ent",
 				"featureCompatibilityVersion": "8.0",
-				"processType":                 "mongod",
+				"processType":                 string(om.ProcessTypeMongod),
 				"args2_6": map[string]any{
 					"net":         map[string]any{"port": 27017},
 					"replication": map[string]any{"replSetName": "My_ReplicaSet"},

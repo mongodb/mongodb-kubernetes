@@ -20,7 +20,7 @@ func TestFetchAndValidate_ValidDeployment(t *testing.T) {
 		"processes": []any{
 			map[string]any{
 				"name":        "host-0",
-				"processType": "mongod",
+				"processType": string(om.ProcessTypeMongod),
 				"hostname":    "host-0.example.com",
 				"args2_6": map[string]any{
 					"net":         map[string]any{"port": 27017},

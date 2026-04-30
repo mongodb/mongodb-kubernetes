@@ -26,7 +26,7 @@ func TestCreateMongodProcess(t *testing.T) {
 		assert.Equal(t, "/data", process.DbPath())
 		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
 		assert.Equal(t, 5, process.AuthSchemaVersion())
-		assert.Equal(t, "", process.replicaSetName())
+		assert.Equal(t, "", process.ReplicaSetName())
 		assert.Equal(t, nil, process.LogRotateSizeThresholdMB())
 
 		expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort), "tls": map[string]interface{}{
@@ -62,7 +62,7 @@ func TestCreateMongodProcessStatic(t *testing.T) {
 		assert.Equal(t, "/data", process.DbPath())
 		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
 		assert.Equal(t, 5, process.AuthSchemaVersion())
-		assert.Equal(t, "", process.replicaSetName())
+		assert.Equal(t, "", process.ReplicaSetName())
 
 		expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort), "tls": map[string]interface{}{
 			"mode": "disabled",
