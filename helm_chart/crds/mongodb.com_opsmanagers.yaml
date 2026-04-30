@@ -1018,12 +1018,14 @@ spec:
                             type: string
                           caFilePath:
                             description: |-
-                              CAFilePath allows specifying a custom in-container path for the CA certificate file. Applies to
-                              MongoDB ReplicaSet, ShardedCluster, and MongoDBMultiCluster resources. If not specified, the
-                              default /mongodb-automation/tls/ca/ca-pem is used. When set, the operator projects the ca-pem
-                              key from the CA ConfigMap (tls.CA) to the basename of this path and mounts it at the parent
-                              directory. The ConfigMap referenced by tls.CA must therefore contain a key named ca-pem.
-                            pattern: ^/.*
+                              CAFilePath is the absolute path for the CA certificate file. It must have
+                              at least two segments, for example /var/lib/ca/ca-pem. The ConfigMap
+                              referenced by tls.CA must contain a key named ca-pem, which the operator
+                              projects to this path. If the parent directory overlaps a volume mount
+                              declared in your podTemplate, the operator's mount will shadow that mount.
+                              Not supported for the AppDB.
+                              Default: /mongodb-automation/tls/ca/ca-pem
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           enabled:
                             description: |-
