@@ -37,8 +37,28 @@ func (s *MongoDBSearch) ValidateSpec() error {
 	return nil
 }
 
+// ValidateUpdate validates a spec update against the previous object, returning an error on violation.
+func (s *MongoDBSearch) ValidateUpdate(old *MongoDBSearch) error {
+	for _, res := range s.RunUpdateValidations(old) {
+		if res.Level == v1.ErrorLevel {
+			return errors.New(res.Msg)
+		}
+	}
+	return nil
+}
+
 func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 	validators := []func(*MongoDBSearch) v1.ValidationResult{
+		validateClustersNotEmpty,
+		validateClusterNames,
+		validateClusterReplicas,
+		validateSourceMutualExclusion,
+		validateSourceNamespace,
+		validateMultiClusterLBRequirements,
+		validateReplicasRequireLB,
+		validateMCExternalHostnamePlaceholders,
+		validateShardedManagedLBHostnamePlaceholder,
+		validateSyncSourceSelectorHostsMC,
 		validateLBConfig,
 		validateUnmanagedLBConfig,
 		validateManagedLBExternalHostname,
@@ -52,6 +72,22 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 	var results []v1.ValidationResult
 	for _, validator := range validators {
 		res := validator(s)
+		if res.Level > 0 {
+			results = append(results, res)
+		}
+	}
+	return results
+}
+
+// RunUpdateValidations returns validation results that require comparing the old and new objects.
+func (s *MongoDBSearch) RunUpdateValidations(old *MongoDBSearch) []v1.ValidationResult {
+	validators := []func(newSearch, oldSearch *MongoDBSearch) v1.ValidationResult{
+		validateClusterNamesImmutable,
+	}
+
+	var results []v1.ValidationResult
+	for _, validator := range validators {
+		res := validator(s, old)
 		if res.Level > 0 {
 			results = append(results, res)
 		}
@@ -316,4 +352,207 @@ func ValidateShardNameRFC1123(shardName string) error {
 	}
 
 	return nil
+}
+
+// ClusterNamePlaceholder is used in managed LB externalHostname to refer to the cluster name.
+const ClusterNamePlaceholder = "{clusterName}"
+
+// ClusterIndexPlaceholder is used in managed LB externalHostname to refer to the cluster index.
+const ClusterIndexPlaceholder = "{clusterIndex}"
+
+// validateClustersNotEmpty rejects CRs where spec.clusters is absent or empty.
+// This is the admission-time complement to the P1.7 runtime no-op path: newly created
+// CRs must have at least one cluster entry; pre-upgrade CRs with empty clusters are
+// caught at runtime by the reconcile gate.
+func validateClustersNotEmpty(s *MongoDBSearch) v1.ValidationResult {
+	if len(s.Spec.Clusters) == 0 {
+		return v1.ValidationError("spec.clusters must have at least one entry")
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateClusterNames validates that cluster names are unique within spec.clusters,
+// and that every entry has a non-empty clusterName when len(spec.clusters) > 1.
+func validateClusterNames(s *MongoDBSearch) v1.ValidationResult {
+	if len(s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	seen := make(map[string]struct{}, len(s.Spec.Clusters))
+	for i, c := range s.Spec.Clusters {
+		if c.ClusterName == "" {
+			return v1.ValidationError("spec.clusters[%d].clusterName is required when len(spec.clusters) > 1", i)
+		}
+		if _, exists := seen[c.ClusterName]; exists {
+			return v1.ValidationError("duplicate clusterName '%s' in spec.clusters", c.ClusterName)
+		}
+		seen[c.ClusterName] = struct{}{}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateClusterReplicas rejects any cluster entry with replicas == 0.
+func validateClusterReplicas(s *MongoDBSearch) v1.ValidationResult {
+	for i, c := range s.Spec.Clusters {
+		if c.Replicas < 1 {
+			return v1.ValidationError("spec.clusters[%d].replicas must be >= 1", i)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateSourceMutualExclusion rejects CRs that set both mongodbResourceRef and external source.
+func validateSourceMutualExclusion(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Source == nil {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.Source.MongoDBResourceRef != nil && s.Spec.Source.ExternalMongoDBSource != nil {
+		return v1.ValidationError("spec.source.mongodbResourceRef and spec.source.external are mutually exclusive")
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateSourceNamespace rejects CRs where spec.source.mongodbResourceRef.namespace is set
+// to a value other than the MongoDBSearch namespace. Cross-namespace source references are
+// not supported; the field is reserved for future use only (TD §11.8.1 "same namespace").
+func validateSourceNamespace(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Source == nil || s.Spec.Source.MongoDBResourceRef == nil {
+		return v1.ValidationSuccess()
+	}
+	ns := s.Spec.Source.MongoDBResourceRef.Namespace
+	if ns != "" && ns != s.Namespace {
+		return v1.ValidationError(
+			"spec.source.mongodbResourceRef.namespace must equal metadata.namespace (%s) when set; cross-namespace source references are not supported",
+			s.Namespace,
+		)
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateShardedManagedLBHostnamePlaceholder requires that externalHostname contains
+// {shardName} when the source is an external sharded cluster with more than one shard and
+// managed LB is configured. Without the placeholder the operator cannot derive a distinct
+// SNI hostname for each shard, which makes it impossible to route correctly.
+func validateShardedManagedLBHostnamePlaceholder(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsExternalSourceSharded() {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Managed == nil {
+		return v1.ValidationSuccess()
+	}
+	hostname := s.Spec.LoadBalancer.Managed.ExternalHostname
+	if hostname == "" {
+		return v1.ValidationSuccess()
+	}
+	shards := s.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards
+	if len(shards) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	if !strings.Contains(hostname, ShardNamePlaceholder) {
+		return v1.ValidationError(
+			"spec.loadBalancer.managed.externalHostname must contain %s when the source has multiple shards so the operator can derive a per-shard endpoint",
+			ShardNamePlaceholder,
+		)
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateMultiClusterLBRequirements enforces the GA LB posture for multi-cluster deployments:
+//   - managed LB is required when len(spec.clusters) > 1
+//   - unmanaged LB is forbidden when len(spec.clusters) > 1
+func validateMultiClusterLBRequirements(s *MongoDBSearch) v1.ValidationResult {
+	if len(s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Managed == nil {
+		return v1.ValidationError("spec.loadBalancer.managed is required when len(spec.clusters) > 1")
+	}
+	if s.Spec.LoadBalancer.Unmanaged != nil {
+		return v1.ValidationError("spec.loadBalancer.unmanaged is forbidden when len(spec.clusters) > 1")
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateReplicasRequireLB rejects CRs where any cluster has replicas > 1 but no LB is configured.
+// A single mongot replica can be reached directly; more than one requires a load balancer so
+// that mongod can address a single stable endpoint.
+func validateReplicasRequireLB(s *MongoDBSearch) v1.ValidationResult {
+	for i, c := range s.Spec.Clusters {
+		if c.Replicas > 1 && s.Spec.LoadBalancer == nil {
+			return v1.ValidationError("spec.clusters[%d].replicas > 1 requires a load balancer (spec.loadBalancer)", i)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateMCExternalHostnamePlaceholders requires that externalHostname contains
+// a {clusterName} or {clusterIndex} placeholder when len(spec.clusters) > 1 and
+// managed LB is configured, so the operator can derive a per-cluster endpoint.
+func validateMCExternalHostnamePlaceholders(s *MongoDBSearch) v1.ValidationResult {
+	if len(s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Managed == nil {
+		return v1.ValidationSuccess()
+	}
+	hostname := s.Spec.LoadBalancer.Managed.ExternalHostname
+	if hostname == "" {
+		return v1.ValidationSuccess()
+	}
+	if !strings.Contains(hostname, ClusterNamePlaceholder) && !strings.Contains(hostname, ClusterIndexPlaceholder) {
+		return v1.ValidationError(
+			"spec.loadBalancer.managed.externalHostname must contain %s or %s when len(spec.clusters) > 1",
+			ClusterNamePlaceholder, ClusterIndexPlaceholder,
+		)
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateSyncSourceSelectorHostsMC rejects spec.clusters[i].syncSourceSelector.hosts
+// when len(spec.clusters) > 1. Multi-cluster requires tag-based routing via matchTags.
+func validateSyncSourceSelectorHostsMC(s *MongoDBSearch) v1.ValidationResult {
+	if len(s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	for i, c := range s.Spec.Clusters {
+		if c.SyncSourceSelector != nil && len(c.SyncSourceSelector.Hosts) > 0 {
+			return v1.ValidationError(
+				"spec.clusters[%d].syncSourceSelector.hosts is forbidden when len(spec.clusters) > 1; use matchTags for multi-cluster routing",
+				i,
+			)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateClusterNamesImmutable rejects updates that rename or remove an existing clusterName.
+// Phase 1 is deliberately strict: any clusterName present in the old spec must remain present
+// in the new spec. This protects the stable clusterIndex persisted in the StateStore ConfigMap —
+// a renamed cluster would receive a fresh index, orphaning all resources (StatefulSet, Services,
+// ConfigMaps) that were created under the old index. Users who want to replace a cluster should
+// delete the MongoDBSearch and recreate it with the new clusterName.
+func validateClusterNamesImmutable(newSearch, oldSearch *MongoDBSearch) v1.ValidationResult {
+	oldNames := make(map[string]struct{}, len(oldSearch.Spec.Clusters))
+	for _, c := range oldSearch.Spec.Clusters {
+		if c.ClusterName != "" {
+			oldNames[c.ClusterName] = struct{}{}
+		}
+	}
+	if len(oldNames) == 0 {
+		return v1.ValidationSuccess()
+	}
+	newNames := make(map[string]struct{}, len(newSearch.Spec.Clusters))
+	for _, c := range newSearch.Spec.Clusters {
+		if c.ClusterName != "" {
+			newNames[c.ClusterName] = struct{}{}
+		}
+	}
+	for name := range oldNames {
+		if _, exists := newNames[name]; !exists {
+			return v1.ValidationError(
+				"clusterName '%s' cannot be removed or renamed; remove the cluster entry instead of renaming it",
+				name,
+			)
+		}
+	}
+	return v1.ValidationSuccess()
 }
