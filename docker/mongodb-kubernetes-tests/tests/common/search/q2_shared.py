@@ -7,10 +7,15 @@ assertions.
 
 from typing import Callable
 
+import pymongo.errors
+from kubetester import kubetester
 from kubetester.mongodb import MongoDB
+from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import verify_text_search_query
+
+logger = test_logger.get_test_logger(__name__)
 
 # User credentials shared by Q2 SC scaffolds.
 ADMIN_USER_NAME = "mdb-admin-user"
@@ -42,9 +47,33 @@ def q2_restore_sample(
 
 
 def q2_create_search_index(mdb: MongoDB, tester_factory: TesterFactory):
-    """Create the movies search index and wait for it to be ready."""
+    """Create the movies search index and wait for it to be ready.
+
+    The create_search_index call routes through mongod -> Envoy -> mongot's
+    Search Index Management service. Even after the MongoDBSearch resource
+    reaches Phase=Running, the indexer endpoint inside the mongot pod can
+    take a few seconds longer to come up. Retry with a short backoff so a
+    transient connection failure on the first attempt doesn't fail the test.
+    """
     search_tester = tester_factory(mdb, USER_NAME, USER_PASSWORD, True)
-    search_tester.create_search_index("sample_mflix", "movies")
+
+    def _try_create():
+        try:
+            search_tester.create_search_index("sample_mflix", "movies")
+            return True, "search index submitted"
+        except pymongo.errors.OperationFailure as e:
+            msg = str(e)
+            if "Search Index Management" in msg or "code': 125" in msg or "CommandFailed" in msg:
+                logger.info(f"create_search_index transient failure (retrying): {msg}")
+                return False, msg
+            raise
+
+    kubetester.run_periodically(
+        fn=_try_create,
+        timeout=180,
+        sleep_time=5,
+        msg="create_search_index against mongot Index Management service",
+    )
     search_tester.wait_for_search_indexes_ready("sample_mflix", "movies", timeout=300)
 
 

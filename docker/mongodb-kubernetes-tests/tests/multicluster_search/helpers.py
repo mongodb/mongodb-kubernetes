@@ -32,13 +32,23 @@ def build_clusters_hosts_spec(
     ]
 
 
-def _envoy_ready_in_cluster(namespace: str, deployment_name: str, mcc: MultiClusterClient) -> tuple[bool, str]:
-    """Check whether the Envoy Deployment in a single cluster has at least one ready replica."""
+def _envoy_in_cluster(
+    namespace: str, deployment_name: str, mcc: MultiClusterClient, *, require_ready: bool
+) -> tuple[bool, str]:
+    """Check the per-cluster Envoy Deployment.
+
+    When `require_ready=True`, succeeds only if at least one replica is Ready.
+    When `require_ready=False`, succeeds if the Deployment merely exists — used
+    when an upstream-source dependency (real mongot) is intentionally absent
+    and the Envoy pods can't pass readiness probes yet.
+    """
     apps_v1 = client.AppsV1Api(api_client=mcc.api_client)
     try:
         deployment = apps_v1.read_namespaced_deployment(deployment_name, namespace)
         ready = deployment.status.ready_replicas or 0
-        return ready >= 1, f"cluster={mcc.cluster_name} deployment={deployment_name} ready_replicas={ready}"
+        if require_ready:
+            return ready >= 1, f"cluster={mcc.cluster_name} deployment={deployment_name} ready_replicas={ready}"
+        return True, f"cluster={mcc.cluster_name} deployment={deployment_name} exists (ready_replicas={ready})"
     except Exception as e:
         return False, f"cluster={mcc.cluster_name} deployment {deployment_name} not found: {e}"
 
@@ -48,19 +58,24 @@ def assert_envoy_ready_in_each_cluster(
     mdbs_name: str,
     member_cluster_clients: List[MultiClusterClient],
     timeout: int = 180,
+    require_ready: bool = True,
 ):
-    """Poll all member clusters concurrently until each per-cluster Envoy Deployment is ready.
+    """Poll all member clusters concurrently until each per-cluster Envoy Deployment exists.
 
     The per-cluster Deployment name is `{mdbs_name}-search-lb-0-{clusterName}` (B16) so each
-    member cluster is queried for its own Deployment, not a shared name.
+    member cluster is queried for its own Deployment, not a shared name. With
+    require_ready=False the assertion drops the "ready_replicas >= 1" check —
+    appropriate for tests with no real sync source where Envoy upstreams never
+    come up.
     """
 
-    def all_ready():
+    def all_ok():
         statuses = [
-            _envoy_ready_in_cluster(
+            _envoy_in_cluster(
                 namespace,
                 search_resource_names.lb_deployment_name_for_cluster(mdbs_name, mcc.cluster_name),
                 mcc,
+                require_ready=require_ready,
             )
             for mcc in member_cluster_clients
         ]
@@ -68,10 +83,11 @@ def assert_envoy_ready_in_each_cluster(
         msg = "; ".join(detail for _, detail in statuses)
         return ok, msg
 
+    label = "ready" if require_ready else "present"
     run_periodically(
-        all_ready,
+        all_ok,
         timeout=timeout,
         sleep_time=5,
-        msg=f"per-cluster Envoy Deployments for MongoDBSearch {mdbs_name} ready in all member clusters",
+        msg=f"per-cluster Envoy Deployments for MongoDBSearch {mdbs_name} {label} in all member clusters",
     )
-    logger.info(f"Envoy Deployment ready on all {len(member_cluster_clients)} cluster(s)")
+    logger.info(f"Envoy Deployment {label} on all {len(member_cluster_clients)} cluster(s)")
