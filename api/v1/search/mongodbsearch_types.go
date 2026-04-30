@@ -1,12 +1,12 @@
 package search
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,16 +16,16 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 const ShardNamePlaceholder = "{shardName}"
 
-// SearchClusterMappingAnnotation is the annotation key on a MongoDBSearch CR that stores
-// the stable clusterName → clusterIndex mapping as a JSON object (e.g. {"east":0,"west":1}).
-// Mirrors the LastClusterNumMapping convention used by MongoDBMultiCluster; indices are never
-// reused once a cluster name is removed.
-const SearchClusterMappingAnnotation = "mongodb.com/v1.searchClusterMapping"
+// LabelSearchResourceOwner is the label key used on resources owned by a MongoDBSearch CR.
+// Matches the established convention used by MongoDB and MongoDBMultiCluster owner labels.
+const LabelSearchResourceOwner = "mongodb.com/v1.mongodbSearchResourceOwner"
 
 const (
 	MongotDefaultWireprotoPort      int32 = 27027
@@ -57,6 +57,8 @@ type MongoDBSearchSourceRef struct {
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 	// Namespace of the source CR. Defaults to the MongoDBSearch namespace when omitted.
+	// Reserved for future use: the admission rule (TD §11.8.1 "same namespace") requires this to
+	// equal metadata.namespace when set. Cross-namespace source references are not supported.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 	// Kind of the source CR. When set, admission rejects unsupported kinds.
@@ -719,60 +721,40 @@ func (s *MongoDBSearch) GetReplicas() int {
 	if c := s.GetFirstCluster(); c != nil && c.Replicas > 0 {
 		return c.Replicas
 	}
-	return 1
+	return 1 // defensive: unreachable after the P1.7 pre-GA guard fires; GA CRs must have spec.clusters[0].replicas >= 1
 }
 
 func (s *MongoDBSearch) HasMultipleReplicas() bool {
 	return s.GetReplicas() > 1
 }
 
-// ClusterIndexFor returns the stable cluster index for clusterName, allocating a fresh index
-// on first sight. The allocation is stored in metadata.annotations[SearchClusterMappingAnnotation]
-// as a JSON object; the caller is responsible for persisting the CR before creating any
-// per-cluster resource so the assignment survives operator restarts (idempotency invariant).
-//
-// For the single-cluster degenerate case (clusterName == ""), the empty string is used as the
-// map key, yielding index 0 on first reconcile — matching the MongoDBMultiCluster precedent.
-func (s *MongoDBSearch) ClusterIndexFor(clusterName string) int {
-	mapping := s.readClusterMapping()
-	if idx, ok := mapping[clusterName]; ok {
-		return idx
+// GetClusterNames returns the ordered list of cluster names from spec.clusters.
+// For the single-cluster degenerate case (len==1, clusterName omitted), returns [""].
+func (s *MongoDBSearch) GetClusterNames() []string {
+	names := make([]string, len(s.Spec.Clusters))
+	for i, c := range s.Spec.Clusters {
+		names[i] = c.ClusterName
 	}
-	idx := nextSearchClusterIndex(mapping)
-	mapping[clusterName] = idx
-	s.writeClusterMapping(mapping)
-	return idx
+	return names
 }
 
-func (s *MongoDBSearch) readClusterMapping() map[string]int {
-	m := make(map[string]int)
-	if s.Annotations == nil {
-		return m
-	}
-	if raw, ok := s.Annotations[SearchClusterMappingAnnotation]; ok {
-		_ = json.Unmarshal([]byte(raw), &m)
-	}
-	return m
+// GetKind returns the Kubernetes Kind for MongoDBSearch, satisfying v1.ObjectOwner.
+func (s *MongoDBSearch) GetKind() string {
+	return "MongoDBSearch"
 }
 
-func (s *MongoDBSearch) writeClusterMapping(m map[string]int) {
-	if s.Annotations == nil {
-		s.Annotations = make(map[string]string)
-	}
-	raw, _ := json.Marshal(m)
-	s.Annotations[SearchClusterMappingAnnotation] = string(raw)
+// ObjectKey returns the namespaced name of this MongoDBSearch, satisfying v1.ResourceOwner.
+func (s *MongoDBSearch) ObjectKey() client.ObjectKey {
+	return kube.ObjectKey(s.Namespace, s.Name)
 }
 
-// nextSearchClusterIndex returns max(existing values)+1, or 0 when the map is empty.
-// Indices are never reused: a removed-then-re-added cluster gets a fresh index.
-func nextSearchClusterIndex(m map[string]int) int {
-	maxi := -1
-	for _, v := range m {
-		if v > maxi {
-			maxi = v
-		}
+// GetOwnerLabels returns the labels applied to resources owned by this MongoDBSearch,
+// satisfying v1.ResourceOwner. Follows the established project convention.
+func (s *MongoDBSearch) GetOwnerLabels() map[string]string {
+	return map[string]string{
+		util.OperatorLabelName:   util.OperatorLabelValue,
+		LabelSearchResourceOwner: s.Name,
 	}
-	return maxi + 1
 }
 
 // HasAutoEmbedding returns true when auto-embedding is configured.
