@@ -621,8 +621,8 @@ func (s *MongoDBSearch) GetMongotGrpcPort() int32 {
 // TLSSecretNamespacedName will get the namespaced name of the Secret containing the server certificate and key.
 // Precedence:
 //  1. CertificateKeySecret.Name - explicit secret name
-//  2. CertsSecretPrefix - uses pattern {prefix}-{resourceName}-search-cert
-//  3. Default - uses pattern {resourceName}-search-cert
+//  2. CertsSecretPrefix - uses pattern {prefix}-{resourceName}-search-{idx}-cert
+//  3. Default - uses pattern {resourceName}-search-{idx}-cert
 func (s *MongoDBSearch) TLSSecretNamespacedName(clusterIndex int) types.NamespacedName {
 	// Explicit name takes precedence
 	if s.Spec.Security.TLS.CertificateKeySecret.Name != "" {

@@ -6,6 +6,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -29,10 +30,15 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
+// preGACRReason is the event reason emitted when a pre-GA MongoDBSearch CR (missing
+// spec.clusters) is detected. It is intentionally a Warning so it surfaces in kubectl events.
+const preGACRReason = "PreGACR"
+
 type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
 	watch                *watch.ResourceWatcher
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
+	recorder             record.EventRecorder
 }
 
 func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig searchcontroller.OperatorSearchConfig) *MongoDBSearchReconciler {
@@ -51,6 +57,22 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	mdbSearch := &searchv1.MongoDBSearch{}
 	if result, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
 		return result, err
+	}
+
+	// Pre-GA gate: spec.clusters is required at GA. CRs without it are from a pre-GA schema
+	// and cannot be reconciled. Emit a Warning event so the user knows to migrate, then no-op.
+	// Status is intentionally left unchanged — do not set Failed, which would mislead the user
+	// into thinking reconcile ran and failed rather than deliberately skipped.
+	if len(mdbSearch.Spec.Clusters) == 0 {
+		log.Warn("Pre-GA MongoDBSearch CR detected: spec.clusters is empty, skipping reconcile")
+		if r.recorder != nil {
+			r.recorder.Event(mdbSearch, corev1.EventTypeWarning, preGACRReason,
+				"Pre-GA MongoDBSearch CR detected: spec.clusters is required at GA. "+
+					"The pre-GA top-level fields spec.replicas, spec.resourceRequirements, "+
+					"spec.persistence, and spec.statefulSet have been removed; migrate "+
+					"them to spec.clusters[i].* and re-apply.")
+		}
+		return reconcile.Result{}, nil
 	}
 
 	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
@@ -171,6 +193,7 @@ func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operat
 	}
 
 	r := newMongoDBSearchReconciler(kubernetesClient.NewClient(mgr.GetClient()), operatorSearchConfig)
+	r.recorder = mgr.GetEventRecorderFor("mongodbsearch")
 
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo

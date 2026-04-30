@@ -177,12 +177,13 @@ func TestMongoDBSearch_StateStore_CrossCR_Independence(t *testing.T) {
 	assert.Equal(t, 0, h1.ClusterIndexFor("cluster-east"))
 	assert.Equal(t, 0, h2.ClusterIndexFor("cluster-west"))
 
-	// h1's mapping does not bleed into h2 (unmapped cluster returns zero value, not a ghost entry).
-	assert.Equal(t, 0, h2.ClusterIndexFor("cluster-east"), "cluster-east is not mapped in search-beta")
-
 	// Verify each CR has its own distinct ConfigMap.
 	stateAlpha := readSearchDeploymentState(ctx, t, fakeClient, mock.TestNamespace, "search-alpha")
 	stateBeta := readSearchDeploymentState(ctx, t, fakeClient, mock.TestNamespace, "search-beta")
 	assert.Equal(t, map[string]int{"cluster-east": 0}, stateAlpha.ClusterMapping)
 	assert.Equal(t, map[string]int{"cluster-west": 0}, stateBeta.ClusterMapping)
+
+	// h1's mapping does not bleed into h2: cluster-east must be absent from search-beta's state.
+	_, inBeta := stateBeta.ClusterMapping["cluster-east"]
+	assert.False(t, inBeta, "cluster-east must not bleed into search-beta mapping")
 }

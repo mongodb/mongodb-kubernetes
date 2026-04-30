@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -364,4 +365,73 @@ func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 			checkSearchReconcileFailed(ctx, t, reconciler, reconciler.kubeClient, search, expectedMsg)
 		})
 	}
+}
+
+// TestMongoDBSearchReconcile_PreGAGate verifies the P1.7 pre-GA no-op gate:
+// a MongoDBSearch with no spec.clusters must emit exactly one Warning event and
+// return immediately without creating any Kubernetes resources or touching the status.
+func TestMongoDBSearchReconcile_PreGAGate(t *testing.T) {
+	ctx := context.Background()
+
+	// Pre-GA CR: spec.clusters is absent (nil slice — the old shape).
+	preGASearch := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "legacy", Namespace: mock.TestNamespace},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{Name: "mdb"},
+			},
+			// Clusters intentionally omitted — pre-GA shape.
+		},
+	}
+
+	reconciler, c := newSearchReconciler(nil, preGASearch)
+	fakeRecorder := record.NewFakeRecorder(10)
+	reconciler.recorder = fakeRecorder
+
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: preGASearch.Name, Namespace: preGASearch.Namespace},
+	})
+
+	// No error, no requeue — operator deliberately skips.
+	assert.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	// Exactly one Warning event must be emitted naming the unsupported shape and all four removed fields.
+	require.Len(t, fakeRecorder.Events, 1)
+	event := <-fakeRecorder.Events
+	assert.Contains(t, event, corev1.EventTypeWarning)
+	assert.Contains(t, event, preGACRReason)
+	for _, fld := range []string{"spec.clusters", "spec.replicas", "spec.resourceRequirements", "spec.persistence", "spec.statefulSet"} {
+		assert.Contains(t, event, fld, "event must name pre-GA field %s", fld)
+	}
+
+	// Status must not have been set to Failed (or any other phase).
+	updated := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: preGASearch.Name, Namespace: preGASearch.Namespace}, updated))
+	assert.Empty(t, updated.Status.Phase, "pre-GA gate must not mutate status")
+
+	// No owned resources should have been created.
+	ssList := &appsv1.StatefulSetList{}
+	require.NoError(t, c.List(ctx, ssList, client.InNamespace(mock.TestNamespace)))
+	assert.Empty(t, ssList.Items, "pre-GA gate must not create StatefulSets")
+
+	svcList := &corev1.ServiceList{}
+	require.NoError(t, c.List(ctx, svcList, client.InNamespace(mock.TestNamespace)))
+	assert.Empty(t, svcList.Items, "pre-GA gate must not create Services")
+
+	// N1.7-1: state ConfigMap must not have been created by the gated path.
+	cmList := &corev1.ConfigMapList{}
+	require.NoError(t, c.List(ctx, cmList, client.InNamespace(mock.TestNamespace)))
+	assert.Empty(t, cmList.Items, "pre-GA gate must not create the state ConfigMap")
+
+	// N1.7-2: idempotency — second reconcile also emits a Warning and creates nothing new.
+	res2, err2 := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: preGASearch.Name, Namespace: preGASearch.Namespace},
+	})
+	assert.NoError(t, err2)
+	assert.Equal(t, reconcile.Result{}, res2)
+	require.Len(t, fakeRecorder.Events, 1, "second reconcile must emit exactly one more Warning")
+	assert.Contains(t, <-fakeRecorder.Events, corev1.EventTypeWarning)
+	require.NoError(t, c.List(ctx, cmList, client.InNamespace(mock.TestNamespace)))
+	assert.Empty(t, cmList.Items, "pre-GA gate must not create the state ConfigMap on second reconcile")
 }
