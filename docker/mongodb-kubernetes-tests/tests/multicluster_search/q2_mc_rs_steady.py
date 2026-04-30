@@ -277,6 +277,19 @@ def mdbs(
     }
     resource["spec"]["security"] = {"tls": {"certsSecretPrefix": MDBS_TLS_CERT_PREFIX}}
 
+    # The fixture's externalHostname placeholder ({clusterName}.search-lb.example.com)
+    # doesn't resolve in-cluster and the LB cert SAN doesn't cover it, so
+    # mongod's TLS handshake to mongot via Envoy fails (same root cause as
+    # SC tests — see iter-2 logs). B16 keeps the proxy Service name shared
+    # across clusters; replace at apply-time with the real proxy-svc FQDN.
+    resource["spec"]["loadBalancer"] = {
+        "managed": {
+            "externalHostname": (
+                f"{search_resource_names.proxy_service_name(MDBS_RESOURCE_NAME)}.{namespace}.svc.cluster.local"
+            )
+        }
+    }
+
     # Hosts-first MVP routing path (CLARIFY-6 + CLARIFY-8): each member
     # cluster's mongot is pinned to that cluster's local RS members via
     # syncSourceSelector.hosts. With 1 member per cluster, hosts is a single

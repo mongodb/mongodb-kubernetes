@@ -128,6 +128,16 @@ def mdbs(namespace: str) -> MongoDBSearch:
             "syncSourceSelector": {"hosts": shard_member_hosts},
         }
     ]
+    # The fixture's externalHostname placeholder ({clusterName}-{shardName}.search-lb.example.com)
+    # doesn't resolve in-cluster and the LB cert SAN doesn't cover it, so
+    # mongod's TLS handshake to mongot via Envoy fails (same root cause as
+    # SC RS — see iter-2 logs). Replace with the per-shard proxy-svc FQDN
+    # template so SNI matching against the per-shard cert works.
+    resource["spec"]["loadBalancer"] = {
+        "managed": {
+            "externalHostname": f"{MDBS_RESOURCE_NAME}-search-0-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local"
+        }
+    }
     return resource
 
 

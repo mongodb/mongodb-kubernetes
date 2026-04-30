@@ -85,29 +85,55 @@ def mdb(namespace: str, ca_configmap: str, helper: SearchDeploymentHelper) -> Mo
 
 @fixture(scope="function")
 def mdbs(namespace: str) -> MongoDBSearch:
-    """MongoDBSearch loaded from the new-shape fixture; clusters[0] patched in-place."""
+    """MongoDBSearch loaded from the new-shape fixture; clusters[0] patched in-place.
+
+    Q2 contract: source is *external* (`spec.source.external.hostAndPorts`),
+    not internal (`mongodbResourceRef`). The internal-source path triggers
+    the operator to write its own mongotHost into the source's automation
+    config; combined with the manual mongotHost we set on the source mongod
+    (which the test harness needs because the mongods come up before the
+    search resource), the two writers race and mongod ends up with a
+    mongotHost that doesn't match the actual Envoy proxy. That manifested
+    as `Error connecting to Search Index Management service` on every
+    create_search_index attempt — see iter-2 logs.
+    """
     resource = MongoDBSearch.from_yaml(
         find_fixture("search-q2-sc-rs.yaml"),
         namespace=namespace,
         name=MDBS_RESOURCE_NAME,
     )
+    rs_member_hosts = [
+        f"{MDB_RESOURCE_NAME}-{i}.{MDB_RESOURCE_NAME}-svc.{namespace}.svc.cluster.local:27017"
+        for i in range(RS_MEMBERS)
+    ]
     resource["spec"]["source"] = {
-        "mongodbResourceRef": {"name": MDB_RESOURCE_NAME},
         "username": MONGOT_USER_NAME,
         "passwordSecretRef": {
             "name": f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
             "key": "password",
         },
+        "external": {
+            "hostAndPorts": rs_member_hosts,
+            "tls": {"ca": {"name": CA_CONFIGMAP_NAME}},
+        },
+    }
+    # The fixture's externalHostname placeholder ({clusterName}.search-lb.example.com)
+    # doesn't resolve in-cluster and the LB cert SAN doesn't cover it, so
+    # mongod's TLS handshake to mongot via Envoy fails (manifests as
+    # "Error connecting to Search Index Management service" — see iter-2).
+    # Replace at apply-time with the real proxy-svc FQDN; this matches the
+    # existing managed-LB helper (mdbs_for_ext_rs_source).
+    resource["spec"]["loadBalancer"] = {
+        "managed": {
+            "externalHostname": (
+                f"{search_resource_names.proxy_service_name(MDBS_RESOURCE_NAME)}.{namespace}.svc.cluster.local"
+            )
+        }
     }
     # Hosts-first MVP routing path (CLARIFY-6 + CLARIFY-8): mongot's upstream
     # readPreferenceTags support may not land for MVP, so the customer-facing
     # contract pins each cluster's mongot to an explicit RS member host list
-    # rather than relying on tag-based discovery. Single-cluster degenerate case:
-    # the RS pod-svc FQDNs across all RS_MEMBERS pods.
-    rs_member_hosts = [
-        f"{MDB_RESOURCE_NAME}-{i}.{MDB_RESOURCE_NAME}-svc.{namespace}.svc.cluster.local:27017"
-        for i in range(RS_MEMBERS)
-    ]
+    # rather than relying on tag-based discovery.
     resource["spec"]["clusters"] = [
         {
             "clusterName": SINGLE_CLUSTER_NAME,
