@@ -1,0 +1,65 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+  name: my-cluster
+  namespace: mongodb
+spec:
+  additionalMongodConfig:
+    net:
+      port: 27018
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb-mms-automation/mongodb.log
+  configServerCount: 2
+  credentials: my-credentials
+  externalMembers:
+  - hostname: cfg-a.example.com:27019
+    processName: cfg-0
+    replicaSetName: cfg-rs
+    type: mongod
+  - hostname: cfg-b.example.com:27019
+    processName: cfg-1
+    replicaSetName: cfg-rs
+    type: mongod
+  - hostname: sh0-a.example.com:27018
+    processName: sh0-0
+    replicaSetName: rs-sh0
+    type: mongod
+  - hostname: sh0-b.example.com:27018
+    processName: sh0-1
+    replicaSetName: rs-sh0
+    type: mongod
+  - hostname: sh1-a.example.com:27018
+    processName: sh1-0
+    replicaSetName: rs-sh1
+    type: mongod
+  - hostname: sh1-b.example.com:27018
+    processName: sh1-1
+    replicaSetName: rs-sh1
+    type: mongod
+  - hostname: mongos.example.com:27017
+    processName: mongos-0
+    type: mongos
+  featureCompatibilityVersion: "7.0"
+  mongodsPerShardCount: 2
+  mongosCount: 1
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  shardCount: 2
+  # configServerNameOverride: "cfg-rs"
+  # shardNameOverrides:
+  #   - shardId: "sh0"
+  #     replicasetName: "rs-sh0"
+  #     shardName: "my-cluster-0"
+  #   - shardId: "sh1"
+  #     replicasetName: "rs-sh1"
+  #     shardName: "my-cluster-1"
+  type: ShardedCluster
+  version: 7.0.12-ent

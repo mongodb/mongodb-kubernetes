@@ -1,0 +1,75 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+  name: my-cluster-v1
+  namespace: mongodb
+spec:
+  additionalMongodConfig:
+    net:
+      port: 27018
+  agent:
+    maxLogFileDurationHours: 0
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb-mms-automation/mongodb.log
+  configServerCount: 2
+  credentials: my-credentials
+  externalMembers:
+  - hostname: config-a.example.com:27019
+    processName: csrs-0
+    replicaSetName: csrs
+    type: mongod
+  - hostname: config-b.example.com:27019
+    processName: csrs-1
+    replicaSetName: csrs
+    type: mongod
+  - hostname: shard0-a.example.com:27018
+    processName: shard0-0
+    replicaSetName: shard0-rs
+    type: mongod
+  - hostname: shard0-b.example.com:27018
+    processName: shard0-1
+    replicaSetName: shard0-rs
+    type: mongod
+  - hostname: shard1-a.example.com:27018
+    processName: shard1-0
+    replicaSetName: shard1-rs
+    type: mongod
+  - hostname: shard1-b.example.com:27018
+    processName: shard1-1
+    replicaSetName: shard1-rs
+    type: mongod
+  - hostname: mongos-0.example.com:27017
+    processName: mongos-0
+    type: mongos
+  featureCompatibilityVersion: "7.0"
+  mongodsPerShardCount: 2
+  mongosCount: 1
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      modes:
+      - SCRAM
+    certsSecretPrefix: mdb
+    tls:
+      ca: my-cluster-v1-ca
+  shardCount: 2
+  # configServerNameOverride: "csrs"
+  # shardNameOverrides:
+  #   - shardId: "shardA"
+  #     replicasetName: "shard0-rs"
+  #     shardName: "my-cluster-v1-0"
+  #   - shardId: "shardB"
+  #     replicasetName: "shard1-rs"
+  #     shardName: "my-cluster-v1-1"
+  type: ShardedCluster
+  version: 7.0.12-ent
