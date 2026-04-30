@@ -99,7 +99,7 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
 				s.Spec.JVMFlags = tc.userProvidedJVMFlags
 				if tc.userProvidedMemory != "" {
-					s.Spec.ResourceRequirements = &corev1.ResourceRequirements{
+					s.Spec.Clusters[0].ResourceRequirements = &corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
 							corev1.ResourceMemory: resource.MustParse(tc.userProvidedMemory),
 							corev1.ResourceCPU:    resource.MustParse("2"),

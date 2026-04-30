@@ -21,7 +21,6 @@ import (
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
@@ -47,7 +46,10 @@ func newMongoDBSearch(name, namespace, mdbcName string) *searchv1.MongoDBSearch 
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: searchv1.MongoDBSearchSpec{
 			Source: &searchv1.MongoDBSource{
-				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: mdbcName},
+				MongoDBResourceRef: &searchv1.MongoDBSearchSourceRef{Name: mdbcName},
+			},
+			Clusters: []searchv1.SearchClusterSpecItem{
+				{Replicas: 1},
 			},
 		},
 	}
@@ -352,7 +354,7 @@ func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 			mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
 
 			search.Spec.Version = tc.specVersion
-			search.Spec.StatefulSetConfiguration = tc.statefulSetConfig
+			search.Spec.Clusters[0].StatefulSetConfiguration = tc.statefulSetConfig
 
 			operatorConfig := searchcontroller.OperatorSearchConfig{
 				SearchVersion: tc.operatorVersion,
