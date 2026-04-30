@@ -126,7 +126,7 @@ func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
 		i++
 	}
 	sort.Slice(shards, func(i, j int) bool {
-		return shards[i].id() < shards[j].id()
+		return shards[i].Id() < shards[j].Id()
 	})
 	s.setShards(shards)
 
@@ -135,11 +135,11 @@ func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
 
 // mergeFrom merges the operator shard into OM one. Only some fields are overriden, the others stay untouched
 func (s Shard) mergeFrom(operatorShard Shard) {
-	s.setId(operatorShard.id())
-	s.setRs(operatorShard.rs())
+	s.setId(operatorShard.Id())
+	s.setRs(operatorShard.Rs())
 }
 
-func (s ShardedCluster) shards() []Shard {
+func (s ShardedCluster) Shards() []Shard {
 	switch v := s["shards"].(type) {
 	case []Shard:
 		return v
@@ -214,14 +214,14 @@ func (s ShardedCluster) removeDraining() {
 // getAllReplicaSets returns all replica sets associated with sharded cluster
 func (s ShardedCluster) getAllReplicaSets() []string {
 	var ans []string
-	for _, s := range s.shards() {
-		ans = append(ans, s.rs())
+	for _, s := range s.Shards() {
+		ans = append(ans, s.Rs())
 	}
 	ans = append(ans, s.ConfigServerRsName())
 	return ans
 }
 
-func (s Shard) id() string {
+func (s Shard) Id() string {
 	return s["_id"].(string)
 }
 
@@ -229,7 +229,8 @@ func (s Shard) setId(id string) {
 	s["_id"] = id
 }
 
-func (s Shard) rs() string {
+// Rs returns the shard's replica set name (the "rs" field).
+func (s Shard) Rs() string {
 	return s["rs"].(string)
 }
 
@@ -251,8 +252,8 @@ func findDifferentKeys(leftMap map[string]Shard, rightMap map[string]Shard) []st
 // Builds the map[<shard name>]<shard>. This makes intersection easier
 func buildMapOfShards(sh ShardedCluster) map[string]Shard {
 	ans := make(map[string]Shard)
-	for _, r := range sh.shards() {
-		ans[r.id()] = r
+	for _, r := range sh.Shards() {
+		ans[r.Id()] = r
 	}
 	return ans
 }
