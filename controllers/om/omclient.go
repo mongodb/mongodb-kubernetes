@@ -197,7 +197,7 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.A
 		return err
 	}
 
-	if len(automationConfig.Deployment.getProcesses()) > 0 && logRotateSetting.Mongod.LogRotate != nil {
+	if len(automationConfig.Deployment.GetProcesses()) > 0 && logRotateSetting.Mongod.LogRotate != nil {
 		omVersion, err := oc.OpsManagerVersion().Semver()
 		if err != nil {
 			log.Debugw("Failed to fetch OpsManager version: %s", err)
@@ -210,7 +210,7 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.A
 		}
 
 		// We only retrieve the first process, since logRotation is configured the same for all processes
-		process := automationConfig.Deployment.getProcesses()[0]
+		process := automationConfig.Deployment.GetProcesses()[0]
 		if err = updateProcessLogRotateIfChanged(logRotateSetting.Mongod.LogRotate, process.GetLogRotate(), oc.UpdateProcessLogRotation); err != nil {
 			return err
 		}

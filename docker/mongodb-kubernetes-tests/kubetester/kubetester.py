@@ -295,12 +295,14 @@ class KubernetesTester(object):
         cls.clients("appsv1").create_namespaced_deployment(body=body, namespace=namespace)
 
     @classmethod
-    def create_or_update_statefulset(cls, namespace: str, body: Dict):
+    def create_or_update_statefulset(
+        cls, namespace: str, body: Dict, api_client: Optional[kubernetes.client.ApiClient] = None
+    ):
         try:
-            cls.clients("appsv1").create_namespaced_stateful_set(body=body, namespace=namespace)
+            cls.clients("appsv1", api_client=api_client).create_namespaced_stateful_set(body=body, namespace=namespace)
         except client.rest.ApiException as e:
             if e.status == 409:
-                cls.clients("appsv1").patch_namespaced_stateful_set(
+                cls.clients("appsv1", api_client=api_client).patch_namespaced_stateful_set(
                     name=body["metadata"]["name"], body=body, namespace=namespace
                 )
 
@@ -314,12 +316,14 @@ class KubernetesTester(object):
         cls.clients("corev1", api_client=api_client).create_namespaced_service(body=body, namespace=namespace)
 
     @classmethod
-    def create_or_update_service(cls, namespace: str, body: Dict):
+    def create_or_update_service(
+        cls, namespace: str, body: Dict, api_client: Optional[kubernetes.client.ApiClient] = None
+    ):
         try:
-            cls.clients("corev1").create_namespaced_service(body=body, namespace=namespace)
+            cls.clients("corev1", api_client=api_client).create_namespaced_service(body=body, namespace=namespace)
         except client.rest.ApiException as e:
             if e.status == 409:
-                cls.clients("corev1").patch_namespaced_service(
+                cls.clients("corev1", api_client=api_client).patch_namespaced_service(
                     name=body["metadata"]["name"], body=body, namespace=namespace
                 )
 

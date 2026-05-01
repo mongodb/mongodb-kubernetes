@@ -39,6 +39,12 @@ class AutomationConfigTester:
     def get_automation_agent_password(self):
         return self.automation_config["auth"]["autoPwd"]
 
+    def get_monitoring_versions(self):
+        return self.automation_config["monitoringVersions"]
+
+    def get_backup_versions(self):
+        return self.automation_config["backupVersions"]
+
     def assert_expected_users(self, expected_users: int):
         automation_config_users = 0
 

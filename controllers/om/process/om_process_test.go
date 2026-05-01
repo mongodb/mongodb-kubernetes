@@ -2,11 +2,13 @@ package process
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -26,13 +28,14 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			3,
 			defaultFCV,
 			"",
+			false,
 		)
 
 		assert.Len(t, processes, 3, "Should create 3 processes")
 
 		// Verify basic integration - processes are created with correct names and FCV
 		for i, process := range processes {
-			expectedName := fmt.Sprintf("test-rs-%d", i)
+			expectedName := fmt.Sprintf("k8s/%s/test-rs-%d", defaultNamespace, i)
 			assert.Equal(t, expectedName, process.Name(), "Process name should be generated correctly")
 			assert.Equal(t, defaultFCV, process.FeatureCompatibilityVersion(), "FCV should be set correctly")
 			assert.NotEmpty(t, process.HostName(), "Hostname should be generated")
@@ -50,6 +53,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			3, // limit
 			defaultFCV,
 			"",
+			false,
 		)
 		assert.Len(t, processesScaleUp, 3, "Limit should control process count during scale up")
 
@@ -61,6 +65,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			7, // limit
 			defaultFCV,
 			"",
+			false,
 		)
 		assert.Len(t, processesScaleDown, 7, "Limit should control process count during scale down")
 
@@ -72,6 +77,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			0, // limit
 			defaultFCV,
 			"",
+			false,
 		)
 		assert.Empty(t, processesZero, "Zero limit should create empty process slice")
 	})
@@ -90,6 +96,7 @@ func TestCreateMongodProcessesFromMongoDB(t *testing.T) {
 			2,
 			defaultFCV,
 			tlsCertPath,
+			false,
 		)
 
 		assert.Len(t, processes, 2)
@@ -123,6 +130,7 @@ func TestCreateMongodProcessesFromMongoDB_AdditionalConfig(t *testing.T) {
 		2,
 		defaultFCV,
 		"",
+		false,
 	)
 
 	assert.Len(t, processes, 2)
@@ -143,4 +151,56 @@ func baseReplicaSet(name string, members int) *mdbv1.MongoDB {
 		SetVersion("7.0.0").
 		SetFCVersion(defaultFCV).
 		Build()
+}
+
+func TestCreateMongodProcessesWithLimitMulti_NewNaming(t *testing.T) {
+	built := mdbmultiv1.DefaultMultiReplicaSetBuilder().Build()
+	built.Spec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{ClusterName: "cluster-0", Members: 2},
+		{ClusterName: "cluster-1", Members: 1},
+	}
+
+	processes, err := CreateMongodProcessesWithLimitMulti(
+		defaultMongoDBImage, false, *built, "", false,
+	)
+
+	assert.NoError(t, err)
+	assert.Len(t, processes, 3)
+	for _, p := range processes {
+		assert.True(t, strings.HasPrefix(p.Name(), "k8s/"),
+			"expected k8s/ prefix, got: %s", p.Name())
+	}
+}
+
+func TestCreateMongodProcessesWithLimitMulti_LegacyNaming(t *testing.T) {
+	built := mdbmultiv1.DefaultMultiReplicaSetBuilder().Build()
+	built.Spec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{ClusterName: "cluster-0", Members: 2},
+	}
+
+	processes, err := CreateMongodProcessesWithLimitMulti(
+		defaultMongoDBImage, false, *built, "", true,
+	)
+
+	assert.NoError(t, err)
+	assert.Len(t, processes, 2)
+	for _, p := range processes {
+		assert.False(t, strings.HasPrefix(p.Name(), "k8s/"),
+			"expected no k8s/ prefix in legacy mode, got: %s", p.Name())
+	}
+}
+
+func TestCreateMongodProcessesWithLimitMulti_HostnamesGenerated(t *testing.T) {
+	built := mdbmultiv1.DefaultMultiReplicaSetBuilder().Build()
+	built.Spec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{ClusterName: "cluster-0", Members: 1},
+	}
+
+	processes, err := CreateMongodProcessesWithLimitMulti(
+		defaultMongoDBImage, false, *built, "", false,
+	)
+
+	assert.NoError(t, err)
+	assert.Len(t, processes, 1)
+	assert.NotEmpty(t, processes[0].HostName())
 }

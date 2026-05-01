@@ -11,7 +11,7 @@ import (
 )
 
 func makeMinimalRsWithProcesses() ReplicaSetWithProcesses {
-	replicaSetWithProcesses := NewReplicaSet("my-test-repl", "", "4.2.1")
+	replicaSetWithProcesses := NewReplicaSet("my-test-repl", "4.2.1")
 	mdb := mdbv1.MongoDB{Spec: mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "4.2.1"}}}
 	mdb.InitDefaults()
 	processes := make([]Process, 3)
@@ -19,9 +19,9 @@ func makeMinimalRsWithProcesses() ReplicaSetWithProcesses {
 	for i := range processes {
 		proc := NewMongodProcess("my-test-repl-"+strconv.Itoa(i), "my-test-repl-"+strconv.Itoa(i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, &mdb.Spec, "", nil, "")
 		processes[i] = proc
-		replicaSetWithProcesses.addMember(proc, "", memberOptions[i])
+		replicaSetWithProcesses.addMember(proc, nil, memberOptions[i])
 	}
-	return NewReplicaSetWithProcesses(replicaSetWithProcesses, processes, memberOptions)
+	return NewReplicaSetWithProcesses(replicaSetWithProcesses, processes, memberOptions, nil)
 }
 
 // TestMergeHorizonsAdd checks that horizon configuration is appropriately
@@ -82,4 +82,51 @@ func TestMergeHorizonsOverride(t *testing.T) {
 	for i, member := range opsManagerRsWithProcesses.Rs.Members() {
 		assert.Equal(t, horizonsNew[i], member.getHorizonConfig())
 	}
+}
+
+func TestMergeFrom_ExternalMemberPreserved(t *testing.T) {
+	omRsWithProcesses := makeMinimalRsWithProcesses()
+	extMember := ReplicaSetMember{}
+	extMember["host"] = "external-host:27017"
+	extMember["_id"] = 3
+	extMember["votes"] = 1
+	extMember["priority"] = float32(1)
+	extMember["tags"] = map[string]string{}
+	omRsWithProcesses.Rs.setMembers(append(omRsWithProcesses.Rs.Members(), extMember))
+
+	operatorRsWithProcesses := makeMinimalRsWithProcesses()
+
+	externalMembers := []string{"external-host:27017"}
+	removedMembers := omRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs, externalMembers)
+
+	assert.NotContains(t, removedMembers, "external-host:27017")
+
+	memberHosts := make([]string, len(omRsWithProcesses.Rs.Members()))
+	for i, m := range omRsWithProcesses.Rs.Members() {
+		memberHosts[i] = m.Name()
+	}
+	assert.Contains(t, memberHosts, "external-host:27017")
+}
+
+func TestMergeFrom_NonExternalExtraMemberRemoved(t *testing.T) {
+	omRsWithProcesses := makeMinimalRsWithProcesses()
+	staleMember := ReplicaSetMember{}
+	staleMember["host"] = "stale-host:27017"
+	staleMember["_id"] = 3
+	staleMember["votes"] = 1
+	staleMember["priority"] = float32(1)
+	staleMember["tags"] = map[string]string{}
+	omRsWithProcesses.Rs.setMembers(append(omRsWithProcesses.Rs.Members(), staleMember))
+
+	operatorRsWithProcesses := makeMinimalRsWithProcesses()
+	removedMembers := omRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs, nil)
+
+	assert.Contains(t, removedMembers, "stale-host:27017")
+
+	// Verify the stale member is actually gone from the RS
+	memberHosts := make([]string, len(omRsWithProcesses.Rs.Members()))
+	for i, m := range omRsWithProcesses.Rs.Members() {
+		memberHosts[i] = m.Name()
+	}
+	assert.NotContains(t, memberHosts, "stale-host:27017")
 }

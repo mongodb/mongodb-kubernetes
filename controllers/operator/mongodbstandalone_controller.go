@@ -157,10 +157,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return reconcileResult, err
 	}
 
-	if !architectures.IsRunningStaticArchitecture(s.Annotations) {
-		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
-	}
-
 	if err := s.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, s, workflow.Invalid("%s", err.Error()), log)
 	}
@@ -183,9 +179,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, status, log)
 	}
 
+	if !architectures.IsRunningStaticArchitecture(s.Annotations) {
+		agents.UpgradeIfNeeded(s, conn)
+	}
+
 	r.SetupCommonWatchers(s, nil, nil, s.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, s.Name, "", nil, log)
+	reconcileResult := checkIfHasExcessProcesses(conn, s.Name, nil, log)
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(ctx, s, reconcileResult, log)
 	}
@@ -370,7 +370,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	standaloneOmObject := createProcess(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s)
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			excessProcesses := d.GetNumberOfExcessProcesses(s.Name, "", nil)
+			excessProcesses := d.GetNumberOfExcessProcesses(s.Name, nil)
 			if excessProcesses > 0 {
 				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}

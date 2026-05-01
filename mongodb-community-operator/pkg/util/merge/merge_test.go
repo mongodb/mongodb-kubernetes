@@ -666,3 +666,23 @@ func TestMergeHostAliases(t *testing.T) {
 	assert.Equal(t, "1.2.3.5", merged[1].IP)
 	assert.Equal(t, []string{"abc"}, merged[1].Hostnames)
 }
+
+func TestStringsToSet_Empty(t *testing.T) {
+	result := StringsToSet([]string{})
+	assert.Empty(t, result)
+}
+
+func TestStringsToSet_Normal(t *testing.T) {
+	result := StringsToSet([]string{"a", "b", "c"})
+	assert.Len(t, result, 3)
+	assert.Contains(t, result, "a")
+	assert.Contains(t, result, "b")
+	assert.Contains(t, result, "c")
+}
+
+func TestStringsToSet_Duplicates(t *testing.T) {
+	result := StringsToSet([]string{"x", "x", "y"})
+	assert.Len(t, result, 2)
+	assert.Contains(t, result, "x")
+	assert.Contains(t, result, "y")
+}

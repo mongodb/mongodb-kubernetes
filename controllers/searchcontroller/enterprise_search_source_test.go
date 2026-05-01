@@ -357,10 +357,10 @@ func TestEnterpriseResourceSearchSource_HostSeeds(t *testing.T) {
 					},
 					Spec: mdbv1.MongoDbSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
-							ExternalMembers: c.externalMembers,
-							ClusterDomain:   c.clusterDomain,
+							ClusterDomain: c.clusterDomain,
 						},
-						Members: c.members,
+						Members:         c.members,
+						ExternalMembers: c.externalMembers,
 					},
 				},
 			}

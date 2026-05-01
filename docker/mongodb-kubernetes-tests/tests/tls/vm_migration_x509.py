@@ -31,7 +31,6 @@ from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
-
 from tests.tls.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
 
 VM_STS_NAME = "vm-mongodb"
@@ -221,7 +220,7 @@ def mdb_migration(
         resource["spec"]["externalMembers"].append(
             {
                 "processName": f"{VM_STS_NAME}-{i}",
-                "hostname": f"{VM_STS_NAME}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local",
+                "hostname": f"{VM_STS_NAME}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local:27017",
                 "type": "mongod",
                 "replicaSetName": VM_RS_NAME,
             }

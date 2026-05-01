@@ -12,6 +12,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -789,4 +790,416 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 			assert.Equal(t, tt.expectedResult, result)
 		})
 	}
+}
+
+func TestCountMemberConfigChangesForExistingMembers(t *testing.T) {
+	votes0 := 0
+	votes1 := 1
+	prio0 := "0"
+	prio1 := "1"
+
+	tests := []struct {
+		name            string
+		oldConf         []automationconfig.MemberOptions
+		newConf         []automationconfig.MemberOptions
+		existingMembers int
+		want            int
+	}{
+		{
+			name:            "both nil — no change",
+			existingMembers: 3,
+			want:            0,
+		},
+		{
+			name:            "identical non-nil — no change",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}, {Votes: &votes1, Priority: &prio1}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}, {Votes: &votes1, Priority: &prio1}},
+			existingMembers: 2,
+			want:            0,
+		},
+		{
+			name:            "nil votes same as explicit 1 — no change",
+			oldConf:         []automationconfig.MemberOptions{{Votes: nil}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes1}},
+			existingMembers: 1,
+			want:            0,
+		},
+		{
+			name:            "nil priority same as explicit 1 — no change",
+			oldConf:         []automationconfig.MemberOptions{{Priority: nil}},
+			newConf:         []automationconfig.MemberOptions{{Priority: &prio1}},
+			existingMembers: 1,
+			want:            0,
+		},
+		{
+			name:            "one votes change",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes1}, {Votes: &votes1}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes0}, {Votes: &votes1}},
+			existingMembers: 2,
+			want:            1,
+		},
+		{
+			name:            "one priority change",
+			oldConf:         []automationconfig.MemberOptions{{Priority: &prio1}, {Priority: &prio1}},
+			newConf:         []automationconfig.MemberOptions{{Priority: &prio0}, {Priority: &prio1}},
+			existingMembers: 2,
+			want:            1,
+		},
+		{
+			name:            "two changes",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes1}, {Votes: &votes1}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes0}, {Votes: &votes0}},
+			existingMembers: 2,
+			want:            2,
+		},
+		{
+			name:            "one member with both votes and priority changed — counts as 1",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes0, Priority: &prio0}},
+			existingMembers: 1,
+			want:            1,
+		},
+		{
+			name:            "new member appended — not counted as a change",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes1}},
+			newConf:         []automationconfig.MemberOptions{{Votes: &votes1}, {Votes: &votes0, Priority: &prio0}},
+			existingMembers: 1, // only 1 pre-existing k8s member
+			want:            0,
+		},
+		{
+			name:            "old entry removed — counted as change (back to default)",
+			oldConf:         []automationconfig.MemberOptions{{Votes: &votes0}},
+			newConf:         []automationconfig.MemberOptions{},
+			existingMembers: 1,
+			want:            1, // was 0 votes, now implicitly default (1)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := countMemberConfigChangesForExistingMembers(tt.newConf, tt.oldConf, tt.existingMembers)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestAtMostOneMigrationChangeAtATime(t *testing.T) {
+	baseExternalMembers := []ExternalMember{
+		{ProcessName: "vm-rs-0", Hostname: "vm0.example.com:27017", Type: "mongod"},
+		{ProcessName: "vm-rs-1", Hostname: "vm1.example.com:27017", Type: "mongod"},
+		{ProcessName: "vm-rs-2", Hostname: "vm2.example.com:27017", Type: "mongod"},
+	}
+
+	votes0 := 0
+	votes1 := 1
+	prio0 := "0"
+	prio1 := "1"
+
+	tests := []struct {
+		name        string
+		oldSpec     MongoDbSpec
+		newSpec     MongoDbSpec
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "no external members — validator skipped",
+			oldSpec:     MongoDbSpec{Members: 3},
+			newSpec:     MongoDbSpec{Members: 5},
+			expectError: false,
+		},
+		{
+			name:        "no change — allowed",
+			oldSpec:     MongoDbSpec{Members: 3, ExternalMembers: baseExternalMembers},
+			newSpec:     MongoDbSpec{Members: 3, ExternalMembers: baseExternalMembers},
+			expectError: false,
+		},
+		{
+			name:        "adding one k8s member — allowed",
+			oldSpec:     MongoDbSpec{Members: 1, ExternalMembers: baseExternalMembers},
+			newSpec:     MongoDbSpec{Members: 2, ExternalMembers: baseExternalMembers},
+			expectError: false,
+		},
+		{
+			name:        "removing one VM member — allowed",
+			oldSpec:     MongoDbSpec{Members: 3, ExternalMembers: baseExternalMembers},
+			newSpec:     MongoDbSpec{Members: 3, ExternalMembers: baseExternalMembers[1:]},
+			expectError: false,
+		},
+		{
+			name: "updating one k8s member votes — allowed",
+			oldSpec: MongoDbSpec{
+				Members:         2,
+				ExternalMembers: baseExternalMembers,
+				MemberConfig:    []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}, {Votes: &votes1, Priority: &prio1}},
+			},
+			newSpec: MongoDbSpec{
+				Members:         2,
+				ExternalMembers: baseExternalMembers,
+				MemberConfig:    []automationconfig.MemberOptions{{Votes: &votes0, Priority: &prio0}, {Votes: &votes1, Priority: &prio1}},
+			},
+			expectError: false,
+		},
+		{
+			name:        "adding two k8s members — allowed",
+			oldSpec:     MongoDbSpec{Members: 1, ExternalMembers: baseExternalMembers},
+			newSpec:     MongoDbSpec{Members: 3, ExternalMembers: baseExternalMembers},
+			expectError: false,
+		},
+		{
+			name:        "removing two VM members — allowed",
+			oldSpec:     MongoDbSpec{Members: 3, ExternalMembers: baseExternalMembers},
+			newSpec:     MongoDbSpec{Members: 3, ExternalMembers: baseExternalMembers[2:]},
+			expectError: false,
+		},
+		{
+			name: "updating two k8s member configs — allowed",
+			oldSpec: MongoDbSpec{
+				Members:         2,
+				ExternalMembers: baseExternalMembers,
+				MemberConfig:    []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}, {Votes: &votes1, Priority: &prio1}},
+			},
+			newSpec: MongoDbSpec{
+				Members:         2,
+				ExternalMembers: baseExternalMembers,
+				MemberConfig:    []automationconfig.MemberOptions{{Votes: &votes0, Priority: &prio0}, {Votes: &votes0, Priority: &prio0}},
+			},
+			expectError: false,
+		},
+		{
+			name:        "adding k8s member AND removing VM member — rejected",
+			oldSpec:     MongoDbSpec{Members: 1, ExternalMembers: baseExternalMembers},
+			newSpec:     MongoDbSpec{Members: 2, ExternalMembers: baseExternalMembers[1:]},
+			expectError: true,
+			errorMsg:    "only one migration change type is allowed per update",
+		},
+		{
+			name: "adding k8s member AND updating member config — rejected",
+			oldSpec: MongoDbSpec{
+				Members:         1,
+				ExternalMembers: baseExternalMembers,
+				MemberConfig:    []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}},
+			},
+			newSpec: MongoDbSpec{
+				Members:         2,
+				ExternalMembers: baseExternalMembers,
+				MemberConfig:    []automationconfig.MemberOptions{{Votes: &votes0, Priority: &prio0}, {Votes: &votes0, Priority: &prio0}},
+			},
+			expectError: true,
+			errorMsg:    "only one migration change type is allowed per update",
+		},
+		{
+			name: "removing VM member AND updating member config — rejected",
+			oldSpec: MongoDbSpec{
+				Members:         2,
+				ExternalMembers: baseExternalMembers,
+				MemberConfig:    []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}, {Votes: &votes1, Priority: &prio1}},
+			},
+			newSpec: MongoDbSpec{
+				Members:         2,
+				ExternalMembers: baseExternalMembers[1:],
+				MemberConfig:    []automationconfig.MemberOptions{{Votes: &votes0, Priority: &prio0}, {Votes: &votes1, Priority: &prio1}},
+			},
+			expectError: true,
+			errorMsg:    "only one migration change type is allowed per update",
+		},
+		{
+			name: "adding k8s member with matching new MemberConfig entry — allowed (new entry not counted)",
+			oldSpec: MongoDbSpec{
+				Members:         1,
+				ExternalMembers: baseExternalMembers,
+				MemberConfig:    []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}},
+			},
+			newSpec: MongoDbSpec{
+				Members:         2,
+				ExternalMembers: baseExternalMembers,
+				// Existing entry unchanged; new entry appended for the new pod
+				MemberConfig: []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}, {Votes: &votes0, Priority: &prio0}},
+			},
+			expectError: false,
+		},
+		{
+			name:        "removing k8s members during migration — rejected",
+			oldSpec:     MongoDbSpec{Members: 3, ExternalMembers: baseExternalMembers},
+			newSpec:     MongoDbSpec{Members: 2, ExternalMembers: baseExternalMembers},
+			expectError: true,
+			errorMsg:    "Kubernetes members may not be removed during migration",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := atMostOneMigrationChangeAtATime(tt.newSpec, tt.oldSpec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+func TestAtMostOneMigrationChangeAtATime_WiredIntoWebhook(t *testing.T) {
+	externalMembers := []ExternalMember{
+		{ProcessName: "vm-rs-0", Hostname: "vm0.example.com:27017", Type: "mongod"},
+		{ProcessName: "vm-rs-1", Hostname: "vm1.example.com:27017", Type: "mongod"},
+		{ProcessName: "vm-rs-2", Hostname: "vm2.example.com:27017", Type: "mongod"},
+	}
+
+	votes0 := 0
+	prio0 := "0"
+
+	oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(1).Build()
+	oldRs.Spec.ExternalMembers = externalMembers
+	votes1 := 1
+	prio1 := "1"
+	oldRs.Spec.MemberConfig = []automationconfig.MemberOptions{{Votes: &votes1, Priority: &prio1}}
+
+	// Simultaneously add a k8s member AND change member config — two types at once
+	newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(2).Build()
+	newRs.Spec.ExternalMembers = externalMembers
+	newRs.Spec.MemberConfig = []automationconfig.MemberOptions{
+		{Votes: &votes0, Priority: &prio0},
+		{Votes: &votes0, Priority: &prio0},
+	}
+
+	_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only one migration change type is allowed per update")
+}
+
+func TestNoExternalMembersAdditionOrChanges(t *testing.T) {
+	memberA := ExternalMember{ProcessName: "vm-rs-0", Hostname: "vm0.example.com:27017", Type: "mongod"}
+	memberB := ExternalMember{ProcessName: "vm-rs-1", Hostname: "vm1.example.com:27017", Type: "mongod"}
+	memberC := ExternalMember{ProcessName: "vm-rs-2", Hostname: "vm2.example.com:27017", Type: "mongod"}
+
+	tests := []struct {
+		name        string
+		oldSpec     MongoDbSpec
+		newSpec     MongoDbSpec
+		expectError bool
+		errorMsg    string
+	}{
+		// --- success cases ---
+		{
+			name:        "both empty — success",
+			oldSpec:     MongoDbSpec{},
+			newSpec:     MongoDbSpec{},
+			expectError: false,
+		},
+		{
+			name:        "members unchanged — success",
+			oldSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB, memberC}},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB, memberC}},
+			expectError: false,
+		},
+		{
+			name:        "one member removed — success",
+			oldSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB, memberC}},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB}},
+			expectError: false,
+		},
+		{
+			name:        "all members removed — success",
+			oldSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB}},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{}},
+			expectError: false,
+		},
+		// --- addition errors ---
+		{
+			name:        "member added to previously empty list — rejected",
+			oldSpec:     MongoDbSpec{},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA}},
+			expectError: true,
+			errorMsg:    "Cannot add external members to an existing MongoDB resource",
+		},
+		{
+			name:        "member added to existing list — rejected",
+			oldSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB}},
+			newSpec:     MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB, memberC}},
+			expectError: true,
+			errorMsg:    "Cannot add external members to an existing MongoDB resource",
+		},
+		// --- modification errors ---
+		{
+			name:    "hostname changed — rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA}},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				{ProcessName: "vm-rs-0", Hostname: "new-host.example.com:27017", Type: "mongod"},
+			}},
+			expectError: true,
+			errorMsg:    "Cannot make changes to existing external members",
+		},
+		{
+			name:    "type changed — rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA}},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				{ProcessName: "vm-rs-0", Hostname: "vm0.example.com:27017", Type: "mongos"},
+			}},
+			expectError: true,
+			errorMsg:    "Cannot make changes to existing external members",
+		},
+		{
+			name:    "replicaSetName added — rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA}},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				{ProcessName: "vm-rs-0", Hostname: "vm0.example.com:27017", Type: "mongod", ReplicaSetName: "my-rs"},
+			}},
+			expectError: true,
+			errorMsg:    "Cannot make changes to existing external members",
+		},
+		{
+			name:    "processName changed — treated as new member, rejected",
+			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA}},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				{ProcessName: "vm-rs-0-renamed", Hostname: "vm0.example.com:27017", Type: "mongod"},
+			}},
+			expectError: true,
+			errorMsg:    "Cannot add external members to an existing MongoDB resource",
+		},
+		{
+			name: "one unchanged, one changed — rejected for changed member",
+			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB}},
+			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
+				memberA,
+				{ProcessName: "vm-rs-1", Hostname: "new-host.example.com:27017", Type: "mongod"},
+			}},
+			expectError: true,
+			errorMsg:    "Cannot make changes to existing external members",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := noExternalMembersAdditionOrChanges(tt.newSpec, tt.oldSpec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+func TestNoExternalMembersAdditionOrChanges_WiredIntoWebhook(t *testing.T) {
+	externalMember := ExternalMember{
+		ProcessName: "vm-rs-0",
+		Hostname:    "vm0.example.com:27017",
+		Type:        "mongod",
+	}
+
+	oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(3).Build()
+	oldRs.Spec.ExternalMembers = []ExternalMember{externalMember}
+
+	// Attempt to modify an existing external member's hostname
+	newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(3).Build()
+	newRs.Spec.ExternalMembers = []ExternalMember{
+		{ProcessName: "vm-rs-0", Hostname: "changed-host.example.com:27017", Type: "mongod"},
+	}
+
+	_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Cannot make changes to existing external members")
 }
