@@ -244,7 +244,7 @@ class TestReplicaSetCreation(KubernetesTester):
         for idx in range(0, 2):
             name = f"my-replica-set-{idx}"
             p = processes[idx]
-            assert p["name"] == name
+            assert p["name"] == f"k8s/{self.namespace}/{name}"
             assert p["processType"] == "mongod"
             assert custom_mdb_version in p["version"]
             assert p["authSchemaVersion"] == 5
@@ -268,7 +268,7 @@ class TestReplicaSetCreation(KubernetesTester):
             assert m["arbiterOnly"] is False
             assert m["hidden"] is False
             assert m["buildIndexes"] is True
-            assert m["host"] == f"my-replica-set-{idx}"
+            assert m["host"] == f"k8s/{self.namespace}/my-replica-set-{idx}"
             assert m["votes"] == 1
             assert m["priority"] == 1.0
 
@@ -320,6 +320,7 @@ class TestReplicaSetCreation(KubernetesTester):
     def test_replica_set_was_configured(self, cluster_domain: str):
         ReplicaSetTester(RESOURCE_NAME, 3, ssl=False, cluster_domain=cluster_domain).assert_connectivity()
 
+    @skip_if_local
     def test_replica_set_was_configured_with_srv(self, cluster_domain: str):
         ReplicaSetTester(RESOURCE_NAME, 3, ssl=False, srv=True, cluster_domain=cluster_domain).assert_connectivity()
 
@@ -434,7 +435,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
         for idx in range(0, 4):
             name = f"my-replica-set-{idx}"
             p = processes[idx]
-            assert p["name"] == name
+            assert p["name"] == f"k8s/{self.namespace}/{name}"
             assert p["processType"] == "mongod"
             assert custom_mdb_version in p["version"]
             assert p["authSchemaVersion"] == 5
@@ -461,7 +462,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
             assert m["priority"] == 1.0
             assert m["votes"] == 1
             assert m["buildIndexes"] is True
-            assert m["host"] == f"my-replica-set-{idx}"
+            assert m["host"] == f"k8s/{self.namespace}/my-replica-set-{idx}"
 
     def test_monitoring_versions(self, cluster_domain: str):
         config = self.get_automation_config()

@@ -74,7 +74,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         processes = config["processes"]
         for idx, p in enumerate(processes):
             assert custom_mdb_version in p["version"]
-            assert p["name"] == f"rs001-pv-{idx}"
+            assert p["name"] == f"k8s/{self.namespace}/rs001-pv-{idx}"
             assert p["processType"] == "mongod"
             assert p["authSchemaVersion"] == 5
             assert p["featureCompatibilityVersion"] == fcv_from_version(custom_mdb_version)

@@ -220,7 +220,7 @@ def mdb_migration(
         resource["spec"]["externalMembers"].append(
             {
                 "processName": f"{VM_STS_NAME}-{i}",
-                "hostname": f"{VM_STS_NAME}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local",
+                "hostname": f"{VM_STS_NAME}-{i}.{vm_service['metadata']['name']}.{namespace}.svc.cluster.local:27017",
                 "type": "mongod",
                 "replicaSetName": VM_RS_NAME,
             }
