@@ -111,18 +111,42 @@ def shard_proxy_service_host(search_name: str, shard_name: str, namespace: str, 
 
 
 # ============================================================================
+# Multi-cluster resources
+# ============================================================================
+
+
+def mc_proxy_svc_fqdn(search_name: str, namespace: str, cluster_index: int) -> str:
+    """Cluster-index-suffixed proxy Service FQDN for multi-cluster deployments.
+
+    Pattern: ``{search_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local``
+
+    This is the value for ``mongotHost`` on the per-cluster mongod.  It does NOT
+    include the port; callers append ``:<port>`` as needed.
+    """
+    return f"{search_name}-search-{cluster_index}-proxy-svc.{namespace}.svc.cluster.local"
+
+
+# ============================================================================
 # Managed load balancer resources
 # ============================================================================
 
 
-def lb_deployment_name(search_name: str) -> str:
-    """Managed LB Deployment name. Mirrors LoadBalancerDeploymentName()."""
-    return f"{search_name}-search-lb-0"
+def lb_deployment_name(search_name: str, cluster_index: int = 0) -> str:
+    """Managed LB Deployment name. Mirrors LoadBalancerDeploymentNameForCluster().
+
+    cluster_index defaults to 0 for single-cluster callers; pass the cluster
+    position explicitly for multi-cluster tests.
+    """
+    return f"{search_name}-search-lb-0-{cluster_index}"
 
 
-def lb_configmap_name(search_name: str) -> str:
-    """Managed LB ConfigMap name. Mirrors LoadBalancerConfigMapName()."""
-    return f"{search_name}-search-lb-0-config"
+def lb_configmap_name(search_name: str, cluster_index: int = 0) -> str:
+    """Managed LB ConfigMap name. Mirrors LoadBalancerConfigMapNameForCluster().
+
+    cluster_index defaults to 0 for single-cluster callers; pass the cluster
+    position explicitly for multi-cluster tests.
+    """
+    return f"{search_name}-search-lb-0-{cluster_index}-config"
 
 
 def lb_server_cert_name(search_name: str, certs_secret_prefix: str = "") -> str:
