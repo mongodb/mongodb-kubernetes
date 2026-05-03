@@ -2,12 +2,12 @@ package searchcontroller
 
 import (
 	"context"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 )
@@ -103,11 +103,9 @@ func expectedSecretNames(search *searchv1.MongoDBSearch) []string {
 	return names
 }
 
-// missingSecretsIn does a Get on each name and returns names that are NotFound.
-// Other errors (RBAC, transport) are conservatively treated as "missing" because
-// from the reconciler's POV the secret is not usable. This is a deliberate simplification
-// for the MVP — B9 will distinguish between NotFound and operational errors when it adds
-// the per-cluster status surface.
+// missingSecretsIn does a Get on each name and returns names that are not accessible.
+// RBAC and transport errors are treated the same as NotFound: the secret is not
+// usable from the reconciler's perspective regardless of the root cause.
 func missingSecretsIn(ctx context.Context, c client.Client, namespace string, names []string) []string {
 	if c == nil {
 		return nil
@@ -116,22 +114,15 @@ func missingSecretsIn(ctx context.Context, c client.Client, namespace string, na
 	for _, name := range names {
 		var s corev1.Secret
 		if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &s); err != nil {
-			if apierrors.IsNotFound(err) {
-				missing = append(missing, name)
-			} else {
-				// Treat operational errors as missing for MVP. B9 will refine.
-				missing = append(missing, name)
-			}
+			missing = append(missing, name)
 		}
 	}
 	return missing
 }
 
 func appendUnique(in []string, name string) []string {
-	for _, existing := range in {
-		if existing == name {
-			return in
-		}
+	if slices.Contains(in, name) {
+		return in
 	}
 	return append(in, name)
 }

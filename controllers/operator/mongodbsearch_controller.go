@@ -138,7 +138,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	}
 	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients)
 	if len(gaps) > 0 {
-		r.surfaceMissingSecrets(mdbSearch, gaps, log)
+		r.surfaceMissingSecrets(gaps, log)
 		if result.RequeueAfter == 0 {
 			result.RequeueAfter = secretsCheckRequeueAfter
 		}
@@ -146,13 +146,10 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	return result, nil
 }
 
-// surfaceMissingSecrets logs the missing-secret list per cluster. The customer
-// must replicate the missing secrets before reconcile can complete; the
-// reconcile loop returns RequeueAfter so we don't backoff exponentially while
-// waiting. Per-cluster status warnings will be added in B9 when the per-cluster
-// status surface lands.
+// surfaceMissingSecrets logs one entry per cluster that has gaps. The reconcile
+// loop returns RequeueAfter so the controller waits without exponential backoff
+// while the customer replicates the missing secrets.
 func (r *MongoDBSearchReconciler) surfaceMissingSecrets(
-	_ *searchv1.MongoDBSearch,
 	gaps []searchcontroller.SecretCheckResult,
 	log *zap.SugaredLogger,
 ) {
