@@ -61,4 +61,4 @@ class MCSearchDeploymentHelper:
         include the port; callers append `:<port>` as needed.
         """
         idx = self.cluster_index(cluster_name)
-        return f"{self.mdbs_resource_name}-search-{idx}-proxy-svc" f".{self.namespace}.svc.cluster.local"
+        return f"{self.mdbs_resource_name}-search-{idx}-proxy-svc.{self.namespace}.svc.cluster.local"

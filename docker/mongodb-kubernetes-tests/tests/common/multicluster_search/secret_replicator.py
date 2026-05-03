@@ -46,6 +46,13 @@ def replicate_secret(
     desired_data = dict(source.data or {})
     desired_type = source.type or "Opaque"
 
+    def _build_body() -> V1Secret:
+        return V1Secret(
+            metadata=V1ObjectMeta(name=secret_name, namespace=namespace),
+            type=desired_type,
+            data=desired_data,
+        )
+
     for cluster_name, member in member_clients.items():
         try:
             existing = member.read_namespaced_secret(name=secret_name, namespace=namespace)
@@ -56,12 +63,7 @@ def replicate_secret(
             existing = None
 
         if existing is None:
-            body = V1Secret(
-                metadata=V1ObjectMeta(name=secret_name, namespace=namespace),
-                type=desired_type,
-                data=desired_data,
-            )
-            member.create_namespaced_secret(namespace=namespace, body=body)
+            member.create_namespaced_secret(namespace=namespace, body=_build_body())
             logger.info(f"replicate_secret: created {secret_name} in cluster {cluster_name}")
             continue
 
@@ -69,10 +71,5 @@ def replicate_secret(
             logger.debug(f"replicate_secret: {secret_name} in cluster {cluster_name} already up to date")
             continue
 
-        body = V1Secret(
-            metadata=V1ObjectMeta(name=secret_name, namespace=namespace),
-            type=desired_type,
-            data=desired_data,
-        )
-        member.patch_namespaced_secret(name=secret_name, namespace=namespace, body=body)
+        member.patch_namespaced_secret(name=secret_name, namespace=namespace, body=_build_body())
         logger.info(f"replicate_secret: patched {secret_name} in cluster {cluster_name}")
