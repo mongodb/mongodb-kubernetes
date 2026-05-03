@@ -917,6 +917,59 @@ func TestLoadBalancerStatus_ClustersFieldExists(t *testing.T) {
 	assert.Equal(t, "us-east-k8s", s.Status.LoadBalancer.Clusters[0].ClusterName)
 }
 
+// TestValidateMCRequiresExternalHostAndPorts is the Phase 2 Task 20 admission
+// check: when len(spec.clusters) > 1, spec.source.external.hostAndPorts must
+// be non-empty. MVP routing renders the same top-level external host list into
+// every cluster's mongot ConfigMap; without it, per-cluster mongot has no
+// seed and reconcile cannot proceed.
+func TestValidateMCRequiresExternalHostAndPorts(t *testing.T) {
+	// MC + missing external.hostAndPorts → reject
+	mdbBad := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{
+			Clusters: &[]ClusterSpec{
+				{ClusterName: "cluster-a"},
+				{ClusterName: "cluster-b"},
+			},
+			// no spec.source.external set
+		},
+	}
+	resBad := validateMCRequiresExternalHostAndPorts(mdbBad)
+	assert.Equal(t, v1.ErrorLevel, resBad.Level, "expected validation error for MC without external.hostAndPorts")
+	assert.Contains(t, resBad.Msg, "spec.source.external.hostAndPorts")
+	assert.Contains(t, resBad.Msg, "len(spec.clusters) > 1")
+
+	// MC + external.hostAndPorts present → pass
+	mdbOK := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{
+			Clusters: &[]ClusterSpec{
+				{ClusterName: "cluster-a"},
+				{ClusterName: "cluster-b"},
+			},
+			Source: &MongoDBSource{
+				ExternalMongoDBSource: &ExternalMongoDBSource{
+					HostAndPorts: []string{"a.example:27017"},
+				},
+			},
+		},
+	}
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbOK).Level)
+
+	// Single-cluster (len <= 1) → no-op
+	mdbSC := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{
+			Clusters: &[]ClusterSpec{{ClusterName: "cluster-a"}},
+			// no source — single-cluster validation lives elsewhere
+		},
+	}
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbSC).Level)
+
+	// No spec.clusters at all (legacy SC) → no-op
+	mdbLegacy := &MongoDBSearch{
+		Spec: MongoDBSearchSpec{},
+	}
+	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbLegacy).Level)
+}
+
 // TestValidateClustersEnvoyResourceNames is the B16 admission check for the
 // per-cluster Envoy Deployment + ConfigMap resource names. The Deployment name
 // follows DNS-1123 label rules (<=63 chars); the ConfigMap follows DNS-1123
