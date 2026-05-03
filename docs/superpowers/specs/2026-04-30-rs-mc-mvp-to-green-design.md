@@ -1,19 +1,68 @@
-# MC Search MVP to Green — Design Spec
+# Q2-RS-MC to Green — Design Spec (Base + Phase 2)
 
-**Date:** 2026-05-03 (updated from 2026-04-30 first cut — phasing reordered to unmanaged-first; scope expanded to full MVP across RS and Sharded)
+**Date:** 2026-05-03 (updated; scope narrowed to Base + Phase 2 only)
 
-**Verification target:** Real `$search` *and* `$vectorSearch` queries return correct results from each cluster's local mongot pool in a 2-cluster MC ReplicaSet (delivered at end of Phase 2). Real `$search` queries return correct results across a 2-cluster × 2-shard MC sharded deployment (delivered at end of Phase 3). All single-cluster RS+sharded e2e tests stay green throughout. By end of Phase 5, the full MC Search MVP — RS+Sharded × Q1+Q2 quadrants — is green.
+**Verification target:** Real `$search` *and* `$vectorSearch` queries return correct results from each cluster's local mongot pool in a 2-cluster `MongoDBSearch` against an external (unmanaged) `MongoDBMulti` ReplicaSet source. Existing single-cluster RS+sharded e2e tests stay green throughout. Phase 2 is the user's named verification target for MC search MVP.
 
-## Phasing reorder rationale (2026-05-03)
+**Out-of-spec content moved to** [`2026-05-03-mc-mvp-later-phases.md`](./2026-05-03-mc-mvp-later-phases.md): Phase 3 (Q2-Sh-MC unmanaged), Phase 4 (Q1-RS-MC managed), Phase 5 (Q1-Sh-MC managed). That doc is a working draft; each phase will be re-brainstormed as its own focused spec when its turn comes.
 
-The original delivery plan ordered Q1 (managed) before Q2 (external), reasoning that managed is the strategic happy path. We're inverting that for MVP execution:
+---
 
-- **Q2 (unmanaged) is the simpler operator path.** No source CR dereferencing, no automation-config writes, no two-controller race. Operator just reads the `external` block and renders per-cluster mongot ConfigMaps.
-- **Q2-RS scaffolding already exists.** The PR #1041 e2e test scaffold is already on the Q2 path and merely needs the operator code to fill in the per-cluster fan-out before assertions can be tightened.
-- **Q1 builds on Q2's per-cluster reconcile dimension.** Once the per-cluster mongot ConfigMap renderer ships in Phase 2, Phase 4 (Q1-RS-MC) just adds source CR dereferencing + automation-config writes on top.
-- **Sharded scaffolding is heavy and lives in Phase 3.** Per-(cluster, shard) cross-product reconcile + cluster-level Envoy filter chain are net-new and best landed alongside the simpler external-source path before the managed-source variant.
+## Scope
 
-The reordering does NOT change MVP scope (still Phases 1–5 of the delivery plan); only the order of when each quadrant is delivered. The user's named verification target (`$search` + `$vectorSearch` through MC RS) is delivered at end of Phase 2 — earliest possible point.
+### In scope (this spec)
+
+1. **Base** — land the stacked B-section PR train into `search/ga-base`; build the MC E2E harness (cross-cluster Secret replication + two-cluster fixture lifecycle helpers). Reusable by all MC search e2e tests, not just Phase 2.
+2. **Phase 2 (Q2-RS-MC unmanaged)** — operator support for `spec.clusters[i].syncSourceSelector.hosts` on external RS sources; per-cluster mongot fan-out; tightened MC RS e2e (un-skip data plane, restore strict assertions, add `$vectorSearch` coverage).
+
+### Out of scope (deferred)
+
+- **Phases 3, 4, 5** of MC MVP — separate working notes in the later-phases doc; will be re-brainstormed as focused specs after Phase 2 is green.
+- `matchTags` / driver-side `readPreferenceTags` — see "Hosts-first MVP routing strategy" below for why hosts is the active path and tag-based is deferred.
+- `replSetConfig` outbound validation, sync-source credentials precondition, distinct failure-mode discrimination (Phase 6+).
+- `$vectorSearch` in sharded — RS-only for MVP.
+- Lifecycle hardening (Phase 6); observability polish (Phase 7); auto-embedding leader handover, GA verification, public docs (Phase 8).
+
+---
+
+## Hosts-first MVP routing strategy (CRITICAL — read before implementing)
+
+The MVP renders per-cluster mongot config with `syncSource.replicaSet.hostAndPort` populated from `spec.clusters[i].syncSourceSelector.hosts`. **This is temporary**; the permanent path is tag-based via `matchTags` + `readPreferenceTags` once mongot supports it upstream.
+
+| Path | Status | Used by |
+|------|--------|---------|
+| **`syncSourceSelector.hosts`** | **MVP — temporary (seed-only behavior; see below)** | Phase 2 (this spec) |
+| `syncSourceSelector.matchTags` + driver-side `readPreferenceTags` | Permanent — post-MVP polish | Future phase 7+ |
+
+### Verified mongot behavior (2026-05-03 agent investigation)
+
+**Critical finding: the hosts list is a seed, NOT an exclusive allowed set.** With concrete file:line citations:
+
+1. **mongot accepts the host list at `syncSource.replicaSet.hostAndPort`** — `mongot/src/main/java/com/xgen/mongot/config/provider/community/MongoConnectionConfig.java:47-52`. Field accepts a list of `host:port` strings; required.
+
+2. **mongot uses the list as a *seed* for standard MongoDB driver topology discovery, not as a static allowed set** — `mongot/src/main/java/com/xgen/mongot/config/provider/community/ConnectionInfoFactory.java:23-54`. The cluster connection string is built with `directConnection=false`, which means the MongoDB driver discovers all RS members from `isMaster/hello` responses and may contact members not on the configured list. The companion comment at `mongot/src/main/java/com/xgen/mongot/util/mongodb/ConnectionStringUtil.java:35-64` explicitly notes: "MMS provides connection strings with `directConnection=true`, which forces the MongoDB driver to connect only to the specified host. This prevents the driver from discovering the primary node in a replica set." So `directConnection=true` is not a viable workaround — it would break primary discovery for writes and linearizable reads.
+
+3. **mongot does NOT yet consume `readPreferenceTags`** — `mongot/src/main/java/com/xgen/mongot/config/provider/community/MongoConnectionConfig.java:73-83`. Only the top-level `readPreference` enum field exists (`PRIMARY`, `SECONDARY_PREFERRED`, etc.). No `readPreferenceTags` or `matchTags`. This confirms the MVP pivot rationale: tag-based routing requires net-new upstream mongot work.
+
+4. **Stale hosts crash mongot at startup** — no graceful fallback. If a host in the configured list isn't reachable / not part of the RS, the MongoDB driver times out during topology discovery and the mongot pod exits.
+
+5. **Operator-side rendering path exists in skeleton** — `mongodb-community-operator/pkg/mongot/mongot_config.go` has `ConfigReplicaSet.HostAndPort []string`. The `SyncSourceSelector` CRD field exists at `api/v1/search/mongodbsearch_types.go:160-172` with both `matchTags` and `hosts`. **The reconciler has not yet been wired to consume `syncSourceSelector.hosts` and populate `ConfigReplicaSet.HostAndPort` per cluster** — that's Phase 2's net-new operator code.
+
+6. **`external.hostAndPorts` becomes redundant for MC mode** — top-level field at `api/v1/search/mongodbsearch_types.go:308-323` is consumed by the single-cluster mongot config rendering path. In MC mode where every cluster has `syncSourceSelector.hosts` populated, the top-level flat list adds no value. Phase 2 admission rule: deprecate top-level `external.hostAndPorts` for `len(clusters) > 1`; require per-cluster `syncSourceSelector.hosts` instead.
+
+### What this means for Phase 2
+
+**The hosts-first MVP path does NOT pin each cluster's mongot to its local RS members.** It seeds the connection with cluster-local hosts; mongot then discovers the full RS topology and syncs from whichever member the driver's `readPreference` selection picks (typically primary or nearest secondary). Cross-cluster sync traffic IS expected and allowed — Istio mesh in test envs (or analogous customer infra in prod) provides the connectivity.
+
+Per-cluster locality in this MVP comes from **per-cluster Envoy proxies routing mongod→mongot traffic locally**, not from constraining mongot's choice of sync source. This is a meaningful split:
+
+- **Per-cluster mongot deployment** (B16) → local search capacity in each cluster ✓
+- **Per-cluster Envoy proxy** (B16) → mongod's `mongotHost` resolves locally in each cluster ✓
+- **Per-cluster mongot→mongod sync source selection** → NOT enforced by hosts list; uses standard RS topology discovery, may cross clusters ✗
+
+The MVP test suite must reflect this honestly. Asserting "cluster A's mongot syncs only from cluster A's mongods" would be wrong — that's not what hosts-first delivers. The data-plane assertions verify `$search` + `$vectorSearch` returning correct results end-to-end, which works regardless of which cluster's mongod a given mongot syncs from.
+
+**Permanent fix** (post-MVP): when mongot gains `readPreferenceTags` support, the operator switches to rendering `matchTags` per cluster and the driver does proper tag-pinned sync source selection. At that point the hosts seed becomes a documented power-user override rather than the primary mechanism.
 
 ---
 
@@ -21,70 +70,19 @@ The reordering does NOT change MVP scope (still Phases 1–5 of the delivery pla
 
 | Layer | What | Targets | Notes |
 |-------|------|---------|-------|
-| **Base** | Stacked B-section PR train (B1, B14+B18, B16, B3+B4+B13, B5, B8, B9) + new MC E2E harness PR | `search/ga-base` | Foundation everyone needs; existing 7-8 stacked review-decomposed PRs collectively form the base; harness lands as a single new PR after the train. |
+| **Base** | Stacked B-section PR train (B1, B14+B18, B16, B3+B4+B13, B5, B8, B9) + new MC E2E harness PR | `search/ga-base` | Foundation everyone needs (incl. later phases). Existing 7-8 stacked review-decomposed PRs collectively form the base; harness lands as a single new PR after the train. |
 | **Phase 2** | Q2-RS-MC operator + tightened MC RS E2E + `$vectorSearch` | `search/ga-base` | One clean PR off ga-base. **Verification target gate G2.** |
-| **Phase 3** | Q2-Sh-MC operator + tightened MC sharded E2E | `search/ga-base` | One clean PR off ga-base. Parallel with Phase 2 (independent code paths). |
-| **Phase 4** | Q1-RS-MC operator + Q1-RS-MC E2E (KUBE-57) | `search/ga-base` | One clean PR off ga-base. **Sequential after Phase 2** — reuses Phase 2's per-cluster RS mongot renderer. |
-| **Phase 5** | Q1-Sh-MC operator + Q1-Sh-MC E2E (KUBE-62) | `search/ga-base` | One clean PR off ga-base. **Sequential after Phase 3** — reuses Phase 3's cross-product + cluster-level Envoy filter chain. |
 
-When all five layers land, `search/ga-base` merges to `master` as a single MVP-done changeset.
-
-### Execution graph
-
-```
-        Base (B-train + harness)
-        ┌──────┴──────┐
-        ▼             ▼
-    Phase 2       Phase 3
-   (Q2-RS-MC)   (Q2-Sh-MC)
-        │             │
-        ▼             ▼
-    Phase 4       Phase 5
-   (Q1-RS-MC)   (Q1-Sh-MC)
-```
-
-Phases 2 and 3 are parallel after Base lands. Phases 4 and 5 are parallel after their respective Q2 phases land.
-
----
-
-## Goal
-
-End the spec with **all five acceptance gates green**, the named verification target — `q2_mc_rs_steady.py` with strict assertions and `$vectorSearch` coverage — delivered at gate G2.
-
-## Scope
-
-### In scope
-
-1. **Base** — land the stacked B-section PR train into `search/ga-base`; build the MC E2E harness (cross-cluster Secret replication + two-cluster fixture lifecycle helpers). Reusable by RS and Sharded MC tests.
-2. **Phase 2 (Q2-RS-MC unmanaged)** — operator support for `spec.clusters[i].syncSourceSelector.hosts` on external RS sources; per-cluster mongot fan-out; tightened MC RS e2e (un-skip data plane, restore strict assertions, add `$vectorSearch`).
-3. **Phase 3 (Q2-Sh-MC unmanaged)** — operator support for external sharded sources via `spec.source.external.shardedCluster.{router,shards}`; per-(cluster, shard) cross-product reconcile; cluster-level Envoy filter chain (SNI strip-`{shardName}.`); per-shard mongot fan-out per cluster; tightened MC sharded e2e.
-4. **Phase 4 (Q1-RS-MC managed)** — recognize `MongoDBMultiCluster` as a search source kind; per-cluster `mongotHost` auto-wire into source CR's automation config (gated on per-cluster Envoy ready); two-controller race fix (OQ-2b); new Q1-RS-MC e2e.
-5. **Phase 5 (Q1-Sh-MC managed)** — recognize `MongoDB` MC sharded as a search source kind; mongos `mongotHost` wiring; per-shard mongod `mongotHost` wiring; new Q1-Sh-MC e2e.
-
-### Out of scope (deferred per delivery plan)
-
-- `matchTags` / driver-side `readPreferenceTags` (Phase 7+ polish).
-- `replSetConfig` outbound validation, sync-source credentials precondition, distinct failure-mode discrimination (Phase 6+).
-- `$vectorSearch` in sharded — RS-only for MVP; per-shard ANN routing is post-MVP.
-- Lifecycle hardening — cluster/shard add/remove, churn (Phase 6).
-- Top-level conditions, worst-of phase aggregation, DNS soft-check, per-cluster mongod-side endpoint surfacing (Phase 7).
-- Auto-embedding leader handover, GA verification suite, telemetry, public docs (Phase 8).
+When Base + Phase 2 land, the work continues with the later-phases doc. The user's verification target is delivered at end of Phase 2 — earliest possible point.
 
 ---
 
 ## Sub-system decomposition
 
-Five layers; each layer maps to one PR (or one stack for Base). Estimates are coarse working-day sizes.
-
 | Layer | Unit(s) | Depends on | Estimate |
 |-------|---------|------------|----------|
 | **Base** | B-train merge orchestration; new MC E2E harness PR | nothing | S–M (mostly merge orchestration) + M (1–2d for harness) |
 | **Phase 2** | Q2-RS-MC operator (external source per-cluster hosts fan-out); tightened MC RS e2e + `$vectorSearch` | Base | M (2–3d operator + 1d test) |
-| **Phase 3** | Q2-Sh-MC operator (cross-product reconcile + cluster-level Envoy filter chain + per-shard hosts fan-out); tightened MC sharded e2e | Base | L (3–5d operator + 1d test) |
-| **Phase 4** | Q1-RS-MC operator (MongoDBMulti source kind + mongotHost auto-wire + OQ-2b fix); new Q1-RS-MC e2e | Phase 2 | M–L (2–4d operator + 1d test) |
-| **Phase 5** | Q1-Sh-MC operator (MongoDB MC sharded source kind + mongos & mongod mongotHost wiring); new Q1-Sh-MC e2e | Phase 3 | L (4–6d operator + 1–2d test) |
-
-Phases 2 and 3 land in parallel; Phases 4 and 5 land in parallel after their respective Q2 phases.
 
 ---
 
@@ -92,15 +90,9 @@ Phases 2 and 3 land in parallel; Phases 4 and 5 land in parallel after their res
 
 ### Component boundaries
 
-**MC E2E harness** lives entirely in `docker/mongodb-kubernetes-tests/` — test code, no operator changes. Owns the cross-cluster Secret replicator (test-pod RBAC, not operator RBAC), two-cluster MongoDBMulti fixture lifecycle, and per-cluster verification helpers. Reused by Phase 2 + Phase 3 + Phase 4 + Phase 5 e2e tests.
+**MC E2E harness** lives entirely in `docker/mongodb-kubernetes-tests/` — test code, no operator changes. Owns the cross-cluster Secret replicator (test-pod RBAC, not operator RBAC), two-cluster MongoDBMulti fixture lifecycle, and per-cluster verification helpers. **Built generic from day one** (not just for Phase 2) — the same helpers will be reused by Phases 3, 4, 5 when those specs land.
 
-**Q2-RS-MC operator** lives in `controllers/searchcontroller/external_search_source.go` and `mongodbsearch_reconcile_helper.go`. The per-cluster reconcile dimension (already scaffolded by B14+B16) iterates `spec.clusters[]`; for external RS sources, when `clusters[i].syncSourceSelector.hosts` is set, the per-cluster mongot ConfigMap renders that cluster's mongot upstream sync-source from those hosts. Falls back to flat `external.hostAndPorts` if `hosts` unset. **No automation-config writes** — Q2 means customer-managed mongods.
-
-**Q2-Sh-MC operator** lives in `controllers/searchcontroller/sharded_external_search_source.go`. Adds per-(cluster, shard) cross-product reconcile: outer loop over `spec.clusters[]`, inner loop over `external.shardedCluster.shards[]`. Each (cluster, shard) pair gets its own mongot StatefulSet + ConfigMap. Per-cluster Envoy gains a per-shard SNI filter chain plus a cluster-level filter chain (derived by stripping `{shardName}.` from `externalHostname`); the cluster-level chain round-robins across all local mongot pools across all shards (used by mongos). **No mongos config writes** for Q2.
-
-**Q1-RS-MC operator** lives in `controllers/searchcontroller/enterprise_search_source.go` (relaxes the `len(clusters) > 1` rejection at `:69-71` for MongoDBMulti sources) and a new `enterprise_multi_search_source.go`. Implements the existing `EnterpriseSearchSource` interface for `MongoDBMultiCluster` source CRs — dereferences `clusterSpecList[]` to expose per-cluster member host lists. The reconciler reuses Phase 2's per-cluster mongot ConfigMap renderer with the source-derived hosts. Adds automation-config writes: per-cluster `mongotHost` (= local Envoy proxy Service FQDN) written into the source CR's `additionalMongodConfig.setParameter`. Gates writes on per-cluster Envoy `Ready`. Includes the OQ-2b two-controller race fix (Envoy controller writes `status.loadBalancer.phase` non-terminally, not just at terminal states).
-
-**Q1-Sh-MC operator** lives in `controllers/searchcontroller/sharded_internal_search_source.go` (already exists in skeleton form per `ls` output). Recognizes `MongoDB` of `kind: ShardedCluster` with multi-cluster topology as a source kind — dereferences shard layout AND cluster layout from the source CR. Reuses Phase 3's cross-product reconcile + cluster-level Envoy filter chain. Adds automation-config writes: mongos cluster-level `mongotHost` block + per-shard mongod `mongotHost` shardOverrides written into the source CR's automation config.
+**Q2-RS-MC operator** lives in `controllers/searchcontroller/external_search_source.go` and `mongodbsearch_reconcile_helper.go`. The per-cluster reconcile dimension (already scaffolded by B14+B16) iterates `spec.clusters[]`; for external RS sources, when `clusters[i].syncSourceSelector.hosts` is set, the per-cluster mongot ConfigMap renders that cluster's mongot upstream sync-source from those hosts. Falls back to flat `external.hostAndPorts` if `hosts` unset (single-cluster shape). **No automation-config writes** — Q2 means customer-managed mongods (delivery plan §Phase 5 line 133, applies to RS too).
 
 ### Data flow — Q2-RS-MC happy path (verification target gate G2)
 
@@ -109,8 +101,11 @@ Phases 2 and 3 land in parallel; Phases 4 and 5 land in parallel after their res
                                    │ Central cluster (operator runs here)        │
                                    │                                             │
   customer applies ──────────────► │ MongoDBSearch CR                            │
-   MongoDBMulti (RS source)        │   spec.source.external.hostAndPorts: [...]  │
-   MongoDBSearch                   │   spec.clusters: [                          │
+   MongoDBMulti (RS source)        │   (no spec.source.external.hostAndPorts —   │
+   MongoDBSearch                   │    deprecated for len(clusters) > 1; per-   │
+                                   │    cluster syncSourceSelector.hosts is the  │
+                                   │    sole mongot-config source)               │
+                                   │   spec.clusters: [                          │
                                    │     {clusterName: A, replicas: 2,           │
                                    │      syncSourceSelector.hosts:              │
                                    │        ["A-pod-0.A-svc:27017", ...]},       │
@@ -137,9 +132,9 @@ Phases 2 and 3 land in parallel; Phases 4 and 5 land in parallel after their res
           │  Envoy-A (LB cert SAN: A)   │                          │  Envoy-B (LB cert SAN: B)   │
           │  proxy-svc (ClusterIP)      │                          │  proxy-svc (ClusterIP)      │
           │  mongod-A-{0,1,2}           │                          │  mongod-B-{0,1,2}           │
-          │   (mongotHost = local Envoy)│                          │   (mongotHost = local Envoy)│
-          │   ← test-side fixture        │                          │   ← test-side fixture        │
-          │     additionalMongodConfig)  │                          │     additionalMongodConfig)  │
+          │   (mongotHost = local Envoy │                          │   (mongotHost = local Envoy │
+          │    ← test-side fixture      │                          │    ← test-side fixture      │
+          │      additionalMongodConfig)│                          │      additionalMongodConfig)│
           └─────────────────────────────┘                          └─────────────────────────────┘
                           │                                                         │
                           │  $search / $vectorSearch                                │
@@ -148,30 +143,7 @@ Phases 2 and 3 land in parallel; Phases 4 and 5 land in parallel after their res
                        returns rows                                              returns rows
 ```
 
-### Data flow — Q2-Sh-MC happy path (gate G3)
-
-Cluster-level Envoy filter chain is the new piece:
-
-```
-mongos (customer-applied mongotHost = cluster-level proxy svc)
-        │
-        ▼
-Envoy in cluster A (cluster-level filter chain, SNI strip-{shardName}.)
-        │
-        ├─► round-robin across ALL local mongot pools across ALL shards in cluster A
-        │      ├─► mongot-A-shard0-{0,1}
-        │      └─► mongot-A-shard1-{0,1}
-```
-
-Per-shard mongod (customer-applied mongotHost = per-shard proxy svc) hits the per-shard SNI chain on the same Envoy.
-
-### Data flow — Q1-RS-MC happy path (gate G4)
-
-Identical to Q2-RS-MC except the source is `mongodbResourceRef → MongoDBMulti`, the operator dereferences `clusterSpecList[]` to derive per-cluster member hosts, and the operator writes per-cluster `mongotHost` into the source CR's automation config (test does NOT set `additionalMongodConfig`).
-
-### Data flow — Q1-Sh-MC happy path (gate G5)
-
-Identical to Q2-Sh-MC except source is `mongodbResourceRef → MongoDB` MC sharded, operator dereferences shard+cluster layout, and operator writes mongos cluster-level `mongotHost` + per-shard mongod `mongotHost` shardOverrides into the source's automation config.
+**What this diagram shows and does NOT show:** the per-cluster Envoy lane (mongod → local Envoy → local mongot pool) IS cluster-local — that's what B16 delivers. The mongot → mongod sync direction (the "fill mongot's index" path, not shown in the diagram) is NOT cluster-local — mongot uses `syncSourceSelector.hosts` as a seed and the MongoDB driver discovers the full RS topology, so a given mongot may pull data from any cluster's mongods. This is acceptable for MVP because `$search` / `$vectorSearch` correctness only requires that *some* mongot has indexed the data, not that each cluster's mongot is locality-pinned. The permanent fix is tag-based routing once mongot supports `readPreferenceTags`.
 
 ### Error handling
 
@@ -179,9 +151,8 @@ Identical to Q2-Sh-MC except source is `mongodbResourceRef → MongoDB` MC shard
 |---|---|
 | `clusterName` not registered with operator's MC manager | Reconcile `Failed`, message names the cluster (existing rule from B3+B4+B13). |
 | Customer-replicated Secret missing in member cluster | Reconcile `Pending` with B5's per-cluster presence check; message names the missing Secret + cluster. |
-| Per-cluster Envoy not ready | `clusterStatusList[i].loadBalancer.phase = Pending`; aggregated phase Pending. For Q1: per-cluster `mongotHost` write deferred until Envoy ready (OQ-2b fix gates this on a non-terminal status write from the Envoy controller). For Q2: no operator gating — customer's mongods may still try to talk to a not-yet-ready Envoy and retry naturally. |
-| `clusters[i].syncSourceSelector.hosts` empty | Admission rejects (B3+B4+B13 already validates `hosts` non-empty when `matchTags` absent — see CLARIFY-6). |
-| Q1-Sh-MC: `clusterName` not in source CR's `clusterSpecList` | Reconcile `Failed`, fail-fast no auto-align (Phase 2 rule extends to sharded — TD §11.8.1). |
+| Per-cluster Envoy not ready | `clusterStatusList[i].loadBalancer.phase = Pending`; aggregated phase Pending. Q2: no operator gating — customer's mongods may try to talk to a not-yet-ready Envoy and retry naturally. |
+| `clusters[i].syncSourceSelector.hosts` empty AND `matchTags` absent | Admission rejects (B3+B4+B13 already validates this — see CLARIFY-6). |
 | Cross-cluster member ↔ Envoy network partition | Out of scope (Phase 6 lifecycle / Phase 7 health checks). |
 
 ### Hard-design rules (carry from program)
@@ -226,11 +197,11 @@ search/ga-base
 
 ### Phase 2 — Q2-RS-MC (unmanaged) — VERIFICATION TARGET
 
-**Operator changes** (`controllers/searchcontroller/`):
+**Operator changes** (`controllers/searchcontroller/` and `mongodb-community-operator/pkg/mongot/`):
 
-- `external_search_source.go` — when `spec.clusters[i].syncSourceSelector.hosts` is set, override the flat `external.hostAndPorts` with the per-cluster hosts list as the mongot upstream for cluster `i`'s mongot ConfigMap. Field is per-cluster optional; falls back to flat `hostAndPorts` if unset.
-- `mongodbsearch_reconcile_helper.go` — the per-cluster reconcile dimension (B14+B16) extends to external sources; reuse the per-cluster mongot ConfigMap renderer with the external source's per-cluster hosts accessor.
-- **No automation-config writes.** Q2 = customer-managed mongods (delivery plan §Phase 5 line 133).
+- `external_search_source.go` + `mongodbsearch_reconcile_helper.go` — for each entry in `spec.clusters[]`, render that cluster's mongot ConfigMap with `syncSource.replicaSet.hostAndPort` populated from `clusters[i].syncSourceSelector.hosts`. Reuse the existing `ConfigReplicaSet.HostAndPort []string` field at `mongodb-community-operator/pkg/mongot/mongot_config.go`. The per-cluster reconcile dimension is already scaffolded by B14+B16; this unit fills in the external-source code path.
+- **CRD admission tightening (chosen path: option b):** for `len(spec.clusters) > 1`, **`spec.source.external.hostAndPorts` is deprecated and ignored**; admission requires every cluster to populate `syncSourceSelector.hosts`. Single-cluster shape (`len(spec.clusters) == 1` or legacy degenerate case) continues to accept the top-level flat list as it does today. This rule lives alongside the B3+B4+B13 admission validators.
+- **No automation-config writes.** Q2 = customer-managed mongods (delivery plan §Phase 5 line 133, applies to RS too).
 
 **E2E changes** (`docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_rs_steady.py`):
 
@@ -251,76 +222,6 @@ search/ga-base
 
 **Acceptance (gate G2 — verification target):** test green on Evergreen with all strict assertions, real `Phase=Running` on MongoDBSearch, real per-cluster Envoy `Ready`, real `$search` AND `$vectorSearch` returning correct rows from each member cluster's local pod seed.
 
-### Phase 3 — Q2-Sh-MC (unmanaged)
-
-**Operator changes** (`controllers/searchcontroller/`):
-
-- `sharded_external_search_source.go` — implements per-(cluster, shard) cross-product reconcile for external sharded sources. Reads `spec.source.external.shardedCluster.{router, shards}`. For each `(clusters[i], shards[j])` pair, renders a mongot StatefulSet + ConfigMap with sync-source = `shards[j].hosts` for that shard's cluster slice. Naming follows the cross-product pattern (TD §8 sharded table): `{search}-search-{clusterIndex}-{shardName}-mongot-{podIdx}`.
-- `mongodbsearch_reconcile_helper.go` — the per-cluster reconcile gains a sharded inner loop. Topology-agnostic: same code path consumed by Phase 5 (managed).
-- **Cluster-level Envoy filter chain** (extends B16) — per-cluster Envoy filter chain config now emits a cluster-level chain (SNI matched against `externalHostname` with `{shardName}.` stripped) plus per-shard chains. The cluster-level chain round-robins across all local mongot pools across all shards.
-- **No mongos config writes.** Q2 = customer-applied mongos `mongotHost`.
-
-**Sharded admission rules** (B13 already covers placeholder rules; if `{shardName}.` prefix admission rule is missing, it lands here):
-
-- `externalHostname` must contain `{shardName}` AND (`{clusterName}` or `{clusterIndex}`).
-- `externalHostname` must start with `{shardName}.` so the cluster-level form is derivable by stripping the prefix.
-
-**E2E changes** (`docker/mongodb-kubernetes-tests/tests/multicluster_search/q2_mc_sharded_steady.py`):
-
-- Revert iter-5 tolerance changes; restore strict assertions paralleling Phase 2's tightened RS test.
-- Un-skip data plane tests; assert `$search` returns rows from every shard.
-- Asserts no Envoy SNI collision when stripping `{shardName}.` (Phase 5 ticket DoD; lands here).
-- Restore `additionalMongodConfig.mongotHost` on the MongoDBMulti per-shard fixture (customer-applied for Q2).
-
-**Existing single-cluster Q2 sharded regression bar:** `search_sharded_external_mongodb_multi_mongot_unmanaged_lb.py`, `search_sharded_enterprise_external_mongod_managed_lb.py` continue to pass.
-
-**Acceptance (gate G3):** 2-cluster × 2-shard E2E green: `Phase=Running` on MongoDBSearch, per-cluster Envoy ready with both per-shard SNI chains and cluster-level chain functional, `$search` query through customer-applied mongos returns rows from every shard.
-
-### Phase 4 — Q1-RS-MC (managed)
-
-**Depends on:** Phase 2 (per-cluster RS mongot ConfigMap renderer).
-
-**Operator changes** (`controllers/searchcontroller/`):
-
-- `enterprise_search_source.go` — relax the `len(clusters) > 1` gate at `:69-71` to allow `MongoDBMultiCluster` source kinds. Add a source-kind discriminator (`SourceKind` string field on `EnterpriseSearchSource`).
-- New `enterprise_multi_search_source.go` — implements the same `EnterpriseSearchSource` interface for `MongoDBMultiCluster` sources. Dereferences `clusterSpecList[]` to expose per-cluster member host lists.
-- `mongodbsearch_reconcile_helper.go` — for the multi-cluster source kind, the inner body uses Phase 2's per-cluster mongot ConfigMap renderer with `source.MembersForCluster(clusterName)` as the per-cluster hosts.
-- **Per-cluster `mongotHost` automation-config writes** (the new piece in Phase 4): write `mongotHost = "<proxy-svc-FQDN>:<port>"` into the source CR's automation config per cluster member, gated on `Envoy ready in cluster` (B9 status check).
-- **Two-controller race fix (OQ-2b):** confirm during kickoff whether the existing Envoy reconciler writes `status.loadBalancer.phase` only at terminal states. If yes, change it to write on every reconcile. The fix lands in this layer.
-- `controllers/operator/mongodbsearch_controller.go` — register a watch on `MongoDBMultiCluster` resources for cross-controller event flow; reuses B8's per-member watch infrastructure.
-
-**E2E** — new file `docker/mongodb-kubernetes-tests/tests/multicluster_search/q1_mc_rs_managed.py`:
-
-- Topology: 2-cluster MongoDBMulti RS source with TLS+SCRAM, 3 members per cluster.
-- MongoDBSearch with `spec.source.mongodbResourceRef` pointing at the MongoDBMulti (internal source — newly accepted by Phase 4). `spec.clusters[]` with two entries; no `syncSourceSelector` set (hosts derived by operator from `clusterSpecList[]`).
-- **Test does NOT set `additionalMongodConfig.mongotHost`** — operator writes it. This is the contract difference vs Phase 2.
-- Asserts: MongoDBMulti `Phase=Running`, MongoDBSearch `Phase=Running`, `clusterStatusList` populated and each entry `Running`, per-cluster Envoy ready (`require_ready=True`), `assert_lb_status` consistent, search index reaches `READY`, `$search` aggregation seeded from each member cluster's local pod returns ≥4 expected rows.
-- New Evergreen task: `e2e_search_q1_mc_rs_managed`.
-
-**Acceptance (gate G4):** test green with operator-driven `mongotHost` wiring + real `$search` data plane.
-
-### Phase 5 — Q1-Sh-MC (managed)
-
-**Depends on:** Phase 3 (cross-product reconcile + cluster-level Envoy filter chain).
-
-**Operator changes** (`controllers/searchcontroller/`):
-
-- `sharded_internal_search_source.go` — recognizes `MongoDB` of `kind: ShardedCluster` with multi-cluster topology as a source kind. Dereferences shard layout AND cluster layout from the source CR. Reuses Phase 3's cross-product reconcile + cluster-level Envoy filter chain.
-- **Cluster-level mongos `mongotHost` block** + **per-shard mongod `mongotHost` shardOverrides** written into the source CR's automation config. Gated on per-cluster Envoy ready.
-- TLS secrets keyed per (cluster, shard) (TD §8 wins over §16.3 per OQ-4a).
-- Per-cluster `shardOverrides[]` cluster-major placement (inverted vs. `MongoDB.spec.shardOverrides`).
-- Reconcile-time `clusterName ↔ clusterIndex` agreement check extends from the Phase 4 RS rule to MC sharded source.
-
-**E2E** — new file `docker/mongodb-kubernetes-tests/tests/multicluster_search/q1_mc_sharded_managed.py`:
-
-- Topology: 2-cluster × 2-shard MongoDB MC sharded source with TLS+SCRAM.
-- MongoDBSearch with `spec.source.mongodbResourceRef` pointing at the MongoDB MC sharded source.
-- Test does NOT set `additionalMongodConfig.mongotHost` on mongos or per-shard mongods — operator writes it.
-- Asserts: source MongoDB `Phase=Running`, MongoDBSearch `Phase=Running`, per-cluster Envoy ready with both per-shard SNI chains and cluster-level chain functional, search index `READY`, `$search` aggregation through mongos returns rows from every shard.
-- New Evergreen task: `e2e_search_q1_mc_sharded_managed`.
-
-**Acceptance (gate G5):** test green with operator-driven mongos+mongod `mongotHost` wiring + real `$search` data plane across (cluster, shard) cross-product.
-
 ---
 
 ## Verification & acceptance gates
@@ -329,25 +230,21 @@ search/ga-base
 |------|--------------|------|
 | G1 | Base merged: B-train + harness on `search/ga-base`; existing single-cluster e2es still green; harness smoke test green | End of Base |
 | **G2 (named target)** | `q2_mc_rs_steady.py` green with strict assertions, real `$search` + `$vectorSearch` data plane | End of Phase 2 |
-| G3 | `q2_mc_sharded_steady.py` green with strict assertions, real `$search` data plane across (cluster, shard) | End of Phase 3 |
-| G4 | `q1_mc_rs_managed.py` green with operator-driven `mongotHost` + real `$search` | End of Phase 4 |
-| G5 | `q1_mc_sharded_managed.py` green with operator-driven mongos+mongod `mongotHost` + real `$search` | End of Phase 5 |
 
-When G1–G5 are all green, `search/ga-base` is ready to merge into `master` as the MVP-done changeset.
+When G1 + G2 are green, the next iteration (Phase 3 Q2-Sh-MC) starts from the later-phases doc.
 
 ---
 
 ## Risks & open items
 
-- **mongot upstream `readPreferenceTags`** may slip past MVP — already mitigated by hosts-first MVP path. No further action.
-- **OQ-2b two-controller race** — fix is in scope for Phase 4. Confirm at kickoff whether the existing Envoy reconciler writes `status.loadBalancer.phase` non-terminally; if not, change it.
+- **Hosts list does NOT enforce per-cluster sync source locality** (resolved 2026-05-03 — agent verification with code citations in "Hosts-first MVP routing strategy"). MVP accepts cross-cluster mongot→mongod sync via standard topology discovery; data-plane correctness holds regardless. Permanent locality fix is post-MVP via mongot `readPreferenceTags` support.
+- **`external.hostAndPorts` redundancy in MC mode** (resolved 2026-05-03). Admission rule chosen: option (b) — for `len(clusters) > 1` the top-level flat list is deprecated/ignored; per-cluster `syncSourceSelector.hosts` is required. See Phase 2 "Operator changes" above.
+- **Stale hosts crash mongot at startup** (verified 2026-05-03). If the operator renders a hosts list with an unreachable / not-in-RS host, the mongot pod times out during topology discovery and exits. Phase 2 should derive the hosts list deterministically from MongoDBMulti pod-svc FQDNs (which the test fixture already does) — no human typing of hostnames into the CR. For prod, customers populate the hosts list from their RS member list; documenting how to do this safely is a Phase 8 docs item.
+- **mongot upstream `readPreferenceTags`** — confirmed not yet implemented (agent verified at `MongoConnectionConfig.java:73-83`). Permanent path requires upstream mongot work. No further action this spec.
 - **CLARIFY-1** — does the existing per-cluster mongot config rendering (B14/B16) accept a per-cluster `hosts[]` fan-out for external sources, or is that Phase 2's net-new code? Implementer of Phase 2 confirms at kickoff.
 - **Voyage API key in CI** — `AI_MONGODB_EMBEDDING_QUERY_KEY` already wired for single-cluster auto-embedding tests; Phase 2 just reuses it. Verify the new MC RS Evergreen task projection includes it.
-- **`MongoDBMultiCluster` source CR `clusterSpecList[]` ↔ search CR `clusters[]`** — Phase 4 admission rule: every search-CR `clusterName` must exist in source's `clusterSpecList` and the derived `clusterIndex` must agree (B3+B4+B13). Phase 4 verifies this rule fires correctly on kickoff. Same rule extends to Phase 5 sharded source.
 - **Docker image pinning** — mongot version floor check is deferred (Phase 8). MVP assumes all member clusters run a mongot that already supports auto-embedding pod-0 leader. If a cluster runs an older mongot, `$vectorSearch` will fail with a non-friendly error; documented as a known limitation, not a defect.
-- **Phase 3 → Phase 5 dependency:** Phase 5 depends on Phase 3's cross-product reconcile + cluster-level Envoy filter chain landing first. If Phase 5 starts before Phase 3 merges, expect substantial rebase churn.
-- **Phase 2 → Phase 4 dependency:** lighter — Phase 4 reuses Phase 2's per-cluster mongot ConfigMap renderer but the new code (source kind recognition + automation-config writes) is mostly net-additional.
 
-## Out-of-scope cross-references
+## Cross-references
 
-- **Phase 6 (lifecycle hardening)**, **Phase 7 (observability polish)**, **Phase 8 (GA readiness + docs)** — separate specs after MVP-done. Spec layouts can mirror this one's "phasing reorder rationale" pattern if execution ordering shifts.
+- [`2026-05-03-mc-mvp-later-phases.md`](./2026-05-03-mc-mvp-later-phases.md) — Phase 3 (Q2-Sh-MC), Phase 4 (Q1-RS-MC), Phase 5 (Q1-Sh-MC) holding pen. Will be re-brainstormed once Phase 2 is green.
