@@ -786,7 +786,7 @@ func TestValidateSearchResource(t *testing.T) {
 func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 	cases := []struct {
 		name             string
-		replicas         int
+		replicas         int32
 		hasAutoEmbedding bool
 		expectedKeys     []string
 		notExpectedKeys  []string
@@ -817,7 +817,8 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "test-ns")
-			search.Spec.Replicas = tc.replicas
+			//nolint:staticcheck // SA1019: exercising the legacy single-cluster path under B18 auto-promotion.
+			search.Spec.Replicas = ptr.To(tc.replicas)
 			if tc.hasAutoEmbedding {
 				search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
 			}
@@ -855,7 +856,8 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 
 func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
-	search.Spec.Replicas = 1
+	//nolint:staticcheck // SA1019: exercising the legacy single-cluster path under B18 auto-promotion.
+	search.Spec.Replicas = ptr.To(int32(1))
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
 	cmName := search.MongotConfigConfigMapNamespacedName()
@@ -1226,7 +1228,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					Namespace: "test",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 3,
+					Replicas: ptr.To(int32(3)),
 					Source: &searchv1.MongoDBSource{
 						MongoDBResourceRef: &userv1.MongoDBResourceRef{
 							Name: "test-mongodb",
@@ -1244,7 +1246,7 @@ func TestValidateMultipleReplicasConfig(t *testing.T) {
 					Namespace: "test",
 				},
 				Spec: searchv1.MongoDBSearchSpec{
-					Replicas: 3,
+					Replicas: ptr.To(int32(3)),
 					Source: &searchv1.MongoDBSource{
 						MongoDBResourceRef: &userv1.MongoDBResourceRef{
 							Name: "test-mongodb",
