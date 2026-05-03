@@ -571,6 +571,22 @@ func (s *MongoDBSearch) ProxyServiceNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-0-" + ProxyServiceSuffix, Namespace: s.Namespace}
 }
 
+// ProxyServiceNamespacedNameForCluster returns the proxy Service name for one
+// member cluster identified by its cluster index. clusterIndex 0 matches the
+// legacy single-cluster ProxyServiceNamespacedName for backward compatibility.
+//
+// Each cluster's proxy Service has a distinct name with the cluster index as a
+// suffix; this avoids relying on per-cluster ClusterIP DNS scoping for
+// disambiguation. mongod's `mongotHost` should be set to this name's FQDN
+// per cluster (via `clusterSpecList[i].additionalMongodConfig` on the
+// MongoDBMulti source).
+func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, ProxyServiceSuffix),
+		Namespace: s.Namespace,
+	}
+}
+
 // ProxyServiceNameForShard returns the stable proxy Service name for a specific shard.
 func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{
@@ -581,6 +597,18 @@ func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.Namespa
 
 func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-config", Namespace: s.Namespace}
+}
+
+// MongotConfigConfigMapNameForCluster returns the per-cluster mongot ConfigMap
+// name. Index 0 matches the legacy single-cluster name for back-compat.
+func (s *MongoDBSearch) MongotConfigConfigMapNameForCluster(clusterIndex int) types.NamespacedName {
+	if clusterIndex == 0 {
+		return s.MongotConfigConfigMapNamespacedName()
+	}
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-config", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
 }
 
 func (s *MongoDBSearch) SourceUserPasswordSecretRef() *userv1.SecretKeyRef {
