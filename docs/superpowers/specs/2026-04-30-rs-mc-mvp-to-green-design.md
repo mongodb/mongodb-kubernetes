@@ -135,6 +135,64 @@ When Base + Phase 2 land, the work continues with the later-phases doc. The user
 
 **Q2-RS-MC operator** lives in `controllers/searchcontroller/external_search_source.go` and `mongodbsearch_reconcile_helper.go`. The per-cluster reconcile dimension (already scaffolded by B14+B16) iterates `spec.clusters[]`; for external RS sources, every cluster's mongot ConfigMap renders `syncSource.replicaSet.hostAndPort` from the same top-level `spec.source.external.hostAndPorts`. Per-cluster differentiation is at the ConfigMap-namespace and Envoy-cert level (B16), not in the seed list. **No automation-config writes** — Q2 means customer-managed mongods (delivery plan §Phase 5 line 133, applies to RS too).
 
+### Per-cluster Envoy topology
+
+Envoy is the load balancer that fronts each cluster's local mongot pool and terminates TLS on incoming `mongod → mongot` query traffic. The MC topology fans this out per cluster.
+
+**Per-cluster (one of these in each member cluster):**
+
+| Object | Naming pattern | Source / responsible PR |
+|--------|----------------|--------------------------|
+| Envoy Deployment | `{search-name}-search-lb-0-{clusterName}` | B16 — `LoadBalancerDeploymentNameForCluster` at `api/v1/search/mongodbsearch_types.go:865-876` |
+| Envoy ConfigMap | `{search-name}-search-lb-0-{clusterName}-config` | B16 — `LoadBalancerConfigMapNameForCluster` at `api/v1/search/mongodbsearch_types.go:878-885` |
+| Per-cluster mongot StatefulSet (`{N}` mongots per cluster) | `{search-name}-search-{clusterIndex}` | **Phase 2 net-new** — B14+B16 add the per-cluster reconcile dimension and naming helpers, but the StatefulSet creation in `mongodbsearch_reconcile_helper.go` still uses single-cluster `StatefulSetNamespacedName()`; Phase 2 extends the reconcilePlan to one unit per cluster |
+| Per-cluster mongot ConfigMap (mongot's own config; carries `syncSource.replicaSet.hostAndPort`) | `{search-name}-search-{clusterIndex}-mongot-config` | **Phase 2 net-new** — same gap as the StatefulSet; Phase 2 renders one per cluster from top-level `external.hostAndPorts` |
+| Proxy Service (the `mongotHost` target) | `{search-name}-search-0-proxy-svc` (**same name in every cluster**) | **Phase 2 net-new** — `ProxyServiceNamespacedName()` already exists at `api/v1/search/mongodbsearch_types.go:497`, but the reconciler creates the Service only in the central cluster today (call site at `mongodbsearch_reconcile_helper.go:157`); Phase 2 extends to create the Service in every member cluster |
+
+**Same in every cluster (single resource, replicated to member clusters by the MC E2E harness in tests / by the customer in prod):**
+
+| Object | Naming pattern | Source / responsible PR |
+|--------|----------------|--------------------------|
+| LB TLS server cert (`Secret`) | `{search-name}-search-lb-0-cert` (or `{prefix}-{name}-search-lb-0-cert` if prefix set) | B16 — `LoadBalancerServerCert` at `api/v1/search/mongodbsearch_types.go:887-898`. **Single cert for all clusters** — works because the proxy-svc FQDN is identical in every cluster (`{name}-search-0-proxy-svc.{ns}.svc.cluster.local`), so one SAN list covers them all. |
+| Sync-source TLS CA (`ConfigMap` or `Secret` per `spec.source.external.tls.ca`) | Customer-supplied | B5 — Secret/ConfigMap presence check per cluster; cross-cluster replication is the harness's job in tests. |
+| Mongot user password `Secret` (`{search-name}-{username}-password`) | Customer-supplied via `spec.source.passwordSecretRef` | B5 — same presence-check rule; harness replicates in tests. |
+
+**Why the proxy Service can share a name across clusters but the Deployment cannot:**
+
+- Service is `ClusterIP`-scoped — name resolution is per-cluster. When mongod sets `mongotHost = {name}-search-0-proxy-svc.{ns}.svc.cluster.local`, that FQDN resolves to whichever Envoy pods exist *in that cluster's local DNS*. Cluster A resolves to Envoy-A; cluster B resolves to Envoy-B. Same name, distinct backends — no collision because Services are namespaced to their cluster.
+- Deployment is a flat-named API object — if every cluster had a Deployment with the same name, MCK's central client couldn't disambiguate which cluster's it's reading. Hence the `-{clusterName}` suffix on the Deployment but NOT on the Service.
+
+This split is what makes the customer-facing `mongotHost` value a single string that "just works" across every cluster — the customer/test fixture sets `additionalMongodConfig.setParameter.mongotHost = {name}-search-0-proxy-svc.{ns}.svc.cluster.local`, and DNS does the per-cluster routing automatically.
+
+**Envoy filter chain (B16):**
+
+Each cluster's Envoy config (rendered by `controllers/operator/mongodbsearchenvoy_controller.go` per-cluster) carries:
+
+- One TLS listener on the proxy port (`27028` by default).
+- SNI filter chain match: `server_names: [{name}-search-0-proxy-svc.{ns}.svc.cluster.local]`. mongod opens TLS to `mongotHost` with that SNI; Envoy matches the chain.
+- Cluster definition pointing to local mongot pool (`{search-name}-search-{clusterIndex}` headless Service in the same member cluster).
+- A "cluster ID" tag baked into the cluster name so per-cluster filter chains stay distinct in metrics / config (commit `e574935a8`).
+
+**Cluster-local mongod → mongot data path (the customer-facing query lane):**
+
+```
+mongod-{cluster A}                    mongod-{cluster B}
+   │ TLS, SNI={proxy-svc FQDN}            │ TLS, SNI={proxy-svc FQDN}
+   ▼                                       ▼
+proxy-svc (in cluster A)              proxy-svc (in cluster B)
+   │ ClusterIP DNS → local pods           │ ClusterIP DNS → local pods
+   ▼                                       ▼
+Envoy-A pods                          Envoy-B pods
+(LoadBalancerDeploymentNameForCluster)
+   │ matches SNI to filter chain          │ matches SNI to filter chain
+   │ → routes to local mongot cluster def │ → routes to local mongot cluster def
+   ▼                                       ▼
+mongot-A pods                         mongot-B pods
+   (StatefulSet in cluster A)            (StatefulSet in cluster B)
+```
+
+This is the path B16 + Phase 2 together deliver. Cluster-local end-to-end. Cross-cluster `mongot → mongod` sync direction (the indexing path, not shown) is a different lane and not cluster-local in MVP — see "Routing strategy" earlier in the doc.
+
 ### Data flow — Q2-RS-MC happy path (verification target gate G2)
 
 ```
