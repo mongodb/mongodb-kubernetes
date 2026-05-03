@@ -402,3 +402,19 @@ func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
 	assert.NotNil(t, r.memberClusterSecretClientsMap["us-east-k8s"].KubeClient)
 	assert.NotNil(t, r.memberClusterSecretClientsMap["eu-west-k8s"].KubeClient)
 }
+
+func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+
+	reconciler, _ := newSearchReconciler(mdbc, search)
+
+	res, err := reconciler.Reconcile(
+		ctx,
+		reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}},
+	)
+
+	require.NoError(t, err, "missing secret must surface as RequeueAfter, not an error")
+	require.True(t, res.RequeueAfter > 0, "must requeue when a customer-replicated secret is missing")
+}

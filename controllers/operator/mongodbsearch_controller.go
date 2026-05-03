@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -33,6 +34,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
+
+// secretsCheckRequeueAfter is the requeue interval used when CheckSecretsPresence
+// reports any per-cluster customer-replicated secret missing. Reconcile returns
+// (Result{RequeueAfter: secretsCheckRequeueAfter}, nil) so we don't trigger
+// exponential backoff while the customer is fixing the gap.
+const secretsCheckRequeueAfter = 30 * time.Second
 
 type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
@@ -120,7 +127,45 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 
 	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig)
 
-	return reconcileHelper.Reconcile(ctx, log).ReconcileResult()
+	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
+	if err != nil {
+		return result, err
+	}
+
+	memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
+	for name, kc := range r.memberClusterClientsMap {
+		memberClients[name] = kc
+	}
+	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients)
+	if len(gaps) > 0 {
+		r.surfaceMissingSecrets(mdbSearch, gaps, log)
+		if result.RequeueAfter == 0 {
+			result.RequeueAfter = secretsCheckRequeueAfter
+		}
+	}
+	return result, nil
+}
+
+// surfaceMissingSecrets logs the missing-secret list per cluster. The customer
+// must replicate the missing secrets before reconcile can complete; the
+// reconcile loop returns RequeueAfter so we don't backoff exponentially while
+// waiting. Per-cluster status warnings will be added in B9 when the per-cluster
+// status surface lands.
+func (r *MongoDBSearchReconciler) surfaceMissingSecrets(
+	_ *searchv1.MongoDBSearch,
+	gaps []searchcontroller.SecretCheckResult,
+	log *zap.SugaredLogger,
+) {
+	for _, g := range gaps {
+		clusterLabel := g.Cluster
+		if clusterLabel == "" {
+			clusterLabel = "central"
+		}
+		log.Infow("MongoDBSearch missing customer-replicated secrets",
+			"cluster", clusterLabel,
+			"missing", g.Missing,
+		)
+	}
 }
 
 func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
@@ -192,7 +237,11 @@ func AddMongoDBSearchController(
 		return err
 	}
 
-	r := newMongoDBSearchReconciler(mgr.GetClient(), operatorSearchConfig, multicluster.ClustersMapToClientMap(memberClusterObjectsMap))
+	r := newMongoDBSearchReconciler(
+		mgr.GetClient(),
+		operatorSearchConfig,
+		multicluster.ClustersMapToClientMap(memberClusterObjectsMap),
+	)
 
 	c, err := controller.New(util.MongoDbSearchController, mgr, controller.Options{
 		Reconciler:              r,
