@@ -3,9 +3,7 @@
 from unittest.mock import MagicMock
 
 import pytest
-from tests.common.multicluster_search.mc_search_deployment_helper import (
-    MCSearchDeploymentHelper,
-)
+from tests.common.multicluster_search.mc_search_deployment_helper import MCSearchDeploymentHelper
 
 
 def test_helper_records_member_cluster_clients():
