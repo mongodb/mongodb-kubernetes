@@ -82,12 +82,12 @@ func TestAggregateClusterStatuses_WarningsAndLoadBalancerCarry(t *testing.T) {
 			ClusterName:      "us-east-k8s",
 			Common:           status.Common{Phase: status.PhaseRunning},
 			ObservedReplicas: 2,
-			Warnings:         []status.Warning{"B5: secret 'search-sync-password' missing"},
+			Warnings:         []status.Warning{"secret 'search-sync-password' missing"},
 			LoadBalancer:     &LoadBalancerStatus{Phase: status.PhaseRunning},
 		},
 	}
 	s.AggregateClusterStatuses(items)
 	require.Len(t, s.Status.ClusterStatusList.ClusterStatuses, 1)
-	assert.Equal(t, []status.Warning{"B5: secret 'search-sync-password' missing"}, s.Status.ClusterStatusList.ClusterStatuses[0].Warnings)
+	assert.Equal(t, []status.Warning{"secret 'search-sync-password' missing"}, s.Status.ClusterStatusList.ClusterStatuses[0].Warnings)
 	assert.NotNil(t, s.Status.ClusterStatusList.ClusterStatuses[0].LoadBalancer)
 }
