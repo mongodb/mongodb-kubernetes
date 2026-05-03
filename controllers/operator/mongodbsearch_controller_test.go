@@ -9,9 +9,11 @@ import (
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -81,7 +83,7 @@ func newSearchReconcilerWithOperatorConfig(
 
 	fakeClient := builder.Build()
 
-	return newMongoDBSearchReconciler(fakeClient, operatorConfig), fakeClient
+	return newMongoDBSearchReconciler(fakeClient, operatorConfig, map[string]client.Client{}), fakeClient
 }
 
 func newSearchReconciler(
@@ -362,4 +364,41 @@ func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 			checkSearchReconcileFailed(ctx, t, reconciler, reconciler.kubeClient, search, expectedMsg)
 		})
 	}
+}
+
+func newFakeClientForTest(t *testing.T) client.Client {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	return fake.NewClientBuilder().WithScheme(scheme).Build()
+}
+
+func TestNewMongoDBSearchReconciler_SingleCluster(t *testing.T) {
+	central := newFakeClientForTest(t)
+	members := map[string]client.Client{} // empty -> single-cluster install
+
+	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members)
+
+	assert.NotNil(t, r.kubeClient, "central kubeClient must be set")
+	assert.Empty(t, r.memberClusterClientsMap, "members map must be empty in single-cluster mode")
+	assert.Empty(t, r.memberClusterSecretClientsMap, "secret-clients map must be empty in single-cluster mode")
+}
+
+func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
+	central := newFakeClientForTest(t)
+	east := newFakeClientForTest(t)
+	west := newFakeClientForTest(t)
+	members := map[string]client.Client{
+		"us-east-k8s": east,
+		"eu-west-k8s": west,
+	}
+
+	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members)
+
+	assert.Len(t, r.memberClusterClientsMap, 2)
+	assert.Len(t, r.memberClusterSecretClientsMap, 2)
+	assert.NotNil(t, r.memberClusterClientsMap["us-east-k8s"])
+	assert.NotNil(t, r.memberClusterClientsMap["eu-west-k8s"])
+	assert.NotNil(t, r.memberClusterSecretClientsMap["us-east-k8s"].KubeClient)
+	assert.NotNil(t, r.memberClusterSecretClientsMap["eu-west-k8s"].KubeClient)
 }
