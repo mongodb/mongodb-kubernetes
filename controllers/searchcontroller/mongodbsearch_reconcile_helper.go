@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
@@ -209,10 +210,53 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 
 func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 	workflowStatus := r.reconcile(ctx, log)
+
+	// B9: populate the per-cluster status surface from spec.clusters[i] before
+	// the patch goes out. No-op when spec.clusters is nil/empty (legacy
+	// single-cluster install) — top-level fields keep their existing semantics.
+	r.mdbSearch.AggregateClusterStatuses(buildPerClusterStatusItems(r.mdbSearch, workflowStatus))
+
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
 		return workflow.Failed(err)
 	}
 	return workflowStatus
+}
+
+// buildPerClusterStatusItems returns one SearchClusterStatusItem per
+// spec.clusters[i]. For B9 minimal, every entry copies the workflow outcome's
+// phase + message into its inlined status.Common. Per-cluster phase divergence
+// (e.g. one cluster Pending because its presence-checked secret is missing)
+// lands in B5/B14 follow-ups. Returns nil when spec.clusters is nil or empty
+// (legacy single-cluster); the top-level Phase keeps its existing semantics.
+func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status) []searchv1.SearchClusterStatusItem {
+	if mdb.Spec.Clusters == nil || len(*mdb.Spec.Clusters) == 0 {
+		return nil
+	}
+	message := messageFromStatus(st)
+	items := make([]searchv1.SearchClusterStatusItem, 0, len(*mdb.Spec.Clusters))
+	for _, c := range *mdb.Spec.Clusters {
+		items = append(items, searchv1.SearchClusterStatusItem{
+			ClusterName: c.ClusterName,
+			Common: status.Common{
+				Phase:   st.Phase(),
+				Message: message,
+			},
+		})
+	}
+	return items
+}
+
+// messageFromStatus extracts the user-visible message from a workflow.Status.
+// workflow.Status does not expose Message() directly; the message is carried
+// in StatusOptions() as a MessageOption.
+func messageFromStatus(st workflow.Status) string {
+	if st == nil {
+		return ""
+	}
+	if opt, ok := status.GetOption(st.StatusOptions(), status.MessageOption{}); ok {
+		return opt.(status.MessageOption).Message
+	}
+	return ""
 }
 
 func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
