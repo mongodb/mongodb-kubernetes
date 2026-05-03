@@ -1051,12 +1051,142 @@ spec:
             type: object
           status:
             properties:
+              clusterStatusList:
+                description: |-
+                  ClusterStatusList is the per-cluster status surface, one entry per
+                  spec.clusters[i]. Empty in single-cluster (legacy) deployments.
+                properties:
+                  clusterStatuses:
+                    items:
+                      description: |-
+                        SearchClusterStatusItem is the per-Kubernetes-cluster status entry, one
+                        entry per spec.clusters[i]. Mirrors the MongoDBMultiCluster
+                        ClusterStatusItem precedent (api/v1/mdbmulti/mongodb_multi_types.go) and
+                        adds an optional per-cluster managed-LB phase. Search is the first MCK
+                        CRD to surface a load-balancer phase per cluster.
+                      properties:
+                        clusterName:
+                          description: |-
+                            ClusterName is the Kubernetes cluster name from spec.clusters[i].clusterName.
+                            Empty in the single-cluster degenerate case (no spec.clusters entry).
+                          type: string
+                        lastTransition:
+                          type: string
+                        loadBalancer:
+                          description: |-
+                            LoadBalancer reports the per-cluster managed-LB phase for ReplicaSet
+                            topologies. Sharded per-(cluster, shard) LB phase lives on the
+                            top-level ShardLoadBalancerStatusInClusters map.
+                          properties:
+                            clusters:
+                              description: |-
+                                Clusters is the per-cluster managed-LB phase. Only populated when
+                                len(spec.clusters) > 0 — single-cluster keeps the existing top-level Phase.
+                                B16 writes a placeholder schema; B9 will formalize it (sharded sub-statuses,
+                                observedGeneration, etc.).
+                              items:
+                                description: |-
+                                  ClusterLoadBalancerStatus reports per-cluster managed LB state.
+                                  Placeholder schema written by B16; B9 formalizes the per-cluster status surface.
+                                properties:
+                                  clusterName:
+                                    description: ClusterName is the member cluster
+                                      this status entry belongs to.
+                                    type: string
+                                  message:
+                                    description: Message is an optional explanation
+                                      for the per-cluster phase.
+                                    type: string
+                                  phase:
+                                    description: Phase mirrors LoadBalancerStatus.Phase
+                                      but for one cluster.
+                                    type: string
+                                required:
+                                - clusterName
+                                - phase
+                                type: object
+                              type: array
+                            message:
+                              type: string
+                            phase:
+                              type: string
+                          required:
+                          - phase
+                          type: object
+                        message:
+                          type: string
+                        observedGeneration:
+                          format: int64
+                          type: integer
+                        observedReplicas:
+                          description: |-
+                            ObservedReplicas is the number of mongot pods this cluster currently has Ready.
+                            Used by the load-test harness as the readiness gate.
+                          format: int32
+                          type: integer
+                        phase:
+                          type: string
+                        pvc:
+                          items:
+                            properties:
+                              phase:
+                                type: string
+                              statefulsetName:
+                                type: string
+                            required:
+                            - phase
+                            - statefulsetName
+                            type: object
+                          type: array
+                        resourcesNotReady:
+                          items:
+                            description: ResourceNotReady describes the dependent
+                              resource which is not ready yet
+                            properties:
+                              errors:
+                                items:
+                                  properties:
+                                    message:
+                                      type: string
+                                    reason:
+                                      type: string
+                                  type: object
+                                type: array
+                              kind:
+                                description: ResourceKind specifies a kind of a Kubernetes
+                                  resource. Used in status of a Custom Resource
+                                type: string
+                              message:
+                                type: string
+                              name:
+                                type: string
+                            required:
+                            - kind
+                            - name
+                            type: object
+                          type: array
+                        warnings:
+                          description: |-
+                            Warnings is the per-cluster warnings list (e.g. customer-replicated
+                            secret missing in this cluster). Populated by the per-cluster presence
+                            check in B5; nil until that integration lands.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - phase
+                      type: object
+                    type: array
+                type: object
               lastTransition:
                 type: string
               loadBalancer:
                 description: |-
                   LoadBalancer reports the state of the operator-managed load balancer.
                   Only populated when spec.loadBalancer.managed is set.
+                  In multi-cluster (len(spec.clusters) > 1) deployments, the per-cluster
+                  LB phase lives on status.clusterStatusList.clusterStatuses[i].loadBalancer.
+                  This top-level field stays for single-cluster back-compat.
                 properties:
                   clusters:
                     description: |-
@@ -1139,6 +1269,31 @@ spec:
                   - name
                   type: object
                 type: array
+              shardLoadBalancerStatusInClusters:
+                additionalProperties:
+                  additionalProperties:
+                    description: |-
+                      ShardLoadBalancerStatus reports the state of a single (cluster, shard)'s
+                      managed Envoy load balancer. Used in the flat per-cluster-per-shard map on
+                      MongoDBSearchStatus for sharded multi-cluster deployments. Mirrors
+                      LoadBalancerStatus but lives keyed by (clusterName, shardName) at the
+                      top level rather than nested under the per-cluster item, matching the
+                      MongoDB-sharded *InClusters precedent (api/v1/status/scaling_status.go).
+                    properties:
+                      message:
+                        type: string
+                      phase:
+                        type: string
+                    required:
+                    - phase
+                    type: object
+                  type: object
+                description: |-
+                  ShardLoadBalancerStatusInClusters reports per-(cluster, shard) managed-LB
+                  phase for sharded multi-cluster deployments. Flat map-of-map keyed by
+                  clusterName then shardName, matching MongoDB sharded's *InClusters
+                  precedent (api/v1/status/scaling_status.go).
+                type: object
               version:
                 type: string
               warnings:

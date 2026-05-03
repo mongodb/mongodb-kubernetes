@@ -409,14 +409,73 @@ type ClusterLoadBalancerStatus struct {
 	Message string `json:"message,omitempty"`
 }
 
+// ShardLoadBalancerStatus reports the state of a single (cluster, shard)'s
+// managed Envoy load balancer. Used in the flat per-cluster-per-shard map on
+// MongoDBSearchStatus for sharded multi-cluster deployments. Mirrors
+// LoadBalancerStatus but lives keyed by (clusterName, shardName) at the
+// top level rather than nested under the per-cluster item, matching the
+// MongoDB-sharded *InClusters precedent (api/v1/status/scaling_status.go).
+type ShardLoadBalancerStatus struct {
+	Phase   status.Phase `json:"phase"`
+	Message string       `json:"message,omitempty"`
+}
+
+// SearchClusterStatusItem is the per-Kubernetes-cluster status entry, one
+// entry per spec.clusters[i]. Mirrors the MongoDBMultiCluster
+// ClusterStatusItem precedent (api/v1/mdbmulti/mongodb_multi_types.go) and
+// adds an optional per-cluster managed-LB phase. Search is the first MCK
+// CRD to surface a load-balancer phase per cluster.
+type SearchClusterStatusItem struct {
+	// ClusterName is the Kubernetes cluster name from spec.clusters[i].clusterName.
+	// Empty in the single-cluster degenerate case (no spec.clusters entry).
+	// +optional
+	ClusterName string `json:"clusterName,omitempty"`
+	// Common carries the per-cluster phase, message, lastTransition, and observedGeneration.
+	status.Common `json:",inline"`
+	// ObservedReplicas is the number of mongot pods this cluster currently has Ready.
+	// Used by the load-test harness as the readiness gate.
+	// +optional
+	ObservedReplicas int32 `json:"observedReplicas,omitempty"`
+	// Warnings is the per-cluster warnings list (e.g. customer-replicated
+	// secret missing in this cluster). Populated by the per-cluster presence
+	// check in B5; nil until that integration lands.
+	// +optional
+	Warnings []status.Warning `json:"warnings,omitempty"`
+	// LoadBalancer reports the per-cluster managed-LB phase for ReplicaSet
+	// topologies. Sharded per-(cluster, shard) LB phase lives on the
+	// top-level ShardLoadBalancerStatusInClusters map.
+	// +optional
+	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
+}
+
+// SearchClusterStatusList is the per-cluster status surface for MongoDBSearch.
+// Mirrors the MongoDBMultiCluster pattern.
+type SearchClusterStatusList struct {
+	// +optional
+	ClusterStatuses []SearchClusterStatusItem `json:"clusterStatuses,omitempty"`
+}
+
 type MongoDBSearchStatus struct {
 	status.Common `json:",inline"`
 	Version       string           `json:"version,omitempty"`
 	Warnings      []status.Warning `json:"warnings,omitempty"`
 	// LoadBalancer reports the state of the operator-managed load balancer.
 	// Only populated when spec.loadBalancer.managed is set.
+	// In multi-cluster (len(spec.clusters) > 1) deployments, the per-cluster
+	// LB phase lives on status.clusterStatusList.clusterStatuses[i].loadBalancer.
+	// This top-level field stays for single-cluster back-compat.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
+	// ClusterStatusList is the per-cluster status surface, one entry per
+	// spec.clusters[i]. Empty in single-cluster (legacy) deployments.
+	// +optional
+	ClusterStatusList SearchClusterStatusList `json:"clusterStatusList,omitempty"`
+	// ShardLoadBalancerStatusInClusters reports per-(cluster, shard) managed-LB
+	// phase for sharded multi-cluster deployments. Flat map-of-map keyed by
+	// clusterName then shardName, matching MongoDB sharded's *InClusters
+	// precedent (api/v1/status/scaling_status.go).
+	// +optional
+	ShardLoadBalancerStatusInClusters map[string]map[string]*ShardLoadBalancerStatus `json:"shardLoadBalancerStatusInClusters,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
