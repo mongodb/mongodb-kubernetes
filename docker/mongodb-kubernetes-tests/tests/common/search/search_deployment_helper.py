@@ -1,5 +1,6 @@
-from typing import Callable, Optional
+from typing import Callable, Mapping, Optional
 
+from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_sharded_cluster_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -383,3 +384,41 @@ class SearchDeploymentHelper:
             resource["spec"]["replicas"] = replicas
 
         return resource
+
+
+class MCSearchDeploymentHelper:
+    """Per-cluster index and proxy-svc FQDN lookups for MC search e2e tests.
+
+    Cluster ordering follows dict-insertion order of `member_cluster_clients`,
+    which mirrors the operator's persisted ClusterMapping (the state ConfigMap
+    assigns indexes in the order clusters first appear in spec.clusters[]).
+    """
+
+    def __init__(
+        self,
+        namespace: str,
+        mdb_resource_name: str,
+        mdbs_resource_name: str,
+        member_cluster_clients: Mapping[str, CoreV1Api],
+    ) -> None:
+        self.namespace = namespace
+        self.mdb_resource_name = mdb_resource_name
+        self.mdbs_resource_name = mdbs_resource_name
+        self._member_cluster_clients = dict(member_cluster_clients)
+        self._cluster_indices = {name: idx for idx, name in enumerate(self._member_cluster_clients)}
+
+    def member_cluster_names(self) -> list[str]:
+        return list(self._member_cluster_clients.keys())
+
+    def cluster_index(self, cluster_name: str) -> int:
+        if cluster_name not in self._cluster_indices:
+            raise KeyError(f"unknown member cluster: {cluster_name!r}")
+        return self._cluster_indices[cluster_name]
+
+    def member_clients(self) -> Mapping[str, CoreV1Api]:
+        return self._member_cluster_clients
+
+    def proxy_svc_fqdn(self, cluster_name: str) -> str:
+        return search_resource_names.mc_proxy_svc_fqdn(
+            self.mdbs_resource_name, self.namespace, self.cluster_index(cluster_name)
+        )

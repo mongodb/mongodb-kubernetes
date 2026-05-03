@@ -2,10 +2,12 @@ package search
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,10 +16,28 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 const ShardNamePlaceholder = "{shardName}"
+
+// ClusterNamePlaceholder is substituted with spec.clusters[i].ClusterName when
+// resolving spec.loadBalancer.managed.externalHostname for cluster i in
+// multi-cluster MongoDBSearch deployments. The Envoy reconciler substitutes the
+// member cluster name so per-cluster SNI hostnames stay distinct.
+const ClusterNamePlaceholder = "{clusterName}"
+
+// ClusterIndexPlaceholder is substituted with the stable cluster-index for
+// spec.clusters[i]. The index is monotonic and never reused on remove/re-add
+// (see api/v1/search/cluster_index.go).
+const ClusterIndexPlaceholder = "{clusterIndex}"
+
+// LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
+// owns a resource. Used as part of GetOwnerLabels for StateStore ConfigMap selection.
+const LabelResourceOwner = "mongodb.com/v1.mongodbSearchResourceOwner"
 
 const (
 	MongotDefaultWireprotoPort      int32 = 27027
@@ -62,6 +82,9 @@ type MongoDBSearchSpec struct {
 	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].replicas. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].replicas.
+	// Setting both spec.replicas and spec.clusters at the same time is rejected by admission.
 	// Replicas is the number of mongot pods to deploy.
 	// For ReplicaSet source: the number of mongot pods in total.
 	// For Sharded source: the number mongot pods per shard.
@@ -69,15 +92,23 @@ type MongoDBSearchSpec struct {
 	// is required to distribute traffic across mongot instances.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=1
-	Replicas int `json:"replicas,omitempty"`
+	Replicas *int32 `json:"replicas,omitempty"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].statefulSet. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].statefulSet.
+	// Setting both spec.statefulSet and spec.clusters at the same time is rejected by admission.
 	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
 	// which aren't exposed as fields in the MongoDBSearch.spec.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].persistence. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].persistence.
+	// Setting both spec.persistence and spec.clusters at the same time is rejected by admission.
 	// Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
 	// +optional
 	Persistence *v1.Persistence `json:"persistence,omitempty"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].resourceRequirements. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].resourceRequirements.
+	// Setting both spec.resourceRequirements and spec.clusters at the same time is rejected by admission.
 	// Configure resource requests and limits for the MongoDB Search pods.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
@@ -96,10 +127,72 @@ type MongoDBSearchSpec struct {
 	// +optional
 	AutoEmbedding *EmbeddingConfig `json:"autoEmbedding,omitempty"`
 	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
+	// Top-level spec.loadBalancer.managed.* serves as the default for every entry in spec.clusters;
+	// per-cluster overrides deep-merge into this template (see spec.clusters[].loadBalancer.managed).
+	// spec.loadBalancer.unmanaged is top-level only — there is no per-cluster form.
 	// +optional
 	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
 	// JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
+	// Top-level spec.jvmFlags serves as the default; spec.clusters[].jvmFlags replaces (not merges) it for that cluster.
 	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
+	// +optional
+	JVMFlags []string `json:"jvmFlags,omitempty"`
+	// Clusters is the per-cluster distribution shape. Required for multi-cluster
+	// deployments (len > 1); when omitted, the reconciler defaults it to a single
+	// entry built from the top-level fields. Pointer-of-slice so omitted vs.
+	// empty is distinguishable.
+	// +optional
+	// +kubebuilder:validation:MaxItems=50
+	// +kubebuilder:validation:XValidation:rule="self.all(c1, self.exists_one(c2, c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be unique"
+	Clusters *[]ClusterSpec `json:"clusters,omitempty"`
+}
+
+// SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
+// At-most-one of MatchTags or Hosts may be set.
+// +kubebuilder:validation:XValidation:rule="!(has(self.matchTags) && has(self.hosts))",message="syncSourceSelector.matchTags and syncSourceSelector.hosts are mutually exclusive"
+type SyncSourceSelector struct {
+	// MatchTags renders into mongot's readPreferenceTags; the operator picks
+	// sync-source members whose replSetConfig tags match.
+	// +optional
+	// +kubebuilder:validation:MaxProperties=50
+	MatchTags map[string]string `json:"matchTags,omitempty"`
+	// Hosts is an explicit list of host:port sync-source members.
+	// Mutually exclusive with MatchTags.
+	// +optional
+	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:items:MaxLength=253
+	Hosts []string `json:"hosts,omitempty"`
+}
+
+// ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
+// when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
+// All other fields override the corresponding top-level value when set; nil/omitted inherits.
+type ClusterSpec struct {
+	// ClusterName is the Kubernetes cluster name. Required and immutable
+	// when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
+	// MaxLength bounds the per-element cost contributed to the parent
+	// clusters[] uniqueness CEL rule. 253 matches the DNS subdomain limit
+	// that K8s cluster names obey.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	ClusterName string `json:"clusterName,omitempty"`
+	// Replicas overrides spec.replicas for this cluster's mongot StatefulSet.
+	// For sharded sources, this is mongot pods per shard, not total.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Replicas *int32 `json:"replicas,omitempty"`
+	// +optional
+	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// +optional
+	Persistence *common.Persistence `json:"persistence,omitempty"`
+	// +optional
+	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// +optional
+	SyncSourceSelector *SyncSourceSelector `json:"syncSourceSelector,omitempty"`
+	// LoadBalancer per-cluster override; deep-merged into spec.loadBalancer.managed.
+	// +optional
+	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
+	// JVMFlags overrides spec.jvmFlags for this cluster's mongot pods. Replace, not merge.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
 }
@@ -120,6 +213,8 @@ type LoadBalancerConfig struct {
 type ManagedLBConfig struct {
 	// ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
 	// For sharded clusters, may contain a {shardName} placeholder.
+	// In multi-cluster deployments, may contain a {clusterName} placeholder so per-cluster
+	// SNI hostnames stay distinct.
 	// Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
 	// +optional
 	ExternalHostname string `json:"externalHostname,omitempty"`
@@ -250,6 +345,7 @@ type TLS struct {
 }
 
 // LoadBalancerStatus reports the state of the operator-managed load balancer (Envoy).
+// Phase is the worst-of phase across all per-cluster Envoy reconciles.
 type LoadBalancerStatus struct {
 	Phase   status.Phase `json:"phase"`
 	Message string       `json:"message,omitempty"`
@@ -358,6 +454,14 @@ func (s *MongoDBSearch) ProxyServiceNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-0-" + ProxyServiceSuffix, Namespace: s.Namespace}
 }
 
+// ProxyServiceNamespacedNameForCluster returns the index-suffixed proxy Service name for one member cluster.
+func (s *MongoDBSearch) ProxyServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-%s", s.Name, clusterIndex, ProxyServiceSuffix),
+		Namespace: s.Namespace,
+	}
+}
+
 // ProxyServiceNameForShard returns the stable proxy Service name for a specific shard.
 func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.NamespacedName {
 	return types.NamespacedName{
@@ -368,6 +472,31 @@ func (s *MongoDBSearch) ProxyServiceNameForShard(shardName string) types.Namespa
 
 func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-config", Namespace: s.Namespace}
+}
+
+// MongotConfigConfigMapNameForCluster returns the per-cluster mongot ConfigMap name.
+func (s *MongoDBSearch) MongotConfigConfigMapNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-config", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
+}
+
+// StatefulSetNamespacedNameForCluster returns the index-suffixed StatefulSet name for one member cluster.
+func (s *MongoDBSearch) StatefulSetNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
+}
+
+// SearchServiceNamespacedNameForCluster returns the index-suffixed headless
+// Service name; the unindexed name is single-cluster-only.
+func (s *MongoDBSearch) SearchServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-svc", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
 }
 
 func (s *MongoDBSearch) SourceUserPasswordSecretRef() *userv1.SecretKeyRef {
@@ -606,9 +735,117 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 	return strings.ReplaceAll(s.Spec.LoadBalancer.Unmanaged.Endpoint, ShardNamePlaceholder, shardName)
 }
 
+// EffectiveClusters returns the per-cluster distribution slice the reconcile
+// loop should iterate over, with the top-level
+// Replicas/ResourceRequirements/Persistence/StatefulSetConfiguration/JVMFlags
+// cascaded into each entry as defaults.
+//
+//   - When spec.clusters is nil, it auto-promotes the top-level fields into a
+//     one-element ClusterSpec for the legacy single-cluster path.
+//   - When spec.clusters is non-nil, each entry is returned with the cascade
+//     applied: pointer / struct fields are REPLACE-if-nil (cluster-set wins;
+//     nil inherits top-level); JVMFlags is REPLACE-if-empty (non-empty
+//     per-cluster slice wins; no append). Atomic per field — to override one
+//     sub-field of a struct (e.g. one container's image), spell out the full
+//     struct at cluster level. Matches sharded MC's processClusterSpecList
+//     semantics (no recursive merge for MVP).
+//
+// The function is pure — no mutation of s, no side effects.
+func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
+	//nolint:staticcheck // SA1019: deprecated top-level fields are the documented default for the cascade.
+	topReplicas := s.Spec.Replicas
+	//nolint:staticcheck // SA1019
+	topResReq := s.Spec.ResourceRequirements
+	//nolint:staticcheck // SA1019
+	topPersistence := s.Spec.Persistence
+	//nolint:staticcheck // SA1019
+	topSTSConfig := s.Spec.StatefulSetConfiguration
+	//nolint:staticcheck // SA1019
+	topJVMFlags := s.Spec.JVMFlags
+
+	if s.Spec.Clusters == nil {
+		return []ClusterSpec{{
+			Replicas:                 topReplicas,
+			ResourceRequirements:     topResReq,
+			Persistence:              topPersistence,
+			StatefulSetConfiguration: topSTSConfig,
+			JVMFlags:                 topJVMFlags,
+		}}
+	}
+
+	clusters := *s.Spec.Clusters
+	out := make([]ClusterSpec, 0, len(clusters))
+	for _, c := range clusters {
+		resolved := c
+		if resolved.Replicas == nil {
+			resolved.Replicas = topReplicas
+		}
+		if resolved.ResourceRequirements == nil {
+			resolved.ResourceRequirements = topResReq
+		}
+		if resolved.Persistence == nil {
+			resolved.Persistence = topPersistence
+		}
+		if resolved.StatefulSetConfiguration == nil {
+			resolved.StatefulSetConfiguration = topSTSConfig
+		}
+		if len(resolved.JVMFlags) == 0 {
+			resolved.JVMFlags = topJVMFlags
+		}
+		out = append(out, resolved)
+	}
+	return out
+}
+
+// EffectiveClusterFor returns the cascaded ClusterSpec for the named cluster.
+// Empty clusterName returns the auto-promoted single-cluster entry (legacy path).
+// Returns an error if the named cluster is not found in spec.clusters[].
+func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, error) {
+	effective := EffectiveClusters(s)
+	if clusterName == "" {
+		if len(effective) > 0 {
+			return effective[0], nil
+		}
+		return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
+	}
+	for _, c := range effective {
+		if c.ClusterName == clusterName {
+			return c, nil
+		}
+	}
+	return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
+}
+
 func (s *MongoDBSearch) GetReplicas() int {
-	if s.Spec.Replicas > 0 {
-		return s.Spec.Replicas
+	// Single legitimate read of the deprecated top-level field — this is the
+	// operator-side default ("1 when unset") for the legacy single-cluster path
+	// and for validators that only look at the top-level value.
+	// Multi-cluster reconcile readers should use GetReplicasForCluster instead.
+	//nolint:staticcheck // SA1019: deprecated field is the documented fallback.
+	if s.Spec.Replicas != nil {
+		return int(*s.Spec.Replicas)
+	}
+	return 1
+}
+
+// GetReplicasForCluster returns the per-cluster mongot replica count after
+// applying the EffectiveClusters cascade (cluster-set wins, top-level is the
+// default, "1" if neither is set). clusterName="" returns the single-cluster
+// auto-promoted value (equivalent to GetReplicas).
+//
+// An explicit 0 is honored, matching the documented contract on GetReplicas:
+// callers (and the connectivity-tool / availability-tester e2e tests) take
+// mongot offline by setting spec.replicas=0 on the MongoDBSearch CR. The
+// earlier `*r > 0` guard silently clamped that to 1, so the operator never
+// actually scaled the mongot StatefulSet down and the tests waiting on the
+// scale-to-0 timed out.
+func (s *MongoDBSearch) GetReplicasForCluster(clusterName string) int {
+	c, err := s.EffectiveClusterFor(clusterName)
+	if err != nil {
+		return 1
+	}
+	if r := c.Replicas; r != nil {
+		return int(*r)
 	}
 	return 1
 }
@@ -673,6 +910,48 @@ func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
 	return strings.ReplaceAll(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder, shardName)
 }
 
+// GetManagedLBEndpointForCluster returns the externalHostname template with
+// {clusterName} and {clusterIndex} resolved for spec.clusters[i]. Returns "" when
+// managed LB is not configured. Use GetManagedLBEndpointForClusterShard for
+// sharded sources where {shardName} also needs resolving.
+//
+// Behaviour:
+//   - Legacy single-cluster (spec.clusters nil): placeholders are left untouched.
+//     Admission rejects MC specs missing the required placeholders, so reaching
+//     this path with a placeholder-bearing legacy template is malformed.
+//   - Out-of-range i: placeholders are left untouched (defensive — call sites
+//     iterate over len(*spec.clusters)).
+//
+// {clusterIndex} is resolved using the slice index i directly.
+func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+		return ""
+	}
+	out := s.Spec.LoadBalancer.Managed.ExternalHostname
+	if s.Spec.Clusters == nil {
+		return out
+	}
+	clusters := *s.Spec.Clusters
+	if i < 0 || i >= len(clusters) {
+		return out
+	}
+	out = strings.ReplaceAll(out, ClusterNamePlaceholder, clusters[i].ClusterName)
+	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(i))
+	return out
+}
+
+// GetManagedLBEndpointForClusterShard returns the externalHostname template with
+// {clusterName}, {clusterIndex}, and {shardName} all resolved for the
+// (spec.clusters[i], shardName) pair. Used for sharded multi-cluster
+// MongoDBSearch deployments. Returns "" when managed LB is not configured.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName string) string {
+	out := s.GetManagedLBEndpointForCluster(i)
+	if out == "" {
+		return ""
+	}
+	return strings.ReplaceAll(out, ShardNamePlaceholder, shardName)
+}
+
 // IsLoadBalancerReady returns true if managed LB is not configured,
 // or if it is configured and its status phase is Running.
 func (s *MongoDBSearch) IsLoadBalancerReady() bool {
@@ -690,6 +969,22 @@ func (s *MongoDBSearch) LoadBalancerDeploymentName() string {
 // LoadBalancerConfigMapName returns the name of the managed Envoy ConfigMap for this resource.
 func (s *MongoDBSearch) LoadBalancerConfigMapName() string {
 	return s.Name + "-search-lb-0-config"
+}
+
+// LoadBalancerDeploymentNameForCluster returns the name of the managed Envoy
+// Deployment for one member cluster. The cluster index (from the persisted
+// StateStore mapping) is appended so per-cluster Deployments in the same
+// namespace stay distinct without encoding user-supplied cluster names into
+// resource names (name length is checked at admission via
+// validateClustersEnvoyResourceNames).
+func (s *MongoDBSearch) LoadBalancerDeploymentNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-%d", s.LoadBalancerDeploymentName(), clusterIndex)
+}
+
+// LoadBalancerConfigMapNameForCluster returns the name of the managed Envoy
+// ConfigMap for one member cluster. See LoadBalancerDeploymentNameForCluster.
+func (s *MongoDBSearch) LoadBalancerConfigMapNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-search-lb-0-%d-config", s.Name, clusterIndex)
 }
 
 // LoadBalancerServerCert returns the namespaced name of the TLS server certificate secret for the
@@ -732,4 +1027,23 @@ func (s *MongoDBSearch) LoadBalancerClientCert() types.NamespacedName {
 		}
 	}
 	return types.NamespacedName{Name: fmt.Sprintf("%s-search-lb-0-client-cert", s.Name), Namespace: s.Namespace}
+}
+
+// ObjectKey implements v1.ResourceOwner.
+func (s *MongoDBSearch) ObjectKey() client.ObjectKey {
+	return kube.ObjectKey(s.Namespace, s.Name)
+}
+
+// GetOwnerLabels implements v1.ResourceOwner. Returns labels used to identify
+// the state ConfigMap owned by this MongoDBSearch.
+func (s *MongoDBSearch) GetOwnerLabels() map[string]string {
+	return map[string]string{
+		util.OperatorLabelName: util.OperatorLabelValue,
+		LabelResourceOwner:     s.Name,
+	}
+}
+
+// GetKind implements v1.ObjectOwner.
+func (s *MongoDBSearch) GetKind() string {
+	return "MongoDBSearch"
 }
