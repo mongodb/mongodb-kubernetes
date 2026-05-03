@@ -40,7 +40,7 @@ def test_create_fake_secret_in_central(central_core: CoreV1Api, namespace: str):
     body = V1Secret(
         metadata=V1ObjectMeta(name=SECRET_NAME, namespace=namespace),
         type="Opaque",
-        data={"smoke.txt": b"aGVsbG8="},  # base64("hello")
+        data={"smoke.txt": "aGVsbG8="},  # base64("hello") — V1Secret.data is Dict[str, str]
     )
     central_core.create_namespaced_secret(namespace=namespace, body=body)
     logger.info(f"created fake Secret {SECRET_NAME} in central cluster, ns={namespace}")
