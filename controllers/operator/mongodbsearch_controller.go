@@ -28,6 +28,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
@@ -284,6 +285,30 @@ func AddMongoDBSearchController(
 
 		if err := c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{})); err != nil {
 			return err
+		}
+
+		// Per-member-cluster watches for resources the search controller manages there.
+		// Owner references do not cross cluster boundaries, so the
+		// EnqueueRequestForSearchOwnerMultiCluster handler reads the
+		// MongoDBSearchResourceAnnotation off the watched object instead.
+		// PredicatesForMultiClusterSearchResource filters out unrelated churn.
+		// Backoff on unreachable member API is handled by controller-runtime's
+		// informer cache and surfaced via the health-check goroutine above.
+		searchOwnerHandler := &khandler.EnqueueRequestForSearchOwnerMultiCluster{}
+		searchOwnerPredicate := watch.PredicatesForMultiClusterSearchResource()
+		watchedTypes := []client.Object{
+			&appsv1.StatefulSet{},
+			&corev1.Service{},
+			&appsv1.Deployment{},
+			&corev1.ConfigMap{},
+			&corev1.Secret{},
+		}
+		for k, v := range memberClusterObjectsMap {
+			for _, gvk := range watchedTypes {
+				if err := c.Watch(source.Kind[client.Object](v.GetCache(), gvk, searchOwnerHandler, searchOwnerPredicate)); err != nil {
+					return xerrors.Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %w", k, gvk, err)
+				}
+			}
 		}
 	}
 
