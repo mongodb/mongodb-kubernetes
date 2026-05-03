@@ -33,7 +33,6 @@ The MVP renders **every** per-cluster mongot config with the same `syncSource.re
 |------|--------|---------|
 | **Top-level `external.hostAndPorts`** (same seed list to every cluster's mongot) | **MVP — active** | Phase 2 (this spec) |
 | Top-level `external.hostAndPorts` + per-cluster `syncSourceSelector.matchTags` | Permanent — post-MVP polish (mongot must add `readPreferenceTags` first) | Future phase 7+ |
-| Per-cluster `syncSourceSelector.hosts` | **Not used in MVP** — has no functional effect given the seed-only behavior verified below; left undocumented for now to keep the customer-facing surface minimal | — |
 
 ### Why top-level only (not per-cluster hosts) for MVP
 
@@ -43,7 +42,7 @@ So:
 
 - **Per-cluster hosts add no routing benefit in MVP.** Driver behaves identically with cluster-local subset or full top-level list.
 - **Per-cluster hosts introduce fragility.** If one cluster's mongods are all down at mongot startup, mongot fails to bootstrap (no reachable seed). The top-level list provides cross-cluster seed redundancy.
-- **CRD shape stays simple.** When tags arrive, customers add `syncSourceSelector.matchTags` per cluster without removing/migrating any host fields.
+- **CRD shape stays simple.** When tags arrive, customers add `syncSourceSelector.matchTags` per cluster — no host fields to add or migrate.
 
 ### Verified mongot behavior (2026-05-03 agent investigation)
 
@@ -57,9 +56,9 @@ So:
 
 4. **Stale hosts crash mongot at startup** — no graceful fallback. If a host in the configured list isn't reachable / not part of the RS, the MongoDB driver times out during topology discovery and the mongot pod exits.
 
-5. **Operator-side rendering path exists in skeleton** — `mongodb-community-operator/pkg/mongot/mongot_config.go` has `ConfigReplicaSet.HostAndPort []string`. The `SyncSourceSelector` CRD field exists at `api/v1/search/mongodbsearch_types.go:160-172` with both `matchTags` and `hosts`. **For MVP, the reconciler is wired to render `ConfigReplicaSet.HostAndPort` from top-level `spec.source.external.hostAndPorts` for every cluster's mongot** — same flat list to every cluster, no per-cluster `SyncSourceSelector` consumption.
+5. **Operator-side rendering path exists in skeleton** — `mongodb-community-operator/pkg/mongot/mongot_config.go` has `ConfigReplicaSet.HostAndPort []string`. **For MVP, the reconciler is wired to render `ConfigReplicaSet.HostAndPort` from top-level `spec.source.external.hostAndPorts` for every cluster's mongot** — same flat list to every cluster.
 
-6. **`external.hostAndPorts` is the canonical source list field** in both single-cluster and MC modes. Top-level field at `api/v1/search/mongodbsearch_types.go:308-323` is the renderer's source for `ConfigReplicaSet.HostAndPort`. MVP requires it non-empty for `len(clusters) > 1`. Per-cluster `SyncSourceSelector` lives in the CRD for forward-compat (post-MVP `matchTags` activation) but is a no-op in Phase 2.
+6. **`external.hostAndPorts` is the canonical source list field** in both single-cluster and MC modes. Top-level field at `api/v1/search/mongodbsearch_types.go:308-323` is the renderer's source for `ConfigReplicaSet.HostAndPort`. MVP requires it non-empty for `len(clusters) > 1`. Per-cluster `SyncSourceSelector.matchTags` is a forward-compat field in the CRD (B14+B3), not consumed by Phase 2; gets activated post-MVP when mongot adds `readPreferenceTags`.
 
 ### What this means for Phase 2
 
@@ -296,7 +295,7 @@ search/ga-base
 **Operator changes** (`controllers/searchcontroller/` and `mongodb-community-operator/pkg/mongot/`):
 
 - `external_search_source.go` + `mongodbsearch_reconcile_helper.go` — for each entry in `spec.clusters[]`, render that cluster's mongot ConfigMap with `syncSource.replicaSet.hostAndPort` populated from **top-level `spec.source.external.hostAndPorts`** (same list to every cluster's mongot). Reuse the existing `ConfigReplicaSet.HostAndPort []string` field at `mongodb-community-operator/pkg/mongot/mongot_config.go`. The per-cluster reconcile dimension is already scaffolded by B14+B16; this unit fills in the external-source code path. **No per-cluster hosts plumbing** — the rendering source is identical across clusters.
-- **CRD admission rule (`len(spec.clusters) > 1`):** `spec.source.external.hostAndPorts` is required (non-empty). `spec.clusters[i].syncSourceSelector` is accepted but not consumed by Phase 2 — the field exists in the CRD already (B14+B3 deliverables) and gets activated post-MVP when mongot supports `readPreferenceTags`. Today, customers leaving it empty is the canonical MC shape. Customers populating `matchTags` or `hosts` today get a no-op + (optional) warning event noting the field is reserved for post-MVP use.
+- **CRD admission rule (`len(spec.clusters) > 1`):** `spec.source.external.hostAndPorts` is required (non-empty). `spec.clusters[i].syncSourceSelector.matchTags` is accepted but not consumed by Phase 2 — the field exists in the CRD already (B14+B3 deliverables) and gets activated post-MVP when mongot supports `readPreferenceTags`. Today, customers leaving it empty is the canonical MC shape. Customers populating `matchTags` today get a no-op + (optional) warning event noting the field is reserved for post-MVP use.
 - **Single-cluster shape unchanged.** `len(spec.clusters) ≤ 1` continues to render mongot config from top-level `external.hostAndPorts` exactly as it does today.
 - **No automation-config writes.** Q2 = customer-managed mongods (delivery plan §Phase 5 line 133, applies to RS too).
 
@@ -337,7 +336,7 @@ When G1 + G2 are green, the next iteration (Phase 3 Q2-Sh-MC) starts from the la
 ## Risks & open items
 
 - **Hosts list does NOT enforce per-cluster sync source locality** (resolved 2026-05-03 — agent verification with code citations in "Hosts-first MVP routing strategy"). MVP accepts cross-cluster mongot→mongod sync via standard topology discovery; data-plane correctness holds regardless. Permanent locality fix is post-MVP via mongot `readPreferenceTags` support.
-- **`external.hostAndPorts` role in MC mode** (resolved 2026-05-03). The top-level field is the canonical source list and the active mongot-config rendering source for both single-cluster and MC modes. Phase 2 admission requires it non-empty for `len(clusters) > 1`. Per-cluster `syncSourceSelector` is a forward-compat field in the CRD (B14+B3), not consumed by Phase 2; gets activated post-MVP when mongot adds `readPreferenceTags`. See Phase 2 "Operator changes" and "Where this is going" sections above.
+- **`external.hostAndPorts` role in MC mode** (resolved 2026-05-03). The top-level field is the canonical source list and the active mongot-config rendering source for both single-cluster and MC modes. Phase 2 admission requires it non-empty for `len(clusters) > 1`. Per-cluster `syncSourceSelector.matchTags` is a forward-compat field in the CRD (B14+B3), not consumed by Phase 2; gets activated post-MVP when mongot adds `readPreferenceTags`. See Phase 2 "Operator changes" and "Where this is going" sections above.
 - **Stale hosts crash mongot at startup** (verified 2026-05-03). If the operator renders a hosts list with an unreachable / not-in-RS host, the mongot pod times out during topology discovery and exits. Phase 2 should derive the hosts list deterministically from MongoDBMulti pod-svc FQDNs (which the test fixture already does) — no human typing of hostnames into the CR. For prod, customers populate the hosts list from their RS member list; documenting how to do this safely is a Phase 8 docs item.
 - **mongot upstream `readPreferenceTags`** — confirmed not yet implemented (agent verified at `MongoConnectionConfig.java:73-83`). Permanent path requires upstream mongot work. No further action this spec.
 - **CLARIFY-1 (resolved by simplification)** — moot now. Phase 2 renders every mongot config from top-level `external.hostAndPorts`, no per-cluster hosts plumbing. The B14+B16 scaffolding handles the per-cluster reconcile loop; Phase 2 just plugs the same source list into each iteration.
