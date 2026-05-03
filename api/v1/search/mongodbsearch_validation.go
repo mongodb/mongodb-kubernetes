@@ -47,6 +47,10 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateShardNames,
 		validateJVMFlags,
 		validateX509AuthConfig,
+		validateClustersUniqueClusterName,
+		validateClustersSyncSourceSelector,
+		validateClustersShardOverrides,
+		validateClustersAndTopLevelFieldsMutuallyExclusive,
 	}
 
 	var results []v1.ValidationResult
@@ -303,6 +307,100 @@ func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationError("x509 and password authentication are mutually exclusive: spec.source.x509 and spec.source.username cannot both be set")
 	}
 
+	return v1.ValidationSuccess()
+}
+
+// validateClustersUniqueClusterName enforces clusterName uniqueness inside spec.clusters.
+// ClusterName presence and immutability when len(clusters) > 1 are B13 scope.
+func validateClustersUniqueClusterName(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil {
+		return v1.ValidationSuccess()
+	}
+	seen := make(map[string]int, len(*s.Spec.Clusters))
+	for i, c := range *s.Spec.Clusters {
+		if first, dup := seen[c.ClusterName]; dup {
+			return v1.ValidationError(
+				"duplicate clusterName %q in spec.clusters (entries %d and %d)",
+				c.ClusterName, first, i,
+			)
+		}
+		seen[c.ClusterName] = i
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateClustersSyncSourceSelector enforces the at-most-one matchTags/hosts rule
+// for every entry in spec.clusters. The "exactly one when len(clusters) > 1" rule
+// lives in B13 (it depends on cluster-count semantics that aren't B14's scope).
+func validateClustersSyncSourceSelector(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil {
+		return v1.ValidationSuccess()
+	}
+	for i, c := range *s.Spec.Clusters {
+		sel := c.SyncSourceSelector
+		if sel == nil {
+			continue
+		}
+		if len(sel.MatchTags) > 0 && len(sel.Hosts) > 0 {
+			return v1.ValidationError(
+				"spec.clusters[%d].syncSourceSelector: matchTags and hosts are mutually exclusive",
+				i,
+			)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateClustersShardOverrides enforces shardNames non-empty per ShardOverride.
+// Whether shardOverrides[] is allowed at all (only sharded sources) is a B13
+// source-aware rule and lives outside B14.
+func validateClustersShardOverrides(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil {
+		return v1.ValidationSuccess()
+	}
+	for i, c := range *s.Spec.Clusters {
+		for j, ov := range c.ShardOverrides {
+			if len(ov.ShardNames) == 0 {
+				return v1.ValidationError(
+					"spec.clusters[%d].shardOverrides[%d].shardNames must have at least one entry",
+					i, j,
+				)
+			}
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateClustersAndTopLevelFieldsMutuallyExclusive enforces B18's mutual-exclusion
+// rule: when spec.clusters is set, none of the auto-promotion-eligible top-level
+// distribution fields (spec.replicas, spec.resourceRequirements, spec.persistence,
+// spec.statefulSet) may also be set. This keeps the migration path unambiguous —
+// either the user is on the legacy single-cluster path (top-level only) or on
+// the new per-cluster shape (spec.clusters only).
+//
+// jvmFlags and loadBalancer remain top-level + per-cluster combinable on purpose
+// (top-level is the default that per-cluster overrides) and are intentionally
+// excluded from this check.
+func validateClustersAndTopLevelFieldsMutuallyExclusive(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil {
+		return v1.ValidationSuccess()
+	}
+	//nolint:staticcheck // SA1019: deprecated fields — this is the documented detection path.
+	if s.Spec.Replicas != nil {
+		return v1.ValidationError("spec.replicas and spec.clusters are mutually exclusive; specify replicas inside spec.clusters[].replicas instead")
+	}
+	//nolint:staticcheck // SA1019
+	if s.Spec.ResourceRequirements != nil {
+		return v1.ValidationError("spec.resourceRequirements and spec.clusters are mutually exclusive; specify resourceRequirements inside spec.clusters[].resourceRequirements instead")
+	}
+	//nolint:staticcheck // SA1019
+	if s.Spec.Persistence != nil {
+		return v1.ValidationError("spec.persistence and spec.clusters are mutually exclusive; specify persistence inside spec.clusters[].persistence instead")
+	}
+	//nolint:staticcheck // SA1019
+	if s.Spec.StatefulSetConfiguration != nil {
+		return v1.ValidationError("spec.statefulSet and spec.clusters are mutually exclusive; specify statefulSet inside spec.clusters[].statefulSet instead")
+	}
 	return v1.ValidationSuccess()
 }
 

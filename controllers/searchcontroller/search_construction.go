@@ -94,9 +94,18 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 	}
 
+	// Single-cluster MVP: B18 auto-promotion guarantees len==1 unless the user
+	// posted spec.clusters: []. Guard against the empty-slice corner case so we
+	// degrade to "no override" rather than panic.
+	effective := searchv1.EffectiveClusters(mdbSearch)
+	var perCluster searchv1.ClusterSpec
+	if len(effective) > 0 {
+		perCluster = effective[0]
+	}
+
 	var persistenceConfig *common.PersistenceConfig
-	if mdbSearch.Spec.Persistence != nil && mdbSearch.Spec.Persistence.SingleConfig != nil {
-		persistenceConfig = mdbSearch.Spec.Persistence.SingleConfig
+	if perCluster.Persistence != nil && perCluster.Persistence.SingleConfig != nil {
+		persistenceConfig = perCluster.Persistence.SingleConfig
 	}
 
 	defaultPersistenceConfig := common.PersistenceConfig{Storage: util.DefaultMongodStorageSize}
@@ -136,11 +145,11 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		),
 	}
 
-	if mdbSearch.Spec.StatefulSetConfiguration != nil {
-		stsModifications = append(stsModifications, statefulset.WithCustomSpecs(mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec))
+	if perCluster.StatefulSetConfiguration != nil {
+		stsModifications = append(stsModifications, statefulset.WithCustomSpecs(perCluster.StatefulSetConfiguration.SpecWrapper.Spec))
 		stsModifications = append(stsModifications, statefulset.WithObjectMetadata(
-			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Labels,
-			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Annotations,
+			perCluster.StatefulSetConfiguration.MetadataWrapper.Labels,
+			perCluster.StatefulSetConfiguration.MetadataWrapper.Annotations,
 		))
 	}
 
@@ -213,7 +222,12 @@ func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.Res
 
 func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
-	resourceRequirements := createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)
+	effective := searchv1.EffectiveClusters(mdbSearch)
+	var rr *corev1.ResourceRequirements
+	if len(effective) > 0 {
+		rr = effective[0].ResourceRequirements
+	}
+	resourceRequirements := createSearchResourceRequirements(rr)
 	jvmFlags := jvmFlags(mdbSearch, resourceRequirements)
 
 	var mongotStartCommand string

@@ -1311,11 +1311,12 @@ func (r *MongoDBSearchReconcileHelper) getMongotVersion() string {
 		return version
 	}
 
-	if r.mdbSearch.Spec.StatefulSetConfiguration == nil {
+	effective := searchv1.EffectiveClusters(r.mdbSearch)
+	if len(effective) == 0 || effective[0].StatefulSetConfiguration == nil {
 		return ""
 	}
 
-	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
+	for _, container := range effective[0].StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
 		if container.Name == MongotContainerName {
 			return extractImageTag(container.Image)
 		}

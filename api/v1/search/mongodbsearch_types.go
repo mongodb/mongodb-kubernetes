@@ -63,6 +63,9 @@ type MongoDBSearchSpec struct {
 	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].replicas. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].replicas.
+	// Setting both spec.replicas and spec.clusters at the same time is rejected by admission.
 	// Replicas is the number of mongot pods to deploy.
 	// For ReplicaSet source: the number of mongot pods in total.
 	// For Sharded source: the number mongot pods per shard.
@@ -70,15 +73,23 @@ type MongoDBSearchSpec struct {
 	// is required to distribute traffic across mongot instances.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=1
-	Replicas int `json:"replicas,omitempty"`
+	Replicas *int32 `json:"replicas,omitempty"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].statefulSet. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].statefulSet.
+	// Setting both spec.statefulSet and spec.clusters at the same time is rejected by admission.
 	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
 	// which aren't exposed as fields in the MongoDBSearch.spec.
 	// +optional
 	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].persistence. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].persistence.
+	// Setting both spec.persistence and spec.clusters at the same time is rejected by admission.
 	// Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
 	// +optional
 	Persistence *common.Persistence `json:"persistence,omitempty"`
+	// Deprecated: In multi-cluster deployments, prefer spec.clusters[].resourceRequirements. When
+	// spec.clusters is omitted, this value auto-promotes into spec.clusters[0].resourceRequirements.
+	// Setting both spec.resourceRequirements and spec.clusters at the same time is rejected by admission.
 	// Configure resource requests and limits for the MongoDB Search pods.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
@@ -97,10 +108,110 @@ type MongoDBSearchSpec struct {
 	// +optional
 	AutoEmbedding *EmbeddingConfig `json:"autoEmbedding,omitempty"`
 	// LoadBalancer configures how mongod/mongos connect to mongot (Managed vs Unmanaged/BYO Load Balancer).
+	// Top-level spec.loadBalancer.managed.* serves as the default for every entry in spec.clusters;
+	// per-cluster overrides deep-merge into this template (see spec.clusters[].loadBalancer.managed).
+	// spec.loadBalancer.unmanaged is top-level only — there is no per-cluster form.
 	// +optional
 	LoadBalancer *LoadBalancerConfig `json:"loadBalancer,omitempty"`
 	// JVMFlags can be used to set the `--jvm-flags` option for the search (mongot) processes.
+	// Top-level spec.jvmFlags serves as the default; spec.clusters[].jvmFlags replaces (not merges) it for that cluster.
 	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
+	// +optional
+	JVMFlags []string `json:"jvmFlags,omitempty"`
+	// Clusters is the per-cluster distribution shape. Required for multi-cluster
+	// deployments (len > 1); when omitted, the reconciler defaults it to a single
+	// entry built from the top-level fields (B18 — not yet implemented). Pointer-of-slice
+	// so omitted vs. empty is distinguishable.
+	// MaxItems is set so the apiserver can bound the cost of the clusterName
+	// uniqueness CEL rule below; 50 is well above any realistic multi-cluster
+	// deployment.
+	// +optional
+	// +kubebuilder:validation:MaxItems=50
+	// +kubebuilder:validation:XValidation:rule="self.all(c1, self.exists_one(c2, c2.clusterName == c1.clusterName))",message="clusters[].clusterName must be unique"
+	Clusters *[]ClusterSpec `json:"clusters,omitempty"`
+}
+
+// SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
+// At-most-one of MatchTags or Hosts may be set; the cross-field rule that
+// requires exactly one when len(spec.clusters) > 1 lives in B13.
+// MaxProperties / MaxItems / MaxLength on the children are required so the
+// apiserver can bound the schema-cost contribution that the XValidation rule
+// reads via has().
+// +kubebuilder:validation:XValidation:rule="!(has(self.matchTags) && has(self.hosts))",message="syncSourceSelector.matchTags and syncSourceSelector.hosts are mutually exclusive"
+type SyncSourceSelector struct {
+	// MatchTags renders into mongot's readPreferenceTags; the operator picks
+	// sync-source members whose replSetConfig tags match.
+	// +optional
+	// +kubebuilder:validation:MaxProperties=50
+	MatchTags map[string]string `json:"matchTags,omitempty"`
+	// Hosts is an explicit list of host:port sync-source members.
+	// Mutually exclusive with MatchTags.
+	// +optional
+	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:items:MaxLength=253
+	Hosts []string `json:"hosts,omitempty"`
+}
+
+// PerClusterLoadBalancerConfig narrows LoadBalancerConfig to the subset that
+// is overridable per-cluster: only Managed sub-fields. Unmanaged is top-level only.
+type PerClusterLoadBalancerConfig struct {
+	// Managed deep-merges into the top-level spec.loadBalancer.managed for this cluster.
+	// +optional
+	Managed *ManagedLBConfig `json:"managed,omitempty"`
+}
+
+// ShardOverride lets sharded MongoDBSearch deployments tune one or more shards
+// beyond the per-cluster defaults. Only valid for sharded sources (the source-aware
+// admission rule lives in B13).
+type ShardOverride struct {
+	// ShardNames is the set of shard names this override applies to.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	ShardNames []string `json:"shardNames"`
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Replicas *int32 `json:"replicas,omitempty"`
+	// +optional
+	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// +optional
+	Persistence *common.Persistence `json:"persistence,omitempty"`
+	// +optional
+	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+}
+
+// ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
+// when len(spec.clusters) > 1 (B13); optional in the single-cluster degenerate case.
+// All other fields override the corresponding top-level value when set; nil/omitted inherits.
+type ClusterSpec struct {
+	// ClusterName is the Kubernetes cluster name. Required and immutable
+	// when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
+	// MaxLength bounds the per-element cost contributed to the parent
+	// clusters[] uniqueness CEL rule. 253 matches the DNS subdomain limit
+	// that K8s cluster names obey.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	ClusterName string `json:"clusterName,omitempty"`
+	// Replicas overrides spec.replicas for this cluster's mongot StatefulSet.
+	// For sharded sources, this is mongot pods per shard, not total.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Replicas *int32 `json:"replicas,omitempty"`
+	// +optional
+	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// +optional
+	Persistence *common.Persistence `json:"persistence,omitempty"`
+	// +optional
+	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// +optional
+	SyncSourceSelector *SyncSourceSelector `json:"syncSourceSelector,omitempty"`
+	// LoadBalancer per-cluster override; deep-merged into spec.loadBalancer.managed.
+	// Only managed sub-fields are overridable per-cluster.
+	// +optional
+	LoadBalancer *PerClusterLoadBalancerConfig `json:"loadBalancer,omitempty"`
+	// ShardOverrides applies only to sharded sources.
+	// +optional
+	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
+	// JVMFlags overrides spec.jvmFlags for this cluster's mongot pods. Replace, not merge.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
 }
@@ -603,9 +714,39 @@ func (s *MongoDBSearch) GetEndpointForShard(shardName string) string {
 	return strings.ReplaceAll(s.Spec.LoadBalancer.Unmanaged.Endpoint, ShardNamePlaceholder, shardName)
 }
 
+// EffectiveClusters returns the per-cluster distribution slice the reconcile
+// loop should iterate over.
+//
+//   - When spec.clusters is non-nil (including the explicitly-empty slice),
+//     it is returned as-is. The empty-slice case is reached only when admission
+//     allows it; readers that index [0] must guard.
+//   - When spec.clusters is nil, it auto-promotes the top-level
+//     Replicas/ResourceRequirements/Persistence/StatefulSetConfiguration into
+//     a one-element ClusterSpec for the legacy single-cluster path.
+//
+// The function is pure — no mutation of s, no side effects.
+func EffectiveClusters(s *MongoDBSearch) []ClusterSpec {
+	if s.Spec.Clusters != nil {
+		return *s.Spec.Clusters
+	}
+	// Single legitimate read of the deprecated top-level distribution fields:
+	// the auto-promotion fallback. Per-cluster readers go through this function.
+	//nolint:staticcheck // SA1019: deprecated fields are the documented fallback path.
+	return []ClusterSpec{{
+		Replicas:                 s.Spec.Replicas,
+		ResourceRequirements:     s.Spec.ResourceRequirements,
+		Persistence:              s.Spec.Persistence,
+		StatefulSetConfiguration: s.Spec.StatefulSetConfiguration,
+	}}
+}
+
 func (s *MongoDBSearch) GetReplicas() int {
-	if s.Spec.Replicas > 0 {
-		return s.Spec.Replicas
+	// Single legitimate read of the deprecated top-level field — this is the
+	// operator-side default ("1 when unset") for the legacy single-cluster path.
+	// Multi-cluster readers go through EffectiveClusters() instead.
+	//nolint:staticcheck // SA1019: deprecated field is the documented fallback.
+	if s.Spec.Replicas != nil && *s.Spec.Replicas > 0 {
+		return int(*s.Spec.Replicas)
 	}
 	return 1
 }
