@@ -2,10 +2,17 @@ package searchcontroller
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
@@ -2775,4 +2782,64 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 	err = clusterBClient.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{})
 	assert.True(t, apierrors.IsNotFound(err), "cluster B client must NOT have cluster A STS")
+}
+
+// makeFakeCertSecret builds a *corev1.Secret whose tls.crt is a real PEM-encoded
+// self-signed x509 certificate carrying the given DNS SANs. Test helper for
+// validateLBCertSAN / extractCertDNSNames.
+func makeFakeCertSecret(t *testing.T, dnsNames []string) *corev1.Secret {
+	t.Helper()
+
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test-lb-cert"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     dnsNames,
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)
+	require.NoError(t, err)
+
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "lb-server-cert", Namespace: "ns"},
+		Data:       map[string][]byte{corev1.TLSCertKey: pemBytes},
+	}
+}
+
+func TestValidateLBCertSANCoversAllClusters(t *testing.T) {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	mdb.Spec.Clusters = &[]searchv1.ClusterSpec{
+		{ClusterName: "cluster-a", Replicas: ptr.To(int32(2))},
+		{ClusterName: "cluster-b", Replicas: ptr.To(int32(2))},
+	}
+
+	// Cert SAN includes only cluster A's proxy-svc FQDN — should fail with cluster B mention.
+	certShortSANs := makeFakeCertSecret(t, []string{
+		"mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+	})
+	err := validateLBCertSAN(mdb, certShortSANs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cluster-b")
+	assert.Contains(t, err.Error(), "mdb-search-search-1-proxy-svc.ns.svc.cluster.local")
+
+	// Cert SAN with both — should pass.
+	certFullSANs := makeFakeCertSecret(t, []string{
+		"mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+		"mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+	})
+	require.NoError(t, validateLBCertSAN(mdb, certFullSANs))
+}
+
+func TestValidateLBCertSANCoversAllClusters_SingleCluster_NoOp(t *testing.T) {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	// no Spec.Clusters — single cluster path; validator is no-op
+	cert := makeFakeCertSecret(t, []string{"unrelated.example.com"})
+	require.NoError(t, validateLBCertSAN(mdb, cert))
 }

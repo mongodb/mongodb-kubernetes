@@ -3,8 +3,10 @@ package searchcontroller
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base32"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"strings"
 
@@ -1632,4 +1634,62 @@ func extractImageTag(image string) string {
 	}
 
 	return ""
+}
+
+// validateLBCertSAN ensures the LB server cert's SAN list covers each
+// cluster's proxy-svc FQDN. If a cluster's FQDN is missing, return a
+// descriptive error naming the cluster and the missing FQDN.
+//
+// Single-cluster (no spec.clusters or len <= 1) is a no-op — the legacy
+// single-cluster SAN check elsewhere handles it.
+//
+// TODO(MC search Phase 2): wire validateLBCertSAN into the LB cert load path.
+// The LB server cert Secret is currently only mounted as a Volume in
+// mongodbsearchenvoy_controller.go and is never read into bytes during the
+// MongoDBSearch reconcile loop. Wiring this validator behind a Secret read
+// (and mapping its error to workflow.Failed) is its own change.
+func validateLBCertSAN(mdb *searchv1.MongoDBSearch, certSecret *corev1.Secret) error {
+	clusters := searchv1.EffectiveClusters(mdb)
+	if len(clusters) <= 1 {
+		return nil
+	}
+
+	dnsNames, err := extractCertDNSNames(certSecret)
+	if err != nil {
+		return xerrors.Errorf("read LB cert SANs: %w", err)
+	}
+	dnsSet := make(map[string]struct{}, len(dnsNames))
+	for _, n := range dnsNames {
+		dnsSet[n] = struct{}{}
+	}
+
+	for idx, cluster := range clusters {
+		want := mdb.ProxyServiceNamespacedNameForCluster(idx).Name
+		fqdn := fmt.Sprintf("%s.%s.svc.cluster.local", want, mdb.Namespace)
+		if _, ok := dnsSet[fqdn]; !ok {
+			return xerrors.Errorf(
+				"LB cert SAN missing FQDN %q for cluster %q (idx %d)",
+				fqdn, cluster.ClusterName, idx,
+			)
+		}
+	}
+	return nil
+}
+
+// extractCertDNSNames reads a TLS Secret (key corev1.TLSCertKey), parses the
+// leaf cert, and returns its DNS SANs.
+func extractCertDNSNames(secret *corev1.Secret) ([]string, error) {
+	pemBytes, ok := secret.Data[corev1.TLSCertKey]
+	if !ok {
+		return nil, xerrors.Errorf("Secret %s/%s missing %s key", secret.Namespace, secret.Name, corev1.TLSCertKey)
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, xerrors.Errorf("Secret %s/%s tls.crt is not PEM", secret.Namespace, secret.Name)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, xerrors.Errorf("parse cert: %w", err)
+	}
+	return cert.DNSNames, nil
 }
