@@ -112,6 +112,19 @@ type reconcileUnit struct {
 	logFields           []any                // k/v fields attached to the per-unit logger (nil for single-unit topologies)
 	tlsResource         tls.TLSConfigurableResource
 	mongotConfigFn      mongot.Modification
+
+	// Per-cluster fields. clusterName == "" and clusterIndex == 0 → legacy
+	// single-cluster path: the unit goes to the central client. Task 16 wires
+	// the actual per-cluster client lookup; here we just record the binding.
+	clusterName  string
+	clusterIndex int
+}
+
+// SearchSourceReplicaSet is the narrow contract the per-cluster RS plan needs
+// from the source. SearchSourceDBResource already satisfies it; tests can
+// stub a minimal implementation.
+type SearchSourceReplicaSet interface {
+	HostSeeds(shardName string) ([]string, error)
 }
 
 // reconcilePlan is the full per-reconcile work description: a list of units plus the
@@ -131,17 +144,79 @@ func (r *MongoDBSearchReconcileHelper) buildReconcilePlan(log *zap.SugaredLogger
 		log.Infof("Reconciling MongoDBSearch for sharded source deployment with %d shards", shardedSource.GetShardCount())
 		return r.buildShardedPlan(shardedSource)
 	}
-	return r.buildReplicaSetPlan()
+	return r.buildReplicaSetPlan(r.db)
 }
 
-func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, error) {
-	hostSeeds, err := r.db.HostSeeds("")
+// buildReplicaSetPlan produces a reconcilePlan for the replica-set topology.
+// When spec.clusters is nil or empty, it returns the legacy single-cluster
+// shape (one unit, unindexed names) for backward compatibility. Otherwise it
+// fans out one reconcileUnit per cluster, each tagged with its clusterName +
+// clusterIndex so Task 16 can route writes to the per-cluster client.
+//
+// External-source hosts come from spec.source.external.hostAndPorts. For MC
+// the same seed list is rendered into every cluster's mongot config; see
+// docs/superpowers/specs/2026-04-30-rs-mc-mvp-to-green-design.md "Routing
+// strategy" for the rationale.
+func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSourceReplicaSet) (reconcilePlan, error) {
+	hostSeeds, err := rsSource.HostSeeds("")
 	if err != nil {
 		return reconcilePlan{}, err
 	}
 
-	svcName := r.mdbSearch.SearchServiceNamespacedName().Name
+	// Discriminate on the raw spec, not on EffectiveClusters() — the latter
+	// auto-promotes nil into a 1-element slice and would funnel the legacy
+	// path into the indexed-naming loop.
+	if r.mdbSearch.Spec.Clusters == nil || len(*r.mdbSearch.Spec.Clusters) == 0 {
+		return r.buildSingleClusterReplicaSetUnit(hostSeeds)
+	}
+	clusters := *r.mdbSearch.Spec.Clusters
 
+	units := make([]reconcileUnit, 0, len(clusters))
+	for idx, cluster := range clusters {
+		stsName := r.mdbSearch.StatefulSetNamespacedNameForCluster(idx)
+		headlessSvc := r.mdbSearch.SearchServiceNamespacedNameForCluster(idx)
+		proxySvc := r.mdbSearch.ProxyServiceNamespacedNameForCluster(idx)
+		configMapName := r.mdbSearch.MongotConfigConfigMapNameForCluster(idx)
+		podLabels := map[string]string{appLabelKey: headlessSvc.Name}
+
+		var extraPorts []corev1.ServicePort
+		if r.mdbSearch.IsWireprotoEnabled() {
+			extraPorts = []corev1.ServicePort{{
+				Name:       "mongot-wireproto",
+				Protocol:   corev1.ProtocolTCP,
+				Port:       r.mdbSearch.GetMongotWireprotoPort(),
+				TargetPort: intstr.FromInt32(r.mdbSearch.GetMongotWireprotoPort()),
+			}}
+		}
+
+		units = append(units, reconcileUnit{
+			stsName:            stsName,
+			headlessSvc:        headlessSvc,
+			proxySvc:           proxySvc,
+			configMapName:      configMapName,
+			podLabels:          podLabels,
+			extraHeadlessPorts: extraPorts,
+			tlsResource:        r.mdbSearch,
+			mongotConfigFn:     mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch)),
+			clusterName:        cluster.ClusterName,
+			clusterIndex:       idx,
+		})
+	}
+
+	return reconcilePlan{
+		units:          units,
+		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
+		preflight:      func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
+		cleanup:        func(context.Context, *zap.SugaredLogger) {},
+	}, nil
+}
+
+// buildSingleClusterReplicaSetUnit produces the legacy single-cluster RS plan
+// shape: one unit with unindexed StatefulSet/Service/ConfigMap names.
+// clusterName="" and clusterIndex=0 mark the unit as legacy so downstream
+// (Task 16) routes it to the central client.
+func (r *MongoDBSearchReconcileHelper) buildSingleClusterReplicaSetUnit(hostSeeds []string) (reconcilePlan, error) {
+	svcName := r.mdbSearch.SearchServiceNamespacedName().Name
 	var extraHeadlessPorts []corev1.ServicePort
 	if r.mdbSearch.IsWireprotoEnabled() {
 		extraHeadlessPorts = []corev1.ServicePort{{
@@ -151,7 +226,6 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 			TargetPort: intstr.FromInt32(r.mdbSearch.GetMongotWireprotoPort()),
 		}}
 	}
-
 	return reconcilePlan{
 		units: []reconcileUnit{{
 			stsName:            r.mdbSearch.StatefulSetNamespacedName(),

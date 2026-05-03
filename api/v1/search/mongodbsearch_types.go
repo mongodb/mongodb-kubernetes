@@ -611,6 +611,30 @@ func (s *MongoDBSearch) MongotConfigConfigMapNameForCluster(clusterIndex int) ty
 	}
 }
 
+// StatefulSetNamespacedNameForCluster returns the StatefulSet name for one
+// member cluster identified by its cluster index. The per-cluster path always
+// uses index-suffixed names (`<name>-search-<idx>`); the legacy unindexed
+// `<name>-search` from StatefulSetNamespacedName is reserved for the
+// single-cluster degenerate path (Spec.Clusters nil/empty), which calls that
+// helper directly.
+func (s *MongoDBSearch) StatefulSetNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
+}
+
+// SearchServiceNamespacedNameForCluster returns the headless Service name for
+// one member cluster. Like StatefulSetNamespacedNameForCluster, it always
+// produces an index-suffixed name; the legacy unindexed name comes from
+// SearchServiceNamespacedName on the single-cluster path.
+func (s *MongoDBSearch) SearchServiceNamespacedNameForCluster(clusterIndex int) types.NamespacedName {
+	return types.NamespacedName{
+		Name:      fmt.Sprintf("%s-search-%d-svc", s.Name, clusterIndex),
+		Namespace: s.Namespace,
+	}
+}
+
 func (s *MongoDBSearch) SourceUserPasswordSecretRef() *userv1.SecretKeyRef {
 	var syncUserPasswordSecretKey *userv1.SecretKeyRef
 	if s.Spec.Source != nil && s.Spec.Source.PasswordSecretRef != nil {

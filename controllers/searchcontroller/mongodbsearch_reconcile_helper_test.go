@@ -2628,3 +2628,64 @@ func TestEnsureClusterIndexAnnotation(t *testing.T) {
 		assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, readMapping(t, c, "s6", "ns"), "re-added cluster keeps original idx")
 	})
 }
+
+// fakeExternalSource is a minimal SearchSourceReplicaSet stub for buildReplicaSetPlan tests.
+// It only implements the HostSeeds method needed by the per-cluster RS plan path.
+type fakeExternalSource struct {
+	hosts []string
+}
+
+func (f *fakeExternalSource) HostSeeds(_ string) ([]string, error) {
+	return f.hosts, nil
+}
+
+func TestBuildReplicaSetPlan_PerClusterUnitsForMC(t *testing.T) {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "cluster-a", Replicas: ptr.To(int32(2))},
+		{ClusterName: "cluster-b", Replicas: ptr.To(int32(2))},
+	}
+	mdb.Spec.Clusters = &clusters
+	mdb.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			HostAndPorts: []string{"a.example:27017", "b.example:27017"},
+		},
+	}
+
+	r := &MongoDBSearchReconcileHelper{mdbSearch: mdb}
+	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
+
+	plan, err := r.buildReplicaSetPlan(source)
+	require.NoError(t, err)
+	require.Len(t, plan.units, 2, "expected one unit per cluster")
+
+	// Cluster A (index 0)
+	assert.Equal(t, "mdb-search-search-0", plan.units[0].stsName.Name)
+	assert.Equal(t, "mdb-search-search-0-proxy-svc", plan.units[0].proxySvc.Name)
+	assert.Equal(t, "cluster-a", plan.units[0].clusterName)
+	assert.Equal(t, 0, plan.units[0].clusterIndex)
+
+	// Cluster B (index 1)
+	assert.Equal(t, "mdb-search-search-1", plan.units[1].stsName.Name)
+	assert.Equal(t, "mdb-search-search-1-proxy-svc", plan.units[1].proxySvc.Name)
+	assert.Equal(t, "cluster-b", plan.units[1].clusterName)
+	assert.Equal(t, 1, plan.units[1].clusterIndex)
+}
+
+func TestBuildReplicaSetPlan_SingleClusterPreservesLegacyNames(t *testing.T) {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	// no spec.clusters → legacy single-cluster path
+	mdb.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			HostAndPorts: []string{"a.example:27017"},
+		},
+	}
+	r := &MongoDBSearchReconcileHelper{mdbSearch: mdb}
+	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
+
+	plan, err := r.buildReplicaSetPlan(source)
+	require.NoError(t, err)
+	require.Len(t, plan.units, 1)
+	assert.Equal(t, "mdb-search-search", plan.units[0].stsName.Name)
+	assert.Equal(t, "mdb-search-search-0-proxy-svc", plan.units[0].proxySvc.Name)
+}
