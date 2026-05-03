@@ -151,6 +151,27 @@ func PredicatesForStatefulSet() predicate.Funcs {
 	}
 }
 
+// PredicatesForMultiClusterSearchResource filters watch events for resources
+// the MongoDBSearch controller places in member clusters. Owner references do
+// not cross cluster boundaries, so identification is by annotation
+// (handler.MongoDBSearchResourceAnnotation) rather than ownerRef.
+//
+// Create and Delete pass through only when the annotation is present. Update
+// passes if either side carries the annotation, so annotation add/remove
+// transitions also reconcile. Generic drops everything (informer-resync noise).
+func PredicatesForMultiClusterSearchResource() predicate.Funcs {
+	hasAnn := func(obj interface{ GetAnnotations() map[string]string }) bool {
+		_, ok := obj.GetAnnotations()[handler.MongoDBSearchResourceAnnotation]
+		return ok
+	}
+	return predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return hasAnn(e.Object) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return hasAnn(e.Object) },
+		UpdateFunc:  func(e event.UpdateEvent) bool { return hasAnn(e.ObjectOld) || hasAnn(e.ObjectNew) },
+		GenericFunc: func(e event.GenericEvent) bool { return false },
+	}
+}
+
 // PredicatesForMultiStatefulSet is the predicate functions for the custom Statefulset Event
 // handler used for Multicluster reconciler
 func PredicatesForMultiStatefulSet() predicate.Funcs {
