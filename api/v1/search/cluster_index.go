@@ -38,10 +38,9 @@ func AssignClusterIndices(existing map[string]int, currentClusterNames []string)
 // second return value is false when the annotation is missing, empty, malformed,
 // or does not contain the name.
 //
-// ClusterIndex is the read API used by downstream consumers (B4 placeholder
-// resolution, B16 SNI ordering, B9 status). It deliberately reads only the
-// persisted mapping — not spec.clusters — so a name that has been removed from
-// the spec but is still recorded in the mapping continues to resolve.
+// It deliberately reads only the persisted mapping — not spec.clusters — so a
+// name that has been removed from the spec but is still recorded in the mapping
+// continues to resolve.
 func ClusterIndex(search *MongoDBSearch, clusterName string) (int, bool) {
 	if search == nil {
 		return 0, false
