@@ -8,6 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -268,4 +269,53 @@ func TestPredicatesForMultiStatefulSet(t *testing.T) {
 		assert.False(t, PredicatesForMultiStatefulSet().Create(event.CreateEvent{Object: sts}))
 		assert.False(t, PredicatesForMultiStatefulSet().Generic(event.GenericEvent{Object: sts}))
 	})
+}
+
+func labeledSearchObj(labels map[string]string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "ns", Labels: labels}}
+}
+
+func searchOwnerLabels(name, ns string) map[string]string {
+	return map[string]string{
+		handler.MongoDBSearchOwnerNameLabel:      name,
+		handler.MongoDBSearchOwnerNamespaceLabel: ns,
+	}
+}
+
+func TestPredicatesForMultiClusterSearchResource(t *testing.T) {
+	p := PredicatesForMultiClusterSearchResource()
+	labeled := labeledSearchObj(searchOwnerLabels("s", "ns"))
+	plain := labeledSearchObj(nil)
+	unrelated := labeledSearchObj(map[string]string{"unrelated": "x"})
+	partialName := labeledSearchObj(map[string]string{handler.MongoDBSearchOwnerNameLabel: "s"})
+	partialNs := labeledSearchObj(map[string]string{handler.MongoDBSearchOwnerNamespaceLabel: "ns"})
+
+	tests := []struct {
+		name string
+		want bool
+		eval func() bool
+	}{
+		// Create
+		{"Create/labeled passes", true, func() bool { return p.CreateFunc(event.CreateEvent{Object: labeled}) }},
+		{"Create/plain fails", false, func() bool { return p.CreateFunc(event.CreateEvent{Object: plain}) }},
+		{"Create/unrelated fails", false, func() bool { return p.CreateFunc(event.CreateEvent{Object: unrelated}) }},
+		{"Create/partial name-only fails", false, func() bool { return p.CreateFunc(event.CreateEvent{Object: partialName}) }},
+		{"Create/partial ns-only fails", false, func() bool { return p.CreateFunc(event.CreateEvent{Object: partialNs}) }},
+		// Update
+		{"Update/both labeled passes", true, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: labeled, ObjectNew: labeled}) }},
+		{"Update/newly labeled passes", true, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: labeled}) }},
+		{"Update/label removed passes", true, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: labeled, ObjectNew: plain}) }},
+		{"Update/both plain fails", false, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: plain}) }},
+		// Delete
+		{"Delete/labeled passes", true, func() bool { return p.DeleteFunc(event.DeleteEvent{Object: labeled}) }},
+		{"Delete/plain fails", false, func() bool { return p.DeleteFunc(event.DeleteEvent{Object: plain}) }},
+		// Generic
+		{"Generic/labeled always false", false, func() bool { return p.GenericFunc(event.GenericEvent{Object: labeled}) }},
+		{"Generic/plain always false", false, func() bool { return p.GenericFunc(event.GenericEvent{Object: plain}) }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.eval())
+		})
+	}
 }
