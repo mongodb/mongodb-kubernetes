@@ -667,7 +667,7 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	}
 	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, "missing-cluster", zap.S())
 	assert.Equal(t, status.PhasePending, st.Phase())
-	assert.Contains(t, extractWorkflowMsg(st), "missing-cluster")
+	assert.Contains(t, searchcontroller.MessageFromStatus(st), "missing-cluster")
 }
 
 func TestMapEnvoyObjectToSearch(t *testing.T) {
@@ -720,7 +720,7 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	}
 
 	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, "a", zap.S())
-	require.True(t, st.IsOK(), "expected OK, got %s: %s", st.Phase(), extractWorkflowMsg(st))
+	require.True(t, st.IsOK(), "expected OK, got %s: %s", st.Phase(), searchcontroller.MessageFromStatus(st))
 
 	// Member cluster has Deployment + ConfigMap; central does not.
 	dep := &appsv1.Deployment{}

@@ -230,7 +230,7 @@ func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status)
 	if mdb.Spec.Clusters == nil || len(*mdb.Spec.Clusters) == 0 {
 		return nil
 	}
-	message := messageFromStatus(st)
+	message := MessageFromStatus(st)
 	items := make([]searchv1.SearchClusterStatusItem, 0, len(*mdb.Spec.Clusters))
 	for _, c := range *mdb.Spec.Clusters {
 		items = append(items, searchv1.SearchClusterStatusItem{
@@ -244,10 +244,10 @@ func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status)
 	return items
 }
 
-// messageFromStatus extracts the user-visible message from a workflow.Status.
+// MessageFromStatus extracts the user-visible message from a workflow.Status.
 // workflow.Status does not expose Message() directly; the message is carried
 // in StatusOptions() as a MessageOption.
-func messageFromStatus(st workflow.Status) string {
+func MessageFromStatus(st workflow.Status) string {
 	if st == nil {
 		return ""
 	}

@@ -160,14 +160,14 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 			perClusterStatuses = append(perClusterStatuses, searchv1.ClusterLoadBalancerStatus{
 				ClusterName: w.ClusterName,
 				Phase:       st.Phase(),
-				Message:     extractWorkflowMsg(st),
+				Message:     searchcontroller.MessageFromStatus(st),
 			})
 		}
 		if isWorsePhase(st.Phase(), worstPhase) {
 			worstPhase = st.Phase()
 		}
 		if !st.IsOK() && firstFailure == nil {
-			firstFailure = fmt.Errorf("cluster %q: %s", w.ClusterName, extractWorkflowMsg(st))
+			firstFailure = fmt.Errorf("cluster %q: %s", w.ClusterName, searchcontroller.MessageFromStatus(st))
 		}
 	}
 
@@ -270,16 +270,6 @@ func isWorsePhase(a, b status.Phase) bool {
 		}
 	}
 	return rank(a) > rank(b)
-}
-
-// extractWorkflowMsg pulls the message from a workflow.Status's StatusOptions.
-// The workflow.Status interface does not expose Msg() directly; the message
-// rides on a status.MessageOption populated by workflow.{Pending,Failed,Invalid}.
-func extractWorkflowMsg(st workflow.Status) string {
-	if opt, ok := status.GetOption(st.StatusOptions(), status.MessageOption{}); ok {
-		return opt.(status.MessageOption).Message
-	}
-	return ""
 }
 
 // updateLBStatus patches the loadBalancer sub-status on the MongoDBSearch CR
