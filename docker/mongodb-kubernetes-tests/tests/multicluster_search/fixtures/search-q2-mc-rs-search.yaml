@@ -1,0 +1,10 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-mc-rs-ext-lb-search
+spec:
+  logLevel: DEBUG
+  clusters: []
+  loadBalancer:
+    managed: {}
