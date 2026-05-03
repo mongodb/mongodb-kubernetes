@@ -357,6 +357,7 @@ func validateClustersUniqueClusterName(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+
 // validateClustersSyncSourceSelector enforces the at-most-one matchTags/hosts rule
 // for every entry in spec.clusters. The "exactly one when len(clusters) > 1" rule
 // lives in B13 (it depends on cluster-count semantics that aren't B14's scope).
