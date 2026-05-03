@@ -6,10 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
 
 func TestPredicatesForUser(t *testing.T) {
@@ -88,4 +92,41 @@ func TestPredicatesForMongoDB(t *testing.T) {
 			event.UpdateEvent{ObjectOld: oldMdb, ObjectNew: newMdb}),
 		)
 	})
+}
+
+func annotatedSearchObj(ann map[string]string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "ns", Annotations: ann}}
+}
+
+func TestPredicatesForMultiClusterSearchResource_Create(t *testing.T) {
+	p := PredicatesForMultiClusterSearchResource()
+
+	assert.True(t, p.CreateFunc(event.CreateEvent{Object: annotatedSearchObj(map[string]string{handler.MongoDBSearchResourceAnnotation: "s"})}))
+	assert.False(t, p.CreateFunc(event.CreateEvent{Object: annotatedSearchObj(nil)}))
+	assert.False(t, p.CreateFunc(event.CreateEvent{Object: annotatedSearchObj(map[string]string{"unrelated": "x"})}))
+}
+
+func TestPredicatesForMultiClusterSearchResource_Update(t *testing.T) {
+	p := PredicatesForMultiClusterSearchResource()
+
+	annotatedNew := annotatedSearchObj(map[string]string{handler.MongoDBSearchResourceAnnotation: "s"})
+	annotatedOld := annotatedSearchObj(map[string]string{handler.MongoDBSearchResourceAnnotation: "s"})
+	plain := annotatedSearchObj(nil)
+
+	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: annotatedOld, ObjectNew: annotatedNew}))
+	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: annotatedNew}), "newly annotated must enqueue")
+	assert.True(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: annotatedOld, ObjectNew: plain}), "annotation removal must enqueue")
+	assert.False(t, p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: plain}))
+}
+
+func TestPredicatesForMultiClusterSearchResource_Delete(t *testing.T) {
+	p := PredicatesForMultiClusterSearchResource()
+
+	assert.True(t, p.DeleteFunc(event.DeleteEvent{Object: annotatedSearchObj(map[string]string{handler.MongoDBSearchResourceAnnotation: "s"})}))
+	assert.False(t, p.DeleteFunc(event.DeleteEvent{Object: annotatedSearchObj(nil)}))
+}
+
+func TestPredicatesForMultiClusterSearchResource_Generic_AlwaysFalse(t *testing.T) {
+	p := PredicatesForMultiClusterSearchResource()
+	assert.False(t, p.GenericFunc(event.GenericEvent{Object: annotatedSearchObj(map[string]string{handler.MongoDBSearchResourceAnnotation: "s"})}))
 }
