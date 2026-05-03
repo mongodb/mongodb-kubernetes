@@ -51,6 +51,7 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateClustersSyncSourceSelector,
 		validateClustersShardOverrides,
 		validateClustersAndTopLevelFieldsMutuallyExclusive,
+		validateClustersEnvoyResourceNames,
 	}
 
 	var results []v1.ValidationResult
@@ -346,6 +347,42 @@ func validateClustersSyncSourceSelector(s *MongoDBSearch) v1.ValidationResult {
 				"spec.clusters[%d].syncSourceSelector: matchTags and hosts are mutually exclusive",
 				i,
 			)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateClustersEnvoyResourceNames enforces DNS-1123 length and label/subdomain
+// rules on the per-cluster Envoy Deployment + ConfigMap names that the B16
+// Envoy reconciler will create. Without this admission check, an over-long
+// clusterName would fail at runtime with a kube API error during reconcile.
+//
+// Mirrors the B14 sharded-resource-name pattern in generateShardResourceNames /
+// validateResourceName.
+func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil {
+		return v1.ValidationSuccess()
+	}
+	for _, c := range *s.Spec.Clusters {
+		if c.ClusterName == "" {
+			continue
+		}
+		resources := []shardResourceName{
+			{
+				ResourceType: "Envoy Deployment (per cluster)",
+				Name:         s.LoadBalancerDeploymentNameForCluster(c.ClusterName),
+				Standard:     dnsLabel,
+			},
+			{
+				ResourceType: "Envoy ConfigMap (per cluster)",
+				Name:         s.LoadBalancerConfigMapNameForCluster(c.ClusterName),
+				Standard:     dnsSubdomain,
+			},
+		}
+		for _, resource := range resources {
+			if err := validateResourceName(resource, s.Name, c.ClusterName); err != nil {
+				return v1.ValidationError("%s", err.Error())
+			}
 		}
 	}
 	return v1.ValidationSuccess()
