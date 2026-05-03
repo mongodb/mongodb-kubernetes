@@ -149,8 +149,19 @@ spec:
                               description: |-
                                 ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
                                 For sharded clusters, may contain a {shardName} placeholder.
+                                In multi-cluster deployments, may contain a {clusterName} placeholder so per-cluster
+                                SNI hostnames stay distinct.
                                 Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
                               type: string
+                            replicas:
+                              description: |-
+                                Replicas is the number of Envoy pods the operator deploys.
+                                In multi-cluster deployments, top-level spec.loadBalancer.managed.replicas is the
+                                default; per-cluster spec.clusters[].loadBalancer.managed.replicas overrides for
+                                that cluster. Default 1 when unset.
+                              format: int32
+                              minimum: 1
+                              type: integer
                             resourceRequirements:
                               description: |-
                                 ResourceRequirements for the Envoy container.
@@ -590,8 +601,19 @@ spec:
                         description: |-
                           ExternalHostname is the hostname Envoy expects for SNI matching on incoming requests.
                           For sharded clusters, may contain a {shardName} placeholder.
+                          In multi-cluster deployments, may contain a {clusterName} placeholder so per-cluster
+                          SNI hostnames stay distinct.
                           Required when MongoDB is externally managed. Ignored for operator-managed MongoDB.
                         type: string
+                      replicas:
+                        description: |-
+                          Replicas is the number of Envoy pods the operator deploys.
+                          In multi-cluster deployments, top-level spec.loadBalancer.managed.replicas is the
+                          default; per-cluster spec.clusters[].loadBalancer.managed.replicas overrides for
+                          that cluster. Default 1 when unset.
+                        format: int32
+                        minimum: 1
+                        type: integer
                       resourceRequirements:
                         description: |-
                           ResourceRequirements for the Envoy container.
@@ -1036,6 +1058,34 @@ spec:
                   LoadBalancer reports the state of the operator-managed load balancer.
                   Only populated when spec.loadBalancer.managed is set.
                 properties:
+                  clusters:
+                    description: |-
+                      Clusters is the per-cluster managed-LB phase. Only populated when
+                      len(spec.clusters) > 0 — single-cluster keeps the existing top-level Phase.
+                      B16 writes a placeholder schema; B9 will formalize it (sharded sub-statuses,
+                      observedGeneration, etc.).
+                    items:
+                      description: |-
+                        ClusterLoadBalancerStatus reports per-cluster managed LB state.
+                        Placeholder schema written by B16; B9 formalizes the per-cluster status surface.
+                      properties:
+                        clusterName:
+                          description: ClusterName is the member cluster this status
+                            entry belongs to.
+                          type: string
+                        message:
+                          description: Message is an optional explanation for the
+                            per-cluster phase.
+                          type: string
+                        phase:
+                          description: Phase mirrors LoadBalancerStatus.Phase but
+                            for one cluster.
+                          type: string
+                      required:
+                      - clusterName
+                      - phase
+                      type: object
+                    type: array
                   message:
                     type: string
                   phase:
