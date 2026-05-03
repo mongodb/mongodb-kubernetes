@@ -2,6 +2,7 @@ package search
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -20,10 +21,16 @@ import (
 // ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 const ShardNamePlaceholder = "{shardName}"
 
-// ClusterNamePlaceholder is the placeholder used in managed-LB externalHostname
-// templates for multi-cluster deployments. The Envoy reconciler substitutes the
+// ClusterNamePlaceholder is substituted with spec.clusters[i].ClusterName when
+// resolving spec.loadBalancer.managed.externalHostname for cluster i in
+// multi-cluster MongoDBSearch deployments. The Envoy reconciler substitutes the
 // member cluster name so per-cluster SNI hostnames stay distinct.
 const ClusterNamePlaceholder = "{clusterName}"
+
+// ClusterIndexPlaceholder is substituted with the stable cluster-index assigned
+// by the LastClusterNumMapping annotation for spec.clusters[i]. The index is
+// monotonic and never reused on remove/re-add (see api/v1/search/cluster_index.go).
+const ClusterIndexPlaceholder = "{clusterIndex}"
 
 const (
 	MongotDefaultWireprotoPort      int32 = 27027
@@ -34,6 +41,13 @@ const (
 	MongotDefaultSyncSourceUsername       = "search-sync-source"
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
+
+	// LastClusterNumMapping holds the JSON-encoded clusterName -> clusterIndex
+	// mapping for spec.clusters[]. Mirrors mdbmulti.LastClusterNumMapping; the
+	// string value is intentionally identical so a future shared util can collapse
+	// the two without breaking existing CR annotations. Index never reused on
+	// remove/re-add (see api/v1/search/cluster_index.go).
+	LastClusterNumMapping = "mongodb.com/v1.lastClusterNumMapping"
 
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
 
@@ -841,6 +855,54 @@ func (s *MongoDBSearch) GetManagedLBEndpointForShard(shardName string) string {
 		return ""
 	}
 	return strings.ReplaceAll(s.Spec.LoadBalancer.Managed.ExternalHostname, ShardNamePlaceholder, shardName)
+}
+
+// GetManagedLBEndpointForCluster returns the externalHostname template with
+// {clusterName} and {clusterIndex} resolved for spec.clusters[i]. Returns "" when
+// managed LB is not configured. Use GetManagedLBEndpointForClusterShard for
+// sharded sources where {shardName} also needs resolving.
+//
+// Behaviour:
+//   - Legacy single-cluster (spec.clusters nil): placeholders are left untouched.
+//     Admission rejects MC specs missing the required placeholders, so reaching
+//     this path with a placeholder-bearing legacy template is malformed.
+//   - Out-of-range i: placeholders are left untouched (defensive — call sites
+//     iterate over len(*spec.clusters)).
+func (s *MongoDBSearch) GetManagedLBEndpointForCluster(i int) string {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+		return ""
+	}
+	out := s.Spec.LoadBalancer.Managed.ExternalHostname
+	if s.Spec.Clusters == nil {
+		return out
+	}
+	clusters := *s.Spec.Clusters
+	if i < 0 || i >= len(clusters) {
+		return out
+	}
+	out = strings.ReplaceAll(out, ClusterNamePlaceholder, clusters[i].ClusterName)
+	// {clusterIndex} resolves to the persisted monotonic index from the
+	// LastClusterNumMapping annotation when available; otherwise it falls back
+	// to the slice index. The fallback covers legacy specs that have not yet
+	// been re-reconciled to populate the annotation.
+	idx := i
+	if persisted, ok := ClusterIndex(s, clusters[i].ClusterName); ok {
+		idx = persisted
+	}
+	out = strings.ReplaceAll(out, ClusterIndexPlaceholder, strconv.Itoa(idx))
+	return out
+}
+
+// GetManagedLBEndpointForClusterShard returns the externalHostname template with
+// {clusterName}, {clusterIndex}, and {shardName} all resolved for the
+// (spec.clusters[i], shardName) pair. Used for sharded multi-cluster
+// MongoDBSearch deployments. Returns "" when managed LB is not configured.
+func (s *MongoDBSearch) GetManagedLBEndpointForClusterShard(i int, shardName string) string {
+	out := s.GetManagedLBEndpointForCluster(i)
+	if out == "" {
+		return ""
+	}
+	return strings.ReplaceAll(out, ShardNamePlaceholder, shardName)
 }
 
 // IsLoadBalancerReady returns true if managed LB is not configured,
