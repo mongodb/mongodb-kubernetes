@@ -488,6 +488,7 @@ var (
 		},
 	}
 )
+
 var expectedVolumeMount = []corev1.VolumeMount{
 	{
 		Name:      apiKeysTempVolumeName,
