@@ -76,7 +76,11 @@ type TLSSourceConfig struct {
 
 // CreateSearchStatefulSetFunc returns a statefulset.Modification that configures a mongot StatefulSet.
 // It works for both non-sharded and per-shard deployments.
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
+//
+// clusterName selects which entry of EffectiveClusters() is read for the per-cluster
+// Persistence / ResourceRequirements / StatefulSetConfiguration fields. Empty string
+// = legacy single-cluster path (uses the auto-promoted top-level fields).
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, clusterName, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) (statefulset.Modification, error) {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -94,9 +98,17 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 	}
 
+	// Per-cluster spec for THIS cluster, cascaded over the top-level defaults
+	// (REPLACE-if-nil for Persistence / ResourceRequirements /
+	// StatefulSetConfiguration). Empty clusterName == single-cluster path.
+	perCluster, err := mdbSearch.EffectiveClusterFor(clusterName)
+	if err != nil {
+		return nil, err
+	}
+
 	var persistenceConfig *v1.PersistenceConfig
-	if mdbSearch.Spec.Persistence != nil && mdbSearch.Spec.Persistence.SingleConfig != nil {
-		persistenceConfig = mdbSearch.Spec.Persistence.SingleConfig
+	if perCluster.Persistence != nil && perCluster.Persistence.SingleConfig != nil {
+		persistenceConfig = perCluster.Persistence.SingleConfig
 	}
 
 	defaultPersistenceConfig := v1.PersistenceConfig{Storage: util.DefaultMongodStorageSize}
@@ -122,7 +134,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		statefulset.WithLabels(labels),
 		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
-		statefulset.WithReplicas(mdbSearch.GetReplicas()),
+		statefulset.WithReplicas(mdbSearch.GetReplicasForCluster(clusterName)),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
 		dataVolumeClaim,
 		statefulset.WithPodSpecTemplate(
@@ -131,20 +143,20 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
-				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage, usePerPodConfig)),
+				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, perCluster, volumeMounts, searchImage, usePerPodConfig)),
 			),
 		),
 	}
 
-	if mdbSearch.Spec.StatefulSetConfiguration != nil {
-		stsModifications = append(stsModifications, statefulset.WithCustomSpecs(mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec))
+	if perCluster.StatefulSetConfiguration != nil {
+		stsModifications = append(stsModifications, statefulset.WithCustomSpecs(perCluster.StatefulSetConfiguration.SpecWrapper.Spec))
 		stsModifications = append(stsModifications, statefulset.WithObjectMetadata(
-			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Labels,
-			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Annotations,
+			perCluster.StatefulSetConfiguration.MetadataWrapper.Labels,
+			perCluster.StatefulSetConfiguration.MetadataWrapper.Annotations,
 		))
 	}
 
-	return statefulset.Apply(stsModifications...)
+	return statefulset.Apply(stsModifications...), nil
 }
 
 // PasswordAuthModification returns a statefulset.Modification that mounts the password secret
@@ -184,11 +196,15 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 	)
 }
 
-func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.ResourceRequirements) string {
+// jvmFlags builds the --jvm-flags argument from the per-cluster user-provided
+// JVMFlags slice plus a default heap-size pair derived from memory requests.
+// Caller passes the cascaded per-cluster JVMFlags so per-cluster overrides
+// take effect.
+func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequirements) string {
 	flags := []string{}
 
 	var heapConfigured bool
-	for _, jvmFlag := range mdbSearch.Spec.JVMFlags {
+	for _, jvmFlag := range userJVMFlags {
 		if strings.HasPrefix(jvmFlag, "-Xms") || strings.HasPrefix(jvmFlag, "-Xmx") {
 			heapConfigured = true
 			break
@@ -207,14 +223,14 @@ func jvmFlags(mdbSearch *searchv1.MongoDBSearch, resourceRequirements corev1.Res
 		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
 	}
 
-	flagsValue := strings.Join(append(flags, mdbSearch.Spec.JVMFlags...), " ")
+	flagsValue := strings.Join(append(flags, userJVMFlags...), " ")
 	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
 }
 
-func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
+func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster searchv1.ClusterSpec, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
-	resourceRequirements := createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)
-	jvmFlags := jvmFlags(mdbSearch, resourceRequirements)
+	resourceRequirements := createSearchResourceRequirements(perCluster.ResourceRequirements)
+	jvmFlags := jvmFlags(perCluster.JVMFlags, resourceRequirements)
 
 	var mongotStartCommand string
 	if usePerPodConfig {
