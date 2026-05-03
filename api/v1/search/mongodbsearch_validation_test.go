@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 )
 
 func TestValidateShardNames(t *testing.T) {
@@ -183,6 +184,171 @@ func TestValidateX509AuthConfig(t *testing.T) {
 				assert.Contains(t, result.Msg, tt.errorContains)
 			} else {
 				assert.Equal(t, v1.SuccessLevel, result.Level)
+			}
+		})
+	}
+}
+
+func TestValidateClustersSyncSourceSelector(t *testing.T) {
+	tests := []struct {
+		name          string
+		selector      *SyncSourceSelector
+		errorContains string
+	}{
+		{name: "nil selector", selector: nil},
+		{name: "matchTags only", selector: &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}}},
+		{name: "hosts only", selector: &SyncSourceSelector{Hosts: []string{"mongo-1:27017"}}},
+		{
+			name:          "both set rejected",
+			selector:      &SyncSourceSelector{MatchTags: map[string]string{"region": "us-east"}, Hosts: []string{"mongo-1:27017"}},
+			errorContains: "mutually exclusive",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec: MongoDBSearchSpec{
+					Clusters: &[]ClusterSpec{{ClusterName: "us-east-k8s", SyncSourceSelector: tt.selector}},
+				},
+			}
+			res := validateClustersSyncSourceSelector(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
+}
+
+func TestValidateClustersShardOverrides(t *testing.T) {
+	tests := []struct {
+		name          string
+		overrides     []ShardOverride
+		errorContains string
+	}{
+		{name: "no overrides", overrides: nil},
+		{name: "valid single shardName", overrides: []ShardOverride{{ShardNames: []string{"shard-0"}}}},
+		{name: "valid multiple shardNames", overrides: []ShardOverride{{ShardNames: []string{"shard-0", "shard-1"}}}},
+		{
+			name:          "empty shardNames slice",
+			overrides:     []ShardOverride{{ShardNames: []string{}}},
+			errorContains: "must have at least one entry",
+		},
+		{
+			name:          "nil shardNames slice",
+			overrides:     []ShardOverride{{}},
+			errorContains: "must have at least one entry",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec: MongoDBSearchSpec{
+					Clusters: &[]ClusterSpec{{ClusterName: "us-east-k8s", ShardOverrides: tt.overrides}},
+				},
+			}
+			res := validateClustersShardOverrides(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
+}
+
+func TestValidateClustersUniqueClusterName(t *testing.T) {
+	tests := []struct {
+		name          string
+		clusters      []ClusterSpec
+		errorContains string
+	}{
+		{name: "single empty clusterName", clusters: []ClusterSpec{{}}},
+		{name: "two unique names", clusters: []ClusterSpec{{ClusterName: "a"}, {ClusterName: "b"}}},
+		{
+			name:          "duplicate names",
+			clusters:      []ClusterSpec{{ClusterName: "a"}, {ClusterName: "a"}},
+			errorContains: "duplicate",
+		},
+		{
+			// Empty names are reserved for the single-cluster degenerate case;
+			// two empty names is still a duplicate.
+			name:          "two empty names",
+			clusters:      []ClusterSpec{{}, {}},
+			errorContains: "duplicate",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clusters := tt.clusters
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec:       MongoDBSearchSpec{Clusters: &clusters},
+			}
+			res := validateClustersUniqueClusterName(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
+			}
+		})
+	}
+}
+
+func TestValidateClustersAndTopLevelFieldsMutuallyExclusive(t *testing.T) {
+	cluster := func() ClusterSpec { return ClusterSpec{ClusterName: "us-east"} }
+	tests := []struct {
+		name          string
+		spec          MongoDBSearchSpec
+		errorContains string
+	}{
+		{
+			name: "no clusters, top-level Replicas set — legacy path, OK",
+			spec: MongoDBSearchSpec{Replicas: ptr.To(int32(3))},
+		},
+		{
+			name: "clusters set, no top-level distribution fields — OK",
+			spec: MongoDBSearchSpec{Clusters: &[]ClusterSpec{cluster()}},
+		},
+		{
+			name:          "top-level Replicas + clusters set — reject",
+			spec:          MongoDBSearchSpec{Replicas: ptr.To(int32(2)), Clusters: &[]ClusterSpec{cluster()}},
+			errorContains: "spec.replicas and spec.clusters are mutually exclusive",
+		},
+		{
+			name:          "top-level ResourceRequirements + clusters set — reject",
+			spec:          MongoDBSearchSpec{ResourceRequirements: &corev1.ResourceRequirements{}, Clusters: &[]ClusterSpec{cluster()}},
+			errorContains: "spec.resourceRequirements and spec.clusters are mutually exclusive",
+		},
+		{
+			name:          "top-level Persistence + clusters set — reject",
+			spec:          MongoDBSearchSpec{Persistence: &common.Persistence{}, Clusters: &[]ClusterSpec{cluster()}},
+			errorContains: "spec.persistence and spec.clusters are mutually exclusive",
+		},
+		{
+			name:          "top-level StatefulSet + clusters set — reject",
+			spec:          MongoDBSearchSpec{StatefulSetConfiguration: &common.StatefulSetConfiguration{}, Clusters: &[]ClusterSpec{cluster()}},
+			errorContains: "spec.statefulSet and spec.clusters are mutually exclusive",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+				Spec:       tt.spec,
+			}
+			res := validateClustersAndTopLevelFieldsMutuallyExclusive(s)
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, res.Level)
+				assert.Contains(t, res.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, res.Level)
 			}
 		})
 	}
