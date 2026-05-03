@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,11 +23,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
@@ -116,10 +117,10 @@ type reconcileUnit struct {
 // topology-wide knobs and hooks that surround the loop. Everything sharded-specific lives
 // here in hook closures so the reconcile body stays a straight, unbranched sequence.
 type reconcilePlan struct {
-	units        []reconcileUnit
-	manageProxySvc bool                                                              // topology-wide: true when the operator owns the proxy Service lifecycle (i.e. the LB is not user-managed)
-	preflight    func(context.Context, *zap.SugaredLogger) workflow.Status           // runs before the loop; must return workflow.OK() to proceed
-	cleanup      func(context.Context, *zap.SugaredLogger)                           // runs after the loop; best-effort, errors logged
+	units          []reconcileUnit
+	manageProxySvc bool                                                      // topology-wide: true when the operator owns the proxy Service lifecycle (i.e. the LB is not user-managed)
+	preflight      func(context.Context, *zap.SugaredLogger) workflow.Status // runs before the loop; must return workflow.OK() to proceed
+	cleanup        func(context.Context, *zap.SugaredLogger)                 // runs after the loop; best-effort, errors logged
 }
 
 // buildReconcilePlan returns the full reconcile plan for the current topology.
@@ -162,8 +163,8 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan() (reconcilePlan, err
 			mongotConfigFn:     mongot.Apply(baseMongotConfig(r.mdbSearch, hostSeeds), wireprotoMongotMod(r.mdbSearch)),
 		}},
 		manageProxySvc: !r.mdbSearch.IsReplicaSetUnmanagedLB(),
-		preflight:    func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
-		cleanup:      func(context.Context, *zap.SugaredLogger) {},
+		preflight:      func(context.Context, *zap.SugaredLogger) workflow.Status { return workflow.OK() },
+		cleanup:        func(context.Context, *zap.SugaredLogger) {},
 	}, nil
 }
 
@@ -193,7 +194,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 	}
 
 	return reconcilePlan{
-		units:        units,
+		units:          units,
 		manageProxySvc: !r.mdbSearch.IsShardedUnmanagedLB(),
 		preflight: func(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 			return r.validatePerShardTLSSecrets(ctx, log, shardNames)
@@ -220,6 +221,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	if err := r.mdbSearch.ValidateSpec(); err != nil {
 		return workflow.Invalid("%s", err.Error())
+	}
+
+	if err := r.ensureClusterIndexAnnotation(ctx, log); err != nil {
+		return workflow.Failed(err)
 	}
 
 	if err := r.db.Validate(); err != nil {
@@ -356,6 +361,51 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 			WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(imageVersion))
 	}
 	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(imageVersion))
+}
+
+// ensureClusterIndexAnnotation persists the MongoDBSearch CR's clusterName -> clusterIndex
+// mapping into the LastClusterNumMapping annotation. It preserves every previously-assigned
+// index and appends new clusters monotonically (see search.AssignClusterIndices); a removed
+// cluster's index is never reused. The annotation is the single source of truth for the
+// ClusterIndex read API consumed by B4 (placeholder resolution) and B16 (SNI route ordering).
+//
+// No-ops when spec.clusters is nil or empty (single-cluster path) and when the new mapping
+// matches the current annotation byte-for-byte.
+func (r *MongoDBSearchReconcileHelper) ensureClusterIndexAnnotation(ctx context.Context, log *zap.SugaredLogger) error {
+	if r.mdbSearch.Spec.Clusters == nil || len(*r.mdbSearch.Spec.Clusters) == 0 {
+		return nil
+	}
+
+	currentNames := make([]string, 0, len(*r.mdbSearch.Spec.Clusters))
+	for _, c := range *r.mdbSearch.Spec.Clusters {
+		currentNames = append(currentNames, c.ClusterName)
+	}
+
+	rawExisting := r.mdbSearch.Annotations[searchv1.LastClusterNumMapping]
+	existing := map[string]int{}
+	if rawExisting != "" {
+		if err := json.Unmarshal([]byte(rawExisting), &existing); err != nil {
+			// Malformed annotation is recoverable — start from scratch and let
+			// AssignClusterIndices rebuild a sane mapping. Log because this should
+			// never happen except via direct hand-edit.
+			log.Warnf("LastClusterNumMapping annotation is malformed (%v); rebuilding from spec.clusters", err)
+			existing = map[string]int{}
+		}
+	}
+
+	newMapping := searchv1.AssignClusterIndices(existing, currentNames)
+	newBytes, err := json.Marshal(newMapping)
+	if err != nil {
+		return xerrors.Errorf("marshalling cluster index mapping: %w", err)
+	}
+
+	if rawExisting == string(newBytes) {
+		return nil
+	}
+
+	return annotations.SetAnnotations(ctx, r.mdbSearch, map[string]string{
+		searchv1.LastClusterNumMapping: string(newBytes),
+	}, r.client)
 }
 
 // isOwnedBy returns true if the object has an owner reference pointing to the given owner.
@@ -748,7 +798,6 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 
 	return serviceBuilder.Build()
 }
-
 
 // EnsureEmbeddingAPIKeySecret makes sure that the scret that is provided in MDBSearch resource
 // for embedding model's keys is present and has expected keys.

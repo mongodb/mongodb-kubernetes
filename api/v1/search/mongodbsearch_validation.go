@@ -47,11 +47,18 @@ func (s *MongoDBSearch) RunValidations() []v1.ValidationResult {
 		validateShardNames,
 		validateJVMFlags,
 		validateX509AuthConfig,
+		validateClustersClusterNameNonEmpty,
 		validateClustersUniqueClusterName,
 		validateClustersSyncSourceSelector,
 		validateClustersShardOverrides,
 		validateClustersAndTopLevelFieldsMutuallyExclusive,
 		validateClustersEnvoyResourceNames,
+		validateClustersNoRename,
+		validateMCExternalHostnamePlaceholders,
+		validateExternalHostnameDNSLength,
+		validateMCRejectsUnmanagedLB,
+		validateMCRequiresLoadBalancerManaged,
+		validateMCMatchTagsNonEmpty,
 	}
 
 	var results []v1.ValidationResult
@@ -311,6 +318,26 @@ func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+// validateClustersClusterNameNonEmpty rejects an empty spec.clusters[i].clusterName
+// when len(spec.clusters) > 1. The single-cluster degenerate case (len <= 1) keeps
+// allowing an empty clusterName. Uniqueness is the next validator's job; the dedicated
+// "is required" message fires here so a two-empty-names spec surfaces the actionable
+// hint instead of "duplicate".
+func validateClustersClusterNameNonEmpty(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	for i, c := range *s.Spec.Clusters {
+		if c.ClusterName == "" {
+			return v1.ValidationError(
+				"spec.clusters[%d].clusterName is required when len(spec.clusters) > 1",
+				i,
+			)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
 // validateClustersUniqueClusterName enforces clusterName uniqueness inside spec.clusters.
 // ClusterName presence and immutability when len(clusters) > 1 are B13 scope.
 func validateClustersUniqueClusterName(s *MongoDBSearch) v1.ValidationResult {
@@ -441,6 +468,55 @@ func validateClustersAndTopLevelFieldsMutuallyExclusive(s *MongoDBSearch) v1.Val
 	return v1.ValidationSuccess()
 }
 
+// validateClustersNoRename rejects an Update where a clusterName has been removed
+// from spec.clusters AND a different clusterName has been added in the same update.
+// Pure rename (one removed, one added) is the operation we forbid; pure remove or
+// pure add is allowed (the index mapping handles both safely — removed indices are
+// preserved, added clusters get the next monotonic index).
+//
+// This is a soft, single-update rule: a remove-then-readd in two separate updates
+// is indistinguishable from a real rename. We accept that — the index is preserved
+// in both cases, so the worst case is that a real rename slips through across two
+// updates and the user sees no observable difference. There is no admission webhook
+// for MongoDBSearch today; all the more reason to keep the rule tight enough to
+// catch the obvious mistake but loose enough not to false-positive on benign edits.
+func validateClustersNoRename(s *MongoDBSearch) v1.ValidationResult {
+	raw, ok := s.Annotations[LastClusterNumMapping]
+	if !ok || raw == "" {
+		return v1.ValidationSuccess()
+	}
+	previous := parseClusterMapping(raw)
+	if len(previous) == 0 {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.Clusters == nil {
+		return v1.ValidationSuccess()
+	}
+	currentSet := make(map[string]struct{}, len(*s.Spec.Clusters))
+	for _, c := range *s.Spec.Clusters {
+		currentSet[c.ClusterName] = struct{}{}
+	}
+	var removed []string
+	for name := range previous {
+		if _, ok := currentSet[name]; !ok {
+			removed = append(removed, name)
+		}
+	}
+	var added []string
+	for name := range currentSet {
+		if _, ok := previous[name]; !ok {
+			added = append(added, name)
+		}
+	}
+	if len(removed) > 0 && len(added) > 0 {
+		return v1.ValidationError(
+			"clusterName changes are not allowed: removed=%v added=%v. To rename a cluster, recreate the MongoDBSearch resource",
+			removed, added,
+		)
+	}
+	return v1.ValidationSuccess()
+}
+
 func ValidateShardNameRFC1123(shardName string) error {
 	if shardName == "" {
 		return fmt.Errorf("shardName is required")
@@ -451,4 +527,177 @@ func ValidateShardNameRFC1123(shardName string) error {
 	}
 
 	return nil
+}
+
+// validateMCExternalHostnamePlaceholders enforces:
+//   - When len(spec.clusters) > 1 and managed LB is in use, externalHostname
+//     must contain {clusterName} or {clusterIndex} so each cluster's resolved
+//     hostname is distinct.
+//   - When the source is external sharded AND len(spec.clusters) > 1,
+//     externalHostname must additionally contain {shardName}.
+//
+// Single-cluster (len <= 1) and legacy specs (clusters nil) fall through —
+// the existing single-cluster behaviour is preserved.
+func validateMCExternalHostnamePlaceholders(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	tmpl := s.Spec.LoadBalancer.Managed.ExternalHostname
+	hasCluster := strings.Contains(tmpl, ClusterNamePlaceholder) || strings.Contains(tmpl, ClusterIndexPlaceholder)
+	if !hasCluster {
+		return v1.ValidationError(
+			"spec.loadBalancer.managed.externalHostname must contain %s or %s when len(spec.clusters) > 1",
+			ClusterNamePlaceholder, ClusterIndexPlaceholder,
+		)
+	}
+	if s.IsExternalSourceSharded() && !strings.Contains(tmpl, ShardNamePlaceholder) {
+		return v1.ValidationError(
+			"spec.loadBalancer.managed.externalHostname must contain %s for multi-cluster sharded deployments",
+			ShardNamePlaceholder,
+		)
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateExternalHostnameDNSLength validates that every resolved
+// (cluster, shard) cross-product hostname is a valid RFC 1123 subdomain
+// (FQDN <= 253 chars, each label <= 63 chars). The host portion is the
+// substring before the last ":" (port stripped); if no ":" is present the
+// entire string is the host. Iterates spec.clusters[] x
+// spec.source.external.shardedCluster.shards[] (either may be empty).
+func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
+	if !s.IsLBModeManaged() || s.Spec.LoadBalancer.Managed.ExternalHostname == "" {
+		return v1.ValidationSuccess()
+	}
+
+	var clusterCount int
+	if s.Spec.Clusters != nil {
+		clusterCount = len(*s.Spec.Clusters)
+	}
+
+	var shardNames []string
+	if s.IsExternalSourceSharded() {
+		for _, sh := range s.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
+			shardNames = append(shardNames, sh.ShardName)
+		}
+	}
+
+	check := func(host string) v1.ValidationResult {
+		h := host
+		if idx := strings.LastIndex(h, ":"); idx >= 0 {
+			h = h[:idx]
+		}
+		if len(h) == 0 {
+			return v1.ValidationError(
+				"spec.loadBalancer.managed.externalHostname resolves to an empty host: %q",
+				host,
+			)
+		}
+		// IsDNS1123Subdomain caps the FQDN at 253 chars and enforces the
+		// overall regex, but does *not* enforce the per-label 63-char limit.
+		// Walk the labels separately so a single oversized cluster/shard label trips here.
+		if errs := validation.IsDNS1123Subdomain(h); len(errs) > 0 {
+			return v1.ValidationError(
+				"spec.loadBalancer.managed.externalHostname resolves to an invalid DNS subdomain %q: %s",
+				h, strings.Join(errs, ", "),
+			)
+		}
+		for _, label := range strings.Split(h, ".") {
+			if errs := validation.IsDNS1123Label(label); len(errs) > 0 {
+				return v1.ValidationError(
+					"spec.loadBalancer.managed.externalHostname resolves to an invalid DNS subdomain %q: label %q: %s",
+					h, label, strings.Join(errs, ", "),
+				)
+			}
+		}
+		return v1.ValidationSuccess()
+	}
+
+	// Iterate the cross-product. clusterCount == 0 (legacy / no spec.clusters)
+	// runs a single pass with no cluster substitution; len(shardNames) == 0
+	// runs a single pass with no shard substitution.
+	clusterIters := clusterCount
+	if clusterIters == 0 {
+		clusterIters = 1
+	}
+	for i := 0; i < clusterIters; i++ {
+		base := s.Spec.LoadBalancer.Managed.ExternalHostname
+		if clusterCount > 0 {
+			base = s.GetManagedLBEndpointForCluster(i)
+		}
+		if len(shardNames) == 0 {
+			if res := check(base); res.Level == v1.ErrorLevel {
+				return res
+			}
+			continue
+		}
+		for _, sn := range shardNames {
+			if res := check(strings.ReplaceAll(base, ShardNamePlaceholder, sn)); res.Level == v1.ErrorLevel {
+				return res
+			}
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateMCRejectsUnmanagedLB rejects multi-cluster MongoDBSearch with
+// spec.loadBalancer.unmanaged set. Q3-MC / Q4-MC topologies are deferred
+// post-GA per spec §4.4 and §B0.2; multi-cluster at GA requires managed LB.
+// Single-cluster (and the degenerate single-entry spec.clusters case) keep
+// using unmanaged LB without change.
+func validateMCRejectsUnmanagedLB(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.LoadBalancer == nil || s.Spec.LoadBalancer.Unmanaged == nil {
+		return v1.ValidationSuccess()
+	}
+	return v1.ValidationError(
+		"Q3/Q4-MC topologies are deferred — multi-cluster MongoDBSearch requires spec.loadBalancer.managed; spec.loadBalancer.unmanaged is single-cluster only at GA",
+	)
+}
+
+// validateMCRequiresLoadBalancerManaged rejects multi-cluster MongoDBSearch
+// without spec.loadBalancer set at all. Q5-MC / Q6-MC ("no LB" + MC) are
+// permanently rejected per spec §4.4 / §B0.2 — multi-cluster requires Envoy.
+// Combined with validateMCRejectsUnmanagedLB above, this enforces the
+// "MC at GA = Q1 or Q2 = managed LB" rule symbolically without inspecting
+// per-cluster replicas.
+func validateMCRequiresLoadBalancerManaged(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	if s.Spec.LoadBalancer != nil {
+		return v1.ValidationSuccess()
+	}
+	return v1.ValidationError(
+		"multi-cluster MongoDBSearch requires spec.loadBalancer.managed; no-LB MC topologies (Q5/Q6) are not supported",
+	)
+}
+
+// validateMCMatchTagsNonEmpty rejects an explicitly-set-but-empty
+// syncSourceSelector.matchTags in spec.clusters[] when len(spec.clusters) > 1.
+// An empty map is meaningless: the operator cannot peek at the external
+// replSetConfig to autodetect tags. Nil (omitted) is fine — inherits.
+// validateClustersSyncSourceSelector covers the matchTags-vs-hosts mutual
+// exclusion; this rule covers the non-nil-but-empty case.
+func validateMCMatchTagsNonEmpty(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Clusters == nil || len(*s.Spec.Clusters) <= 1 {
+		return v1.ValidationSuccess()
+	}
+	for i, c := range *s.Spec.Clusters {
+		if c.SyncSourceSelector == nil {
+			continue
+		}
+		if c.SyncSourceSelector.MatchTags != nil && len(c.SyncSourceSelector.MatchTags) == 0 {
+			return v1.ValidationError(
+				"spec.clusters[%d].syncSourceSelector.matchTags cannot be empty when set; remove the field to inherit, or specify at least one tag — operator cannot autodetect tags from external mongod replSetConfig",
+				i,
+			)
+		}
+	}
+	return v1.ValidationSuccess()
 }
