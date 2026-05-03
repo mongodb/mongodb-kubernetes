@@ -135,13 +135,66 @@ func TestBuildEnvoyPodSpec_DefaultResources(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 	}
 	resources := envoyResourceRequirements(search)
-	podSpec := buildEnvoyPodSpec(search, nil, false, "envoy:latest", resources, false)
+	podSpec := buildEnvoyPodSpec(search, "", nil, false, "envoy:latest", resources, false)
 
 	assert.Len(t, podSpec.Containers, 1)
 	assert.Equal(t, "envoy", podSpec.Containers[0].Name)
 	assert.Equal(t, resource.MustParse("100m"), podSpec.Containers[0].Resources.Requests[corev1.ResourceCPU])
 	assert.Equal(t, resource.MustParse("128Mi"), podSpec.Containers[0].Resources.Requests[corev1.ResourceMemory])
 }
+
+// TestBuildEnvoyPodSpec_ConfigMapVolumePerCluster regresses the MC-mode
+// volume-name bug where buildEnvoyPodSpec hardcoded LoadBalancerConfigMapName()
+// instead of the per-cluster suffixed name. Without this, the Pod template in
+// member clusters references a ConfigMap that does not exist (ensureConfigMap
+// writes the per-cluster name), so Envoy never starts in MC mode.
+func TestBuildEnvoyPodSpec_ConfigMapVolumePerCluster(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+	}
+	resources := envoyResourceRequirements(search)
+
+	cases := []struct {
+		name           string
+		clusterName    string
+		expectedCMName string
+	}{
+		{
+			name:           "single-cluster keeps legacy unsuffixed name",
+			clusterName:    "",
+			expectedCMName: search.LoadBalancerConfigMapName(),
+		},
+		{
+			name:           "MC cluster a uses per-cluster suffixed name",
+			clusterName:    "cluster-a",
+			expectedCMName: search.LoadBalancerConfigMapNameForCluster("cluster-a"),
+		},
+		{
+			name:           "MC cluster b uses per-cluster suffixed name",
+			clusterName:    "cluster-b",
+			expectedCMName: search.LoadBalancerConfigMapNameForCluster("cluster-b"),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			podSpec := buildEnvoyPodSpec(search, tc.clusterName, nil, false, "envoy:latest", resources, false)
+
+			var found *corev1.Volume
+			for i := range podSpec.Volumes {
+				if podSpec.Volumes[i].Name == "envoy-config" {
+					found = &podSpec.Volumes[i]
+					break
+				}
+			}
+			require.NotNil(t, found, "envoy-config volume must be present")
+			require.NotNil(t, found.ConfigMap, "envoy-config volume must be a ConfigMap source")
+			assert.Equal(t, tc.expectedCMName, found.ConfigMap.Name,
+				"per-cluster ConfigMap volume name mismatch — pod will fail to mount")
+		})
+	}
+}
+
 
 func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
@@ -174,7 +227,7 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 
 	// Build the base pod spec as the controller would
 	resources := envoyResourceRequirements(search)
-	podSpec := buildEnvoyPodSpec(search, nil, false, "envoy:latest", resources, false)
+	podSpec := buildEnvoyPodSpec(search, "", nil, false, "envoy:latest", resources, false)
 
 	// Verify base spec has no tolerations
 	assert.Empty(t, podSpec.Tolerations)
@@ -253,7 +306,7 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 	resources := envoyResourceRequirements(search)
 	assert.Equal(t, resource.MustParse("200m"), resources.Requests[corev1.ResourceCPU])
 
-	podSpec := buildEnvoyPodSpec(search, nil, false, "envoy:latest", resources, false)
+	podSpec := buildEnvoyPodSpec(search, "", nil, false, "envoy:latest", resources, false)
 
 	dep := appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{

@@ -826,6 +826,59 @@ func TestReconcile_MC_HelperHasMemberClients_Sanity(t *testing.T) {
 	assert.False(t, ok, "unknown cluster must surface false from SelectClusterClient")
 }
 
+// TestReconcile_MC_EnvoyDeploymentVolumeMatchesPerClusterConfigMap regresses
+// the MC-mode Envoy volume bug: ensureConfigMap writes the per-cluster
+// suffixed ConfigMap name, but buildEnvoyPodSpec previously hardcoded the
+// unsuffixed LoadBalancerConfigMapName(). In MC mode the persisted Deployment
+// in each member cluster pointed its envoy-config volume at a ConfigMap that
+// did not exist there — Envoy never started, the data plane was dead.
+//
+// This test asserts that, after a full reconcile, every cluster's persisted
+// Deployment's envoy-config volume references the matching per-cluster
+// ConfigMap that lives in the same client. Without this assertion, the same
+// cross-method drift can recur silently — none of the prior unit tests
+// inspected dep.Spec.Template.Spec.Volumes.
+func TestReconcile_MC_EnvoyDeploymentVolumeMatchesPerClusterConfigMap(t *testing.T) {
+	search := newMCSearch(mcTestSearchName, mcTestNamespace)
+	h := newMCFakeReconcilerHarness(t, search, true)
+
+	_, _, err := reconcileMCSearchAndEnvoy(t, h, search)
+	require.NoError(t, err)
+
+	for _, c := range []struct {
+		clusterIs client.Client
+		clusterID string
+	}{
+		{h.clusterA, mcClusterAName},
+		{h.clusterB, mcClusterBName},
+	} {
+		dep := &appsv1.Deployment{}
+		require.NoError(t, c.clusterIs.Get(t.Context(),
+			types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(c.clusterID), Namespace: mcTestNamespace}, dep))
+
+		var envoyVol *corev1.Volume
+		for i := range dep.Spec.Template.Spec.Volumes {
+			if dep.Spec.Template.Spec.Volumes[i].Name == "envoy-config" {
+				envoyVol = &dep.Spec.Template.Spec.Volumes[i]
+				break
+			}
+		}
+		require.NotNil(t, envoyVol, "cluster %q persisted Deployment must carry an envoy-config volume", c.clusterID)
+		require.NotNil(t, envoyVol.ConfigMap, "cluster %q envoy-config volume must reference a ConfigMap", c.clusterID)
+
+		expectedCMName := search.LoadBalancerConfigMapNameForCluster(c.clusterID)
+		assert.Equal(t, expectedCMName, envoyVol.ConfigMap.Name,
+			"cluster %q envoy-config volume must reference per-cluster ConfigMap %q (was %q)",
+			c.clusterID, expectedCMName, envoyVol.ConfigMap.Name)
+
+		// Sanity: the ConfigMap by that name actually exists in the same client.
+		cm := &corev1.ConfigMap{}
+		require.NoError(t, c.clusterIs.Get(t.Context(),
+			types.NamespacedName{Name: expectedCMName, Namespace: mcTestNamespace}, cm),
+			"cluster %q must have ConfigMap %q so the volume mount can resolve", c.clusterID, expectedCMName)
+	}
+}
+
 // TestReconcile_MC_EnvoyDeploymentName_PerClusterIdentity asserts that each
 // cluster's Envoy Deployment in its own client has the correct per-cluster
 // name (containing the cluster ID) and the cluster-name label set. This is

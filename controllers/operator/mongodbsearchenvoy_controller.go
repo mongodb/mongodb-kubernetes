@@ -573,7 +573,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 						envoyConfigHashAnnotation: configHash,
 					},
 				},
-				Spec: buildEnvoyPodSpec(search, tlsCfg, tlsEnabled, image, resources, managedSecurityContext),
+				Spec: buildEnvoyPodSpec(search, clusterName, tlsCfg, tlsEnabled, image, resources, managedSecurityContext),
 			},
 		}
 
@@ -599,13 +599,18 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 
 // buildEnvoyPodSpec builds the PodSpec for the Envoy Deployment.
 // tlsCfg may be nil if TLS is not configured on the source.
-func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, tlsCfg *searchcontroller.TLSSourceConfig, tlsEnabled bool, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
+//
+// clusterName selects the per-cluster ConfigMap volume name in MC mode
+// (clusterName == "" preserves the single-cluster path's legacy unsuffixed
+// name). Without this, MC pods mount a ConfigMap that does not exist in the
+// member cluster and Envoy never starts.
+func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterName string, tlsCfg *searchcontroller.TLSSourceConfig, tlsEnabled bool, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
 	volumes := []corev1.Volume{
 		{
 			Name: "envoy-config",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: search.LoadBalancerConfigMapName()},
+					LocalObjectReference: corev1.LocalObjectReference{Name: search.LoadBalancerConfigMapNameForCluster(clusterName)},
 				},
 			},
 		},
