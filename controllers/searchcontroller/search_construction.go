@@ -94,9 +94,10 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, stsName, nam
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 	}
 
-	// Single-cluster MVP: B18 auto-promotion guarantees len==1 unless the user
-	// posted spec.clusters: []. Guard against the empty-slice corner case so we
-	// degrade to "no override" rather than panic.
+	// EffectiveClusters auto-promotes the legacy top-level fields when spec.clusters
+	// is unset, so this normally returns one entry. Guard against the empty-slice
+	// corner case (user posted spec.clusters: []) so we degrade to "no override"
+	// rather than panic.
 	effective := searchv1.EffectiveClusters(mdbSearch)
 	var perCluster searchv1.ClusterSpec
 	if len(effective) > 0 {

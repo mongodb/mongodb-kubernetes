@@ -269,7 +269,7 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 	assert.Equal(t, resource.MustParse("500m"), dep.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
 }
 
-// --- B16 per-cluster route renderer tests -------------------------------------
+// --- per-cluster route renderer tests -----------------------------------------
 
 func TestBuildRoutesForCluster_RS_TemplateSubstitutesClusterName(t *testing.T) {
 	one := int32(1)
@@ -330,7 +330,7 @@ func TestBuildRoutesForCluster_SingleClusterUnchanged(t *testing.T) {
 	assert.Equal(t, sc[0].UpstreamHost, mc[0].UpstreamHost)
 }
 
-// mockShardedSourceForEnvoy is a minimal SearchSourceShardedDeployment double for B16 tests.
+// mockShardedSourceForEnvoy is a minimal SearchSourceShardedDeployment double for these tests.
 type mockShardedSourceForEnvoy struct {
 	shardNames []string
 }
@@ -387,7 +387,7 @@ func TestBuildRoutesForCluster_Sharded_PerClusterShardSNI(t *testing.T) {
 	assert.Len(t, seen, 4, "per-(cluster, shard) SNIs must all be distinct")
 }
 
-// --- B16 reconciler constructor with member-cluster client maps ---------------
+// --- reconciler constructor with member-cluster client maps -------------------
 
 func TestNewMongoDBSearchEnvoyReconciler_AcceptsMemberClusters(t *testing.T) {
 	central := fake.NewClientBuilder().Build()
@@ -414,7 +414,7 @@ func TestNewMongoDBSearchEnvoyReconciler_NilMembersMap(t *testing.T) {
 	assert.Empty(t, r.memberClusterSecretClientsMap)
 }
 
-// --- B16 selectEnvoyClient ----------------------------------------------------
+// --- selectEnvoyClient --------------------------------------------------------
 
 func TestSelectEnvoyClient(t *testing.T) {
 	central := kubernetesClient.NewClient(fake.NewClientBuilder().Build())
@@ -425,11 +425,11 @@ func TestSelectEnvoyClient(t *testing.T) {
 	assert.Equal(t, central, selectEnvoyClient("", central, members))
 	// Known member name → that member
 	assert.Equal(t, memberA, selectEnvoyClient("a", central, members))
-	// Unknown member name → silent fallback to central (mirrors B1 selectClusterClient)
+	// Unknown member name → silent fallback to central (mirrors searchcontroller.SelectClusterClient)
 	assert.Equal(t, central, selectEnvoyClient("zzz", central, members))
 }
 
-// --- B16 per-cluster name helpers + cross-cluster enqueue labels --------------
+// --- per-cluster name helpers + cross-cluster enqueue labels ------------------
 
 func TestLoadBalancerNamesForCluster_SingleClusterUnchanged(t *testing.T) {
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
@@ -463,7 +463,7 @@ func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 	assert.Equal(t, "us-east-k8s", mc[envoyClusterNameLabel])
 }
 
-// --- B16 per-cluster replicas defaulting -------------------------------------
+// --- per-cluster replicas defaulting ------------------------------------------
 
 func TestEnvoyReplicasForCluster_SingleCluster_DefaultsTo1(t *testing.T) {
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
@@ -604,7 +604,7 @@ func TestEnsureDeployment_PerClusterReplicas_FromClustersSpec(t *testing.T) {
 	assert.Equal(t, int32(5), *dep.Spec.Replicas)
 }
 
-// --- B16 reconcile loop + per-cluster status -----------------------------------
+// --- reconcile loop + per-cluster status --------------------------------------
 
 func TestBuildClusterWorkList_SingleClusterDegenerate(t *testing.T) {
 	r := newMongoDBSearchEnvoyReconciler(fake.NewClientBuilder().Build(), "envoy:latest", nil)
@@ -667,7 +667,7 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	}
 	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, "missing-cluster", zap.S())
 	assert.Equal(t, status.PhasePending, st.Phase())
-	assert.Contains(t, extractWorkflowMsg(st), "missing-cluster")
+	assert.Contains(t, searchcontroller.MessageFromStatus(st), "missing-cluster")
 }
 
 func TestMapEnvoyObjectToSearch(t *testing.T) {
@@ -720,7 +720,7 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	}
 
 	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, "a", zap.S())
-	require.True(t, st.IsOK(), "expected OK, got %s: %s", st.Phase(), extractWorkflowMsg(st))
+	require.True(t, st.IsOK(), "expected OK, got %s: %s", st.Phase(), searchcontroller.MessageFromStatus(st))
 
 	// Member cluster has Deployment + ConfigMap; central does not.
 	dep := &appsv1.Deployment{}
@@ -782,7 +782,7 @@ func TestEnvoyReplicasForCluster_PerClusterOverride(t *testing.T) {
 	assert.Equal(t, int32(2), envoyReplicasForCluster(search, "eu-west-k8s"))
 }
 
-// --- B16 end-to-end Reconcile + status aggregation ---------------------------
+// --- end-to-end Reconcile + status aggregation -------------------------------
 
 // TestReconcile_PerClusterStatus_Aggregated exercises the full Reconcile path:
 // two clusters in spec.clusters[]; one is a member registered with the operator
