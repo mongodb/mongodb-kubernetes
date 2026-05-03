@@ -86,15 +86,15 @@ spec:
                 description: |-
                   Clusters is the per-cluster distribution shape. Required for multi-cluster
                   deployments (len > 1); when omitted, the reconciler defaults it to a single
-                  entry built from the top-level fields (B18 — not yet implemented). Pointer-of-slice
-                  so omitted vs. empty is distinguishable.
+                  entry built from the top-level fields. Pointer-of-slice so omitted vs.
+                  empty is distinguishable.
                   MaxItems is set so the apiserver can bound the cost of the clusterName
                   uniqueness CEL rule below; 50 is well above any realistic multi-cluster
                   deployment.
                 items:
                   description: |-
                     ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
-                    when len(spec.clusters) > 1 (B13); optional in the single-cluster degenerate case.
+                    when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
                     All other fields override the corresponding top-level value when set; nil/omitted inherits.
                   properties:
                     clusterName:
@@ -344,8 +344,7 @@ spec:
                       items:
                         description: |-
                           ShardOverride lets sharded MongoDBSearch deployments tune one or more shards
-                          beyond the per-cluster defaults. Only valid for sharded sources (the source-aware
-                          admission rule lives in B13).
+                          beyond the per-cluster defaults. Only valid for sharded sources.
                         properties:
                           persistence:
                             properties:
@@ -520,8 +519,7 @@ spec:
                     syncSourceSelector:
                       description: |-
                         SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
-                        At-most-one of MatchTags or Hosts may be set; the cross-field rule that
-                        requires exactly one when len(spec.clusters) > 1 lives in B13.
+                        At-most-one of MatchTags or Hosts may be set.
                         MaxProperties / MaxItems / MaxLength on the children are required so the
                         apiserver can bound the schema-cost contribution that the XValidation rule
                         reads via has().
@@ -1082,12 +1080,9 @@ spec:
                               description: |-
                                 Clusters is the per-cluster managed-LB phase. Only populated when
                                 len(spec.clusters) > 0 — single-cluster keeps the existing top-level Phase.
-                                B16 writes a placeholder schema; B9 will formalize it (sharded sub-statuses,
-                                observedGeneration, etc.).
                               items:
-                                description: |-
-                                  ClusterLoadBalancerStatus reports per-cluster managed LB state.
-                                  Placeholder schema written by B16; B9 formalizes the per-cluster status surface.
+                                description: ClusterLoadBalancerStatus reports per-cluster
+                                  managed LB state.
                                 properties:
                                   clusterName:
                                     description: ClusterName is the member cluster
@@ -1168,8 +1163,7 @@ spec:
                         warnings:
                           description: |-
                             Warnings is the per-cluster warnings list (e.g. customer-replicated
-                            secret missing in this cluster). Populated by the per-cluster presence
-                            check in B5; nil until that integration lands.
+                            secret missing in this cluster).
                           items:
                             type: string
                           type: array
@@ -1192,12 +1186,9 @@ spec:
                     description: |-
                       Clusters is the per-cluster managed-LB phase. Only populated when
                       len(spec.clusters) > 0 — single-cluster keeps the existing top-level Phase.
-                      B16 writes a placeholder schema; B9 will formalize it (sharded sub-statuses,
-                      observedGeneration, etc.).
                     items:
-                      description: |-
-                        ClusterLoadBalancerStatus reports per-cluster managed LB state.
-                        Placeholder schema written by B16; B9 formalizes the per-cluster status surface.
+                      description: ClusterLoadBalancerStatus reports per-cluster managed
+                        LB state.
                       properties:
                         clusterName:
                           description: ClusterName is the member cluster this status
