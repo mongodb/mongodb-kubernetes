@@ -97,11 +97,27 @@ func NewMongoDBSearchReconcileHelper(
 	db SearchSourceDBResource,
 	operatorSearchConfig OperatorSearchConfig,
 ) *MongoDBSearchReconcileHelper {
+	return NewMongoDBSearchReconcileHelperWithMembers(client, mdbSearch, db, operatorSearchConfig, nil)
+}
+
+// NewMongoDBSearchReconcileHelperWithMembers constructs a helper with the
+// per-member-cluster client map populated. The map is keyed by
+// spec.clusters[i].clusterName and routes per-cluster reconcileUnit writes
+// (StatefulSet, Service, ConfigMap) to the correct member-cluster API server
+// via SelectClusterClient. Pass nil/empty for single-cluster installs.
+func NewMongoDBSearchReconcileHelperWithMembers(
+	client kubernetesClient.Client,
+	mdbSearch *searchv1.MongoDBSearch,
+	db SearchSourceDBResource,
+	operatorSearchConfig OperatorSearchConfig,
+	memberClusterClients map[string]kubernetesClient.Client,
+) *MongoDBSearchReconcileHelper {
 	return &MongoDBSearchReconcileHelper{
 		client:               client,
 		operatorSearchConfig: operatorSearchConfig,
 		mdbSearch:            mdbSearch,
 		db:                   db,
+		memberClusterClients: memberClusterClients,
 	}
 }
 

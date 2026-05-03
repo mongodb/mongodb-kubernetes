@@ -126,7 +126,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
-	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig)
+	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelperWithMembers(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap)
 
 	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 	if err != nil {
