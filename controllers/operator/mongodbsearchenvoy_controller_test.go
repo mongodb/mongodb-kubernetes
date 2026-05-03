@@ -195,7 +195,6 @@ func TestBuildEnvoyPodSpec_ConfigMapVolumePerCluster(t *testing.T) {
 	}
 }
 
-
 func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
