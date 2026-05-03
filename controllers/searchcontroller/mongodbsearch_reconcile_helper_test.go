@@ -17,6 +17,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
@@ -834,7 +835,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 			embeddingMod := func(c *mongot.Config) {
 				c.Embedding = &mongot.EmbeddingConfig{IsAutoEmbeddingViewWriter: ptr.To(true)}
 			}
-			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
+			_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, embeddingMod)
 			require.NoError(t, err)
 
 			cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -872,12 +873,12 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	}
 
 	// Create ConfigMap in single config mode
-	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
+	_, err := helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, embeddingMod)
 	require.NoError(t, err)
 
 	// Transition to per-pod config mode - verify old key is cleaned up
 	search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, embeddingMod)
 	require.NoError(t, err)
 
 	cm, err := fakeClient.GetConfigMap(t.Context(), cmName)
@@ -886,7 +887,7 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 
 	// Transition back to single config mode - verify per-pod keys are cleaned up
 	search.Spec.AutoEmbedding = nil
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), cmName, stsName, embeddingMod)
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient, cmName, stsName, embeddingMod)
 	require.NoError(t, err)
 
 	cm, err = fakeClient.GetConfigMap(t.Context(), cmName)
@@ -2688,4 +2689,90 @@ func TestBuildReplicaSetPlan_SingleClusterPreservesLegacyNames(t *testing.T) {
 	require.Len(t, plan.units, 1)
 	assert.Equal(t, "mdb-search-search", plan.units[0].stsName.Name)
 	assert.Equal(t, "mdb-search-search-0-proxy-svc", plan.units[0].proxySvc.Name)
+}
+
+// TestReconcilePlan_UsesPerClusterClient verifies that when buildReplicaSetPlan
+// produces per-cluster reconcileUnits (Task 14/15), applyReconcileUnit writes
+// each unit's resources (StatefulSet, headless+proxy Services, mongot
+// ConfigMap) to the member-cluster client matched by clusterName — not to the
+// central client. This is the wiring that makes spec.clusters[i] objects
+// materialize in the right Kubernetes API server. The test asserts on the
+// StatefulSet and ConfigMap as representative resources; ensureSearchService,
+// ensureMongotConfig, and createOrUpdateStatefulSet all share the same
+// per-unit client selection inside applyReconcileUnit, so a regression in
+// any one of them surfaces here.
+func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "cluster-a", Replicas: ptr.To(int32(2))},
+		{ClusterName: "cluster-b", Replicas: ptr.To(int32(2))},
+	}
+	mdb.Spec.Clusters = &clusters
+	mdb.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			HostAndPorts: []string{"a.example:27017"},
+		},
+	}
+
+	// mock.NewEmptyFakeClientBuilder registers searchv1 on the scheme so that
+	// controllerutil.SetOwnerReference can resolve MongoDBSearch's GVK.
+	centralClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	clusterAClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	clusterBClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+
+	memberClients := map[string]kubernetesClient.Client{
+		"cluster-a": clusterAClient,
+		"cluster-b": clusterBClient,
+	}
+
+	r := &MongoDBSearchReconcileHelper{
+		mdbSearch:            mdb,
+		client:               centralClient,
+		memberClusterClients: memberClients,
+		operatorSearchConfig: newTestOperatorSearchConfig(),
+	}
+
+	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
+	plan, err := r.buildReplicaSetPlan(source)
+	require.NoError(t, err)
+	require.Len(t, plan.units, 2)
+
+	// Apply each unit. Cluster A's StatefulSet must end up in clusterAClient,
+	// cluster B's in clusterBClient — NOT in the central client.
+	for _, unit := range plan.units {
+		_, err := r.applyReconcileUnit(t.Context(), zap.S(), plan, unit, reconcileUnitMods{})
+		require.NoError(t, err)
+	}
+
+	// Cluster A's STS lands in clusterAClient (index-0 indexed name from Task 15).
+	stsA := &appsv1.StatefulSet{}
+	require.NoError(t, clusterAClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, stsA))
+
+	// Cluster B's STS lands in clusterBClient (index-1 indexed name).
+	stsB := &appsv1.StatefulSet{}
+	require.NoError(t, clusterBClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, stsB))
+
+	// Cluster B's ConfigMap also lands in clusterBClient (index-1 indexed
+	// name; cluster A's CM keeps the legacy unindexed name for back-compat per
+	// MongotConfigConfigMapNameForCluster). Asserting on the CM in addition
+	// to the STS guards against ensureMongotConfig regressing to r.client.
+	cmB := &corev1.ConfigMap{}
+	require.NoError(t, clusterBClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-1-config", Namespace: "ns"}, cmB))
+
+	// Central client must NOT have either per-cluster STS.
+	stsCentral := &appsv1.StatefulSet{}
+	err = centralClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, stsCentral)
+	assert.True(t, apierrors.IsNotFound(err), "central client must NOT have cluster-a STS")
+	err = centralClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, stsCentral)
+	assert.True(t, apierrors.IsNotFound(err), "central client must NOT have cluster-b STS")
+
+	// Cross-cluster contamination check: cluster A's STS must not be in cluster B's client.
+	err = clusterBClient.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{})
+	assert.True(t, apierrors.IsNotFound(err), "cluster B client must NOT have cluster A STS")
 }
