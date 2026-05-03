@@ -211,9 +211,9 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 	workflowStatus := r.reconcile(ctx, log)
 
-	// B9: populate the per-cluster status surface from spec.clusters[i] before
-	// the patch goes out. No-op when spec.clusters is nil/empty (legacy
-	// single-cluster install) — top-level fields keep their existing semantics.
+	// Populate the per-cluster status surface from spec.clusters[i] before the
+	// patch goes out. No-op when spec.clusters is nil/empty (legacy single-cluster
+	// install) — top-level fields keep their existing semantics.
 	r.mdbSearch.AggregateClusterStatuses(buildPerClusterStatusItems(r.mdbSearch, workflowStatus))
 
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
@@ -223,10 +223,8 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 }
 
 // buildPerClusterStatusItems returns one SearchClusterStatusItem per
-// spec.clusters[i]. For B9 minimal, every entry copies the workflow outcome's
-// phase + message into its inlined status.Common. Per-cluster phase divergence
-// (e.g. one cluster Pending because its presence-checked secret is missing)
-// lands in B5/B14 follow-ups. Returns nil when spec.clusters is nil or empty
+// spec.clusters[i]. Every entry copies the workflow outcome's phase + message
+// into its inlined status.Common. Returns nil when spec.clusters is nil or empty
 // (legacy single-cluster); the top-level Phase keeps its existing semantics.
 func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status) []searchv1.SearchClusterStatusItem {
 	if mdb.Spec.Clusters == nil || len(*mdb.Spec.Clusters) == 0 {
@@ -411,7 +409,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 // mapping into the LastClusterNumMapping annotation. It preserves every previously-assigned
 // index and appends new clusters monotonically (see search.AssignClusterIndices); a removed
 // cluster's index is never reused. The annotation is the single source of truth for the
-// ClusterIndex read API consumed by B4 (placeholder resolution) and B16 (SNI route ordering).
+// ClusterIndex read API used by placeholder resolution and SNI route ordering.
 //
 // No-ops when spec.clusters is nil or empty (single-cluster path) and when the new mapping
 // matches the current annotation byte-for-byte.

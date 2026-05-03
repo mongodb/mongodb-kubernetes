@@ -153,7 +153,7 @@ func TestCheckSecretsPresence_KeyfileSharded_MissingWhenSet(t *testing.T) {
 func TestCheckSecretsPresence_KeyfileNotRequiredForRS(t *testing.T) {
 	search := newSearchWithExternalSource("s", "ns")
 	// RS source with KeyFileSecretKeyRef set on the spec → should still NOT be checked
-	// because the secret is sharded-only per spec §3.1 B5 row.
+	// because the keyfile secret is sharded-only.
 	search.Spec.Source.ExternalMongoDBSource.KeyFileSecretKeyRef = &userv1.SecretKeyRef{Name: "should-not-check"}
 	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
 

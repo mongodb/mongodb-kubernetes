@@ -821,7 +821,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "test-ns")
-			//nolint:staticcheck // SA1019: exercising the legacy single-cluster path under B18 auto-promotion.
+			//nolint:staticcheck // SA1019: exercising the legacy single-cluster auto-promotion path.
 			search.Spec.Replicas = ptr.To(tc.replicas)
 			if tc.hasAutoEmbedding {
 				search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
@@ -860,7 +860,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 
 func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
-	//nolint:staticcheck // SA1019: exercising the legacy single-cluster path under B18 auto-promotion.
+	//nolint:staticcheck // SA1019: exercising the legacy single-cluster auto-promotion path.
 	search.Spec.Replicas = ptr.To(int32(1))
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())

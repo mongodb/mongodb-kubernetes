@@ -139,8 +139,8 @@ type MongoDBSearchSpec struct {
 	JVMFlags []string `json:"jvmFlags,omitempty"`
 	// Clusters is the per-cluster distribution shape. Required for multi-cluster
 	// deployments (len > 1); when omitted, the reconciler defaults it to a single
-	// entry built from the top-level fields (B18 — not yet implemented). Pointer-of-slice
-	// so omitted vs. empty is distinguishable.
+	// entry built from the top-level fields. Pointer-of-slice so omitted vs.
+	// empty is distinguishable.
 	// MaxItems is set so the apiserver can bound the cost of the clusterName
 	// uniqueness CEL rule below; 50 is well above any realistic multi-cluster
 	// deployment.
@@ -151,8 +151,7 @@ type MongoDBSearchSpec struct {
 }
 
 // SyncSourceSelector picks which mongods this cluster's mongot fleet syncs from.
-// At-most-one of MatchTags or Hosts may be set; the cross-field rule that
-// requires exactly one when len(spec.clusters) > 1 lives in B13.
+// At-most-one of MatchTags or Hosts may be set.
 // MaxProperties / MaxItems / MaxLength on the children are required so the
 // apiserver can bound the schema-cost contribution that the XValidation rule
 // reads via has().
@@ -180,8 +179,7 @@ type PerClusterLoadBalancerConfig struct {
 }
 
 // ShardOverride lets sharded MongoDBSearch deployments tune one or more shards
-// beyond the per-cluster defaults. Only valid for sharded sources (the source-aware
-// admission rule lives in B13).
+// beyond the per-cluster defaults. Only valid for sharded sources.
 type ShardOverride struct {
 	// ShardNames is the set of shard names this override applies to.
 	// +kubebuilder:validation:Required
@@ -199,7 +197,7 @@ type ShardOverride struct {
 }
 
 // ClusterSpec is one entry in spec.clusters[]. ClusterName is required and immutable
-// when len(spec.clusters) > 1 (B13); optional in the single-cluster degenerate case.
+// when len(spec.clusters) > 1; optional in the single-cluster degenerate case.
 // All other fields override the corresponding top-level value when set; nil/omitted inherits.
 type ClusterSpec struct {
 	// ClusterName is the Kubernetes cluster name. Required and immutable
@@ -391,14 +389,11 @@ type LoadBalancerStatus struct {
 	Message string       `json:"message,omitempty"`
 	// Clusters is the per-cluster managed-LB phase. Only populated when
 	// len(spec.clusters) > 0 — single-cluster keeps the existing top-level Phase.
-	// B16 writes a placeholder schema; B9 will formalize it (sharded sub-statuses,
-	// observedGeneration, etc.).
 	// +optional
 	Clusters []ClusterLoadBalancerStatus `json:"clusters,omitempty"`
 }
 
 // ClusterLoadBalancerStatus reports per-cluster managed LB state.
-// Placeholder schema written by B16; B9 formalizes the per-cluster status surface.
 type ClusterLoadBalancerStatus struct {
 	// ClusterName is the member cluster this status entry belongs to.
 	ClusterName string `json:"clusterName"`
@@ -437,8 +432,7 @@ type SearchClusterStatusItem struct {
 	// +optional
 	ObservedReplicas int32 `json:"observedReplicas,omitempty"`
 	// Warnings is the per-cluster warnings list (e.g. customer-replicated
-	// secret missing in this cluster). Populated by the per-cluster presence
-	// check in B5; nil until that integration lands.
+	// secret missing in this cluster).
 	// +optional
 	Warnings []status.Warning `json:"warnings,omitempty"`
 	// LoadBalancer reports the per-cluster managed-LB phase for ReplicaSet
@@ -984,7 +978,7 @@ func (s *MongoDBSearch) LoadBalancerConfigMapName() string {
 }
 
 // LoadBalancerDeploymentNameForCluster returns the name of the managed Envoy
-// Deployment for one member cluster (B16). When clusterName is empty the result
+// Deployment for one member cluster. When clusterName is empty the result
 // matches LoadBalancerDeploymentName for back-compat with single-cluster installs.
 // In multi-cluster, the cluster identifier is appended so per-cluster Deployments
 // in the same namespace stay distinct (resource-name length is checked at
@@ -997,7 +991,7 @@ func (s *MongoDBSearch) LoadBalancerDeploymentNameForCluster(clusterName string)
 }
 
 // LoadBalancerConfigMapNameForCluster returns the name of the managed Envoy
-// ConfigMap for one member cluster (B16). See LoadBalancerDeploymentNameForCluster.
+// ConfigMap for one member cluster. See LoadBalancerDeploymentNameForCluster.
 func (s *MongoDBSearch) LoadBalancerConfigMapNameForCluster(clusterName string) string {
 	if clusterName == "" {
 		return s.LoadBalancerConfigMapName()
