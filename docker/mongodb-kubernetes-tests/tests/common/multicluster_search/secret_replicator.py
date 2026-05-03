@@ -11,6 +11,7 @@ harness exists so e2e tests can stand up a working multi-cluster fixture
 without requiring the test runner to mirror the production replication
 machinery.
 """
+
 from typing import Mapping
 
 from kubernetes.client import CoreV1Api, V1ObjectMeta, V1Secret

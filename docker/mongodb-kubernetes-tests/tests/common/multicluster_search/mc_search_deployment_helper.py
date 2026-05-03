@@ -8,6 +8,7 @@ The cluster-index ordering is the registration order in `member_cluster_clients`
 — that mirrors the operator's `clusterSpecList[].clusterName` ordering, which
 is what B3's stable cluster-index annotation pins.
 """
+
 from typing import Mapping
 
 from kubernetes.client import CoreV1Api
@@ -36,9 +37,7 @@ class MCSearchDeploymentHelper:
         self.mdb_resource_name = mdb_resource_name
         self.mdbs_resource_name = mdbs_resource_name
         self._member_cluster_clients = dict(member_cluster_clients)
-        self._cluster_indices = {
-            name: idx for idx, name in enumerate(self._member_cluster_clients)
-        }
+        self._cluster_indices = {name: idx for idx, name in enumerate(self._member_cluster_clients)}
 
     def member_cluster_names(self) -> list[str]:
         return list(self._member_cluster_clients.keys())
@@ -62,7 +61,4 @@ class MCSearchDeploymentHelper:
         include the port; callers append `:<port>` as needed.
         """
         idx = self.cluster_index(cluster_name)
-        return (
-            f"{self.mdbs_resource_name}-search-{idx}-proxy-svc"
-            f".{self.namespace}.svc.cluster.local"
-        )
+        return f"{self.mdbs_resource_name}-search-{idx}-proxy-svc" f".{self.namespace}.svc.cluster.local"

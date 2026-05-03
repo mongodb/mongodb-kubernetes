@@ -4,6 +4,7 @@ These are thin pytest assertion wrappers around the kubernetes Python
 client. They exist as named helpers (rather than inline `assert`s)
 so failure messages name the cluster + resource clearly when they fire.
 """
+
 from kubernetes.client import AppsV1Api, CoreV1Api
 from kubernetes.client.exceptions import ApiException
 
@@ -17,22 +18,16 @@ _KIND_METHOD: dict[str, str] = {
 }
 
 
-def assert_deployment_ready_in_cluster(
-    apps: AppsV1Api, *, name: str, namespace: str
-) -> None:
+def assert_deployment_ready_in_cluster(apps: AppsV1Api, *, name: str, namespace: str) -> None:
     """Assert Deployment `name`/`namespace` has all spec.replicas ready."""
     dep = apps.read_namespaced_deployment(name=name, namespace=namespace)
     ready = dep.status.ready_replicas or 0
     desired = dep.spec.replicas or 0
     if ready != desired or desired == 0:
-        raise AssertionError(
-            f"Deployment {namespace}/{name}: ready_replicas={ready}/{desired}"
-        )
+        raise AssertionError(f"Deployment {namespace}/{name}: ready_replicas={ready}/{desired}")
 
 
-def assert_resource_in_cluster(
-    client, *, kind: str, name: str, namespace: str
-) -> None:
+def assert_resource_in_cluster(client, *, kind: str, name: str, namespace: str) -> None:
     """Assert that a resource of `kind`/`name` exists in `namespace`.
 
     Supported kinds: Service, ConfigMap, Secret, StatefulSet, Deployment.
@@ -43,7 +38,5 @@ def assert_resource_in_cluster(
         getattr(client, _KIND_METHOD[kind])(name=name, namespace=namespace)
     except ApiException as exc:
         if exc.status == 404:
-            raise AssertionError(
-                f"{kind} {namespace}/{name} not found in target cluster"
-            )
+            raise AssertionError(f"{kind} {namespace}/{name} not found in target cluster")
         raise

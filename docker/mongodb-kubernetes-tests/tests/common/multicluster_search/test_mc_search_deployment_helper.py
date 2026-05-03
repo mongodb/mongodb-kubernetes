@@ -1,8 +1,8 @@
 """Unit tests for MCSearchDeploymentHelper (mocked clients)."""
+
 from unittest.mock import MagicMock
 
 import pytest
-
 from tests.common.multicluster_search.mc_search_deployment_helper import (
     MCSearchDeploymentHelper,
 )
@@ -31,19 +31,15 @@ def test_helper_proxy_svc_fqdn_uses_cluster_index():
         member_cluster_clients={"a": MagicMock(), "b": MagicMock()},
     )
 
-    assert (
-        helper.proxy_svc_fqdn("a")
-        == "mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local"
-    )
-    assert (
-        helper.proxy_svc_fqdn("b")
-        == "mdb-search-search-1-proxy-svc.test-ns.svc.cluster.local"
-    )
+    assert helper.proxy_svc_fqdn("a") == "mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local"
+    assert helper.proxy_svc_fqdn("b") == "mdb-search-search-1-proxy-svc.test-ns.svc.cluster.local"
 
 
 def test_helper_unknown_cluster_raises():
     helper = MCSearchDeploymentHelper(
-        namespace="ns", mdb_resource_name="m", mdbs_resource_name="s",
+        namespace="ns",
+        mdb_resource_name="m",
+        mdbs_resource_name="s",
         member_cluster_clients={"a": MagicMock()},
     )
     with pytest.raises(KeyError):

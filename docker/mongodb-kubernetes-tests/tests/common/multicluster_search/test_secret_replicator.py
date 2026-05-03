@@ -2,11 +2,11 @@
 
 These tests use mocked kubernetes clients (no live cluster needed).
 """
+
 from unittest.mock import MagicMock
 
 import pytest
 from kubernetes.client.exceptions import ApiException
-
 from tests.common.multicluster_search.secret_replicator import replicate_secret
 
 

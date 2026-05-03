@@ -1,9 +1,9 @@
 """Unit tests for per-cluster assertion helpers (mocked clients)."""
+
 from unittest.mock import MagicMock
 
 import pytest
 from kubernetes.client.exceptions import ApiException
-
 from tests.common.multicluster_search.per_cluster_assertions import (
     assert_deployment_ready_in_cluster,
     assert_resource_in_cluster,
@@ -42,15 +42,11 @@ def test_assert_deployment_ready_fails_when_replicas_short():
 def test_assert_resource_present_passes_when_found():
     core = MagicMock()
     core.read_namespaced_service.return_value = MagicMock()
-    assert_resource_in_cluster(
-        core, kind="Service", name="proxy-svc", namespace="ns"
-    )
+    assert_resource_in_cluster(core, kind="Service", name="proxy-svc", namespace="ns")
 
 
 def test_assert_resource_present_fails_when_404():
     core = MagicMock()
     core.read_namespaced_service.side_effect = ApiException(status=404)
     with pytest.raises(AssertionError, match="Service.*proxy-svc.*not found"):
-        assert_resource_in_cluster(
-            core, kind="Service", name="proxy-svc", namespace="ns"
-        )
+        assert_resource_in_cluster(core, kind="Service", name="proxy-svc", namespace="ns")
