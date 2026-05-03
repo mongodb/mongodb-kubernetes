@@ -490,6 +490,18 @@ def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.assert_reaches_phase(Phase.Running, timeout=900)
 
 
+def _per_cluster_mongot_config_name(mdbs_name: str, cluster_index: int) -> str:
+    """Mirror MongotConfigConfigMapNameForCluster: idx 0 → legacy unindexed name."""
+    if cluster_index == 0:
+        return f"{mdbs_name}-search-config"
+    return f"{mdbs_name}-search-{cluster_index}-config"
+
+
+def _per_cluster_envoy_deployment_name(mdbs_name: str, cluster_name: str) -> str:
+    """Mirror LoadBalancerDeploymentNameForCluster: `{name}-search-lb-0-{clusterName}`."""
+    return f"{mdbs_name}-search-lb-0-{cluster_name}"
+
+
 @mark.e2e_search_q2_mc_rs_steady
 def test_verify_per_cluster_mongot_resources(
     namespace: str,
@@ -499,13 +511,15 @@ def test_verify_per_cluster_mongot_resources(
     """Each cluster has its own mongot StatefulSet, Service, ConfigMap.
 
     Phase 1/Base + Phase 2 ops code (B14, B16, ...) creates per-cluster
-    resources. Names use a cluster-index suffix.
+    resources via cluster-index-suffixed names — except the ConfigMap
+    for cluster index 0, which keeps the legacy unindexed name for
+    single-cluster back-compat.
     """
     for mcc in member_cluster_clients:
         idx = helper.cluster_index(mcc.cluster_name)
         sts_name = f"{MDBS_RESOURCE_NAME}-search-{idx}"
         svc_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-svc"
-        cm_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-config"
+        cm_name = _per_cluster_mongot_config_name(MDBS_RESOURCE_NAME, idx)
         proxy_svc_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-proxy-svc"
 
         apps = mcc.apps_v1_api()
@@ -523,21 +537,20 @@ def test_verify_per_cluster_mongot_resources(
 @mark.e2e_search_q2_mc_rs_steady
 def test_verify_per_cluster_envoy_deployment(
     namespace: str,
-    helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
 ):
     """STRICT — every cluster's Envoy Deployment exists and is fully ready.
 
-    require_ready=True semantics: ready_replicas == spec.replicas and > 0.
+    Per-cluster Envoy Deployment name pattern is
+    `{search-name}-search-lb-0-{clusterName}` — see
+    LoadBalancerDeploymentNameForCluster in mongodbsearch_types.go.
     """
     for mcc in member_cluster_clients:
-        idx = helper.cluster_index(mcc.cluster_name)
-        envoy_deployment_name = f"{MDBS_RESOURCE_NAME}-search-lb-{idx}"
+        envoy_deployment_name = _per_cluster_envoy_deployment_name(MDBS_RESOURCE_NAME, mcc.cluster_name)
         apps = mcc.apps_v1_api()
-        # Existence first — gives a clearer error if the Deployment is missing.
         assert_resource_in_cluster(apps, kind="Deployment", name=envoy_deployment_name, namespace=namespace)
         assert_deployment_ready_in_cluster(apps, name=envoy_deployment_name, namespace=namespace)
-        logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={idx})")
+        logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name}")
 
 
 @mark.e2e_search_q2_mc_rs_steady
