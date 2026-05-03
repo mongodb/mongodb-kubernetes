@@ -70,7 +70,7 @@ func expectedSecretNames(search *searchv1.MongoDBSearch) []string {
 		names = appendUnique(names, ref.Name)
 	}
 
-	// External CA bundle — Q2-MC only.
+	// External CA bundle — only required for external MongoDB sources.
 	if search.IsExternalMongoDBSource() {
 		ext := search.Spec.Source.ExternalMongoDBSource
 		if ext.TLS != nil && ext.TLS.CA != nil && ext.TLS.CA.Name != "" {
@@ -84,7 +84,7 @@ func expectedSecretNames(search *searchv1.MongoDBSearch) []string {
 
 	// mongot server TLS cert per unit (single RS or per shard) + Envoy server TLS cert.
 	// Both share the same `<prefix>-...-cert` family so listing the mongot cert covers
-	// the Envoy expectation in Q2-MC where Envoy reuses the per-shard cert.
+	// the Envoy expectation where Envoy reuses the per-shard cert.
 	if search.Spec.Security.TLS != nil {
 		if search.IsExternalSourceSharded() {
 			for _, shard := range search.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards {
