@@ -2,15 +2,16 @@ package searchcontroller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/ghodss/yaml"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -18,6 +19,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
@@ -464,26 +466,28 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 	}
 }
 
-var testApiKeySecretName = "api-key-secret"
-var embeddingWriterTrue = true
-var mode = int32(400)
-var expectedVolumes = []corev1.Volume{
-	{
-		Name: embeddingKeyVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			Secret: &corev1.SecretVolumeSource{
-				SecretName:  testApiKeySecretName,
-				DefaultMode: &mode,
+var (
+	testApiKeySecretName = "api-key-secret"
+	embeddingWriterTrue  = true
+	mode                 = int32(400)
+	expectedVolumes      = []corev1.Volume{
+		{
+			Name: embeddingKeyVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  testApiKeySecretName,
+					DefaultMode: &mode,
+				},
 			},
 		},
-	},
-	{
-		Name: apiKeysTempVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		{
+			Name: apiKeysTempVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
 		},
-	},
-}
+	}
+)
 var expectedVolumeMount = []corev1.VolumeMount{
 	{
 		Name:      apiKeysTempVolumeName,
@@ -2523,4 +2527,104 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 
 	assert.Equal(t, "test-search-search-config", cm.Name)
 	assert.Contains(t, cm.Data, MongotConfigFilename)
+}
+
+func TestEnsureClusterIndexAnnotation(t *testing.T) {
+	ctx := context.Background()
+
+	buildHelper := func(t *testing.T, search *searchv1.MongoDBSearch) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
+		t.Helper()
+		c := newTestFakeClient(search)
+		h := &MongoDBSearchReconcileHelper{
+			client:    c,
+			mdbSearch: search,
+		}
+		return h, c
+	}
+
+	readMapping := func(t *testing.T, c kubernetesClient.Client, name, namespace string) map[string]int {
+		t.Helper()
+		got := &searchv1.MongoDBSearch{}
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, got))
+		val, ok := got.Annotations[searchv1.LastClusterNumMapping]
+		if !ok {
+			return nil
+		}
+		out := map[string]int{}
+		require.NoError(t, json.Unmarshal([]byte(val), &out))
+		return out
+	}
+
+	withClusters := func(names ...string) func(*searchv1.MongoDBSearch) {
+		return func(s *searchv1.MongoDBSearch) {
+			entries := make([]searchv1.ClusterSpec, 0, len(names))
+			for _, n := range names {
+				entries = append(entries, searchv1.ClusterSpec{ClusterName: n})
+			}
+			s.Spec.Clusters = &entries
+		}
+	}
+
+	t.Run("nil clusters: no annotation written", func(t *testing.T) {
+		search := newTestMongoDBSearch("s1", "ns")
+		h, c := buildHelper(t, search)
+		require.NoError(t, h.ensureClusterIndexAnnotation(ctx, zap.S()))
+		assert.Nil(t, readMapping(t, c, "s1", "ns"))
+	})
+
+	t.Run("empty clusters: no annotation written", func(t *testing.T) {
+		empty := []searchv1.ClusterSpec{}
+		search := newTestMongoDBSearch("s2", "ns", func(s *searchv1.MongoDBSearch) { s.Spec.Clusters = &empty })
+		h, c := buildHelper(t, search)
+		require.NoError(t, h.ensureClusterIndexAnnotation(ctx, zap.S()))
+		assert.Nil(t, readMapping(t, c, "s2", "ns"))
+	})
+
+	t.Run("first reconcile writes mapping", func(t *testing.T) {
+		search := newTestMongoDBSearch("s3", "ns", withClusters("us-east", "us-west"))
+		h, c := buildHelper(t, search)
+		require.NoError(t, h.ensureClusterIndexAnnotation(ctx, zap.S()))
+		assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, readMapping(t, c, "s3", "ns"))
+	})
+
+	t.Run("second reconcile is a no-op", func(t *testing.T) {
+		search := newTestMongoDBSearch("s4", "ns", withClusters("us-east", "us-west"))
+		h, c := buildHelper(t, search)
+		require.NoError(t, h.ensureClusterIndexAnnotation(ctx, zap.S()))
+		before := &searchv1.MongoDBSearch{}
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "s4", Namespace: "ns"}, before))
+		rvBefore := before.GetResourceVersion()
+
+		require.NoError(t, h.ensureClusterIndexAnnotation(ctx, zap.S()))
+		after := &searchv1.MongoDBSearch{}
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "s4", Namespace: "ns"}, after))
+		assert.Equal(t, rvBefore, after.GetResourceVersion(), "no-op reconcile must not bump resourceVersion")
+	})
+
+	t.Run("adding a cluster extends the mapping monotonically", func(t *testing.T) {
+		search := newTestMongoDBSearch("s5", "ns", withClusters("us-east", "us-west"))
+		h, c := buildHelper(t, search)
+		require.NoError(t, h.ensureClusterIndexAnnotation(ctx, zap.S()))
+
+		extended := []searchv1.ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}, {ClusterName: "eu-central"}}
+		search.Spec.Clusters = &extended
+		require.NoError(t, h.ensureClusterIndexAnnotation(ctx, zap.S()))
+		assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1, "eu-central": 2}, readMapping(t, c, "s5", "ns"))
+	})
+
+	t.Run("removing then re-adding a cluster keeps the original index", func(t *testing.T) {
+		search := newTestMongoDBSearch("s6", "ns", withClusters("us-east", "us-west"))
+		h, c := buildHelper(t, search)
+		require.NoError(t, h.ensureClusterIndexAnnotation(ctx, zap.S()))
+
+		shrunk := []searchv1.ClusterSpec{{ClusterName: "us-east"}}
+		search.Spec.Clusters = &shrunk
+		require.NoError(t, h.ensureClusterIndexAnnotation(ctx, zap.S()))
+		assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, readMapping(t, c, "s6", "ns"), "removed cluster must remain in mapping")
+
+		regrown := []searchv1.ClusterSpec{{ClusterName: "us-east"}, {ClusterName: "us-west"}}
+		search.Spec.Clusters = &regrown
+		require.NoError(t, h.ensureClusterIndexAnnotation(ctx, zap.S()))
+		assert.Equal(t, map[string]int{"us-east": 0, "us-west": 1}, readMapping(t, c, "s6", "ns"), "re-added cluster keeps original idx")
+	})
 }
