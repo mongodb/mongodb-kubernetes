@@ -61,7 +61,7 @@ const (
 
 	labelName = "search-proxy"
 
-	// Cross-cluster enqueue labels (B16). Cross-cluster owner refs do not GC,
+	// Cross-cluster enqueue labels. Cross-cluster owner refs do not GC,
 	// so a label-based mapper is the only path back to the parent MongoDBSearch
 	// for member-cluster Deployment/ConfigMap watches.
 	envoyOwnerSearchNameLabel      = "mongodb.com/search-name"
@@ -160,14 +160,14 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 			perClusterStatuses = append(perClusterStatuses, searchv1.ClusterLoadBalancerStatus{
 				ClusterName: w.ClusterName,
 				Phase:       st.Phase(),
-				Message:     extractWorkflowMsg(st),
+				Message:     searchcontroller.MessageFromStatus(st),
 			})
 		}
 		if isWorsePhase(st.Phase(), worstPhase) {
 			worstPhase = st.Phase()
 		}
 		if !st.IsOK() && firstFailure == nil {
-			firstFailure = fmt.Errorf("cluster %q: %s", w.ClusterName, extractWorkflowMsg(st))
+			firstFailure = fmt.Errorf("cluster %q: %s", w.ClusterName, searchcontroller.MessageFromStatus(st))
 		}
 	}
 
@@ -202,7 +202,7 @@ type clusterWorkItem struct {
 // buildClusterWorkList expands spec.clusters[] into the per-cluster work units
 // the reconciler will iterate over. Membership rules:
 //   - len(memberClusterClientsMap) == 0 → single-cluster install; one work item with "".
-//   - len(spec.clusters) == 0 → single-cluster degenerate; one work item with "" until B18 lands.
+//   - len(spec.clusters) == 0 → single-cluster degenerate; one work item with "".
 //   - otherwise → one work item per spec.clusters[i]. Member clusters in the
 //     reconciler's map but absent from spec.clusters[] are intentionally ignored
 //     (the CR drives, not the operator's membership).
@@ -272,16 +272,6 @@ func isWorsePhase(a, b status.Phase) bool {
 	return rank(a) > rank(b)
 }
 
-// extractWorkflowMsg pulls the message from a workflow.Status's StatusOptions.
-// The workflow.Status interface does not expose Msg() directly; the message
-// rides on a status.MessageOption populated by workflow.{Pending,Failed,Invalid}.
-func extractWorkflowMsg(st workflow.Status) string {
-	if opt, ok := status.GetOption(st.StatusOptions(), status.MessageOption{}); ok {
-		return opt.(status.MessageOption).Message
-	}
-	return ""
-}
-
 // updateLBStatus patches the loadBalancer sub-status on the MongoDBSearch CR
 // and returns the reconcile result derived from the workflow status.
 func (r *MongoDBSearchEnvoyReconciler) updateLBStatus(ctx context.Context, search *searchv1.MongoDBSearch, st workflow.Status, log *zap.SugaredLogger) (reconcile.Result, error) {
@@ -305,10 +295,10 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 // created when managed LB was active. This is called exactly once per LB removal,
 // gated by Status.LoadBalancer != nil (cleared immediately after).
 //
-// B16 scope: this still walks only the central cluster. Member-cluster
-// Deployments + ConfigMaps will leak on managed→unmanaged transitions and on
-// CR delete because cross-cluster owner refs do not GC. B12 (graceful drain
-// on cluster removal) extends this to all member clusters in memberClusterClientsMap.
+// This still walks only the central cluster. Member-cluster Deployments +
+// ConfigMaps will leak on managed→unmanaged transitions and on CR delete because
+// cross-cluster owner refs do not GC; graceful drain on cluster removal will
+// extend this to all member clusters in memberClusterClientsMap.
 func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
 	ns := search.Namespace
 
@@ -392,7 +382,7 @@ func buildReplicaSetRoute(search *searchv1.MongoDBSearch) envoyRoute {
 	}
 }
 
-// buildRoutesForCluster returns the Envoy routes for one member cluster (B16).
+// buildRoutesForCluster returns the Envoy routes for one member cluster.
 // When clusterName is empty, this is the single-cluster install path and
 // behaves identically to buildRoutes (back-compat).
 //
@@ -445,8 +435,8 @@ func applyClusterIDToSNI(sni, clusterName string, templated bool) string {
 	}
 	if templated {
 		// User supplied an externalHostname template without {clusterName}; honour
-		// it as-is. Multi-cluster users are expected (per B4) to include the
-		// placeholder; a missing-placeholder admission rule lives in B13/B4.
+		// it as-is. Multi-cluster users are expected to include the placeholder;
+		// admission rejects multi-cluster specs that omit it.
 		return sni
 	}
 	// Default service-FQDN base: <name>.<ns>.svc.cluster.local — append cluster
@@ -696,10 +686,10 @@ func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) map
 }
 
 // selectEnvoyClient picks the right Kubernetes client for one member cluster.
-// Mirrors B1's selectClusterClient: empty clusterName means single-cluster
-// (return central); known member name returns the member client; unknown name
-// silently falls back to central. The reconcile loop is responsible for
-// surfacing unknown ClusterNames as Pending in per-cluster status.
+// Mirrors searchcontroller.SelectClusterClient: empty clusterName means
+// single-cluster (return central); known member name returns the member client;
+// unknown name silently falls back to central. The reconcile loop is responsible
+// for surfacing unknown ClusterNames as Pending in per-cluster status.
 func selectEnvoyClient(clusterName string, central kubernetesClient.Client, members map[string]kubernetesClient.Client) kubernetesClient.Client {
 	if clusterName == "" {
 		return central
