@@ -28,6 +28,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
 
 // TODO: Add full Reconcile() integration tests covering:
@@ -135,12 +136,64 @@ func TestBuildEnvoyPodSpec_DefaultResources(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 	}
 	resources := envoyResourceRequirements(search)
-	podSpec := buildEnvoyPodSpec(search, nil, false, "envoy:latest", resources, false)
+	podSpec := buildEnvoyPodSpec(search, "", nil, false, "envoy:latest", resources, false)
 
 	assert.Len(t, podSpec.Containers, 1)
 	assert.Equal(t, "envoy", podSpec.Containers[0].Name)
 	assert.Equal(t, resource.MustParse("100m"), podSpec.Containers[0].Resources.Requests[corev1.ResourceCPU])
 	assert.Equal(t, resource.MustParse("128Mi"), podSpec.Containers[0].Resources.Requests[corev1.ResourceMemory])
+}
+
+// TestBuildEnvoyPodSpec_ConfigMapVolumePerCluster regresses the MC-mode
+// volume-name bug where buildEnvoyPodSpec hardcoded LoadBalancerConfigMapName()
+// instead of the per-cluster suffixed name. Without this, the Pod template in
+// member clusters references a ConfigMap that does not exist (ensureConfigMap
+// writes the per-cluster name), so Envoy never starts in MC mode.
+func TestBuildEnvoyPodSpec_ConfigMapVolumePerCluster(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+	}
+	resources := envoyResourceRequirements(search)
+
+	cases := []struct {
+		name           string
+		clusterName    string
+		expectedCMName string
+	}{
+		{
+			name:           "single-cluster keeps legacy unsuffixed name",
+			clusterName:    "",
+			expectedCMName: search.LoadBalancerConfigMapName(),
+		},
+		{
+			name:           "MC cluster a uses per-cluster suffixed name",
+			clusterName:    "cluster-a",
+			expectedCMName: search.LoadBalancerConfigMapNameForCluster("cluster-a"),
+		},
+		{
+			name:           "MC cluster b uses per-cluster suffixed name",
+			clusterName:    "cluster-b",
+			expectedCMName: search.LoadBalancerConfigMapNameForCluster("cluster-b"),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			podSpec := buildEnvoyPodSpec(search, tc.clusterName, nil, false, "envoy:latest", resources, false)
+
+			var found *corev1.Volume
+			for i := range podSpec.Volumes {
+				if podSpec.Volumes[i].Name == "envoy-config" {
+					found = &podSpec.Volumes[i]
+					break
+				}
+			}
+			require.NotNil(t, found, "envoy-config volume must be present")
+			require.NotNil(t, found.ConfigMap, "envoy-config volume must be a ConfigMap source")
+			assert.Equal(t, tc.expectedCMName, found.ConfigMap.Name,
+				"per-cluster ConfigMap volume name mismatch — pod will fail to mount")
+		})
+	}
 }
 
 func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
@@ -174,7 +227,7 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 
 	// Build the base pod spec as the controller would
 	resources := envoyResourceRequirements(search)
-	podSpec := buildEnvoyPodSpec(search, nil, false, "envoy:latest", resources, false)
+	podSpec := buildEnvoyPodSpec(search, "", nil, false, "envoy:latest", resources, false)
 
 	// Verify base spec has no tolerations
 	assert.Empty(t, podSpec.Tolerations)
@@ -253,7 +306,7 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 	resources := envoyResourceRequirements(search)
 	assert.Equal(t, resource.MustParse("200m"), resources.Requests[corev1.ResourceCPU])
 
-	podSpec := buildEnvoyPodSpec(search, nil, false, "envoy:latest", resources, false)
+	podSpec := buildEnvoyPodSpec(search, "", nil, false, "envoy:latest", resources, false)
 
 	dep := appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
@@ -451,16 +504,16 @@ func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 
 	// Single-cluster: cluster-name label must be absent.
 	single := envoyLabelsForCluster(search, "")
-	assert.Equal(t, "mdb-search", single[envoyOwnerSearchNameLabel])
-	assert.Equal(t, "ns", single[envoyOwnerSearchNamespaceLabel])
-	_, hasCluster := single[envoyClusterNameLabel]
+	assert.Equal(t, "mdb-search", single[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, "ns", single[khandler.MongoDBSearchOwnerNamespaceLabel])
+	_, hasCluster := single[khandler.MongoDBSearchClusterNameLabel]
 	assert.False(t, hasCluster)
 
 	// Multi-cluster: all three labels present.
 	mc := envoyLabelsForCluster(search, "us-east-k8s")
-	assert.Equal(t, "mdb-search", mc[envoyOwnerSearchNameLabel])
-	assert.Equal(t, "ns", mc[envoyOwnerSearchNamespaceLabel])
-	assert.Equal(t, "us-east-k8s", mc[envoyClusterNameLabel])
+	assert.Equal(t, "mdb-search", mc[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, "ns", mc[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, "us-east-k8s", mc[khandler.MongoDBSearchClusterNameLabel])
 }
 
 // --- envoy replicas defaulting ------------------------------------------
@@ -518,8 +571,8 @@ func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster("a"), Namespace: "ns"}, cmA))
 	assert.Equal(t, `{"x":1}`, cmA.Data["envoy.json"])
 	// Cluster name label stamped.
-	assert.Equal(t, "a", cmA.Labels[envoyClusterNameLabel])
-	assert.Equal(t, "mdb-search", cmA.Labels[envoyOwnerSearchNameLabel])
+	assert.Equal(t, "a", cmA.Labels[khandler.MongoDBSearchClusterNameLabel])
+	assert.Equal(t, "mdb-search", cmA.Labels[khandler.MongoDBSearchOwnerNameLabel])
 
 	// Central and member B do not.
 	cm := &corev1.ConfigMap{}
@@ -612,12 +665,58 @@ func TestBuildClusterWorkList_MultiCluster_OneItemPerSpecEntry(t *testing.T) {
 	assert.Equal(t, "b", wl[1].ClusterName)
 }
 
-func TestIsWorsePhase(t *testing.T) {
-	assert.True(t, isWorsePhase(status.PhaseFailed, status.PhaseRunning))
-	assert.True(t, isWorsePhase(status.PhasePending, status.PhaseRunning))
-	assert.True(t, isWorsePhase(status.PhaseFailed, status.PhasePending))
-	assert.False(t, isWorsePhase(status.PhaseRunning, status.PhasePending))
-	assert.False(t, isWorsePhase(status.PhaseRunning, status.PhaseRunning))
+// TestWorstOfClusterPhases regresses the canonical invariant declared on
+// LoadBalancerStatus: top-level Phase must equal WorstOfPhase across the
+// per-cluster Clusters[*].Phase entries when len(Clusters) > 0.
+func TestWorstOfClusterPhases(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []searchv1.ClusterLoadBalancerStatus
+		want status.Phase
+	}{
+		{
+			name: "empty slice — single-cluster degenerate path",
+			in:   nil,
+			want: status.PhaseRunning,
+		},
+		{
+			name: "single Running",
+			in:   []searchv1.ClusterLoadBalancerStatus{{Phase: status.PhaseRunning}},
+			want: status.PhaseRunning,
+		},
+		{
+			name: "Failed beats Running",
+			in: []searchv1.ClusterLoadBalancerStatus{
+				{Phase: status.PhaseRunning},
+				{Phase: status.PhaseFailed},
+			},
+			want: status.PhaseFailed,
+		},
+		{
+			name: "Pending beats Running",
+			in: []searchv1.ClusterLoadBalancerStatus{
+				{Phase: status.PhaseRunning},
+				{Phase: status.PhasePending},
+				{Phase: status.PhaseRunning},
+			},
+			want: status.PhasePending,
+		},
+		{
+			name: "Failed beats Pending",
+			in: []searchv1.ClusterLoadBalancerStatus{
+				{Phase: status.PhasePending},
+				{Phase: status.PhaseFailed},
+				{Phase: status.PhaseRunning},
+			},
+			want: status.PhaseFailed,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, worstOfClusterPhases(tc.in))
+		})
+	}
 }
 
 func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
@@ -644,9 +743,9 @@ func TestMapEnvoyObjectToSearch(t *testing.T) {
 			Name:      "mdb-search-search-lb-0-a-config",
 			Namespace: "ns",
 			Labels: map[string]string{
-				envoyOwnerSearchNameLabel:      "mdb-search",
-				envoyOwnerSearchNamespaceLabel: "ns",
-				envoyClusterNameLabel:          "a",
+				khandler.MongoDBSearchOwnerNameLabel:      "mdb-search",
+				khandler.MongoDBSearchOwnerNamespaceLabel: "ns",
+				khandler.MongoDBSearchClusterNameLabel:                     "a",
 			},
 		},
 	}
@@ -664,7 +763,7 @@ func TestMapEnvoyObjectToSearch(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "x",
 			Namespace: "ns",
-			Labels:    map[string]string{envoyOwnerSearchNameLabel: "mdb-search"},
+			Labels:    map[string]string{khandler.MongoDBSearchOwnerNameLabel: "mdb-search"},
 		},
 	}
 	assert.Empty(t, mapEnvoyObjectToSearch(context.Background(), cmPartial))
@@ -831,6 +930,17 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 	require.NotNil(t, patched.Status.LoadBalancer)
 	assert.Equal(t, status.PhaseFailed, patched.Status.LoadBalancer.Phase,
 		"all-Failed clusters must aggregate to top-level Failed, not Pending")
+}
+
+// TestWorstOfClusterPhases_SingleCluster_PreservesFailed asserts that the
+// single-cluster degenerate path (one entry with empty ClusterName) propagates
+// Failed rather than the empty-slice default of Running.
+func TestWorstOfClusterPhases_SingleCluster_PreservesFailed(t *testing.T) {
+	got := worstOfClusterPhases([]searchv1.ClusterLoadBalancerStatus{
+		{ClusterName: "", Phase: status.PhaseFailed},
+	})
+	assert.Equal(t, status.PhaseFailed, got,
+		"single-cluster degenerate path (one entry with empty ClusterName) must propagate Failed, not downgrade to Running")
 }
 
 // failingWriteClient wraps a client.Client and rejects every write so we can
