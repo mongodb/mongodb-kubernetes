@@ -8,7 +8,7 @@ import os
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import requests
 from opentelemetry import trace
@@ -333,12 +333,14 @@ def build_agent_pipeline(
 ):
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = agent_version
+    build_configuration_copy.platforms = resolve_agent_platforms(agent_version, build_configuration.platforms)
+
     print(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
     platform_build_args = generate_agent_build_args(
-        platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version
+        platforms=build_configuration_copy.platforms, agent_version=agent_version, tools_version=tools_version
     )
 
     agent_base_url = (
@@ -358,6 +360,15 @@ def build_agent_pipeline(
         build_configuration=build_configuration_copy,
         build_args=args,
     )
+
+
+def resolve_agent_platforms(agent_version: str, available_platforms: List[str]) -> List[str]:
+    # Cloud Manager (agent version 13.x) does not ship a linux/s390x build.
+    # Tracking ticket: https://jira.mongodb.org/browse/KUBE-69
+    if agent_version.startswith("13."):
+        return [p for p in available_platforms if p != "linux/s390x"]
+
+    return available_platforms
 
 
 def queue_exception_handling(tasks_queue):
