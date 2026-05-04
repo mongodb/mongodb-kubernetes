@@ -17,7 +17,7 @@ def str2bool(v):
         raise argparse.ArgumentTypeError("Boolean value expected.")
 
 
-def get_scenario_from_arg(args_scenario: str) -> BuildScenario | None:
+def get_scenario_from_arg(args_scenario: str) -> BuildScenario:
     try:
         return BuildScenario(args_scenario)
     except ValueError as e:
