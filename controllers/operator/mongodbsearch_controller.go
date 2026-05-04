@@ -126,18 +126,23 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
+	memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
+	for name, kc := range r.memberClusterClientsMap {
+		memberClients[name] = kc
+	}
+	// Run the customer-replicated-secret presence check up front so the helper
+	// can fold gaps into the per-cluster status patch in a single writeback,
+	// rather than requiring a follow-up patch from this controller.
+	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients)
+
 	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig)
+	reconcileHelper.SetSecretGaps(gaps)
 
 	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 	if err != nil {
 		return result, err
 	}
 
-	memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
-	for name, kc := range r.memberClusterClientsMap {
-		memberClients[name] = kc
-	}
-	gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients)
 	if len(gaps) > 0 {
 		r.surfaceMissingSecrets(gaps, log)
 		if result.RequeueAfter == 0 {

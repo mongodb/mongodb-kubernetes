@@ -5084,9 +5084,13 @@ spec:
                           type: string
                         loadBalancer:
                           description: |-
-                            LoadBalancer reports the per-cluster managed-LB phase for ReplicaSet
-                            topologies. Sharded per-(cluster, shard) LB phase lives on the
-                            top-level ShardLoadBalancerStatusInClusters map.
+                            LoadBalancer is unused by either controller and is kept only to avoid
+                            CRD removal until the next API rev. The canonical per-cluster managed-LB
+                            phase lives in status.loadBalancer.clusters[i] (flat sibling), written
+                            by the Envoy controller in mongodbsearchenvoy_controller.go.
+
+                            Deprecated: read status.loadBalancer.clusters[i] instead. Phase 2 may
+                            remove this field together with the next CRD bump.
                           properties:
                             clusters:
                               description: |-
@@ -5129,6 +5133,11 @@ spec:
                           description: |-
                             ObservedReplicas is the number of mongot pods this cluster currently has Ready.
                             Used by the load-test harness as the readiness gate.
+
+                            fan-out per-cluster mongot StatefulSets, so there is no per-cluster
+                            Ready-replica count to observe. Phase 2's reconcile fan-out
+                            (controllers/searchcontroller/mongodbsearch_reconcile_helper.go) is
+                            where per-cluster STSs land; populate this then.
                           format: int32
                           type: integer
                         phase:
@@ -5176,6 +5185,11 @@ spec:
                           description: |-
                             Warnings is the per-cluster warnings list (e.g. customer-replicated
                             secret missing in this cluster).
+
+                            Populated by buildPerClusterStatusItems in the search controller from
+                            the SecretCheckResult slice for each cluster name that matches a
+                            spec.clusters[i] entry. Central-only warnings (Cluster == "") flow
+                            through the operator log instead of this field.
                           items:
                             type: string
                           type: array
@@ -5296,6 +5310,10 @@ spec:
                   phase for sharded multi-cluster deployments. Flat map-of-map keyed by
                   clusterName then shardName, matching MongoDB sharded's *InClusters
                   precedent (api/v1/status/scaling_status.go).
+
+                  surfaces per-(cluster) LB status via status.loadBalancer.clusters[]. The
+                  per-(cluster, shard) split lands when sharded MC search supports
+                  per-shard Envoy SNI routing.
                 type: object
               version:
                 type: string
