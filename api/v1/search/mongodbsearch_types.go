@@ -43,10 +43,8 @@ const (
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
 
 	// LastClusterNumMapping holds the JSON-encoded clusterName -> clusterIndex
-	// mapping for spec.clusters[]. Mirrors mdbmulti.LastClusterNumMapping; the
-	// string value is intentionally identical so a future shared util can collapse
-	// the two without breaking existing CR annotations. Index never reused on
-	// remove/re-add (see api/v1/search/cluster_index.go).
+	// mapping for spec.clusters[]. Index never reused on remove/re-add
+	// (see api/v1/search/cluster_index.go).
 	LastClusterNumMapping = "mongodb.com/v1.lastClusterNumMapping"
 
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
@@ -409,6 +407,18 @@ type TLS struct {
 }
 
 // LoadBalancerStatus reports the state of the operator-managed load balancer (Envoy).
+//
+// Canonical phase shape (multi-cluster):
+//   - Clusters[i].Phase is the ground truth — one entry per spec.clusters[i],
+//     written by the Envoy controller after each per-cluster reconcile.
+//   - Top-level Phase is the worst-of(Clusters[*].Phase) under the rank used by
+//     WorstOfPhase (Failed > Pending > Running > Updated > Disabled > Unsupported).
+//
+// Invariant: Phase == WorstOfPhase(Clusters[*].Phase) when len(Clusters) > 0.
+// Single-cluster (len(Clusters) == 0) keeps Phase as the legacy single-cluster
+// Envoy reconcile outcome and Clusters stays nil. This invariant is enforced
+// by the Envoy controller's reconcile loop (worstOfClusterPhases) and
+// verified by TestWorstOfClusterPhases.
 type LoadBalancerStatus struct {
 	Phase   status.Phase `json:"phase"`
 	Message string       `json:"message,omitempty"`
@@ -453,16 +463,11 @@ type SearchClusterStatusItem struct {
 	// Common carries the per-cluster phase, message, lastTransition, and observedGeneration.
 	status.Common `json:",inline"`
 	// ObservedReplicas is the number of mongot pods this cluster currently has Ready.
-	// Used by the load-test harness as the readiness gate.
 	// +optional
 	ObservedReplicas int32 `json:"observedReplicas,omitempty"`
-	// Warnings is the per-cluster warnings list (e.g. customer-replicated
-	// secret missing in this cluster).
 	// +optional
 	Warnings []status.Warning `json:"warnings,omitempty"`
-	// LoadBalancer reports the per-cluster managed-LB phase for ReplicaSet
-	// topologies. Sharded per-(cluster, shard) LB phase lives on the
-	// top-level ShardLoadBalancerStatusInClusters map.
+	// Deprecated: read status.loadBalancer.clusters[i] instead.
 	// +optional
 	LoadBalancer *LoadBalancerStatus `json:"loadBalancer,omitempty"`
 }
