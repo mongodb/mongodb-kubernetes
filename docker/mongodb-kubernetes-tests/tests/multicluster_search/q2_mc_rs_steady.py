@@ -517,6 +517,11 @@ def test_replicate_secrets_to_members(
         search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
         # Mongot user password Secret (sync-source credentials).
         f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+        # External CA Secret — operator at controllers/searchcontroller/external_search_source.go
+        # mounts spec.source.external.tls.ca as a Secret volume on per-cluster mongot pods.
+        # The CA is created as both ConfigMap+Secret with the same name in the central cluster
+        # (see create_issuer_ca); replicate the Secret half here.
+        CA_CONFIGMAP_NAME,
     ]
 
     for secret_name in secrets_to_replicate:
