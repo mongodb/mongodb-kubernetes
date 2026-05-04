@@ -804,18 +804,6 @@ def test_per_cluster_mongot_host_observed(
     _assert_per_cluster_mongot_host_observed(mdb, helper, member_cluster_clients)
 
 
-@pytest.mark.skip(
-    reason=(
-        "Blocked on operator gap: validateMCExternalHostnamePlaceholders allows "
-        "{clusterIndex} but the Envoy SNI renderer at "
-        "controllers/operator/mongodbsearchenvoy_controller.go:432-435 only "
-        "substitutes {clusterName} (calls GetManagedLBEndpoint, not "
-        "GetManagedLBEndpointForCluster). With {clusterIndex} the placeholder "
-        "ends up literally in envoy.json filter_chain_match.server_names and "
-        "this assertion would fail. Unmark when the operator substitutes both "
-        "placeholders in the per-cluster RS Envoy build path."
-    )
-)
 @mark.e2e_search_q2_mc_rs_steady
 def test_per_cluster_envoy_sni_observed(
     namespace: str,
@@ -827,10 +815,9 @@ def test_per_cluster_envoy_sni_observed(
 
     The Envoy controller renders SNI hostname from
     `ProxyServiceNamespacedNameForCluster(clusterIndex)` (RS path) or from
-    the cluster-substituted externalHostname template. The operator
-    currently only substitutes `{clusterName}`, not `{clusterIndex}`,
-    even though the validator allows both. Hence this test is skip-marked
-    until the operator gap is closed.
+    the cluster-substituted externalHostname template. Both `{clusterName}`
+    and `{clusterIndex}` placeholders are substituted via
+    `GetManagedLBEndpointForCluster(i)` in the per-cluster RS build path.
     """
     for mcc in member_cluster_clients:
         cluster_idx = helper.cluster_index(mcc.cluster_name)

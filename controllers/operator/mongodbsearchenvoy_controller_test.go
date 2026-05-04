@@ -79,6 +79,85 @@ func TestBuildReplicaSetRoute(t *testing.T) {
 	}
 }
 
+// TestBuildReplicaSetRouteForCluster_PerClusterPlaceholders regresses the
+// MC-mode SNI rendering: the externalHostname template must substitute both
+// {clusterName} and {clusterIndex}. Previously the path called
+// applyClusterIDToSNI(GetManagedLBEndpoint, clusterName) which only handled
+// {clusterName} — leaving {clusterIndex} literal in envoy.json filter chain
+// server_names and breaking SNI matching against the per-cluster proxy-svc
+// FQDN.
+func TestBuildReplicaSetRouteForCluster_PerClusterPlaceholders(t *testing.T) {
+	clusters := []searchv1.ClusterSpec{
+		{ClusterName: "kind-e2e-cluster-1"},
+		{ClusterName: "kind-e2e-cluster-2"},
+	}
+
+	tests := []struct {
+		name         string
+		endpoint     string
+		expectedSNIs []string
+	}{
+		{
+			name:     "no endpoint: per-cluster proxy-svc FQDN",
+			endpoint: "",
+			expectedSNIs: []string{
+				"mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local",
+				"mdb-search-search-1-proxy-svc.test-ns.svc.cluster.local",
+			},
+		},
+		{
+			name:     "{clusterIndex} placeholder substitutes per cluster",
+			endpoint: "mdb-search-search-{clusterIndex}-proxy-svc.test-ns.svc.cluster.local",
+			expectedSNIs: []string{
+				"mdb-search-search-0-proxy-svc.test-ns.svc.cluster.local",
+				"mdb-search-search-1-proxy-svc.test-ns.svc.cluster.local",
+			},
+		},
+		{
+			name:     "{clusterName} placeholder substitutes per cluster",
+			endpoint: "mongot-{clusterName}.apps.example.com",
+			expectedSNIs: []string{
+				"mongot-kind-e2e-cluster-1.apps.example.com",
+				"mongot-kind-e2e-cluster-2.apps.example.com",
+			},
+		},
+		{
+			name:     "{clusterName} and {clusterIndex} both substituted",
+			endpoint: "{clusterName}-{clusterIndex}.apps.example.com",
+			expectedSNIs: []string{
+				"kind-e2e-cluster-1-0.apps.example.com",
+				"kind-e2e-cluster-2-1.apps.example.com",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := append([]searchv1.ClusterSpec{}, clusters...)
+			search := &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mdb-search",
+					Namespace: "test-ns",
+				},
+			}
+			search.Spec.Clusters = &cs
+			if tt.endpoint != "" {
+				search.Spec.LoadBalancer = &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: tt.endpoint},
+				}
+			}
+
+			for i, c := range cs {
+				route := buildReplicaSetRouteForCluster(search, i, c.ClusterName)
+				assert.Equal(t, tt.expectedSNIs[i], route.SNIHostname,
+					"cluster %d (%s)", i, c.ClusterName)
+				assert.Equal(t, "rs", route.Name)
+				assert.Equal(t, c.ClusterName, route.ClusterID)
+			}
+		})
+	}
+}
+
 func TestBuildShardRoutes(t *testing.T) {
 	shardNames := []string{"mdb-sh-0", "mdb-sh-1"}
 

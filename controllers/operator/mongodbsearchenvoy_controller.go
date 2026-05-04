@@ -421,8 +421,8 @@ func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroll
 // buildReplicaSetRouteForCluster builds a single RS-mode route for one cluster.
 // The SNI hostname is the per-cluster proxy-svc FQDN derived from
 // ProxyServiceNamespacedNameForCluster(clusterIndex). When the user supplies a
-// managed-LB externalHostname template with {clusterName}, it overrides the
-// default FQDN.
+// managed-LB externalHostname template, GetManagedLBEndpointForCluster handles
+// substitution of both {clusterName} and {clusterIndex} placeholders.
 func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex int, clusterName string) envoyRoute {
 	mongotServiceName := search.SearchServiceNamespacedName().Name
 	namespace := search.Namespace
@@ -430,8 +430,8 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 
 	sniServiceName := search.ProxyServiceNamespacedNameForCluster(clusterIndex).Name
 	sniHostname := fmt.Sprintf("%s.%s.svc.cluster.local", sniServiceName, namespace)
-	if endpoint := search.GetManagedLBEndpoint(); endpoint != "" {
-		sniHostname = applyClusterIDToSNI(endpoint, clusterName)
+	if endpoint := search.GetManagedLBEndpointForCluster(clusterIndex); endpoint != "" {
+		sniHostname = endpoint
 	}
 
 	return envoyRoute{
