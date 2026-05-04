@@ -45,7 +45,6 @@ from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_configmap, create_or_update_secret, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
-from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_search import MongoDBSearch
@@ -134,10 +133,13 @@ def mdb(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: List[str],
-    custom_mdb_version: str,
     ca_configmap: str,
 ) -> MongoDBMulti:
     """2-cluster MongoDBMulti RS source with TLS+SCRAM.
+
+    Version is pinned in the fixture YAML to a search-aware mongod —
+    the setParameter keys below only exist on 8.x; see the YAML for
+    the exact constraint.
 
     `mongotHost` is set top-level to cluster-0's proxy-svc FQDN to keep
     every mongod's startup-time validation happy (the source RS can't
@@ -152,7 +154,6 @@ def mdb(
         name=MDB_RESOURCE_NAME,
         namespace=namespace,
     )
-    resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MEMBERS_PER_CLUSTER)
 
     # Top-level mongotHost points at cluster-0's per-cluster proxy Service.

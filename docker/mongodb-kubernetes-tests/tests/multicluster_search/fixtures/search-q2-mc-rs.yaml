@@ -10,6 +10,9 @@ metadata:
   name: mdb-mc-rs-ext-lb
 spec:
   type: ReplicaSet
+  # Search-aware mongod required for additionalMongodConfig.setParameter.searchIndexManagementHostAndPort
+  # (the test sets that in q2_mc_rs_steady.py). 6.x mongods reject it at startup.
+  version: 8.2.0-ent
   duplicateServiceObjects: false
   credentials: my-credentials
   opsManager:
