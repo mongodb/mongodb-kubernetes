@@ -6,7 +6,7 @@ clusters, replicate Secrets, and surface per-cluster naming
 
 The cluster-index ordering is the registration order in `member_cluster_clients`
 — that mirrors the operator's `clusterSpecList[].clusterName` ordering, which
-is what B3's stable cluster-index annotation pins.
+is what the stable cluster-index annotation pins.
 """
 
 from typing import Mapping

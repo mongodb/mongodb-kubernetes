@@ -340,7 +340,6 @@ func validateClustersClusterNameNonEmpty(s *MongoDBSearch) v1.ValidationResult {
 }
 
 // validateClustersUniqueClusterName enforces clusterName uniqueness inside spec.clusters.
-// ClusterName presence and immutability when len(clusters) > 1 are B13 scope.
 func validateClustersUniqueClusterName(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
 		return v1.ValidationSuccess()
@@ -358,10 +357,8 @@ func validateClustersUniqueClusterName(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-
 // validateClustersSyncSourceSelector enforces the at-most-one matchTags/hosts rule
-// for every entry in spec.clusters. The "exactly one when len(clusters) > 1" rule
-// lives in B13 (it depends on cluster-count semantics that aren't B14's scope).
+// for every entry in spec.clusters.
 func validateClustersSyncSourceSelector(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
 		return v1.ValidationSuccess()
@@ -382,11 +379,11 @@ func validateClustersSyncSourceSelector(s *MongoDBSearch) v1.ValidationResult {
 }
 
 // validateClustersEnvoyResourceNames enforces DNS-1123 length and label/subdomain
-// rules on the per-cluster Envoy Deployment + ConfigMap names that the B16
+// rules on the per-cluster Envoy Deployment + ConfigMap names that the
 // Envoy reconciler will create. Without this admission check, an over-long
 // clusterName would fail at runtime with a kube API error during reconcile.
 //
-// Mirrors the B14 sharded-resource-name pattern in generateShardResourceNames /
+// Mirrors the sharded-resource-name pattern in generateShardResourceNames /
 // validateResourceName.
 func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
@@ -418,8 +415,6 @@ func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
 }
 
 // validateClustersShardOverrides enforces shardNames non-empty per ShardOverride.
-// Whether shardOverrides[] is allowed at all (only sharded sources) is a B13
-// source-aware rule and lives outside B14.
 func validateClustersShardOverrides(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
 		return v1.ValidationSuccess()
@@ -437,7 +432,7 @@ func validateClustersShardOverrides(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// validateClustersAndTopLevelFieldsMutuallyExclusive enforces B18's mutual-exclusion
+// validateClustersAndTopLevelFieldsMutuallyExclusive enforces the mutual-exclusion
 // rule: when spec.clusters is set, none of the auto-promotion-eligible top-level
 // distribution fields (spec.replicas, spec.resourceRequirements, spec.persistence,
 // spec.statefulSet) may also be set. This keeps the migration path unambiguous —

@@ -490,10 +490,10 @@ func TestReconcile_MC_StatusSurface(t *testing.T) {
 	byName := map[string]searchv1.SearchClusterStatusItem{}
 	for _, entry := range final.Status.ClusterStatusList.ClusterStatuses {
 		byName[entry.ClusterName] = entry
-		// B9 minimal aggregator copies the workflow phase into every cluster's
-		// entry, so each per-cluster phase must equal the top-level phase.
+		// The aggregator copies the workflow phase into every cluster's entry,
+		// so each per-cluster phase must equal the top-level phase.
 		assert.Equal(t, final.Status.Phase, entry.Phase,
-			"per-cluster phase must mirror top-level phase under B9 aggregator")
+			"per-cluster phase must mirror top-level phase")
 	}
 	assert.Contains(t, byName, mcClusterAName)
 	assert.Contains(t, byName, mcClusterBName)

@@ -1,20 +1,15 @@
 """Q2-MC-RS e2e: 2-cluster MongoDBSearch with external MongoDBMulti source.
 
-Strict assertions across the full path that Phase 1/Base + Phase 2 deliver:
+Strict assertions across the full path:
 
-- Phase 1/Base operator code (B14, B16, ...) creates per-cluster mongot
-  StatefulSets, Services, ConfigMaps via member-cluster clients.
-- Phase 1/Base Envoy controller deploys per-cluster Envoy; SNI uses per-cluster
-  proxy-svc FQDN; replicas come from top-level
-  spec.loadBalancer.managed.replicas (Phase 1/Base ProxyService and
-  MongotConfig name helpers commit d614ffc03; envoy SNI commit ffc0a2802).
-- The LB TLS cert SAN list covers every cluster's proxy-svc FQDN
-  (Phase 2 commit dbdd35b0c).
-- Phase 2 admission rejects MC without spec.source.external.hostAndPorts
-  (commit 1a58c4980).
-- Phase 2 per-cluster reconcileUnit fan-out applies each cluster's
-  reconcile to its target member-cluster client (commits a43b59183,
-  275ffb242, 9e82022b9).
+- Operator creates per-cluster mongot StatefulSets, Services, and ConfigMaps
+  via member-cluster clients.
+- Envoy controller deploys a per-cluster Envoy; SNI uses the per-cluster
+  proxy-svc FQDN; replicas come from top-level spec.loadBalancer.managed.replicas.
+- The LB TLS cert SAN list covers every cluster's proxy-svc FQDN.
+- Admission rejects MC without spec.source.external.hostAndPorts.
+- Per-cluster reconcileUnit fan-out applies each cluster's reconcile to its
+  target member-cluster client.
 
 Data-plane assertions:
 
@@ -516,10 +511,9 @@ def test_verify_per_cluster_mongot_resources(
 ):
     """Each cluster has its own mongot StatefulSet, Service, ConfigMap.
 
-    Phase 1/Base + Phase 2 ops code (B14, B16, ...) creates per-cluster
-    resources via cluster-index-suffixed names — except the ConfigMap
-    for cluster index 0, which keeps the legacy unindexed name for
-    single-cluster back-compat.
+    The operator creates per-cluster resources via cluster-index-suffixed
+    names — except the ConfigMap for cluster index 0, which keeps the legacy
+    unindexed name for single-cluster back-compat.
     """
     for mcc in member_cluster_clients:
         idx = helper.cluster_index(mcc.cluster_name)
@@ -561,10 +555,10 @@ def test_verify_per_cluster_envoy_deployment(
 
 @mark.e2e_search_q2_mc_rs_steady
 def test_verify_per_cluster_status(mdbs: MongoDBSearch):
-    """STRICT — status.clusterStatusList must include every spec.clusters[] entry (B9)."""
+    """STRICT — status.clusterStatusList must include every spec.clusters[] entry."""
     mdbs.load()
     cluster_statuses = mdbs["status"].get("clusterStatusList")
-    assert cluster_statuses, f"status.clusterStatusList empty/missing — B9 should have populated it: {cluster_statuses}"
+    assert cluster_statuses, f"status.clusterStatusList empty/missing: {cluster_statuses}"
 
     spec_cluster_names = {c["clusterName"] for c in mdbs["spec"].get("clusters") or []}
     status_cluster_names = {entry.get("clusterName") for entry in cluster_statuses}

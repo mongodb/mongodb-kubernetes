@@ -829,7 +829,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			search := newTestMongoDBSearch("test-search", "test-ns")
-			//nolint:staticcheck // SA1019: exercising the legacy single-cluster path under B18 auto-promotion.
+			//nolint:staticcheck // SA1019: exercising the legacy single-cluster path under auto-promotion.
 			search.Spec.Replicas = ptr.To(tc.replicas)
 			if tc.hasAutoEmbedding {
 				search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
@@ -868,7 +868,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 
 func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
-	//nolint:staticcheck // SA1019: exercising the legacy single-cluster path under B18 auto-promotion.
+	//nolint:staticcheck // SA1019: exercising the legacy single-cluster path under auto-promotion.
 	search.Spec.Replicas = ptr.To(int32(1))
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig())
@@ -2699,7 +2699,7 @@ func TestBuildReplicaSetPlan_SingleClusterPreservesLegacyNames(t *testing.T) {
 }
 
 // TestReconcilePlan_UsesPerClusterClient verifies that when buildReplicaSetPlan
-// produces per-cluster reconcileUnits (Task 14/15), applyReconcileUnit writes
+// produces per-cluster reconcileUnits, applyReconcileUnit writes
 // each unit's resources (StatefulSet, headless+proxy Services, mongot
 // ConfigMap) to the member-cluster client matched by clusterName — not to the
 // central client. This is the wiring that makes spec.clusters[i] objects
@@ -2751,7 +2751,7 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Cluster A's STS lands in clusterAClient (index-0 indexed name from Task 15).
+	// Cluster A's STS lands in clusterAClient (index-0 indexed name).
 	stsA := &appsv1.StatefulSet{}
 	require.NoError(t, clusterAClient.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, stsA))

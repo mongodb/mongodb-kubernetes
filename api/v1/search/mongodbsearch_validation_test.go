@@ -884,9 +884,9 @@ func TestValidateClustersNoRename(t *testing.T) {
 	}
 }
 
-// TestManagedLBConfig_Replicas_FieldExists is a B16 smoke test: the Replicas
-// field on ManagedLBConfig is wired so per-cluster managed LB can specify a
-// replica count and the Envoy reconciler can default it to 1 when unset.
+// TestManagedLBConfig_Replicas_FieldExists is a smoke test: the Replicas field
+// on ManagedLBConfig is wired so per-cluster managed LB can specify a replica
+// count and the Envoy reconciler can default it to 1 when unset.
 func TestManagedLBConfig_Replicas_FieldExists(t *testing.T) {
 	one := int32(1)
 	s := &MongoDBSearch{
@@ -900,9 +900,9 @@ func TestManagedLBConfig_Replicas_FieldExists(t *testing.T) {
 	assert.Equal(t, int32(1), *s.Spec.LoadBalancer.Managed.Replicas)
 }
 
-// TestLoadBalancerStatus_ClustersFieldExists is a B16 smoke test: the per-cluster
-// placeholder slice exists on LoadBalancerStatus so the Envoy reconciler can write
-// per-cluster phases. B9 will formalize the schema.
+// TestLoadBalancerStatus_ClustersFieldExists is a smoke test: the per-cluster
+// placeholder slice exists on LoadBalancerStatus so the Envoy reconciler can
+// write per-cluster phases.
 func TestLoadBalancerStatus_ClustersFieldExists(t *testing.T) {
 	s := &MongoDBSearch{
 		Status: MongoDBSearchStatus{
@@ -917,11 +917,11 @@ func TestLoadBalancerStatus_ClustersFieldExists(t *testing.T) {
 	assert.Equal(t, "us-east-k8s", s.Status.LoadBalancer.Clusters[0].ClusterName)
 }
 
-// TestValidateMCRequiresExternalHostAndPorts is the Phase 2 Task 20 admission
-// check: when len(spec.clusters) > 1, spec.source.external.hostAndPorts must
-// be non-empty. MVP routing renders the same top-level external host list into
-// every cluster's mongot ConfigMap; without it, per-cluster mongot has no
-// seed and reconcile cannot proceed.
+// TestValidateMCRequiresExternalHostAndPorts is the admission check: when
+// len(spec.clusters) > 1, spec.source.external.hostAndPorts must be non-empty.
+// MVP routing renders the same top-level external host list into every
+// cluster's mongot ConfigMap; without it, per-cluster mongot has no seed and
+// reconcile cannot proceed.
 func TestValidateMCRequiresExternalHostAndPorts(t *testing.T) {
 	// MC + missing external.hostAndPorts → reject
 	mdbBad := &MongoDBSearch{
@@ -970,7 +970,7 @@ func TestValidateMCRequiresExternalHostAndPorts(t *testing.T) {
 	assert.Equal(t, v1.SuccessLevel, validateMCRequiresExternalHostAndPorts(mdbLegacy).Level)
 }
 
-// TestValidateClustersEnvoyResourceNames is the B16 admission check for the
+// TestValidateClustersEnvoyResourceNames is the admission check for the
 // per-cluster Envoy Deployment + ConfigMap resource names. The Deployment name
 // follows DNS-1123 label rules (<=63 chars); the ConfigMap follows DNS-1123
 // subdomain rules (<=253). When the search resource name + cluster suffix push

@@ -139,8 +139,8 @@ type reconcileUnit struct {
 	mongotConfigFn      mongot.Modification
 
 	// Per-cluster fields. clusterName == "" and clusterIndex == 0 → legacy
-	// single-cluster path: the unit goes to the central client. Task 16 wires
-	// the actual per-cluster client lookup; here we just record the binding.
+	// single-cluster path: the unit goes to the central client. The per-cluster
+	// client lookup happens in applyReconcileUnit via SelectClusterClient.
 	clusterName  string
 	clusterIndex int
 }
@@ -176,7 +176,7 @@ func (r *MongoDBSearchReconcileHelper) buildReconcilePlan(log *zap.SugaredLogger
 // When spec.clusters is nil or empty, it returns the legacy single-cluster
 // shape (one unit, unindexed names) for backward compatibility. Otherwise it
 // fans out one reconcileUnit per cluster, each tagged with its clusterName +
-// clusterIndex so Task 16 can route writes to the per-cluster client.
+// clusterIndex so applyReconcileUnit can route writes to the per-cluster client.
 //
 // External-source hosts come from spec.source.external.hostAndPorts. For MC
 // the same seed list is rendered into every cluster's mongot config; see
@@ -239,7 +239,7 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 // buildSingleClusterReplicaSetUnit produces the legacy single-cluster RS plan
 // shape: one unit with unindexed StatefulSet/Service/ConfigMap names.
 // clusterName="" and clusterIndex=0 mark the unit as legacy so downstream
-// (Task 16) routes it to the central client.
+// (applyReconcileUnit) routes it to the central client.
 func (r *MongoDBSearchReconcileHelper) buildSingleClusterReplicaSetUnit(hostSeeds []string) (reconcilePlan, error) {
 	svcName := r.mdbSearch.SearchServiceNamespacedName().Name
 	var extraHeadlessPorts []corev1.ServicePort
@@ -310,9 +310,9 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 	workflowStatus := r.reconcile(ctx, log)
 
-	// B9: populate the per-cluster status surface from spec.clusters[i] before
-	// the patch goes out. No-op when spec.clusters is nil/empty (legacy
-	// single-cluster install) — top-level fields keep their existing semantics.
+	// Populate the per-cluster status surface from spec.clusters[i] before the
+	// patch goes out. No-op when spec.clusters is nil/empty (legacy single-cluster
+	// install) — top-level fields keep their existing semantics.
 	r.mdbSearch.AggregateClusterStatuses(buildPerClusterStatusItems(r.mdbSearch, workflowStatus))
 
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
@@ -322,16 +322,14 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 }
 
 // buildPerClusterStatusItems returns one SearchClusterStatusItem per
-// spec.clusters[i]. For B9 minimal, every entry copies the workflow outcome's
-// phase + message into its inlined status.Common. Per-cluster phase divergence
-// (e.g. one cluster Pending because its presence-checked secret is missing)
-// lands in B5/B14 follow-ups. Returns nil when spec.clusters is nil or empty
+// spec.clusters[i]. Every entry copies the workflow outcome's phase + message
+// into its inlined status.Common. Returns nil when spec.clusters is nil or empty
 // (legacy single-cluster); the top-level Phase keeps its existing semantics.
 func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status) []searchv1.SearchClusterStatusItem {
 	if mdb.Spec.Clusters == nil || len(*mdb.Spec.Clusters) == 0 {
 		return nil
 	}
-	message := messageFromStatus(st)
+	message := MessageFromStatus(st)
 	items := make([]searchv1.SearchClusterStatusItem, 0, len(*mdb.Spec.Clusters))
 	for _, c := range *mdb.Spec.Clusters {
 		items = append(items, searchv1.SearchClusterStatusItem{
@@ -345,10 +343,10 @@ func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status)
 	return items
 }
 
-// messageFromStatus extracts the user-visible message from a workflow.Status.
+// MessageFromStatus extracts the user-visible message from a workflow.Status.
 // workflow.Status does not expose Message() directly; the message is carried
 // in StatusOptions() as a MessageOption.
-func messageFromStatus(st workflow.Status) string {
+func MessageFromStatus(st workflow.Status) string {
 	if st == nil {
 		return ""
 	}
@@ -616,7 +614,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 // mapping into the LastClusterNumMapping annotation. It preserves every previously-assigned
 // index and appends new clusters monotonically (see search.AssignClusterIndices); a removed
 // cluster's index is never reused. The annotation is the single source of truth for the
-// ClusterIndex read API consumed by B4 (placeholder resolution) and B16 (SNI route ordering).
+// ClusterIndex read API used by placeholder resolution and SNI route ordering.
 //
 // No-ops when spec.clusters is nil or empty (single-cluster path) and when the new mapping
 // matches the current annotation byte-for-byte.
