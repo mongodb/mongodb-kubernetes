@@ -439,7 +439,9 @@ func validateClustersShardOverrides(s *MongoDBSearch) v1.ValidationResult {
 // the new per-cluster shape (spec.clusters only).
 //
 // jvmFlags and loadBalancer remain top-level + per-cluster combinable on purpose
-// (top-level is the default that per-cluster overrides) and are intentionally
+// (top-level is the default that per-cluster overrides; managed.replicas is uniform
+// across clusters, enforced at the schema level via PerClusterManagedLBConfig
+// which is a strict subset of ManagedLBConfig minus Replicas) and are intentionally
 // excluded from this check.
 func validateClustersAndTopLevelFieldsMutuallyExclusive(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Clusters == nil {
