@@ -5083,10 +5083,8 @@ spec:
                         lastTransition:
                           type: string
                         loadBalancer:
-                          description: |-
-                            LoadBalancer reports the per-cluster managed-LB phase for ReplicaSet
-                            topologies. Sharded per-(cluster, shard) LB phase lives on the
-                            top-level ShardLoadBalancerStatusInClusters map.
+                          description: 'Deprecated: read status.loadBalancer.clusters[i]
+                            instead.'
                           properties:
                             clusters:
                               description: |-
@@ -5126,9 +5124,8 @@ spec:
                           format: int64
                           type: integer
                         observedReplicas:
-                          description: |-
-                            ObservedReplicas is the number of mongot pods this cluster currently has Ready.
-                            Used by the load-test harness as the readiness gate.
+                          description: ObservedReplicas is the number of mongot pods
+                            this cluster currently has Ready.
                           format: int32
                           type: integer
                         phase:
@@ -5173,9 +5170,6 @@ spec:
                             type: object
                           type: array
                         warnings:
-                          description: |-
-                            Warnings is the per-cluster warnings list (e.g. customer-replicated
-                            secret missing in this cluster).
                           items:
                             type: string
                           type: array

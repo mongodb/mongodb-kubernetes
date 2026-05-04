@@ -8,7 +8,6 @@ import (
 
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -37,6 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -60,13 +60,6 @@ const (
 	envoyConfigHashAnnotation = "mongodb.com/envoy-config-hash"
 
 	labelName = "search-proxy"
-
-	// Cross-cluster enqueue labels. Cross-cluster owner refs do not GC,
-	// so a label-based mapper is the only path back to the parent MongoDBSearch
-	// for member-cluster Deployment/ConfigMap watches.
-	envoyOwnerSearchNameLabel      = "mongodb.com/search-name"
-	envoyOwnerSearchNamespaceLabel = "mongodb.com/search-namespace"
-	envoyClusterNameLabel          = "mongodb.com/cluster-name"
 )
 
 // envoyRoute defines routing information for one Envoy entrypoint (one per shard, or one for RS).
@@ -150,27 +143,26 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 
 	workList := r.buildClusterWorkList(mdbSearch)
 	perClusterStatuses := make([]searchv1.ClusterLoadBalancerStatus, 0, len(workList))
-	worstPhase := status.PhaseRunning
 	var firstFailure error
 	multiCluster := len(workList) > 1 || (len(workList) == 1 && workList[0].ClusterName != "")
 
+	// Append a per-cluster status entry for every work item, including the
+	// single-cluster degenerate case, so worstOfClusterPhases sees the actual
+	// failure phase rather than defaulting to Running.
 	for _, w := range workList {
 		st := r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w.ClusterName, log)
-		if multiCluster {
-			perClusterStatuses = append(perClusterStatuses, searchv1.ClusterLoadBalancerStatus{
-				ClusterName: w.ClusterName,
-				Phase:       st.Phase(),
-				Message:     searchcontroller.MessageFromStatus(st),
-			})
-		}
-		if isWorsePhase(st.Phase(), worstPhase) {
-			worstPhase = st.Phase()
-		}
+		perClusterStatuses = append(perClusterStatuses, searchv1.ClusterLoadBalancerStatus{
+			ClusterName: w.ClusterName,
+			Phase:       st.Phase(),
+			Message:     searchcontroller.MessageFromStatus(st),
+		})
 		if !st.IsOK() && firstFailure == nil {
 			firstFailure = fmt.Errorf("cluster %q: %s", w.ClusterName, searchcontroller.MessageFromStatus(st))
 		}
 	}
 
+	// Canonical invariant: top-level Phase = WorstOfPhase(per-cluster Phases).
+	worstPhase := worstOfClusterPhases(perClusterStatuses)
 	if multiCluster {
 		mdbSearch.Status.LoadBalancer = &searchv1.LoadBalancerStatus{
 			Phase:    worstPhase,
@@ -253,23 +245,23 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	return workflow.OK()
 }
 
-// isWorsePhase returns true if a is "worse" than b in the ordering
-// Failed > Pending > Running. Used to compute the top-level Phase from
-// per-cluster phases.
-func isWorsePhase(a, b status.Phase) bool {
-	rank := func(p status.Phase) int {
-		switch p {
-		case status.PhaseFailed:
-			return 3
-		case status.PhasePending:
-			return 2
-		case status.PhaseRunning:
-			return 1
-		default:
-			return 0
-		}
+// worstOfClusterPhases returns the worst-of phase across the supplied
+// per-cluster LB statuses, defaulting to PhaseRunning when the slice is empty
+// (single-cluster path that never appends per-cluster items). This thin
+// wrapper centralises the canonical invariant declared on LoadBalancerStatus:
+//
+//	LoadBalancerStatus.Phase == WorstOfPhase(LoadBalancerStatus.Clusters[*].Phase)
+//
+// when len(Clusters) > 0.
+func worstOfClusterPhases(items []searchv1.ClusterLoadBalancerStatus) status.Phase {
+	if len(items) == 0 {
+		return status.PhaseRunning
 	}
-	return rank(a) > rank(b)
+	phases := make([]status.Phase, 0, len(items))
+	for _, it := range items {
+		phases = append(phases, it.Phase)
+	}
+	return searchv1.WorstOfPhase(phases...)
 }
 
 // updateLBStatus patches the loadBalancer sub-status on the MongoDBSearch CR
@@ -519,7 +511,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 						envoyConfigHashAnnotation: configHash,
 					},
 				},
-				Spec: buildEnvoyPodSpec(search, tlsCfg, tlsEnabled, image, resources, managedSecurityContext),
+				Spec: buildEnvoyPodSpec(search, clusterName, tlsCfg, tlsEnabled, image, resources, managedSecurityContext),
 			},
 		}
 
@@ -545,13 +537,18 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 
 // buildEnvoyPodSpec builds the PodSpec for the Envoy Deployment.
 // tlsCfg may be nil if TLS is not configured on the source.
-func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, tlsCfg *searchcontroller.TLSSourceConfig, tlsEnabled bool, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
+//
+// clusterName selects the per-cluster ConfigMap volume name in MC mode
+// (clusterName == "" preserves the single-cluster path's legacy unsuffixed
+// name). Without this, MC pods mount a ConfigMap that does not exist in the
+// member cluster and Envoy never starts.
+func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterName string, tlsCfg *searchcontroller.TLSSourceConfig, tlsEnabled bool, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
 	volumes := []corev1.Volume{
 		{
 			Name: "envoy-config",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: search.LoadBalancerConfigMapName()},
+					LocalObjectReference: corev1.LocalObjectReference{Name: search.LoadBalancerConfigMapNameForCluster(clusterName)},
 				},
 			},
 		},
@@ -674,13 +671,13 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 // owner refs don't GC).
 func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) map[string]string {
 	labels := map[string]string{
-		"app":                          search.LoadBalancerDeploymentNameForCluster(clusterID),
-		"component":                    labelName,
-		envoyOwnerSearchNameLabel:      search.Name,
-		envoyOwnerSearchNamespaceLabel: search.Namespace,
+		"app":                                search.LoadBalancerDeploymentNameForCluster(clusterID),
+		"component":                          labelName,
+		khandler.MongoDBSearchOwnerNameLabel: search.Name,
+		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
 	}
 	if clusterID != "" {
-		labels[envoyClusterNameLabel] = clusterID
+		labels[khandler.MongoDBSearchClusterNameLabel] = clusterID
 	}
 	return labels
 }
@@ -719,17 +716,12 @@ func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) 
 	}
 }
 
-// mapEnvoyObjectToSearch maps an Envoy Deployment or ConfigMap (in any cluster)
-// back to its owning MongoDBSearch. Cross-cluster owner refs do not GC, so the
-// label-based mapper is the only path home for member-cluster watches.
 func mapEnvoyObjectToSearch(_ context.Context, obj client.Object) []reconcile.Request {
-	labels := obj.GetLabels()
-	name := labels[envoyOwnerSearchNameLabel]
-	ns := labels[envoyOwnerSearchNamespaceLabel]
-	if name == "" || ns == "" {
+	req := khandler.MapMemberClusterObjectToSearch(obj)
+	if req == (reconcile.Request{}) {
 		return nil
 	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: name, Namespace: ns}}}
+	return []reconcile.Request{req}
 }
 
 // Controller Registration
