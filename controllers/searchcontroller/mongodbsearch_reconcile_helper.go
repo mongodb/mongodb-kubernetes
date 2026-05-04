@@ -80,6 +80,11 @@ type MongoDBSearchReconcileHelper struct {
 	mdbSearch            *searchv1.MongoDBSearch
 	db                   SearchSourceDBResource
 	operatorSearchConfig OperatorSearchConfig
+	// secretGaps records per-cluster customer-replicated-secret gaps reported
+	// by the parent controller's CheckSecretsPresence call. The helper folds
+	// these into the per-cluster status patch so warnings surface in
+	// status.clusterStatusList[i].warnings without a second writeback.
+	secretGaps []SecretCheckResult
 }
 
 func NewMongoDBSearchReconcileHelper(
@@ -94,6 +99,15 @@ func NewMongoDBSearchReconcileHelper(
 		mdbSearch:            mdbSearch,
 		db:                   db,
 	}
+}
+
+// SetSecretGaps supplies the helper with the per-cluster results of
+// CheckSecretsPresence so that gaps can be surfaced as warnings in the
+// per-cluster status patch the helper builds. nil / empty means "no gaps".
+//
+// Called by the controller before Reconcile.
+func (r *MongoDBSearchReconcileHelper) SetSecretGaps(gaps []SecretCheckResult) {
+	r.secretGaps = gaps
 }
 
 // reconcileUnit captures all per-unit (per-shard or single-RS) resource names, labels, and
@@ -214,7 +228,7 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 	// Populate the per-cluster status surface from spec.clusters[i] before the
 	// patch goes out. No-op when spec.clusters is nil/empty (legacy single-cluster
 	// install) — top-level fields keep their existing semantics.
-	r.mdbSearch.AggregateClusterStatuses(buildPerClusterStatusItems(r.mdbSearch, workflowStatus))
+	r.mdbSearch.AggregateClusterStatuses(buildPerClusterStatusItems(r.mdbSearch, workflowStatus, r.secretGaps))
 
 	if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflowStatus, log); err != nil {
 		return workflow.Failed(err)
@@ -224,22 +238,36 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 
 // buildPerClusterStatusItems returns one SearchClusterStatusItem per
 // spec.clusters[i]. Every entry copies the workflow outcome's phase + message
-// into its inlined status.Common. Returns nil when spec.clusters is nil or empty
-// (legacy single-cluster); the top-level Phase keeps its existing semantics.
-func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status) []searchv1.SearchClusterStatusItem {
+// into its inlined status.Common, and folds in any matching customer-replicated
+// secret gaps as per-cluster warnings (so users can see which cluster is
+// missing which secrets without scraping logs). Returns nil when spec.clusters
+// is nil or empty (legacy single-cluster); the top-level Phase keeps its
+// existing semantics.
+func buildPerClusterStatusItems(mdb *searchv1.MongoDBSearch, st workflow.Status, gaps []SecretCheckResult) []searchv1.SearchClusterStatusItem {
 	if mdb.Spec.Clusters == nil || len(*mdb.Spec.Clusters) == 0 {
 		return nil
 	}
+	gapsByCluster := make(map[string][]string, len(gaps))
+	for _, g := range gaps {
+		gapsByCluster[g.Cluster] = g.Missing
+	}
+
 	message := MessageFromStatus(st)
 	items := make([]searchv1.SearchClusterStatusItem, 0, len(*mdb.Spec.Clusters))
 	for _, c := range *mdb.Spec.Clusters {
-		items = append(items, searchv1.SearchClusterStatusItem{
+		item := searchv1.SearchClusterStatusItem{
 			ClusterName: c.ClusterName,
 			Common: status.Common{
 				Phase:   st.Phase(),
 				Message: message,
 			},
-		})
+		}
+		if missing := gapsByCluster[c.ClusterName]; len(missing) > 0 {
+			item.Warnings = []status.Warning{
+				status.Warning(fmt.Sprintf("Customer-replicated secrets missing in cluster %q: %s", c.ClusterName, strings.Join(missing, ", "))),
+			}
+		}
+		items = append(items, item)
 	}
 	return items
 }
