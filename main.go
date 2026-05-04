@@ -241,6 +241,12 @@ func run() error {
 			var cluster runtime_cluster.Cluster
 
 			cluster, err := runtime_cluster.New(v, func(options *runtime_cluster.Options) {
+				// Pass the operator's scheme so cross-cluster owner references
+				// (e.g. controllerutil.SetOwnerReference from a per-cluster
+				// reconciler with the central CR as owner) can resolve the
+				// owner kind. Without this, runtime_cluster.New defaults to
+				// kubernetes/client-go's scheme, which lacks our CRD types.
+				options.Scheme = scheme
 				if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
 					defaultNamespaces := make(map[string]cache.Config)
 					for _, namespace := range namespacesToWatch {
