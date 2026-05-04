@@ -478,6 +478,18 @@ func buildDummyMongoDbVersionConfig(version string) MongoDbVersionConfig {
 				Flavor:       "rhel",
 				Modules:      []string{},
 			},
+			{
+				Platform:     "linux",
+				Architecture: "s390x",
+				Flavor:       "rhel",
+				Modules:      []string{},
+			},
+			{
+				Platform:     "linux",
+				Architecture: "s390x",
+				Flavor:       "ubuntu",
+				Modules:      []string{},
+			},
 		},
 	}
 
