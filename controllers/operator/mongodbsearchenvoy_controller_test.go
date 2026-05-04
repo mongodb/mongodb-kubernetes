@@ -702,7 +702,7 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	assert.True(t, apierrors.IsNotFound(err))
 }
 
-func TestEnsureDeployment_PerClusterReplicas_DefaultsTo1(t *testing.T) {
+func TestEnsureDeployment_Replicas_DefaultsTo1(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -722,7 +722,7 @@ func TestEnsureDeployment_PerClusterReplicas_DefaultsTo1(t *testing.T) {
 	require.NoError(t, memberA.Get(context.Background(),
 		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster("a"), Namespace: "ns"}, dep))
 	require.NotNil(t, dep.Spec.Replicas)
-	assert.Equal(t, int32(1), *dep.Spec.Replicas, "per-cluster replicas must default to 1 when unset")
+	assert.Equal(t, int32(1), *dep.Spec.Replicas, "envoy replicas must default to 1 when unset")
 }
 
 // --- end-to-end Reconcile + status aggregation -------------------------------
