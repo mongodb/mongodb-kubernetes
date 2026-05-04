@@ -455,12 +455,8 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		sts.Spec = merge.StatefulSetSpecs(sts.Spec, appsv1.StatefulSetSpec{Template: *podSpec})
 	}
 
-	// In multi-cluster topology, also apply the per-cluster statefulSet override
-	// from clusterSpecList[i].statefulSet to that cluster's STS.
-	// Quick fix. The proper pattern, used by OpsManager, MongoDBMultiCluster and
-	// Sharded, is to resolve the override in the controller and pass it via
-	// DatabaseStatefulSetOptions.StatefulSetSpecOverride, instead of reading the
-	// spec from inside the construct function.
+	// Apply per-cluster clusterSpecList[i].statefulSet override (KUBE-47).
+	// Anti-pattern: should be resolved in the controller and passed via StatefulSetSpecOverride (cf. OpsManager, Sharded).
 	if appDb.IsMultiCluster() {
 		clusterSpecItem := appDb.GetMemberClusterSpecByName(scaler.MemberClusterName())
 		if clusterSpecItem.StatefulSetConfiguration != nil {
