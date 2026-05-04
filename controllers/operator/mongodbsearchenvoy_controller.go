@@ -37,6 +37,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -61,12 +62,11 @@ const (
 
 	labelName = "search-proxy"
 
-	// Cross-cluster enqueue labels. Cross-cluster owner refs do not GC,
-	// so a label-based mapper is the only path back to the parent MongoDBSearch
-	// for member-cluster Deployment/ConfigMap watches.
-	envoyOwnerSearchNameLabel      = "mongodb.com/search-name"
-	envoyOwnerSearchNamespaceLabel = "mongodb.com/search-namespace"
-	envoyClusterNameLabel          = "mongodb.com/cluster-name"
+	// envoyClusterNameLabel records which member cluster owns this resource.
+	// Cross-cluster enqueue labels (search-owner name + namespace) live in
+	// pkg/handler so both controllers can share them — see
+	// khandler.MongoDBSearchOwnerNameLabel / MongoDBSearchOwnerNamespaceLabel.
+	envoyClusterNameLabel = "mongodb.com/cluster-name"
 )
 
 // envoyRoute defines routing information for one Envoy entrypoint (one per shard, or one for RS).
@@ -679,10 +679,10 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 // owner refs don't GC).
 func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) map[string]string {
 	labels := map[string]string{
-		"app":                          search.LoadBalancerDeploymentNameForCluster(clusterID),
-		"component":                    labelName,
-		envoyOwnerSearchNameLabel:      search.Name,
-		envoyOwnerSearchNamespaceLabel: search.Namespace,
+		"app":                                     search.LoadBalancerDeploymentNameForCluster(clusterID),
+		"component":                               labelName,
+		khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
 	}
 	if clusterID != "" {
 		labels[envoyClusterNameLabel] = clusterID
@@ -727,10 +727,14 @@ func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterID string) 
 // mapEnvoyObjectToSearch maps an Envoy Deployment or ConfigMap (in any cluster)
 // back to its owning MongoDBSearch. Cross-cluster owner refs do not GC, so the
 // label-based mapper is the only path home for member-cluster watches.
+//
+// Reads the same search-owner labels that the search controller's
+// EnqueueRequestForSearchOwnerMultiCluster reads — single label scheme across
+// both controllers (see pkg/handler/enqueue_owner_multi_search.go).
 func mapEnvoyObjectToSearch(_ context.Context, obj client.Object) []reconcile.Request {
 	labels := obj.GetLabels()
-	name := labels[envoyOwnerSearchNameLabel]
-	ns := labels[envoyOwnerSearchNamespaceLabel]
+	name := labels[khandler.MongoDBSearchOwnerNameLabel]
+	ns := labels[khandler.MongoDBSearchOwnerNamespaceLabel]
 	if name == "" || ns == "" {
 		return nil
 	}

@@ -153,21 +153,26 @@ func PredicatesForStatefulSet() predicate.Funcs {
 
 // PredicatesForMultiClusterSearchResource filters watch events for resources
 // the MongoDBSearch controller places in member clusters. Owner references do
-// not cross cluster boundaries, so identification is by annotation
-// (handler.MongoDBSearchResourceAnnotation) rather than ownerRef.
+// not cross cluster boundaries, so identification is by the search-owner
+// labels (handler.MongoDBSearchOwnerNameLabel +
+// handler.MongoDBSearchOwnerNamespaceLabel) rather than ownerRef.
 //
-// Create and Delete pass through only when the annotation is present. Update
-// passes if either side carries the annotation, so annotation add/remove
-// transitions also reconcile. Generic drops everything (informer-resync noise).
+// Create and Delete pass through only when both labels are present. Update
+// passes if either side carries them, so label add/remove transitions also
+// reconcile. Generic drops everything (informer-resync noise).
+//
+// Aligned with the Envoy controller's mapEnvoyObjectToSearch — both readers
+// share the same label scheme.
 func PredicatesForMultiClusterSearchResource() predicate.Funcs {
-	hasAnn := func(obj interface{ GetAnnotations() map[string]string }) bool {
-		_, ok := obj.GetAnnotations()[handler.MongoDBSearchResourceAnnotation]
-		return ok
+	hasOwnerLabels := func(obj interface{ GetLabels() map[string]string }) bool {
+		labels := obj.GetLabels()
+		return labels[handler.MongoDBSearchOwnerNameLabel] != "" &&
+			labels[handler.MongoDBSearchOwnerNamespaceLabel] != ""
 	}
 	return predicate.Funcs{
-		CreateFunc:  func(e event.CreateEvent) bool { return hasAnn(e.Object) },
-		DeleteFunc:  func(e event.DeleteEvent) bool { return hasAnn(e.Object) },
-		UpdateFunc:  func(e event.UpdateEvent) bool { return hasAnn(e.ObjectOld) || hasAnn(e.ObjectNew) },
+		CreateFunc:  func(e event.CreateEvent) bool { return hasOwnerLabels(e.Object) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return hasOwnerLabels(e.Object) },
+		UpdateFunc:  func(e event.UpdateEvent) bool { return hasOwnerLabels(e.ObjectOld) || hasOwnerLabels(e.ObjectNew) },
 		GenericFunc: func(e event.GenericEvent) bool { return false },
 	}
 }

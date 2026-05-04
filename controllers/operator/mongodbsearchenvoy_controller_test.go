@@ -28,6 +28,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
 
 // TODO: Add full Reconcile() integration tests covering:
@@ -503,15 +504,15 @@ func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 
 	// Single-cluster: cluster-name label must be absent.
 	single := envoyLabelsForCluster(search, "")
-	assert.Equal(t, "mdb-search", single[envoyOwnerSearchNameLabel])
-	assert.Equal(t, "ns", single[envoyOwnerSearchNamespaceLabel])
+	assert.Equal(t, "mdb-search", single[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, "ns", single[khandler.MongoDBSearchOwnerNamespaceLabel])
 	_, hasCluster := single[envoyClusterNameLabel]
 	assert.False(t, hasCluster)
 
 	// Multi-cluster: all three labels present.
 	mc := envoyLabelsForCluster(search, "us-east-k8s")
-	assert.Equal(t, "mdb-search", mc[envoyOwnerSearchNameLabel])
-	assert.Equal(t, "ns", mc[envoyOwnerSearchNamespaceLabel])
+	assert.Equal(t, "mdb-search", mc[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, "ns", mc[khandler.MongoDBSearchOwnerNamespaceLabel])
 	assert.Equal(t, "us-east-k8s", mc[envoyClusterNameLabel])
 }
 
@@ -571,7 +572,7 @@ func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
 	assert.Equal(t, `{"x":1}`, cmA.Data["envoy.json"])
 	// Cluster name label stamped.
 	assert.Equal(t, "a", cmA.Labels[envoyClusterNameLabel])
-	assert.Equal(t, "mdb-search", cmA.Labels[envoyOwnerSearchNameLabel])
+	assert.Equal(t, "mdb-search", cmA.Labels[khandler.MongoDBSearchOwnerNameLabel])
 
 	// Central and member B do not.
 	cm := &corev1.ConfigMap{}
@@ -748,8 +749,8 @@ func TestMapEnvoyObjectToSearch(t *testing.T) {
 			Name:      "mdb-search-search-lb-0-a-config",
 			Namespace: "ns",
 			Labels: map[string]string{
-				envoyOwnerSearchNameLabel:      "mdb-search",
-				envoyOwnerSearchNamespaceLabel: "ns",
+				khandler.MongoDBSearchOwnerNameLabel:      "mdb-search",
+				khandler.MongoDBSearchOwnerNamespaceLabel: "ns",
 				envoyClusterNameLabel:          "a",
 			},
 		},
@@ -768,7 +769,7 @@ func TestMapEnvoyObjectToSearch(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "x",
 			Namespace: "ns",
-			Labels:    map[string]string{envoyOwnerSearchNameLabel: "mdb-search"},
+			Labels:    map[string]string{khandler.MongoDBSearchOwnerNameLabel: "mdb-search"},
 		},
 	}
 	assert.Empty(t, mapEnvoyObjectToSearch(context.Background(), cmPartial))
